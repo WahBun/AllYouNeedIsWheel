@@ -319,6 +319,7 @@ class TradingRouteSafetyTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db = OptionsDatabase(str(Path(self.temp_dir.name) / 'routes.db'))
         self.original_db = options_routes.options_service.db
+        self.original_prepare_close = options_routes.options_service._prepare_close_order_data
         options_routes.options_service.db = self.db
         self.app = create_app({'TESTING': True})
         self.app.config['database'] = self.db
@@ -327,7 +328,32 @@ class TradingRouteSafetyTests(unittest.TestCase):
 
     def tearDown(self):
         options_routes.options_service.db = self.original_db
+        options_routes.options_service._prepare_close_order_data = self.original_prepare_close
         self.temp_dir.cleanup()
+
+    def stub_rollover_close(self, action='BUY'):
+        def prepare_close(close_data, db=None):
+            return {
+                'ticker': 'TSLL',
+                'option_type': 'PUT',
+                'action': action,
+                'intent': 'CLOSE',
+                'strike': 9.0,
+                'expiration': '20991219',
+                'premium': float(close_data['limit_price']),
+                'quantity': int(close_data['quantity']),
+                'con_id': 81001,
+                'account_id': 'U0002766',
+                'contract_multiplier': 100,
+                'exchange': 'SMART',
+                'currency': 'USD',
+                'local_symbol': 'TSLL  991219P00009000',
+                'bid': 0,
+                'ask': 0,
+                'last': 0
+            }, None, None
+
+        options_routes.options_service._prepare_close_order_data = prepare_close
 
     def test_cross_origin_style_write_without_header_is_rejected(self):
         response = self.client.post('/api/options/order', json=valid_order())
@@ -346,10 +372,12 @@ class TradingRouteSafetyTests(unittest.TestCase):
         self.assertEqual(saved['premium'], 0.73)
 
     def test_rollover_prices_stay_in_per_share_units(self):
+        self.stub_rollover_close()
         response = self.client.post(
             '/api/options/rollover',
             json={
-                'ticker': 'TSLL',
+                'current_con_id': 81001,
+                'ticker': 'SPOOFED',
                 'current_option_type': 'PUT',
                 'current_strike': 9,
                 'current_expiration': '20991219',
@@ -369,6 +397,70 @@ class TradingRouteSafetyTests(unittest.TestCase):
         orders = self.db.get_orders(isRollover=True)
         premiums = sorted(order['premium'] for order in orders)
         self.assertEqual(premiums, [0.55, 0.75])
+        self.assertTrue(all(order['ticker'] == 'TSLL' for order in orders))
+        close_order = next(order for order in orders if order['intent'] == 'CLOSE')
+        self.assertEqual(close_order['con_id'], 81001)
+        self.assertEqual(close_order['account_id'], 'U0002766')
+
+    def test_rollover_requires_exact_current_contract(self):
+        response = self.client.post(
+            '/api/options/rollover',
+            json={
+                'new_strike': 8,
+                'new_expiration': '20991226',
+                'quantity': 1,
+                'current_limit_price': 0.75,
+                'new_limit_price': 0.55
+            },
+            headers=self.headers
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.db.get_orders(), [])
+
+    def test_rollover_rejects_long_option_positions(self):
+        self.stub_rollover_close(action='SELL')
+        response = self.client.post(
+            '/api/options/rollover',
+            json={
+                'current_con_id': 81001,
+                'new_strike': 8,
+                'new_expiration': '20991226',
+                'quantity': 1,
+                'current_limit_price': 0.75,
+                'new_limit_price': 0.55
+            },
+            headers=self.headers
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.db.get_orders(), [])
+
+    def test_rollover_pair_is_atomic_when_close_order_already_exists(self):
+        self.stub_rollover_close()
+        existing_id = self.db.save_order({
+            **valid_order(action='BUY'),
+            'intent': 'CLOSE',
+            'con_id': 81001,
+            'account_id': 'U0002766'
+        })
+
+        response = self.client.post(
+            '/api/options/rollover',
+            json={
+                'current_con_id': 81001,
+                'new_strike': 8,
+                'new_expiration': '20991226',
+                'quantity': 1,
+                'current_limit_price': 0.75,
+                'new_limit_price': 0.55
+            },
+            headers=self.headers
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()['order_id'], existing_id)
+        self.assertEqual(len(self.db.get_orders()), 1)
 
     def test_quantity_update_rejects_fractional_or_oversized_values(self):
         order_id = self.db.save_order(valid_order())

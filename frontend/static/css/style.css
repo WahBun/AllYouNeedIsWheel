@@ -585,34 +585,105 @@ h1 {
 .options-opportunities-table th,
 .options-opportunities-table td {
     white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+#call-options-table :is(th, td):nth-child(2),
+#call-options-table :is(th, td):nth-child(3),
+#call-options-table :is(th, td):nth-child(5),
+#call-options-table :is(th, td):nth-child(8),
+#call-options-table :is(th, td):nth-child(9),
+#call-options-table :is(th, td):nth-child(11),
+#put-options-table :is(th, td):nth-child(2),
+#put-options-table :is(th, td):nth-child(4),
+#put-options-table :is(th, td):nth-child(7),
+#put-options-table :is(th, td):nth-child(8),
+#put-options-table :is(th, td):nth-child(10),
+#put-options-table :is(th, td):nth-child(11) {
+    text-align: right;
+}
+
+#call-options-table :is(th, td):nth-child(4),
+#call-options-table :is(th, td):nth-child(6),
+#call-options-table :is(th, td):nth-child(7),
+#call-options-table :is(th, td):nth-child(10),
+#call-options-table :is(th, td):nth-child(12),
+#put-options-table :is(th, td):nth-child(3),
+#put-options-table :is(th, td):nth-child(5),
+#put-options-table :is(th, td):nth-child(6),
+#put-options-table :is(th, td):nth-child(9),
+#put-options-table :is(th, td):nth-child(12) {
+    text-align: center;
+}
+
+.options-opportunities-table .otm-input,
+.options-opportunities-table .mid-price-input,
+.options-opportunities-table .put-qty-input {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.options-opportunities-table .put-qty-input {
+    margin-inline: auto;
 }
 
 .options-opportunities-table .input-group {
     flex-wrap: nowrap;
 }
 
+#call-options-table td:nth-child(4) > .input-group,
+#put-options-table td:nth-child(3) > .input-group {
+    width: 5.75rem;
+    margin-inline: auto;
+}
+
 .options-opportunities-table .expiration-select {
     width: 100%;
+    text-align: center;
+    text-align-last: center;
+}
+
+.options-opportunities-table .option-actions {
+    justify-content: center;
 }
 
 .options-opportunities-table .put-qty-input {
     min-width: 4.375rem;
 }
 
+#call-options-table .mid-price-control {
+    width: 12.75rem;
+    min-width: 12.75rem;
+    margin-inline: auto;
+}
+
+#put-options-table .mid-price-control {
+    margin-inline: auto;
+}
+
+#call-options-table .mid-price-control .mid-price-input {
+    flex: 0 0 4.6rem;
+}
+
+#call-options-table .mid-price-control .spread-input-addon {
+    width: 4.5rem;
+    min-width: 4.5rem;
+    flex: 0 0 4.5rem;
+}
+
 #put-options-table {
-    min-width: 64rem;
+    min-width: 72rem;
     table-layout: fixed;
-    font-size: 0.82rem;
 }
 
 #put-options-table th,
 #put-options-table td {
-    padding-left: 0.3rem;
-    padding-right: 0.3rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
 }
 
 #put-options-table th {
-    font-size: 0.78rem;
+    font-size: 0.92rem;
 }
 
 #put-options-table th:nth-child(1) { width: 5%; }
@@ -629,16 +700,16 @@ h1 {
 #put-options-table th:nth-child(12) { width: 10.5%; }
 
 #put-options-table .mid-price-control {
-    min-width: 0;
+    min-width: 10.5rem;
 }
 
 #put-options-table .mid-price-control .mid-price-input {
-    width: 3.6rem;
-    min-width: 3.6rem;
+    width: 4.6rem;
+    min-width: 4.6rem;
 }
 
 #put-options-table .mid-price-control .spread-input-addon {
-    min-width: 3.3rem;
+    min-width: 4rem;
 }
 
 .option-positions-table {

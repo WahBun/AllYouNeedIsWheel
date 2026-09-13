@@ -2,10 +2,10 @@
  * Rollover module
  * Handles options approaching strike price and rollover suggestions
  */
-import { fetchPositions, fetchOptionData, saveOptionOrder, fetchPendingOrders, cancelOrder, executeOrder, checkOrderStatus, fetchStockPrices as apiFetchStockPrices, fetchOptionExpirations } from '../dashboard/api.js?v=safety-1';
-import { formatCurrency, formatPercent } from '../utils/formatters.js';
-import { updateLegendDisplay } from '../utils/table-utils.js';
+import { fetchPositions, fetchOptionData, fetchPendingOrders, cancelOrder, executeOrder, checkOrderStatus, fetchStockPrices as apiFetchStockPrices, fetchOptionExpirations } from '../dashboard/api.js?v=safety-1';
+import { formatCurrency } from '../utils/formatters.js';
 import { showAlert } from '../utils/alerts.js?v=safety-1';
+import { calculateMidPrice, positivePrice } from '../utils/option-pricing.js?v=pricing-safety-1';
 
 // Store data
 let optionsData = null;
@@ -20,6 +20,21 @@ const ORDER_STATUS_INTERVAL = 10000;
 
 function tr(key, replacements = {}) {
     return window.t ? window.t(key, replacements) : key;
+}
+
+function formatQuotePrice(value) {
+    return value === null ? 'N/A' : formatCurrency(value);
+}
+
+async function fetchHeldOptionQuote(conId) {
+    const response = await fetch(
+        `/api/portfolio/option-position/${encodeURIComponent(conId)}/quote?t=${Date.now()}`
+    );
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(data.error || `Unable to refresh held option quote (${response.status})`);
+    }
+    return data;
 }
 
 /**
@@ -290,6 +305,7 @@ function populateOptionsTable(options) {
         // Format percent difference display with the sign
         const percentDifferenceDisplay = `<span class="${differenceColorClass}">${option.percentDifference.toFixed(2)}%</span>`;
         
+        const isShortPosition = Number(option.position) < 0;
         row.innerHTML = `
             <td>${option.symbol}</td>
             <td>${option.position}</td>
@@ -300,8 +316,8 @@ function populateOptionsTable(options) {
             <td>${formattedDifference}</td>
             <td>${percentDifferenceDisplay}</td>
             <td>
-                <button class="btn btn-sm btn-primary roll-option-btn" data-option-id="${options.indexOf(option)}">
-                    Roll
+                <button class="btn btn-sm btn-primary roll-option-btn" data-option-id="${options.indexOf(option)}" ${isShortPosition ? '' : 'disabled'}>
+                    ${isShortPosition ? 'Roll' : 'Long position'}
                 </button>
             </td>
         `;
@@ -401,8 +417,21 @@ async function selectOptionToRoll(optionId) {
             throw new Error('Invalid option selected');
         }
         
-        // Get the selected option
-        selectedOption = optionsData[optionId];
+        const option = optionsData[optionId];
+        if (Number(option.position) >= 0) {
+            throw new Error('Rollover is only supported for short option positions');
+        }
+        if (!Number.isInteger(Number(option.con_id)) || Number(option.con_id) <= 0) {
+            throw new Error('The held option contract identifier is unavailable');
+        }
+
+        const freshQuote = await fetchHeldOptionQuote(option.con_id);
+        selectedOption = {
+            ...option,
+            ...freshQuote,
+            optionType: freshQuote.option_type || option.optionType,
+            stockPrice: option.stockPrice
+        };
         console.log('Selected option to roll:', selectedOption);
         
         // Get ticker symbol (remove option-specific parts if needed)
@@ -490,9 +519,7 @@ async function selectOptionToRoll(optionId) {
         const buyRow = document.createElement('tr');
         
         // For BUY TO CLOSE, we use the ask price since we're buying
-        const buyAsk = selectedOption.ask || selectedOption.market_price;
-        const buyBid = selectedOption.bid || 0; // Get the bid price for the current position
-        const buyLimitPricePerContract = buyAsk * 100; // Convert to per-contract price
+        const buyAsk = positivePrice(selectedOption.ask);
         const quantity = Math.abs(selectedOption.position);
         
         // Get delta and IV for current option
@@ -508,7 +535,7 @@ async function selectOptionToRoll(optionId) {
             <td>${formatCurrency(selectedOption.strike)}</td>
             <td>${selectedOption.expiration}</td>
             <td>${quantity}</td>
-            <td>${formatCurrency(buyAsk)} <small class="text-muted" title="Ask price per share">(ask)</small></td>
+            <td>${formatQuotePrice(buyAsk)} <small class="text-muted" title="Ask price per share">(ask)</small></td>
             <td>LIMIT</td>
             <td>${formattedDelta}</td>
             <td>${formattedIV}</td>
@@ -650,6 +677,7 @@ async function selectOptionToRoll(optionId) {
         }, 0);
     } catch (error) {
         console.error('Error selecting option to roll:', error);
+        showAlert(`Rollover is unavailable: ${error.message}`, 'danger', 10000);
     }
 }
 
@@ -689,9 +717,7 @@ function populateRolloverSuggestionsTable(suggestions) {
     const buyRow = document.createElement('tr');
     
     // For BUY TO CLOSE, we use the ask price since we're buying
-    const buyAsk = selectedOption.ask || selectedOption.market_price;
-    const buyBid = selectedOption.bid || 0; // Get the bid price for the current position
-    const buyLimitPricePerContract = buyAsk * 100; // Convert to per-contract price
+    const buyAsk = positivePrice(selectedOption.ask);
     const quantity = Math.abs(selectedOption.position);
     
     // Get delta and IV for current option
@@ -707,7 +733,7 @@ function populateRolloverSuggestionsTable(suggestions) {
         <td>${formatCurrency(selectedOption.strike)}</td>
         <td>${selectedOption.expiration}</td>
         <td>${quantity}</td>
-        <td>${formatCurrency(buyAsk)} <small class="text-muted" title="Ask price per share">(ask)</small></td>
+        <td>${formatQuotePrice(buyAsk)} <small class="text-muted" title="Ask price per share">(ask)</small></td>
         <td>LIMIT</td>
         <td>${formattedDelta}</td>
         <td>${formattedIV}</td>
@@ -726,22 +752,13 @@ function populateRolloverSuggestionsTable(suggestions) {
         const sellRow = document.createElement('tr');
         
         // Calculate the mid price for limit orders
-        const bid = suggestion.bid || 0;
-        const ask = suggestion.ask || 0;
-        
-        // Calculate mid price for the display (already per-share)
-        let midPrice;
-        if (bid > 0 && ask > 0) {
-            midPrice = (bid + ask) / 2;
-        } else {
-            midPrice = bid > 0 ? bid : (ask > 0 ? ask : 0);
-        }
-        
-        // Calculate limit price per contract for the display
-        const limitPricePerContract = midPrice * 100;
+        const bid = positivePrice(suggestion.bid);
+        const ask = positivePrice(suggestion.ask);
+        const midPrice = calculateMidPrice(bid, ask);
+        const quoteAvailable = buyAsk !== null && midPrice !== null;
         
         // Include bid/ask in tooltip for transparency
-        const bidAskTooltip = `bid: ${formatCurrency(bid)}, ask: ${formatCurrency(ask)}`;
+        const bidAskTooltip = `bid: ${formatQuotePrice(bid)}, ask: ${formatQuotePrice(ask)}`;
         
         // Get delta and IV for suggestion
         const delta = suggestion.delta || 'N/A';
@@ -756,12 +773,12 @@ function populateRolloverSuggestionsTable(suggestions) {
             <td>${formatCurrency(suggestion.strike)}</td>
             <td>${suggestion.expiration}</td>
             <td>${quantity}</td>
-            <td>${formatCurrency(midPrice)} <small class="text-muted" title="${bidAskTooltip}">(mid)</small></td>
+            <td>${formatQuotePrice(midPrice)} <small class="text-muted" title="${bidAskTooltip}">(mid)</small></td>
             <td>LIMIT</td>
             <td>${formattedDelta}</td>
             <td>${formattedIV}</td>
             <td>
-                <button class="btn btn-sm btn-success rollover-btn" data-suggestion-id="${index}">
+                <button class="btn btn-sm btn-success rollover-btn" data-suggestion-id="${index}" ${quoteAvailable ? '' : 'disabled'}>
                     Execute Rollover
                 </button>
             </td>
@@ -771,13 +788,16 @@ function populateRolloverSuggestionsTable(suggestions) {
     });
     
     // Only add an execute button for all if we have multiple suggestions
+    const firstSuggestionMid = suggestions.length > 0
+        ? calculateMidPrice(suggestions[0].bid, suggestions[0].ask)
+        : null;
     if (suggestions.length > 1) {
         // Single execute button at the bottom
         const executeAllRow = document.createElement('tr');
         executeAllRow.className = 'bg-light';
         executeAllRow.innerHTML = `
             <td colspan="11" class="text-center">
-                <button id="execute-rollover-btn" class="btn btn-primary mt-2">
+                <button id="execute-rollover-btn" class="btn btn-primary mt-2" ${buyAsk !== null && firstSuggestionMid !== null ? '' : 'disabled'}>
                     <i class="bi bi-check2-all"></i> Execute Rollover with First Option
                 </button>
             </td>
@@ -1183,30 +1203,23 @@ async function addRolloverOrder(suggestionId) {
         const quantity = Math.abs(selectedOption.position);
         
         // For the SELL TO OPEN (new position), calculate mid price between bid and ask
-        const sellBid = suggestion.bid || 0;
-        const sellAsk = suggestion.ask || 0;
-        
-        // Use mid price if both bid and ask are available, otherwise fallback to bid
-        let sellMidPrice;
-        if (sellBid > 0 && sellAsk > 0) {
-            sellMidPrice = (sellBid + sellAsk) / 2;
-        } else {
-            sellMidPrice = sellBid > 0 ? sellBid : (sellAsk > 0 ? sellAsk : 0);
-        }
-        
-        if (sellMidPrice <= 0) {
-            throw new Error('Cannot determine a valid limit price for the sell order');
+        const sellBid = positivePrice(suggestion.bid);
+        const sellAsk = positivePrice(suggestion.ask);
+        const sellMidPrice = calculateMidPrice(sellBid, sellAsk);
+
+        if (sellMidPrice === null) {
+            throw new Error('A valid two-sided quote is required for the new option');
         }
         
         console.log(`Using sell mid price: $${sellMidPrice} per share (bid: $${sellBid}, ask: $${sellAsk})`);
         
         // For the BUY TO CLOSE (current position), use the ask price
         // We're buying, so we pay what sellers are asking
-        const buyAsk = selectedOption.ask || selectedOption.market_price;
-        const buyBid = selectedOption.bid || 0; // Get the bid price for the current position
-        
-        if (buyAsk <= 0) {
-            throw new Error('Cannot determine a valid limit price for the buy order');
+        const buyAsk = positivePrice(selectedOption.ask);
+        const buyBid = positivePrice(selectedOption.bid);
+
+        if (buyAsk === null) {
+            throw new Error('A valid ask quote is required for the current option');
         }
         
         console.log(`Using buy ask price: $${buyAsk} per share`);
@@ -1217,6 +1230,7 @@ async function addRolloverOrder(suggestionId) {
         
         // Create rollover data object
         const rolloverData = {
+            current_con_id: selectedOption.con_id,
             ticker: selectedOption.symbol.split(' ')[0],
             current_option_type: selectedOption.optionType,
             current_strike: selectedOption.strike,

@@ -195,10 +195,10 @@ function renderQuote() {
     const runnerButton = document.querySelector('[data-close-quantity="runner"]');
     if (runnerButton) runnerButton.disabled = held <= 1;
 
-    const defaultPrice = quotePrice('mid') || quotePrice('last') || quotePrice('ask') || quotePrice('bid');
+    const defaultPrice = quotePrice('mid');
     const limitInput = document.getElementById('close-position-limit');
     if (defaultPrice) {
-        setLimitPrice(defaultPrice, quotePrice('mid') ? 'mid' : null);
+        setLimitPrice(defaultPrice, 'mid');
     } else if (limitInput) {
         limitInput.value = '';
         updateCloseSummary();

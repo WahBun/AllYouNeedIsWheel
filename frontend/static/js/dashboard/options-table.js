@@ -4,27 +4,26 @@
 import { fetchOptionData, fetchTickers, saveOptionOrder, fetchAccountData, fetchOptionExpirations, fetchStockPrices } from './api.js?v=safety-1';
 import { showAlert } from '../utils/alerts.js?v=safety-1';
 import { formatCurrency, formatPercentage } from './account.js?v=safety-1';
+import { calculateMidPrice, calculateSpreadPercentage } from '../utils/option-pricing.js?v=pricing-safety-1';
 
 // Store options data
 let tickersData = {};
 // Store portfolio summary data
 let portfolioSummary = null;
-// Flag to track if event listeners have been initialized
-let eventListenersInitialized = false;
 // Flag to track if container event listeners have been initialized
 let containerEventListenersInitialized = false;
 // Track custom tickers added to the put table
 let customTickers = new Set();
-// Flag to track if custom ticker event listeners have been initialized
-let customTickerListenersInitialized = false;
 // Track manual limit price edits for the currently displayed option rows
 let manualLimitPrices = {};
 const expirationRequests = new Map();
 const EXPIRATION_CACHE_TTL_MS = 30 * 60 * 1000;
 const REFRESH_CONCURRENCY = 2;
+const NON_WHEEL_TICKERS = new Set(['SGOV']);
 
-// Reference to loadPendingOrders function from orders.js
-let loadPendingOrdersFunc = null;
+function isWheelOpportunityTicker(ticker) {
+    return !NON_WHEEL_TICKERS.has(String(ticker || '').trim().toUpperCase());
+}
 
 function tr(key, replacements = {}) {
     return window.t ? window.t(key, replacements) : key;
@@ -55,63 +54,10 @@ function initializeTooltips(root = document) {
 }
 
 /**
- * Try to get the loadPendingOrders function from window or import it dynamically
- * @returns {Function|null} The loadPendingOrders function or null if not available
- */
-async function getLoadPendingOrdersFunction() {
-    // First check if it's available on window (global)
-    if (typeof window.loadPendingOrders === 'function') {
-        return window.loadPendingOrders;
-    }
-    
-    // If not, try to get it from a custom event
-    if (!loadPendingOrdersFunc) {
-        try {
-            // Create and dispatch a custom event to request the function
-            const requestEvent = new CustomEvent('requestPendingOrdersRefresh', {
-                detail: { source: 'options-table' }
-            });
-            document.dispatchEvent(requestEvent);
-            console.log('Dispatched event requesting pending orders refresh');
-        } catch (error) {
-            console.error('Error trying to request pending orders refresh:', error);
-        }
-    }
-    
-    return null;
-}
-
-/**
  * Refresh the pending orders table
  */
-async function refreshPendingOrders() {
-    try {
-        // Try multiple methods to refresh the pending orders table
-        
-        // Method 1: Use the global loadPendingOrders function if available
-        if (typeof window.loadPendingOrders === 'function') {
-            console.log('Refreshing pending orders using window.loadPendingOrders');
-            await window.loadPendingOrders();
-            return;
-        }
-        
-        // Method 2: Dispatch a custom event that orders.js is listening for
-        console.log('Dispatching ordersUpdated event to trigger refresh');
-        const event = new CustomEvent('ordersUpdated');
-        document.dispatchEvent(event);
-        
-        // Method 3: Try to find and click the refresh button in the DOM
-        const refreshButton = document.getElementById('refresh-pending-orders');
-        if (refreshButton) {
-            console.log('Clicking the refresh-pending-orders button');
-            refreshButton.click();
-            return;
-        }
-        
-        console.log('All pending orders refresh methods attempted');
-    } catch (error) {
-        console.error('Error refreshing pending orders:', error);
-    }
+function refreshPendingOrders() {
+    document.dispatchEvent(new CustomEvent('ordersUpdated'));
 }
 
 function ensureTickerData(ticker) {
@@ -240,83 +186,11 @@ function updateTickerOptionData(ticker, optionType, optionData) {
     return true;
 }
 
-/**
- * Calculate premium based on bid and ask prices with proper fallbacks
- * @param {string|number} bid - Bid price
- * @param {string|number} ask - Ask price
- * @param {string|number} last - Last price (fallback)
- * @returns {number} - Calculated premium
- */
-function calculatePremium(bid, ask, last) {
-    // Parse all inputs to ensure they're numbers
-    const bidNum = parseFloat(bid || 0);
-    const askNum = parseFloat(ask || 0);
-    const lastNum = parseFloat(last || 0);
-    
-    console.log(`Calculating premium - bid: ${bidNum}, ask: ${askNum}, last: ${lastNum}`);
-    
-    // Both bid and ask are valid - use midpoint
-    if (bidNum > 0 && askNum > 0) {
-        const midPrice = (bidNum + askNum) / 2;
-        console.log(`Using mid price for premium: ${midPrice}`);
-        return midPrice;
-    }
-    
-    // Only bid is valid
-    if (bidNum > 0) {
-        console.log(`Only bid is valid, using: ${bidNum}`);
-        return bidNum;
-    }
-    
-    // Only ask is valid
-    if (askNum > 0) {
-        console.log(`Only ask is valid, using: ${askNum}`);
-        return askNum;
-    }
-    
-    // Fallback to last price
-    if (lastNum > 0) {
-        console.log(`Using last price as fallback: ${lastNum}`);
-        return lastNum;
-    }
-    
-    // No valid price data, return minimum
-    console.log('No valid price data, using minimum 0.05');
-    return 0.05;
-}
-
-function calculateSpreadPercentage(bid, ask) {
-    const bidNum = parseFloat(bid || 0);
-    const askNum = parseFloat(ask || 0);
-
-    if (!Number.isFinite(bidNum) || !Number.isFinite(askNum) || bidNum <= 0 || askNum <= 0 || askNum < bidNum) {
-        return null;
-    }
-
-    const mid = (bidNum + askNum) / 2;
-    if (mid <= 0) return null;
-
-    return ((askNum - bidNum) / mid) * 100;
-}
-
 function getSpreadClass(spreadPercentage) {
     if (spreadPercentage === null) return 'spread-unavailable';
     if (spreadPercentage <= 10) return 'spread-tight';
     if (spreadPercentage <= 20) return 'spread-medium';
     return 'spread-wide';
-}
-
-function formatPriceWithSpread(price, bid, ask) {
-    const priceNum = parseFloat(price || 0);
-    if (!Number.isFinite(priceNum) || priceNum <= 0) {
-        return 'N/A';
-    }
-
-    const spreadPercentage = calculateSpreadPercentage(bid, ask);
-    const spreadText = spreadPercentage === null ? 'N/A' : `${spreadPercentage.toFixed(1)}%`;
-    const spreadClass = getSpreadClass(spreadPercentage);
-
-    return `$ ${priceNum.toFixed(2)} <span class="spread-percent ${spreadClass}" title="Bid/ask spread">(${spreadText})</span>`;
 }
 
 function getOptionPriceKey(option) {
@@ -362,10 +236,8 @@ function buildLimitPriceControl(ticker, optionType, option, displayedPrice, defa
     const safeDisplayed = Number.parseFloat(displayedPrice || 0);
     const safeDefault = Number.parseFloat(defaultPrice || 0);
     const value = Number.isFinite(safeDisplayed) && safeDisplayed > 0 ? safeDisplayed : safeDefault;
-
-    if (!Number.isFinite(value) || value <= 0) {
-        return formatPriceWithSpread(defaultPrice, option.bid, option.ask);
-    }
+    const hasValue = Number.isFinite(value) && value > 0;
+    const hasDefault = Number.isFinite(safeDefault) && safeDefault > 0;
 
     return `
         <div class="mid-price-control">
@@ -377,14 +249,15 @@ function buildLimitPriceControl(ticker, optionType, option, displayedPrice, defa
                     data-option-type="${optionType}"
                     data-strike="${option.strike || 0}"
                     data-expiration="${option.expiration || ''}"
-                    data-default-price="${safeDefault.toFixed(2)}"
+                    data-default-price="${hasDefault ? safeDefault.toFixed(2) : ''}"
                     min="0.01"
                     step="0.01"
-                    value="${value.toFixed(2)}">
+                    placeholder="N/A"
+                    value="${hasValue ? value.toFixed(2) : ''}">
                 <button class="btn btn-outline-secondary btn-sm reset-mid-price"
                     type="button"
                     data-bs-toggle="tooltip"
-                    title="Reset to current mid">
+                    title="Reset to current mid" ${hasDefault ? '' : 'disabled'}>
                     <i class="bi bi-arrow-repeat"></i>
                 </button>
                 ${formatSpreadBadge(option.bid, option.ask)}
@@ -432,13 +305,18 @@ function updateRowPremiumDisplay(row) {
 
     const totalPremiumCell = row.querySelector('.total-premium');
     if (totalPremiumCell) {
-        totalPremiumCell.textContent = formatCurrency(limitPrice * 100 * quantity);
+        totalPremiumCell.textContent = limitPrice > 0
+            ? formatCurrency(limitPrice * 100 * quantity)
+            : 'N/A';
     }
 
     const cashRequiredCell = row.querySelector('.cash-required');
     if (cashRequiredCell) {
         cashRequiredCell.textContent = formatCurrency(strike * 100 * quantity);
     }
+
+    const addButton = row.querySelector('.sell-option');
+    if (addButton) addButton.disabled = limitPrice <= 0;
 }
 
 /**
@@ -551,10 +429,10 @@ function calculateEarningsSummary() {
                 const callOption = optionData.calls[0];
                 if (callOption) {
                     const callLimitPrice = getManualLimitPrice(ticker, 'CALL', callOption) ??
-                        calculatePremium(callOption.bid, callOption.ask, callOption.last);
-                    const callPremiumPerContract = callLimitPrice * 100;
-                    const totalCallPremium = callPremiumPerContract * maxCallContracts;
-                    summary.totalWeeklyCallPremium += totalCallPremium;
+                        calculateMidPrice(callOption.bid, callOption.ask);
+                    if (callLimitPrice !== null) {
+                        summary.totalWeeklyCallPremium += callLimitPrice * 100 * maxCallContracts;
+                    }
                 }
             }
             
@@ -563,15 +441,15 @@ function calculateEarningsSummary() {
                 const putOption = optionData.puts[0];
                 if (putOption) {
                     const putLimitPrice = getManualLimitPrice(ticker, 'PUT', putOption) ??
-                        calculatePremium(putOption.bid, putOption.ask, putOption.last);
-                    const putPremiumPerContract = putLimitPrice * 100;
+                        calculateMidPrice(putOption.bid, putOption.ask);
                     
                     // Use custom put quantity if available, otherwise calculate based on shares
                     const customPutQuantity = tickerData.putQuantity || 
                                              (sharesOwned >= 100 ? Math.floor(sharesOwned / 100) : 1);
                     
-                    const totalPutPremium = putPremiumPerContract * customPutQuantity;
-                    summary.totalWeeklyPutPremium += totalPutPremium;
+                    if (putLimitPrice !== null) {
+                        summary.totalWeeklyPutPremium += putLimitPrice * 100 * customPutQuantity;
+                    }
                 
                     // Calculate total exercise cost
                     const putExerciseCost = putOption.strike * customPutQuantity * 100;
@@ -680,39 +558,6 @@ function updateOptionsTable() {
     }
     
     console.log("Found ticker data for:", tickers.join(", "));
-    
-    // Keep track of tickers with sufficient shares
-    let sufficientSharesCount = 0;
-    let insufficientSharesCount = 0;
-    let filteredTickers = [];
-    let visibleTickers = [];
-    
-    // First pass: Pre-filter tickers with insufficient shares for calls only
-    const eligibleTickers = tickers.filter(ticker => {
-        const tickerData = tickersData[ticker];
-        
-        // Skip tickers without data
-        if (!tickerData || !tickerData.data || !tickerData.data.data || !tickerData.data.data[ticker]) {
-            console.log(`Ticker ${ticker} has no data or invalid data structure:`, tickerData);
-            return true; // Keep to show "No data available" message
-        }
-        
-        // Check shares
-        const optionData = tickerData.data.data[ticker];
-        const sharesOwned = optionData.position || 0;
-        
-        console.log(`Ticker ${ticker} has ${sharesOwned} shares`);
-        
-        // For call options, we need at least 100 shares
-        if (!customTickers.has(ticker) && sharesOwned < 100) {
-            console.log(`${ticker} has ${sharesOwned} shares, less than required for selling options`);
-            insufficientSharesCount++;
-            return customTickers.has(ticker); // Keep custom tickers regardless of shares
-        }
-        
-        sufficientSharesCount++;
-        return true;
-    });
     
     // Create tabs for call and put options
     const tabsHTML = `
@@ -1012,8 +857,13 @@ function addOptionsTableEventListeners() {
             
             if (ticker && optionType && strike && expiration) {
                 const row = button.closest('tr');
-                const defaultPremium = calculatePremium(button.dataset.bid, button.dataset.ask, button.dataset.last);
+                const defaultPremium = calculateMidPrice(button.dataset.bid, button.dataset.ask);
                 const limitPrice = getRowLimitPrice(row, defaultPremium);
+
+                if (limitPrice <= 0) {
+                    showAlert(tr('options.quoteUnavailable'), 'warning');
+                    return;
+                }
 
                 // Create order data
                 const orderData = {
@@ -1040,27 +890,6 @@ function addOptionsTableEventListeners() {
                     // Add market data reference
                     stock_price: tickersData[ticker]?.data?.data?.[ticker]?.stock_price || 0
                 };
-                
-                // Safety check for critical price fields
-                if (orderData.bid <= 0 && button.closest('tr')) {
-                    // Try to get data from the table row
-                    const bidCell = row.querySelector('td[data-field="bid"]');
-                    const askCell = row.querySelector('td[data-field="ask"]');
-                    const lastCell = row.querySelector('td[data-field="last"]');
-                    
-                    if (bidCell) orderData.bid = parseFloat(bidCell.textContent) || orderData.bid;
-                    if (askCell) orderData.ask = parseFloat(askCell.textContent) || orderData.ask;
-                    if (lastCell) orderData.last = parseFloat(lastCell.textContent) || orderData.last;
-                    
-                    console.log(`Updated order price fields from table row - bid: ${orderData.bid}, ask: ${orderData.ask}, last: ${orderData.last}`);
-                }
-                
-                // Final sanity check - ensure we have some price reference
-                if (orderData.bid <= 0 && orderData.ask <= 0 && orderData.last <= 0 && orderData.premium <= 0) {
-                    console.warn('No valid price information for order - using fallback minimum price');
-                    // Use 1% of strike as a minimum
-                    orderData.premium = Math.max(orderData.strike * 0.01, 0.05);
-                }
                 
                 console.log('Submitting order with data:', orderData);
                 
@@ -1240,83 +1069,8 @@ function addOptionsTableEventListeners() {
         console.log('Container event delegation initialized');
     }
     
-    // Check if individual button event listeners are already initialized
-    if (eventListenersInitialized) {
-        console.log('Button event listeners already initialized, skipping');
-        addOtmInputEventListeners();
-        addExpirationSelectEventListeners();
-        return;
-    }
-    
-    console.log('Initializing individual button event listeners');
-    
-    // Register dedicated listeners for the various buttons
-    
-    // Refresh all button - REMOVED this button from UI, but keeping code with null check
-    // for backward compatibility
-    const refreshAllButton = document.getElementById('refresh-all-options');
-    if (refreshAllButton) {
-        refreshAllButton.addEventListener('click', async () => {
-            refreshAllButton.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> ${tr('common.loading')}`;
-            refreshAllButton.disabled = true;
-            
-            try {
-                await refreshAllOptions();
-    } catch (error) {
-                console.error('Error refreshing all options:', error);
-            } finally {
-                refreshAllButton.innerHTML = `<i class="bi bi-arrow-repeat"></i> ${tr('common.refresh')}`;
-                refreshAllButton.disabled = false;
-            }
-        });
-    }
-
-    // Refresh all calls button
-    const refreshAllCallsButton = document.getElementById('refresh-all-calls');
-    if (refreshAllCallsButton) {
-        refreshAllCallsButton.addEventListener('click', async () => {
-            refreshAllCallsButton.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> ${tr('common.loading')}`;
-            refreshAllCallsButton.disabled = true;
-            
-            try {
-                await refreshAllOptions('CALL');
-            } catch (error) {
-                console.error('Error refreshing all call options:', error);
-            } finally {
-                refreshAllCallsButton.innerHTML = `<i class="bi bi-arrow-repeat"></i> ${tr('options.refreshAllCalls')}`;
-                refreshAllCallsButton.disabled = false;
-            }
-        });
-    }
-
-    // Refresh all puts button
-    const refreshAllPutsButton = document.getElementById('refresh-all-puts');
-    if (refreshAllPutsButton) {
-        refreshAllPutsButton.addEventListener('click', async () => {
-            refreshAllPutsButton.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> ${tr('common.loading')}`;
-            refreshAllPutsButton.disabled = true;
-            
-            try {
-                await refreshAllOptions('PUT');
-        } catch (error) {
-                console.error('Error refreshing all put options:', error);
-            } finally {
-                refreshAllPutsButton.innerHTML = `<i class="bi bi-arrow-repeat"></i> ${tr('options.refreshAllPuts')}`;
-                refreshAllPutsButton.disabled = false;
-            }
-        });
-    }
-    
-    // Note: We're removing direct event listeners for sell-all buttons
-    // and using event delegation instead (defined above in the container click handler)
-    
-    // Mark the event listeners as initialized
-    eventListenersInitialized = true;
-    console.log('Individual button event listeners initialization complete');
-    
-    // Add input event listeners for OTM% inputs - these need to be added each time
+    // Row inputs are recreated whenever the table is rebuilt.
     addOtmInputEventListeners();
-
     addExpirationSelectEventListeners();
 }
 
@@ -1481,7 +1235,14 @@ function addMidPriceInputEventListeners() {
             const optionType = this.dataset.optionType;
             const price = Number.parseFloat(this.value);
 
-            if (!row || !ticker || !optionType || !Number.isFinite(price) || price <= 0) {
+            if (!row || !ticker || !optionType) {
+                return;
+            }
+
+            if (!Number.isFinite(price) || price <= 0) {
+                clearManualLimitPrice(ticker, optionType);
+                updateRowPremiumDisplay(row);
+                updateEarningsSummary();
                 return;
             }
 
@@ -1708,6 +1469,7 @@ async function refreshAllOptions(optionType) {
                 allTickers.push(...tickersResult.tickers);
             }
         }
+        allTickers = allTickers.filter(isWheelOpportunityTicker);
         
         // Get the correct table and button based on optionType
         let tableId, buttonId;
@@ -1970,8 +1732,14 @@ async function sellAllOptions(optionType) {
             }
         
         console.log(`Processing order for ${ticker} ${optionType} option: ${option.strike} ${option.expiration}`);
-        const defaultPremium = calculatePremium(option.bid, option.ask, option.last);
+        const defaultPremium = calculateMidPrice(option.bid, option.ask);
         const manualPremium = getManualLimitPrice(ticker, optionType, option);
+        const limitPrice = manualPremium ?? defaultPremium;
+
+        if (limitPrice === null || limitPrice <= 0) {
+            failedOrders.push(`${ticker} ${optionType} ${option.strike} ${option.expiration}`);
+            continue;
+        }
         
         // Create order data
         const orderData = {
@@ -1987,7 +1755,7 @@ async function sellAllOptions(optionType) {
             bid: parseFloat(option.bid || 0),
             ask: parseFloat(option.ask || 0),
             last: parseFloat(option.last || 0),
-            premium: manualPremium ?? defaultPremium,
+            premium: limitPrice,
             delta: parseFloat(option.delta || 0),
             gamma: parseFloat(option.gamma || 0),
             theta: parseFloat(option.theta || 0),
@@ -1998,24 +1766,6 @@ async function sellAllOptions(optionType) {
             // Add market data reference
             stock_price: tickersData[ticker]?.data?.data?.[ticker]?.stock_price || 0
         };
-        
-        // Safety check for critical price fields - this shouldn't be needed now but keeping as fallback
-        if (orderData.bid <= 0 && button.closest('tr')) {
-            // Try to get data directly from option object again
-            orderData.bid = parseFloat(option.bid || 0);
-            orderData.ask = parseFloat(option.ask || 0);
-            orderData.last = parseFloat(option.last || 0);
-            orderData.premium = manualPremium ?? defaultPremium;
-            
-            console.log(`Updated order price fields from option object - bid: ${orderData.bid}, ask: ${orderData.ask}, last: ${orderData.last}, premium: ${orderData.premium}`);
-        }
-        
-        // Final sanity check - ensure we have some price reference
-        if (orderData.bid <= 0 && orderData.ask <= 0 && orderData.last <= 0 && orderData.premium <= 0) {
-            console.warn('No valid price information for order - using fallback minimum price');
-            // Use 1% of strike as a minimum
-            orderData.premium = Math.max(orderData.strike * 0.01, 0.05);
-        }
         
         console.log('Submitting order with data:', orderData);
         
@@ -2065,24 +1815,7 @@ async function sellAllOptions(optionType) {
         if (successOrders.length > 0) {
             showAlert(`Successfully created ${successOrders.length} ${optionType.toLowerCase()} option orders`, 'success');
             
-            // Ensure the pending orders table is refreshed after successful orders
-            console.log('Refreshing pending orders table after successful add all operation');
-            
-            // Make multiple attempts to refresh pending orders to ensure it works
-            // First immediate refresh
-            await refreshPendingOrders();
-            
-            // Second delayed refresh (after a short delay)
-            setTimeout(async () => {
-                console.log('Executing delayed refresh of pending orders');
-                await refreshPendingOrders();
-            }, 500);
-            
-            // Third refresh with a longer delay (to catch any async operations)
-            setTimeout(async () => {
-                console.log('Executing final refresh of pending orders');
-                await refreshPendingOrders();
-            }, 1500);
+            refreshPendingOrders();
         } else {
             showAlert(`No ${optionType.toLowerCase()} option orders were created`, 'warning');
         }
@@ -2106,13 +1839,6 @@ async function sellAllOptions(optionType) {
 
 // Add an event listener for the custom ticker form
 function setupCustomTickerEventListeners() {
-    console.log('Setting up custom ticker event listeners, already initialized:', customTickerListenersInitialized);
-    
-    // Reset flag to force initialization (temp fix for debugging)
-    customTickerListenersInitialized = false;
-    
-    if (customTickerListenersInitialized) return;
-    
     const addCustomTickerBtn = document.getElementById('add-custom-ticker');
     const customTickerInput = document.getElementById('custom-ticker-input');
     
@@ -2127,6 +1853,16 @@ function setupCustomTickerEventListeners() {
             const ticker = customTickerInput.value.trim().toUpperCase();
             if (!ticker) {
                 console.log('No ticker entered');
+                return;
+            }
+
+            if (!isWheelOpportunityTicker(ticker)) {
+                showToast(
+                    'info',
+                    tr('options.notWheelCandidate'),
+                    tr('options.notWheelCandidateMessage', { ticker })
+                );
+                customTickerInput.value = '';
                 return;
             }
             
@@ -2236,8 +1972,6 @@ function setupCustomTickerEventListeners() {
             }
         });
         
-        console.log('Event listeners for custom ticker successfully initialized');
-        customTickerListenersInitialized = true;
     } else {
         console.error('Could not find custom ticker elements in the DOM');
     }
@@ -2319,19 +2053,6 @@ function loadExcludedTickers() {
     return [];
 }
 
-// Load custom tickers from localStorage
-function loadCustomTickers() {
-    try {
-        const savedTickers = localStorage.getItem('customTickers');
-        if (savedTickers) {
-            const tickersArray = JSON.parse(savedTickers);
-            customTickers = new Set(tickersArray);
-        }
-    } catch (error) {
-        console.error('Error loading custom tickers:', error);
-    }
-}
-
 // Helper function to show toast notifications
 function showToast(type, title, message) {
     let toastContainer = document.getElementById('toast-container');
@@ -2370,12 +2091,6 @@ function showToast(type, title, message) {
     });
 }
 
-// Now in the initialize function, we need to load custom tickers
-function initialize() {
-    loadCustomTickers();
-    loadOtmSettings();
-}
-
 /**
  * Add a single ticker row to the options table
  * @param {string} tableId - The ID of the table to add the row to
@@ -2385,6 +2100,11 @@ function initialize() {
  */
 function addTickerRowToTable(tableId, optionType, ticker) {
     console.log(`Adding ${optionType} row for ticker ${ticker} to table ${tableId}`);
+
+    if (!isWheelOpportunityTicker(ticker)) {
+        console.log(`Skipping ${ticker} for ${optionType} options - excluded from Wheel opportunities`);
+        return false;
+    }
     
     const table = document.getElementById(tableId);
     if (!table) {
@@ -2507,7 +2227,7 @@ function addTickerRowToTable(tableId, optionType, ticker) {
                 <td class="align-middle">-</td>
                 <td class="align-middle">-</td>
                 <td class="align-middle">${maxContracts}</td>
-                <td class="align-middle">$ 0.00</td>
+                <td class="align-middle">N/A</td>
                 <td class="align-middle">
                     <button class="btn btn-sm btn-outline-secondary refresh-option" 
                         data-ticker="${ticker}" 
@@ -2567,8 +2287,8 @@ function addTickerRowToTable(tableId, optionType, ticker) {
                         value="${putQuantity}" 
                         min="1" max="100" step="1" style="width: 70px;">
                 </td>
-                <td class="align-middle total-premium">$ 0.00</td>
-                <td class="align-middle cash-required">$ 0.00</td>
+                <td class="align-middle total-premium">N/A</td>
+                <td class="align-middle cash-required">N/A</td>
                 <td class="align-middle">
                     <div class="option-actions">
                         <button class="btn btn-sm btn-outline-secondary refresh-option" 
@@ -2601,13 +2321,14 @@ function addTickerRowToTable(tableId, optionType, ticker) {
     }
     
     console.log(`Creating row for ${ticker} with option: ${JSON.stringify(option)}`);
-    const optionMidPrice = calculatePremium(option.bid, option.ask, option.last);
+    const optionMidPrice = calculateMidPrice(option.bid, option.ask);
     const manualPrice = getManualLimitPrice(ticker, optionType, option);
     const displayedLimitPrice = manualPrice ?? optionMidPrice;
+    const hasLimitPrice = displayedLimitPrice !== null && displayedLimitPrice > 0;
     
     // Update row data attributes
-    row.dataset.premium = displayedLimitPrice * 100;
-    row.dataset.defaultPremium = optionMidPrice;
+    row.dataset.premium = hasLimitPrice ? displayedLimitPrice * 100 : 0;
+    row.dataset.defaultPremium = optionMidPrice ?? 0;
     row.dataset.strike = option.strike || 0;
     row.dataset.expiration = option.expiration || '';
     row.dataset.optionType = optionType;
@@ -2620,13 +2341,10 @@ function addTickerRowToTable(tableId, optionType, ticker) {
         const maxContracts = Math.floor(sharesOwned / 100);
         
         // Calculate premium and return values
-        const midPrice = displayedLimitPrice;
+        const midPrice = hasLimitPrice ? displayedLimitPrice : 0;
         const premiumPerContract = midPrice * 100; // Use midPrice instead of option.ask
         const totalPremium = premiumPerContract * maxContracts;
         row.dataset.contracts = maxContracts;
-        
-        // Calculate return on capital
-        const returnOnCapital = option.strike > 0 ? ((totalPremium / (stockPrice * 100 * maxContracts)) * 100) : 0;
         
         // Create expiration dropdown options
         let expirationOptionsHtml = '';
@@ -2669,7 +2387,7 @@ function addTickerRowToTable(tableId, optionType, ticker) {
             <td class="align-middle">${option.delta ? option.delta.toFixed(2) : 'N/A'}</td>
             <td class="align-middle">${ivPercent}%</td>
             <td class="align-middle">${maxContracts}</td>
-            <td class="align-middle total-premium">$ ${totalPremium.toFixed(2)}</td>
+            <td class="align-middle total-premium">${hasLimitPrice ? `$ ${totalPremium.toFixed(2)}` : 'N/A'}</td>
             <td class="align-middle">
                 <div class="option-actions">
                     <button class="btn btn-sm btn-outline-success sell-option" 
@@ -2686,7 +2404,7 @@ function addTickerRowToTable(tableId, optionType, ticker) {
                         data-vega="${option.vega || 0}"
                         data-implied-volatility="${option.implied_volatility || 0}"
                         data-volume="${option.volume || 0}"
-                        data-open-interest="${option.open_interest || 0}">
+                        data-open-interest="${option.open_interest || 0}" ${hasLimitPrice ? '' : 'disabled'}>
                         <i class="bi bi-check-circle"></i> ${tr('common.add')}
                     </button>
                     <button class="btn btn-sm btn-outline-danger delete-ticker" 
@@ -2706,7 +2424,7 @@ function addTickerRowToTable(tableId, optionType, ticker) {
         const putQuantity = tickerData.putQuantity || 1;
         
         // Calculate mid price between bid and ask
-        const midPrice = displayedLimitPrice;
+        const midPrice = hasLimitPrice ? displayedLimitPrice : 0;
         row.dataset.contracts = putQuantity;
         
         // Create expiration dropdown options
@@ -2755,7 +2473,7 @@ function addTickerRowToTable(tableId, optionType, ticker) {
                     min="1" max="100" step="1" style="width: 70px;">
             </td>
             <td class="align-middle total-premium">
-                $ ${(midPrice * 100 * putQuantity).toFixed(2)}
+                ${hasLimitPrice ? `$ ${(midPrice * 100 * putQuantity).toFixed(2)}` : 'N/A'}
             </td>
             <td class="align-middle cash-required">
                 $ ${((option.strike || 0) * 100 * putQuantity).toFixed(2)}
@@ -2776,7 +2494,7 @@ function addTickerRowToTable(tableId, optionType, ticker) {
                         data-vega="${option.vega || 0}"
                         data-implied-volatility="${option.implied_volatility || 0}"
                         data-volume="${option.volume || 0}"
-                        data-open-interest="${option.open_interest || 0}">
+                        data-open-interest="${option.open_interest || 0}" ${hasLimitPrice ? '' : 'disabled'}>
                         <i class="bi bi-check-circle"></i> ${tr('common.add')}
                     </button>
                     <button class="btn btn-sm btn-outline-danger delete-ticker" 
@@ -2873,7 +2591,8 @@ async function loadTickers() {
         const savedTickers = localStorage.getItem('customTickers');
         if (savedTickers) {
             const tickersArray = JSON.parse(savedTickers);
-            customTickers = new Set(tickersArray);
+            customTickers = new Set(tickersArray.filter(isWheelOpportunityTicker));
+            localStorage.setItem('customTickers', JSON.stringify([...customTickers]));
             console.log(`Loaded ${customTickers.size} custom tickers:`, [...customTickers]);
         }
     } catch (error) {
@@ -3028,7 +2747,8 @@ async function loadTickers() {
     }
     
     // Create a combined list of all tickers (portfolio + custom)
-    const allTickers = [...new Set([...portfolioTickers, ...customTickers])];
+    const allTickers = [...new Set([...portfolioTickers, ...customTickers])]
+        .filter(isWheelOpportunityTicker);
     console.log(`Total tickers to load: ${allTickers.length} (portfolio: ${portfolioTickers.length}, custom: ${customTickers.size})`);
     
     // Clear initial loading message from tables

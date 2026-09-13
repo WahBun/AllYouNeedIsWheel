@@ -5,7 +5,7 @@
 import { loadPositionsTable } from '../dashboard/account.js?v=close-position-1';
 import { loadPendingOrders } from '../dashboard/orders.js?v=close-position-1';
 import { showAlert } from '../utils/alerts.js?v=close-position-1';
-import { initializeClosePosition } from './close-position.js?v=close-position-2';
+import { initializeClosePosition } from './close-position.js?v=refactor-safety-2';
 
 /**
  * Initialize the portfolio page

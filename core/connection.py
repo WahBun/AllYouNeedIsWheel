@@ -174,6 +174,53 @@ class IBConnection:
         self._qualified_option_cache[key] = (time.time(), qualified_option)
         return qualified_option
 
+    def get_nearest_qualified_option_contract(
+        self, symbol, expiration, strikes, right, target_strike,
+        exchange='SMART', currency='USD', candidates_per_side=12
+    ):
+        """Find the nearest real contract when chain strikes span multiple expirations."""
+        try:
+            target = float(target_strike)
+        except (TypeError, ValueError):
+            return None
+
+        normalized = sorted({
+            float(strike) for strike in strikes
+            if self._valid_price(strike) is not None
+        })
+        if not normalized:
+            return None
+
+        normalized_right = str(right or '').upper()
+        if normalized_right == 'P':
+            preferred = [strike for strike in normalized if strike <= target]
+            fallback = [strike for strike in normalized if strike > target]
+        elif normalized_right == 'C':
+            preferred = [strike for strike in normalized if strike >= target]
+            fallback = [strike for strike in normalized if strike < target]
+        else:
+            preferred = normalized
+            fallback = []
+
+        by_distance = lambda strike: abs(strike - target)
+        candidates = (
+            sorted(preferred, key=by_distance)[:candidates_per_side] +
+            sorted(fallback, key=by_distance)[:candidates_per_side]
+        )
+        for strike in candidates:
+            contract = self.get_qualified_option_contract(
+                symbol, expiration, strike, normalized_right, exchange, currency
+            )
+            if contract is not None:
+                if strike != target:
+                    logger.info(
+                        "Selected available %s %s strike %s near target %s for %s",
+                        symbol, normalized_right, strike, target, expiration
+                    )
+                return contract
+
+        return None
+
     def _prune_market_ticker_cache(self, max_age_seconds=5 * 60, max_entries=16):
         now = time.time()
         expired_keys = [
@@ -338,6 +385,15 @@ class IBConnection:
 
         return None
 
+    def _has_valid_two_sided_quote(self, ticker):
+        """Return whether a ticker can produce a safe midpoint price."""
+        if ticker is None:
+            return False
+
+        bid = self._valid_price(getattr(ticker, 'bid', None))
+        ask = self._valid_price(getattr(ticker, 'ask', None))
+        return bid is not None and ask is not None and ask >= bid
+
     def _order_account(self):
         configured_account = self.account_id
         if configured_account and configured_account != "YOUR_ACCOUNT_ID":
@@ -415,7 +471,9 @@ class IBConnection:
             # Request market data
             ticker = self.get_market_ticker(qualified_contract)
             
-            for _ in range(30):
+            # Frozen quotes can arrive a few seconds after the subscription is
+            # opened. Valid prices still return immediately on the first update.
+            for _ in range(50):
                 self.ib.sleep(0.1)
                 if self._ticker_price(ticker) is not None:
                     break
@@ -580,21 +638,26 @@ class IBConnection:
                 logger.error(f"No strikes available for {symbol} and no target strike provided")
                 return None
                 
-            # If target_strike is provided, find the closest strike
-            if target_strike is not None and strikes:
-                closest_strike = min(strikes, key=lambda s: abs(s - target_strike))
-                strikes = [closest_strike]
-            
             # Final check to ensure expiration is set
             if not expiration:
                 logger.error(f"No expiration date available for {symbol}")
                 return None
-                
-            option_contracts = [
-                self.get_qualified_option_contract(symbol, expiration, strike, right, exchange)
-                for strike in strikes
-            ]
-            option_contracts = [contract for contract in option_contracts if contract is not None]
+
+            if target_strike is not None:
+                contract = self.get_nearest_qualified_option_contract(
+                    symbol, expiration, strikes, right, target_strike, exchange
+                )
+                option_contracts = [contract] if contract is not None else []
+            else:
+                option_contracts = [
+                    self.get_qualified_option_contract(
+                        symbol, expiration, strike, right, exchange
+                    )
+                    for strike in strikes
+                ]
+                option_contracts = [
+                    contract for contract in option_contracts if contract is not None
+                ]
             
             if not option_contracts:
                 logger.error(f"No option contracts created for {symbol}")
@@ -615,14 +678,12 @@ class IBConnection:
                     # Request market data with model computation
                     ticker = self.get_market_ticker(contract, '106')
                    
-                    # Return as soon as a usable quote arrives. Give Greeks a short
-                    # grace period, but do not let missing Greeks block the price.
-                    for attempt in range(30):
+                    # Last/close and Greeks can arrive before bid/ask, especially
+                    # for frozen quotes. Wait for the two-sided market required by
+                    # midpoint pricing so initial load matches a manual refresh.
+                    for attempt in range(50):
                         self.ib.sleep(0.1)
-                        has_quote = any(
-                            self._valid_price(getattr(ticker, field, None)) is not None
-                            for field in ('bid', 'ask', 'last', 'close')
-                        )
+                        has_quote = self._has_valid_two_sided_quote(ticker)
                         has_greeks = (
                             ticker.modelGreeks is not None and
                             self._valid_price(getattr(ticker, 'impliedVolatility', None)) is not None
@@ -836,7 +897,8 @@ class IBConnection:
                 continue
             if int(getattr(contract, 'conId', 0) or 0) != normalized_con_id:
                 continue
-            if selected_account and str(getattr(order, 'account', '') or '') != str(selected_account):
+            order_account = str(getattr(order, 'account', '') or '')
+            if selected_account and order_account and order_account != str(selected_account):
                 continue
             if normalized_action and str(getattr(order, 'action', '') or '').upper() != normalized_action:
                 continue
@@ -881,9 +943,13 @@ class IBConnection:
             or self._valid_price(getattr(ticker, 'close', None))
             or self._valid_price(position.get('market_price'))
         )
-        mid = (bid + ask) / 2 if bid is not None and ask is not None else last
+        mid = (
+            (bid + ask) / 2
+            if bid is not None and ask is not None and ask >= bid
+            else None
+        )
         spread_percent = None
-        if bid is not None and ask is not None and mid:
+        if mid is not None:
             spread_percent = ((ask - bid) / mid) * 100
 
         position.update({

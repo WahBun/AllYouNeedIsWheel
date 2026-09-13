@@ -3,7 +3,7 @@
  * Coordinates all dashboard components and initializes the dashboard
  */
 import { loadPortfolioData } from './account.js?v=close-position-1';
-import { loadTickers } from './options-table.js?v=expiration-listener-1';
+import { loadTickers } from './options-table.js?v=refactor-safety-3';
 import { loadPendingOrders } from './orders.js?v=close-position-1';
 import { showAlert } from '../utils/alerts.js?v=close-position-1';
 import { fetchWeeklyOptionIncome } from './api.js?v=safety-1';

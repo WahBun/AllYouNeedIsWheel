@@ -211,6 +211,15 @@ class OptionsService:
         """
         return round(price)
 
+    @staticmethod
+    def _positive_quote(value):
+        """Normalize an IB quote without inventing a tradable price."""
+        try:
+            price = float(value)
+        except (TypeError, ValueError):
+            return None
+        return price if math.isfinite(price) and price > 0 else None
+
     def _expiration_skip_days(self):
         """Return the configured short-dated exclusion window for defaults."""
         try:
@@ -286,11 +295,11 @@ class OptionsService:
             'status': 'rejected'
         }, 409
 
-    def stage_close_order(self, close_data, db=None):
-        """Create a local pending close order from an exact current position."""
+    def _prepare_close_order_data(self, close_data, db=None):
+        """Build a validated close order from the exact current IB position."""
         db = db or self.db
         if not isinstance(close_data, dict):
-            return {'success': False, 'error': 'Close order data must be a JSON object'}, 400
+            return None, {'success': False, 'error': 'Close order data must be a JSON object'}, 400
 
         try:
             con_id = int(close_data.get('con_id'))
@@ -300,52 +309,52 @@ class OptionsService:
                 raise ValueError
             limit_price = float(close_data.get('limit_price'))
         except (TypeError, ValueError):
-            return {
+            return None, {
                 'success': False,
                 'error': 'Contract, quantity, and a positive limit price are required'
             }, 400
 
         if con_id <= 0 or quantity <= 0 or not math.isfinite(limit_price) or limit_price <= 0:
-            return {
+            return None, {
                 'success': False,
                 'error': 'Contract, quantity, and a positive limit price are required'
             }, 400
 
         conn = self._ensure_connection()
         if not conn:
-            return {'success': False, 'error': 'Failed to connect to IB Gateway'}, 503
+            return None, {'success': False, 'error': 'Failed to connect to IB Gateway'}, 503
 
         account = conn._order_account()
         if not account:
-            return {
+            return None, {
                 'success': False,
                 'error': 'No unambiguous IB account is configured for order routing'
             }, 503
 
         position = conn.get_option_position_by_con_id(con_id, account)
         if not position or not position.get('contract'):
-            return {
+            return None, {
                 'success': False,
                 'error': 'Option position was not found in the configured IB account'
             }, 404
 
         current_quantity = float(position.get('position', 0) or 0)
         if current_quantity == 0 or quantity > int(abs(current_quantity)):
-            return {
+            return None, {
                 'success': False,
                 'error': 'Close quantity exceeds the current option position'
             }, 409
 
         close_action = 'BUY' if current_quantity < 0 else 'SELL'
         if conn.get_open_option_order_quantity(con_id, close_action, account) > 0:
-            return {
+            return None, {
                 'success': False,
                 'error': 'An active IB close order already exists for this option position'
             }, 409
 
         existing = db.get_active_close_order(con_id)
         if existing:
-            return {
+            return None, {
                 'success': False,
                 'error': 'Another active close order already exists for this option position',
                 'order_id': existing.get('id')
@@ -380,11 +389,20 @@ class OptionsService:
         try:
             order_data = self.validate_order_data(order_data)
         except ValueError as error:
-            return {'success': False, 'error': str(error)}, 400
+            return None, {'success': False, 'error': str(error)}, 400
+
+        return order_data, None, None
+
+    def stage_close_order(self, close_data, db=None):
+        """Create a local pending close order from an exact current position."""
+        db = db or self.db
+        order_data, error_response, status_code = self._prepare_close_order_data(close_data, db)
+        if error_response:
+            return error_response, status_code
 
         order_id = db.save_order(order_data)
         if not order_id:
-            existing = db.get_active_close_order(con_id)
+            existing = db.get_active_close_order(order_data['con_id'])
             if existing:
                 return {
                     'success': False,
@@ -399,7 +417,7 @@ class OptionsService:
             'status': 'pending',
             'action': order_data['action'],
             'intent': 'CLOSE',
-            'account_suffix': str(account)[-4:]
+            'account_suffix': str(order_data['account_id'])[-4:]
         }, 201
       
     def execute_order(self, order_id, db):
@@ -935,13 +953,13 @@ class OptionsService:
                         # Calculate ATM factor for Greeks
                         strike = option.get('strike', 0)
                         # Handle NaN and missing values
-                        bid = option.get('bid', 0)
-                        ask = option.get('ask', 0)
-                        last = option.get('last', 0)
-                        
-                        # If last is 0 or NaN, use mid price
-                        if last == 0 or isinstance(last, float) and math.isnan(last):
-                            last = (bid + ask) / 2 if bid > 0 or ask > 0 else 0.1
+                        bid = self._positive_quote(option.get('bid'))
+                        ask = self._positive_quote(option.get('ask'))
+                        last = self._positive_quote(option.get('last'))
+
+                        # A midpoint only exists when IB supplied a valid two-sided market.
+                        if last is None and bid is not None and ask is not None and ask >= bid:
+                            last = (bid + ask) / 2
                         
                         # Handle NaN values for Greeks
                         iv = option.get('implied_volatility', 0)
@@ -989,20 +1007,23 @@ class OptionsService:
                         if option.get('option_type') == 'CALL':
                             position_qty = 100  # Assume 100 shares per standard position
                             max_contracts = int(position_qty / 100)  # Each contract represents 100 shares
-                            premium_per_contract = last * 100  # Premium per contract (100 shares)
-                            total_premium = premium_per_contract * max_contracts
+                            premium_per_contract = last * 100 if last is not None else None
+                            total_premium = (
+                                premium_per_contract * max_contracts
+                                if premium_per_contract is not None else None
+                            )
                             
                             # Ensure we don't divide by zero or NaN
-                            if strike > 0 and max_contracts > 0:
+                            if total_premium is not None and strike > 0 and max_contracts > 0:
                                 return_on_capital = (total_premium / (strike * 100 * max_contracts)) * 100
                             else:
-                                return_on_capital = 0
+                                return_on_capital = None
                             
                             # Add flattened earnings data
                             option_data['earnings_max_contracts'] = max_contracts
-                            option_data['earnings_premium_per_contract'] = round(premium_per_contract, 2)
-                            option_data['earnings_total_premium'] = round(total_premium, 2)
-                            option_data['earnings_return_on_capital'] = round(return_on_capital, 2)
+                            option_data['earnings_premium_per_contract'] = round(premium_per_contract, 2) if premium_per_contract is not None else None
+                            option_data['earnings_total_premium'] = round(total_premium, 2) if total_premium is not None else None
+                            option_data['earnings_return_on_capital'] = round(return_on_capital, 2) if return_on_capital is not None else None
                             
                             # Add to calls list directly
                             result['calls'].append(option_data)
@@ -1010,20 +1031,23 @@ class OptionsService:
                         elif option.get('option_type') == 'PUT':
                             position_value = strike * 100 * int(100 / 100)  # Cash needed to secure puts
                             max_contracts = 1 if strike <= 0 else int(position_value / (strike * 100))
-                            premium_per_contract = last * 100  # Premium per contract
-                            total_premium = premium_per_contract * max_contracts
+                            premium_per_contract = last * 100 if last is not None else None
+                            total_premium = (
+                                premium_per_contract * max_contracts
+                                if premium_per_contract is not None else None
+                            )
                             
                             # Ensure we don't divide by zero or NaN
-                            if position_value > 0:
+                            if total_premium is not None and position_value > 0:
                                 return_on_cash = (total_premium / position_value) * 100
                             else:
-                                return_on_cash = 0
+                                return_on_cash = None
                             
                             # Add flattened earnings data
                             option_data['earnings_max_contracts'] = max_contracts
-                            option_data['earnings_premium_per_contract'] = round(premium_per_contract, 2)
-                            option_data['earnings_total_premium'] = round(total_premium, 2)
-                            option_data['earnings_return_on_cash'] = round(return_on_cash, 2)
+                            option_data['earnings_premium_per_contract'] = round(premium_per_contract, 2) if premium_per_contract is not None else None
+                            option_data['earnings_total_premium'] = round(total_premium, 2) if total_premium is not None else None
+                            option_data['earnings_return_on_cash'] = round(return_on_cash, 2) if return_on_cash is not None else None
                             
                             # Add to puts list directly
                             result['puts'].append(option_data)

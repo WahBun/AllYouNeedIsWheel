@@ -277,35 +277,43 @@ def rollover_option():
         if not rollover_data:
             return jsonify({"error": "No rollover data provided"}), 400
             
-        # Validate required fields for current option
-        required_fields = ['ticker', 'current_option_type', 'current_strike', 'current_expiration', 
-                           'new_strike', 'new_expiration', 'quantity']
+        required_fields = [
+            'current_con_id', 'new_strike', 'new_expiration', 'quantity',
+            'current_limit_price', 'new_limit_price'
+        ]
         for field in required_fields:
             if field not in rollover_data:
                 return jsonify({"error": f"Missing required field: {field}"}), 400
-        
-        # Every option limit price is stored in IB's per-share quote units.
-        buy_order = {
-            'ticker': rollover_data['ticker'],
-            'option_type': rollover_data['current_option_type'],
-            'strike': rollover_data['current_strike'],
-            'expiration': rollover_data['current_expiration'],
-            'action': 'BUY',  # Buy to close
+
+        db = current_app.config.get('database') or options_service.db
+        buy_order, error_response, status_code = options_service._prepare_close_order_data({
+            'con_id': rollover_data['current_con_id'],
             'quantity': rollover_data['quantity'],
-            'order_type': 'LIMIT',
-            'premium': rollover_data.get('current_limit_price'),
-            'bid': rollover_data.get('current_bid', 0),
-            'ask': rollover_data.get('current_ask', 0),
-            'isRollover': True
-        }
-        
-        # Create sell order for new position
+            'limit_price': rollover_data['current_limit_price']
+        }, db)
+        if error_response:
+            return jsonify(error_response), status_code
+
+        # Wheel rollovers close short options. A long option needs a different
+        # opening-side action and must not be inferred by this endpoint.
+        if buy_order['action'] != 'BUY':
+            return jsonify({
+                'error': 'Rollover is only supported for short option positions'
+            }), 409
+
+        buy_order['bid'] = rollover_data.get('current_bid', 0)
+        buy_order['ask'] = rollover_data.get('current_ask', 0)
+        buy_order['isRollover'] = True
+
+        # The new leg inherits its symbol and option type from the exact held
+        # contract validated above, not from browser-supplied metadata.
         sell_order = {
-            'ticker': rollover_data['ticker'],
-            'option_type': rollover_data['current_option_type'],  # Same option type
+            'ticker': buy_order['ticker'],
+            'option_type': buy_order['option_type'],
             'strike': rollover_data['new_strike'],
             'expiration': rollover_data['new_expiration'],
-            'action': 'SELL',  # Sell to open
+            'action': 'SELL',
+            'intent': 'OPEN',
             'quantity': rollover_data['quantity'],
             'order_type': 'LIMIT',
             'premium': rollover_data.get('new_limit_price'),
@@ -315,13 +323,12 @@ def rollover_option():
         }
         
         try:
-            buy_order = options_service.validate_order_data(buy_order)
             sell_order = options_service.validate_order_data(sell_order)
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
 
         # Store the two rollover legs in one transaction so a partial pair cannot exist.
-        order_ids = options_service.db.save_orders([buy_order, sell_order])
+        order_ids = db.save_orders([buy_order, sell_order])
         buy_order_id, sell_order_id = order_ids if len(order_ids) == 2 else (None, None)
         
         if buy_order_id and sell_order_id:
@@ -331,8 +338,13 @@ def rollover_option():
                 "sell_order_id": sell_order_id,
                 "message": "Rollover orders created successfully"
             }), 201
-        else:
-            return jsonify({"error": "Failed to create one or more rollover orders"}), 500
+        existing = db.get_active_close_order(buy_order['con_id'])
+        if existing:
+            return jsonify({
+                "error": "Another active close order already exists for this option position",
+                "order_id": existing.get('id')
+            }), 409
+        return jsonify({"error": "Failed to create one or more rollover orders"}), 500
             
     except Exception as e:
         logger.error(f"Error creating rollover orders: {str(e)}")
