@@ -4,34 +4,34 @@
     <div class="col-md-12 mb-4">
         <div class="card shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Option Positions</h5>
+                <h5 class="mb-0" data-i18n="portfolio.optionPositions">Option Positions</h5>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
                     <table class="table table-striped">
                         <thead>
                             <tr>
-                                <th>Symbol</th>
-                                <th>Contracts</th>
-                                <th>Type</th>
-                                <th>Strike</th>
-                                <th>Expiration</th>
-                                <th>Current Price</th>
-                                <th>Strike Difference</th>
-                                <th>% Difference</th>
-                                <th>Actions</th>
+                                <th data-i18n="common.symbol">Symbol</th>
+                                <th data-i18n="common.contracts">Contracts</th>
+                                <th data-i18n="common.type">Type</th>
+                                <th data-i18n="common.strike">Strike</th>
+                                <th data-i18n="common.expiration">Expiration</th>
+                                <th data-i18n="portfolio.currentPrice">Current Price</th>
+                                <th data-i18n="rollover.strikeDifference">Strike Difference</th>
+                                <th data-i18n="rollover.percentDifference">% Difference</th>
+                                <th data-i18n="common.actions">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="option-positions-table-body">
                             <tr>
-                                <td colspan="9" class="text-center">Loading option positions...</td>
+                                <td colspan="9" class="text-center" data-i18n="portfolio.loadingOptions">Loading option positions...</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
             </div>
             <div class="card-footer">
-                <small class="text-muted">This table shows all option positions. Rows highlighted in yellow or red are approaching their strike price (less than 10% difference).</small>
+                <small class="text-muted" data-i18n="rollover.positionsFooter">This table shows all option positions. Rows highlighted in yellow or red are approaching their strike price (less than 10% difference).</small>
             </div>
         </div>
     </div>
@@ -40,36 +40,36 @@
     <div class="col-md-12 mb-4">
         <div class="card shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Rollover Suggestions</h5>
+                <h5 class="mb-0" data-i18n="rollover.suggestions">Rollover Suggestions</h5>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
                     <table class="table table-striped">
                         <thead>
                             <tr>
-                                <th>Action</th>
-                                <th>Symbol</th>
-                                <th>Type</th>
-                                <th>Strike</th>
-                                <th>Expiration</th>
-                                <th>Contracts</th>
-                                <th>Limit Price</th>
-                                <th>Order Type</th>
-                                <th>Delta</th>
-                                <th>IV%</th>
-                                <th>Action</th>
+                                <th data-i18n="common.action">Action</th>
+                                <th data-i18n="common.symbol">Symbol</th>
+                                <th data-i18n="common.type">Type</th>
+                                <th data-i18n="common.strike">Strike</th>
+                                <th data-i18n="common.expiration">Expiration</th>
+                                <th data-i18n="common.contracts">Contracts</th>
+                                <th data-i18n="common.limitPrice">Limit Price</th>
+                                <th data-i18n="rollover.orderType">Order Type</th>
+                                <th data-i18n="common.delta">Delta</th>
+                                <th data-i18n="common.iv">IV%</th>
+                                <th data-i18n="common.action">Action</th>
                             </tr>
                         </thead>
                         <tbody id="rollover-suggestions-table-body">
                             <tr>
-                                <td colspan="11" class="text-center">Select an option to roll to view suggested replacements.</td>
+                                <td colspan="11" class="text-center" data-i18n="rollover.selectOption">Select an option to roll to view suggested replacements.</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
             </div>
             <div class="card-footer">
-                <small class="text-muted">This table shows suggested order pairs for rolling over positions. First row is to close the current position, second row is to open a new position.</small>
+                <small class="text-muted" data-i18n="rollover.suggestionsFooter">This table shows suggested order pairs for rolling over positions. First row is to close the current position, second row is to open a new position.</small>
             </div>
         </div>
     </div>
@@ -78,9 +78,9 @@
     <div class="col-md-12">
         <div class="card shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Rollover Pending Orders</h5>
+                <h5 class="mb-0" data-i18n="rollover.pendingOrders">Rollover Pending Orders</h5>
                 <button id="refresh-pending-orders" class="btn btn-sm btn-outline-primary">
-                    <i class="bi bi-arrow-repeat"></i> Refresh
+                    <i class="bi bi-arrow-repeat"></i> <span data-i18n="common.refresh">Refresh</span>
                 </button>
             </div>
             <div class="card-body">
@@ -89,27 +89,27 @@
                         <thead>
                             <tr>
                                 <th>ID</th>
-                                <th>Action</th>
-                                <th>Symbol</th>
-                                <th>Type</th>
-                                <th>Strike</th>
-                                <th>Expiration</th>
-                                <th>Contracts</th>
-                                <th>Limit Price</th>
-                                <th>Status</th>
-                                <th>Actions</th>
+                                <th data-i18n="common.action">Action</th>
+                                <th data-i18n="common.symbol">Symbol</th>
+                                <th data-i18n="common.type">Type</th>
+                                <th data-i18n="common.strike">Strike</th>
+                                <th data-i18n="common.expiration">Expiration</th>
+                                <th data-i18n="common.contracts">Contracts</th>
+                                <th data-i18n="common.limitPrice">Limit Price</th>
+                                <th data-i18n="common.status">Status</th>
+                                <th data-i18n="common.actions">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="pending-orders-table-body">
                             <tr>
-                                <td colspan="10" class="text-center">Loading rollover pending orders...</td>
+                                <td colspan="10" class="text-center" data-i18n="rollover.loadingPending">Loading rollover pending orders...</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
             </div>
             <div class="card-footer">
-                <small class="text-muted">This table only shows rollover-related option orders. For all pending orders, please visit the dashboard.</small>
+                <small class="text-muted" data-i18n="rollover.pendingFooter">This table only shows rollover-related option orders. For all pending orders, please visit the dashboard.</small>
             </div>
         </div>
     </div>

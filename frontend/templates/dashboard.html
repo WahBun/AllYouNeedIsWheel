@@ -11,7 +11,9 @@
 <!-- Include page header -->
 {% with 
   title="Dashboard",
-  subtitle="Overview of your portfolio and trading activity"
+  title_i18n="page.dashboard.title",
+  subtitle="Overview of your portfolio and trading activity",
+  subtitle_i18n="page.dashboard.subtitle"
 %}
   {% include "partials/components/page_header.html" %}
 {% endwith %}
@@ -25,5 +27,5 @@
 
 {% block scripts %}
 <!-- Import modular JavaScript files with ES modules -->
-<script type="module" src="{{ url_for('static', filename='js/dashboard/dashboard.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/dashboard/dashboard.js') }}?v=close-position-1"></script>
 {% endblock %} 

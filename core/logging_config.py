@@ -11,7 +11,10 @@ from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
 # Base directory for logs
-LOGS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
+LOGS_DIR = os.environ.get(
+    'LOG_DIR',
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
+)
 
 # Ensure log directories exist
 for subdir in ['api', 'tws', 'server', 'general']:
@@ -41,13 +44,17 @@ def cleanup_old_logs(log_type, max_logs=5):
     # If we have more logs than the maximum, remove the oldest ones
     if len(log_files) > max_logs:
         # Sort by modification time (newest first)
-        log_files.sort(key=os.path.getmtime, reverse=True)
+        log_files = [log_file for log_file in log_files if os.path.exists(log_file)]
+        log_files.sort(key=lambda log_file: os.path.getmtime(log_file) if os.path.exists(log_file) else 0, reverse=True)
         
         # Remove older logs (keep the newest max_logs)
         for old_log in log_files[max_logs:]:
             try:
-                os.remove(old_log)
-                print(f"Removed old log file: {old_log}")
+                if os.path.exists(old_log):
+                    os.remove(old_log)
+                    print(f"Removed old log file: {old_log}")
+            except FileNotFoundError:
+                pass
             except Exception as e:
                 print(f"Error removing log file {old_log}: {e}")
 

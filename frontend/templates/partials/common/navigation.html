@@ -1,19 +1,22 @@
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <div class="container">
-        <a class="navbar-brand" href="/">All You Need Is Wheel</a>
+        <a class="navbar-brand" href="/" data-i18n="app.name">All You Need Is Wheel</a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
             <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav">
                 <li class="nav-item">
-                    <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="/">Dashboard</a>
+                    <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="/" data-i18n="nav.dashboard">Dashboard</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link {% if request.path == '/portfolio' %}active{% endif %}" href="/portfolio">Portfolio</a>
+                    <a class="nav-link {% if request.path == '/portfolio' %}active{% endif %}" href="/portfolio" data-i18n="nav.portfolio">Portfolio</a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link {% if request.path == '/rollover' %}active{% endif %}" href="/rollover">Rollover</a>
+                    <a class="nav-link {% if request.path == '/rollover' %}active{% endif %}" href="/rollover" data-i18n="nav.rollover">Rollover</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="https://wahbun.github.io/ben-shortcut/options-strategy-trainer/" target="_blank" rel="noopener noreferrer" data-i18n="nav.strategyTrainer">Strategy Trainer</a>
                 </li>
                 <!-- Temporarily hidden until implementation is complete
                 <li class="nav-item">
@@ -24,6 +27,14 @@
                 </li>
                 -->
             </ul>
+            <div class="nav-controls ms-lg-auto mt-3 mt-lg-0">
+                <button id="language-toggle" class="btn btn-sm btn-outline-light language-toggle" type="button" data-bs-toggle="tooltip" data-bs-title="Switch language" aria-label="Switch language">
+                    <span class="language-toggle-label">EN</span>
+                </button>
+                <button id="theme-toggle" class="btn btn-sm btn-outline-light theme-toggle" type="button" data-bs-toggle="tooltip" data-bs-title="Toggle theme" aria-label="Toggle theme">
+                    <i class="bi bi-moon-stars-fill" aria-hidden="true"></i>
+                </button>
+            </div>
         </div>
     </div>
 </nav> 

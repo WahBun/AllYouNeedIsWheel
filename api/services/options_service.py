@@ -6,11 +6,17 @@ Handles options data retrieval and processing
 import logging
 import math
 import random
+import re
 import time
 from datetime import datetime, timedelta, time as datetime_time
 import pandas as pd
 from core.connection import IBConnection, Option, Stock, suppress_ib_logs
-from core.utils import get_closest_friday, get_next_monthly_expiration, is_market_hours
+from core.utils import (
+    get_closest_friday,
+    get_next_monthly_expiration,
+    is_market_hours,
+    select_default_expiration
+)
 from config import Config
 from db.database import OptionsDatabase
 import traceback
@@ -29,7 +35,8 @@ class OptionsService:
         self.connection = None
         db_path = self.config.get('db_path')
         self.db = OptionsDatabase(db_path)
-        self.portfolio_service = None  # Will be initialized when needed
+        self._stock_positions_cache = {}
+        self._stock_positions_cached_at = 0
         
     def _ensure_connection(self):
         """
@@ -63,7 +70,8 @@ class OptionsService:
                 port=port,
                 client_id=unique_client_id,  # Use the unique client ID instead of fixed ID 1
                 timeout=self.config.get('timeout', 20),
-                readonly=self.config.get('readonly', True)
+                readonly=self.config.get('readonly', True),
+                account_id=self.config.get('account_id')
             )
             
             # Try to connect with proper error handling
@@ -78,6 +86,118 @@ class OptionsService:
             if "There is no current event loop" in str(e):
                 logger.error("Asyncio event loop error - please check connection.py for proper handling")
             return None
+
+    def validate_order_data(self, order_data):
+        """Normalize an option order and reject values that are unsafe to persist."""
+        if not isinstance(order_data, dict):
+            raise ValueError("Order data must be a JSON object")
+
+        normalized = dict(order_data)
+        ticker = str(order_data.get('ticker', '')).strip().upper()
+        if not re.fullmatch(r'[A-Z0-9.-]{1,15}', ticker):
+            raise ValueError("Invalid ticker")
+
+        option_type = str(order_data.get('option_type', '')).strip().upper()
+        if option_type not in {'CALL', 'PUT'}:
+            raise ValueError("Option type must be CALL or PUT")
+
+        action = str(order_data.get('action', '')).strip().upper()
+        if action not in {'BUY', 'SELL'}:
+            raise ValueError("Action must be BUY or SELL")
+
+        intent = str(order_data.get('intent', 'OPEN')).strip().upper()
+        if intent not in {'OPEN', 'CLOSE'}:
+            raise ValueError("Order intent must be OPEN or CLOSE")
+
+        try:
+            strike = float(order_data.get('strike'))
+        except (TypeError, ValueError):
+            raise ValueError("Strike must be a positive number")
+        if not math.isfinite(strike) or strike <= 0:
+            raise ValueError("Strike must be a positive number")
+
+        expiration = str(order_data.get('expiration', '')).strip().replace('-', '')
+        try:
+            expiration_date = datetime.strptime(expiration, '%Y%m%d').date()
+        except ValueError:
+            raise ValueError("Expiration must use YYYYMMDD format")
+        if expiration_date < datetime.now().date():
+            raise ValueError("Expiration cannot be in the past")
+
+        quantity_value = order_data.get('quantity', 1)
+        try:
+            quantity = int(quantity_value)
+        except (TypeError, ValueError):
+            raise ValueError("Quantity must be a whole number")
+        if isinstance(quantity_value, float) and not quantity_value.is_integer():
+            raise ValueError("Quantity must be a whole number")
+        max_quantity = int(self.config.get('max_order_quantity', 100))
+        if quantity < 1 or quantity > max_quantity:
+            raise ValueError(f"Quantity must be between 1 and {max_quantity}")
+
+        try:
+            premium = float(order_data.get('premium'))
+        except (TypeError, ValueError):
+            raise ValueError("A positive limit price is required")
+        if not math.isfinite(premium) or premium <= 0:
+            raise ValueError("A positive limit price is required")
+        if option_type == 'PUT' and premium > strike:
+            raise ValueError("PUT limit price cannot exceed its strike price")
+
+        prices = {}
+        for field in ('bid', 'ask', 'last'):
+            try:
+                value = float(order_data.get(field, 0) or 0)
+            except (TypeError, ValueError):
+                raise ValueError(f"{field.title()} price must be numeric")
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"{field.title()} price cannot be negative")
+            prices[field] = value
+        if prices['bid'] > 0 and prices['ask'] > 0 and prices['bid'] > prices['ask']:
+            raise ValueError("Bid price cannot exceed ask price")
+
+        close_fields = {}
+        if intent == 'CLOSE':
+            try:
+                con_id = int(order_data.get('con_id'))
+            except (TypeError, ValueError):
+                raise ValueError("A valid IB contract identifier is required for close orders")
+            if con_id <= 0:
+                raise ValueError("A valid IB contract identifier is required for close orders")
+
+            account_id = str(order_data.get('account_id', '')).strip()
+            if not account_id:
+                raise ValueError("An IB account is required for close orders")
+
+            try:
+                multiplier = float(order_data.get('contract_multiplier', 100) or 100)
+            except (TypeError, ValueError):
+                raise ValueError("Invalid option contract multiplier")
+            if not math.isfinite(multiplier) or multiplier <= 0:
+                raise ValueError("Invalid option contract multiplier")
+
+            close_fields = {
+                'con_id': con_id,
+                'account_id': account_id,
+                'contract_multiplier': multiplier,
+                'exchange': str(order_data.get('exchange', 'SMART') or 'SMART'),
+                'currency': str(order_data.get('currency', 'USD') or 'USD'),
+                'local_symbol': str(order_data.get('local_symbol', '') or '')
+            }
+
+        normalized.update({
+            'ticker': ticker,
+            'option_type': option_type,
+            'action': action,
+            'intent': intent,
+            'strike': strike,
+            'expiration': expiration,
+            'quantity': quantity,
+            'premium': round(premium, 2),
+            **prices,
+            **close_fields
+        })
+        return normalized
         
     def _adjust_to_standard_strike(self, price):
         """
@@ -90,257 +210,483 @@ class OptionsService:
             float: Adjusted standard strike price
         """
         return round(price)
+
+    def _expiration_skip_days(self):
+        """Return the configured short-dated exclusion window for defaults."""
+        try:
+            return max(0, min(int(self.config.get('expiration_skip_days', 7)), 60))
+        except (TypeError, ValueError):
+            return 7
+
+    def _validate_close_position(self, conn, order, account, db):
+        """Validate a close order against the latest exact IB position."""
+        if order.get('intent') != 'CLOSE':
+            return None
+
+        if str(order.get('account_id') or '') != str(account):
+            raise ValueError("The configured IB account changed; cancel and recreate this close order")
+
+        other_close = db.get_active_close_order(
+            order.get('con_id'),
+            exclude_order_id=order.get('id')
+        )
+        if other_close:
+            raise ValueError("Another active close order already exists for this option position")
+
+        position = conn.get_option_position_by_con_id(order.get('con_id'), account)
+        if not position or not position.get('contract'):
+            raise ValueError("The option position no longer exists in the configured IB account")
+
+        current_quantity = float(position.get('position', 0) or 0)
+        if current_quantity == 0:
+            raise ValueError("The option position is already closed")
+
+        expected_action = 'BUY' if current_quantity < 0 else 'SELL'
+        if order.get('action') != expected_action:
+            raise ValueError("The position direction changed; cancel and recreate this close order")
+        if conn.get_open_option_order_quantity(
+            order.get('con_id'), expected_action, account
+        ) > 0:
+            raise ValueError(
+                "An active IB close order already exists for this option position"
+            )
+        if int(order.get('quantity', 0) or 0) > int(abs(current_quantity)):
+            raise ValueError("Close quantity exceeds the current option position")
+
+        contract = position['contract']
+        expected_right = 'C' if order.get('option_type') == 'CALL' else 'P'
+        if getattr(contract, 'right', '') != expected_right:
+            raise ValueError("The held option type no longer matches this close order")
+        if str(getattr(contract, 'symbol', '')) != order.get('ticker'):
+            raise ValueError("The held option symbol no longer matches this close order")
+        if str(getattr(contract, 'lastTradeDateOrContractMonth', '')) != order.get('expiration'):
+            raise ValueError("The held option expiration no longer matches this close order")
+        if abs(float(getattr(contract, 'strike', 0) or 0) - float(order.get('strike', 0))) > 0.001:
+            raise ValueError("The held option strike no longer matches this close order")
+
+        return position
+
+    @staticmethod
+    def _close_order_error_response(db, order_id, error, expected_status):
+        message = str(error)
+        db.update_order_status(
+            order_id=order_id,
+            status='rejected',
+            executed=True,
+            execution_details={
+                'ib_status': 'NotSubmitted',
+                'error_message': message,
+                'filled': 0
+            },
+            expected_statuses=[expected_status]
+        )
+        return {
+            'success': False,
+            'error': message,
+            'status': 'rejected'
+        }, 409
+
+    def stage_close_order(self, close_data, db=None):
+        """Create a local pending close order from an exact current position."""
+        db = db or self.db
+        if not isinstance(close_data, dict):
+            return {'success': False, 'error': 'Close order data must be a JSON object'}, 400
+
+        try:
+            con_id = int(close_data.get('con_id'))
+            quantity_value = close_data.get('quantity')
+            quantity = int(quantity_value)
+            if isinstance(quantity_value, float) and not quantity_value.is_integer():
+                raise ValueError
+            limit_price = float(close_data.get('limit_price'))
+        except (TypeError, ValueError):
+            return {
+                'success': False,
+                'error': 'Contract, quantity, and a positive limit price are required'
+            }, 400
+
+        if con_id <= 0 or quantity <= 0 or not math.isfinite(limit_price) or limit_price <= 0:
+            return {
+                'success': False,
+                'error': 'Contract, quantity, and a positive limit price are required'
+            }, 400
+
+        conn = self._ensure_connection()
+        if not conn:
+            return {'success': False, 'error': 'Failed to connect to IB Gateway'}, 503
+
+        account = conn._order_account()
+        if not account:
+            return {
+                'success': False,
+                'error': 'No unambiguous IB account is configured for order routing'
+            }, 503
+
+        position = conn.get_option_position_by_con_id(con_id, account)
+        if not position or not position.get('contract'):
+            return {
+                'success': False,
+                'error': 'Option position was not found in the configured IB account'
+            }, 404
+
+        current_quantity = float(position.get('position', 0) or 0)
+        if current_quantity == 0 or quantity > int(abs(current_quantity)):
+            return {
+                'success': False,
+                'error': 'Close quantity exceeds the current option position'
+            }, 409
+
+        close_action = 'BUY' if current_quantity < 0 else 'SELL'
+        if conn.get_open_option_order_quantity(con_id, close_action, account) > 0:
+            return {
+                'success': False,
+                'error': 'An active IB close order already exists for this option position'
+            }, 409
+
+        existing = db.get_active_close_order(con_id)
+        if existing:
+            return {
+                'success': False,
+                'error': 'Another active close order already exists for this option position',
+                'order_id': existing.get('id')
+            }, 409
+
+        contract = position['contract']
+        try:
+            multiplier = float(getattr(contract, 'multiplier', 100) or 100)
+        except (TypeError, ValueError):
+            multiplier = 100
+
+        order_data = {
+            'ticker': str(getattr(contract, 'symbol', '') or '').upper(),
+            'option_type': 'CALL' if getattr(contract, 'right', '') == 'C' else 'PUT',
+            'action': close_action,
+            'intent': 'CLOSE',
+            'strike': float(getattr(contract, 'strike', 0) or 0),
+            'expiration': str(getattr(contract, 'lastTradeDateOrContractMonth', '') or ''),
+            'premium': limit_price,
+            'quantity': quantity,
+            'con_id': con_id,
+            'account_id': str(account),
+            'contract_multiplier': multiplier,
+            'exchange': str(getattr(contract, 'exchange', '') or 'SMART'),
+            'currency': str(getattr(contract, 'currency', '') or 'USD'),
+            'local_symbol': str(getattr(contract, 'localSymbol', '') or ''),
+            'bid': 0,
+            'ask': 0,
+            'last': 0
+        }
+
+        try:
+            order_data = self.validate_order_data(order_data)
+        except ValueError as error:
+            return {'success': False, 'error': str(error)}, 400
+
+        order_id = db.save_order(order_data)
+        if not order_id:
+            existing = db.get_active_close_order(con_id)
+            if existing:
+                return {
+                    'success': False,
+                    'error': 'Another active close order already exists for this option position',
+                    'order_id': existing.get('id')
+                }, 409
+            return {'success': False, 'error': 'Failed to stage close order'}, 500
+
+        return {
+            'success': True,
+            'order_id': order_id,
+            'status': 'pending',
+            'action': order_data['action'],
+            'intent': 'CLOSE',
+            'account_suffix': str(account)[-4:]
+        }, 201
       
     def execute_order(self, order_id, db):
-        """
-        Execute an order by sending it to TWS
-        
-        Args:
-            order_id (int): The ID of the order to execute
-            db: Database instance to retrieve and update order information
-            
-        Returns:
-            dict: Execution result with status and details
-        """
+        """Validate, preflight, claim, and submit one pending option order."""
         logger.info(f"Executing order with ID {order_id}")
-        
+        claimed = False
+        transmit_attempted = False
+
         try:
-            # Try to get the order first to ensure it exists
             order = db.get_order(order_id)
             if not order:
-                logger.error(f"Order with ID {order_id} not found")
                 return {
                     "success": False,
                     "error": f"Order with ID {order_id} not found"
                 }, 404
-                
-            # Check if order is in executable state
-            if order['status'] != 'pending':
-                logger.error(f"Cannot execute order with status '{order['status']}'")
+
+            if order.get('status') != 'pending':
                 return {
                     "success": False,
-                    "error": f"Cannot execute order with status '{order['status']}'. Only 'pending' orders can be executed."
+                    "error": (
+                        f"Cannot execute order with status '{order.get('status')}'. "
+                        "Only pending orders can be executed."
+                    ),
+                    "status": order.get('status')
+                }, 409
+
+            try:
+                order = self.validate_order_data(order)
+            except ValueError as error:
+                db.update_order_status(
+                    order_id=order_id,
+                    status="rejected",
+                    executed=True,
+                    execution_details={
+                        "ib_status": "NotSubmitted",
+                        "error_message": str(error),
+                        "filled": 0,
+                        "remaining": order.get('quantity', 0)
+                    },
+                    expected_statuses=['pending']
+                )
+                return {
+                    "success": False,
+                    "error": str(error),
+                    "status": "rejected"
                 }, 400
-                
-            # Get connection to TWS
+
             suppress_ib_logs()
-            
-            # Use the existing connection method
             conn = self._ensure_connection()
             if not conn:
-                logger.error("Failed to connect to TWS")
                 return {
                     "success": False,
-                    "error": "Failed to connect to TWS"
-                }, 500
-                
-            # Get order details directly (no more nested JSON)
-            ticker = order.get('ticker')
-            if not ticker:
-                conn.disconnect()
+                    "error": "Failed to connect to IB Gateway"
+                }, 503
+
+            account = conn._order_account()
+            if not account:
                 return {
                     "success": False,
-                    "error": "Missing ticker in order details"
-                }, 400
-                
-            quantity = int(order.get('quantity', 0))
-            if quantity <= 0:
-                conn.disconnect()
-                return {
-                    "success": False,
-                    "error": "Invalid quantity"
-                }, 400
-                
-            order_type = 'LMT'
-            action = order.get('action')
-            
-            # Extract option details
-            expiry = order.get('expiration')
-            strike = order.get('strike')
-            option_type = order.get('option_type')
-            
-            if not all([expiry, strike, option_type]):
-                conn.disconnect()
-                return {
-                    "success": False,
-                    "error": "Missing option details (expiry, strike, or option_type)"
-                }, 400
-                
-            # Get limit price with improved handling to avoid zero values
-            try:
-                # Log all price-related fields for diagnostic purposes
-                price_fields = {
-                    'bid': order.get('bid'),
-                    'ask': order.get('ask'),
-                    'last': order.get('last'),
-                    'premium': order.get('premium'),
-                    'strike': strike
-                }
-                
-                # Get price values, with more thorough validation
-                bid = float(order.get('bid', 0) or 0)
-                ask = float(order.get('ask', 0) or 0)
-                last = float(order.get('last', 0) or 0)
-                premium = float(order.get('premium', 0) or 0)
-                
-                # If bid is zero or very low, try to get real-time price if market is open
-                if bid < 0.01 and is_market_hours() and conn and ticker and expiry and strike and option_type:
-                    logger.info(f"Bid price is zero or very low ({bid}). Attempting to get real-time market data.")
-                    try:
-                        # Create contract for the option
-                        contract = conn.create_option_contract(
-                            symbol=ticker,
-                            expiry=expiry,
-                            strike=float(strike),
-                            option_type=option_type
-                        )
-                        
-                        # Get real-time market data
-                        if contract:
-                            option_data = conn.get_option_market_data(contract)
-                            if option_data:
-                                # Update bid and ask if available
-                                if 'bid' in option_data and option_data['bid'] > 0:
-                                    bid = float(option_data['bid'])
-                                if 'ask' in option_data and option_data['ask'] > 0:
-                                    ask = float(option_data['ask'])
-                                if 'last' in option_data and option_data['last'] > 0:
-                                    last = float(option_data['last'])
-                    except Exception as e:
-                        logger.warning(f"Error getting real-time option data: {e}")
-                
-                # Calculate appropriate limit price using all available price information
-                
-                if bid > 0 and ask > 0:
-                    # Use mid-price if both bid and ask are valid
-                    limit_price = (bid + ask) / 2
-                elif bid > 0:
-                    # Use bid if only bid is valid
-                    limit_price = bid
-                elif ask > 0:
-                    # Use 90% of ask if only ask is valid (more conservative)
-                    limit_price = ask * 0.9
-                elif last > 0:
-                    # Use last price if available
-                    limit_price = last
-                elif premium > 0:
-                    # Use premium as fallback
-                    limit_price = premium
-                else:
-                    # Last resort - calculate a minimum price based on strike
-                    # For safety, use at least 1% of strike price or $0.05, whichever is higher
-                    min_price_from_strike = max(float(strike) * 0.01, 0.05)
-                    limit_price = min_price_from_strike
-                    logger.warning(f"No valid price data found, using fallback minimum: {limit_price}")
-                    
-                # Ensure minimum price and round properly
-                if limit_price < 0.05:
-                    limit_price = 0.05
-                
-                # Round to nearest cent
-                limit_price = round(limit_price, 2)
-                
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Error calculating limit price: {e}. Using default.")
-                # Calculate a reasonable default based on strike price
+                    "error": "No unambiguous IB account is configured for order routing"
+                }, 503
+
+            ticker = order['ticker']
+            quantity = order['quantity']
+            action = order['action']
+            expiry = order['expiration']
+            strike = order['strike']
+            option_type = order['option_type']
+            limit_price = order['premium']
+
+            close_position = None
+            if order.get('intent') == 'CLOSE':
                 try:
-                    # Use 1% of strike price or $0.05, whichever is higher
-                    default_price = max(float(strike) * 0.01, 0.05)
-                    limit_price = round(default_price, 2)
-                except:
-                    limit_price = 0.05
-                    logger.warning(f"Failed to calculate default price, using absolute minimum: {limit_price}")
-            
-            logger.info(f"Final limit price for order execution: {limit_price}")
-            
-            # Create contract
-            contract = conn.create_option_contract(
-                symbol=ticker,
-                expiry=expiry,
-                strike=float(strike),
-                option_type=option_type
-            )
-            
+                    close_position = self._validate_close_position(conn, order, account, db)
+                except ValueError as error:
+                    return self._close_order_error_response(
+                        db, order_id, error, expected_status='pending'
+                    )
+                contract = close_position['contract']
+            else:
+                contract = conn.create_option_contract(
+                    symbol=ticker,
+                    expiry=expiry,
+                    strike=strike,
+                    option_type=option_type
+                )
             if not contract:
-                conn.disconnect()
                 return {
                     "success": False,
                     "error": "Failed to create option contract"
                 }, 500
-                
-            # Create order
+
             ib_order = conn.create_order(
                 action=action,
                 quantity=quantity,
-                order_type=order_type,
+                order_type='LMT',
                 limit_price=limit_price
             )
-            logger.debug(f"Created IB order: {ib_order}")
             if not ib_order:
-                conn.disconnect()
                 return {
                     "success": False,
-                    "error": "Failed to create order"
+                    "error": "Failed to create limit order"
                 }, 500
-                
-            # Place order
+
+            if not db.claim_order_for_execution(order_id):
+                current_order = db.get_order(order_id) or {}
+                return {
+                    "success": False,
+                    "error": "Order is already being submitted or is no longer pending",
+                    "status": current_order.get('status', 'unknown')
+                }, 409
+            claimed = True
+
+            if order.get('intent') == 'CLOSE':
+                try:
+                    close_position = self._validate_close_position(conn, order, account, db)
+                    contract = close_position['contract']
+                except ValueError as error:
+                    return self._close_order_error_response(
+                        db, order_id, error, expected_status='submitting'
+                    )
+
+            preflight = conn.what_if_order(contract, ib_order)
+            if not preflight or not preflight.get('success'):
+                error_message = (
+                    (preflight or {}).get('error_message')
+                    or (preflight or {}).get('error')
+                    or "IB did not approve this order during preflight validation"
+                )
+                execution_details = {
+                    "ib_status": "Rejected",
+                    "error_code": (preflight or {}).get('error_code'),
+                    "error_message": error_message,
+                    "warning_text": (preflight or {}).get('warning_text'),
+                    "filled": 0,
+                    "remaining": quantity,
+                    "avg_fill_price": 0
+                }
+                db.update_order_status(
+                    order_id=order_id,
+                    status="rejected",
+                    executed=True,
+                    execution_details=execution_details,
+                    expected_statuses=['submitting']
+                )
+                return {
+                    "success": False,
+                    "error": error_message,
+                    "order_id": order_id,
+                    "status": "rejected",
+                    "execution_details": execution_details
+                }, 422
+
+            if order.get('intent') == 'CLOSE':
+                try:
+                    close_position = self._validate_close_position(conn, order, account, db)
+                    contract = close_position['contract']
+                except ValueError as error:
+                    return self._close_order_error_response(
+                        db, order_id, error, expected_status='submitting'
+                    )
+
+            transmit_attempted = True
             result = conn.place_order(contract, ib_order)
-            conn.disconnect()
-            
             if not result:
+                execution_details = {
+                    "ib_status": "Unknown",
+                    "error_message": (
+                        "IB order submission returned no acknowledgement. "
+                        "Check IB Gateway before taking further action."
+                    ),
+                    "filled": 0,
+                    "remaining": quantity
+                }
+                db.update_order_status(
+                    order_id=order_id,
+                    status="unknown",
+                    executed=False,
+                    execution_details=execution_details,
+                    expected_statuses=['submitting']
+                )
                 return {
                     "success": False,
-                    "error": "Failed to place order"
-                }, 500
-            logger.info(f"Order placed successfully: {result}")
-            # Update order status in database
+                    "error": execution_details["error_message"],
+                    "order_id": order_id,
+                    "status": "unknown",
+                    "execution_details": execution_details
+                }, 502
+
+            ib_status = str(result.get('status') or 'Unknown')
+            error_message = result.get('error_message') or result.get('error')
+            normalized_status = ib_status.lower()
+
+            if error_message or normalized_status in {'inactive', 'error'}:
+                order_status = "rejected"
+                finalized = True
+            elif normalized_status == 'filled':
+                order_status = "executed"
+                finalized = True
+            elif normalized_status in {'apicancelled', 'cancelled'}:
+                order_status = "canceled"
+                finalized = True
+            elif normalized_status in {
+                'submitted', 'presubmitted', 'pendingsubmit', 'apisubmit',
+                'pendingcancel'
+            } and result.get('order_id'):
+                order_status = "processing"
+                finalized = False
+            else:
+                order_status = "unknown"
+                finalized = False
+                error_message = error_message or (
+                    f"Unrecognized IB acknowledgement '{ib_status}'. "
+                    "Check IB Gateway before taking further action."
+                )
+
             execution_details = {
                 "ib_order_id": result.get('order_id'),
-                "ib_status": result.get('status'),
-                "filled": result.get('filled'),
-                "remaining": result.get('remaining'),
-                "avg_fill_price": result.get('avg_fill_price'),
-                "limit_price": limit_price,  # Store the calculated limit price
+                "perm_id": result.get('perm_id'),
+                "ib_status": ib_status,
+                "error_code": result.get('error_code'),
+                "error_message": error_message,
+                "warning_text": result.get('warning_text') or preflight.get('warning_text'),
+                "filled": result.get('filled', 0),
+                "remaining": result.get('remaining', quantity),
+                "avg_fill_price": result.get('avg_fill_price', 0)
             }
-            
-            # Update order status to 'processing'
-            logger.info(f"Updating order {order_id} status to 'processing' with execution details: {execution_details}")
-            update_result = db.update_order_status(
+
+            tracked = db.update_order_status(
                 order_id=order_id,
-                status="processing",
-                executed=True,  # Mark as executed since it's been sent to IBKR
-                execution_details=execution_details
+                status=order_status,
+                executed=finalized,
+                execution_details=execution_details,
+                expected_statuses=['submitting']
             )
-            
-            # Verify that the update was successful
-            if update_result:
-                logger.info(f"Order status update successful")
-            else:
-                logger.warning(f"Order status update may have failed. Checking current status...")
-                current_order = db.get_order(order_id)
-                if current_order:
-                    logger.info(f"Current order status: {current_order.get('status')}, executed: {current_order.get('executed')}")
-                else:
-                    logger.error(f"Could not retrieve order {order_id} after update")
-            
-            logger.info(f"Order with ID {order_id} sent to TWS, IB order ID: {result.get('order_id')}")
+            if not tracked:
+                logger.critical(
+                    "IB order %s was submitted but local order %s could not be updated",
+                    result.get('order_id'),
+                    order_id
+                )
+                execution_details["error_message"] = (
+                    "Order reached IB, but local tracking failed. Check IB Gateway immediately."
+                )
+                return {
+                    "success": False,
+                    "error": execution_details["error_message"],
+                    "order_id": order_id,
+                    "ib_order_id": result.get('order_id'),
+                    "status": "unknown",
+                    "execution_details": execution_details
+                }, 500
+
             return {
-                "success": True,
-                "message": "Order sent to TWS",
+                "success": order_status in {"processing", "executed"},
+                "message": (
+                    "Order sent to IB"
+                    if order_status == "processing"
+                    else (error_message or f"Order {order_status}")
+                ),
                 "order_id": order_id,
                 "ib_order_id": result.get('order_id'),
-                "status": "processing",
+                "account_suffix": str(account)[-4:],
+                "status": order_status,
                 "execution_details": execution_details
             }, 200
-                
-        except Exception as e:
-            logger.error(f"Error executing order: {str(e)}")
+
+        except Exception as error:
+            logger.error(f"Error executing order: {str(error)}")
             logger.error(traceback.format_exc())
+            if claimed:
+                status = "unknown" if transmit_attempted else "rejected"
+                db.update_order_status(
+                    order_id=order_id,
+                    status=status,
+                    executed=status == "rejected",
+                    execution_details={
+                        "ib_status": "Unknown" if transmit_attempted else "NotSubmitted",
+                        "error_message": str(error)
+                    },
+                    expected_statuses=['submitting']
+                )
             return {
                 "success": False,
-                "error": str(e)
+                "error": str(error),
+                "status": "unknown" if transmit_attempted else "rejected"
             }, 500
-      
     def get_otm_options(self, ticker, otm_percentage=10, option_type=None, expiration=None):
         """
         Get option contracts that are OTM by the specified percentage
@@ -387,9 +733,37 @@ class OptionsService:
                 result[ticker] = {"error": str(e)}
         
         elapsed = time.time() - start_time
+        self._sanitize_result(result)
+        logger.info(
+            "Fetched %s %s option data in %.0f ms",
+            ticker,
+            option_type or 'CALL+PUT',
+            elapsed * 1000
+        )
         
         # Return the results
-        return {'data': result}
+        return {
+            'data': result,
+            'meta': {
+                'elapsed_ms': round(elapsed * 1000),
+                'market_data': 'live' if is_market_open else 'frozen'
+            }
+        }
+
+    def _get_stock_position_snapshot(self, ticker, conn):
+        """Get cached share count and portfolio price for a stock ticker."""
+        if time.time() - self._stock_positions_cached_at < 5:
+            return self._stock_positions_cache.get(ticker, {})
+
+        try:
+            self._stock_positions_cache = conn.get_stock_positions_snapshot() if conn else {}
+            self._stock_positions_cached_at = time.time()
+            return self._stock_positions_cache.get(ticker, {})
+        except Exception as e:
+            logger.error(f"Error getting stock position for {ticker}: {e}")
+            logger.error(traceback.format_exc())
+
+        return {}
         
     def _process_ticker_for_otm(self, conn, ticker, otm_percentage, expiration=None, is_market_open=None, option_type=None):
         """
@@ -407,6 +781,8 @@ class OptionsService:
             dict: Option data for the ticker
         """
         result = {}
+        position_snapshot = self._get_stock_position_snapshot(ticker, conn)
+        position_size = position_snapshot.get('position', 0)
         
         # Get stock price from IB - will use frozen data if market is closed
         stock_price = None
@@ -416,37 +792,28 @@ class OptionsService:
             except Exception as e:
                 logger.error(f"Error getting stock price for {ticker}: {e}")
                 logger.error(traceback.format_exc())
+
+        try:
+            stock_price = float(stock_price)
+        except (TypeError, ValueError):
+            stock_price = None
+
+        if stock_price is None or not math.isfinite(stock_price) or stock_price <= 0:
+            stock_price = position_snapshot.get('market_price')
         
         # If we don't have a valid stock price, return an error
-        if stock_price is None or not isinstance(stock_price, (int, float)) or stock_price <= 0:
+        if stock_price is None or not math.isfinite(stock_price) or stock_price <= 0:
             logger.error(f"No valid stock price received for {ticker}")
-            return {'error': 'Unable to obtain valid stock price'}
+            return {
+                'stock_price': 0,
+                'position': position_size,
+                'calls': [],
+                'puts': [],
+                'error': 'Unable to obtain valid stock price'
+            }
                 
         # Store stock price in result
         result['stock_price'] = stock_price
-        
-        # Get position information from portfolio
-        position_size = 0
-        try:
-            # Import and use portfolio service to get position size if not already initialized
-            if self.portfolio_service is None:
-                from api.services.portfolio_service import PortfolioService
-                self.portfolio_service = PortfolioService()
-            
-            # Get positions from portfolio service
-            positions = self.portfolio_service.get_positions()
-            
-            # Find the matching ticker in positions
-            for pos in positions:
-                if pos.get('symbol') == ticker:
-                    position_size = pos.get('position', 0)
-                    break
-            
-            if position_size == 0:
-                pass
-        except Exception as e:
-            logger.error(f"Error getting position for {ticker}: {e}")
-            logger.error(traceback.format_exc())
         
         # Store position size in result
         result['position'] = position_size
@@ -465,21 +832,36 @@ class OptionsService:
                 
                 options = []
                 
-                # Get default expiration date (closest Friday) if not specified
-                default_expiration = get_closest_friday().strftime('%Y%m%d')
+                # Default to the next standard monthly expiration. Weekly expirations
+                # are usually less liquid and noisier for this workflow.
+                default_expiration = get_next_monthly_expiration(
+                    skip_within_days=self._expiration_skip_days()
+                )
                 
                 # Use provided expiration if available, otherwise use default
                 target_expiration = expiration if expiration else default_expiration
                 
                 # Get call options if requested
                 if not option_type or option_type == 'CALL':
-                    call_option = conn.get_option_chain(ticker, target_expiration, 'C', call_strike)
+                    call_option = conn.get_option_chain(
+                        ticker,
+                        target_expiration,
+                        'C',
+                        call_strike,
+                        stock_price=stock_price
+                    )
                     if call_option:
                         options.append(call_option)
                 
                 # Get put options if requested
                 if not option_type or option_type == 'PUT':
-                    put_option = conn.get_option_chain(ticker, target_expiration, 'P', put_strike)
+                    put_option = conn.get_option_chain(
+                        ticker,
+                        target_expiration,
+                        'P',
+                        put_strike,
+                        stock_price=stock_price
+                    )
                     if put_option:
                         options.append(put_option)
                 
@@ -708,7 +1090,7 @@ class OptionsService:
             db = self.db
             try:
                 orders = db.get_orders(
-                    status_filter=['pending', 'processing'],
+                    status_filter=['pending', 'submitting', 'processing', 'canceling', 'unknown'],
                     limit=50  # Limit to most recent orders
                 )
                 
@@ -734,6 +1116,12 @@ class OptionsService:
                 
             # Connect to TWS
             conn = self._ensure_connection()
+            if not conn:
+                return {
+                    "success": False,
+                    "error": "Failed to connect to IB Gateway",
+                    "updated_orders": []
+                }
                 
             updated_orders = []
             for order in orders:
@@ -741,29 +1129,51 @@ class OptionsService:
                 ib_order_id = order.get('ib_order_id')
                 
                 # Only check orders that have been submitted to IB
-                if order.get('status') == 'processing' and ib_order_id:
+                if order.get('status') in {'processing', 'canceling', 'unknown'} and ib_order_id:
                     try:
                         # Check status in TWS
-                        ib_status = conn.check_order_status(ib_order_id)
+                        ib_status = conn.check_order_status(
+                            ib_order_id,
+                            perm_id=order.get('perm_id'),
+                            order_details=order
+                        )
                         
                         if ib_status:
                             # Determine new status based on IB status
-                            new_status = "processing"  # Default if still being processed
-                            executed = False  # Default not executed
+                            current_status = order.get('status')
+                            new_status = "canceling" if current_status == 'canceling' else "processing"
+                            executed = False
                             
                             # Map IB status to our status
-                            if ib_status.get('status') in ['Filled', 'ApiCancelled', 'Cancelled']:
-                                if ib_status.get('status') == 'Filled':
+                            raw_ib_status = ib_status.get('status')
+                            if ib_status.get('error_message') or raw_ib_status == 'Inactive':
+                                new_status = "rejected"
+                                executed = True
+                            elif raw_ib_status in ['Filled', 'ApiCancelled', 'Cancelled']:
+                                if raw_ib_status == 'Filled':
                                     new_status = "executed"
                                     executed = True  # Mark as executed if filled
                                 else:
                                     new_status = "canceled"
                                     executed = True  # Mark as executed if cancelled
+                            elif raw_ib_status == 'PendingCancel':
+                                new_status = "canceling"
+                            elif raw_ib_status == 'NotFound':
+                                new_status = "unknown"
+                                executed = False
+                                ib_status['error_message'] = (
+                                    "IB did not return this order. Verify it in IB Gateway before retrying, "
+                                    "canceling, or placing a replacement."
+                                )
                                     
                             # Update execution details
                             execution_details = {
-                                "ib_order_id": ib_order_id,
-                                "ib_status": ib_status.get('status'),
+                                "ib_order_id": ib_status.get('order_id') or ib_order_id,
+                                "perm_id": ib_status.get('perm_id') or order.get('perm_id'),
+                                "ib_status": raw_ib_status,
+                                "error_code": ib_status.get('error_code'),
+                                "error_message": ib_status.get('error_message'),
+                                "warning_text": ib_status.get('warning_text'),
                                 "filled": ib_status.get('filled', 0),
                                 "remaining": ib_status.get('remaining', 0),
                                 "avg_fill_price": ib_status.get('avg_fill_price', 0),
@@ -776,7 +1186,8 @@ class OptionsService:
                                 order_id=order_id,
                                 status=new_status,
                                 executed=executed,  # Set executed flag based on status
-                                execution_details=execution_details
+                                execution_details=execution_details,
+                                expected_statuses=[current_status]
                             )
                             
                             if update_result:
@@ -799,10 +1210,6 @@ class OptionsService:
                         logger.error(f"Error checking status for order {order_id}: {str(e)}")
                         logger.error(traceback.format_exc())
             
-            # Disconnect from TWS
-            if conn:
-                conn.disconnect()
-                
             return {
                 "success": True,
                 "message": f"Updated {len(updated_orders)} orders",
@@ -818,204 +1225,167 @@ class OptionsService:
             }
 
     def cancel_order(self, order_id):
-        """
-        Cancel an order, supporting both pending and processing orders.
-        If the order is processing on IBKR, it will attempt to cancel it via TWS API.
-        Even if TWS cancellation fails, the order will still be marked as cancelled.
-        
-        Args:
-            order_id (int): The ID of the order to cancel
-            
-        Returns:
-            dict: Result with status and details
-        """
+        """Cancel locally pending orders or request cancellation from IB."""
+        db = self.db
         try:
-            # Get the order to check its current status
-            db = self.db
             order = db.get_order(order_id)
-            
             if not order:
-                logger.error(f"Order with ID {order_id} not found")
                 return {
                     "success": False,
                     "error": f"Order with ID {order_id} not found"
                 }, 404
-                
-            # Check if order is in a cancelable state
-            if order['status'] not in ['pending', 'processing']:
-                logger.error(f"Cannot cancel order with status '{order['status']}'")
-                return {
-                    "success": False,
-                    "error": f"Cannot cancel order with status '{order['status']}'. Only 'pending' or 'processing' orders can be canceled."
-                }, 400
-                
-            # If the order is processing in IBKR, we need to cancel it there first
-            if order['status'] == 'processing' and order.get('ib_order_id'):
-                # Connect to TWS
-                suppress_ib_logs()
-                conn = None
-                tws_cancel_success = False
-                tws_error_message = None
-                
-                try:
-                    conn = self._ensure_connection()
-                    
-                    if not conn:
-                        logger.error("Failed to connect to TWS")
-                        tws_error_message = "Failed to connect to TWS"
-                    else:
-                        # Call TWS API to cancel the order
-                        ib_order_id = order.get('ib_order_id')
-                        cancel_result = conn.cancel_order(ib_order_id)
-                        
-                        if not cancel_result.get('success', False):
-                            logger.error(f"Failed to cancel order in TWS: {cancel_result.get('error')}")
-                            tws_error_message = f"Failed to cancel order in TWS: {cancel_result.get('error')}"
-                        else:
-                            
-                            # Even if TWS accepts the cancellation request, the order might not be canceled immediately
-                            # Check the actual status
-                            ib_status = conn.check_order_status(ib_order_id)
-                            
-                            if ib_status.get('status') in ['PendingCancel', 'Cancelled', 'ApiCancelled']:
-                                # Order is being canceled or already canceled in TWS
-                                execution_details = {
-                                    "ib_order_id": ib_order_id,
-                                    "ib_status": ib_status.get('status'),
-                                    "filled": ib_status.get('filled', 0),
-                                    "remaining": ib_status.get('remaining', 0),
-                                    "avg_fill_price": ib_status.get('avg_fill_price', 0),
-                                    "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                }
-                                
-                                # Update order status in database
-                                db.update_order_status(
-                                    order_id=order_id,
-                                    status="canceled",
-                                    executed=True,  # Mark as executed since it's been fully processed
-                                    execution_details=execution_details
-                                )
-                                
-                                tws_cancel_success = True
-                                
-                            else:
-                                # Order status doesn't indicate cancellation yet, but we requested it
-                                execution_details = {
-                                    "ib_order_id": ib_order_id,
-                                    "ib_status": "PendingCancel",  # Force this status as we've requested cancellation
-                                    "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                }
-                                
-                                # Update order status in database to indicate cancellation pending
-                                db.update_order_status(
-                                    order_id=order_id,
-                                    status="canceled",  # Change from "canceling" to "canceled" to ensure it doesn't remain in progress
-                                    executed=True,  # Mark as executed to remove from processing queue
-                                    execution_details=execution_details
-                                )
-                                
-                                tws_cancel_success = True
-                
-                except Exception as e:
-                    logger.error(f"Error canceling order in TWS: {str(e)}")
-                    logger.error(traceback.format_exc())
-                    tws_error_message = f"Error canceling order in TWS: {str(e)}"
-                
-                finally:
-                    # Clean up connection if it exists
-                    if conn:
-                        try:
-                            conn.disconnect()
-                        except:
-                            pass
-                    
-                    # If TWS cancellation was successful, return the success response
-                    if tws_cancel_success:
-                        return {
-                            "success": True,
-                            "message": "Order canceled in TWS",
-                            "order_id": order_id
-                        }, 200
-                    
-                    # If we get here, TWS cancellation failed but we still want to mark the order as canceled
-                    logger.warning(f"TWS cancellation failed, but marking order {order_id} as canceled in database")
-                    
-                    # Create execution details with the error
-                    execution_details = {
-                        "ib_order_id": order.get('ib_order_id'),
-                        "ib_status": "ApiCancelled",  # Mark as API cancelled
-                        "error": tws_error_message or "Unknown TWS error",
-                        "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        "note": "Order marked as canceled in database despite TWS error"
-                    }
-                    
-                    # Always update the order status in database regardless of TWS result
-                    db.update_order_status(
-                        order_id=order_id,
-                        status="canceled",
-                        executed=True,  # Mark as executed to remove from processing queue
-                        execution_details=execution_details
-                    )
-                    
-                    # Return partial success - we marked it as canceled in our system but TWS failed
-                    return {
-                        "success": True,
-                        "message": "Order marked as canceled despite TWS error",
-                        "order_id": order_id,
-                        "tws_error": tws_error_message or "Unknown TWS error",
-                        "warning": "Order may still be active in TWS"
-                    }, 200
-            
-            # For pending orders, just update the database
-            db.update_order_status(
-                order_id=order_id,
-                status="canceled",
-                executed=True,  # Mark as executed since it's been fully processed
-                execution_details={"last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-            )
-            
-            logger.info(f"Order with ID {order_id} marked as canceled in database")
-            return {
-                "success": True,
-                "message": "Order canceled",
-                "order_id": order_id
-            }, 200
-                
-        except Exception as e:
-            logger.error(f"Error canceling order: {str(e)}")
-            logger.error(traceback.format_exc())
-            
-            try:
-                # Even in case of unexpected errors, try to mark the order as canceled
-                execution_details = {
-                    "error": str(e),
-                    "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    "note": "Order forcibly marked as canceled despite errors"
-                }
-                
-                db.update_order_status(
+
+            current_status = order.get('status')
+            if current_status == 'pending':
+                updated = db.update_order_status(
                     order_id=order_id,
                     status="canceled",
                     executed=True,
-                    execution_details=execution_details
+                    execution_details={"ib_status": "NotSubmitted"},
+                    expected_statuses=['pending']
                 )
-                
+                if not updated:
+                    return {
+                        "success": False,
+                        "error": "Failed to cancel the local pending order"
+                    }, 500
                 return {
                     "success": True,
-                    "message": "Order forcibly marked as canceled despite errors",
+                    "message": "Pending order removed before submission",
                     "order_id": order_id,
-                    "error": str(e)
+                    "status": "canceled"
                 }, 200
-                
-            except Exception as inner_e:
-                logger.error(f"Failed to forcibly cancel order: {str(inner_e)}")
-                # If even this fails, return the original error
+
+            if current_status not in {'processing', 'canceling', 'unknown'}:
                 return {
                     "success": False,
-                    "error": str(e),
-                    "secondary_error": str(inner_e)
+                    "error": f"Order with status '{current_status}' cannot be canceled"
+                }, 409
+
+            ib_order_id = order.get('ib_order_id')
+            if not ib_order_id:
+                return {
+                    "success": False,
+                    "error": (
+                        "This order has no confirmed IB order ID. "
+                        "Check IB Gateway before attempting any further action."
+                    ),
+                    "status": current_status
+                }, 409
+
+            suppress_ib_logs()
+            conn = self._ensure_connection()
+            if not conn:
+                return {
+                    "success": False,
+                    "error": "Failed to connect to IB Gateway; cancellation was not confirmed",
+                    "status": current_status
+                }, 503
+
+            cancel_result = conn.cancel_order(ib_order_id)
+            cancel_accepted = bool(cancel_result and cancel_result.get('success'))
+            ib_status = conn.check_order_status(
+                ib_order_id,
+                perm_id=order.get('perm_id'),
+                order_details=order
+            )
+            fallback_status = 'PendingCancel' if cancel_accepted else 'Unknown'
+            raw_status = str((ib_status or {}).get('status') or fallback_status)
+            normalized_status = raw_status.lower()
+
+            if normalized_status == 'filled':
+                local_status = 'executed'
+                finalized = True
+                success = False
+                message = "Order filled before cancellation was confirmed"
+                response_code = 409
+            elif normalized_status in {'cancelled', 'apicancelled'}:
+                local_status = 'canceled'
+                finalized = True
+                success = True
+                message = "Order cancellation confirmed by IB"
+                response_code = 200
+            elif normalized_status == 'pendingcancel' or (
+                cancel_accepted and normalized_status in {
+                    'submitted', 'presubmitted', 'pendingsubmit', 'unknown'
+                }
+            ):
+                local_status = 'canceling'
+                finalized = False
+                success = True
+                message = "Cancellation requested; waiting for IB confirmation"
+                response_code = 200
+            elif normalized_status == 'notfound':
+                local_status = 'unknown'
+                finalized = False
+                success = False
+                message = (
+                    "IB did not return this order after the cancellation attempt. "
+                    "Verify it in IB Gateway before taking further action."
+                )
+                response_code = 502
+            else:
+                return {
+                    "success": False,
+                    "error": (
+                        (cancel_result or {}).get('error')
+                        or "IB did not accept the cancellation request"
+                    ),
+                    "status": current_status,
+                    "ib_status": raw_status
+                }, 502
+
+            execution_details = {
+                "ib_order_id": (ib_status or {}).get('order_id') or ib_order_id,
+                "perm_id": (ib_status or {}).get('perm_id') or order.get('perm_id'),
+                "ib_status": raw_status,
+                "error_code": (ib_status or {}).get('error_code'),
+                "error_message": (ib_status or {}).get('error_message'),
+                "warning_text": (ib_status or {}).get('warning_text'),
+                "filled": (ib_status or {}).get('filled', order.get('filled', 0)),
+                "remaining": (ib_status or {}).get('remaining', order.get('remaining', 0)),
+                "avg_fill_price": (ib_status or {}).get(
+                    'avg_fill_price',
+                    order.get('avg_fill_price', 0)
+                )
+            }
+
+            if not db.update_order_status(
+                order_id=order_id,
+                status=local_status,
+                executed=finalized,
+                execution_details=execution_details,
+                expected_statuses=[current_status]
+            ):
+                return {
+                    "success": False,
+                    "error": (
+                        "The IB order state changed, but local tracking failed. "
+                        "Check IB Gateway immediately."
+                    ),
+                    "order_id": order_id,
+                    "status": "unknown"
                 }, 500
 
+            return {
+                "success": success,
+                "message": message,
+                "order_id": order_id,
+                "status": local_status,
+                "ib_status": raw_status,
+                "execution_details": execution_details
+            }, response_code
+
+        except Exception as error:
+            logger.error(f"Error canceling order: {str(error)}")
+            logger.error(traceback.format_exc())
+            return {
+                "success": False,
+                "error": (
+                    f"Cancellation could not be confirmed: {error}. "
+                    "The local order status was left unchanged."
+                )
+            }, 500
     def get_stock_price(self, ticker):
         """
         Get just the current stock price for a ticker without fetching options.
@@ -1038,7 +1408,7 @@ class OptionsService:
             stock_price = conn.get_stock_price(ticker)
             
             # Check if we got a valid price
-            if stock_price is None or stock_price <= 0:
+            if stock_price is None or not math.isfinite(float(stock_price)) or stock_price <= 0:
                 logger.warning(f"Got invalid stock price for {ticker}: {stock_price}")
                 return 0
             
@@ -1048,6 +1418,23 @@ class OptionsService:
             logger.error(f"Error getting stock price for {ticker}: {str(e)}")
             logger.error(traceback.format_exc())
             return 0 
+
+    def _is_standard_monthly_expiration(self, expiration):
+        """
+        Return True for standard monthly equity option expirations.
+
+        This is normally the third Friday of the month. If a holiday moves that
+        monthly expiration earlier, IB may list it on the Thursday of that week.
+        """
+        try:
+            expiration_date = datetime.strptime(expiration, '%Y%m%d').date()
+        except (TypeError, ValueError):
+            return False
+
+        is_third_friday = expiration_date.weekday() == 4 and 15 <= expiration_date.day <= 21
+        is_holiday_adjusted_thursday = expiration_date.weekday() == 3 and 14 <= expiration_date.day <= 20
+
+        return is_third_friday or is_holiday_adjusted_thursday
 
     def get_option_expirations(self, ticker):
         """
@@ -1077,29 +1464,33 @@ class OptionsService:
             else:
                 conn.set_market_data_type(1)  # Live data when market is open
                 
-            # Create a Stock object for the ticker
-            stock = Stock(ticker, 'SMART', 'USD')
-            conn.ib.qualifyContracts(stock)
-            
-            # Get option chains to find available expirations
-            chains = conn.ib.reqSecDefOptParams(stock.symbol, '', stock.secType, stock.conId)
-            
-            if not chains:
+            stock, chain = conn.get_option_definition(ticker, 'SMART')
+            if stock is None:
+                logger.error(f"Failed to qualify stock contract for {ticker}")
+                return {"error": f"Failed to qualify stock contract for {ticker}"}
+
+            if chain is None:
                 logger.error(f"No option chains found for {ticker}")
                 return {"error": f"No option chains found for {ticker}"}
-                
-            # Get the first valid exchange's data (typically SMART)
-            chain = next((c for c in chains if c.exchange == 'SMART' and len(c.expirations) > 2), chains[0])
             
             # Extract and filter valid expirations (only future dates)
             today = datetime.now().strftime('%Y%m%d')
             
-            # Sort expirations chronologically
-            valid_expirations = sorted([exp for exp in chain.expirations if exp >= today])
+            # Keep the standard monthly expirations. These are the liquid dates
+            # this wheel workflow is designed around.
+            valid_expirations = sorted([
+                exp for exp in chain.expirations
+                if exp >= today and self._is_standard_monthly_expiration(exp)
+            ])
             
             if not valid_expirations:
                 logger.error(f"No valid future expirations found for {ticker}")
                 return {"error": f"No valid future expirations found for {ticker}"}
+
+            default_expiration = select_default_expiration(
+                valid_expirations,
+                skip_within_days=self._expiration_skip_days()
+            )
                 
             # Format the dates for better readability (YYYYMMDD -> YYYY-MM-DD)
             formatted_expirations = []
@@ -1108,15 +1499,18 @@ class OptionsService:
                     formatted_exp = f"{exp[0:4]}-{exp[4:6]}-{exp[6:8]}"
                     formatted_expirations.append({
                         "value": exp,  # Original format for API use
-                        "label": formatted_exp  # Formatted for display
+                        "label": formatted_exp,  # Formatted for display
+                        "is_default": exp == default_expiration
                     })
             
             return {
                 "ticker": ticker,
-                "expirations": formatted_expirations
+                "expirations": formatted_expirations,
+                "default_expiration": default_expiration,
+                "expiration_skip_days": self._expiration_skip_days()
             }
             
         except Exception as e:
             logger.error(f"Error getting option expirations for {ticker}: {str(e)}")
             logger.error(traceback.format_exc())
-            return {"error": str(e)} 
+            return {"error": str(e)}

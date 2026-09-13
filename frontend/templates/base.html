@@ -1,13 +1,29 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}All You Need Is Wheel{% endblock %}</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/priceaction-wheel.png') }}?v=1">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/priceaction-wheel.png') }}?v=1">
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+            const savedLanguage = localStorage.getItem('language');
+            const languagePreference = localStorage.getItem('languagePreference');
+            const language = languagePreference === 'manual' ? savedLanguage : 'en';
+            document.documentElement.setAttribute('data-theme', theme);
+            document.documentElement.setAttribute('data-bs-theme', theme);
+            document.documentElement.setAttribute('data-lang', language === 'zh' ? 'zh' : 'en');
+            document.documentElement.setAttribute('lang', language === 'zh' ? 'zh-CN' : 'en');
+        })();
+    </script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=close-position-2">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v=manual-price-1">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     {% block extra_head %}{% endblock %}
 </head>
@@ -37,7 +53,7 @@
     {% include "partials/common/footer.html" %}
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}?v=close-position-1"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html> 

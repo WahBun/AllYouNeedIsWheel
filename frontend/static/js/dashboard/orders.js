@@ -1,9 +1,9 @@
 /**
  * Orders module for handling pending orders
  */
-import { fetchPendingOrders, cancelOrder, executeOrder, checkOrderStatus, fetchWeeklyOptionIncome } from './api.js';
-import { showAlert, getBadgeColor } from '../utils/alerts.js';
-import { formatCurrency } from './account.js';
+import { fetchPendingOrders, cancelOrder, executeOrder, checkOrderStatus, fetchWeeklyOptionIncome } from './api.js?v=safety-1';
+import { showAlert, getBadgeColor } from '../utils/alerts.js?v=close-position-1';
+import { formatCurrency } from './account.js?v=close-position-1';
 
 // Store orders data
 let pendingOrdersData = [];
@@ -12,6 +12,14 @@ let weeklyOptionIncomeData = {}; // Changed from filledOrdersData
 // Auto-refresh timer
 let autoRefreshTimer = null;
 const AUTO_REFRESH_INTERVAL = 10000; // 10 seconds
+const ACTIVE_ORDER_STATUSES = ['pending', 'submitting', 'processing', 'canceling', 'unknown'];
+const TRACKED_ORDER_STATUSES = ['submitting', 'processing', 'canceling', 'unknown'];
+const TERMINAL_ORDER_STATUSES = ['executed', 'canceled', 'rejected'];
+const orderExecutionInFlight = new Set();
+
+function tr(key, replacements = {}) {
+    return window.t ? window.t(key, replacements) : key;
+}
 
 /**
  * Format date for display
@@ -85,13 +93,15 @@ function updatePendingOrdersTable() {
     // Clear the table
     pendingOrdersTable.innerHTML = '';
     
-    if (pendingOrdersData.length === 0) {
-        pendingOrdersTable.innerHTML = '<tr><td colspan="8" class="text-center">No pending orders found</td></tr>';
+    const visibleOrders = pendingOrdersData.filter(order => ACTIVE_ORDER_STATUSES.includes(order.status));
+    
+    if (visibleOrders.length === 0) {
+        pendingOrdersTable.innerHTML = `<tr><td colspan="8" class="text-center">${tr('orders.noPending')}</td></tr>`;
         return;
     }
     
     // Sort orders by timestamp (newest first)
-    pendingOrdersData.sort((a, b) => {
+    visibleOrders.sort((a, b) => {
         // Handle different timestamp formats
         const timestampA = a.timestamp || a.created_at;
         const timestampB = b.timestamp || b.created_at;
@@ -104,7 +114,7 @@ function updatePendingOrdersTable() {
     });
     
     // Add each order to the table
-    pendingOrdersData.forEach(order => {
+    visibleOrders.forEach(order => {
         const row = document.createElement('tr');
         
         // Format the strike price
@@ -122,6 +132,7 @@ function updatePendingOrdersTable() {
         // IB order information
         const ibOrderId = order.ib_order_id || 'Not sent';
         const ibStatus = order.ib_status || '-';
+        const errorMessage = order.error_message || order.error || '';
         
         // Format execution price if available
         const avgFillPrice = order.avg_fill_price ? formatCurrency(order.avg_fill_price) : '-';
@@ -129,6 +140,14 @@ function updatePendingOrdersTable() {
         
         // Set quantity or default to 1
         const quantity = order.quantity || 1;
+        const intent = String(order.intent || 'OPEN').toUpperCase();
+        const orderSide = intent === 'CLOSE'
+            ? (order.action === 'BUY' ? tr('close.buyToClose') : tr('close.sellToClose'))
+            : (order.action === 'SELL' ? tr('orders.sellToOpen') : tr('orders.buyToOpen'));
+        const typeHtml = `
+            <div>${order.option_type}</div>
+            <small class="${intent === 'CLOSE' ? 'text-primary' : 'text-muted'}">${orderSide}</small>
+        `;
         
         // Status area with IB info
         let statusHtml = `
@@ -148,11 +167,11 @@ function updatePendingOrdersTable() {
             statusHtml += `
                 <br>
                 <small class="text-muted mt-1">
-                    <strong>IB ID:</strong> ${ibOrderId}
+                    <strong>${tr('orders.ibId')}</strong> ${ibOrderId}
                 </small>
                 <br>
                 <small class="text-muted">
-                    <strong>Status:</strong> ${ibStatus}
+                    <strong>${tr('orders.ibStatus')}</strong> ${ibStatus}
                 </small>
             `;
             
@@ -161,7 +180,7 @@ function updatePendingOrdersTable() {
                 statusHtml += `
                     <br>
                     <small class="text-muted">
-                        <strong>Fill Price:</strong> ${avgFillPrice}
+                        <strong>${tr('orders.fillPrice')}</strong> ${avgFillPrice}
                     </small>
                 `;
                 
@@ -169,22 +188,31 @@ function updatePendingOrdersTable() {
                     statusHtml += `
                         <br>
                         <small class="text-muted">
-                            <strong>Commission:</strong> ${commission}
+                            <strong>${tr('orders.commission')}</strong> ${commission}
                         </small>
                     `;
                 }
             }
+
+            if (errorMessage) {
+                statusHtml += `
+                    <br>
+                    <small class="text-danger">
+                        ${errorMessage}
+                    </small>
+                `;
+            }
         }
         
         // Create quantity input or display based on order status
-        const quantityCell = order.status === 'pending' 
+        const quantityCell = order.status === 'pending' && intent !== 'CLOSE'
             ? `<input type="number" class="form-control form-control-sm quantity-input" data-order-id="${order.id}" value="${quantity}" min="1" max="100">`
             : `${quantity}`;
         
         // Create the row HTML
         row.innerHTML = `
             <td>${order.ticker}</td>
-            <td>${order.option_type}</td>
+            <td>${typeHtml}</td>
             <td>${strike}</td>
             <td>${order.expiration || 'N/A'}</td>
             <td>${premium}</td>
@@ -193,10 +221,10 @@ function updatePendingOrdersTable() {
             <td>
                 <div class="btn-group btn-group-sm">
                     <button class="btn btn-outline-primary execute-order" data-order-id="${order.id}" ${order.status !== 'pending' ? 'disabled' : ''}>
-                        <i class="bi bi-play-fill"></i> Execute
+                        <i class="bi bi-play-fill"></i> ${tr('common.execute')}
                     </button>
-                    <button class="btn btn-outline-danger cancel-order" data-order-id="${order.id}" ${['executed', 'canceled', 'rejected'].includes(order.status) ? 'disabled' : ''}>
-                        <i class="bi bi-x-circle"></i> Cancel
+                    <button class="btn btn-outline-danger cancel-order" data-order-id="${order.id}" ${TERMINAL_ORDER_STATUSES.includes(order.status) ? 'disabled' : ''}>
+                        <i class="bi bi-x-circle"></i> ${tr('common.cancel')}
                     </button>
                 </div>
             </td>
@@ -230,7 +258,7 @@ function updateFilledOrdersTable() {
     // Check if we have positions data
     if (!weeklyOptionIncomeData.positions || weeklyOptionIncomeData.positions.length === 0) {
         console.log('No weekly option income data to display');
-        filledOrdersTable.innerHTML = '<tr><td colspan="9" class="text-center">No positions expiring this coming Friday found</td></tr>';
+        filledOrdersTable.innerHTML = `<tr><td colspan="9" class="text-center">${tr('orders.noWeekly')}</td></tr>`;
         
         // Update summary with zeros
         updateWeeklyEarningsSummary([], 0, 0);
@@ -254,7 +282,7 @@ function updateFilledOrdersTable() {
     if (callPositions.length + putPositions.length === 0) {
         console.warn('No positions matched our filtering criteria. Original option types:', 
             positions.map(p => p.option_type));
-        filledOrdersTable.innerHTML = '<tr><td colspan="9" class="text-center">Data format issue: No positions matched CALL/PUT filters</td></tr>';
+        filledOrdersTable.innerHTML = `<tr><td colspan="9" class="text-center">${tr('orders.noWeekly')}</td></tr>`;
         return;
     }
     
@@ -262,7 +290,7 @@ function updateFilledOrdersTable() {
     if (callPositions.length > 0) {
         const callHeader = document.createElement('tr');
         callHeader.className = 'table-primary';
-        callHeader.innerHTML = `<td colspan="9" class="fw-bold">CALL OPTIONS (${callPositions.length})</td>`;
+        callHeader.innerHTML = `<td colspan="9" class="fw-bold">${tr('orders.callOptions')} (${callPositions.length})</td>`;
         filledOrdersTable.appendChild(callHeader);
         
         // Add each CALL position
@@ -273,7 +301,7 @@ function updateFilledOrdersTable() {
     if (putPositions.length > 0) {
         const putHeader = document.createElement('tr');
         putHeader.className = 'table-warning';
-        putHeader.innerHTML = `<td colspan="9" class="fw-bold">PUT OPTIONS (${putPositions.length})</td>`;
+        putHeader.innerHTML = `<td colspan="9" class="fw-bold">${tr('orders.putOptions')} (${putPositions.length})</td>`;
         filledOrdersTable.appendChild(putHeader);
         
         // Add each PUT position
@@ -301,9 +329,12 @@ function updateWeeklyEarningsSummary(positions, totalIncome, totalPutNotional) {
     document.getElementById('weekly-notional-value').textContent = formatCurrency(totalPutNotional);
     
     // Add footer info about next Friday expiration date
-    const footerInfo = document.querySelector('.card-footer small.text-muted');
+    const footerInfo = document.getElementById('weekly-income-footer');
     if (footerInfo && weeklyOptionIncomeData.this_friday) {
-        footerInfo.textContent = `Short option positions expiring this coming Friday (${weeklyOptionIncomeData.this_friday}). Total PUT notional value if assigned: ${formatCurrency(totalPutNotional)}`;
+        footerInfo.textContent = tr('orders.weeklyFooterWithDate', {
+            date: weeklyOptionIncomeData.this_friday,
+            notional: formatCurrency(totalPutNotional)
+        });
     }
 }
 
@@ -315,8 +346,9 @@ function addOrdersTableEventListeners() {
     const executeButtons = document.querySelectorAll('.execute-order');
     executeButtons.forEach(button => {
         button.addEventListener('click', event => {
+            if (button.disabled) return;
             const orderId = event.target.dataset.orderId || event.target.closest('button').dataset.orderId;
-            executeOrderById(orderId);
+            confirmOrderExecution(orderId, button);
         });
     });
     
@@ -324,6 +356,7 @@ function addOrdersTableEventListeners() {
     const cancelButtons = document.querySelectorAll('.cancel-order');
     cancelButtons.forEach(button => {
         button.addEventListener('click', event => {
+            if (button.disabled) return;
             const orderId = event.target.dataset.orderId || event.target.closest('button').dataset.orderId;
             cancelOrderById(orderId);
         });
@@ -382,29 +415,90 @@ function addOrdersTableEventListeners() {
     }
 }
 
+function confirmOrderExecution(orderId, sourceButton) {
+    const order = pendingOrdersData.find(item => item.id === parseInt(orderId, 10));
+    if (!order || order.status !== 'pending') {
+        showAlert('Only pending orders can be executed', 'warning');
+        return;
+    }
+
+    const quantity = Number(order.quantity || 1);
+    const price = Number(order.premium || 0);
+    const multiplier = Number(order.contract_multiplier || 100);
+    const total = price * multiplier * quantity;
+    const intent = String(order.intent || 'OPEN').toUpperCase();
+    const orderSide = intent === 'CLOSE'
+        ? (order.action === 'BUY' ? tr('close.buyToClose') : tr('close.sellToClose'))
+        : (order.action === 'SELL' ? tr('orders.sellToOpen') : tr('orders.buyToOpen'));
+    const accountSuffix = order.account_id ? String(order.account_id).slice(-4) : '-';
+    const summary = [
+        `${tr('common.action')}: ${orderSide}`,
+        `${tr('common.ticker')}: ${order.ticker} ${order.option_type}`,
+        `${tr('common.strike')}: ${formatCurrency(order.strike)}`,
+        `${tr('common.expiration')}: ${order.expiration}`,
+        `${tr('common.quantity')}: ${quantity}`,
+        `${tr('common.limitPrice')}: ${formatCurrency(price)} / share`,
+        `${tr('close.orderTotal')}: ${formatCurrency(total)}`,
+        ...(intent === 'CLOSE' ? [`${tr('close.account')}: •••• ${accountSuffix}`] : [])
+    ].join('\n');
+
+    const modalElement = document.getElementById('confirmOrderModal');
+    const confirmButton = document.getElementById('confirmOrderModal-confirm');
+    if (!modalElement || !confirmButton || !window.bootstrap?.Modal) {
+        if (window.confirm(summary)) {
+            executeOrderById(orderId, sourceButton);
+        }
+        return;
+    }
+
+    const modalBody = modalElement.querySelector('.modal-body');
+    modalBody.textContent = summary;
+    modalBody.style.whiteSpace = 'pre-line';
+    const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
+
+    confirmButton.onclick = async () => {
+        confirmButton.disabled = true;
+        sourceButton.disabled = true;
+        modal.hide();
+        try {
+            await executeOrderById(orderId, sourceButton);
+        } finally {
+            confirmButton.disabled = false;
+        }
+    };
+    modal.show();
+}
+
 /**
  * Execute an order by ID
  * @param {string} orderId - The order ID to execute
  */
-async function executeOrderById(orderId) {
+async function executeOrderById(orderId, sourceButton = null) {
+    if (orderExecutionInFlight.has(orderId)) return;
+    orderExecutionInFlight.add(orderId);
+    if (sourceButton) sourceButton.disabled = true;
+
     try {
         // Execute the order
         const result = await executeOrder(orderId);
+        const details = result.execution_details || {};
         
         // Update the order in pendingOrdersData with the IB information
         const orderIndex = pendingOrdersData.findIndex(order => order.id == orderId);
         if (orderIndex !== -1) {
             // Update the order with execution details
-            pendingOrdersData[orderIndex].status = "processing";
-            pendingOrdersData[orderIndex].executed = true;
+            pendingOrdersData[orderIndex].status = result.status || (result.success ? "processing" : "rejected");
+            pendingOrdersData[orderIndex].executed = !ACTIVE_ORDER_STATUSES.includes(pendingOrdersData[orderIndex].status);
             
             // Add IB details from the response
             if (result.execution_details) {
-                pendingOrdersData[orderIndex].ib_order_id = result.execution_details.ib_order_id;
-                pendingOrdersData[orderIndex].ib_status = result.execution_details.ib_status;
-                pendingOrdersData[orderIndex].filled = result.execution_details.filled;
-                pendingOrdersData[orderIndex].remaining = result.execution_details.remaining;
-                pendingOrdersData[orderIndex].avg_fill_price = result.execution_details.avg_fill_price;
+                pendingOrdersData[orderIndex].ib_order_id = details.ib_order_id;
+                pendingOrdersData[orderIndex].ib_status = details.ib_status;
+                pendingOrdersData[orderIndex].error_code = details.error_code;
+                pendingOrdersData[orderIndex].error_message = details.error_message;
+                pendingOrdersData[orderIndex].filled = details.filled;
+                pendingOrdersData[orderIndex].remaining = details.remaining;
+                pendingOrdersData[orderIndex].avg_fill_price = details.avg_fill_price;
             } else {
                 // Fallback if execution_details is not present
                 pendingOrdersData[orderIndex].ib_order_id = result.ib_order_id || 'Unknown';
@@ -414,15 +508,28 @@ async function executeOrderById(orderId) {
             // Update the table immediately
             updatePendingOrdersTable();
         }
+
+        if (!result.success) {
+            showAlert(result.error || result.message || 'Order rejected by IB', 'warning');
+            await loadPendingOrders();
+            return;
+        }
         
         // Show success message
-        showAlert(`Order sent to TWS (IB Order ID: ${result.ib_order_id})`, 'success');
+        showAlert(`Order sent to TWS (IB Order ID: ${result.ib_order_id || details.ib_order_id || '-'})`, 'success');
         
         // Start auto-refresh if not already running to track this order's status
-        startAutoRefresh();
+        if ((result.status || 'processing') === 'processing') {
+            startAutoRefresh();
+        } else {
+            await loadPendingOrders();
+        }
     } catch (error) {
         console.error('Error executing order:', error);
         showAlert(`Error executing order: ${error.message}`, 'danger');
+    } finally {
+        orderExecutionInFlight.delete(orderId);
+        if (sourceButton?.isConnected) sourceButton.disabled = false;
     }
 }
 
@@ -438,8 +545,7 @@ async function cancelOrderById(orderId) {
         // Update the order in pendingOrdersData
         const orderIndex = pendingOrdersData.findIndex(order => order.id == orderId);
         if (orderIndex !== -1) {
-            // Update the order status
-            pendingOrdersData[orderIndex].status = result.ib_status === 'PendingCancel' ? 'canceling' : 'canceled';
+            pendingOrdersData[orderIndex].status = result.status || pendingOrdersData[orderIndex].status;
             
             // Add IB details if available
             if (result.ib_status) {
@@ -450,13 +556,16 @@ async function cancelOrderById(orderId) {
             updatePendingOrdersTable();
         }
         
-        showAlert('Order cancellation requested', 'success');
-        
-        // Start auto-refresh if not already running to track this canceled order's status
-        startAutoRefresh();
+        showAlert(result.message || 'Order cancellation requested', 'success');
+        if (TRACKED_ORDER_STATUSES.includes(result.status)) {
+            startAutoRefresh();
+        } else {
+            await loadPendingOrders();
+        }
     } catch (error) {
         console.error('Error cancelling order:', error);
         showAlert(`Error cancelling order: ${error.message}`, 'danger');
+        await loadPendingOrders();
     }
 }
 
@@ -471,10 +580,16 @@ async function loadPendingOrders() {
             pendingOrdersData = pendingData.orders;
             console.log(`Loaded ${pendingOrdersData.length} pending orders`);
             updatePendingOrdersTable();
+            if (pendingOrdersData.some(order => TRACKED_ORDER_STATUSES.includes(order.status))) {
+                startAutoRefresh();
+            } else {
+                stopAutoRefresh();
+            }
         }
         
-        // Also load filled orders
-        await loadFilledOrders();
+        if (document.getElementById('filled-orders-table')) {
+            await loadFilledOrders();
+        }
     } catch (error) {
         console.error('Error loading pending orders:', error);
         showAlert('Error loading pending orders', 'danger');
@@ -510,9 +625,9 @@ async function loadFilledOrders() {
  */
 async function checkOrdersStatus() {
     try {
-        // Only check if we have processing or canceling orders
+        // Track every state that may still change at IB.
         const hasProcessingOrders = pendingOrdersData.some(order => 
-            ['processing', 'canceling'].includes(order.status));
+            TRACKED_ORDER_STATUSES.includes(order.status));
             
         if (hasProcessingOrders) {
             const result = await checkOrderStatus();
@@ -552,7 +667,7 @@ async function checkOrdersStatus() {
                 
                 // If no more processing orders, stop auto-refresh
                 const stillHasProcessingOrders = pendingOrdersData.some(order => 
-                    ['processing', 'canceling'].includes(order.status));
+                    TRACKED_ORDER_STATUSES.includes(order.status));
                     
                 if (!stillHasProcessingOrders) {
                     stopAutoRefresh();
@@ -616,6 +731,7 @@ async function updateOrderQuantity(orderId, quantity) {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
+                'X-All-You-Need-Is-Wheel': '1',
             },
             body: JSON.stringify({ quantity })
         });
@@ -643,15 +759,9 @@ async function updateOrderQuantity(orderId, quantity) {
 
 // Set up event listener for the custom ordersUpdated event
 document.addEventListener('ordersUpdated', loadPendingOrders);
-
-// Initial load of pending orders
-document.addEventListener('DOMContentLoaded', () => {
-    loadPendingOrders();
-    
-    // Check for any processing orders on initial load and start auto-refresh if needed
-    if (pendingOrdersData.some(order => ['processing', 'canceling'].includes(order.status))) {
-        startAutoRefresh();
-    }
+document.addEventListener('languageChanged', () => {
+    updatePendingOrdersTable();
+    updateFilledOrdersTable();
 });
 
 // Make sure auto-refresh is stopped when the page is unloaded
@@ -724,17 +834,17 @@ async function cancelAllPendingOrders() {
         const pendingOrders = pendingOrdersData.filter(order => order.status === 'pending');
         
         if (pendingOrders.length === 0) {
-            showAlert('No pending orders to cancel', 'info');
+            showAlert(tr('orders.noPendingToCancel'), 'info');
             return;
         }
         
         // Confirm with the user
-        if (!confirm(`Are you sure you want to cancel all ${pendingOrders.length} pending orders?`)) {
+        if (!confirm(tr('orders.confirmCancelAll', { count: pendingOrders.length }))) {
             return;
         }
         
         // Show a loading alert
-        showAlert(`Canceling ${pendingOrders.length} orders...`, 'info');
+        showAlert(tr('orders.cancelingOrders', { count: pendingOrders.length }), 'info');
         
         // Create an array of promises for all the cancel operations
         const cancelPromises = pendingOrders.map(order => cancelOrder(order.id));
@@ -746,7 +856,7 @@ async function cancelAllPendingOrders() {
         await loadPendingOrders();
         
         // Show success message
-        showAlert(`Successfully canceled ${pendingOrders.length} orders`, 'success');
+        showAlert(tr('orders.canceledOrders', { count: pendingOrders.length }), 'success');
     } catch (error) {
         console.error('Error canceling all orders:', error);
         showAlert('Error canceling all orders: ' + error.message, 'danger');

@@ -2,12 +2,16 @@
  * Account module for handling portfolio data
  * Manages account summary and positions display
  */
-import { fetchAccountData, fetchPositions } from './api.js';
-import { showAlert } from '../utils/alerts.js';
+import { fetchAccountData, fetchPositions } from './api.js?v=safety-1';
+import { showAlert } from '../utils/alerts.js?v=safety-1';
 
 // Store account data
 let accountData = null;
 let positionsData = null;
+
+function tr(key, replacements = {}) {
+    return window.t ? window.t(key, replacements) : key;
+}
 
 /**
  * Format currency value for display
@@ -138,7 +142,7 @@ function populateStockPositionsTable(stockPositions) {
     
     if (stockPositions.length === 0) {
         const noDataRow = document.createElement('tr');
-        noDataRow.innerHTML = '<td colspan="6" class="text-center">No stock positions found</td>';
+        noDataRow.innerHTML = `<td colspan="6" class="text-center">${tr('portfolio.noStockPositions')}</td>`;
         stockTableBody.appendChild(noDataRow);
         return;
     }
@@ -193,7 +197,7 @@ function populateOptionPositionsTable(optionPositions) {
     
     if (optionPositions.length === 0) {
         const noDataRow = document.createElement('tr');
-        noDataRow.innerHTML = '<td colspan="9" class="text-center">No option positions found</td>';
+        noDataRow.innerHTML = `<td colspan="10" class="text-center">${tr('portfolio.noOptionPositions')}</td>`;
         optionTableBody.appendChild(noDataRow);
         return;
     }
@@ -231,7 +235,7 @@ function populateOptionPositionsTable(optionPositions) {
     if (callOptions.length > 0) {
         const callHeader = document.createElement('tr');
         callHeader.className = 'table-primary';
-        callHeader.innerHTML = `<td colspan="9" class="fw-bold">CALL OPTIONS (${callOptions.length})</td>`;
+        callHeader.innerHTML = `<td colspan="10" class="fw-bold">CALL OPTIONS (${callOptions.length})</td>`;
         optionTableBody.appendChild(callHeader);
         
         addOptionsToTable(callOptions, optionTableBody);
@@ -241,7 +245,7 @@ function populateOptionPositionsTable(optionPositions) {
     if (putOptions.length > 0) {
         const putHeader = document.createElement('tr');
         putHeader.className = 'table-warning';
-        putHeader.innerHTML = `<td colspan="9" class="fw-bold">PUT OPTIONS (${putOptions.length})</td>`;
+        putHeader.innerHTML = `<td colspan="10" class="fw-bold">PUT OPTIONS (${putOptions.length})</td>`;
         optionTableBody.appendChild(putHeader);
         
         addOptionsToTable(putOptions, optionTableBody);
@@ -287,9 +291,12 @@ function addOptionsToTable(options, tableBody) {
             expiry = position.expiration || '-';
         }
         
-        // Convert price to per-contract (multiply by 100)
+        // IB portfolio marketPrice is per share; averageCost is per contract.
         const perSharePrice = position.market_price || 0;
-        const perContractPrice = perSharePrice * 100;
+        const multiplier = Number(position.multiplier || 100);
+        const perContractPrice = perSharePrice * multiplier;
+        const conId = Number(position.con_id || 0);
+        const closeDisabled = conId <= 0 || Number(position.position || 0) === 0;
         
         const pnlClass = unrealizedPnL >= 0 ? 'text-success' : 'text-danger';
         
@@ -303,6 +310,15 @@ function addOptionsToTable(options, tableBody) {
             <td>${formatCurrency(perContractPrice)}</td>
             <td>${formatCurrency(marketValue)}</td>
             <td class="${pnlClass}">${formatCurrency(unrealizedPnL)} (${formatPercentage(unrealizedPnLPercent)})</td>
+            <td>
+                <button type="button" class="btn btn-sm btn-outline-primary close-option-position"
+                    data-con-id="${conId}"
+                    ${closeDisabled ? 'disabled' : ''}
+                    title="${closeDisabled ? tr('close.unavailable') : tr('close.button')}">
+                    <i class="bi bi-box-arrow-in-left"></i>
+                    <span>${tr('close.button')}</span>
+                </button>
+            </td>
         `;
         
         tableBody.appendChild(row);
@@ -354,26 +370,31 @@ function updateDataStatusIndicator(isFrozen) {
     // Get current time for the update timestamp
     const now = new Date();
     const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    dataUpdateTime.textContent = `Updated ${timeString}`;
+    dataUpdateTime.textContent = tr('dashboard.updated', { time: timeString });
     
     if (isFrozen) {
         // Frozen data state
         dataStatusIndicator.className = 'badge bg-warning text-dark';
-        dataStatusIndicator.textContent = 'FROZEN DATA';
-        dataStatusIndicator.setAttribute('title', 'Using frozen data because market is closed');
+        dataStatusIndicator.textContent = tr('dashboard.frozenData');
+        dataStatusIndicator.setAttribute('title', tr('dashboard.frozenTooltip'));
         
         // Change icon to snowflake
         dataStatusIcon.className = 'bi bi-snow';
     } else {
         // Real-time data state
         dataStatusIndicator.className = 'badge bg-success';
-        dataStatusIndicator.textContent = 'REAL-TIME';
-        dataStatusIndicator.setAttribute('title', 'Using real-time market data');
+        dataStatusIndicator.textContent = tr('dashboard.realTimeData');
+        dataStatusIndicator.setAttribute('title', tr('dashboard.realTimeTooltip'));
         
         // Change icon to lightning
         dataStatusIcon.className = 'bi bi-lightning-fill';
     }
 }
+
+document.addEventListener('languageChanged', () => {
+    updateAccountSummary();
+    populatePositionsTable();
+});
 
 // Export functions
 export {

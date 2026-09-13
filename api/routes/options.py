@@ -6,6 +6,7 @@ from flask import Blueprint, request, jsonify, current_app
 from api.services.options_service import OptionsService
 import traceback
 import logging
+import math
 import time
 import json
 import datetime
@@ -87,12 +88,21 @@ def save_order():
         order_data = request.json
         if not order_data:
             return jsonify({"error": "No order data provided"}), 400
+
+        # Entry orders must use this generic endpoint. Close orders are built
+        # server-side from a live position through /close-order.
+        order_data = dict(order_data)
+        order_data['intent'] = 'OPEN'
+        for field in (
+            'con_id', 'account_id', 'contract_multiplier',
+            'exchange', 'currency', 'local_symbol'
+        ):
+            order_data.pop(field, None)
             
-        # Validate required fields
-        required_fields = ['ticker', 'option_type', 'strike', 'expiration']
-        for field in required_fields:
-            if field not in order_data:
-                return jsonify({"error": f"Missing required field: {field}"}), 400
+        try:
+            order_data = options_service.validate_order_data(order_data)
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
         
         # Save order to database
         order_id = options_service.db.save_order(order_data)
@@ -103,6 +113,18 @@ def save_order():
             return jsonify({"error": "Failed to save order"}), 500
     except Exception as e:
         logger.error(f"Error saving order: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
+
+@bp.route('/close-order', methods=['POST'])
+def stage_close_order():
+    """Stage a position-closing order locally without sending it to IB."""
+    try:
+        db = current_app.config.get('database') or options_service.db
+        response, status_code = options_service.stage_close_order(request.json, db)
+        return jsonify(response), status_code
+    except Exception as e:
+        logger.error(f"Error staging close order: {str(e)}")
         logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
@@ -159,6 +181,11 @@ def delete_order(order_id):
         if not order:
             logger.error(f"Order with ID {order_id} not found")
             return jsonify({"error": f"Order with ID {order_id} not found"}), 404
+
+        if order.get('status') != 'pending' or order.get('executed'):
+            return jsonify({
+                "error": "Only a local pending order can be deleted; cancel active IB orders instead"
+            }), 409
             
         # Delete the order
         success = db.delete_order(order_id)
@@ -168,7 +195,9 @@ def delete_order(order_id):
             return jsonify({"success": True, "message": f"Order with ID {order_id} deleted"}), 200
         else:
             logger.error(f"Failed to delete order with ID {order_id}")
-            return jsonify({"error": "Failed to delete order"}), 500
+            return jsonify({
+                "error": "Order changed state before deletion; refresh before taking further action"
+            }), 409
             
     except Exception as e:
         logger.error(f"Error deleting order: {str(e)}")
@@ -255,7 +284,7 @@ def rollover_option():
             if field not in rollover_data:
                 return jsonify({"error": f"Missing required field: {field}"}), 400
         
-        # Create buy order to close current position
+        # Every option limit price is stored in IB's per-share quote units.
         buy_order = {
             'ticker': rollover_data['ticker'],
             'option_type': rollover_data['current_option_type'],
@@ -263,8 +292,8 @@ def rollover_option():
             'expiration': rollover_data['current_expiration'],
             'action': 'BUY',  # Buy to close
             'quantity': rollover_data['quantity'],
-            'order_type': rollover_data.get('current_order_type', 'MARKET'),
-            'limit_price': rollover_data.get('current_limit_price'),  # Already per-contract from frontend
+            'order_type': 'LIMIT',
+            'premium': rollover_data.get('current_limit_price'),
             'bid': rollover_data.get('current_bid', 0),
             'ask': rollover_data.get('current_ask', 0),
             'isRollover': True
@@ -278,16 +307,22 @@ def rollover_option():
             'expiration': rollover_data['new_expiration'],
             'action': 'SELL',  # Sell to open
             'quantity': rollover_data['quantity'],
-            'order_type': rollover_data.get('new_order_type', 'LIMIT'),
-            'limit_price': rollover_data.get('new_limit_price', 0) * 100,  # Convert from per-share to per-contract
+            'order_type': 'LIMIT',
+            'premium': rollover_data.get('new_limit_price'),
             'bid': rollover_data.get('new_bid', 0),
             'ask': rollover_data.get('new_ask', 0),
             'isRollover': True
         }
         
-        # Save orders to database
-        buy_order_id = options_service.db.save_order(buy_order)
-        sell_order_id = options_service.db.save_order(sell_order)
+        try:
+            buy_order = options_service.validate_order_data(buy_order)
+            sell_order = options_service.validate_order_data(sell_order)
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+
+        # Store the two rollover legs in one transaction so a partial pair cannot exist.
+        order_ids = options_service.db.save_orders([buy_order, sell_order])
+        buy_order_id, sell_order_id = order_ids if len(order_ids) == 2 else (None, None)
         
         if buy_order_id and sell_order_id:
             return jsonify({
@@ -349,10 +384,16 @@ def update_order_quantity(order_id):
             logger.error("Missing quantity in request")
             return jsonify({"error": "Missing quantity in request"}), 400
             
-        quantity = int(request_data['quantity'])
-        if quantity <= 0:
+        quantity_value = float(request_data['quantity'])
+        max_quantity = int(options_service.config.get('max_order_quantity', 100))
+        if not math.isfinite(quantity_value) or not quantity_value.is_integer():
+            return jsonify({"error": "Quantity must be a whole number"}), 400
+        quantity = int(quantity_value)
+        if quantity <= 0 or quantity > max_quantity:
             logger.error(f"Invalid quantity: {quantity}")
-            return jsonify({"error": "Quantity must be greater than 0"}), 400
+            return jsonify({
+                "error": f"Quantity must be between 1 and {max_quantity}"
+            }), 400
             
         # Get the database instance
         db = current_app.config.get('database')
@@ -370,6 +411,12 @@ def update_order_quantity(order_id):
         if order['status'] != 'pending':
             logger.error(f"Cannot update quantity for order with status '{order['status']}'")
             return jsonify({"error": f"Cannot update quantity for non-pending orders"}), 400
+
+
+        if str(order.get('intent', 'OPEN')).upper() == 'CLOSE':
+            return jsonify({
+                "error": "Close-order quantity is locked; cancel and recreate the order"
+            }), 409
             
         # Update the order quantity
         success = db.update_order_quantity(order_id, quantity)

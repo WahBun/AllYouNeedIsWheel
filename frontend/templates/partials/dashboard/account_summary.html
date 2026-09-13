@@ -5,24 +5,24 @@
         <div class="card shadow-sm h-100">
             <div class="card-body d-flex flex-column">
                 <div class="d-flex align-items-center gap-2 mb-3">
-                    <h5 class="card-title text-secondary mb-0">Portfolio Summary</h5>
+                    <h5 class="card-title text-secondary mb-0" data-i18n="dashboard.portfolioSummary">Portfolio Summary</h5>
                     <div id="data-status-container" class="d-flex align-items-center ms-auto">
                         <span id="data-status-icon" class="me-1">
                             <i class="bi bi-lightning-fill"></i>
                         </span>
                         <span id="data-status-indicator" class="badge bg-secondary">
-                            LOADING
+                            <span data-i18n="common.loading">LOADING</span>
                         </span>
                         <small id="data-update-time" class="text-muted ms-2"></small>
                     </div>
                 </div>
                 <div class="d-flex justify-content-between mt-2">
                     <div class="text-center flex-grow-1 border-end pe-2">
-                        <p class="text-muted mb-1 small">Total Value</p>
+                        <p class="text-muted mb-1 small" data-i18n="dashboard.totalValue">Total Value</p>
                         <h3 class="mb-0" id="account-value">$0.00</h3>
                     </div>
                     <div class="text-center flex-grow-1 ps-2">
-                        <p class="text-muted mb-1 small">Cash Balance</p>
+                        <p class="text-muted mb-1 small" data-i18n="dashboard.cashBalance">Cash Balance</p>
                         <h3 class="mb-0" id="cash-balance">$0.00</h3>
                     </div>
                 </div>
@@ -34,22 +34,22 @@
     <div class="col-md-4 mb-3 mb-md-0">
         <div class="card shadow-sm h-100">
             <div class="card-body d-flex flex-column">
-                <h5 class="card-title text-secondary mb-3">Margin Metrics</h5>
+                <h5 class="card-title text-secondary mb-3" data-i18n="dashboard.marginMetrics">Margin Metrics</h5>
                 <div class="d-flex justify-content-between mt-2">
                     <div class="text-center flex-grow-1 border-end pe-2">
-                        <p class="text-muted mb-1 small">Excess Liquidity</p>
+                        <p class="text-muted mb-1 small" data-i18n="dashboard.excessLiquidity">Excess Liquidity</p>
                         <h3 class="mb-0" id="excess-liquidity">$0.00</h3>
                     </div>
                     <div class="text-center flex-grow-1 ps-2">
-                        <p class="text-muted mb-1 small">Initial Margin</p>
+                        <p class="text-muted mb-1 small" data-i18n="dashboard.initialMargin">Initial Margin</p>
                         <h3 class="mb-0" id="initial-margin">$0.00</h3>
                     </div>
                 </div>
                 <div class="mt-3">
                     <label class="form-label d-flex justify-content-between mb-1">
                         <small class="text-muted">
-                            <span data-bs-toggle="tooltip" data-bs-placement="top" title="Leverage % = (Initial Margin / Portfolio Value) × 100">
-                                Leverage <i class="bi bi-info-circle-fill"></i>
+                            <span data-bs-toggle="tooltip" data-bs-placement="top" title="Leverage % = (Initial Margin / Portfolio Value) × 100" data-i18n-title="dashboard.leverageTooltip">
+                                <span data-i18n="dashboard.leverage">Leverage</span> <i class="bi bi-info-circle-fill"></i>
                             </span>
                         </small>
                         <small class="fw-bold" id="leverage-percentage">0.00%</small>
@@ -66,14 +66,13 @@
     <div class="col-md-4">
         <div class="card shadow-sm h-100">
             <div class="card-body d-flex flex-column justify-content-center align-items-center text-center">
-                <h5 class="card-title text-secondary mb-3">Weekly Earnings</h5>
+                <h5 class="card-title text-secondary mb-3" data-i18n="dashboard.weeklyEarnings">Weekly Earnings</h5>
                 <h2 class="mb-1" id="weekly-income-summary">$0.00</h2>
                 <p class="text-muted">
-                    <span id="weekly-positions-count">0</span> positions expiring 
-                    <span id="friday-date">this Friday</span>
+                    <span id="weekly-positions-count">0</span> <span data-i18n="dashboard.positionsExpiring">positions expiring</span>
+                    <span id="friday-date" data-i18n="dashboard.thisFriday">this Friday</span>
                 </p>
             </div>
         </div>
     </div>
-</div> 
 </div> 

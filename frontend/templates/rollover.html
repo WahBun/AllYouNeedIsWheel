@@ -11,9 +11,11 @@
 <!-- Include page header with action button -->
 {% with 
   title="Rollover Options",
+  title_i18n="page.rollover.title",
   subtitle="Manage options approaching strike price",
+  subtitle_i18n="page.rollover.subtitle",
   show_actions=true,
-  action_buttons='<button class="btn btn-outline-primary" id="refresh-rollover"><i class="bi bi-arrow-repeat"></i> Refresh</button>'
+  action_buttons='<button class="btn btn-outline-primary" id="refresh-rollover"><i class="bi bi-arrow-repeat"></i> <span data-i18n="common.refresh">Refresh</span></button>'
 %}
   {% include "partials/components/page_header.html" %}
 {% endwith %}
@@ -21,9 +23,20 @@
 <!-- Include rollover options table -->
 {% include "partials/common/rollover_table.html" %}
 
+{% with
+  modal_id="confirmRolloverOrderModal",
+  title="Confirm Rollover Leg",
+  body="Review this rollover leg before sending it to Interactive Brokers.",
+  confirm_button_text="Execute This Leg",
+  cancel_button_i18n="common.cancel",
+  confirm_button_class="btn-success"
+%}
+  {% include "partials/components/confirm_modal.html" %}
+{% endwith %}
+
 {% endblock %}
 
 {% block scripts %}
 <!-- Import rollover JavaScript -->
-<script type="module" src="{{ url_for('static', filename='js/rollover/rollover.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/rollover/rollover.js') }}?v=safety-1"></script>
 {% endblock %} 

@@ -12,10 +12,13 @@ function showAlert(message, type = 'info', duration = 5000) {
     const alertDiv = document.createElement('div');
     alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
     alertDiv.role = 'alert';
-    alertDiv.innerHTML = `
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-    `;
+    alertDiv.appendChild(document.createTextNode(String(message)));
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'btn-close';
+    closeButton.dataset.bsDismiss = 'alert';
+    closeButton.setAttribute('aria-label', 'Close');
+    alertDiv.appendChild(closeButton);
     
     // Add the alert at the top of the content container
     const contentContainer = document.querySelector('.content-container') || document.querySelector('main');

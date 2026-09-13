@@ -2,15 +2,25 @@
  * Rollover module
  * Handles options approaching strike price and rollover suggestions
  */
-import { fetchPositions, fetchOptionData, saveOptionOrder, fetchPendingOrders, cancelOrder, executeOrder, fetchStockPrices as apiFetchStockPrices, fetchOptionExpirations } from '../dashboard/api.js';
+import { fetchPositions, fetchOptionData, saveOptionOrder, fetchPendingOrders, cancelOrder, executeOrder, checkOrderStatus, fetchStockPrices as apiFetchStockPrices, fetchOptionExpirations } from '../dashboard/api.js?v=safety-1';
 import { formatCurrency, formatPercent } from '../utils/formatters.js';
 import { updateLegendDisplay } from '../utils/table-utils.js';
+import { showAlert } from '../utils/alerts.js?v=safety-1';
 
 // Store data
 let optionsData = null;
 let selectedOption = null;
 let rolloverSuggestions = [];
 let pendingOrders = [];
+let orderStatusTimer = null;
+const orderExecutionInFlight = new Set();
+const TRACKED_ORDER_STATUSES = ['submitting', 'processing', 'canceling', 'unknown'];
+const ACTIVE_ORDER_STATUSES = ['pending', ...TRACKED_ORDER_STATUSES];
+const ORDER_STATUS_INTERVAL = 10000;
+
+function tr(key, replacements = {}) {
+    return window.t ? window.t(key, replacements) : key;
+}
 
 /**
  * Format percentage for display
@@ -325,10 +335,32 @@ async function loadPendingOrders() {
         
         // Populate the pending orders table
         populatePendingOrdersTable(pendingOrders);
+        syncOrderStatusPolling();
         
         console.log('Rollover pending orders loaded:', pendingOrders.length);
     } catch (error) {
         console.error('Error loading pending orders:', error);
+        showAlert(`Error loading rollover orders: ${error.message}`, 'danger');
+    }
+}
+
+function syncOrderStatusPolling() {
+    const needsTracking = pendingOrders.some(order =>
+        TRACKED_ORDER_STATUSES.includes(String(order.status || '').toLowerCase())
+    );
+
+    if (needsTracking && !orderStatusTimer) {
+        orderStatusTimer = setInterval(async () => {
+            try {
+                await checkOrderStatus();
+                await loadPendingOrders();
+            } catch (error) {
+                console.error('Error tracking rollover order status:', error);
+            }
+        }, ORDER_STATUS_INTERVAL);
+    } else if (!needsTracking && orderStatusTimer) {
+        clearInterval(orderStatusTimer);
+        orderStatusTimer = null;
     }
 }
 
@@ -780,138 +812,96 @@ function populateRolloverSuggestionsTable(suggestions) {
 function populatePendingOrdersTable(orders) {
     const tableBody = document.getElementById('pending-orders-table-body');
     if (!tableBody) return;
-    
-    // Clear table
+
     tableBody.innerHTML = '';
-    
-    if (!orders || orders.length === 0) {
+
+    const visibleOrders = (orders || []).filter(order =>
+        ACTIVE_ORDER_STATUSES.includes(String(order.status || '').toLowerCase())
+    );
+    if (visibleOrders.length === 0) {
         const noDataRow = document.createElement('tr');
         noDataRow.innerHTML = '<td colspan="10" class="text-center">No pending rollover orders found</td>';
         tableBody.appendChild(noDataRow);
         return;
     }
-    
-    console.log('Debugging pending orders data:', orders);
-    
-    // Sort orders by date created (most recent first)
-    orders.sort((a, b) => {
-        // Get timestamps to compare
+
+    visibleOrders.sort((a, b) => {
         const timestampA = a.timestamp || a.date_created || 0;
         const timestampB = b.timestamp || b.date_created || 0;
-        
-        // If they are numbers, compare directly
         if (!isNaN(timestampA) && !isNaN(timestampB)) {
             return timestampB - timestampA;
-        } else {
-            // Otherwise treat as dates
-            return new Date(timestampB) - new Date(timestampA);
         }
+        return new Date(timestampB) - new Date(timestampA);
     });
-    
-    // Add orders to table
-    orders.forEach(order => {
+
+    visibleOrders.forEach(order => {
         const row = document.createElement('tr');
-        
-        // Format the strike price 
         const strike = order.strike ? formatCurrency(order.strike) : 'N/A';
-        
-        // Handle limit price display
-        let limitPriceDisplay;
-        
-        if (order.order_type === 'MARKET') {
-            limitPriceDisplay = 'Market';
-        } else if (order.order_type === 'LIMIT') {
-            console.log(`Order ${order.id} limit price info: ${order.limit_price}, type: ${typeof order.limit_price}`);
-            
-            // Convert per-contract price to per-share price for display (divide by 100)
-            // Make sure we have a valid number (default to 0 if undefined/null/NaN)
-            const limitPrice = parseFloat(order.limit_price) || 0;
-            const perSharePrice = limitPrice / 100;
-            
-            // Determine price context (mid, bid, ask)
-            let priceContext = '';
-            
-            // For BUY orders, show ask context
-            if (order.action === 'BUY' && order.ask > 0) {
-                priceContext = `<small class="text-muted" title="Ask price per share">(ask)</small>`;
-            } 
-            // For SELL orders with both bid and ask, show mid context
-            else if (order.action === 'SELL' && order.bid > 0 && order.ask > 0) {
-                const bidAskTooltip = `bid: ${formatCurrency(order.bid)}, ask: ${formatCurrency(order.ask)}`;
-                priceContext = `<small class="text-muted" title="${bidAskTooltip}">(mid)</small>`;
-            }
-            
-            limitPriceDisplay = `${formatCurrency(perSharePrice)} ${priceContext}`;
-        } else {
-            console.log(`Order ${order.id} has no limit price or is not a LIMIT order. order_type: ${order.order_type}, limit_price: ${order.limit_price}`);
-            limitPriceDisplay = '-';
+        const limitPrice = Number(order.premium);
+        let priceContext = '';
+        if (order.action === 'BUY' && Number(order.ask) > 0) {
+            priceContext = '<small class="text-muted" title="Ask price per share">(ask)</small>';
+        } else if (order.action === 'SELL' && Number(order.bid) > 0 && Number(order.ask) > 0) {
+            const bidAskTooltip = `bid: ${formatCurrency(order.bid)}, ask: ${formatCurrency(order.ask)}`;
+            priceContext = `<small class="text-muted" title="${bidAskTooltip}">(mid)</small>`;
         }
-        
-        // Format the created date if available
+        const limitPriceDisplay = Number.isFinite(limitPrice) && limitPrice > 0
+            ? `${formatCurrency(limitPrice)} ${priceContext}`
+            : '-';
         const createdAt = formatDate(order.timestamp || order.date_created);
-        
-        // Determine status display
-        let statusText = order.status || 'pending';
+        const normalizedStatus = String(order.status || 'pending').toLowerCase();
+        let statusText = normalizedStatus;
         let rowClass = '';
-        
-        // Map status to appropriate display and row styling
-        if (statusText === 'executed' || statusText === 'filled') {
+
+        if (normalizedStatus === 'executed' || normalizedStatus === 'filled') {
             rowClass = 'table-success';
             statusText = 'Executed';
-        } else if (statusText === 'cancelled' || statusText === 'rejected' || statusText === 'canceled') {
+        } else if (['cancelled', 'rejected', 'canceled'].includes(normalizedStatus)) {
             rowClass = 'table-danger';
-            statusText = statusText === 'cancelled' || statusText === 'canceled' ? 'Cancelled' : 'Rejected';
-        } else if (statusText === 'processing') {
+            statusText = normalizedStatus === 'rejected' ? 'Rejected' : 'Cancelled';
+        } else if (normalizedStatus === 'submitting') {
+            rowClass = 'table-warning';
+            statusText = 'Submitting';
+        } else if (normalizedStatus === 'processing') {
             rowClass = 'table-warning';
             statusText = 'Processing';
-        } else if (statusText === 'ready') {
-            rowClass = 'table-info';
-            statusText = 'Ready for Submission';
+        } else if (normalizedStatus === 'canceling') {
+            rowClass = 'table-warning';
+            statusText = 'Canceling';
+        } else if (normalizedStatus === 'unknown') {
+            rowClass = 'table-danger';
+            statusText = 'Check IB';
         } else {
             statusText = 'Pending';
         }
-        
-        // Build status HTML with date and notes
+
         let statusHtml = `<span class="badge bg-${getBadgeColor(order.status)}">${statusText}</span>`;
-        
-        // Add date if available
         if (createdAt) {
             statusHtml += `<br><small class="text-muted">${createdAt}</small>`;
         }
-        
-        // Show IB information if available
         if (order.ib_order_id) {
             statusHtml += `
                 <br><small class="text-muted"><strong>IB ID:</strong> ${order.ib_order_id}</small>
                 <br><small class="text-muted"><strong>Status:</strong> ${order.ib_status || 'Unknown'}</small>
             `;
-            
-            // Show fill price if executed
             if (order.avg_fill_price && order.status === 'executed') {
                 statusHtml += `<br><small class="text-muted"><strong>Fill Price:</strong> ${formatCurrency(order.avg_fill_price)}</small>`;
             }
         }
-        
-        // Create quantity field - editable for pending orders, display-only otherwise
-        const quantityCell = order.status === 'pending' && !String(order.id).startsWith('temp-')
+
+        const quantityCell = normalizedStatus === 'pending' && !String(order.id).startsWith('temp-')
             ? `<input type="number" class="form-control form-control-sm quantity-input" data-order-id="${order.id}" value="${order.quantity}" min="1" max="100">`
             : `${order.quantity}`;
-        
-        // Create action buttons based on order status
         let actionButtons = '';
-        
-        // Check if it's a temporary order (for rollover)
         const isTemporaryOrder = String(order.id).startsWith('temp-');
-        
+
         if (isTemporaryOrder) {
-            // For temporary orders, show disabled button
             actionButtons = `
                 <button class="btn btn-sm btn-outline-secondary" disabled>
                     <i class="bi bi-hourglass"></i> Pending Submission
                 </button>
             `;
-        } else if (statusText === 'Pending') {
-            // For pending orders, show execute and cancel buttons
+        } else if (normalizedStatus === 'pending') {
             actionButtons = `
                 <div class="btn-group btn-group-sm">
                     <button class="btn btn-outline-primary execute-order-btn" data-order-id="${order.id}">
@@ -922,21 +912,23 @@ function populatePendingOrdersTable(orders) {
                     </button>
                 </div>
             `;
-        } else if (statusText === 'Processing') {
-            // For processing orders, show only cancel button
+        } else if (normalizedStatus === 'processing' || (normalizedStatus === 'unknown' && order.ib_order_id)) {
             actionButtons = `
-                <button class="btn btn-sm btn-warning cancel-order-btn" data-order-id="${order.id}">
+                <button class="btn btn-sm btn-outline-danger cancel-order-btn" data-order-id="${order.id}">
                     <i class="bi bi-x-circle"></i> Cancel
                 </button>
             `;
+        } else if (normalizedStatus === 'submitting' || normalizedStatus === 'canceling') {
+            actionButtons = `
+                <button class="btn btn-sm btn-outline-secondary" disabled>
+                    <i class="bi bi-hourglass-split"></i> ${statusText}
+                </button>
+            `;
         } else {
-            // For other statuses, show no buttons
             actionButtons = '-';
         }
-        
+
         row.className = rowClass;
-        
-        // Create the row HTML
         row.innerHTML = `
             <td>${isTemporaryOrder ? '<span class="badge bg-info">Pending</span>' : order.id}</td>
             <td>${order.action}</td>
@@ -949,64 +941,58 @@ function populatePendingOrdersTable(orders) {
             <td>${statusHtml}</td>
             <td>${actionButtons}</td>
         `;
-        
         tableBody.appendChild(row);
     });
-    
-    // Add event listeners to execute and cancel buttons
+
     const executeButtons = tableBody.querySelectorAll('.execute-order-btn');
     executeButtons.forEach(button => {
         button.addEventListener('click', async (event) => {
             const orderId = event.target.closest('.execute-order-btn').getAttribute('data-order-id');
-            await executeOrderById(parseInt(orderId));
+            confirmOrderExecution(parseInt(orderId, 10), button);
         });
     });
-    
+
     const cancelButtons = tableBody.querySelectorAll('.cancel-order-btn');
     cancelButtons.forEach(button => {
         button.addEventListener('click', async (event) => {
             const orderId = event.target.closest('.cancel-order-btn').getAttribute('data-order-id');
-            await cancelOrderById(parseInt(orderId));
+            await cancelOrderById(parseInt(orderId, 10));
         });
     });
-    
-    // Add event listeners to quantity inputs
+
     const quantityInputs = tableBody.querySelectorAll('.quantity-input');
     quantityInputs.forEach(input => {
-        // Handle input change
         input.addEventListener('change', async (event) => {
             const orderId = event.target.dataset.orderId;
             const newQuantity = parseInt(event.target.value, 10);
             if (orderId && !isNaN(newQuantity) && newQuantity > 0) {
                 try {
-                    // Update the quantity via API
                     const response = await fetch(`/api/options/order/${orderId}/quantity`, {
                         method: 'PUT',
                         headers: {
                             'Content-Type': 'application/json',
+                            'X-All-You-Need-Is-Wheel': '1',
                         },
                         body: JSON.stringify({ quantity: newQuantity })
                     });
                     
                     if (!response.ok) {
-                        throw new Error(`Failed to update quantity: ${response.statusText}`);
+                        const data = await response.json().catch(() => ({}));
+                        throw new Error(data.error || `Failed to update quantity: ${response.statusText}`);
                     }
-                    
                     await response.json();
-                    
-                    // Reload pending orders
+                    showAlert(`Quantity updated to ${newQuantity}`, 'success');
                     await loadPendingOrders();
                 } catch (error) {
                     console.error(`Error updating quantity for order ${orderId}:`, error);
-                    
-                    // Reset to previous value
+                    showAlert(`Quantity was not updated: ${error.message}`, 'danger');
                     const order = pendingOrders.find(o => o.id === parseInt(orderId, 10));
                     if (order) {
                         event.target.value = order.quantity || 1;
                     }
                 }
             } else {
-                // Reset to previous value if invalid
+                showAlert('Quantity must be a whole number between 1 and 100', 'warning');
                 const order = pendingOrders.find(o => o.id === parseInt(orderId, 10));
                 if (order) {
                     event.target.value = order.quantity || 1;
@@ -1030,10 +1016,10 @@ function getBadgeColor(status) {
         return 'success';
     } else if (status === 'cancelled' || status === 'canceled' || status === 'rejected') {
         return 'danger';
-    } else if (status === 'processing') {
+    } else if (status === 'submitting' || status === 'processing' || status === 'canceling') {
         return 'warning';
-    } else if (status === 'ready') {
-        return 'info';
+    } else if (status === 'unknown') {
+        return 'danger';
     } else {
         return 'secondary'; // Default for pending and other statuses
     }
@@ -1061,7 +1047,55 @@ function formatDate(dateStr) {
  * Execute an order by ID
  * @param {number} orderId - The order ID to execute
  */
-async function executeOrderById(orderId) {
+function confirmOrderExecution(orderId, sourceButton) {
+    const order = pendingOrders.find(item => item.id === orderId);
+    if (!order || String(order.status).toLowerCase() !== 'pending') {
+        showAlert('Only pending orders can be executed', 'warning');
+        return;
+    }
+
+    const quantity = Number(order.quantity || 1);
+    const price = Number(order.premium || 0);
+    const summary = [
+        'This submits ONE rollover leg to IB.',
+        `${tr('common.action')}: ${order.action}`,
+        `${tr('common.ticker')}: ${order.ticker} ${order.option_type}`,
+        `${tr('common.strike')}: ${formatCurrency(order.strike)}`,
+        `${tr('common.expiration')}: ${order.expiration}`,
+        `${tr('common.quantity')}: ${quantity}`,
+        `${tr('common.limitPrice')}: ${formatCurrency(price)} / share`,
+        `Contract total: ${formatCurrency(price * 100 * quantity)}`,
+        'Verify the other rollover leg separately.'
+    ].join('\n');
+
+    const modalElement = document.getElementById('confirmRolloverOrderModal');
+    const confirmButton = document.getElementById('confirmRolloverOrderModal-confirm');
+    if (!modalElement || !confirmButton || !window.bootstrap?.Modal) {
+        if (window.confirm(summary)) executeOrderById(orderId, sourceButton);
+        return;
+    }
+
+    const modalBody = modalElement.querySelector('.modal-body');
+    modalBody.textContent = summary;
+    modalBody.style.whiteSpace = 'pre-line';
+    const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
+    confirmButton.onclick = async () => {
+        confirmButton.disabled = true;
+        modal.hide();
+        try {
+            await executeOrderById(orderId, sourceButton);
+        } finally {
+            confirmButton.disabled = false;
+        }
+    };
+    modal.show();
+}
+
+async function executeOrderById(orderId, sourceButton = null) {
+    if (orderExecutionInFlight.has(orderId)) return;
+    orderExecutionInFlight.add(orderId);
+    if (sourceButton) sourceButton.disabled = true;
+
     try {
         if (!orderId) {
             throw new Error('Invalid order ID');
@@ -1073,38 +1107,21 @@ async function executeOrderById(orderId) {
             throw new Error(`Order with ID ${orderId} not found`);
         }
         
-        // For LIMIT orders, ensure we're using the proper pricing
-        if (order.order_type === 'LIMIT') {
-            // Log the price information
-            if (order.action === 'BUY' && order.ask > 0) {
-                // For BUY orders, use ask price
-                console.log(`Executing BUY with ask price: $${order.ask} per share (${order.ask * 100} per contract)`);
-            } else if (order.action === 'SELL' && (order.bid > 0 || order.ask > 0)) {
-                // For SELL orders, use mid price if both bid/ask available, otherwise fallback to bid
-                let sellMidPrice;
-                if (order.bid > 0 && order.ask > 0) {
-                    sellMidPrice = (order.bid + order.ask) / 2;
-                } else {
-                    sellMidPrice = order.bid > 0 ? order.bid : (order.ask > 0 ? order.ask : 0);
-                }
-                
-                if (sellMidPrice > 0) {
-                    console.log(`Executing SELL with mid price: $${sellMidPrice} per share (${sellMidPrice * 100} per contract)`);
-                }
-            }
-        }
-        
-        // Execute the order
         const result = await executeOrder(orderId);
         
         if (result && result.success) {
-            // Reload pending orders
+            showAlert(`Rollover leg sent to IB (order ${result.ib_order_id || '-'})`, 'success');
             await loadPendingOrders();
         } else {
             throw new Error(result.error || 'Failed to execute order');
         }
     } catch (error) {
         console.error('Error executing order:', error);
+        showAlert(`Rollover order was not confirmed: ${error.message}`, 'danger', 10000);
+        await loadPendingOrders();
+    } finally {
+        orderExecutionInFlight.delete(orderId);
+        if (sourceButton?.isConnected) sourceButton.disabled = false;
     }
 }
 
@@ -1122,13 +1139,15 @@ async function cancelOrderById(orderId) {
         const result = await cancelOrder(orderId);
         
         if (result && result.success) {
-            // Reload pending orders
+            showAlert(result.message || 'Cancellation requested', 'success');
             await loadPendingOrders();
         } else {
             throw new Error(result.error || 'Failed to cancel order');
         }
     } catch (error) {
         console.error('Error cancelling order:', error);
+        showAlert(`Cancellation was not confirmed: ${error.message}`, 'danger', 10000);
+        await loadPendingOrders();
     }
 }
 
@@ -1192,10 +1211,8 @@ async function addRolloverOrder(suggestionId) {
         
         console.log(`Using buy ask price: $${buyAsk} per share`);
         
-        // For BUY TO CLOSE, API expects price per contract (multiply by 100)
-        const buyLimitPricePerContract = buyAsk * 100;
-        
-        // For SELL TO OPEN, keep as per-share price (don't multiply by 100)
+        // IB option limit prices use the displayed per-share quote for both legs.
+        const buyLimitPrice = buyAsk;
         const sellLimitPrice = sellMidPrice;
         
         // Create rollover data object
@@ -1210,9 +1227,8 @@ async function addRolloverOrder(suggestionId) {
             // Use LIMIT for both orders
             current_order_type: 'LIMIT',
             new_order_type: 'LIMIT',
-            // Include both limit prices (send per-contract price for BUY, per-share price for SELL)
-            current_limit_price: buyLimitPricePerContract,  // Ask price for buy order (per contract)
-            new_limit_price: sellLimitPrice,               // Mid price for sell order (per share)
+            current_limit_price: buyLimitPrice,
+            new_limit_price: sellLimitPrice,
             // Include raw bid and ask information for both current and new positions
             current_bid: buyBid,
             current_ask: buyAsk,
@@ -1234,6 +1250,7 @@ async function addRolloverOrder(suggestionId) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'X-All-You-Need-Is-Wheel': '1',
             },
             body: JSON.stringify(rolloverData)
         });
@@ -1246,6 +1263,10 @@ async function addRolloverOrder(suggestionId) {
         const result = await response.json();
         
         if (result.success) {
+            showAlert(
+                `Rollover staged: BUY ${formatCurrency(buyLimitPrice)} and SELL ${formatCurrency(sellLimitPrice)} per share`,
+                'success'
+            );
             // Reload pending orders and option positions
             await Promise.all([
                 loadPendingOrders(),
@@ -1265,6 +1286,7 @@ async function addRolloverOrder(suggestionId) {
         }
     } catch (error) {
         console.error('Error preparing rollover order:', error);
+        showAlert(`Rollover was not staged: ${error.message}`, 'danger', 10000);
     }
 }
 
@@ -1622,3 +1644,6 @@ async function fetchRolloverSuggestions() {
 
 // Initialize the rollover page when the DOM is loaded
 document.addEventListener('DOMContentLoaded', initializeRollover);
+window.addEventListener('beforeunload', () => {
+    if (orderStatusTimer) clearInterval(orderStatusTimer);
+});

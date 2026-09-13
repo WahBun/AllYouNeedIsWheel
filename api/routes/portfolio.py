@@ -39,6 +39,22 @@ def get_positions():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@bp.route('/option-position/<int:con_id>/quote', methods=['GET'])
+def get_option_position_quote(con_id):
+    """Get an execution-oriented quote for one exact held option contract."""
+    if con_id <= 0:
+        return jsonify({'error': 'Invalid option contract identifier'}), 400
+
+    try:
+        result = portfolio_service.get_option_position_quote(con_id)
+        if not result:
+            return jsonify({
+                'error': 'Option position was not found in the configured IB account'
+            }), 404
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @bp.route('/weekly-income', methods=['GET'])
 def get_weekly_income():
     """

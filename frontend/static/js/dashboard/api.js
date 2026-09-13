@@ -203,12 +203,19 @@ async function saveOptionOrder(orderData) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'X-All-You-Need-Is-Wheel': '1',
             },
             body: JSON.stringify(orderData)
         });
         
         if (!response.ok) {
-            throw new Error(`HTTP error ${response.status}`);
+            const data = await response.json().catch(() => ({}));
+            return {
+                success: false,
+                error: data.error || data.message || `HTTP error ${response.status}`,
+                status: data.status,
+                execution_details: data.execution_details
+            };
         }
         
         return await response.json();
@@ -230,7 +237,8 @@ async function cancelOrder(orderId) {
         const response = await fetch(`/api/options/cancel/${orderId}`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'X-All-You-Need-Is-Wheel': '1'
             }
         });
         
@@ -256,7 +264,8 @@ async function checkOrderStatus() {
         const response = await fetch('/api/options/check-orders', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'X-All-You-Need-Is-Wheel': '1'
             }
         });
         
@@ -284,14 +293,21 @@ async function executeOrder(orderId) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'X-All-You-Need-Is-Wheel': '1',
             }
         });
-        
+
+        const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-            throw new Error(`HTTP error ${response.status}`);
+            return {
+                success: false,
+                error: data.error || data.message || `HTTP error ${response.status}`,
+                status: data.status,
+                execution_details: data.execution_details
+            };
         }
-        
-        return await response.json();
+
+        return data;
     } catch (error) {
         console.error('Error executing order:', error);
         return { success: false, error: error.message };

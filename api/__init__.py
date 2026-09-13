@@ -3,8 +3,9 @@ Auto-Trader API
 Flask application initialization and configuration.
 """
 
-from flask import Flask
-from flask_cors import CORS
+import os
+
+from flask import Flask, jsonify, request
 from core.logging_config import get_logger
 
 # Configure logging
@@ -21,13 +22,19 @@ def create_app(config=None):
         Flask: Configured Flask application
     """
     logger.info("Creating API application")
-    app = Flask(__name__, 
-                static_folder='../frontend/static',
-                template_folder='../frontend/templates')
-    
-    # Enable CORS
-    CORS(app)
-    logger.debug("CORS enabled for API")
+    frontend_dir = os.environ.get('FRONTEND_DIR')
+    if frontend_dir:
+        static_folder = os.path.join(frontend_dir, 'static')
+        template_folder = os.path.join(frontend_dir, 'templates')
+    else:
+        static_folder = '../frontend/static'
+        template_folder = '../frontend/templates'
+
+    app = Flask(
+        __name__,
+        static_folder=static_folder,
+        template_folder=template_folder,
+    )
     
     # Default configuration
     app.config.from_mapping(
@@ -39,6 +46,17 @@ def create_app(config=None):
     if config:
         app.config.update(config)
         logger.debug("Applied custom configuration")
+
+    @app.before_request
+    def protect_trading_writes():
+        if (
+            request.path.startswith('/api/')
+            and request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}
+            and request.headers.get('X-All-You-Need-Is-Wheel') != '1'
+        ):
+            return jsonify({
+                'error': 'Trading write request rejected: missing same-origin safety header'
+            }), 403
     
     # Register blueprints
     from api.routes import portfolio, options, recommendations

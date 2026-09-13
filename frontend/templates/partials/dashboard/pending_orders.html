@@ -3,13 +3,13 @@
     <div class="col-md-12">
         <div class="card shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Pending Option Orders</h5>
+                <h5 class="mb-0" data-i18n="orders.pendingTitle">Pending Option Orders</h5>
                 <div class="d-flex align-items-center">
                     <button class="btn btn-sm btn-outline-danger me-2" id="cancel-all-pending-orders">
-                        <i class="bi bi-x-circle"></i> Cancel All
+                        <i class="bi bi-x-circle"></i> <span data-i18n="common.cancelAll">Cancel All</span>
                     </button>
                     <button class="btn btn-sm btn-outline-primary" id="refresh-pending-orders">
-                        <i class="bi bi-arrow-repeat"></i> Refresh
+                        <i class="bi bi-arrow-repeat"></i> <span data-i18n="common.refresh">Refresh</span>
                     </button>
                 </div>
             </div>
@@ -18,19 +18,19 @@
                     <table class="table table-striped">
                         <thead>
                             <tr>
-                                <th>Symbol</th>
-                                <th>Type</th>
-                                <th>Strike</th>
-                                <th>Expiration</th>
-                                <th>Limit Price</th>
-                                <th>Quantity</th>
-                                <th>Status</th>
-                                <th>Actions</th>
+                                <th data-i18n="common.symbol">Symbol</th>
+                                <th data-i18n="common.type">Type</th>
+                                <th data-i18n="common.strike">Strike</th>
+                                <th data-i18n="common.expiration">Expiration</th>
+                                <th data-i18n="common.limitPrice">Limit Price</th>
+                                <th data-i18n="common.quantity">Quantity</th>
+                                <th data-i18n="common.status">Status</th>
+                                <th data-i18n="common.actions">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="pending-orders-table">
                             <tr>
-                                <td colspan="8" class="text-center">Loading pending orders...</td>
+                                <td colspan="8" class="text-center" data-i18n="orders.loadingPending">Loading pending orders...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -38,7 +38,7 @@
             </div>
             <div class="card-footer">
                 <div class="d-flex justify-content-between align-items-center">
-                    <small class="text-muted">Manage your pending option orders here. Click Execute to send an order to Interactive Brokers.</small>
+                    <small class="text-muted" data-i18n="orders.footer">Manage your pending option orders here. Click Execute to send an order to Interactive Brokers.</small>
                 </div>
             </div>
         </div>
@@ -46,14 +46,15 @@
 </div>
 
 <!-- Filled Orders & Earnings Section -->
+{% if show_weekly_income is not defined or show_weekly_income %}
 <div class="row mb-4">
     <div class="col-md-12">
         <div class="card shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Weekly Option Income (This Friday Expiration)</h5>
+                <h5 class="mb-0" data-i18n="orders.weeklyIncomeTitle">Weekly Option Income (This Friday Expiration)</h5>
                 <div class="d-flex align-items-center">
                     <button id="refresh-filled-orders" class="btn btn-sm btn-outline-secondary">
-                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                        <i class="bi bi-arrow-clockwise"></i> <span data-i18n="common.refresh">Refresh</span>
                     </button>
                 </div>
             </div>
@@ -62,39 +63,39 @@
                     <table class="table table-striped">
                         <thead>
                             <tr>
-                                <th>Symbol</th>
-                                <th>Type</th>
-                                <th>Strike</th>
-                                <th>Expiration</th>
-                                <th>Avg Price</th>
-                                <th>Quantity</th>
-                                <th>Total Income</th>
-                                <th>Notional Value</th>
+                                <th data-i18n="common.symbol">Symbol</th>
+                                <th data-i18n="common.type">Type</th>
+                                <th data-i18n="common.strike">Strike</th>
+                                <th data-i18n="common.expiration">Expiration</th>
+                                <th data-i18n="orders.avgPrice">Avg Price</th>
+                                <th data-i18n="common.quantity">Quantity</th>
+                                <th data-i18n="orders.totalIncome">Total Income</th>
+                                <th data-i18n="orders.notionalValue">Notional Value</th>
                             </tr>
                         </thead>
                         <tbody id="filled-orders-table">
                             <tr>
-                                <td colspan="8" class="text-center">Loading short options expiring this Friday...</td>
+                                <td colspan="8" class="text-center" data-i18n="orders.loadingWeekly">Loading short options expiring this Friday...</td>
                             </tr>
                         </tbody>
-                        <tfoot class="table-dark">
+                        <tfoot class="weekly-income-summary">
                             <tr id="weekly-earnings-summary">
                                 <td colspan="8" class="text-center">
                                     <div class="d-flex justify-content-around align-items-center py-2">
                                         <div class="text-center">
-                                            <h6 class="mb-0">Weekly Income</h6>
+                                            <h6 class="mb-0" data-i18n="orders.weeklyIncome">Weekly Income</h6>
                                             <span class="fs-5 fw-bold" id="weekly-earnings-total">$0.00</span>
                                         </div>
                                         <div class="text-center">
-                                            <h6 class="mb-0">Position Count</h6>
+                                            <h6 class="mb-0" data-i18n="orders.positionCount">Position Count</h6>
                                             <span class="fs-5 fw-bold" id="weekly-order-count">0</span>
                                         </div>
                                         <div class="text-center">
-                                            <h6 class="mb-0">Average Income/Position</h6>
+                                            <h6 class="mb-0" data-i18n="orders.averageIncomePosition">Average Income/Position</h6>
                                             <span class="fs-5 fw-bold" id="weekly-average-premium">$0.00</span>
                                         </div>
                                         <div class="text-center">
-                                            <h6 class="mb-0">Total PUT Notional</h6>
+                                            <h6 class="mb-0" data-i18n="orders.totalPutNotional">Total PUT Notional</h6>
                                             <span class="fs-5 fw-bold" id="weekly-notional-value">$0.00</span>
                                         </div>
                                     </div>
@@ -105,18 +106,23 @@
                 </div>
             </div>
             <div class="card-footer">
-                <small class="text-muted">Short option positions expiring this coming Friday and estimated income.</small>
+                <small class="text-muted" id="weekly-income-footer" data-i18n="orders.weeklyFooter">Short option positions expiring this coming Friday and estimated income.</small>
             </div>
         </div>
     </div>
 </div>
+{% endif %}
 
 <!-- Include confirmation modal for order execution -->
 {% with 
   modal_id="confirmOrderModal",
   title="Confirm Order Execution",
+  title_i18n="modal.confirmOrderTitle",
   body="Are you sure you want to execute this order?",
+  body_i18n="modal.confirmOrderBody",
   confirm_button_text="Execute Order",
+  confirm_button_i18n="modal.executeOrder",
+  cancel_button_i18n="common.cancel",
   confirm_button_class="btn-success"
 %}
   {% include "partials/components/confirm_modal.html" %}

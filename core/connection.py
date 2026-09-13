@@ -56,7 +56,7 @@ class IBConnection:
     """
     Class for managing connection to Interactive Brokers
     """
-    def __init__(self, host='127.0.0.1', port=7497, client_id=1, timeout=20, readonly=True):
+    def __init__(self, host='127.0.0.1', port=7497, client_id=1, timeout=20, readonly=True, account_id=None):
         """
         Initialize the IB connection
         
@@ -72,8 +72,13 @@ class IBConnection:
         self.client_id = client_id
         self.timeout = timeout
         self.readonly = readonly
+        self.account_id = account_id
         self.ib = IB()
         self._connected = False
+        self._qualified_stock_cache = {}
+        self._qualified_option_cache = {}
+        self._option_definition_cache = {}
+        self._market_ticker_cache = {}
         
         # Suppress ib_async logs when initializing
         suppress_ib_logs()
@@ -93,6 +98,140 @@ class IBConnection:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         return True
+
+    @staticmethod
+    def _cached_value(cache, key, max_age_seconds):
+        cached = cache.get(key)
+        if not cached:
+            return None
+
+        cached_at, value = cached
+        if time.time() - cached_at > max_age_seconds:
+            cache.pop(key, None)
+            return None
+
+        return value
+
+    def get_qualified_stock_contract(self, symbol, exchange='SMART', currency='USD'):
+        """Return a qualified stock contract, reusing stable contract metadata."""
+        key = (symbol, exchange, currency)
+        cached = self._cached_value(self._qualified_stock_cache, key, 6 * 60 * 60)
+        if cached is not None:
+            return cached
+
+        stock = Stock(symbol, exchange, currency)
+        qualified_contracts = self.ib.qualifyContracts(stock)
+        if not qualified_contracts:
+            return None
+
+        qualified_stock = qualified_contracts[0]
+        self._qualified_stock_cache[key] = (time.time(), qualified_stock)
+        return qualified_stock
+
+    def get_option_definition(self, symbol, exchange='SMART', currency='USD'):
+        """Return the qualified stock and option definition with a short metadata cache."""
+        stock = self.get_qualified_stock_contract(symbol, exchange, currency)
+        if stock is None:
+            return None, None
+
+        key = (stock.conId, exchange)
+        cached_chain = self._cached_value(self._option_definition_cache, key, 30 * 60)
+        if cached_chain is not None:
+            return stock, cached_chain
+
+        chains = self.ib.reqSecDefOptParams(stock.symbol, '', stock.secType, stock.conId)
+        if not chains:
+            return stock, None
+
+        chain = next(
+            (candidate for candidate in chains if candidate.exchange == exchange and len(candidate.strikes) > 1),
+            chains[0]
+        )
+        self._option_definition_cache[key] = (time.time(), chain)
+        return stock, chain
+
+    def get_qualified_option_contract(self, symbol, expiration, strike, right, exchange='SMART', currency='USD'):
+        """Return a qualified option contract without repeating qualification on every quote."""
+        key = (symbol, expiration, float(strike), right, exchange, currency)
+        cached = self._cached_value(self._qualified_option_cache, key, 6 * 60 * 60)
+        if cached is not None:
+            return cached
+
+        contract = Option(
+            symbol=symbol,
+            lastTradeDateOrContractMonth=expiration,
+            strike=strike,
+            right=right,
+            exchange=exchange,
+            currency=currency,
+            multiplier=100
+        )
+        qualified_contracts = self.ib.qualifyContracts(contract)
+        if not qualified_contracts:
+            return None
+
+        qualified_option = qualified_contracts[0]
+        self._qualified_option_cache[key] = (time.time(), qualified_option)
+        return qualified_option
+
+    def _prune_market_ticker_cache(self, max_age_seconds=5 * 60, max_entries=16):
+        now = time.time()
+        expired_keys = [
+            key for key, entry in self._market_ticker_cache.items()
+            if now - entry['used_at'] > max_age_seconds
+        ]
+
+        for key in expired_keys:
+            entry = self._market_ticker_cache.pop(key)
+            try:
+                self.ib.cancelMktData(entry['contract'])
+            except Exception:
+                pass
+
+        while len(self._market_ticker_cache) > max_entries:
+            oldest_key = min(
+                self._market_ticker_cache,
+                key=lambda cache_key: self._market_ticker_cache[cache_key]['used_at']
+            )
+            entry = self._market_ticker_cache.pop(oldest_key)
+            try:
+                self.ib.cancelMktData(entry['contract'])
+            except Exception:
+                pass
+
+    def get_market_ticker(self, contract, generic_tick_list=''):
+        """Reuse a small set of live subscriptions so repeat refreshes are fast."""
+        self._prune_market_ticker_cache()
+        contract_key = getattr(contract, 'conId', None) or (
+            getattr(contract, 'symbol', ''),
+            getattr(contract, 'lastTradeDateOrContractMonth', ''),
+            getattr(contract, 'strike', 0),
+            getattr(contract, 'right', '')
+        )
+        key = (contract_key, generic_tick_list)
+        cached = self._market_ticker_cache.get(key)
+        if cached:
+            cached['used_at'] = time.time()
+            return cached['ticker']
+
+        if len(self._market_ticker_cache) >= 16:
+            oldest_key = min(
+                self._market_ticker_cache,
+                key=lambda cache_key: self._market_ticker_cache[cache_key]['used_at']
+            )
+            entry = self._market_ticker_cache.pop(oldest_key)
+            try:
+                self.ib.cancelMktData(entry['contract'])
+            except Exception:
+                pass
+
+        ticker = self.ib.reqMktData(contract, generic_tick_list, False, False)
+        self._market_ticker_cache[key] = {
+            'used_at': time.time(),
+            'ticker': ticker,
+            'contract': contract
+        }
+        return ticker
     
     def connect(self):
         """
@@ -116,6 +255,7 @@ class IBConnection:
             
             self._connected = self.ib.isConnected()
             if self._connected:
+                self._market_ticker_cache.clear()
                 logger.info(f"Successfully connected to IB with client ID {self.client_id}")
                 return True
             else:
@@ -145,6 +285,7 @@ class IBConnection:
         if self._connected:
             self.ib.disconnect()
             self._connected = False
+            self._market_ticker_cache.clear()
             logger.info("Disconnected from IB")
     
     def is_connected(self):
@@ -155,6 +296,87 @@ class IBConnection:
             bool: True if connected, False otherwise
         """
         return self._connected and self.ib.isConnected()
+
+    def _valid_price(self, value):
+        try:
+            price = float(value)
+        except (TypeError, ValueError):
+            return None
+
+        if math.isfinite(price) and price > 0:
+            return price
+        return None
+
+    def _ticker_price(self, ticker):
+        """
+        Extract the best usable price from an IB ticker, safely ignoring NaN.
+        """
+        if ticker is None:
+            return None
+
+        try:
+            market_price = self._valid_price(ticker.marketPrice())
+        except Exception:
+            market_price = None
+
+        last_price = self._valid_price(getattr(ticker, 'last', None))
+        close_price = self._valid_price(getattr(ticker, 'close', None))
+        bid_price = self._valid_price(getattr(ticker, 'bid', None))
+        ask_price = self._valid_price(getattr(ticker, 'ask', None))
+        last_rth_trade = None
+
+        if hasattr(ticker, 'lastRTHTrade') and ticker.lastRTHTrade:
+            last_rth_trade = self._valid_price(getattr(ticker.lastRTHTrade, 'price', None))
+
+        bid_ask_mid = None
+        if bid_price is not None and ask_price is not None:
+            bid_ask_mid = (bid_price + ask_price) / 2
+
+        for price in (market_price, last_price, close_price, bid_ask_mid, bid_price, ask_price, last_rth_trade):
+            if price is not None:
+                return price
+
+        return None
+
+    def _order_account(self):
+        configured_account = self.account_id
+        if configured_account and configured_account != "YOUR_ACCOUNT_ID":
+            return configured_account
+
+        try:
+            accounts = self.ib.managedAccounts()
+        except Exception as e:
+            logger.warning(f"Unable to read managed accounts for order routing: {e}")
+            return None
+
+        if len(accounts) == 1:
+            return accounts[0]
+
+        if len(accounts) > 1:
+            logger.warning("Multiple IB accounts available; order account was not explicitly configured")
+
+        return None
+
+    def _capture_order_errors(self, tracked_errors):
+        def on_error(req_id, error_code, error_string, contract):
+            if error_code in {201, 202, 399, 10147, 10148} or req_id > 0:
+                tracked_errors.append({
+                    'req_id': req_id,
+                    'code': error_code,
+                    'message': error_string
+                })
+
+        return on_error
+
+    def _summarize_order_errors(self, errors):
+        if not errors:
+            return None
+
+        significant_errors = [
+            error for error in errors
+            if error.get('code') not in {2104, 2106, 2107, 2158}
+        ]
+        return significant_errors[-1] if significant_errors else None
     
     def get_stock_price(self, symbol):
         """
@@ -185,45 +407,20 @@ class IBConnection:
                 # Use live data when market is open
                 self.set_market_data_type(1)  # 1 = Live
             
-            # Create a stock contract
-            contract = Contract(symbol=symbol, secType='STK', exchange='SMART', currency='USD')
-            
-            # Qualify the contract
-            qualified_contracts = self.ib.qualifyContracts(contract)
-            if not qualified_contracts:
+            qualified_contract = self.get_qualified_stock_contract(symbol)
+            if qualified_contract is None:
                 logger.error(f"Failed to qualify contract for {symbol}")
                 return None
             
-            qualified_contract = qualified_contracts[0]
-            
             # Request market data
-            ticker = self.ib.reqMktData(contract=qualified_contract)
+            ticker = self.get_market_ticker(qualified_contract)
             
-            for _ in range(10):
+            for _ in range(30):
                 self.ib.sleep(0.1)
-                if ticker.marketPrice() is not None and ticker.marketPrice() > 0:
+                if self._ticker_price(ticker) is not None:
                     break
             
-            # Get the last price
-            last_price = ticker.last if ticker.last else (ticker.close if ticker.close else None)
-            bid_price = ticker.bid if ticker.bid else None
-            ask_price = ticker.ask if ticker.ask else None
-            last_rth_trade = ticker.lastRTHTrade.price if hasattr(ticker, 'lastRTHTrade') and ticker.lastRTHTrade else None
-            
-            # If no last price is available, check other prices
-            if last_price is None:
-                if bid_price and ask_price:
-                    # Use midpoint of bid-ask spread
-                    last_price = (bid_price + ask_price) / 2
-                elif bid_price:
-                    last_price = bid_price
-                elif ask_price:
-                    last_price = ask_price
-                elif last_rth_trade:
-                    last_price = last_rth_trade
-            
-            # Cancel the market data subscription
-            self.ib.cancelMktData(qualified_contract)
+            last_price = self._ticker_price(ticker)
             
             if last_price is None:
                 logger.error(f"Could not get price for {symbol}")
@@ -246,6 +443,32 @@ class IBConnection:
             else:
                 logger.error(f"Error getting {symbol} price: {error_msg}")
             return None
+
+    def get_stock_positions_snapshot(self):
+        """Return lightweight stock position data from the active IB connection."""
+        if not self.is_connected():
+            return {}
+
+        account_id = self._order_account()
+        if not account_id:
+            return {}
+
+        portfolio = self.ib.portfolio(account_id)
+        if not portfolio:
+            portfolio = self.ib.positions(account_id)
+
+        result = {}
+        for position in portfolio:
+            contract = getattr(position, 'contract', None)
+            if contract is None or getattr(contract, 'secType', '') != 'STK':
+                continue
+
+            result[contract.symbol] = {
+                'position': getattr(position, 'position', 0),
+                'market_price': self._valid_price(getattr(position, 'marketPrice', None))
+            }
+
+        return result
   
     def set_market_data_type(self, data_type=1):
         """
@@ -272,7 +495,7 @@ class IBConnection:
             logger.error(f"Error setting market data type: {e}")
             return False
             
-    def get_option_chain(self, symbol, expiration=None, right='C', target_strike=None, exchange='SMART'):
+    def get_option_chain(self, symbol, expiration=None, right='C', target_strike=None, exchange='SMART', stock_price=None):
         """
         Get option chain for a given symbol, expiration, and right
         
@@ -282,6 +505,7 @@ class IBConnection:
             right (str, optional): Option right - 'C' for calls, 'P' for puts
             target_strike (float, optional): Specific strike price to look for
             exchange (str, optional): Exchange to use
+            stock_price (float, optional): Already fetched stock price to avoid a duplicate quote request
             
         Returns:
             dict: Option chain data or None if error
@@ -302,37 +526,28 @@ class IBConnection:
                 self.set_market_data_type(1)  # 1 = Live
             
             # Rest of the method remains the same...
-            stock = Stock(symbol, exchange, 'USD')
-            self.ib.qualifyContracts(stock)
+            stock, chain = self.get_option_definition(symbol, exchange)
+            if stock is None:
+                logger.error(f"Failed to qualify stock contract for {symbol}")
+                return None
             
-            # Get stock price for reference
-            ticker = self.ib.reqMktData(stock)
-            for _ in range(10):
-                self.ib.sleep(0.1)
-                if ticker.marketPrice() is not None and ticker.marketPrice() > 0:
-                    break
-            
-            stock_price = ticker.marketPrice()
-            if not stock_price or stock_price <= 0:
-                stock_price = ticker.last if hasattr(ticker, 'last') and ticker.last > 0 else None
-            if not stock_price or stock_price <= 0:
-                stock_price = ticker.close if hasattr(ticker, 'close') and ticker.close > 0 else None
-            
-            if not stock_price or stock_price <= 0:
+            if stock_price is None:
+                # Get stock price for reference
+                ticker = self.get_market_ticker(stock)
+                for _ in range(30):
+                    self.ib.sleep(0.1)
+                    if self._ticker_price(ticker) is not None:
+                        break
+                
+                stock_price = self._ticker_price(ticker)
+                
+            if stock_price is None:
                 logger.warning(f"Could not get valid price for {symbol}")
                 return None
             
-            # Cancel the market data request
-            self.ib.cancelMktData(stock)
-            
-            # Get option chains to find expirations and strikes
-            chains = self.ib.reqSecDefOptParams(stock.symbol, '', stock.secType, stock.conId)
-            
-            if not chains:
+            if chain is None:
                 logger.error(f"No option chains found for {symbol}")
                 return None
-            # Get the first exchange's data
-            chain = next((c for c in chains if c.exchange == exchange and len(c.strikes) > 1), chains[0])
             # If expiration not provided, get the next standard expiration
             if not expiration:
                 # Find closest expiration to current date
@@ -375,12 +590,11 @@ class IBConnection:
                 logger.error(f"No expiration date available for {symbol}")
                 return None
                 
-            # Create option contract for each strike
-            option_contracts = []
-            
-            for strike in strikes:
-                contract = Option(symbol=symbol, lastTradeDateOrContractMonth=expiration, strike=strike, right=right, exchange=exchange, currency='USD',multiplier=100)
-                option_contracts.append(contract)
+            option_contracts = [
+                self.get_qualified_option_contract(symbol, expiration, strike, right, exchange)
+                for strike in strikes
+            ]
+            option_contracts = [contract for contract in option_contracts if contract is not None]
             
             if not option_contracts:
                 logger.error(f"No option contracts created for {symbol}")
@@ -398,30 +612,35 @@ class IBConnection:
             # Qualify and request market data for each option
             for contract in option_contracts:
                 try:
-                    # Qualify the contract
-                    qualified_contracts = self.ib.qualifyContracts(contract)
-                    if not qualified_contracts:
-                        logger.warning(f"Could not qualify option contract: {contract.symbol} {contract.lastTradeDateOrContractMonth} {contract.strike} {contract.right}")
-                        continue
-                    
-                    qualified_contract = qualified_contracts[0]
-                    
                     # Request market data with model computation
-                    ticker = self.ib.reqMktData(qualified_contract, '106', False,False)  # Added genericTickList='13' to get implied volatility
+                    ticker = self.get_market_ticker(contract, '106')
                    
-                    # Wait for data to arrive - give more time for Greeks and implied volatility
-                    for _ in range(50):  # Increased from 50 to give more time
+                    # Return as soon as a usable quote arrives. Give Greeks a short
+                    # grace period, but do not let missing Greeks block the price.
+                    for attempt in range(30):
                         self.ib.sleep(0.1)
-                        if ticker.modelGreeks is not None and ticker.impliedVolatility is not None and ticker.impliedVolatility > 0:
+                        has_quote = any(
+                            self._valid_price(getattr(ticker, field, None)) is not None
+                            for field in ('bid', 'ask', 'last', 'close')
+                        )
+                        has_greeks = (
+                            ticker.modelGreeks is not None and
+                            self._valid_price(getattr(ticker, 'impliedVolatility', None)) is not None
+                        )
+                        if has_quote and (has_greeks or attempt >= 4):
                             break
                     
                     # Extract market data
-                    bid = ticker.bid if hasattr(ticker, 'bid') and ticker.bid is not None and ticker.bid > 0 else 0
-                    ask = ticker.ask if hasattr(ticker, 'ask') and ticker.ask is not None and ticker.ask > 0 else 0
-                    last = ticker.last if hasattr(ticker, 'last') and ticker.last is not None and ticker.last > 0 else 0
+                    bid = self._valid_price(getattr(ticker, 'bid', None)) or 0
+                    ask = self._valid_price(getattr(ticker, 'ask', None)) or 0
+                    last = (
+                        self._valid_price(getattr(ticker, 'last', None)) or
+                        self._valid_price(getattr(ticker, 'close', None)) or
+                        0
+                    )
                     volume = ticker.volume if hasattr(ticker, 'volume') and ticker.volume is not None else 0
                     open_interest = ticker.openInterest if hasattr(ticker, 'openInterest') and ticker.openInterest is not None else 0
-                    implied_vol = ticker.impliedVolatility if hasattr(ticker, 'impliedVolatility') and ticker.impliedVolatility is not None else 0
+                    implied_vol = self._valid_price(getattr(ticker, 'impliedVolatility', None)) or 0
                     # Get real delta from model greeks if available
                     delta = None
                     gamma = None
@@ -458,9 +677,6 @@ class IBConnection:
                     # Add to the result
                     result['options'].append(option_data)
                     
-                    # Cancel market data request
-                    self.ib.cancelMktData(qualified_contract)
-        
                 except Exception as e:
                     logger.error(f"Error getting market data for option {contract.symbol} {contract.lastTradeDateOrContractMonth} {contract.strike} {contract.right}: {e}")
                     logger.error(traceback.format_exc())
@@ -488,6 +704,198 @@ class IBConnection:
         if not currency or currency == 'USD':
             return value
         return CurrencyHelper.convert_amount(value, currency, 'USD')
+
+    def _account_info_from_summary(self, account_id, account_fields):
+        account_values = self.ib.accountSummary(account_id)
+        if not account_values:
+            return None
+
+        account_info = {
+            'account_id': account_id,
+            'available_cash': 0,
+            'account_value': 0,
+            'excess_liquidity': 0,
+            'initial_margin': 0,
+            'leverage_percentage': 0
+        }
+
+        for av in account_values:
+            try:
+                if av.tag not in account_fields:
+                    continue
+
+                currency = av.currency if hasattr(av, 'currency') and av.currency else 'USD'
+                value = float(av.value)
+                account_info[account_fields[av.tag]] = self._convert_to_usd(value, currency)
+            except Exception as e:
+                logger.error(f"Error processing account value {av.tag}: {str(e)}")
+
+        if account_info['account_value'] > 0 and account_info['initial_margin'] > 0:
+            account_info['leverage_percentage'] = (account_info['initial_margin'] / account_info['account_value']) * 100
+
+        return account_info
+
+    def _select_account_info(self, account_fields):
+        accounts = self.ib.managedAccounts()
+        if not accounts:
+            logger.warning("No managed accounts available")
+            return None
+
+        configured_account = self.account_id
+        if configured_account and configured_account != "YOUR_ACCOUNT_ID":
+            if configured_account in accounts:
+                return self._account_info_from_summary(configured_account, account_fields)
+            logger.warning("Configured account_id was not returned by IB; selecting an account automatically")
+
+        account_infos = []
+        for account_id in accounts:
+            account_info = self._account_info_from_summary(account_id, account_fields)
+            if account_info:
+                account_infos.append(account_info)
+
+        if not account_infos:
+            logger.warning("No account data available")
+            return None
+
+        return max(
+            account_infos,
+            key=lambda info: (
+                info.get('account_value', 0),
+                info.get('available_cash', 0),
+                info.get('excess_liquidity', 0)
+            )
+        )
+
+    def get_option_position_by_con_id(self, con_id, account_id=None):
+        """Return one exact option position from the configured IB account."""
+        if not self.is_connected():
+            return None
+
+        try:
+            normalized_con_id = int(con_id)
+        except (TypeError, ValueError):
+            return None
+        if normalized_con_id <= 0:
+            return None
+
+        selected_account = account_id or self._order_account()
+        if not selected_account:
+            return None
+
+        portfolio_items = list(self.ib.portfolio(selected_account) or [])
+        position_items = portfolio_items + list(self.ib.positions(selected_account) or [])
+
+        for item in position_items:
+            contract = getattr(item, 'contract', None)
+            if not contract or getattr(contract, 'secType', '') != 'OPT':
+                continue
+            if int(getattr(contract, 'conId', 0) or 0) != normalized_con_id:
+                continue
+
+            return {
+                'account_id': selected_account,
+                'position': float(getattr(item, 'position', 0) or 0),
+                'avg_cost': float(
+                    getattr(item, 'averageCost', getattr(item, 'avgCost', 0)) or 0
+                ),
+                'market_price': float(getattr(item, 'marketPrice', 0) or 0),
+                'market_value': float(getattr(item, 'marketValue', 0) or 0),
+                'unrealized_pnl': float(getattr(item, 'unrealizedPNL', 0) or 0),
+                'contract': contract
+            }
+
+        return None
+
+    def get_open_option_order_quantity(self, con_id, action=None, account_id=None):
+        """Return the remaining quantity of matching active IB option orders."""
+        if not self.is_connected():
+            return 0
+
+        try:
+            normalized_con_id = int(con_id)
+        except (TypeError, ValueError):
+            return 0
+        if normalized_con_id <= 0:
+            return 0
+
+        selected_account = account_id or self._order_account()
+        normalized_action = str(action or '').upper()
+
+        try:
+            self.ib.reqAllOpenOrders()
+            self.ib.sleep(0.2)
+        except Exception as error:
+            logger.warning("Could not refresh open orders before close validation: %s", error)
+
+        remaining_quantity = 0.0
+        for trade in list(self.ib.openTrades() or []):
+            contract = getattr(trade, 'contract', None)
+            order = getattr(trade, 'order', None)
+            order_status = getattr(trade, 'orderStatus', None)
+            if not contract or not order or getattr(contract, 'secType', '') != 'OPT':
+                continue
+            if int(getattr(contract, 'conId', 0) or 0) != normalized_con_id:
+                continue
+            if selected_account and str(getattr(order, 'account', '') or '') != str(selected_account):
+                continue
+            if normalized_action and str(getattr(order, 'action', '') or '').upper() != normalized_action:
+                continue
+
+            status = str(getattr(order_status, 'status', '') or '').lower()
+            if status in {'filled', 'cancelled', 'apicancelled', 'inactive'}:
+                continue
+
+            remaining = getattr(order_status, 'remaining', None)
+            if remaining is None:
+                remaining = getattr(order, 'totalQuantity', 0)
+            try:
+                remaining_quantity += max(0.0, float(remaining or 0))
+            except (TypeError, ValueError):
+                continue
+
+        return remaining_quantity
+
+    def get_option_position_quote(self, con_id, account_id=None):
+        """Fetch a quote for an exact held option contract."""
+        position = self.get_option_position_by_con_id(con_id, account_id)
+        if not position:
+            return None
+
+        is_frozen = not is_market_hours()
+        self.set_market_data_type(2 if is_frozen else 1)
+
+        contract = position['contract']
+        ticker = self.get_market_ticker(contract, '106')
+        for _ in range(25):
+            self.ib.sleep(0.1)
+            if any(
+                self._valid_price(getattr(ticker, field, None)) is not None
+                for field in ('bid', 'ask', 'last', 'close')
+            ):
+                break
+
+        bid = self._valid_price(getattr(ticker, 'bid', None))
+        ask = self._valid_price(getattr(ticker, 'ask', None))
+        last = (
+            self._valid_price(getattr(ticker, 'last', None))
+            or self._valid_price(getattr(ticker, 'close', None))
+            or self._valid_price(position.get('market_price'))
+        )
+        mid = (bid + ask) / 2 if bid is not None and ask is not None else last
+        spread_percent = None
+        if bid is not None and ask is not None and mid:
+            spread_percent = ((ask - bid) / mid) * 100
+
+        position.update({
+            'bid': bid,
+            'ask': ask,
+            'last': last,
+            'mid': mid,
+            'spread_percent': spread_percent,
+            'is_frozen': is_frozen,
+            'quote_time': datetime.now().isoformat(timespec='seconds')
+        })
+        return position
 
     def get_portfolio(self):
         """
@@ -522,24 +930,6 @@ class IBConnection:
                 # Use live data when market is open
                 self.set_market_data_type(1)  # 1 = Live
                 
-            # Get account summary
-            account_id = self.ib.managedAccounts()[0]
-            account_values = self.ib.accountSummary(account_id)
-            
-            if not account_values:
-                logger.warning("No account data available")
-                return None
-            
-            # Extract relevant account information
-            account_info = {
-                'account_id': account_id,
-                'available_cash': 0,
-                'account_value': 0,
-                'excess_liquidity': 0,
-                'initial_margin': 0,
-                'leverage_percentage': 0
-            }
-            
             # Map account tags to their corresponding fields
             account_fields = {
                 'TotalCashValue': 'available_cash',
@@ -547,28 +937,17 @@ class IBConnection:
                 'ExcessLiquidity': 'excess_liquidity',
                 'FullInitMarginReq': 'initial_margin'
             }
-            
-            for av in account_values:
-                try:
-                    # Skip if not a numeric field we care about
-                    if av.tag not in account_fields:
-                        continue
-                        
-                    # Get the currency for this value, default to USD if empty or missing
-                    currency = av.currency if hasattr(av, 'currency') and av.currency else 'USD'
-                    value = float(av.value)
-                    
-                    # Store the converted value
-                    account_info[account_fields[av.tag]] = self._convert_to_usd(value, currency)
-                except Exception as e:
-                    logger.error(f"Error processing account value {av.tag}: {str(e)}")
-            
-            # Calculate leverage percentage
-            if account_info['account_value'] > 0 and account_info['initial_margin'] > 0:
-                account_info['leverage_percentage'] = (account_info['initial_margin'] / account_info['account_value']) * 100
+
+            account_info = self._select_account_info(account_fields)
+            if not account_info:
+                return None
+
+            account_id = account_info['account_id']
             
             # Get positions
-            portfolio = self.ib.portfolio()
+            portfolio = self.ib.portfolio(account_id)
+            if not portfolio:
+                portfolio = self.ib.positions(account_id)
             positions = {}
             
             # Process all positions (both Stocks and Options)
@@ -588,10 +967,11 @@ class IBConnection:
                     position_currency = position.contract.currency if position.contract.currency else 'USD'
                     
                     # Determine position type and create an appropriate key
-                    if isinstance(position.contract, Stock):
+                    sec_type = getattr(position.contract, 'secType', '')
+                    if isinstance(position.contract, Stock) or sec_type == 'STK':
                         position_type = 'STK'
                         stock_count += 1
-                    elif isinstance(position.contract, Option):
+                    elif isinstance(position.contract, Option) or sec_type == 'OPT':
                         position_type = 'OPT'
                         option_count += 1
                         # For options, create a unique key including strike, expiry, and right
@@ -604,13 +984,18 @@ class IBConnection:
                         other_count += 1
                     
                     # Convert position values to USD if needed
+                    avg_cost = getattr(position, 'averageCost', getattr(position, 'avgCost', 0))
+                    market_price = getattr(position, 'marketPrice', 0)
+                    market_value = getattr(position, 'marketValue', 0)
+                    unrealized_pnl = getattr(position, 'unrealizedPNL', 0)
+                    realized_pnl = getattr(position, 'realizedPNL', 0)
                     positions[position_key] = {
                         'shares': position.position,
-                        'avg_cost': self._convert_to_usd(position.averageCost, position_currency),
-                        'market_price': self._convert_to_usd(position.marketPrice, position_currency),
-                        'market_value': self._convert_to_usd(position.marketValue, position_currency),
-                        'unrealized_pnl': self._convert_to_usd(position.unrealizedPNL, position_currency),
-                        'realized_pnl': self._convert_to_usd(position.realizedPNL, position_currency),
+                        'avg_cost': self._convert_to_usd(avg_cost, position_currency),
+                        'market_price': self._convert_to_usd(market_price, position_currency),
+                        'market_value': self._convert_to_usd(market_value, position_currency),
+                        'unrealized_pnl': self._convert_to_usd(unrealized_pnl, position_currency),
+                        'realized_pnl': self._convert_to_usd(realized_pnl, position_currency),
                         'contract': position.contract,
                         'security_type': position_type
                     }
@@ -714,11 +1099,64 @@ class IBConnection:
             else:
                 logger.error(f"Unsupported order type: {order_type}")
                 return None
+
+            account = self._order_account()
+            if account:
+                order.account = account
+
             return order
         except Exception as e:
             logger.error(f"Error creating order: {str(e)}")
             logger.error(traceback.format_exc())
             return None
+
+    def what_if_order(self, contract, order):
+        """
+        Ask IB to validate an order without transmitting it.
+        """
+        if not self.is_connected():
+            return {
+                'success': False,
+                'error': 'Not connected to TWS'
+            }
+
+        errors = []
+        error_handler = self._capture_order_errors(errors)
+        self.ib.errorEvent += error_handler
+
+        try:
+            state = self.ib.whatIfOrder(contract, order)
+            self.ib.sleep(0.2)
+            error = self._summarize_order_errors(errors)
+            warning_text = getattr(state, 'warningText', '') if state else ''
+
+            if error:
+                return {
+                    'success': False,
+                    'error_code': error.get('code'),
+                    'error_message': error.get('message'),
+                    'warning_text': warning_text,
+                    'status': getattr(state, 'status', '') if state else ''
+                }
+
+            return {
+                'success': True,
+                'status': getattr(state, 'status', '') if state else '',
+                'warning_text': warning_text,
+                'init_margin_change': getattr(state, 'initMarginChange', '') if state else '',
+                'maint_margin_change': getattr(state, 'maintMarginChange', '') if state else ''
+            }
+        except Exception as e:
+            logger.error(f"Error validating order with what-if: {str(e)}")
+            logger.error(traceback.format_exc())
+            error = self._summarize_order_errors(errors)
+            return {
+                'success': False,
+                'error_code': error.get('code') if error else None,
+                'error_message': error.get('message') if error else str(e)
+            }
+        finally:
+            self.ib.errorEvent -= error_handler
             
     def place_order(self, contract, order):
         """
@@ -735,12 +1173,16 @@ class IBConnection:
             logger.error("Cannot place order - not connected to TWS")
             return None
             
+        errors = []
+        error_handler = self._capture_order_errors(errors)
+        self.ib.errorEvent += error_handler
+
         try:   
             # Place the order
             trade = self.ib.placeOrder(contract, order)
             
             # Wait for order acknowledgment (order ID assigned)
-            timeout = 3  # seconds
+            timeout = 5  # seconds
             start_time = time.time()
             
             # Check if we have a valid trade object with orderStatus
@@ -749,6 +1191,7 @@ class IBConnection:
                 # Create a basic result with just the order ID
                 return {
                     'order_id': getattr(order, 'orderId', 0),
+                    'perm_id': getattr(order, 'permId', 0),
                     'status': 'Submitted',
                     'filled': 0,
                     'remaining': getattr(order, 'totalQuantity', 0),
@@ -758,20 +1201,20 @@ class IBConnection:
             # Wait for order ID to be assigned
             while not trade.orderStatus.orderId and time.time() - start_time < timeout:
                 self.ib.waitOnUpdate(timeout=0.1)
+
+            # Give IB a short moment to send immediate rejection/cancel updates.
+            settle_start = time.time()
+            while time.time() - settle_start < 1.0:
+                self.ib.waitOnUpdate(timeout=0.1)
+                if getattr(trade.orderStatus, 'status', '') in ['Filled', 'Cancelled', 'ApiCancelled', 'Inactive']:
+                    break
                 
             # Create result dictionary with safe attribute access
-            order_status = {
-                'order_id': getattr(trade.orderStatus, 'orderId', 0),
-                'status': getattr(trade.orderStatus, 'status', 'Submitted'),
-                'filled': getattr(trade.orderStatus, 'filled', 0),
-                'remaining': getattr(trade.orderStatus, 'remaining', getattr(order, 'totalQuantity', 0)),
-                'avg_fill_price': getattr(trade.orderStatus, 'avgFillPrice', 0),
-                'perm_id': getattr(trade.orderStatus, 'permId', 0),
-                'last_fill_price': getattr(trade.orderStatus, 'lastFillPrice', 0),
-                'client_id': getattr(trade.orderStatus, 'clientId', 0),
-                'why_held': getattr(trade.orderStatus, 'whyHeld', ''),
-                'market_cap': getattr(trade.orderStatus, 'mktCapPrice', 0)
-            }
+            order_status = self._trade_to_status(trade)
+            error = self._summarize_order_errors(errors)
+            if error:
+                order_status['error_code'] = error.get('code')
+                order_status['error_message'] = error.get('message')
             
             return order_status
         except Exception as e:
@@ -792,8 +1235,116 @@ class IBConnection:
                 pass
             
             return None
+        finally:
+            self.ib.errorEvent -= error_handler
 
-    def check_order_status(self, order_id):
+    def _trade_to_status(self, trade):
+        order = getattr(trade, 'order', None)
+        order_status = getattr(trade, 'orderStatus', None)
+
+        return {
+            'order_id': (
+                getattr(order_status, 'orderId', 0)
+                or getattr(order, 'orderId', 0)
+                or 0
+            ),
+            'perm_id': (
+                getattr(order_status, 'permId', 0)
+                or getattr(order, 'permId', 0)
+                or 0
+            ),
+            'status': getattr(order_status, 'status', 'Submitted'),
+            'filled': getattr(order_status, 'filled', 0),
+            'remaining': getattr(order_status, 'remaining', getattr(order, 'totalQuantity', 0)),
+            'avg_fill_price': float(getattr(order_status, 'avgFillPrice', 0) or 0),
+            'last_fill_price': float(getattr(order_status, 'lastFillPrice', 0) or 0),
+            'commission': 0,
+            'why_held': getattr(order_status, 'whyHeld', ''),
+            'client_id': getattr(order_status, 'clientId', 0),
+            'market_cap': getattr(order_status, 'mktCapPrice', 0)
+        }
+
+    def _trade_matches_order_details(self, trade, order_details):
+        if not order_details:
+            return False
+
+        contract = getattr(trade, 'contract', None)
+        order = getattr(trade, 'order', None)
+        if not contract or not order:
+            return False
+
+        option_type = order_details.get('option_type')
+        expected_right = 'C' if option_type == 'CALL' else 'P' if option_type == 'PUT' else None
+
+        expected_con_id = order_details.get('con_id')
+        if expected_con_id:
+            try:
+                if int(getattr(contract, 'conId', 0) or 0) != int(expected_con_id):
+                    return False
+            except (TypeError, ValueError):
+                return False
+
+        try:
+            strike_matches = abs(float(getattr(contract, 'strike', 0)) - float(order_details.get('strike', 0))) < 0.001
+        except (TypeError, ValueError):
+            strike_matches = False
+
+        if order_details.get('ticker') and getattr(contract, 'symbol', None) != order_details.get('ticker'):
+            return False
+        if expected_right and getattr(contract, 'right', None) != expected_right:
+            return False
+        if str(getattr(contract, 'lastTradeDateOrContractMonth', '')) != str(order_details.get('expiration', '')):
+            return False
+        if not strike_matches:
+            return False
+        if order_details.get('action') and getattr(order, 'action', '').upper() != str(order_details.get('action')).upper():
+            return False
+
+        try:
+            if int(float(getattr(order, 'totalQuantity', 0))) != int(float(order_details.get('quantity', 0))):
+                return False
+        except (TypeError, ValueError):
+            return False
+
+        local_price = order_details.get('premium')
+        ib_price = getattr(order, 'lmtPrice', None)
+        try:
+            if local_price is not None and ib_price is not None:
+                return abs(round(float(local_price), 2) - round(float(ib_price), 2)) <= 0.02
+        except (TypeError, ValueError):
+            return True
+
+        return True
+
+    def _trade_matches_order(self, trade, order_id=None, perm_id=None, order_details=None):
+        order = getattr(trade, 'order', None)
+        order_status = getattr(trade, 'orderStatus', None)
+
+        try:
+            normalized_order_id = int(order_id) if order_id else None
+        except (TypeError, ValueError):
+            normalized_order_id = None
+
+        try:
+            normalized_perm_id = int(perm_id) if perm_id else None
+        except (TypeError, ValueError):
+            normalized_perm_id = None
+
+        if normalized_order_id:
+            if getattr(order, 'orderId', 0) == normalized_order_id:
+                return True
+            if getattr(order_status, 'orderId', 0) == normalized_order_id:
+                return True
+
+        if normalized_perm_id:
+            if getattr(order, 'permId', 0) == normalized_perm_id:
+                return True
+            if getattr(order_status, 'permId', 0) == normalized_perm_id:
+                return True
+
+        return self._trade_matches_order_details(trade, order_details)
+
+    def check_order_status(self, order_id, perm_id=None, order_details=None):
         """
         Check the status of an order by its IB order ID
         
@@ -810,52 +1361,19 @@ class IBConnection:
                 logger.error("Not connected to TWS")
                 return None
             
-            # Ensure order ID is an integer
-            order_id = int(order_id)
+            order_id = int(order_id) if order_id else None
             
-            # Get all open orders
-            open_orders = self.ib.openOrders()
-            print(f"open_orders: {open_orders}")
+            try:
+                self.ib.reqOpenOrders()
+                self.ib.reqAllOpenOrders()
+                self.ib.sleep(0.5)
+            except Exception as e:
+                logger.warning(f"Could not refresh open orders: {e}")
             
-            # Check if order is in open orders
-            for o in open_orders:
-                if hasattr(o, 'orderId') and o.orderId == order_id:
-                    # Check if it's a contract+order tuple or an order with status
-                    if hasattr(o, 'orderStatus'):
-                        return {
-                            'status': o.orderStatus.status,
-                            'filled': o.orderStatus.filled,
-                            'remaining': o.orderStatus.remaining,
-                            'avg_fill_price': float(o.orderStatus.avgFillPrice or 0),
-                            'last_fill_price': float(o.orderStatus.lastFillPrice or 0),
-                            'commission': float(o.orderStatus.commission or 0),
-                            'why_held': o.orderStatus.whyHeld
-                        }
-                    else:
-                        # This might be just the order object without status
-                        return {
-                            'status': 'Submitted',  # Default status for found orders
-                            'filled': 0,
-                            'remaining': o.totalQuantity if hasattr(o, 'totalQuantity') else 0,
-                            'avg_fill_price': 0,
-                            'last_fill_price': 0,
-                            'commission': 0,
-                            'why_held': ''
-                        }
-            
-            # Check trades for this order ID
-            trades = self.ib.trades()
+            trades = list(self.ib.openTrades()) + list(self.ib.trades())
             for trade in trades:
-                if hasattr(trade.order, 'orderId') and trade.order.orderId == order_id:
-                    return {
-                        'status': trade.orderStatus.status,
-                        'filled': trade.orderStatus.filled,
-                        'remaining': trade.orderStatus.remaining,
-                        'avg_fill_price': float(trade.orderStatus.avgFillPrice or 0),
-                        'last_fill_price': float(trade.orderStatus.lastFillPrice or 0),
-                        'commission': float(trade.orderStatus.commission or 0),
-                        'why_held': trade.orderStatus.whyHeld
-                    }
+                if self._trade_matches_order(trade, order_id, perm_id, order_details):
+                    return self._trade_to_status(trade)
             
             # Check execution history if not found in open orders or trades
             executions = self.ib.executions()
@@ -875,9 +1393,18 @@ class IBConnection:
                         'avg_fill_price': float(execution.price or 0),
                         'commission': commission
                     }
+
+            try:
+                completed_trades = self.ib.reqCompletedOrders(False)
+                self.ib.sleep(0.2)
+                for trade in completed_trades:
+                    if self._trade_matches_order(trade, order_id, perm_id, order_details):
+                        return self._trade_to_status(trade)
+            except Exception as e:
+                logger.warning(f"Could not refresh completed orders: {e}")
             
             # Order not found
-            logger.warning(f"Order with ID {order_id} not found")
+            logger.warning(f"Order with ID {order_id} / permId {perm_id} not found")
             return {
                 'status': 'NotFound',
                 'filled': 0,

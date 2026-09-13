@@ -12,9 +12,9 @@ Parameters:
 
 <div class="row mb-4">
     <div class="col-md-{% if show_actions %}9{% else %}12{% endif %}">
-        <h1>{{ title }}</h1>
+        <h1{% if title_i18n %} data-i18n="{{ title_i18n }}"{% endif %}>{{ title }}</h1>
         {% if subtitle %}
-        <p class="lead">{{ subtitle }}</p>
+        <p class="lead"{% if subtitle_i18n %} data-i18n="{{ subtitle_i18n }}"{% endif %}>{{ subtitle }}</p>
         {% endif %}
     </div>
     

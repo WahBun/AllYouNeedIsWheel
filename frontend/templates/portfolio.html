@@ -11,9 +11,11 @@
 <!-- Include page header with action button -->
 {% with 
   title="Portfolio",
+  title_i18n="page.portfolio.title",
   subtitle="View and manage your positions",
+  subtitle_i18n="page.portfolio.subtitle",
   show_actions=true,
-  action_buttons='<button class="btn btn-outline-primary" id="refresh-portfolio"><i class="bi bi-arrow-repeat"></i> Refresh</button>'
+  action_buttons='<button class="btn btn-outline-primary" id="refresh-portfolio"><i class="bi bi-arrow-repeat"></i> <span data-i18n="common.refresh">Refresh</span></button>'
 %}
   {% include "partials/components/page_header.html" %}
 {% endwith %}
@@ -21,9 +23,15 @@
 <!-- Include positions table from common partials -->
 {% include "partials/common/positions_table.html" %}
 
+{% with show_weekly_income=false %}
+  {% include "partials/dashboard/pending_orders.html" %}
+{% endwith %}
+
+{% include "partials/portfolio/close_position_modal.html" %}
+
 {% endblock %}
 
 {% block scripts %}
 <!-- Import portfolio JavaScript -->
-<script type="module" src="{{ url_for('static', filename='js/portfolio/portfolio.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/portfolio/portfolio.js') }}?v=close-position-2"></script>
 {% endblock %} 

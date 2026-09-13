@@ -19,6 +19,11 @@ AllYouNeedIsWheel is a financial options trading assistant specifically designed
 - **Interactive Web Interface**: Modern, responsive web application with data visualizations
 - **API Integration**: Backend API to interact with Interactive Brokers
 - **Order Management**: Create, cancel, and execute wheel strategy option orders through the dashboard
+- **Position Closing**: Stage partial or full option closes from Portfolio, including a one-contract runner preset
+- **Execution Safety**: Exact-contract validation, duplicate-close protection, IB what-if checks, and separate stage/execute confirmation
+- **Practical Expirations**: Focus on standard monthly expirations and skip contracts with seven days or less remaining by default
+- **Quote Context**: View bid, mid, ask, spread percentage, and live/frozen market-data state
+- **Personalized Interface**: English/Chinese and light/dark mode controls
 
 ## Prerequisites
 
@@ -51,12 +56,12 @@ AllYouNeedIsWheel is a financial options trading assistant specifically designed
    ```json
    {
        "host": "127.0.0.1",
-       "port": 7497,
+       "port": 4002,
        "client_id": 1,
        "readonly": true,
        "account_id": "YOUR_ACCOUNT_ID",
        "db_path": "options_dev.db",
-       "comment": "Port 7496 for TWS, 7497 for IB Gateway. Set readonly to true for safety during testing."
+       "comment": "IB Gateway: 4002 paper, 4001 live. TWS: 7497 paper, 7496 live. Start with readonly true."
    }
    ```
 
@@ -68,7 +73,7 @@ Two connection files can be maintained:
 
 The key configuration parameters are:
 - `host`: Usually "127.0.0.1" for local TWS/IB Gateway
-- `port`: 7497 for IB Gateway paper trading, 7496 for TWS live trading
+- `port`: IB Gateway uses 4002 for paper and 4001 for live; TWS uses 7497 for paper and 7496 for live
 - `client_id`: Unique client ID (important if you have multiple connections)
 - `readonly`: Set to `true` to prevent actual order execution (safer for testing)
 - `db_path`: Path to the SQLite database file
@@ -84,7 +89,7 @@ Configure TWS/Gateway for API connections with these essential settings:
    - Uncheck "Read-Only API" if you want to execute trades (required for orders)
 
 2. **Socket Port**: 
-   - Set to match your config file (7496 for TWS, 7497 for Gateway)
+   - Set it to match the selected paper or live port in your config file
 
 3. **Trusted IPs**:
    - Add "127.0.0.1" to trusted IPs if running locally
@@ -134,6 +139,7 @@ PORT=8080 WORKERS=2 python3 run_api.py
   - DELETE `/api/options/order/<order_id>` - Cancel an order
   - PUT `/api/options/order/<order_id>` - Update an order status
   - POST `/api/options/execute/<order_id>` - Execute an order through TWS
+  - POST `/api/options/close-order` - Stage an exact-contract close order for a held option
   - POST `/api/options/rollover` - Create rollover orders (close current position and open new one)
 
 - **Stock Data**:
@@ -141,7 +147,7 @@ PORT=8080 WORKERS=2 python3 run_api.py
 
 ### Web Interface
 
-The web interface consists of five main pages:
+The web interface consists of three main pages:
 
 1. **Dashboard** (http://localhost:8000/): Overview of your portfolio and key metrics
 2. **Portfolio** (http://localhost:8000/portfolio): Detailed view of all positions
@@ -210,7 +216,7 @@ The application uses SQLite for storage. Two database files are maintained:
 ### Connection Issues
 
 - Ensure TWS or IB Gateway is running and API connections are enabled
-- Verify the correct port (7496 for TWS, 7497 for IB Gateway)
+- Verify the correct port (Gateway: 4002 paper/4001 live; TWS: 7497 paper/7496 live)
 - Check that the client ID is not already in use
 - Confirm you have the right market data subscriptions for options
 
@@ -226,6 +232,8 @@ The application uses SQLite for storage. Two database files are maintained:
 - Never commit `connection_real.json` to version control (it's in `.gitignore`)
 - Always use `readonly: true` during development to prevent accidental order execution
 - Use caution when running with the `--realmoney` flag as real trades can be executed
+- Adding an order only stages it locally. Sending it to IB always requires a separate Execute confirmation.
+- Close orders are revalidated against the configured account, exact IB contract, current position, remaining quantity, and active IB orders immediately before submission.
 
 ## License
 

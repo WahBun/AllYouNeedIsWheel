@@ -21,15 +21,15 @@ Parameters:
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="{{ modal_id }}Label">{{ title }}</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        <h5 class="modal-title" id="{{ modal_id }}Label"{% if title_i18n %} data-i18n="{{ title_i18n }}"{% endif %}>{{ title }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" data-i18n-aria-label="common.close"></button>
       </div>
-      <div class="modal-body">
+      <div class="modal-body"{% if body_i18n %} data-i18n="{{ body_i18n }}"{% endif %}>
         {{ body|default('Are you sure you want to proceed?') }}
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ cancel_button_text }}</button>
-        <button type="button" class="btn {{ confirm_button_class }}" id="{{ modal_id }}-confirm">{{ confirm_button_text }}</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"{% if cancel_button_i18n %} data-i18n="{{ cancel_button_i18n }}"{% endif %}>{{ cancel_button_text }}</button>
+        <button type="button" class="btn {{ confirm_button_class }}" id="{{ modal_id }}-confirm"{% if confirm_button_i18n %} data-i18n="{{ confirm_button_i18n }}"{% endif %}>{{ confirm_button_text }}</button>
       </div>
     </div>
   </div>

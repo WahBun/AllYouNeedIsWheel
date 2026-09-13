@@ -2,8 +2,10 @@
  * Portfolio module
  * Handles portfolio view and position management
  */
-import { loadPositionsTable } from '../dashboard/account.js';
-import { showAlert } from '../utils/alerts.js';
+import { loadPositionsTable } from '../dashboard/account.js?v=close-position-1';
+import { loadPendingOrders } from '../dashboard/orders.js?v=close-position-1';
+import { showAlert } from '../utils/alerts.js?v=close-position-1';
+import { initializeClosePosition } from './close-position.js?v=close-position-2';
 
 /**
  * Initialize the portfolio page
@@ -22,6 +24,8 @@ async function initializePortfolio() {
             }
         }
         
+        initializeClosePosition();
+
         // Add event listener for the global refresh button
         const refreshPortfolioButton = document.getElementById('refresh-portfolio');
         if (refreshPortfolioButton) {
@@ -31,8 +35,10 @@ async function initializePortfolio() {
             });
         }
         
-        // Load positions table
-        await loadPositionsTable();
+        await Promise.all([
+            loadPositionsTable(),
+            loadPendingOrders()
+        ]);
         
         console.log('Portfolio initialization complete');
     } catch (error) {

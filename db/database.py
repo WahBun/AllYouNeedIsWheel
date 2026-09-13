@@ -62,6 +62,13 @@ class OptionsDatabase:
                 expiration TEXT NOT NULL,
                 premium REAL,
                 quantity INTEGER DEFAULT 1,
+                intent TEXT NOT NULL DEFAULT 'OPEN',
+                con_id INTEGER,
+                account_id TEXT,
+                contract_multiplier REAL DEFAULT 100,
+                exchange TEXT DEFAULT 'SMART',
+                currency TEXT DEFAULT 'USD',
+                local_symbol TEXT,
                 status TEXT DEFAULT 'pending',
                 executed BOOLEAN DEFAULT 0,
                 
@@ -91,7 +98,11 @@ class OptionsDatabase:
                 
                 -- Execution data
                 ib_order_id TEXT,
+                perm_id TEXT,
                 ib_status TEXT,
+                error_code TEXT,
+                error_message TEXT,
+                warning_text TEXT,
                 filled INTEGER DEFAULT 0,
                 remaining INTEGER DEFAULT 0,
                 avg_fill_price REAL DEFAULT 0,
@@ -100,7 +111,7 @@ class OptionsDatabase:
                 isRollover BOOLEAN DEFAULT 0
             )
         ''')
-        
+
         conn.commit()
         conn.close()
     
@@ -162,6 +173,50 @@ class OptionsDatabase:
                         """, (sell_id,))
                     
                     print(f"Migration: Marked {len(potential_rollover_pairs) * 2} orders as potential rollovers")
+
+            if 'perm_id' not in column_names:
+                print("Running migration: Adding perm_id column to orders table")
+                cursor.execute("ALTER TABLE orders ADD COLUMN perm_id TEXT")
+                print("Migration completed: perm_id column added")
+
+            if 'error_code' not in column_names:
+                print("Running migration: Adding error_code column to orders table")
+                cursor.execute("ALTER TABLE orders ADD COLUMN error_code TEXT")
+                print("Migration completed: error_code column added")
+
+            if 'error_message' not in column_names:
+                print("Running migration: Adding error_message column to orders table")
+                cursor.execute("ALTER TABLE orders ADD COLUMN error_message TEXT")
+                print("Migration completed: error_message column added")
+
+            if 'warning_text' not in column_names:
+                print("Running migration: Adding warning_text column to orders table")
+                cursor.execute("ALTER TABLE orders ADD COLUMN warning_text TEXT")
+                print("Migration completed: warning_text column added")
+
+            close_order_columns = {
+                'intent': "TEXT NOT NULL DEFAULT 'OPEN'",
+                'con_id': 'INTEGER',
+                'account_id': 'TEXT',
+                'contract_multiplier': 'REAL DEFAULT 100',
+                'exchange': "TEXT DEFAULT 'SMART'",
+                'currency': "TEXT DEFAULT 'USD'",
+                'local_symbol': 'TEXT'
+            }
+            for column_name, definition in close_order_columns.items():
+                if column_name not in column_names:
+                    print(f"Running migration: Adding {column_name} column to orders table")
+                    cursor.execute(
+                        f"ALTER TABLE orders ADD COLUMN {column_name} {definition}"
+                    )
+                    print(f"Migration completed: {column_name} column added")
+
+            cursor.execute('''
+                CREATE UNIQUE INDEX IF NOT EXISTS one_active_close_order_per_contract
+                ON orders(con_id)
+                WHERE intent = 'CLOSE'
+                  AND status IN ('pending', 'submitting', 'processing', 'canceling', 'unknown')
+            ''')
             
             conn.commit()
             conn.close()
@@ -180,73 +235,104 @@ class OptionsDatabase:
         Returns:
             int: ID of the inserted record
         """
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            # Extract data from order
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            ticker = order_data.get('ticker', '')
-            option_type = order_data.get('option_type', '')
-            action = order_data.get('action', 'SELL')  # Default action is sell for options
-            strike = order_data.get('strike', 0)
-            expiration = order_data.get('expiration', '')
-            premium = order_data.get('premium', 0)
-            quantity = order_data.get('quantity', 1)
-            
-            # Extract pricing data
-            bid = order_data.get('bid', 0)
-            ask = order_data.get('ask', 0)
-            last = order_data.get('last', 0)
-            
-            # Extract greeks
-            delta = order_data.get('delta', 0)
-            gamma = order_data.get('gamma', 0)
-            theta = order_data.get('theta', 0)
-            vega = order_data.get('vega', 0)
-            implied_volatility = order_data.get('implied_volatility', 0)
-            
-            # Extract market data
-            open_interest = order_data.get('open_interest', 0)
-            volume = order_data.get('volume', 0)
-            is_mock = order_data.get('is_mock', False)
-            
-            # Extract earnings data
-            earnings_max_contracts = order_data.get('earnings_max_contracts', 0)
-            earnings_premium_per_contract = order_data.get('earnings_premium_per_contract', 0)
-            earnings_total_premium = order_data.get('earnings_total_premium', 0)
-            earnings_return_on_cash = order_data.get('earnings_return_on_cash', 0)
-            earnings_return_on_capital = order_data.get('earnings_return_on_capital', 0)
-            
-            # Extract rollover specific data
-            is_rollover = order_data.get('isRollover', False)
-            
-            # Insert order with all fields using the flattened structure
-            cursor.execute('''
+        order_ids = self.save_orders([order_data])
+        return order_ids[0] if order_ids else None
+
+    def _insert_order(self, cursor, order_data):
+        """Insert one order using the shared transaction owned by the caller."""
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute('''
                 INSERT INTO orders 
                 (timestamp, ticker, option_type, action, strike, expiration, premium, quantity, 
+                 intent, con_id, account_id, contract_multiplier, exchange, currency, local_symbol,
                  bid, ask, last, delta, gamma, theta, vega, implied_volatility, 
                  open_interest, volume, is_mock,
                  earnings_max_contracts, earnings_premium_per_contract, 
                  earnings_total_premium, earnings_return_on_cash, 
                  earnings_return_on_capital, status, executed, isRollover)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                timestamp, ticker, option_type, action, strike, expiration, premium, quantity, 
-                bid, ask, last, delta, gamma, theta, vega, implied_volatility, 
-                open_interest, volume, is_mock,
-                earnings_max_contracts, earnings_premium_per_contract, 
-                earnings_total_premium, earnings_return_on_cash, 
-                earnings_return_on_capital, 'pending', False, is_rollover
+                timestamp,
+                order_data.get('ticker', ''),
+                order_data.get('option_type', ''),
+                order_data.get('action', 'SELL'),
+                order_data.get('strike', 0),
+                order_data.get('expiration', ''),
+                order_data.get('premium', 0),
+                order_data.get('quantity', 1),
+                order_data.get('intent', 'OPEN'),
+                order_data.get('con_id'),
+                order_data.get('account_id'),
+                order_data.get('contract_multiplier', 100),
+                order_data.get('exchange', 'SMART'),
+                order_data.get('currency', 'USD'),
+                order_data.get('local_symbol'),
+                order_data.get('bid', 0),
+                order_data.get('ask', 0),
+                order_data.get('last', 0),
+                order_data.get('delta', 0),
+                order_data.get('gamma', 0),
+                order_data.get('theta', 0),
+                order_data.get('vega', 0),
+                order_data.get('implied_volatility', 0),
+                order_data.get('open_interest', 0),
+                order_data.get('volume', 0),
+                order_data.get('is_mock', False),
+                order_data.get('earnings_max_contracts', 0),
+                order_data.get('earnings_premium_per_contract', 0),
+                order_data.get('earnings_total_premium', 0),
+                order_data.get('earnings_return_on_cash', 0),
+                order_data.get('earnings_return_on_capital', 0),
+                'pending',
+                False,
+                order_data.get('isRollover', False)
             ))
-            
-            record_id = cursor.lastrowid
+
+        return cursor.lastrowid
+
+    def save_orders(self, orders):
+        """Save one or more orders atomically and return their database IDs."""
+        conn = None
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            order_ids = [self._insert_order(cursor, order_data) for order_data in orders]
             conn.commit()
-            conn.close()
-            
-            return record_id
+            return order_ids
         except Exception as e:
+            if conn:
+                conn.rollback()
             print(f"Error saving order: {str(e)}")
+            return []
+        finally:
+            if conn:
+                conn.close()
+
+    def get_active_close_order(self, con_id, exclude_order_id=None):
+        """Return an active close order for a contract, if one exists."""
+        conn = None
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            query = '''
+                SELECT * FROM orders
+                WHERE intent = 'CLOSE'
+                  AND con_id = ?
+                  AND status IN ('pending', 'submitting', 'processing', 'canceling', 'unknown')
+            '''
+            params = [int(con_id)]
+            if exclude_order_id is not None:
+                query += ' AND id != ?'
+                params.append(int(exclude_order_id))
+            query += ' ORDER BY timestamp DESC LIMIT 1'
+            row = conn.execute(query, params).fetchone()
+            return dict(row) if row else None
+        except Exception as e:
+            print(f"Error checking active close orders: {str(e)}")
             return None
+        finally:
+            if conn:
+                conn.close()
             
     
     def get_pending_orders(self, executed=False, limit=50, isRollover=None):
@@ -265,85 +351,92 @@ class OptionsDatabase:
             # Return executed orders (completed, cancelled, etc.)
             return self.get_orders(executed=executed, limit=limit, isRollover=isRollover)
         else:
-            # Return pending/processing orders specifically
-            return self.get_orders(status_filter=['pending', 'processing'], limit=limit, isRollover=isRollover)
-    
-    def update_order_status(self, order_id, status, executed=False, execution_details=None):
-        """
-        Update the status of an order
-        
-        Args:
-            order_id (int): ID of the order to update
-            status (str): New status
-            executed (bool): Whether the order has been executed
-            execution_details (dict): Optional details about the execution
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
+            # Return every non-terminal order that still needs user visibility.
+            return self.get_orders(
+                status_filter=['pending', 'submitting', 'processing', 'canceling', 'unknown'],
+                limit=limit,
+                isRollover=isRollover
+            )
+
+    def claim_order_for_execution(self, order_id):
+        """Atomically claim a pending order so concurrent clicks cannot submit it twice."""
+        conn = None
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, timeout=5)
             cursor = conn.cursor()
-            
-            # Start with basic update query
-            update_query = '''
+            cursor.execute('''
                 UPDATE orders
-                SET status = ?, executed = ?
-                WHERE id = ?
-            '''
+                SET status = 'submitting'
+                WHERE id = ? AND status = 'pending' AND executed = 0
+            ''', (order_id,))
+            claimed = cursor.rowcount == 1
+            conn.commit()
+            return claimed
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            print(f"Error claiming order for execution: {str(e)}")
+            return False
+        finally:
+            if conn:
+                conn.close()
+    
+    def update_order_status(
+        self,
+        order_id,
+        status,
+        executed=False,
+        execution_details=None,
+        expected_statuses=None
+    ):
+        """Update an order, optionally only from one of the expected states."""
+        conn = None
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=5)
+            cursor = conn.cursor()
+            set_clauses = ['status = ?', 'executed = ?']
             params = [status, executed]
-            
-            # If we have execution details, update those fields too
-            if execution_details and isinstance(execution_details, dict):
-                set_clauses = []
-                
-                # Map execution details to database fields
-                field_mappings = {
-                    'ib_order_id': 'ib_order_id',
-                    'ib_status': 'ib_status',
-                    'filled': 'filled',
-                    'remaining': 'remaining',
-                    'avg_fill_price': 'avg_fill_price',
-                    'is_mock': 'is_mock'
-                }
-                
-                # Check for each field in the mapping
+
+            field_mappings = {
+                'ib_order_id': 'ib_order_id',
+                'perm_id': 'perm_id',
+                'ib_status': 'ib_status',
+                'error_code': 'error_code',
+                'error_message': 'error_message',
+                'warning_text': 'warning_text',
+                'filled': 'filled',
+                'remaining': 'remaining',
+                'avg_fill_price': 'avg_fill_price',
+                'is_mock': 'is_mock'
+            }
+            if isinstance(execution_details, dict):
                 for api_field, db_field in field_mappings.items():
                     if api_field in execution_details:
                         set_clauses.append(f"{db_field} = ?")
                         params.append(execution_details[api_field])
-                
-                params.append(order_id)
-                # If we have additional fields to set, add them to the query
-                if set_clauses:
-                    # Reconstruct the query with the additional fields
-                    update_query = '''
-                        UPDATE orders
-                        SET status = ?, executed = ?, {}
-                        WHERE id = ?
-                    '''.format(', '.join(set_clauses))
-            
-            # Execute the query
-            cursor.execute(update_query, params)
-            
-            # Check if any rows were affected
-            affected_rows = cursor.rowcount
-            
+
+            query = f"UPDATE orders SET {', '.join(set_clauses)} WHERE id = ?"
+            params.append(order_id)
+
+            if expected_statuses:
+                placeholders = ', '.join('?' for _ in expected_statuses)
+                query += f" AND status IN ({placeholders})"
+                params.extend(expected_statuses)
+
+            cursor.execute(query, params)
+            updated = cursor.rowcount == 1
             conn.commit()
-            
-            # Verify the update by reading the order back
-            verification_cursor = conn.cursor()
-            verification_cursor.execute("SELECT status, executed FROM orders WHERE id = ?", (order_id,))
-            verification_result = verification_cursor.fetchone()
-            
-            conn.close()
-            
-            return affected_rows > 0
+            return updated
         except Exception as e:
+            if conn:
+                conn.rollback()
             print(f"ERROR: Error updating order status: {str(e)}")
             print(f"ERROR: {traceback.format_exc()}")
             return False
-            
+        finally:
+            if conn:
+                conn.close()
+
     def delete_order(self, order_id):
         """
         Delete an order from the database
@@ -360,7 +453,7 @@ class OptionsDatabase:
             
             cursor.execute('''
                 DELETE FROM orders
-                WHERE id = ?
+                WHERE id = ? AND status = 'pending' AND executed = 0
             ''', (order_id,))
             
             # Check if any rows were affected
@@ -390,30 +483,11 @@ class OptionsDatabase:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # Get current order to validate it exists and check its status
-            cursor.execute('''
-                SELECT status FROM orders
-                WHERE id = ?
-            ''', (order_id,))
-            
-            order = cursor.fetchone()
-            if not order:
-                print(f"No order found with ID {order_id}")
-                conn.close()
-                return False
-            
-            # Only update if the order is in 'pending' status
-            if order[0] != 'pending':
-                print(f"Cannot update quantity for order with status '{order[0]}'")
-                conn.close()
-                return False
-            
-            # Update the order quantity
             cursor.execute('''
                 UPDATE orders 
                 SET quantity = ?,
                     timestamp = ?
-                WHERE id = ?
+                WHERE id = ? AND status = 'pending' AND executed = 0
             ''', (quantity, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), order_id))
             
             # Check if any rows were updated

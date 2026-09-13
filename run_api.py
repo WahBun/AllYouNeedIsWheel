@@ -151,7 +151,7 @@ def main():
             logger.info(f"Starting Auto-Trader API server on port {port} with {workers} workers using gunicorn")
             try:
                 # Build the gunicorn command
-                cmd = f"gunicorn --workers={workers} --bind=0.0.0.0:{port} app:app"
+                cmd = f"gunicorn --workers={workers} --bind=127.0.0.1:{port} app:app"
                 # Run gunicorn
                 os.system(cmd)
             except Exception as e:
