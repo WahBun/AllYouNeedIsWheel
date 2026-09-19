@@ -160,7 +160,7 @@ def main():
                 from waitress import serve
                 from app import app
                 # Start the server
-                serve(app, host='0.0.0.0', port=int(port), threads=workers)
+                serve(app, host='127.0.0.1', port=int(port), threads=8)
             except ImportError:
                 logger.error("Waitress is not installed. Please install it with: pip install waitress")
                 sys.exit(1)
@@ -170,7 +170,7 @@ def main():
             try:
                 # Build the gunicorn command
                 cmd = [
-                    'gunicorn', f'--workers={workers}',
+                    'gunicorn', f'--workers={workers}', '--worker-class=gthread', '--threads=8',
                     f'--bind=127.0.0.1:{port}', 'app:app'
                 ]
                 subprocess.call(cmd)

@@ -20,6 +20,9 @@ let accountData = null;
 let positionsData = null;
 let liveRefreshTimer = null;
 let liveRefreshPromise = null;
+let liveRefreshEnabled = false;
+let liveRefreshStartedAt = 0;
+let liveRefreshFailures = 0;
 const LIVE_REFRESH_INTERVAL_MS = 2000;
 
 function tr(key, replacements = {}) {
@@ -492,13 +495,17 @@ function applyLivePositions(payload) {
 async function refreshLivePositions() {
     if (liveRefreshPromise) return liveRefreshPromise;
 
+    liveRefreshStartedAt = performance.now();
     liveRefreshPromise = (async () => {
         try {
             const payload = await fetchLivePositions();
+            liveRefreshFailures = 0;
+            if (document.hidden) return null;
             return applyLivePositions(payload) ? payload : null;
         } catch (error) {
+            liveRefreshFailures = Math.min(liveRefreshFailures + 1, 3);
             console.error('Error refreshing live positions:', error);
-            updateLivePositionStatus({ error: true });
+            if (!document.hidden) updateLivePositionStatus({ error: true });
             return null;
         } finally {
             liveRefreshPromise = null;
@@ -508,12 +515,20 @@ async function refreshLivePositions() {
 }
 
 function scheduleLivePositionRefresh() {
-    if (liveRefreshTimer || document.hidden) return;
+    if (!liveRefreshEnabled || liveRefreshTimer !== null || document.hidden) return;
+    const elapsed = performance.now() - liveRefreshStartedAt;
+    // Skip missed cycles rather than issuing catch-up requests after a slow response.
+    const delay = liveRefreshFailures
+        ? LIVE_REFRESH_INTERVAL_MS * (2 ** (liveRefreshFailures - 1))
+        : elapsed < LIVE_REFRESH_INTERVAL_MS
+            ? LIVE_REFRESH_INTERVAL_MS - elapsed
+            : LIVE_REFRESH_INTERVAL_MS;
     liveRefreshTimer = window.setTimeout(async () => {
         liveRefreshTimer = null;
+        if (!liveRefreshEnabled || document.hidden) return;
         await refreshLivePositions();
         scheduleLivePositionRefresh();
-    }, LIVE_REFRESH_INTERVAL_MS);
+    }, delay);
 }
 
 function startLivePositionUpdates() {
@@ -522,11 +537,14 @@ function startLivePositionUpdates() {
         updateLivePositionStatus({ paused: true });
         return;
     }
+    if (liveRefreshEnabled) return;
+    liveRefreshEnabled = true;
     void refreshLivePositions().finally(scheduleLivePositionRefresh);
 }
 
 function stopLivePositionUpdates() {
-    if (liveRefreshTimer) {
+    liveRefreshEnabled = false;
+    if (liveRefreshTimer !== null) {
         window.clearTimeout(liveRefreshTimer);
         liveRefreshTimer = null;
     }

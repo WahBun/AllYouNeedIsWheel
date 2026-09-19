@@ -14,6 +14,7 @@ from core.utils import (
     get_closest_friday,
     get_next_monthly_expiration,
     is_market_hours,
+    market_today,
     select_default_expiration
 )
 from config import Config
@@ -142,13 +143,15 @@ class OptionsService:
             expiration_date = datetime.strptime(expiration, '%Y%m%d').date()
         except ValueError:
             raise ValueError("Expiration must use YYYYMMDD format")
-        if expiration_date < datetime.now().date():
+        if expiration_date < market_today():
             raise ValueError("Expiration cannot be in the past")
 
         quantity_value = order_data.get('quantity', 1)
         try:
             quantity = int(quantity_value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError("Quantity must be a whole number")
+        if isinstance(quantity_value, bool):
             raise ValueError("Quantity must be a whole number")
         if isinstance(quantity_value, float) and not quantity_value.is_integer():
             raise ValueError("Quantity must be a whole number")
@@ -449,6 +452,8 @@ class OptionsService:
       
     def execute_order(self, order_id, db):
         """Validate, preflight, claim, and submit one pending option order."""
+        if self.config.get('readonly', True) is not False:
+            return {'success': False, 'error': 'Read-only mode: order submission is disabled'}, 403
         logger.info(f"Executing order with ID {order_id}")
         claimed = False
         transmit_attempted = False
@@ -1402,6 +1407,9 @@ class OptionsService:
                     "status": "canceled"
                 }, 200
 
+            if self.config.get('readonly', True) is not False:
+                return {'success': False, 'error': 'Read-only mode: IB order cancellation is disabled'}, 403
+
             if current_status not in {'processing', 'canceling', 'unknown'}:
                 return {
                     "success": False,
@@ -1620,7 +1628,7 @@ class OptionsService:
                 return {"error": f"No option chains found for {ticker}"}
             
             # Extract and filter valid expirations (only future dates)
-            today = datetime.now().strftime('%Y%m%d')
+            today = market_today().strftime('%Y%m%d')
             
             # Keep the standard monthly expirations. These are the liquid dates
             # this wheel workflow is designed around.

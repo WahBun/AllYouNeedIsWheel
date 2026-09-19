@@ -1,9 +1,10 @@
 /**
  * Options Table module for handling options display and interaction
  */
-import { fetchOptionData, fetchTickers, saveOptionOrder, fetchAccountData, fetchOptionExpirations, fetchStockPrices } from './api.js?v=safety-1';
+import { fetchOptionData as fetchRawOptionData, fetchTickers, saveOptionOrder, fetchAccountData, fetchOptionExpirations, fetchStockPrices } from './api.js?v=quote-audit-2';
+import { createLatestRequestQueue } from '../utils/latest-request.js?v=quote-audit-2';
 import { showAlert } from '../utils/alerts.js?v=safety-1';
-import { formatCurrency, formatPercentage } from './account.js?v=account-live-2';
+import { formatCurrency, formatPercentage } from './account.js?v=account-live-3';
 import {
     calculateMidPrice,
     calculateSpreadPercentage,
@@ -27,6 +28,8 @@ let customTickers = new Set();
 // Track manual limit price edits for the currently displayed option rows
 let manualLimitPrices = {};
 const expirationRequests = new Map();
+const quoteRequests = createLatestRequestQueue();
+const pendingQuotes = new Map();
 const EXPIRATION_CACHE_TTL_MS = 30 * 60 * 1000;
 const REFRESH_CONCURRENCY = 2;
 const NON_WHEEL_TICKERS = new Set(['SGOV']);
@@ -159,6 +162,50 @@ function updateTickerOptionData(ticker, optionType, optionData) {
     return true;
 }
 
+async function fetchOptionData(ticker, otmPercentage, optionType, expiration) {
+    const key = `${ticker}:${optionType}`;
+    const token = {};
+    const state = tickersData[ticker];
+    if (!state || getSelectedExpiration(ticker, optionType) !== expiration) return null;
+    const requestedOtm = optionType === 'CALL' ? state.callOtmPercentage : state.putOtmPercentage;
+    if (Number(requestedOtm) !== Number(otmPercentage)) return null;
+    pendingQuotes.set(key, token);
+    clearManualLimitPrice(ticker, optionType);
+    const data = state?.data?.data?.[ticker];
+    if (data) data[optionType === 'CALL' ? 'calls' : 'puts'] = [];
+    updateOptionsTable();
+    try {
+        const result = await quoteRequests.run(key, async () => {
+            if (tickersData[ticker] !== state) return null;
+            return fetchRawOptionData(ticker, otmPercentage, optionType, expiration);
+        });
+        if (pendingQuotes.get(key) !== token || tickersData[ticker] !== state) return null;
+        const currentOtm = optionType === 'CALL' ? state.callOtmPercentage : state.putOtmPercentage;
+        if (getSelectedExpiration(ticker, optionType) !== expiration || Number(currentOtm) !== Number(otmPercentage)) return null;
+        const fresh = result?.data?.[ticker];
+        if (!fresh || fresh.error) throw new Error(fresh?.error || 'Option quote unavailable');
+        updateTickerOptionData(ticker, optionType, result);
+        return result;
+    } finally {
+        if (pendingQuotes.get(key) === token) {
+            pendingQuotes.delete(key);
+            updateOptionsTable();
+        }
+    }
+}
+
+function showPendingQuotes() {
+    document.querySelectorAll('.expiration-select').forEach(select => {
+        const key = `${select.dataset.ticker}:${select.dataset.optionType}`;
+        if (!pendingQuotes.has(key)) return;
+        const row = select.closest('tr');
+        row.setAttribute('aria-busy', 'true');
+        row.querySelectorAll('button, .mid-price-input').forEach(control => { control.disabled = true; });
+        const priceCell = row.cells[select.dataset.optionType === 'CALL' ? 6 : 5];
+        if (priceCell) priceCell.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-label="Loading quote"></span>';
+    });
+}
+
 function getSpreadClass(spreadPercentage) {
     if (spreadPercentage === null) return 'spread-unavailable';
     if (spreadPercentage <= 10) return 'spread-tight';
@@ -176,17 +223,15 @@ function getManualLimitPrice(ticker, optionType, option) {
     const entry = manualLimitPrices[ticker]?.[optionType];
     if (!entry || entry.key !== getOptionPriceKey(option)) return null;
     const price = Number.parseFloat(entry.price);
-    return Number.isFinite(price) && price > 0 ? price : null;
+    return Number.isFinite(price) && price > 0 ? price : 0;
 }
 
 function setManualLimitPrice(ticker, optionType, option, price) {
     const priceNum = Number.parseFloat(price);
-    if (!Number.isFinite(priceNum) || priceNum <= 0) return;
-
     if (!manualLimitPrices[ticker]) manualLimitPrices[ticker] = {};
     manualLimitPrices[ticker][optionType] = {
         key: getOptionPriceKey(option),
-        price: priceNum
+        price: Number.isFinite(priceNum) && priceNum > 0 ? priceNum : 0
     };
 }
 
@@ -208,7 +253,8 @@ function formatSpreadBadge(bid, ask) {
 function buildLimitPriceControl(ticker, optionType, option, displayedPrice, defaultPrice) {
     const safeDisplayed = Number.parseFloat(displayedPrice || 0);
     const safeDefault = Number.parseFloat(defaultPrice || 0);
-    const value = Number.isFinite(safeDisplayed) && safeDisplayed > 0 ? safeDisplayed : safeDefault;
+    const value = getManualLimitPrice(ticker, optionType, option) === 0
+        ? 0 : Number.isFinite(safeDisplayed) && safeDisplayed > 0 ? safeDisplayed : safeDefault;
     const hasValue = Number.isFinite(value) && value > 0;
     const hasDefault = Number.isFinite(safeDefault) && safeDefault > 0;
 
@@ -241,8 +287,8 @@ function buildLimitPriceControl(ticker, optionType, option, displayedPrice, defa
 
 function getRowLimitPrice(row, fallbackPrice = 0) {
     const input = row?.querySelector('.mid-price-input');
-    const price = Number.parseFloat(input?.value);
-    if (Number.isFinite(price) && price > 0) return price;
+    const price = Number(input?.value);
+    if (input) return Number.isFinite(price) && price > 0 ? price : 0;
 
     const fallback = Number.parseFloat(fallbackPrice);
     return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
@@ -659,6 +705,9 @@ function updateOptionsTable() {
     addCallQtyInputEventListeners();
     addPutQtyInputEventListeners();
     addMidPriceInputEventListeners();
+    addOtmInputEventListeners();
+    addExpirationSelectEventListeners();
+    showPendingQuotes();
 
     initializeTooltips(optionsTableContainer);
 }
@@ -1149,6 +1198,7 @@ function addOtmInputEventListeners() {
                 
                 // Save OTM settings to localStorage
                 saveOtmSettings();
+                void refreshOptionsForTickerByType(ticker, optionType, true);
             }
         });
     });
@@ -1263,7 +1313,7 @@ function addMidPriceInputEventListeners() {
             }
 
             if (!Number.isFinite(price) || price <= 0) {
-                clearManualLimitPrice(ticker, optionType);
+                setManualLimitPrice(ticker, optionType, getOptionFromRow(row), 0);
                 updateRowPremiumDisplay(row);
                 updateEarningsSummary();
                 return;
@@ -2983,7 +3033,7 @@ function displayEarningsSummary(summary) {
             <div class="card-header d-flex justify-content-between align-items-center bg-light py-2">
                 <h6 class="mb-0">${tr('earnings.estimatedSummary')}</h6>
             </div>
-            <div class="card-body py-2">
+            <div class="card-body py-2 earnings-summary-scroll" role="region" aria-label="Estimated earnings" tabindex="0">
                 <table class="table table-sm table-borderless mb-0">
                     <tbody>
                         <tr>

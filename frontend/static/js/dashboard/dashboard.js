@@ -2,12 +2,12 @@
  * Main dashboard module
  * Coordinates all dashboard components and initializes the dashboard
  */
-import { loadPortfolioData } from './account.js?v=account-live-2';
-import { loadTickers } from './options-table.js?v=progressive-load-2';
-import { loadPendingOrders } from './orders.js?v=execution-pref-1';
+import { loadPortfolioData } from './account.js?v=account-live-3';
+import { loadTickers } from './options-table.js?v=mobile-layout-1';
+import { loadPendingOrders } from './orders.js?v=poll-stable-1';
 import { showAlert } from '../utils/alerts.js?v=close-position-1';
 import { fetchWeeklyOptionIncome } from './api.js?v=safety-1';
-import { formatCurrency } from './account.js?v=account-live-2';
+import { formatCurrency } from './account.js?v=account-live-3';
 
 // Store weekly income data
 let weeklyIncomeData = null;

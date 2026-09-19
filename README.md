@@ -10,6 +10,11 @@ AllYouNeedIsWheel is a financial options trading assistant specifically designed
 
 ## Features
 
+- **Multi-device access**: Host on a Mac mini and connect from a MacBook or phone through your private Tailnet. See [Mac mini + Tailscale deployment](docs/MAC_MINI_TAILSCALE.md).
+- **Responsive navigation**: Pages are served independently of serialized IB operations; identical in-flight reads share work across devices.
+- **Stable quote controls**: Two-second portfolio polling compensates for request time, pauses in hidden tabs and backs off after failures. Option selection discards outdated responses and clears old prices while loading.
+- **Mobile layout**: Scrollable tables and earnings summary, wrapping controls, and scrollable trading dialogs.
+
 
 - **Portfolio Dashboard**: View your current portfolio positions, value, and performance metrics
 - **Wheel Strategy Focus**: Specialized tools for implementing the wheel strategy (selling cash-secured puts and covered calls)
@@ -35,7 +40,7 @@ AllYouNeedIsWheel is a financial options trading assistant specifically designed
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/yourusername/AllYouNeedIsWheel.git
+   git clone https://github.com/WahBun/AllYouNeedIsWheel.git
    cd AllYouNeedIsWheel
    ```
 
@@ -105,20 +110,26 @@ Note: TWS/Gateway must be running and logged in for the API to function.
 ### Starting the Development Server
 
 ```bash
-# For paper trading (default)
+# Uses connection.json; its actual settings determine paper/live and readonly mode
 python3 run_api.py
 ```
 ### Starting the Production API Server
 
 ```bash
-# For real money trading
+# Uses connection_real.json; inspect its settings before starting
 python3 run_api.py --realmoney
 ```
 
 This will start the application on http://localhost:8000
 
 
-By default, the server runs on port 8000 with one worker. The single worker is a
+By default, the server runs on port 8000 with one process and eight HTTP threads.
+Page navigation and static assets are served independently of IB requests. All
+API operations run on one dedicated thread to preserve IB event-loop ownership
+and serial order execution. Identical in-flight GET requests share their result;
+writes are never merged or automatically retried. Up to four API requests can
+wait at once; additional requests receive HTTP 503 with Retry-After so navigation
+is not starved by a slow Gateway. The single process is a
 trading-safety requirement: IB only allows an individual API order to be managed
 reliably by the same API client identity that submitted it.
 
@@ -160,9 +171,13 @@ The web interface consists of three main pages:
 
 The application automatically uses frozen data from Interactive Brokers in the following scenarios:
 - When the market is closed (outside of 9:30 AM - 4:00 PM ET, Monday-Friday)
-- On weekends and market holidays
+- On weekends (holiday detection is a known limitation)
 
-Frozen data is actual historical data provided by Interactive Brokers rather than generated mock data. This ensures that all data provided by the application represents real market conditions even when markets are closed.
+Frozen quotes come from Interactive Brokers rather than generated mock data. They are not current executable prices. Availability depends on the contract and market-data permissions.
+
+Market-hours detection currently checks US Eastern weekdays and regular hours.
+Exchange holidays and early closes are not yet modeled, so the LIVE/FROZEN label
+is not authoritative on those dates.
 
 When no connection to Interactive Brokers TWS/IB Gateway is available or when API requests fail for any reason, the application will return appropriate error messages rather than falling back to mock data.
 
@@ -235,10 +250,16 @@ The application uses SQLite for storage. Two database files are maintained:
 - Never commit `connection_real.json` to version control (it's in `.gitignore`)
 - Always use `readonly: true` during development to prevent accidental order execution
 - Use caution when running with the `--realmoney` flag as real trades can be executed
-- Adding an order only stages it locally. Sending it to IB always requires a separate Execute confirmation.
+- Adding an order only stages it locally. Sending it to IB requires an explicit Execute action. An additional confirmation dialog can be enabled or disabled in trading settings.
 - Entry orders are limited to SELL TO OPEN. Position exits must be created from Portfolio so the exact held IB contract and account are revalidated.
 - Close orders are revalidated against the configured account, exact IB contract, current position, remaining quantity, and active IB orders immediately before submission.
 - Keep the web server at one worker and use a stable `client_id` so submitted orders remain queryable and cancelable after reconnects.
+
+## Deployment And Handoff
+
+- [Mac mini + Tailscale deployment and operations](docs/MAC_MINI_TAILSCALE.md)
+- [Project handoff, architecture, checks and known limitations](docs/HANDOFF.md)
+- Earnings projections currently assume repeating premiums weekly. They are not expiry-adjusted annualized returns for monthly contracts.
 
 ## License
 

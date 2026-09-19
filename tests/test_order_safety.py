@@ -12,6 +12,7 @@ from db.database import OptionsDatabase
 class TestConfig:
     def get(self, key, default=None):
         return {
+            'readonly': False,
             'max_order_quantity': 100,
             'account_id': 'U1234567'
         }.get(key, default)

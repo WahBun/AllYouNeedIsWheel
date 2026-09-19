@@ -11,7 +11,7 @@ from db.database import OptionsDatabase
 
 class TestConfig:
     def get(self, key, default=None):
-        return {'max_order_quantity': 100}.get(key, default)
+        return {'max_order_quantity': 100, 'readonly': False}.get(key, default)
 
 
 class FakeCloseConnection:

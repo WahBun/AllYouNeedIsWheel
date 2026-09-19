@@ -12,6 +12,10 @@ import pytz
 # Configure logger
 logger = logging.getLogger('autotrader.utils')
 
+def market_today():
+    """Use the US market date even when the host is already on the next day."""
+    return datetime.now(pytz.timezone('America/New_York')).date()
+
 def rotate_logs(logs_dir='logs', max_logs=5):
     """
     Rotate log files, keeping only the specified number of most recent logs.
@@ -129,7 +133,7 @@ def get_closest_friday():
     Returns:
         datetime.date: Date of the closest Friday
     """
-    today = datetime.now().date()
+    today = market_today()
     
     # Get the day of the week (0 is Monday, 4 is Friday)
     weekday = today.weekday()
@@ -154,7 +158,7 @@ def _third_friday(year, month):
 
 def select_default_expiration(expirations, skip_within_days=7, today=None):
     """Select the first expiration outside the short-dated exclusion window."""
-    current_date = today or datetime.now().date()
+    current_date = today or market_today()
     parsed_expirations = []
 
     for expiration in expirations:
@@ -183,7 +187,7 @@ def get_next_monthly_expiration(skip_within_days=0, today=None):
     Returns:
         str: Next monthly expiration date in YYYYMMDD format
     """
-    current_date = today or datetime.now().date()
+    current_date = today or market_today()
     year = current_date.year
     month = current_date.month
 

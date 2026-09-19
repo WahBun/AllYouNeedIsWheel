@@ -107,6 +107,8 @@ async function fetchWeeklyOptionIncome() {
  * @returns {Promise} Promise with option data
  */
 async function fetchOptionData(ticker, otmPercentage = 10, optionType = null, expiration = null) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
     try {
         const timestamp = new Date().getTime();
         let url = `/api/options/otm?tickers=${encodeURIComponent(ticker)}&otm=${otmPercentage}&real_time=true&options_only=true&t=${timestamp}`;
@@ -122,6 +124,7 @@ async function fetchOptionData(ticker, otmPercentage = 10, optionType = null, ex
         }
         
         const response = await fetch(url, {
+            signal: controller.signal,
             headers: {
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
                 'Pragma': 'no-cache',
@@ -154,21 +157,9 @@ async function fetchOptionData(ticker, otmPercentage = 10, optionType = null, ex
         }
     } catch (error) {
         console.error(`Error fetching options for ${ticker}:`, error);
-        showAlert(`Error fetching options for ${ticker}: ${error.message}`, 'danger');
-        
-        // Return a fallback empty structure to prevent further errors
-        return {
-            status: "error",
-            message: error.message,
-            data: {
-                [ticker]: {
-                    stock_price: 0,
-                    position: 0,
-                    calls: [],
-                    puts: []
-                }
-            }
-        };
+        throw new Error(error.name === 'AbortError' ? 'Option quote request timed out; please retry' : error.message);
+    } finally {
+        window.clearTimeout(timeout);
     }
 }
 

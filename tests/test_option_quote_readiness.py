@@ -18,6 +18,26 @@ class FakeIB:
 
 
 class OptionQuoteReadinessTests(unittest.TestCase):
+    def test_ready_quote_does_not_wait_for_missing_greeks(self):
+        ticker = SimpleNamespace(bid=0.60, ask=0.62, last=0.61, close=0.59,
+                                 modelGreeks=None, impliedVolatility=math.nan)
+        contract = SimpleNamespace(symbol='TSLL', strike=12.0, right='C',
+                                   lastTradeDateOrContractMonth='20261016')
+        connection = IBConnection.__new__(IBConnection)
+        connection.ib = FakeIB(ticker)
+        connection.is_connected = lambda: True
+        connection.set_market_data_type = lambda _: True
+        connection.get_option_definition = lambda *_: (SimpleNamespace(), SimpleNamespace(strikes=[12.0]))
+        connection.get_nearest_qualified_option_contract = lambda *_: contract
+        connection.get_market_ticker = lambda *_: ticker
+        result = connection.get_option_chain('TSLL', '20261016', 'C', 12.0, stock_price=9.69)
+        self.assertEqual(connection.ib.sleep_count, 1)
+        self.assertEqual(result['options'][0]['ask'], 0.62)
+        self.assertIsNone(result['options'][0]['delta'])
+        ticker.modelGreeks = SimpleNamespace(impliedVol=0.45)
+        result = connection.get_option_chain('TSLL', '20261016', 'C', 12.0, stock_price=9.69)
+        self.assertEqual(result['options'][0]['implied_volatility'], 0.45)
+
     def test_last_price_does_not_end_wait_before_two_sided_quote_arrives(self):
         ticker = SimpleNamespace(
             bid=0.60,

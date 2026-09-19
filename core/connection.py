@@ -14,7 +14,7 @@ import traceback
 from typing import Optional, Dict, Any
 from datetime import datetime
 import pytz
-from core.utils import is_market_hours
+from core.utils import is_market_hours, market_today
 from .currency import CurrencyHelper
 
 # Import ib_async instead of ib_insync
@@ -641,7 +641,7 @@ class IBConnection:
             if not expiration:
                 # Find closest expiration to current date
                 if chain.expirations:
-                    today = datetime.now().strftime('%Y%m%d')
+                    today = market_today().strftime('%Y%m%d')
                     valid_expirations = [exp for exp in chain.expirations if exp >= today]
                     
                     if valid_expirations:
@@ -712,15 +712,13 @@ class IBConnection:
                     # Last/close and Greeks can arrive before bid/ask, especially
                     # for frozen quotes. Wait for the two-sided market required by
                     # midpoint pricing so initial load matches a manual refresh.
+                    # Drain incoming ticks once, then wait only for executable
+                    # bid/ask. Optional Greeks must not delay an available quote.
+                    self.ib.sleep(0.01)
                     for attempt in range(50):
-                        self.ib.sleep(0.1)
-                        has_quote = self._has_valid_two_sided_quote(ticker)
-                        has_greeks = (
-                            ticker.modelGreeks is not None and
-                            self._valid_price(getattr(ticker, 'impliedVolatility', None)) is not None
-                        )
-                        if has_quote and (has_greeks or attempt >= 4):
+                        if self._has_valid_two_sided_quote(ticker):
                             break
+                        self.ib.sleep(0.1)
                     
                     # Extract market data
                     bid = self._valid_price(getattr(ticker, 'bid', None)) or 0
@@ -733,6 +731,8 @@ class IBConnection:
                     volume = ticker.volume if hasattr(ticker, 'volume') and ticker.volume is not None else 0
                     open_interest = ticker.openInterest if hasattr(ticker, 'openInterest') and ticker.openInterest is not None else 0
                     implied_vol = self._valid_price(getattr(ticker, 'impliedVolatility', None)) or 0
+                    if not implied_vol and getattr(ticker, 'modelGreeks', None):
+                        implied_vol = self._valid_price(getattr(ticker.modelGreeks, 'impliedVol', None)) or 0
                     # Get real delta from model greeks if available
                     delta = None
                     gamma = None
@@ -1487,6 +1487,8 @@ class IBConnection:
         Returns:
             dict: Result with order details
         """
+        if self.readonly is not False:
+            raise PermissionError('Read-only mode: order submission is disabled')
         if not self.is_connected():
             logger.error("Cannot place order - not connected to TWS")
             return None
@@ -1983,6 +1985,8 @@ class IBConnection:
             dict: Result with success/failure info
         """
         
+        if self.readonly is not False:
+            return {'success': False, 'error': 'Read-only mode: IB order cancellation is disabled'}
         try:
             # Ensure connection
             if not self.is_connected():

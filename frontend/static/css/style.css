@@ -226,6 +226,17 @@ h1 {
 }
 
 /* Card styles */
+.earnings-summary-scroll {
+    overflow-x: auto;
+    max-width: 100%;
+    min-width: 0;
+    -webkit-overflow-scrolling: touch;
+}
+
+.earnings-summary-scroll > table {
+    min-width: 780px;
+}
+
 .card {
     border-radius: 0.5rem;
     margin-bottom: 1.75rem;
@@ -918,6 +929,62 @@ footer {
 }
 
 @media (max-width: 767.98px) {
+    .table-responsive {
+        max-width: 100%;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .card-header {
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+
+    .card-header > h5 {
+        flex: 1 1 12rem;
+    }
+
+    .options-footer-notes {
+        align-items: flex-start !important;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .account-metrics {
+        flex-wrap: wrap;
+        gap: 0.75rem 0;
+    }
+
+    .account-metrics > div {
+        flex: 1 1 9rem;
+        min-width: 0;
+    }
+
+    .account-metrics h3 {
+        font-size: 1.25rem !important;
+        overflow-wrap: anywhere;
+    }
+
+    .modal-header > div,
+    .modal-title {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .modal-body .d-flex {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .form-control,
+    .form-select {
+        font-size: 16px;
+    }
+
+    .modal-footer .btn {
+        min-height: 44px;
+        white-space: normal;
+    }
+
     .display-4 {
         font-size: 2rem;
     }

@@ -64,6 +64,8 @@ def create_app(config=None):
     app.register_blueprint(options.bp)
     app.register_blueprint(recommendations.bp)
     logger.info("Registered API blueprints")
+    from api.request_dispatcher import install_api_dispatcher
+    install_api_dispatcher(app)
     
     @app.route('/health')
     def health_check():

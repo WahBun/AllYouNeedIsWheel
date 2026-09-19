@@ -6,8 +6,8 @@ import {
     loadPositionsTable,
     refreshLivePositions,
     startLivePositionUpdates
-} from '../dashboard/account.js?v=account-live-2';
-import { loadPendingOrders } from '../dashboard/orders.js?v=execution-pref-1';
+} from '../dashboard/account.js?v=account-live-3';
+import { loadPendingOrders } from '../dashboard/orders.js?v=poll-stable-1';
 import { showAlert } from '../utils/alerts.js?v=close-position-1';
 import { initializeClosePosition } from './close-position.js?v=refactor-safety-2';
 

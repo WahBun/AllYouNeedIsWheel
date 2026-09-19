@@ -10,7 +10,7 @@ import {
     updatePendingOrderPremium
 } from './api.js?v=pending-price-1';
 import { showAlert, getBadgeColor } from '../utils/alerts.js?v=close-position-1';
-import { formatCurrency } from './account.js?v=account-live-2';
+import { formatCurrency } from './account.js?v=account-live-3';
 import {
     getActiveExternalOrders,
     getCancelableWebOrders,
