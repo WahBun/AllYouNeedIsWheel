@@ -69,6 +69,37 @@ tailscale serve --tcp=8000 off
 
 出门前用手机关闭 Wi-Fi、走蜂窝网络测试页面和持仓读取。
 
+### 推荐：私有 HTTPS 与 iPhone 主屏幕
+
+长期使用建议启用 HTTPS，前面的 IP/TCP 入口只用于初期验证或临时备用。
+先确认 MagicDNS 已开启，在 Tailscale 管理页面授权 Serve/HTTPS；不要开启 Funnel。
+
+```sh
+tailscale serve --bg --https=443 http://127.0.0.1:8000
+tailscale serve status
+curl https://<设备名>.<Tailnet后缀>/health
+```
+
+使用 Serve 输出的完整 HTTPS 地址，不要照抄其他人的后缀。证书首次签发可能
+需要等待，验证时不要跳过证书检查。HTTPS 证书中的设备域名会进入公开证书
+透明度日志，因此域名不要包含私人信息。访问权限仍由 Tailnet 策略控制。
+
+手机与电脑验证新地址后，可只关闭旧的远程 HTTP 入口：
+
+```sh
+tailscale serve --tcp=8000 off
+```
+
+这不会停止本机 `127.0.0.1:8000`，HTTPS 仍代理到该服务。保留其他已有转发，
+不要执行全局 reset。后台 Serve 配置持久保存，仍依赖 Tailscale 在线。
+
+在 iPhone Safari 打开 HTTPS 地址，刷新后选择“添加到主屏幕”。项目提供
+Manifest、现有图标和 iOS standalone 标签。旧快捷图标需要删除并重新添加；
+正常情况下从图标进入独立窗口，不再重复创建普通浏览器标签。系统回收后台后
+仍可能重新加载。这里没有增加 Service Worker、离线行情缓存或交易请求重试。
+更换访问地址或使用独立窗口后，应检查语言、主题及下单确认偏好；账户与订单
+仍来自同一个服务。不要将主屏幕安装视为身份认证或原生 App 发布。
+
 ## 3. macOS 登录后自启动
 
 使用 LaunchAgent，保存为

@@ -11,6 +11,7 @@ AllYouNeedIsWheel is a financial options trading assistant specifically designed
 ## Features
 
 - **Multi-device access**: Host on a Mac mini and connect from a MacBook or phone through your private Tailnet. See [Mac mini + Tailscale deployment](docs/MAC_MINI_TAILSCALE.md).
+- **iPhone Home Screen**: Add the HTTPS site from Safari to launch Wheel as a standalone web app. No native package or offline trading cache is required; see the deployment guide for setup and replacing old shortcuts.
 - **Responsive navigation**: Pages are served independently of serialized IB operations; identical in-flight reads share work across devices.
 - **Stable quote controls**: Two-second portfolio polling compensates for request time, pauses in hidden tabs and backs off after failures. Option selection discards outdated responses and clears old prices while loading.
 - **Phone-first trading layout**: Labeled, two-column option and order records on phones, with the desktop tables unchanged. Native OTM/quantity/price pickers accompany manual entry.

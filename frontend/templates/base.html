@@ -3,6 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Wheel">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#151a20">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
     <title>{% block title %}All You Need Is Wheel{% endblock %}</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/priceaction-wheel.png') }}?v=1">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/priceaction-wheel.png') }}?v=1">

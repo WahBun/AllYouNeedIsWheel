@@ -99,4 +99,8 @@ price selection, summary updates, disabled state, and unchanged desktop pixels.
   by local regression tests. Unknown submission outcomes require reconciliation.
 
 See `MAC_MINI_TAILSCALE.md` for installation, access and restart procedures.
+The web frontend supports iPhone standalone Home Screen launch via a manifest
+and Apple metadata. It adds no service worker or offline trading cache. Prefer
+private Tailscale HTTPS; remove the optional remote TCP 8000 forward only after
+validating HTTPS, while retaining the loopback server and unrelated forwards.
 See `WORKFLOW_NAVIGATION.md` for the single/batch action navigation checklist.

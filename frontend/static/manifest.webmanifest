@@ -1,0 +1,18 @@
+{
+  "id": "/",
+  "name": "All You Need Is Wheel",
+  "short_name": "Wheel",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#151a20",
+  "theme_color": "#151a20",
+  "icons": [
+    {
+      "src": "img/priceaction-wheel.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
