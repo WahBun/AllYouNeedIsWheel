@@ -13,7 +13,10 @@ AllYouNeedIsWheel is a financial options trading assistant specifically designed
 - **Multi-device access**: Host on a Mac mini and connect from a MacBook or phone through your private Tailnet. See [Mac mini + Tailscale deployment](docs/MAC_MINI_TAILSCALE.md).
 - **Responsive navigation**: Pages are served independently of serialized IB operations; identical in-flight reads share work across devices.
 - **Stable quote controls**: Two-second portfolio polling compensates for request time, pauses in hidden tabs and backs off after failures. Option selection discards outdated responses and clears old prices while loading.
-- **Mobile layout**: Scrollable tables and earnings summary, wrapping controls, and scrollable trading dialogs.
+- **Phone-first trading layout**: Labeled, two-column option and order records on phones, with the desktop tables unchanged. Native OTM/quantity/price pickers accompany manual entry.
+- **Workflow navigation**: Successful staging reveals Pending; confirmed cancellations return to the relevant workspace or position across Dashboard, Portfolio and Rollover. Unconfirmed cancellations stay visible. See [navigation behavior](docs/WORKFLOW_NAVIGATION.md).
+- **Expiry-aware estimates**: Selected premiums are annualized individually using calendar days to expiration, not a fixed weekly multiplier. Estimates are not realized income or profit and exclude fees and losses.
+- **Order reconciliation**: Lost acknowledgements without an IB order ID remain eligible for reconciliation; unknown states preserve confirmed partial fills and never trigger automatic resubmission.
 
 
 - **Portfolio Dashboard**: View your current portfolio positions, value, and performance metrics
@@ -259,7 +262,7 @@ The application uses SQLite for storage. Two database files are maintained:
 
 - [Mac mini + Tailscale deployment and operations](docs/MAC_MINI_TAILSCALE.md)
 - [Project handoff, architecture, checks and known limitations](docs/HANDOFF.md)
-- Earnings projections currently assume repeating premiums weekly. They are not expiry-adjusted annualized returns for monthly contracts.
+- Earnings estimates assume repeatable premiums over each contract's remaining calendar days. Same-day/invalid expiries show N/A; these estimates are not guaranteed returns and exclude fees and losses.
 
 ## License
 

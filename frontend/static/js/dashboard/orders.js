@@ -9,7 +9,7 @@ import {
     fetchWeeklyOptionIncome,
     updatePendingOrderPremium
 } from './api.js?v=pending-price-1';
-import { showAlert, getBadgeColor } from '../utils/alerts.js?v=close-position-1';
+import { showAlert, getBadgeColor } from '../utils/alerts.js?v=scroll-stable-1';
 import { formatCurrency } from './account.js?v=account-live-3';
 import {
     getActiveExternalOrders,
@@ -22,7 +22,10 @@ import {
 } from '../utils/order-sync.js?v=order-sync-6';
 
 // Store orders data
+import { returnToOpportunity, returnToWorkspace, batchCancellationConfirmed } from '../utils/workflow-navigation.js?v=4';
+
 let pendingOrdersData = [];
+let cancelAllInFlight = false;
 let weeklyOptionIncomeData = {}; // Changed from filledOrdersData
 
 // Auto-refresh timer
@@ -131,6 +134,7 @@ function updatePendingOrdersTable() {
     // Add each order to the table
     visibleOrders.forEach(order => {
         const row = document.createElement('tr');
+        row.dataset.orderId = String(order.id);
         
         // Format the strike price
         const strike = order.strike ? `$${order.strike}` : 'N/A';
@@ -650,6 +654,7 @@ async function executeOrderById(orderId, sourceButton = null) {
  * @param {string} orderId - The order ID to cancel
  */
 async function cancelOrderById(orderId) {
+    const sourceOrder = pendingOrdersData.find(order => order.id == orderId);
     try {
         // Use the improved cancel order endpoint
         const result = await cancelOrder(orderId);
@@ -673,6 +678,9 @@ async function cancelOrderById(orderId) {
             startAutoRefresh();
         } else {
             await loadPendingOrders();
+            if (result.success && ['canceled', 'cancelled'].includes(result.status)) {
+                await returnToOpportunity(sourceOrder);
+            }
         }
     } catch (error) {
         console.error('Error cancelling order:', error);
@@ -995,6 +1003,8 @@ function addPositionsToTable(positions, table) {
  * Handle canceling all pending orders
  */
 async function cancelAllPendingOrders() {
+    if (cancelAllInFlight) return;
+    const button = document.getElementById('cancel-all-pending-orders');
     try {
         const pendingOrders = getCancelableWebOrders(pendingOrdersData);
         const externalOrders = getActiveExternalOrders(pendingOrdersData);
@@ -1013,6 +1023,8 @@ async function cancelAllPendingOrders() {
         if (!confirm(tr('orders.confirmCancelAll', { count: pendingOrders.length }))) {
             return;
         }
+        cancelAllInFlight = true;
+        if (button) button.disabled = true;
         
         // Show a loading alert
         showAlert(tr('orders.cancelingOrders', { count: pendingOrders.length }), 'info');
@@ -1021,10 +1033,14 @@ async function cancelAllPendingOrders() {
         const cancelPromises = pendingOrders.map(order => cancelOrder(order.id));
         
         // Wait for all cancellations to complete
-        await Promise.all(cancelPromises);
+        const results = await Promise.allSettled(cancelPromises);
         
         // Refresh the orders table
         await loadPendingOrders();
+        if (!batchCancellationConfirmed(results)) {
+            showAlert(tr('orders.cancelNotConfirmed'), 'warning');
+            return;
+        }
         
         // Show success message
         showAlert(
@@ -1036,8 +1052,14 @@ async function cancelAllPendingOrders() {
                 : tr('orders.canceledOrders', { count: pendingOrders.length }),
             'success'
         );
+        if (!pendingOrdersData.some(order => ACTIVE_ORDER_STATUSES.includes(order.status))) {
+            await returnToWorkspace();
+        }
     } catch (error) {
         console.error('Error canceling all orders:', error);
         showAlert('Error canceling all orders: ' + error.message, 'danger');
+    } finally {
+        cancelAllInFlight = false;
+        if (button?.isConnected) button.disabled = false;
     }
 } 

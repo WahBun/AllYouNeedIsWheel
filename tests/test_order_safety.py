@@ -533,6 +533,39 @@ class OrderSafetyTests(unittest.TestCase):
         self.assertEqual(self.db.get_order(order_id)['status'], 'unknown')
         self.assertIn('Verify it in IB Gateway', self.db.get_order(order_id)['error_message'])
 
+    def test_unknown_without_ib_id_is_reconciled_without_resubmitting(self):
+        connection = FakeIBConnection(status={
+            'order_id': 29, 'status': 'Filled', 'filled': 1,
+            'remaining': 0, 'avg_fill_price': 0.73
+        })
+        service = self.make_service(connection)
+        order_id = self.db.save_order(valid_order())
+        self.db.update_order_status(order_id, 'unknown', executed=False)
+        service.check_pending_orders()
+        self.assertEqual(self.db.get_order(order_id)['status'], 'executed')
+        self.assertEqual(str(self.db.get_order(order_id)['ib_order_id']), '29')
+        self.assertEqual(connection.place_calls, 0)
+        self.assertEqual(connection.status_calls[0][2]['id'], order_id)
+
+    def test_unknown_broker_status_preserves_partial_fill(self):
+        for broker_status in ('NotFound', 'UnexpectedState'):
+            with self.subTest(broker_status=broker_status):
+                service = self.make_service(FakeIBConnection(status={
+                    'order_id': 29, 'status': broker_status,
+                    'filled': 0, 'remaining': 0, 'avg_fill_price': 0
+                }))
+                data = valid_order()
+                data['quantity'] = 2
+                order_id = self.db.save_order(data)
+                self.db.update_order_status(order_id, 'processing', executed=False,
+                    execution_details={'ib_order_id': 29, 'filled': 1, 'remaining': 1, 'avg_fill_price': 0.73})
+                service.check_pending_orders()
+                order = self.db.get_order(order_id)
+                self.assertEqual(order['status'], 'unknown')
+                self.assertEqual(order['filled'], 1)
+                self.assertEqual(order['remaining'], 1)
+                self.assertEqual(order['avg_fill_price'], 0.73)
+
     def test_pending_orders_merge_unmatched_ib_managed_orders(self):
         external_order = {
             'id': 'ib-409539202',

@@ -1,4 +1,5 @@
-import { showAlert } from '../utils/alerts.js?v=close-position-1';
+import { showAlert } from '../utils/alerts.js?v=scroll-stable-1';
+import { revealPendingOrder } from '../utils/workflow-navigation.js?v=4';
 
 let closePreview = null;
 let closeModal = null;
@@ -270,9 +271,12 @@ async function stageCloseOrder() {
             })
         });
 
+        const modalElement = document.getElementById('close-position-modal');
+        const hidden = new Promise(resolve => modalElement.addEventListener('hidden.bs.modal', resolve, {once: true}));
         closeModal.hide();
         showAlert(tr('close.staged', { id: result.order_id }), 'success');
-        document.dispatchEvent(new CustomEvent('ordersUpdated'));
+        await Promise.all([hidden, window.loadPendingOrders?.()]);
+        await revealPendingOrder(result.order_id);
     } catch (error) {
         showModalError(error.message);
     } finally {

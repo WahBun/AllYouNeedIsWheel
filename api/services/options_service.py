@@ -1273,10 +1273,11 @@ class OptionsService:
                 ib_order_id = order.get('ib_order_id')
                 
                 # Only check orders that have been submitted to IB
-                should_check = (
-                    order.get('status') in {'processing', 'canceling', 'unknown'}
-                    and bool(ib_order_id)
-                ) or order.get('status') == 'submitting'
+                # A lost acknowledgement may have no IB ID. Reconcile by the
+                # persisted local order reference; never submit it again.
+                should_check = order.get('status') in {
+                    'processing', 'canceling', 'unknown', 'submitting'
+                }
                 if should_check:
                     try:
                         # Check status in TWS
@@ -1291,7 +1292,7 @@ class OptionsService:
                         if ib_status:
                             # Determine new status based on IB status
                             current_status = order.get('status')
-                            new_status = "canceling" if current_status == 'canceling' else "processing"
+                            new_status = "unknown"
                             executed = False
                             
                             # Map IB status to our status
@@ -1308,6 +1309,8 @@ class OptionsService:
                                 executed = True
                             elif raw_ib_status == 'PendingCancel':
                                 new_status = "canceling"
+                            elif raw_ib_status in {'Submitted', 'PreSubmitted', 'PendingSubmit', 'ApiPending', 'ApiSubmit'}:
+                                new_status = 'canceling' if current_status == 'canceling' else 'processing'
                             elif raw_ib_status in {'NotFound', 'Unknown'}:
                                 new_status = "unknown"
                                 executed = False
@@ -1331,6 +1334,19 @@ class OptionsService:
                                 "commission": ib_status.get('commission', 0),
                                 "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                             }
+                            # Missing/unknown snapshots are not evidence that
+                            # previously confirmed executions disappeared.
+                            if new_status == 'unknown':
+                                for field in ('filled', 'avg_fill_price', 'commission'):
+                                    if not execution_details.get(field):
+                                        execution_details[field] = order.get(field, 0)
+                                execution_details['remaining'] = max(
+                                    float(order.get('quantity') or 0) -
+                                    float(execution_details.get('filled') or 0), 0
+                                )
+                                execution_details['error_message'] = execution_details.get('error_message') or (
+                                    'IB order state is not confirmed. Verify in IB Gateway; do not resubmit.'
+                                )
                             
                             # Update database with new status
                             update_result = db.update_order_status(

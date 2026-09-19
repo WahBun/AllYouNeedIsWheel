@@ -20,8 +20,14 @@ function showAlert(message, type = 'info', duration = 5000) {
     closeButton.setAttribute('aria-label', 'Close');
     alertDiv.appendChild(closeButton);
     
-    // Add the alert at the top of the content container
-    const contentContainer = document.querySelector('.content-container') || document.querySelector('main');
+    // Keep transient feedback out of document flow so dismissal cannot move
+    // a trading control or disturb a completed workflow scroll.
+    let contentContainer = document.getElementById('workflow-notifications');
+    if (!contentContainer && document.body) {
+        contentContainer = document.createElement('div');
+        contentContainer.id = 'workflow-notifications';
+        document.body.appendChild(contentContainer);
+    }
     if (contentContainer) {
         contentContainer.prepend(alertDiv);
         

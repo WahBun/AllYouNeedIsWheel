@@ -1,0 +1,240 @@
+/* Phone-only presentation: the desktop table and original controls stay intact. */
+.mobile-number-picker { display: none; }
+.workflow-target { outline: 2px solid #448ee4; outline-offset: 3px; }
+#workflow-notifications {
+    position: fixed;
+    top: 72px;
+    right: 12px;
+    width: min(360px, calc(100% - 24px));
+    max-height: 40vh;
+    overflow-y: auto;
+    z-index: 1090;
+    pointer-events: none;
+}
+#workflow-notifications > .alert { pointer-events: auto; margin-bottom: 8px; }
+@media (max-width: 575.98px) {
+    .mobile-records .mobile-number-picker {
+        display: block;
+        width: 36px;
+        min-width: 36px;
+        height: 44px;
+        padding: 0;
+        color: transparent;
+        background-position: center;
+        border-left: 0;
+        cursor: pointer;
+    }
+    .mobile-records .mobile-number-picker option { color: var(--app-text); background: var(--app-surface); }
+    .mobile-records .input-group > .mobile-number-picker { flex: 0 0 36px; }
+    .mobile-records .input-group > input:has(+ .mobile-number-picker) { border-right: 0; }
+    .mobile-records td:has(> .mobile-number-picker) { position: relative; }
+    .mobile-records td > .mobile-number-picker { position: absolute; right: 0; bottom: 10px; border-radius: 0 4px 4px 0; }
+    .mobile-records td:has(> .mobile-number-picker) > input { padding-right: 40px; }
+    main.container { padding-top: 1.25rem !important; }
+    main .card:has(.mobile-records) {
+        border: 0;
+        border-radius: 0;
+        box-shadow: none !important;
+        background: transparent;
+    }
+    main .card:has(.mobile-records) > .card-body { padding: 12px 0; }
+    main .card:has(.mobile-records) > .card-header {
+        padding: 12px 0;
+        background: transparent !important;
+    }
+    main .card:has(.mobile-records) > .card-footer { padding: 12px 0; }
+    main .table-responsive:has(> .mobile-records) { overflow: visible; }
+    main table.mobile-records {
+        display: block;
+        width: 100%;
+        min-width: 0 !important;
+    }
+    .mobile-records > thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        overflow: hidden;
+        clip-path: inset(50%);
+    }
+    .mobile-records > tbody { display: grid; gap: 12px; }
+    .mobile-records > tbody > tr {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0 16px;
+        padding: 4px 14px 12px;
+        border: 1px solid var(--app-border);
+        border-radius: 8px;
+        background: var(--app-surface);
+    }
+    main .mobile-records > tbody > tr > td {
+        display: block;
+        width: auto !important;
+        min-width: 0;
+        padding: 10px 0;
+        border: 0;
+        box-shadow: none;
+        background: transparent;
+        color: inherit;
+        text-align: left !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere;
+        font-variant-numeric: tabular-nums;
+    }
+    .mobile-records td[data-mobile-label]:not([data-mobile-label=""])::before {
+        content: attr(data-mobile-label);
+        display: block;
+        margin-bottom: 6px;
+        color: var(--app-muted);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.3;
+    }
+    main .mobile-records td.mobile-identity {
+        order: -1;
+        grid-column: 1 / -1;
+        border-bottom: 1px solid var(--app-border);
+        font-size: 18px;
+        font-weight: 650;
+    }
+    .mobile-records td.mobile-identity::before { display: none !important; }
+    .mobile-records td.mobile-actions,
+    .mobile-records td.mobile-status,
+    .mobile-records td:has(.mid-price-control),
+    .mobile-records tr.mobile-spanning-row > td { grid-column: 1 / -1; }
+    .mobile-records td.mobile-actions {
+        border-top: 1px solid var(--app-border);
+        margin-top: 4px;
+    }
+    .mobile-records td.mobile-actions::before { display: none !important; }
+    .mobile-records .btn,
+    .mobile-records .form-control,
+    .mobile-records .form-select { min-height: 44px; }
+    .mobile-records .form-control,
+    .mobile-records .form-select { font-size: 16px; max-width: 100%; }
+    .mobile-records .input-group { width: 100%; min-width: 0; flex-wrap: nowrap; }
+    .mobile-records .input-group .form-control { width: 1%; min-width: 0; }
+    .mobile-records .input-group > .btn { min-width: 36px; padding-inline: 8px; }
+    .mobile-records .option-actions,
+    .mobile-records .pending-order-actions,
+    .mobile-records td.mobile-actions > .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
+    .mobile-records td.mobile-actions .btn { flex: 1 1 auto; }
+    .mobile-records .pending-order-actions .btn span { display: inline; }
+    .mobile-records .mid-price-control { max-width: 100%; }
+    #call-options-table .mid-price-control,
+    #put-options-table .mid-price-control { width: 100%; min-width: 0; }
+    #call-options-table .mid-price-control .mid-price-input,
+    #put-options-table .mid-price-control .mid-price-input { flex: 1 1 auto; width: 1%; min-width: 0; }
+    .mobile-records tfoot,
+    .mobile-records tfoot tr,
+    .mobile-records tfoot td { display: block; width: 100%; }
+    .mobile-records .weekly-income-summary .d-flex {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px 12px;
+    }
+    .mobile-records > tbody > tr.table-danger { border-left: 3px solid var(--bs-danger); }
+    .mobile-records > tbody > tr.table-warning { border-left: 3px solid var(--bs-warning); }
+    .earnings-summary-scroll { overflow: visible; }
+    .earnings-summary-scroll table { min-width: 0 !important; width: 100%; }
+    .earnings-summary-scroll tbody { display: block; }
+    .earnings-summary-scroll tr {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px 12px;
+        padding-block: 8px;
+    }
+    .earnings-summary-scroll td {
+        display: block;
+        width: auto !important;
+        min-width: 0;
+        padding: 4px 0;
+        white-space: normal !important;
+        overflow-wrap: anywhere;
+    }
+    .earnings-summary-scroll tr:first-child td:first-child,
+    .earnings-summary-scroll tr:first-child td:nth-child(4),
+    .earnings-summary-scroll tr:first-child td:last-child { grid-column: 1 / -1; }
+    .earnings-summary-scroll tr:first-child td:nth-child(4) {
+        border-top: 1px solid var(--app-border);
+        padding-top: 12px;
+    }
+    .earnings-summary-scroll tr:nth-child(2) { border-top: 1px solid var(--app-border); }
+    /* The same field groups in both option types, without implicit grid holes. */
+    #call-options-table > tbody > tr:not(.mobile-spanning-row),
+    #put-options-table > tbody > tr:not(.mobile-spanning-row) {
+        grid-template-areas:
+            "identity identity"
+            "context stock"
+            "strike expiry"
+            "otm quantity"
+            "price price"
+            "delta iv"
+            "premium premium"
+            "actions actions";
+        gap: 0 12px;
+    }
+    #call-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(1) { grid-area: identity; }
+    #call-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(2) { grid-area: context; }
+    #call-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(3) { grid-area: stock; }
+    #call-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(4) { grid-area: otm; }
+    #call-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(5) { grid-area: strike; }
+    #call-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(6) { grid-area: expiry; }
+    #call-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(7) { grid-area: price; }
+    #call-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(8) { grid-area: delta; }
+    #call-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(9) { grid-area: iv; }
+    #call-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(10) { grid-area: quantity; }
+    #call-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(11) { grid-area: premium; }
+    #call-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(12) { grid-area: actions; }
+    #put-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(1) { grid-area: identity; }
+    #put-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(2) { grid-area: context; }
+    #put-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(3) { grid-area: otm; }
+    #put-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(4) { grid-area: strike; }
+    #put-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(5) { grid-area: expiry; }
+    #put-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(6) { grid-area: price; }
+    #put-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(7) { grid-area: delta; }
+    #put-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(8) { grid-area: iv; }
+    #put-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(9) { grid-area: quantity; }
+    #put-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(10) { grid-area: premium; }
+    #put-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(11) { grid-area: stock; }
+    #put-options-table > tbody > tr:not(.mobile-spanning-row) > td:nth-child(12) { grid-area: actions; }
+    #call-options-table td:nth-child(4) > .input-group,
+    #put-options-table td:nth-child(3) > .input-group {
+        width: 100%;
+        margin-inline: 0;
+    }
+    .mobile-records.options-opportunities-table .call-qty-input,
+    .mobile-records.options-opportunities-table .put-qty-input {
+        width: 100% !important;
+        min-width: 0;
+        max-width: none;
+        margin: 0;
+    }
+    .mobile-records.options-opportunities-table .otm-input,
+    .mobile-records.options-opportunities-table .call-qty-input,
+    .mobile-records.options-opportunities-table .put-qty-input {
+        text-align: left;
+    }
+    .mobile-records.options-opportunities-table .expiration-select {
+        padding-left: 8px;
+        padding-right: 26px;
+        text-align: left;
+        text-align-last: left;
+    }
+    .mobile-records.options-opportunities-table .total-premium {
+        border-top: 1px solid var(--app-border);
+        font-size: 20px;
+        font-weight: 650;
+    }
+    .mobile-records.options-opportunities-table .option-actions .delete-ticker {
+        flex: 0 0 44px;
+    }
+    #call-options-section > .options-toolbar {
+        flex-direction: row;
+        gap: 8px;
+    }
+    #call-options-section > .options-toolbar > .btn {
+        margin: 0 !important;
+        min-height: 40px;
+    }
+}

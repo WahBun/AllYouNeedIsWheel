@@ -4,8 +4,9 @@
  */
 import { fetchPositions, fetchOptionData, fetchPendingOrders, cancelOrder, executeOrder, checkOrderStatus, fetchStockPrices as apiFetchStockPrices, fetchOptionExpirations } from '../dashboard/api.js?v=safety-1';
 import { formatCurrency } from '../utils/formatters.js';
-import { showAlert } from '../utils/alerts.js?v=safety-1';
+import { showAlert } from '../utils/alerts.js?v=scroll-stable-1';
 import { calculateMidPrice, positivePrice } from '../utils/option-pricing.js?v=pricing-safety-1';
+import { revealPendingOrder, returnToOpportunity, revealWorkflowTarget } from '../utils/workflow-navigation.js?v=4';
 
 // Store data
 let optionsData = null;
@@ -331,6 +332,7 @@ function populateOptionsTable(options) {
         button.addEventListener('click', async (event) => {
             const optionId = event.target.getAttribute('data-option-id');
             await selectOptionToRoll(parseInt(optionId));
+            await revealWorkflowTarget(document.getElementById('rollover-suggestions-table-body'));
         });
     });
 }
@@ -856,6 +858,7 @@ function populatePendingOrdersTable(orders) {
 
     visibleOrders.forEach(order => {
         const row = document.createElement('tr');
+        row.dataset.orderId = String(order.id);
         const strike = order.strike ? formatCurrency(order.strike) : 'N/A';
         const limitPrice = Number(order.premium);
         let priceContext = '';
@@ -1155,6 +1158,7 @@ async function executeOrderById(orderId, sourceButton = null) {
  * @param {number} orderId - The order ID to cancel
  */
 async function cancelOrderById(orderId) {
+    const sourceOrder = pendingOrders.find(order => order.id === orderId);
     try {
         if (!orderId) {
             throw new Error('Invalid order ID');
@@ -1166,6 +1170,7 @@ async function cancelOrderById(orderId) {
         if (result && result.success) {
             showAlert(result.message || 'Cancellation requested', 'success');
             await loadPendingOrders();
+            if (['canceled', 'cancelled'].includes(result.status)) await returnToOpportunity(sourceOrder);
         } else {
             throw new Error(result.error || 'Failed to cancel order');
         }
@@ -1300,6 +1305,7 @@ async function addRolloverOrder(suggestionId) {
             if (rolloverSuggestions.length > 0) {
                 populateRolloverSuggestionsTable(rolloverSuggestions);
             }
+            await revealPendingOrder(result.buy_order_id);
         } else {
             throw new Error(result.error || 'Failed to submit rollover orders');
         }

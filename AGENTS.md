@@ -3,6 +3,7 @@
 Read `docs/HANDOFF.md` and `docs/MAC_MINI_TAILSCALE.md` before deployment changes.
 
 - Iterate the web version first. Build or update the Mac App/DMG only when explicitly requested.
+- Keep changes local by default. Push to GitHub only when explicitly requested.
 - Preserve local connection configuration, databases, pending orders and user changes.
 - Never commit account IDs, credentials, local databases, logs or device-specific network addresses.
 - Treat deployments as potentially live trading. Test with mocks and read-only requests; do not place, modify or cancel real orders for verification.

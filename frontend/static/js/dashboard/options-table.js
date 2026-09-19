@@ -3,7 +3,7 @@
  */
 import { fetchOptionData as fetchRawOptionData, fetchTickers, saveOptionOrder, fetchAccountData, fetchOptionExpirations, fetchStockPrices } from './api.js?v=quote-audit-2';
 import { createLatestRequestQueue } from '../utils/latest-request.js?v=quote-audit-2';
-import { showAlert } from '../utils/alerts.js?v=safety-1';
+import { showAlert } from '../utils/alerts.js?v=scroll-stable-1';
 import { formatCurrency, formatPercentage } from './account.js?v=account-live-3';
 import {
     calculateMidPrice,
@@ -16,6 +16,8 @@ import {
     mergeOptionResponse
 } from '../utils/covered-call.js?v=call-quantity-1';
 import { ensureTickerState } from '../utils/ticker-state.js?v=ticker-state-1';
+import { annualizedPremium } from '../utils/earnings.js?v=expiry-1';
+import { revealPendingOrder, returnToOpportunity } from '../utils/workflow-navigation.js?v=4';
 
 // Store options data
 let tickersData = {};
@@ -70,6 +72,7 @@ function initializeTooltips(root = document) {
  * Refresh the pending orders table
  */
 function refreshPendingOrders() {
+    if (window.loadPendingOrders) return window.loadPendingOrders();
     document.dispatchEvent(new CustomEvent('ordersUpdated'));
 }
 
@@ -412,6 +415,7 @@ function calculateRecommendedPutQuantity(stockPrice, putStrike, ticker) {
  * @returns {Object} Summary of earnings
  */
 function calculateEarningsSummary() {
+    const premiumLegs = [];
     const summary = {
         totalWeeklyCallPremium: 0,
         totalWeeklyPutPremium: 0,
@@ -465,6 +469,7 @@ function calculateEarningsSummary() {
                     );
                     if (callLimitPrice !== null) {
                         summary.totalWeeklyCallPremium += callLimitPrice * 100 * callContracts;
+                        premiumLegs.push({ premium: callLimitPrice * 100 * callContracts, expiration: callOption.expiration });
                     }
                 }
             }
@@ -484,6 +489,7 @@ function calculateEarningsSummary() {
                     
                     if (putLimitPrice !== null) {
                         summary.totalWeeklyPutPremium += putLimitPrice * 100 * customPutQuantity;
+                        premiumLegs.push({ premium: putLimitPrice * 100 * customPutQuantity, expiration: putOption.expiration });
                     }
                 
                     // Calculate total exercise cost
@@ -534,15 +540,13 @@ function calculateEarningsSummary() {
         cashBalance: summary.cashBalance
     });
     
-    // Calculate weekly return percentage against total portfolio value
+    summary.projectedAnnualEarnings = annualizedPremium(premiumLegs);
+    // Premium/account value is a selected-contract return, not a weekly return.
     if (totalPortfolioValue > 0) {
         summary.weeklyReturn = (summary.totalWeeklyPremium / totalPortfolioValue) * 100;
         
-        // Calculate projected annual earnings (Weekly premium * 52 weeks)
-    summary.projectedAnnualEarnings = summary.totalWeeklyPremium * 52;
-    
         // Calculate projected annual return as annual income divided by portfolio value
-        summary.projectedAnnualReturn = (summary.projectedAnnualEarnings / totalPortfolioValue) * 100;
+        summary.projectedAnnualReturn = summary.projectedAnnualEarnings === null ? null : (summary.projectedAnnualEarnings / totalPortfolioValue) * 100;
         
         // Log values for debugging
         console.log("Annual return calculation:", {
@@ -552,8 +556,8 @@ function calculateEarningsSummary() {
             annualReturn: summary.projectedAnnualReturn
         });
     } else {
-        // Calculate projected annual earnings even if portfolio value is zero
-        summary.projectedAnnualEarnings = summary.totalWeeklyPremium * 52;
+        summary.weeklyReturn = null;
+        summary.projectedAnnualReturn = null;
     }
     
     console.log("Earnings summary:", summary);
@@ -952,6 +956,7 @@ function addOptionsTableEventListeners() {
                         console.log(`Order saved successfully! Order ID: ${result.order_id}`);
                             // Trigger refresh of the pending orders table
                             await refreshPendingOrders();
+                            await revealPendingOrder(result.order_id);
                     } else {
                         console.error('Failed to save order');
         }
@@ -1367,23 +1372,15 @@ function updateEarningsSummary() {
     const weeklyReturnCell = summarySection.querySelector('td:nth-child(6)');
     const annualReturnCell = summarySection.querySelector('td:nth-child(7)');
     
-    // Update second row cells
-    const stockValueCell = summarySection.querySelector('tr:nth-child(2) td:nth-child(2)');
-    const cashBalanceCell = summarySection.querySelector('tr:nth-child(2) td:nth-child(3)');
-    const cspRequirementCell = summarySection.querySelector('tr:nth-child(2) td:nth-child(4)');
-    const annualIncomeCell = summarySection.querySelector('tr:nth-child(2) td:nth-child(6)');
+    const annualIncomeCell = summarySection.querySelector('tr:nth-child(2) td:nth-child(2)');
     
     // Update the cells if found
-    if (weeklyCallsPremiumCell) weeklyCallsPremiumCell.textContent = `Calls: ${formatCurrency(earningsSummary.totalWeeklyCallPremium)}`;
-    if (weeklyPutsPremiumCell) weeklyPutsPremiumCell.textContent = `Puts: ${formatCurrency(earningsSummary.totalWeeklyPutPremium)}`;
-    if (weeklyTotalPremiumCell) weeklyTotalPremiumCell.textContent = `Total: ${formatCurrency(earningsSummary.totalWeeklyPremium)}`;
-    if (weeklyReturnCell) weeklyReturnCell.textContent = formatPercentage(earningsSummary.weeklyReturn);
-    if (annualReturnCell) annualReturnCell.textContent = `Annual: ${formatPercentage(earningsSummary.projectedAnnualReturn)}`;
-    
-    if (stockValueCell) stockValueCell.textContent = `Stock: ${formatCurrency(earningsSummary.portfolioValue)}`;
-    if (cashBalanceCell) cashBalanceCell.textContent = `Cash: ${formatCurrency(earningsSummary.cashBalance)}`;
-    if (cspRequirementCell) cspRequirementCell.textContent = `CSP Requirement: ${formatCurrency(earningsSummary.totalPutExerciseCost)}`;
-    if (annualIncomeCell) annualIncomeCell.textContent = formatCurrency(earningsSummary.projectedAnnualEarnings);
+    if (weeklyCallsPremiumCell) weeklyCallsPremiumCell.textContent = `${tr('earnings.calls')} ${formatCurrency(earningsSummary.totalWeeklyCallPremium)}`;
+    if (weeklyPutsPremiumCell) weeklyPutsPremiumCell.textContent = `${tr('earnings.puts')} ${formatCurrency(earningsSummary.totalWeeklyPutPremium)}`;
+    if (weeklyTotalPremiumCell) weeklyTotalPremiumCell.textContent = `${tr('earnings.total')} ${formatCurrency(earningsSummary.totalWeeklyPremium)}`;
+    if (weeklyReturnCell) weeklyReturnCell.textContent = formatEstimate(earningsSummary.weeklyReturn, formatPercentage);
+    if (annualReturnCell) annualReturnCell.textContent = `${tr('earnings.annual')} ${formatEstimate(earningsSummary.projectedAnnualReturn, formatPercentage)}`;
+    if (annualIncomeCell) annualIncomeCell.textContent = formatEstimate(earningsSummary.projectedAnnualEarnings, formatCurrency);
 }
 
 /**
@@ -1734,6 +1731,7 @@ async function sellAllOptions(optionType) {
     console.log(`Starting sellAllOptions for ${optionType} options`);
     
     const successOrders = [];
+    let lastSavedOrderId = null;
     const failedOrders = [];
     
     // Process each ticker
@@ -1852,6 +1850,7 @@ async function sellAllOptions(optionType) {
             if (result && result.order_id) {
                 console.log(`Order saved successfully for ${ticker} ${optionType} ${option.strike} ${option.expiration}! Order ID: ${result.order_id}`);
                 successOrders.push(`${ticker} ${optionType} ${option.strike} ${option.expiration}`);
+                lastSavedOrderId = result.order_id;
             } else {
                 console.error(`Failed to save order for ${ticker} ${optionType} ${option.strike} ${option.expiration}`);
                 failedOrders.push(`${ticker} ${optionType} ${option.strike} ${option.expiration}`);
@@ -1887,7 +1886,8 @@ async function sellAllOptions(optionType) {
         if (successOrders.length > 0) {
             showAlert(`Successfully created ${successOrders.length} ${optionType.toLowerCase()} option orders`, 'success');
             
-            refreshPendingOrders();
+            await refreshPendingOrders();
+            await revealPendingOrder(lastSavedOrderId);
         } else {
             showAlert(`No ${optionType.toLowerCase()} option orders were created`, 'warning');
         }
@@ -2024,6 +2024,7 @@ function setupCustomTickerEventListeners() {
                 customTickerInput.value = '';
                 
                 showToast('success', tr('options.tickerAdded'), tr('options.tickerAddedMessage', { ticker }));
+                await returnToOpportunity({ticker, option_type: 'PUT', intent: 'OPEN'});
             } catch (error) {
                 console.error('Error adding custom ticker:', error);
                 showToast('error', tr('options.error'), tr('options.failedAddTicker', { ticker, message: error.message }));
@@ -3017,6 +3018,10 @@ export {
  * Display the earnings summary in a compact format
  * @param {Object} summary - The earnings summary to display
  */
+function formatEstimate(value, formatter) {
+    return Number.isFinite(value) ? formatter(value) : 'N/A';
+}
+
 function displayEarningsSummary(summary) {
     const optionsTableContainer = document.getElementById('options-table-container');
     if (!optionsTableContainer) return;
@@ -3042,12 +3047,12 @@ function displayEarningsSummary(summary) {
                             <td width="14%">${tr('earnings.puts')} ${formatCurrency(summary.totalWeeklyPutPremium)}</td>
                             <td width="18%" class="fw-bold">${tr('earnings.total')} ${formatCurrency(summary.totalWeeklyPremium)}</td>
                             <td width="14%" class="fw-bold">${tr('earnings.weeklyReturn')}</td>
-                            <td width="12%">${formatPercentage(summary.weeklyReturn)}</td>
-                            <td width="14%" class="fw-bold text-success">${tr('earnings.annual')} ${formatPercentage(summary.projectedAnnualReturn)}</td>
+                            <td width="12%">${formatEstimate(summary.weeklyReturn, formatPercentage)}</td>
+                            <td width="14%" class="fw-bold text-success">${tr('earnings.annual')} ${formatEstimate(summary.projectedAnnualReturn, formatPercentage)}</td>
                         </tr>
                         <tr>
                             <td class="fw-bold">${tr('earnings.projectedIncome')}</td>
-                            <td colspan="6">${formatCurrency(summary.projectedAnnualEarnings)}</td>
+                            <td colspan="6">${formatEstimate(summary.projectedAnnualEarnings, formatCurrency)}</td>
                         </tr>
                     </tbody>
                 </table>
