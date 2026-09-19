@@ -4,7 +4,19 @@
         <div class="card shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0" data-i18n="orders.pendingTitle">Pending Option Orders</h5>
-                <div class="d-flex align-items-center">
+                <div class="d-flex align-items-center pending-order-actions">
+                    <div class="dropdown me-2">
+                        <button id="trading-settings-toggle" class="btn btn-sm btn-outline-secondary trading-settings-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-i18n-title="settings.trading" data-i18n-aria-label="settings.trading" title="Trading settings" aria-label="Trading settings">
+                            <i class="bi bi-gear-fill" aria-hidden="true"></i>
+                        </button>
+                        <div class="dropdown-menu dropdown-menu-end trading-settings-menu">
+                            <div class="form-check form-switch mb-1">
+                                <input class="form-check-input" type="checkbox" role="switch" id="confirm-order-execution-toggle" checked>
+                                <label class="form-check-label" for="confirm-order-execution-toggle" data-i18n="settings.confirmBeforeExecute">Confirm before Execute</label>
+                            </div>
+                            <small id="confirm-order-execution-state" class="text-muted">On</small>
+                        </div>
+                    </div>
                     <button class="btn btn-sm btn-outline-danger me-2" id="cancel-all-pending-orders">
                         <i class="bi bi-x-circle"></i> <span data-i18n="common.cancelAll">Cancel All</span>
                     </button>
@@ -24,13 +36,14 @@
                                 <th data-i18n="common.expiration">Expiration</th>
                                 <th data-i18n="common.limitPrice">Limit Price</th>
                                 <th data-i18n="common.quantity">Quantity</th>
+                                <th class="text-center text-nowrap" title="Time in Force">TIF</th>
                                 <th data-i18n="common.status">Status</th>
                                 <th data-i18n="common.actions">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="pending-orders-table">
                             <tr>
-                                <td colspan="8" class="text-center" data-i18n="orders.loadingPending">Loading pending orders...</td>
+                                <td colspan="9" class="text-center" data-i18n="orders.loadingPending">Loading pending orders...</td>
                             </tr>
                         </tbody>
                     </table>

@@ -4,10 +4,8 @@ Manages portfolio data and calculations
 """
 
 import logging
-import random
-import time
-from core.connection import IBConnection
 from config import Config
+from api.services.connection_manager import get_shared_connection
 import traceback
 
 logger = logging.getLogger('api.services.portfolio')
@@ -26,30 +24,12 @@ class PortfolioService:
         Ensure that the IB connection exists and is connected
         """
         try:
-            if self.connection is None or not self.connection.is_connected():
-                # Generate a unique client ID based on current timestamp and random number
-                # to avoid conflicts with other connections
-                unique_client_id = int(time.time() % 10000) + random.randint(1000, 9999)
-                logger.info(f"Creating new TWS connection with client ID: {unique_client_id}")
-                
-                # Create new connection
-                port = self.config.get('port', 7497)
-                logger.info(f"Connecting to TWS on port: {port}")
-                
-                self.connection = IBConnection(
-                    host=self.config.get('host', '127.0.0.1'),
-                    port=port,
-                    client_id=unique_client_id,  # Use the unique client ID instead of fixed ID 1
-                    timeout=self.config.get('timeout', 20),
-                    readonly=self.config.get('readonly', True),
-                    account_id=self.config.get('account_id')
-                )
-                
-                # Try to connect with proper error handling
-                if not self.connection.connect():
-                    logger.error("Failed to connect to TWS/IB Gateway")
-                else:
-                    logger.info("Successfully connected to TWS/IB Gateway")
+            if self.connection is not None and self.connection.is_connected():
+                return self.connection
+
+            self.connection = get_shared_connection(self.config)
+            if self.connection is None:
+                logger.error("Failed to connect to TWS/IB Gateway")
             return self.connection
         except Exception as e:
             logger.error(f"Error ensuring connection: {str(e)}")
@@ -83,6 +63,54 @@ class PortfolioService:
             'account_id': account_id,
             'close_action': 'BUY' if position < 0 else 'SELL'
         }
+
+    @staticmethod
+    def _summary_from_portfolio(portfolio):
+        return {
+            'account_id': portfolio.get('account_id', ''),
+            'cash_balance': portfolio.get('available_cash', 0),
+            'account_value': portfolio.get('account_value', 0),
+            'excess_liquidity': portfolio.get('excess_liquidity', 0),
+            'initial_margin': portfolio.get('initial_margin', 0),
+            'leverage_percentage': portfolio.get('leverage_percentage', 0),
+            'is_frozen': portfolio.get('is_frozen', False)
+        }
+
+    def _positions_from_portfolio(self, portfolio, security_type=None):
+        positions = portfolio.get('positions', {})
+        account_id = portfolio.get('account_id', '')
+        positions_list = []
+
+        for pos in positions.values():
+            contract = pos.get('contract')
+            if not contract:
+                continue
+
+            pos_type = pos.get('security_type', '')
+            if security_type and pos_type != security_type:
+                continue
+
+            position_data = {
+                'symbol': contract.symbol if hasattr(contract, 'symbol') else '',
+                'position': pos.get('shares', 0),
+                'market_price': pos.get('market_price'),
+                'market_value': pos.get('market_value'),
+                'avg_cost': pos.get('avg_cost', 0),
+                'unrealized_pnl': pos.get('unrealized_pnl'),
+                'security_type': pos_type
+            }
+
+            if (
+                pos_type == 'OPT'
+                and hasattr(contract, 'lastTradeDateOrContractMonth')
+                and hasattr(contract, 'strike')
+                and hasattr(contract, 'right')
+            ):
+                position_data.update(self._option_position_fields(contract, pos, account_id))
+
+            positions_list.append(position_data)
+
+        return positions_list
         
     def get_portfolio_summary(self):
         """
@@ -98,17 +126,7 @@ class PortfolioService:
                 return None
             
             portfolio = conn.get_portfolio()
-            
-            # Extract the relevant information
-            return {
-                'account_id': portfolio.get('account_id', ''),
-                'cash_balance': portfolio.get('available_cash', 0),
-                'account_value': portfolio.get('account_value', 0),
-                'excess_liquidity': portfolio.get('excess_liquidity', 0),
-                'initial_margin': portfolio.get('initial_margin', 0),
-                'leverage_percentage': portfolio.get('leverage_percentage', 0),
-                'is_frozen': portfolio.get('is_frozen', False)
-            }
+            return self._summary_from_portfolio(portfolio) if portfolio else None
         except Exception as e:
             logger.error(f"Error getting portfolio summary: {e}")
             logger.error(traceback.format_exc())
@@ -134,42 +152,45 @@ class PortfolioService:
             portfolio = conn.get_portfolio()
             if not portfolio:
                 return []
-            positions = portfolio.get('positions', {})
-            account_id = portfolio.get('account_id', '')
-            
-            # Convert positions dict to list format expected by the API
-            positions_list = []
-            for key, pos in positions.items():
-                contract = pos.get('contract')
-                if not contract:
-                    continue
-                
-                # Skip if filtering by security type and this doesn't match
-                pos_type = pos.get('security_type', '')
-                if security_type and pos_type != security_type:
-                    continue
-                # Build position dictionary
-                position_data = {
-                    'symbol': contract.symbol if hasattr(contract, 'symbol') else '',
-                    'position': pos.get('shares', 0),
-                    'market_price': pos.get('market_price', 0),
-                    'market_value': pos.get('market_value', 0),
-                    'avg_cost': pos.get('avg_cost', 0),
-                    'unrealized_pnl': pos.get('unrealized_pnl', 0),
-                    'security_type': pos_type
-                }
-                
-                # Add option-specific fields if this is an option
-                if pos_type == 'OPT' and hasattr(contract, 'lastTradeDateOrContractMonth') and hasattr(contract, 'strike') and hasattr(contract, 'right'):
-                    position_data.update(self._option_position_fields(contract, pos, account_id))
-                
-                positions_list.append(position_data)
-            
-            return positions_list
+            return self._positions_from_portfolio(portfolio, security_type)
         except Exception as e:
             logger.error(f"Error getting positions: {e}")
             logger.error(traceback.format_exc())
             return []
+
+    def get_portfolio_bootstrap(self):
+        """Return summary and positions from one Gateway portfolio read."""
+        try:
+            conn = self._ensure_connection()
+            if not conn:
+                return None
+
+            portfolio = conn.get_portfolio()
+            if not portfolio:
+                return None
+
+            return {
+                'summary': self._summary_from_portfolio(portfolio),
+                'positions': self._positions_from_portfolio(portfolio)
+            }
+        except Exception as e:
+            logger.error(f"Error getting portfolio bootstrap: {e}")
+            logger.error(traceback.format_exc())
+            return None
+
+    def get_live_positions(self):
+        """Return a lightweight sample of the held-position quote streams."""
+        conn = self._ensure_connection()
+        if not conn:
+            return None
+
+        portfolio = conn.get_live_portfolio()
+        return {
+            'positions': self._positions_from_portfolio(portfolio),
+            'is_frozen': portfolio.get('is_frozen', False),
+            'streaming': portfolio.get('streaming', False),
+            'as_of': portfolio.get('as_of')
+        }
 
     def get_option_position_quote(self, con_id):
         """Return a fresh quote and close-order metadata for one held option."""

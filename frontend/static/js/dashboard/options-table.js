@@ -3,8 +3,18 @@
  */
 import { fetchOptionData, fetchTickers, saveOptionOrder, fetchAccountData, fetchOptionExpirations, fetchStockPrices } from './api.js?v=safety-1';
 import { showAlert } from '../utils/alerts.js?v=safety-1';
-import { formatCurrency, formatPercentage } from './account.js?v=safety-1';
-import { calculateMidPrice, calculateSpreadPercentage } from '../utils/option-pricing.js?v=pricing-safety-1';
+import { formatCurrency, formatPercentage } from './account.js?v=account-live-2';
+import {
+    calculateMidPrice,
+    calculateSpreadPercentage,
+    roundLimitPrice
+} from '../utils/option-pricing.js?v=pricing-safety-2';
+import {
+    getCoveredCallContracts,
+    getCoveredCallOrderQuantity,
+    mergeOptionResponse
+} from '../utils/covered-call.js?v=call-quantity-1';
+import { ensureTickerState } from '../utils/ticker-state.js?v=ticker-state-1';
 
 // Store options data
 let tickersData = {};
@@ -61,33 +71,7 @@ function refreshPendingOrders() {
 }
 
 function ensureTickerData(ticker) {
-    if (!tickersData[ticker]) {
-        tickersData[ticker] = {
-            data: { data: {} },
-            callOtmPercentage: 10,
-            putOtmPercentage: 10,
-            putQuantity: 1
-        };
-    }
-
-    if (!tickersData[ticker].data) {
-        tickersData[ticker].data = { data: {} };
-    }
-
-    if (!tickersData[ticker].data.data) {
-        tickersData[ticker].data.data = {};
-    }
-
-    if (!tickersData[ticker].data.data[ticker]) {
-        tickersData[ticker].data.data[ticker] = {
-            stock_price: 0,
-            position: 0,
-            calls: [],
-            puts: []
-        };
-    }
-
-    return tickersData[ticker];
+    return ensureTickerState(tickersData, ticker);
 }
 
 function getSelectedExpiration(ticker, optionType, fallback = null) {
@@ -170,18 +154,7 @@ function updateTickerOptionData(ticker, optionType, optionData) {
     const freshData = optionData.data[ticker];
     const currentData = tickerData.data.data[ticker];
 
-    if (freshData.stock_price !== undefined && freshData.stock_price !== null) {
-        currentData.stock_price = freshData.stock_price;
-    }
-    if (freshData.position !== undefined && freshData.position !== null) {
-        currentData.position = freshData.position;
-    }
-
-    if (optionType === 'CALL') {
-        currentData.calls = freshData.calls || [];
-    } else {
-        currentData.puts = freshData.puts || [];
-    }
+    mergeOptionResponse(currentData, optionType, freshData);
 
     return true;
 }
@@ -285,13 +258,19 @@ function getOptionFromRow(row) {
 
 function getRowQuantity(row) {
     if (!row) return 1;
-    const qtyInput = row.querySelector('.put-qty-input');
+    const qtyInput = row.querySelector('.call-qty-input, .put-qty-input');
     if (qtyInput) {
         const qty = Number.parseInt(qtyInput.value, 10);
+        if (row.dataset.optionType === 'CALL') {
+            return Number.isFinite(qty) ? Math.max(0, qty) : 0;
+        }
         return Number.isFinite(qty) && qty > 0 ? qty : 1;
     }
 
     const qty = Number.parseInt(row.dataset.contracts || '1', 10);
+    if (row.dataset.optionType === 'CALL') {
+        return Number.isFinite(qty) ? Math.max(0, qty) : 0;
+    }
     return Number.isFinite(qty) && qty > 0 ? qty : 1;
 }
 
@@ -316,7 +295,10 @@ function updateRowPremiumDisplay(row) {
     }
 
     const addButton = row.querySelector('.sell-option');
-    if (addButton) addButton.disabled = limitPrice <= 0;
+    if (addButton) {
+        const capacityUnavailable = row.dataset.optionType === 'CALL' && quantity < 1;
+        addButton.disabled = limitPrice <= 0 || capacityUnavailable;
+    }
 }
 
 /**
@@ -422,16 +404,21 @@ function calculateEarningsSummary() {
             summary.portfolioValue += sharesOwned * stockPrice;
             
             // Calculate max contracts based on shares owned
-            const maxCallContracts = Math.floor(sharesOwned / 100);
+            const callContracts = getCoveredCallOrderQuantity(
+                optionData,
+                tickerData.callQuantity
+            );
             
             // Process call options (only for positions with enough shares)
             if (sharesOwned >= 100 && optionData.calls && optionData.calls.length > 0) {
                 const callOption = optionData.calls[0];
                 if (callOption) {
-                    const callLimitPrice = getManualLimitPrice(ticker, 'CALL', callOption) ??
-                        calculateMidPrice(callOption.bid, callOption.ask);
+                    const callLimitPrice = roundLimitPrice(
+                        getManualLimitPrice(ticker, 'CALL', callOption) ??
+                        calculateMidPrice(callOption.bid, callOption.ask)
+                    );
                     if (callLimitPrice !== null) {
-                        summary.totalWeeklyCallPremium += callLimitPrice * 100 * maxCallContracts;
+                        summary.totalWeeklyCallPremium += callLimitPrice * 100 * callContracts;
                     }
                 }
             }
@@ -440,8 +427,10 @@ function calculateEarningsSummary() {
             if ((sharesOwned >= 100 || isCustomTicker) && optionData.puts && optionData.puts.length > 0) {
                 const putOption = optionData.puts[0];
                 if (putOption) {
-                    const putLimitPrice = getManualLimitPrice(ticker, 'PUT', putOption) ??
-                        calculateMidPrice(putOption.bid, putOption.ask);
+                    const putLimitPrice = roundLimitPrice(
+                        getManualLimitPrice(ticker, 'PUT', putOption) ??
+                        calculateMidPrice(putOption.bid, putOption.ask)
+                    );
                     
                     // Use custom put quantity if available, otherwise calculate based on shares
                     const customPutQuantity = tickerData.putQuantity || 
@@ -667,6 +656,7 @@ function updateOptionsTable() {
     setupCustomTickerEventListeners();
     
     // Set up event listeners for put quantity inputs
+    addCallQtyInputEventListeners();
     addPutQtyInputEventListeners();
     addMidPriceInputEventListeners();
 
@@ -857,11 +847,21 @@ function addOptionsTableEventListeners() {
             
             if (ticker && optionType && strike && expiration) {
                 const row = button.closest('tr');
-                const defaultPremium = calculateMidPrice(button.dataset.bid, button.dataset.ask);
+                const defaultPremium = roundLimitPrice(
+                    calculateMidPrice(button.dataset.bid, button.dataset.ask)
+                );
                 const limitPrice = getRowLimitPrice(row, defaultPremium);
+                const quantity = getRowQuantity(row);
+                const coveredCapacity = optionType === 'CALL'
+                    ? getCoveredCallContracts(tickersData[ticker]?.data?.data?.[ticker])
+                    : null;
 
                 if (limitPrice <= 0) {
                     showAlert(tr('options.quoteUnavailable'), 'warning');
+                    return;
+                }
+                if (optionType === 'CALL' && (quantity < 1 || quantity > coveredCapacity)) {
+                    showAlert(tr('options.coveredCapacityUsedHint'), 'warning');
                     return;
                 }
 
@@ -872,9 +872,7 @@ function addOptionsTableEventListeners() {
                     strike: parseFloat(strike),
                     expiration: expiration,
                     action: 'SELL',
-                    quantity: optionType === 'CALL' ? 
-                        Math.floor(tickersData[ticker]?.data?.data?.[ticker]?.position / 100) || 1 :
-                            (tickersData[ticker]?.putQuantity || 1),
+                    quantity,
                     // Include all price fields with proper fallbacks
                     bid: parseFloat(button.dataset.bid || 0),
                     ask: parseFloat(button.dataset.ask || 0),
@@ -1224,6 +1222,31 @@ function addPutQtyInputEventListeners() {
     });
 }
 
+function addCallQtyInputEventListeners() {
+    document.querySelectorAll('.call-qty-input').forEach(input => {
+        if (input.dataset.callQtyListenerAttached === 'true') return;
+        input.dataset.callQtyListenerAttached = 'true';
+
+        input.addEventListener('input', function() {
+            const ticker = this.dataset.ticker;
+            const row = this.closest('tr');
+            if (!ticker || !row) return;
+
+            const optionData = tickersData[ticker]?.data?.data?.[ticker];
+            const quantity = getCoveredCallOrderQuantity(optionData, this.value);
+            this.value = quantity;
+            row.dataset.contracts = quantity;
+
+            if (tickersData[ticker]) {
+                tickersData[ticker].callQuantity = quantity;
+            }
+
+            updateRowPremiumDisplay(row);
+            updateEarningsSummary();
+        });
+    });
+}
+
 function addMidPriceInputEventListeners() {
     document.querySelectorAll('.mid-price-input').forEach(input => {
         if (input.dataset.midPriceListenerAttached === 'true') return;
@@ -1318,7 +1341,7 @@ function updateEarningsSummary() {
  * @param {string} ticker - The ticker symbol to refresh options for
  * @param {boolean} [updateUI=false] - Whether to update the UI after refreshing
  */
-async function refreshOptionsForTicker(ticker, updateUI = false) {
+async function refreshOptionsForTicker(ticker, updateUI = false, onProgress = null) {
     try {
         console.log(`Starting refresh of options for ticker: ${ticker}`);
         
@@ -1354,11 +1377,8 @@ async function refreshOptionsForTicker(ticker, updateUI = false) {
         const putExpiration = getSelectedExpiration(ticker, 'PUT', closestExpiration);
         setSelectedExpiration(ticker, 'CALL', callExpiration);
         setSelectedExpiration(ticker, 'PUT', putExpiration);
-        
-        const [callOptionData, putOptionData] = await Promise.all([
-            fetchOptionData(ticker, callOtmPercentage, 'CALL', callExpiration),
-            fetchOptionData(ticker, putOtmPercentage, 'PUT', putExpiration)
-        ]);
+
+        if (onProgress) onProgress('READY');
         
         // Make sure tickersData is initialized for this ticker
         if (!tickersData[ticker]) {
@@ -1381,32 +1401,29 @@ async function refreshOptionsForTicker(ticker, updateUI = false) {
         };
         }
         
-        // Merge call and put option data
-        if (callOptionData && callOptionData.data && callOptionData.data[ticker]) {
-            // Create or update ticker data
-            tickersData[ticker].data = tickersData[ticker].data || { data: {} };
-            tickersData[ticker].data.data = tickersData[ticker].data.data || {};
-            tickersData[ticker].data.data[ticker] = tickersData[ticker].data.data[ticker] || {};
-            
-            // Update stock price and position
-            tickersData[ticker].data.data[ticker].stock_price = callOptionData.data[ticker].stock_price || 0;
-            tickersData[ticker].data.data[ticker].position = callOptionData.data[ticker].position || 0;
-            
-            // Update call options
-            tickersData[ticker].data.data[ticker].calls = callOptionData.data[ticker].calls || [];
-            
-            console.log(`Updated CALL data for ${ticker}`);
-        } else {
-            console.log(`No valid CALL data received for ${ticker}`);
-        }
-        
-        // Add put options data
-        if (putOptionData && putOptionData.data && putOptionData.data[ticker]) {
-            // Update put options
-            tickersData[ticker].data.data[ticker].puts = putOptionData.data[ticker].puts || [];
-            console.log(`Updated PUT data for ${ticker}`);
-        } else {
-            console.log(`No valid PUT data received for ${ticker}`);
+        // The server intentionally uses one IB worker. Load the visible tab first,
+        // then paint each side as soon as its quote arrives instead of waiting for both.
+        const requestOrder = putTabWasActive ? ['PUT', 'CALL'] : ['CALL', 'PUT'];
+        for (const currentOptionType of requestOrder) {
+            const currentOtm = currentOptionType === 'CALL'
+                ? callOtmPercentage
+                : putOtmPercentage;
+            const currentExpiration = currentOptionType === 'CALL'
+                ? callExpiration
+                : putExpiration;
+            const optionData = await fetchOptionData(
+                ticker,
+                currentOtm,
+                currentOptionType,
+                currentExpiration
+            );
+
+            if (updateTickerOptionData(ticker, currentOptionType, optionData)) {
+                console.log(`Updated ${currentOptionType} data for ${ticker}`);
+            } else {
+                console.log(`No valid ${currentOptionType} data received for ${ticker}`);
+            }
+            if (onProgress) onProgress(currentOptionType);
         }
         
         console.log(`Completed data update for ${ticker}:`, JSON.stringify(tickersData[ticker]));
@@ -1699,6 +1716,10 @@ async function sellAllOptions(optionType) {
                 console.log(`Skipping ticker ${ticker} - insufficient shares for calls: ${sharesOwned}`);
             continue;
         }
+        if (optionType === 'CALL' && getCoveredCallContracts(optionData) < 1) {
+            console.log(`Skipping ticker ${ticker} - covered CALL capacity is already in use`);
+            continue;
+        }
         
         // Get the options based on type
         let options = [];
@@ -1732,9 +1753,9 @@ async function sellAllOptions(optionType) {
             }
         
         console.log(`Processing order for ${ticker} ${optionType} option: ${option.strike} ${option.expiration}`);
-        const defaultPremium = calculateMidPrice(option.bid, option.ask);
+        const defaultPremium = roundLimitPrice(calculateMidPrice(option.bid, option.ask));
         const manualPremium = getManualLimitPrice(ticker, optionType, option);
-        const limitPrice = manualPremium ?? defaultPremium;
+        const limitPrice = roundLimitPrice(manualPremium ?? defaultPremium);
 
         if (limitPrice === null || limitPrice <= 0) {
             failedOrders.push(`${ticker} ${optionType} ${option.strike} ${option.expiration}`);
@@ -1742,15 +1763,16 @@ async function sellAllOptions(optionType) {
         }
         
         // Create order data
+        const orderQuantity = optionType === 'CALL'
+            ? getCoveredCallOrderQuantity(optionData, tickerData.callQuantity)
+            : (tickerData.putQuantity || 1);
         const orderData = {
             ticker: ticker,
             option_type: optionType,
             strike: parseFloat(option.strike),
             expiration: option.expiration,
             action: 'SELL',
-            quantity: optionType === 'CALL' ? 
-                Math.floor(sharesOwned / 100) : 
-                    (tickerData.putQuantity || 1),
+            quantity: orderQuantity,
             // Get price data from the option object instead of button.dataset
             bid: parseFloat(option.bid || 0),
             ask: parseFloat(option.ask || 0),
@@ -2118,6 +2140,10 @@ function addTickerRowToTable(tableId, optionType, ticker) {
         return false;
     }
 
+    [...tbody.querySelectorAll('tr[data-ticker]')]
+        .find(existingRow => existingRow.dataset.ticker === ticker)
+        ?.remove();
+
     const tickerData = tickersData[ticker];
     if (!tickerData) {
         console.log(`No data for ticker ${ticker}, skipping`);
@@ -2182,7 +2208,12 @@ function addTickerRowToTable(tableId, optionType, ticker) {
     if (!options || options.length === 0) {
         // Instead of a warning message row with colSpan, create a row with empty data cells
         if (optionType === 'CALL') {
-            const maxContracts = Math.floor(sharesOwned / 100);
+            const maxContracts = getCoveredCallContracts(optionData);
+            const callQuantity = getCoveredCallOrderQuantity(optionData, tickerData.callQuantity);
+            tickerData.callQuantity = callQuantity;
+            row.dataset.optionType = 'CALL';
+            row.dataset.maxContracts = maxContracts;
+            row.dataset.contracts = callQuantity;
             
             // Create expiration dropdown options even for empty row
             let expirationOptionsHtml = '';
@@ -2226,7 +2257,13 @@ function addTickerRowToTable(tableId, optionType, ticker) {
                 <td class="align-middle">-</td>
                 <td class="align-middle">-</td>
                 <td class="align-middle">-</td>
-                <td class="align-middle">${maxContracts}</td>
+                <td class="align-middle">
+                    <input type="number" class="form-control form-control-sm call-qty-input"
+                        data-ticker="${ticker}"
+                        value="${callQuantity}"
+                        min="${maxContracts > 0 ? 1 : 0}" max="${maxContracts}" step="1"
+                        ${maxContracts > 0 ? '' : 'disabled'}>
+                </td>
                 <td class="align-middle">N/A</td>
                 <td class="align-middle">
                     <button class="btn btn-sm btn-outline-secondary refresh-option" 
@@ -2321,9 +2358,9 @@ function addTickerRowToTable(tableId, optionType, ticker) {
     }
     
     console.log(`Creating row for ${ticker} with option: ${JSON.stringify(option)}`);
-    const optionMidPrice = calculateMidPrice(option.bid, option.ask);
+    const optionMidPrice = roundLimitPrice(calculateMidPrice(option.bid, option.ask));
     const manualPrice = getManualLimitPrice(ticker, optionType, option);
-    const displayedLimitPrice = manualPrice ?? optionMidPrice;
+    const displayedLimitPrice = roundLimitPrice(manualPrice ?? optionMidPrice);
     const hasLimitPrice = displayedLimitPrice !== null && displayedLimitPrice > 0;
     
     // Update row data attributes
@@ -2338,13 +2375,17 @@ function addTickerRowToTable(tableId, optionType, ticker) {
     
     // For CALL options
     if (optionType === 'CALL') {
-        const maxContracts = Math.floor(sharesOwned / 100);
+        const maxContracts = getCoveredCallContracts(optionData);
+        const capacityUnavailable = maxContracts < 1;
+        const callQuantity = getCoveredCallOrderQuantity(optionData, tickerData.callQuantity);
+        tickerData.callQuantity = callQuantity;
         
         // Calculate premium and return values
         const midPrice = hasLimitPrice ? displayedLimitPrice : 0;
         const premiumPerContract = midPrice * 100; // Use midPrice instead of option.ask
-        const totalPremium = premiumPerContract * maxContracts;
-        row.dataset.contracts = maxContracts;
+        const totalPremium = premiumPerContract * callQuantity;
+        row.dataset.contracts = callQuantity;
+        row.dataset.maxContracts = maxContracts;
         
         // Create expiration dropdown options
         let expirationOptionsHtml = '';
@@ -2386,7 +2427,13 @@ function addTickerRowToTable(tableId, optionType, ticker) {
             <td class="align-middle" data-field="mid-price">${buildLimitPriceControl(ticker, 'CALL', option, midPrice, optionMidPrice)}</td>
             <td class="align-middle">${option.delta ? option.delta.toFixed(2) : 'N/A'}</td>
             <td class="align-middle">${ivPercent}%</td>
-            <td class="align-middle">${maxContracts}</td>
+            <td class="align-middle">
+                <input type="number" class="form-control form-control-sm call-qty-input"
+                    data-ticker="${ticker}"
+                    value="${callQuantity}"
+                    min="${maxContracts > 0 ? 1 : 0}" max="${maxContracts}" step="1"
+                    ${capacityUnavailable ? 'disabled' : ''}>
+            </td>
             <td class="align-middle total-premium">${hasLimitPrice ? `$ ${totalPremium.toFixed(2)}` : 'N/A'}</td>
             <td class="align-middle">
                 <div class="option-actions">
@@ -2404,8 +2451,11 @@ function addTickerRowToTable(tableId, optionType, ticker) {
                         data-vega="${option.vega || 0}"
                         data-implied-volatility="${option.implied_volatility || 0}"
                         data-volume="${option.volume || 0}"
-                        data-open-interest="${option.open_interest || 0}" ${hasLimitPrice ? '' : 'disabled'}>
-                        <i class="bi bi-check-circle"></i> ${tr('common.add')}
+                        data-open-interest="${option.open_interest || 0}"
+                        title="${capacityUnavailable ? tr('options.coveredCapacityUsedHint') : ''}"
+                        ${hasLimitPrice && !capacityUnavailable ? '' : 'disabled'}>
+                        <i class="bi ${capacityUnavailable ? 'bi-lock' : 'bi-check-circle'}"></i>
+                        ${capacityUnavailable ? tr('options.coveredCapacityUsed') : tr('common.add')}
                     </button>
                     <button class="btn btn-sm btn-outline-danger delete-ticker" 
                         data-ticker="${ticker}" 
@@ -2585,7 +2635,7 @@ function buildOptionsTable(tableId, optionType) {
 /**
  * Fetch all tickers and their data with progressive UI updates
  */
-async function loadTickers() {
+async function loadTickers(initialPortfolioData = null) {
     // Load custom tickers from localStorage
     try {
         const savedTickers = localStorage.getItem('customTickers');
@@ -2727,24 +2777,31 @@ async function loadTickers() {
     addOptionsTableEventListeners();
     setupCustomTickerEventListeners();
     
-    // Fetch portfolio data first to get latest cash balance
-    try {
-        portfolioSummary = await fetchAccountData();
-        console.log("Portfolio summary:", portfolioSummary);
-    } catch (error) {
-        console.error('Error fetching portfolio data:', error);
-    }
-    
-    // Fetch tickers
-    const data = await fetchTickers();
     let portfolioTickers = [];
-    
-    if (data && data.tickers) {
-        portfolioTickers = data.tickers;
-        console.log(`Fetched ${portfolioTickers.length} portfolio tickers, loading their data...`);
+    const portfolioPositionSnapshots = new Map();
+
+    if (initialPortfolioData?.accountData) {
+        portfolioSummary = initialPortfolioData.accountData;
     } else {
-        console.log("No portfolio tickers fetched");
+        portfolioSummary = await fetchAccountData();
     }
+    console.log("Portfolio summary:", portfolioSummary);
+
+    if (Array.isArray(initialPortfolioData?.positionsData)) {
+        const stockPositions = initialPortfolioData.positionsData.filter(position => (
+                position.security_type === 'STK' ||
+                position.securityType === 'STK' ||
+                position.sec_type === 'STK'
+            ));
+        portfolioTickers = stockPositions.map(position => position.symbol);
+        stockPositions.forEach(position => {
+            portfolioPositionSnapshots.set(position.symbol, position);
+        });
+    } else {
+        const data = await fetchTickers();
+        portfolioTickers = data?.tickers || [];
+    }
+    console.log(`Fetched ${portfolioTickers.length} portfolio tickers, loading their data...`);
     
     // Create a combined list of all tickers (portfolio + custom)
     const allTickers = [...new Set([...portfolioTickers, ...customTickers])]
@@ -2759,25 +2816,18 @@ async function loadTickers() {
     const totalTickers = allTickers.length;
     await runWithConcurrency(allTickers, REFRESH_CONCURRENCY, async (ticker, i) => {
         
-        // Initialize ticker data structure if not exists
-        if (!tickersData[ticker]) {
-            console.log(`Initializing data structure for ticker ${ticker}`);
-            tickersData[ticker] = {
-                data: {
-                    data: {}
-                },
-                callOtmPercentage: 10, // Default OTM percentage for calls
-                putOtmPercentage: 10, // Default OTM percentage for puts
-                putQuantity: 1 // Default put quantity
-            };
-            
-            // Initialize nested structure for this ticker
-            tickersData[ticker].data.data[ticker] = {
-                stock_price: 0,
-                position: 0,
-                calls: [],
-                puts: []
-            };
+        // Saved OTM preferences may have created a partial ticker entry.
+        // Normalize it before seeding the portfolio snapshot.
+        const tickerState = ensureTickerData(ticker);
+
+        const portfolioSnapshot = portfolioPositionSnapshots.get(ticker);
+        const currentTickerData = tickerState.data.data[ticker];
+        if (portfolioSnapshot) {
+            const snapshotPrice = Number(portfolioSnapshot.market_price);
+            currentTickerData.stock_price = Number.isFinite(snapshotPrice) && snapshotPrice > 0
+                ? snapshotPrice
+                : currentTickerData.stock_price;
+            currentTickerData.position = Number(portfolioSnapshot.position || 0);
         }
         
         // Show loading message for current ticker
@@ -2810,24 +2860,23 @@ async function loadTickers() {
         `;
         document.querySelector('#put-options-table tbody').appendChild(putStatusRow);
         
-        // Fetch data for the current ticker
-        try {
-            await refreshOptionsForTicker(ticker, false);
-            console.log(`Successfully loaded data for ticker: ${ticker}`);
-            
-            // Remove status rows
+        const renderTickerRows = () => {
             document.getElementById(`call-status-${ticker}`)?.remove();
             document.getElementById(`put-status-${ticker}`)?.remove();
-            
-            // Add ticker rows to both tables if applicable
             addTickerRowToTable('call-options-table', 'CALL', ticker);
             addTickerRowToTable('put-options-table', 'PUT', ticker);
-            
-            // Add event listeners for the newly added rows
             addOtmInputEventListeners();
             addExpirationSelectEventListeners();
+            addCallQtyInputEventListeners();
             addPutQtyInputEventListeners();
             addMidPriceInputEventListeners();
+        };
+
+        // Fetch data for the current ticker
+        try {
+            await refreshOptionsForTicker(ticker, false, renderTickerRows);
+            console.log(`Successfully loaded data for ticker: ${ticker}`);
+            renderTickerRows();
             
         } catch (error) {
             console.error(`Error loading data for ticker ${ticker}:`, error);
@@ -2975,13 +3024,10 @@ function loadOtmSettings() {
             
             // Apply settings to tickersData
             Object.keys(settings).forEach(ticker => {
-                if (!tickersData[ticker]) {
-                    tickersData[ticker] = {};
-                }
-                
-                tickersData[ticker].callOtmPercentage = settings[ticker].callOtmPercentage || 10;
-                tickersData[ticker].putOtmPercentage = settings[ticker].putOtmPercentage || 10;
-                tickersData[ticker].putQuantity = settings[ticker].putQuantity || 1;
+                const tickerState = ensureTickerData(ticker);
+                tickerState.callOtmPercentage = settings[ticker].callOtmPercentage || 10;
+                tickerState.putOtmPercentage = settings[ticker].putOtmPercentage || 10;
+                tickerState.putQuantity = settings[ticker].putQuantity || 1;
                 
                 console.log(`Applied saved settings for ${ticker}: Call OTM=${tickersData[ticker].callOtmPercentage}%, Put OTM=${tickersData[ticker].putOtmPercentage}%, Put Qty=${tickersData[ticker].putQuantity}`);
             });

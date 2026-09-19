@@ -1074,6 +1074,11 @@ function confirmOrderExecution(orderId, sourceButton) {
         return;
     }
 
+    if (window.shouldConfirmOrderExecution?.() === false) {
+        void executeOrderById(orderId, sourceButton);
+        return;
+    }
+
     const quantity = Number(order.quantity || 1);
     const price = Number(order.premium || 0);
     const summary = [

@@ -4,6 +4,33 @@
  */
 import { showAlert } from '../utils/alerts.js';
 
+async function fetchJsonWithTimeout(url, timeoutMs = 8000) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, {
+            cache: 'no-store',
+            signal: controller.signal,
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache'
+            }
+        });
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.error || `HTTP error ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            throw new Error('Request timed out');
+        }
+        throw error;
+    } finally {
+        window.clearTimeout(timeout);
+    }
+}
+
 /**
  * Fetch account and portfolio data
  * @returns {Promise} Promise with account data
@@ -38,6 +65,14 @@ async function fetchPositions() {
         showAlert(`Error fetching positions: ${error.message}`, 'danger');
         return null;
     }
+}
+
+async function fetchPortfolioBootstrap() {
+    return fetchJsonWithTimeout('/api/portfolio/bootstrap', 10000);
+}
+
+async function fetchLivePositions() {
+    return fetchJsonWithTimeout('/api/portfolio/live', 3500);
 }
 
 /**
@@ -256,17 +291,37 @@ async function cancelOrder(orderId) {
 }
 
 /**
+ * Update the limit price of an order that has not yet been sent to IB.
+ */
+async function updatePendingOrderPremium(orderId, premium) {
+    const response = await fetch(`/api/options/order/${orderId}/premium`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-All-You-Need-Is-Wheel': '1'
+        },
+        body: JSON.stringify({ premium })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(data.error || `HTTP error ${response.status}`);
+    }
+    return data;
+}
+
+/**
  * Check status of pending/processing orders with TWS
  * @returns {Promise} Promise with updated orders
  */
-async function checkOrderStatus() {
+async function checkOrderStatus(forceDiscovery = false) {
     try {
         const response = await fetch('/api/options/check-orders', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-All-You-Need-Is-Wheel': '1'
-            }
+            },
+            body: JSON.stringify({ force_discovery: forceDiscovery })
         });
         
         if (!response.ok) {
@@ -388,12 +443,15 @@ async function fetchOptionExpirations(ticker) {
 export {
     fetchAccountData,
     fetchPositions,
+    fetchPortfolioBootstrap,
+    fetchLivePositions,
     fetchWeeklyOptionIncome,
     fetchOptionData,
     fetchTickers,
     fetchPendingOrders,
     saveOptionOrder,
     cancelOrder,
+    updatePendingOrderPremium,
     executeOrder,
     checkOrderStatus,
     fetchStockPrices,

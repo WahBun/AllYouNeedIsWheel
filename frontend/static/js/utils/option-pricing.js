@@ -16,4 +16,10 @@ function calculateSpreadPercentage(bid, ask) {
     return ((Number(ask) - Number(bid)) / mid) * 100;
 }
 
-export { positivePrice, calculateMidPrice, calculateSpreadPercentage };
+function roundLimitPrice(value) {
+    const price = positivePrice(value);
+    if (price === null) return null;
+    return Math.round((price + Number.EPSILON) * 100) / 100;
+}
+
+export { positivePrice, calculateMidPrice, calculateSpreadPercentage, roundLimitPrice };

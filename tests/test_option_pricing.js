@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import {
     calculateMidPrice,
     calculateSpreadPercentage,
-    positivePrice
+    positivePrice,
+    roundLimitPrice
 } from '../frontend/static/js/utils/option-pricing.js';
 
 test('mid price requires a valid two-sided market', () => {
@@ -24,4 +25,9 @@ test('invalid and stale-looking values stay unavailable', () => {
 test('spread uses the same validated two-sided quote', () => {
     assert.ok(Math.abs(calculateSpreadPercentage(0.95, 1.05) - 10) < 1e-9);
     assert.equal(calculateSpreadPercentage(1, null), null);
+});
+
+test('displayed limit price matches the two-decimal order price', () => {
+    assert.equal(roundLimitPrice(calculateMidPrice(0.75, 0.78)), 0.77);
+    assert.equal(roundLimitPrice(0), null);
 });

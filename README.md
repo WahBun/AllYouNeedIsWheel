@@ -67,9 +67,10 @@ AllYouNeedIsWheel is a financial options trading assistant specifically designed
 
 ## Configuration
 
-Two connection files can be maintained:
-- `connection.json` - For paper trading (default)
-- `connection_real.json` - For real-money trading
+Two connection files can be maintained. Their actual `port`, `readonly`, and
+`account_id` values determine the environment; the filename alone does not:
+- `connection.json` - Default local configuration
+- `connection_real.json` - Optional alternative selected by `--realmoney`
 
 The key configuration parameters are:
 - `host`: Usually "127.0.0.1" for local TWS/IB Gateway
@@ -117,11 +118,13 @@ python3 run_api.py --realmoney
 This will start the application on http://localhost:8000
 
 
-By default, the server will run on port 8000 with 4 workers. You can change these settings with environment variables:
+By default, the server runs on port 8000 with one worker. The single worker is a
+trading-safety requirement: IB only allows an individual API order to be managed
+reliably by the same API client identity that submitted it.
 
 ```bash
-# Change port and worker count
-PORT=8080 WORKERS=2 python3 run_api.py
+# Change the web port
+PORT=8080 python3 run_api.py
 ```
 
 ### API Endpoints
@@ -233,7 +236,9 @@ The application uses SQLite for storage. Two database files are maintained:
 - Always use `readonly: true` during development to prevent accidental order execution
 - Use caution when running with the `--realmoney` flag as real trades can be executed
 - Adding an order only stages it locally. Sending it to IB always requires a separate Execute confirmation.
+- Entry orders are limited to SELL TO OPEN. Position exits must be created from Portfolio so the exact held IB contract and account are revalidated.
 - Close orders are revalidated against the configured account, exact IB contract, current position, remaining quantity, and active IB orders immediately before submission.
+- Keep the web server at one worker and use a stable `client_id` so submitted orders remain queryable and cancelable after reconnects.
 
 ## License
 

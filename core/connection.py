@@ -4,6 +4,7 @@ Stock and Options Trading Connection Module for Interactive Brokers
 
 import logging
 import asyncio
+import copy
 import math
 import time
 import os
@@ -56,7 +57,10 @@ class IBConnection:
     """
     Class for managing connection to Interactive Brokers
     """
-    def __init__(self, host='127.0.0.1', port=7497, client_id=1, timeout=20, readonly=True, account_id=None):
+    def __init__(
+        self, host='127.0.0.1', port=7497, client_id=1, timeout=20,
+        readonly=True, account_id=None, order_preflight_timeout=10
+    ):
         """
         Initialize the IB connection
         
@@ -73,12 +77,14 @@ class IBConnection:
         self.timeout = timeout
         self.readonly = readonly
         self.account_id = account_id
+        self.order_preflight_timeout = max(1, float(order_preflight_timeout))
         self.ib = IB()
         self._connected = False
         self._qualified_stock_cache = {}
         self._qualified_option_cache = {}
         self._option_definition_cache = {}
         self._market_ticker_cache = {}
+        self._market_data_type = None
         
         # Suppress ib_async logs when initializing
         suppress_ib_logs()
@@ -221,7 +227,7 @@ class IBConnection:
 
         return None
 
-    def _prune_market_ticker_cache(self, max_age_seconds=5 * 60, max_entries=16):
+    def _prune_market_ticker_cache(self, max_age_seconds=5 * 60, max_entries=64):
         now = time.time()
         expired_keys = [
             key for key, entry in self._market_ticker_cache.items()
@@ -246,22 +252,26 @@ class IBConnection:
             except Exception:
                 pass
 
-    def get_market_ticker(self, contract, generic_tick_list=''):
-        """Reuse a small set of live subscriptions so repeat refreshes are fast."""
-        self._prune_market_ticker_cache()
+    @staticmethod
+    def _market_ticker_key(contract, generic_tick_list=''):
         contract_key = getattr(contract, 'conId', None) or (
             getattr(contract, 'symbol', ''),
             getattr(contract, 'lastTradeDateOrContractMonth', ''),
             getattr(contract, 'strike', 0),
             getattr(contract, 'right', '')
         )
-        key = (contract_key, generic_tick_list)
+        return contract_key, generic_tick_list
+
+    def get_market_ticker(self, contract, generic_tick_list=''):
+        """Reuse a small set of live subscriptions so repeat refreshes are fast."""
+        self._prune_market_ticker_cache()
+        key = self._market_ticker_key(contract, generic_tick_list)
         cached = self._market_ticker_cache.get(key)
         if cached:
             cached['used_at'] = time.time()
             return cached['ticker']
 
-        if len(self._market_ticker_cache) >= 16:
+        if len(self._market_ticker_cache) >= 64:
             oldest_key = min(
                 self._market_ticker_cache,
                 key=lambda cache_key: self._market_ticker_cache[cache_key]['used_at']
@@ -298,11 +308,24 @@ class IBConnection:
             self._ensure_event_loop()
             
             self.ib.clientId = self.client_id
-            self.ib.connect(self.host, self.port, clientId=self.client_id, readonly=self.readonly, timeout=self.timeout)
+            subscribed_account = (
+                self.account_id
+                if self.account_id and self.account_id != 'YOUR_ACCOUNT_ID'
+                else ''
+            )
+            self.ib.connect(
+                self.host,
+                self.port,
+                clientId=self.client_id,
+                readonly=self.readonly,
+                timeout=self.timeout,
+                account=subscribed_account
+            )
             
             self._connected = self.ib.isConnected()
             if self._connected:
                 self._market_ticker_cache.clear()
+                self._market_data_type = None
                 logger.info(f"Successfully connected to IB with client ID {self.client_id}")
                 return True
             else:
@@ -333,6 +356,7 @@ class IBConnection:
             self.ib.disconnect()
             self._connected = False
             self._market_ticker_cache.clear()
+            self._market_data_type = None
             logger.info("Disconnected from IB")
     
     def is_connected(self):
@@ -396,13 +420,16 @@ class IBConnection:
 
     def _order_account(self):
         configured_account = self.account_id
-        if configured_account and configured_account != "YOUR_ACCOUNT_ID":
-            return configured_account
-
         try:
             accounts = self.ib.managedAccounts()
         except Exception as e:
             logger.warning(f"Unable to read managed accounts for order routing: {e}")
+            return None
+
+        if configured_account and configured_account != "YOUR_ACCOUNT_ID":
+            if configured_account in accounts:
+                return configured_account
+            logger.error("Configured order account was not returned by IB")
             return None
 
         if len(accounts) == 1:
@@ -546,8 +573,12 @@ class IBConnection:
             if not self.is_connected():
                 logger.warning("Cannot set market data type - not connected")
                 return False
-                
+
+            if self._market_data_type == data_type:
+                return True
+
             self.ib.reqMarketDataType(data_type)
+            self._market_data_type = data_type
             return True
         except Exception as e:
             logger.error(f"Error setting market data type: {e}")
@@ -806,7 +837,8 @@ class IBConnection:
         if configured_account and configured_account != "YOUR_ACCOUNT_ID":
             if configured_account in accounts:
                 return self._account_info_from_summary(configured_account, account_fields)
-            logger.warning("Configured account_id was not returned by IB; selecting an account automatically")
+            logger.error("Configured account_id was not returned by IB")
+            return None
 
         account_infos = []
         for account_id in accounts:
@@ -853,6 +885,12 @@ class IBConnection:
             if int(getattr(contract, 'conId', 0) or 0) != normalized_con_id:
                 continue
 
+            orderable_contract = copy.copy(contract)
+            if not getattr(orderable_contract, 'exchange', ''):
+                orderable_contract.exchange = 'SMART'
+            if not getattr(orderable_contract, 'currency', ''):
+                orderable_contract.currency = 'USD'
+
             return {
                 'account_id': selected_account,
                 'position': float(getattr(item, 'position', 0) or 0),
@@ -862,7 +900,7 @@ class IBConnection:
                 'market_price': float(getattr(item, 'marketPrice', 0) or 0),
                 'market_value': float(getattr(item, 'marketValue', 0) or 0),
                 'unrealized_pnl': float(getattr(item, 'unrealizedPNL', 0) or 0),
-                'contract': contract
+                'contract': orderable_contract
             }
 
         return None
@@ -870,7 +908,7 @@ class IBConnection:
     def get_open_option_order_quantity(self, con_id, action=None, account_id=None):
         """Return the remaining quantity of matching active IB option orders."""
         if not self.is_connected():
-            return 0
+            return float('inf')
 
         try:
             normalized_con_id = int(con_id)
@@ -887,6 +925,7 @@ class IBConnection:
             self.ib.sleep(0.2)
         except Exception as error:
             logger.warning("Could not refresh open orders before close validation: %s", error)
+            return float('inf')
 
         remaining_quantity = 0.0
         for trade in list(self.ib.openTrades() or []):
@@ -962,6 +1001,200 @@ class IBConnection:
             'quote_time': datetime.now().isoformat(timespec='seconds')
         })
         return position
+
+    def get_covered_call_capacity(self, symbol, account_id=None):
+        """Return standard CALL contracts still covered by uncommitted shares."""
+        selected_account = account_id or self._order_account()
+        if not selected_account:
+            return 0
+
+        try:
+            self.ib.reqAllOpenOrders()
+            self.ib.sleep(0.2)
+        except Exception as error:
+            logger.warning("Could not refresh open orders before covered CALL validation: %s", error)
+            return 0
+
+        stock_shares = 0.0
+        short_call_share_equivalent = 0.0
+        for position in self.ib.positions(selected_account):
+            contract = getattr(position, 'contract', None)
+            if not contract or getattr(contract, 'symbol', '') != symbol:
+                continue
+
+            quantity = float(getattr(position, 'position', 0) or 0)
+            sec_type = getattr(contract, 'secType', '')
+            if sec_type == 'STK' and quantity > 0:
+                stock_shares += quantity
+            elif sec_type == 'OPT' and getattr(contract, 'right', '') == 'C' and quantity < 0:
+                try:
+                    multiplier = float(getattr(contract, 'multiplier', 100) or 100)
+                except (TypeError, ValueError):
+                    multiplier = 100
+                short_call_share_equivalent += abs(quantity) * multiplier
+
+        active_sell_call_share_equivalent = 0.0
+        seen_orders = set()
+        for trade in list(self.ib.openTrades()) + list(self.ib.trades()):
+            contract = getattr(trade, 'contract', None)
+            order = getattr(trade, 'order', None)
+            order_status = getattr(trade, 'orderStatus', None)
+            if not contract or not order:
+                continue
+
+            order_key = (
+                getattr(order, 'permId', 0)
+                or getattr(order, 'orderId', 0)
+                or id(order)
+            )
+            if order_key in seen_orders:
+                continue
+            seen_orders.add(order_key)
+
+            if (
+                getattr(contract, 'secType', '') != 'OPT'
+                or getattr(contract, 'symbol', '') != symbol
+                or getattr(contract, 'right', '') != 'C'
+                or str(getattr(order, 'action', '') or '').upper() != 'SELL'
+            ):
+                continue
+            order_account = str(getattr(order, 'account', '') or '')
+            if order_account and order_account != str(selected_account):
+                continue
+
+            status = str(getattr(order_status, 'status', '') or '').lower()
+            if status in {'filled', 'cancelled', 'apicancelled', 'inactive'}:
+                continue
+            remaining = getattr(order_status, 'remaining', None)
+            if remaining is None:
+                remaining = getattr(order, 'totalQuantity', 0)
+            try:
+                multiplier = float(getattr(contract, 'multiplier', 100) or 100)
+                active_sell_call_share_equivalent += max(0.0, float(remaining or 0)) * multiplier
+            except (TypeError, ValueError):
+                continue
+
+        available_shares = max(
+            0.0,
+            stock_shares - short_call_share_equivalent - active_sell_call_share_equivalent
+        )
+        return int(available_shares // 100)
+
+    def get_live_portfolio(self):
+        """Sample held positions from reusable streaming market-data subscriptions."""
+        is_frozen = not is_market_hours()
+        if not self.is_connected() and not self.connect():
+            raise ConnectionError("Not connected to IB Gateway")
+
+        account_id = self._order_account()
+        if not account_id:
+            raise ValueError("Configured IB account is unavailable")
+
+        self.set_market_data_type(2 if is_frozen else 1)
+        portfolio_items = list(self.ib.portfolio(account_id) or [])
+        if not portfolio_items:
+            portfolio_items = list(self.ib.positions(account_id) or [])
+
+        subscribed_now = False
+        item_tickers = []
+        for item in portfolio_items:
+            contract = getattr(item, 'contract', None)
+            sec_type = getattr(contract, 'secType', '') if contract else ''
+            ticker = None
+            if contract and sec_type in {'STK', 'OPT'}:
+                key = self._market_ticker_key(contract)
+                was_cached = key in self._market_ticker_cache
+                try:
+                    ticker = self.get_market_ticker(contract)
+                    subscribed_now = subscribed_now or not was_cached
+                except Exception as error:
+                    logger.warning(
+                        "Could not subscribe to live quote for %s: %s",
+                        getattr(contract, 'symbol', ''),
+                        error
+                    )
+            item_tickers.append((item, ticker))
+
+        # One short yield primes new subscriptions. Later samples only drain queued ticks.
+        self.ib.sleep(0.25 if subscribed_now else 0.01)
+
+        positions = {}
+        for item, ticker in item_tickers:
+            try:
+                contract = getattr(item, 'contract', None)
+                if not contract:
+                    continue
+
+                sec_type = getattr(contract, 'secType', '') or 'UNKNOWN'
+                symbol = str(getattr(contract, 'symbol', '') or '')
+                quantity = float(getattr(item, 'position', 0) or 0)
+                avg_cost = float(
+                    getattr(item, 'averageCost', getattr(item, 'avgCost', 0)) or 0
+                )
+                currency = str(getattr(contract, 'currency', '') or 'USD')
+                streamed_price = self._ticker_price(ticker)
+                portfolio_price = self._valid_price(getattr(item, 'marketPrice', None))
+                market_price = streamed_price or portfolio_price
+
+                if sec_type == 'OPT':
+                    try:
+                        multiplier = float(getattr(contract, 'multiplier', 100) or 100)
+                    except (TypeError, ValueError):
+                        multiplier = 100
+                    market_value = (
+                        quantity * market_price * multiplier
+                        if market_price is not None else getattr(item, 'marketValue', None)
+                    )
+                    unrealized_pnl = (
+                        (market_price * multiplier - avg_cost) * quantity
+                        if market_price is not None else getattr(item, 'unrealizedPNL', None)
+                    )
+                    position_key = (
+                        f"{symbol}_{getattr(contract, 'lastTradeDateOrContractMonth', '')}_"
+                        f"{getattr(contract, 'strike', 0)}_{getattr(contract, 'right', '')}"
+                    )
+                else:
+                    market_value = (
+                        quantity * market_price
+                        if market_price is not None else getattr(item, 'marketValue', None)
+                    )
+                    unrealized_pnl = (
+                        (market_price - avg_cost) * quantity
+                        if market_price is not None else getattr(item, 'unrealizedPNL', None)
+                    )
+                    position_key = symbol
+
+                positions[position_key] = {
+                    'shares': quantity,
+                    'avg_cost': self._convert_to_usd(avg_cost, currency),
+                    'market_price': (
+                        self._convert_to_usd(market_price, currency)
+                        if market_price is not None else None
+                    ),
+                    'market_value': (
+                        self._convert_to_usd(market_value, currency)
+                        if market_value is not None else None
+                    ),
+                    'unrealized_pnl': (
+                        self._convert_to_usd(unrealized_pnl, currency)
+                        if unrealized_pnl is not None else None
+                    ),
+                    'realized_pnl': self._convert_to_usd(
+                        getattr(item, 'realizedPNL', 0) or 0, currency
+                    ),
+                    'contract': contract,
+                    'security_type': sec_type
+                }
+            except Exception as error:
+                logger.error("Error sampling live portfolio position: %s", error)
+
+        return {
+            'account_id': account_id,
+            'positions': positions,
+            'is_frozen': is_frozen,
+            'streaming': True,
+            'as_of': datetime.now().isoformat(timespec='seconds')
+        }
 
     def get_portfolio(self):
         """
@@ -1051,10 +1284,10 @@ class IBConnection:
                     
                     # Convert position values to USD if needed
                     avg_cost = getattr(position, 'averageCost', getattr(position, 'avgCost', 0))
-                    market_price = getattr(position, 'marketPrice', 0)
-                    market_value = getattr(position, 'marketValue', 0)
-                    unrealized_pnl = getattr(position, 'unrealizedPNL', 0)
-                    realized_pnl = getattr(position, 'realizedPNL', 0)
+                    market_price = getattr(position, 'marketPrice', None)
+                    market_value = getattr(position, 'marketValue', None)
+                    unrealized_pnl = getattr(position, 'unrealizedPNL', None)
+                    realized_pnl = getattr(position, 'realizedPNL', None)
                     positions[position_key] = {
                         'shares': position.position,
                         'avg_cost': self._convert_to_usd(avg_cost, position_currency),
@@ -1190,6 +1423,9 @@ class IBConnection:
         error_handler = self._capture_order_errors(errors)
         self.ib.errorEvent += error_handler
 
+        previous_timeout = self.ib.RequestTimeout
+        self.ib.RequestTimeout = self.order_preflight_timeout
+
         try:
             state = self.ib.whatIfOrder(contract, order)
             self.ib.sleep(0.2)
@@ -1212,6 +1448,21 @@ class IBConnection:
                 'init_margin_change': getattr(state, 'initMarginChange', '') if state else '',
                 'maint_margin_change': getattr(state, 'maintMarginChange', '') if state else ''
             }
+        except asyncio.TimeoutError:
+            timeout_seconds = self.order_preflight_timeout
+            logger.error(
+                "IB order preflight timed out after %s seconds; the order was not sent",
+                timeout_seconds
+            )
+            self.disconnect()
+            return {
+                'success': False,
+                'timed_out': True,
+                'error_message': (
+                    f"IB order preflight timed out after {timeout_seconds:g} seconds. "
+                    "The order was NOT sent to IB."
+                )
+            }
         except Exception as e:
             logger.error(f"Error validating order with what-if: {str(e)}")
             logger.error(traceback.format_exc())
@@ -1222,6 +1473,7 @@ class IBConnection:
                 'error_message': error.get('message') if error else str(e)
             }
         finally:
+            self.ib.RequestTimeout = previous_timeout
             self.ib.errorEvent -= error_handler
             
     def place_order(self, contract, order):
@@ -1339,6 +1591,12 @@ class IBConnection:
         if not contract or not order:
             return False
 
+        local_order_id = order_details.get('id')
+        expected_order_ref = f"AYNIW-{local_order_id}" if local_order_id else None
+        actual_order_ref = str(getattr(order, 'orderRef', '') or '')
+        if expected_order_ref and actual_order_ref and actual_order_ref != expected_order_ref:
+            return False
+
         option_type = order_details.get('option_type')
         expected_right = 'C' if option_type == 'CALL' else 'P' if option_type == 'PUT' else None
 
@@ -1396,21 +1654,205 @@ class IBConnection:
         except (TypeError, ValueError):
             normalized_perm_id = None
 
-        if normalized_order_id:
-            if getattr(order, 'orderId', 0) == normalized_order_id:
-                return True
-            if getattr(order_status, 'orderId', 0) == normalized_order_id:
-                return True
-
         if normalized_perm_id:
             if getattr(order, 'permId', 0) == normalized_perm_id:
                 return True
             if getattr(order_status, 'permId', 0) == normalized_perm_id:
                 return True
 
+        if normalized_order_id:
+            order_id_matches = (
+                getattr(order, 'orderId', 0) == normalized_order_id
+                or getattr(order_status, 'orderId', 0) == normalized_order_id
+            )
+            if order_id_matches:
+                # API order IDs can overlap across client sessions. Once
+                # reqAllOpenOrders has populated trades from other clients, the
+                # numeric ID alone is not enough to identify our local order.
+                return (
+                    self._trade_matches_order_details(trade, order_details)
+                    if order_details
+                    else True
+                )
+
+        if order_details:
+            local_order_id = order_details.get('id')
+            expected_order_ref = f"AYNIW-{local_order_id}" if local_order_id else None
+            actual_order_ref = str(getattr(order, 'orderRef', '') or '')
+            if expected_order_ref and actual_order_ref != expected_order_ref:
+                return False
+
         return self._trade_matches_order_details(trade, order_details)
 
-    def check_order_status(self, order_id, perm_id=None, order_details=None):
+    def get_order_status_snapshot(self, force_refresh=False):
+        """Refresh IB's order cache once for a batch of local status checks."""
+        if not self.is_connected():
+            return None
+
+        now = time.monotonic()
+        last_refresh = getattr(self, '_last_order_status_refresh', 0)
+        refreshed_trades = []
+        authoritative_open_trades = None
+        if force_refresh or now - last_refresh >= 5:
+            try:
+                refreshed_trades.extend(self.ib.reqOpenOrders() or [])
+                refreshed_trades.extend(self.ib.reqAllOpenOrders() or [])
+                self.ib.sleep(0.15)
+                # An empty response is meaningful: IB currently has no open
+                # orders. Keep it separate from ib.trades(), whose entries from
+                # other clients are not updated after their initial snapshot.
+                authoritative_open_trades = refreshed_trades
+            except Exception as e:
+                logger.warning(f"Could not refresh open orders: {e}")
+            finally:
+                self._last_order_status_refresh = time.monotonic()
+        else:
+            # Yield briefly so orderStatus events pushed by IB can be applied.
+            self.ib.sleep(0.05)
+
+        return {
+            'trades': (
+                refreshed_trades
+                + list(self.ib.openTrades())
+                + list(self.ib.trades())
+            ),
+            'authoritative_open_trades': authoritative_open_trades,
+            'completed_trades': None
+        }
+
+    def get_open_option_orders(
+        self, account_id=None, force_refresh=False, status_snapshot=None
+    ):
+        """Return active IB option orders, including orders entered outside this app."""
+        selected_account = account_id or self._order_account()
+        if not selected_account:
+            return []
+
+        snapshot = status_snapshot or self.get_order_status_snapshot(force_refresh)
+        if not snapshot:
+            return []
+
+        position_by_con_id = {}
+        try:
+            for item in self.ib.positions(selected_account):
+                contract = getattr(item, 'contract', None)
+                con_id = int(getattr(contract, 'conId', 0) or 0)
+                if con_id:
+                    position_by_con_id[con_id] = float(
+                        getattr(item, 'position', 0) or 0
+                    )
+        except Exception as e:
+            logger.warning(f"Could not read option positions while classifying orders: {e}")
+
+        active_orders = []
+        seen_orders = set()
+        terminal_statuses = {'filled', 'cancelled', 'apicancelled', 'inactive'}
+        authoritative_trades = snapshot.get('authoritative_open_trades')
+        trades = (
+            authoritative_trades
+            if authoritative_trades is not None
+            else snapshot.get('trades', [])
+        )
+        for trade in trades:
+            contract = getattr(trade, 'contract', None)
+            order = getattr(trade, 'order', None)
+            order_status = getattr(trade, 'orderStatus', None)
+            if not contract or not order or not order_status:
+                continue
+            if getattr(contract, 'secType', '') != 'OPT':
+                continue
+
+            order_account = str(getattr(order, 'account', '') or '')
+            if order_account != str(selected_account):
+                continue
+
+            ib_status = str(getattr(order_status, 'status', '') or '')
+            if ib_status.lower() in terminal_statuses:
+                continue
+
+            perm_id = int(
+                getattr(order_status, 'permId', 0)
+                or getattr(order, 'permId', 0)
+                or 0
+            )
+            ib_order_id = int(
+                getattr(order_status, 'orderId', 0)
+                or getattr(order, 'orderId', 0)
+                or 0
+            )
+            client_id = int(
+                getattr(order_status, 'clientId', 0)
+                or getattr(order, 'clientId', 0)
+                or 0
+            )
+            order_key = (
+                ('perm', perm_id)
+                if perm_id
+                else ('client-order', client_id, ib_order_id, order_account)
+            )
+            if order_key in seen_orders:
+                continue
+            seen_orders.add(order_key)
+
+            con_id = int(getattr(contract, 'conId', 0) or 0)
+            action = str(getattr(order, 'action', '') or '').upper()
+            open_close = str(getattr(order, 'openClose', '') or '').upper()
+            if open_close in {'C', 'CLOSE'}:
+                intent = 'CLOSE'
+            elif open_close in {'O', 'OPEN'}:
+                intent = 'OPEN'
+            else:
+                position = position_by_con_id.get(con_id, 0)
+                intent = (
+                    'CLOSE'
+                    if (action == 'BUY' and position < 0)
+                    or (action == 'SELL' and position > 0)
+                    else 'OPEN'
+                )
+
+            remaining = getattr(order_status, 'remaining', None)
+            total_quantity = getattr(order, 'totalQuantity', 0)
+            active_orders.append({
+                'id': f"ib-{perm_id or f'{client_id}-{ib_order_id}'}",
+                'ticker': str(getattr(contract, 'symbol', '') or ''),
+                'option_type': (
+                    'CALL' if getattr(contract, 'right', '') == 'C' else 'PUT'
+                ),
+                'action': action,
+                'strike': float(getattr(contract, 'strike', 0) or 0),
+                'expiration': str(
+                    getattr(contract, 'lastTradeDateOrContractMonth', '') or ''
+                ),
+                'premium': float(getattr(order, 'lmtPrice', 0) or 0),
+                'quantity': int(float(total_quantity or 0)),
+                'remaining': float(
+                    total_quantity if remaining is None else remaining or 0
+                ),
+                'status': (
+                    'canceling' if ib_status == 'PendingCancel' else 'processing'
+                ),
+                'executed': False,
+                'ib_order_id': ib_order_id,
+                'perm_id': perm_id,
+                'ib_status': ib_status or 'Submitted',
+                'client_id': client_id,
+                'account_id': order_account,
+                'intent': intent,
+                'tif': str(getattr(order, 'tif', '') or ''),
+                'order_ref': str(getattr(order, 'orderRef', '') or ''),
+                'con_id': con_id,
+                'contract_multiplier': float(
+                    getattr(contract, 'multiplier', 100) or 100
+                ),
+                'external_ib': True,
+                'timestamp': ''
+            })
+
+        return active_orders
+
+    def check_order_status(
+        self, order_id, perm_id=None, order_details=None, status_snapshot=None
+    ):
         """
         Check the status of an order by its IB order ID
         
@@ -1429,45 +1871,92 @@ class IBConnection:
             
             order_id = int(order_id) if order_id else None
             
-            try:
-                self.ib.reqOpenOrders()
-                self.ib.reqAllOpenOrders()
-                self.ib.sleep(0.5)
-            except Exception as e:
-                logger.warning(f"Could not refresh open orders: {e}")
-            
-            trades = list(self.ib.openTrades()) + list(self.ib.trades())
+            status_snapshot = status_snapshot or self.get_order_status_snapshot() or {
+                'trades': [],
+                'completed_trades': None
+            }
+            trades = status_snapshot['trades']
             for trade in trades:
                 if self._trade_matches_order(trade, order_id, perm_id, order_details):
                     return self._trade_to_status(trade)
             
-            # Check execution history if not found in open orders or trades
-            executions = self.ib.executions()
-            for execution in executions:
-                if execution.orderId == order_id:
-                    # Get commission info from commissions report
-                    commission = 0
-                    for fill in self.ib.fills():
-                        if fill.execution.orderId == order_id:
-                            commission += float(fill.commissionReport.commission or 0)
-                    
-                    # Map to our standard format
-                    return {
-                        'status': 'Filled',
-                        'filled': execution.shares,
-                        'remaining': 0,
-                        'avg_fill_price': float(execution.price or 0),
-                        'commission': commission
-                    }
-
+            # Completed orders carry the final state, including partial-fill then
+            # cancel outcomes. Prefer them over raw execution history.
             try:
-                completed_trades = self.ib.reqCompletedOrders(False)
-                self.ib.sleep(0.2)
+                completed_trades = status_snapshot.get('completed_trades')
+                if completed_trades is None:
+                    completed_trades = self.ib.reqCompletedOrders(False)
+                    self.ib.sleep(0.2)
+                    status_snapshot['completed_trades'] = completed_trades
                 for trade in completed_trades:
                     if self._trade_matches_order(trade, order_id, perm_id, order_details):
                         return self._trade_to_status(trade)
             except Exception as e:
                 logger.warning(f"Could not refresh completed orders: {e}")
+
+            # Execution callbacks are not sufficient to prove the whole order
+            # filled. Aggregate them and compare with the locally staged quantity.
+            executions = self.ib.executions()
+            matching_executions = []
+            local_order_id = (order_details or {}).get('id')
+            expected_order_ref = f"AYNIW-{local_order_id}" if local_order_id else None
+            for execution in executions:
+                execution_order_id = getattr(execution, 'orderId', 0)
+                execution_perm_id = getattr(execution, 'permId', 0)
+                execution_order_ref = str(getattr(execution, 'orderRef', '') or '')
+                if perm_id:
+                    matches_execution = str(execution_perm_id) == str(perm_id)
+                elif expected_order_ref:
+                    matches_execution = execution_order_ref == expected_order_ref
+                else:
+                    matches_execution = execution_order_id == order_id
+                if matches_execution:
+                    matching_executions.append(execution)
+
+            if matching_executions:
+                filled = sum(float(getattr(item, 'shares', 0) or 0) for item in matching_executions)
+                fill_value = sum(
+                    float(getattr(item, 'shares', 0) or 0)
+                    * float(getattr(item, 'price', 0) or 0)
+                    for item in matching_executions
+                )
+                avg_fill_price = fill_value / filled if filled else 0
+                commission = 0
+                for fill in self.ib.fills():
+                    execution = getattr(fill, 'execution', None)
+                    if not execution:
+                        continue
+                    if perm_id:
+                        matches_fill = str(getattr(execution, 'permId', 0)) == str(perm_id)
+                    elif expected_order_ref:
+                        matches_fill = (
+                            str(getattr(execution, 'orderRef', '') or '')
+                            == expected_order_ref
+                        )
+                    else:
+                        matches_fill = getattr(execution, 'orderId', 0) == order_id
+                    if matches_fill:
+                        report = getattr(fill, 'commissionReport', None)
+                        commission += float(getattr(report, 'commission', 0) or 0)
+
+                try:
+                    expected_quantity = float((order_details or {}).get('quantity', 0) or 0)
+                except (TypeError, ValueError):
+                    expected_quantity = 0
+                fully_filled = expected_quantity > 0 and filled >= expected_quantity
+                result = {
+                    'status': 'Filled' if fully_filled else 'Unknown',
+                    'filled': filled,
+                    'remaining': max(expected_quantity - filled, 0),
+                    'avg_fill_price': avg_fill_price,
+                    'commission': commission
+                }
+                if not fully_filled:
+                    result['error_message'] = (
+                        "IB returned partial execution history without a final order state. "
+                        "Verify the remaining quantity in IB Gateway before taking further action."
+                    )
+                return result
             
             # Order not found
             logger.warning(f"Order with ID {order_id} / permId {perm_id} not found")

@@ -2,12 +2,12 @@
  * Main dashboard module
  * Coordinates all dashboard components and initializes the dashboard
  */
-import { loadPortfolioData } from './account.js?v=close-position-1';
-import { loadTickers } from './options-table.js?v=refactor-safety-3';
-import { loadPendingOrders } from './orders.js?v=close-position-1';
+import { loadPortfolioData } from './account.js?v=account-live-2';
+import { loadTickers } from './options-table.js?v=progressive-load-2';
+import { loadPendingOrders } from './orders.js?v=execution-pref-1';
 import { showAlert } from '../utils/alerts.js?v=close-position-1';
 import { fetchWeeklyOptionIncome } from './api.js?v=safety-1';
-import { formatCurrency } from './account.js?v=close-position-1';
+import { formatCurrency } from './account.js?v=account-live-2';
 
 // Store weekly income data
 let weeklyIncomeData = null;
@@ -15,9 +15,9 @@ let weeklyIncomeData = null;
 /**
  * Update the weekly earnings summary card
  */
-async function updateWeeklyEarningsSummary() {
+async function updateWeeklyEarningsSummary(initialData = null) {
     try {
-        const data = await fetchWeeklyOptionIncome();
+        const data = initialData || await fetchWeeklyOptionIncome();
         weeklyIncomeData = data;
         
         // Update the weekly income summary card
@@ -59,12 +59,15 @@ async function initializeDashboard() {
             }
         }
         
-        // Load all dashboard components in parallel
-        await Promise.all([
+        // Reuse the portfolio bootstrap data instead of requesting the same
+        // account and positions again while the Gateway session is cold.
+        const [portfolioData, initialWeeklyIncome] = await Promise.all([
             loadPortfolioData(),
-            loadTickers(),
-            loadPendingOrders(),
-            updateWeeklyEarningsSummary()
+            loadPendingOrders()
+        ]);
+        await Promise.all([
+            loadTickers(portfolioData),
+            updateWeeklyEarningsSummary(initialWeeklyIncome)
         ]);
         
         // Initialize Bootstrap tooltips

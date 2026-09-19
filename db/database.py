@@ -108,7 +108,8 @@ class OptionsDatabase:
                 avg_fill_price REAL DEFAULT 0,
                 
                 -- Rollover data
-                isRollover BOOLEAN DEFAULT 0
+                isRollover BOOLEAN DEFAULT 0,
+                rollover_close_order_id INTEGER
             )
         ''')
 
@@ -194,6 +195,11 @@ class OptionsDatabase:
                 cursor.execute("ALTER TABLE orders ADD COLUMN warning_text TEXT")
                 print("Migration completed: warning_text column added")
 
+            if 'rollover_close_order_id' not in column_names:
+                print("Running migration: Adding rollover_close_order_id column to orders table")
+                cursor.execute("ALTER TABLE orders ADD COLUMN rollover_close_order_id INTEGER")
+                print("Migration completed: rollover_close_order_id column added")
+
             close_order_columns = {
                 'intent': "TEXT NOT NULL DEFAULT 'OPEN'",
                 'con_id': 'INTEGER',
@@ -249,8 +255,9 @@ class OptionsDatabase:
                  open_interest, volume, is_mock,
                  earnings_max_contracts, earnings_premium_per_contract, 
                  earnings_total_premium, earnings_return_on_cash, 
-                 earnings_return_on_capital, status, executed, isRollover)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 earnings_return_on_capital, status, executed, isRollover,
+                 rollover_close_order_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 timestamp,
                 order_data.get('ticker', ''),
@@ -285,7 +292,8 @@ class OptionsDatabase:
                 order_data.get('earnings_return_on_capital', 0),
                 'pending',
                 False,
-                order_data.get('isRollover', False)
+                order_data.get('isRollover', False),
+                order_data.get('rollover_close_order_id')
             ))
 
         return cursor.lastrowid
@@ -303,6 +311,27 @@ class OptionsDatabase:
             if conn:
                 conn.rollback()
             print(f"Error saving order: {str(e)}")
+            return []
+        finally:
+            if conn:
+                conn.close()
+
+    def save_rollover_pair(self, close_order, open_order):
+        """Atomically save a rollover pair and link the opening leg to its close."""
+        conn = None
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            close_order_id = self._insert_order(cursor, close_order)
+            linked_open_order = dict(open_order)
+            linked_open_order['rollover_close_order_id'] = close_order_id
+            open_order_id = self._insert_order(cursor, linked_open_order)
+            conn.commit()
+            return [close_order_id, open_order_id]
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            print(f"Error saving rollover pair: {str(e)}")
             return []
         finally:
             if conn:
@@ -506,6 +535,30 @@ class OptionsDatabase:
         except Exception as e:
             error_msg = f"Error updating order quantity: {str(e)}"
             print(error_msg)
+            traceback.print_exc()
+            return False
+
+    def update_order_premium(self, order_id, premium):
+        """Update the limit price only while an order is still staged locally."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE orders
+                SET premium = ?,
+                    timestamp = ?
+                WHERE id = ? AND status = 'pending' AND executed = 0
+            ''', (
+                premium,
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                order_id
+            ))
+            affected_rows = cursor.rowcount
+            conn.commit()
+            conn.close()
+            return affected_rows > 0
+        except Exception as e:
+            print(f"Error updating order premium: {str(e)}")
             traceback.print_exc()
             return False
             

@@ -166,6 +166,29 @@ h1 {
     gap: 0.5rem;
 }
 
+.trading-settings-toggle {
+    width: 2.25rem;
+    height: 2.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.375rem;
+}
+
+.trading-settings-menu {
+    min-width: 17rem;
+    padding: 0.85rem 1rem;
+}
+
+.trading-settings-menu .form-check-label {
+    color: var(--app-text);
+    font-weight: 620;
+}
+
+.pending-order-actions {
+    flex-shrink: 0;
+}
+
 .language-toggle {
     min-width: 3.25rem;
     height: 2.25rem;
@@ -174,6 +197,32 @@ h1 {
     justify-content: center;
     border-radius: 0.375rem;
     font-weight: 700;
+}
+
+.position-stream-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-height: 1.5rem;
+}
+
+.position-stream-badge {
+    min-width: 5.75rem;
+    letter-spacing: 0;
+}
+
+.position-current-price {
+    transition: color 160ms ease, background-color 160ms ease;
+}
+
+.price-tick-up {
+    color: var(--bs-success-text-emphasis) !important;
+    background-color: rgba(25, 135, 84, 0.16) !important;
+}
+
+.price-tick-down {
+    color: var(--bs-danger-text-emphasis) !important;
+    background-color: rgba(220, 53, 69, 0.16) !important;
 }
 
 /* Card styles */
@@ -453,6 +502,21 @@ h1 {
     border-color: var(--app-border-strong);
 }
 
+.pending-price-editor {
+    width: 8.5rem;
+    min-width: 8.5rem;
+}
+
+.pending-price-editor .form-control {
+    min-width: 0;
+    text-align: center;
+}
+
+.pending-price-editor .save-order-price {
+    width: 2.25rem;
+    padding-inline: 0;
+}
+
 .progress {
     background-color: var(--app-surface-strong);
 }
@@ -618,11 +682,13 @@ h1 {
 
 .options-opportunities-table .otm-input,
 .options-opportunities-table .mid-price-input,
+.options-opportunities-table .call-qty-input,
 .options-opportunities-table .put-qty-input {
     text-align: right;
     font-variant-numeric: tabular-nums;
 }
 
+.options-opportunities-table .call-qty-input,
 .options-opportunities-table .put-qty-input {
     margin-inline: auto;
 }
@@ -647,8 +713,10 @@ h1 {
     justify-content: center;
 }
 
+.options-opportunities-table .call-qty-input,
 .options-opportunities-table .put-qty-input {
     min-width: 4.375rem;
+    max-width: 4.375rem;
 }
 
 #call-options-table .mid-price-control {
@@ -866,6 +934,10 @@ footer {
     .card-footer {
         padding-left: 1rem;
         padding-right: 1rem;
+    }
+
+    .pending-order-actions .btn span {
+        display: none;
     }
 
     .options-toolbar {

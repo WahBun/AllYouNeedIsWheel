@@ -2,6 +2,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:frontend": "node --test tests/test_option_pricing.js"
+    "test:frontend": "node --test tests/*.js"
   }
 }

@@ -5,12 +5,11 @@ Handles options data retrieval and processing
 
 import logging
 import math
-import random
 import re
 import time
 from datetime import datetime, timedelta, time as datetime_time
 import pandas as pd
-from core.connection import IBConnection, Option, Stock, suppress_ib_logs
+from core.connection import suppress_ib_logs
 from core.utils import (
     get_closest_friday,
     get_next_monthly_expiration,
@@ -19,6 +18,7 @@ from core.utils import (
 )
 from config import Config
 from db.database import OptionsDatabase
+from api.services.connection_manager import get_shared_connection
 import traceback
 import concurrent.futures
 from functools import partial
@@ -49,43 +49,64 @@ class OptionsService:
                 logger.debug("Reusing existing TWS connection")
                 return self.connection
             
-            # If connection exists but is disconnected, try to reconnect with same client ID
-            if self.connection is not None:
-                logger.info("Existing connection found but disconnected, attempting to reconnect")
-                if self.connection.connect():
-                    logger.info("Successfully reconnected to TWS/IB Gateway with existing client ID")
-                    return self.connection
-                else:
-                    logger.warning("Failed to reconnect with existing client ID, will create new connection")
-        
-            # No connection or reconnection failed, create a new one
-            # Generate a unique client ID based on current timestamp and random number
-            unique_client_id = int(time.time() % 10000) + random.randint(1000, 9999)
-            logger.info(f"Creating new TWS connection with client ID: {unique_client_id}")
-            
-            port = self.config.get('port', 7497)
-            
-            self.connection = IBConnection(
-                host=self.config.get('host', '127.0.0.1'),
-                port=port,
-                client_id=unique_client_id,  # Use the unique client ID instead of fixed ID 1
-                timeout=self.config.get('timeout', 20),
-                readonly=self.config.get('readonly', True),
-                account_id=self.config.get('account_id')
-            )
-            
-            # Try to connect with proper error handling
-            if not self.connection.connect():
+            self.connection = get_shared_connection(self.config)
+            if self.connection is None:
                 logger.error("Failed to connect to TWS/IB Gateway")
-                return None
-            else:
-                logger.info("Successfully connected to TWS/IB Gateway")
-                return self.connection
+            return self.connection
         except Exception as e:
             logger.error(f"Error ensuring connection: {str(e)}")
             if "There is no current event loop" in str(e):
                 logger.error("Asyncio event loop error - please check connection.py for proper handling")
             return None
+
+    def get_pending_orders_with_ib(
+        self, executed=False, is_rollover=None, force_refresh=False
+    ):
+        """Merge local pending orders with active orders entered directly in IB."""
+        local_orders = self.db.get_pending_orders(
+            executed=executed,
+            isRollover=is_rollover
+        )
+        if executed or is_rollover is not None:
+            return local_orders
+
+        conn = self._ensure_connection()
+        if not conn:
+            return local_orders
+
+        account = conn._order_account()
+        if not account:
+            return local_orders
+
+        try:
+            ib_orders = conn.get_open_option_orders(
+                account_id=account,
+                force_refresh=force_refresh
+            )
+        except Exception as error:
+            logger.error("Could not load active IB option orders: %s", error)
+            return local_orders
+
+        local_perm_ids = {
+            str(order.get('perm_id'))
+            for order in local_orders
+            if order.get('perm_id') not in (None, '', 0, '0')
+        }
+        local_order_refs = {
+            f"AYNIW-{order.get('id')}"
+            for order in local_orders
+            if order.get('id') is not None
+        }
+
+        external_orders = []
+        for order in ib_orders:
+            if str(order.get('perm_id')) in local_perm_ids:
+                continue
+            if order.get('order_ref') in local_order_refs:
+                continue
+            external_orders.append(order)
+
+        return local_orders + external_orders
 
     def validate_order_data(self, order_data):
         """Normalize an option order and reject values that are unsafe to persist."""
@@ -141,6 +162,12 @@ class OptionsService:
             raise ValueError("A positive limit price is required")
         if not math.isfinite(premium) or premium <= 0:
             raise ValueError("A positive limit price is required")
+        rounded_premium = round(premium, 2)
+        if not math.isclose(premium, rounded_premium, abs_tol=1e-9):
+            raise ValueError("Limit price can have at most two decimal places")
+        premium = rounded_premium
+        if premium < 0.01:
+            raise ValueError("Limit price must be at least 0.01")
         if option_type == 'PUT' and premium > strike:
             raise ValueError("PUT limit price cannot exceed its strike price")
 
@@ -193,7 +220,7 @@ class OptionsService:
             'strike': strike,
             'expiration': expiration,
             'quantity': quantity,
-            'premium': round(premium, 2),
+            'premium': premium,
             **prices,
             **close_fields
         })
@@ -465,6 +492,19 @@ class OptionsService:
                     "status": "rejected"
                 }, 400
 
+            if order.get('isRollover') and order.get('intent') == 'OPEN':
+                close_order_id = order.get('rollover_close_order_id')
+                close_order = db.get_order(close_order_id) if close_order_id else None
+                if not close_order or close_order.get('status') != 'executed':
+                    return {
+                        "success": False,
+                        "error": (
+                            "The rollover close leg must be fully filled before the new "
+                            "opening leg can be executed"
+                        ),
+                        "status": "pending"
+                    }, 409
+
             suppress_ib_logs()
             conn = self._ensure_connection()
             if not conn:
@@ -479,6 +519,26 @@ class OptionsService:
                     "success": False,
                     "error": "No unambiguous IB account is configured for order routing"
                 }, 503
+
+            staged_account = str(order.get('account_id') or '').strip()
+            if not staged_account:
+                return {
+                    "success": False,
+                    "error": (
+                        "This pending order does not record a target IB account. "
+                        "Delete it and recreate the order before execution."
+                    ),
+                    "status": "pending"
+                }, 409
+            if staged_account != str(account):
+                return {
+                    "success": False,
+                    "error": (
+                        "The configured IB account changed after this order was staged. "
+                        "Delete it and recreate the order for the current account."
+                    ),
+                    "status": "pending"
+                }, 409
 
             ticker = order['ticker']
             quantity = order['quantity']
@@ -498,29 +558,43 @@ class OptionsService:
                     )
                 contract = close_position['contract']
             else:
-                contract = conn.create_option_contract(
-                    symbol=ticker,
-                    expiry=expiry,
-                    strike=strike,
-                    option_type=option_type
+                if option_type == 'CALL':
+                    covered_capacity = conn.get_covered_call_capacity(ticker, account)
+                    if quantity > covered_capacity:
+                        return {
+                            "success": False,
+                            "error": (
+                                f"Only {covered_capacity} covered CALL contract(s) remain after "
+                                "existing short CALL positions and active SELL orders"
+                            ),
+                            "status": "pending"
+                        }, 409
+
+                contract = conn.get_qualified_option_contract(
+                    ticker,
+                    expiry,
+                    strike,
+                    'C' if option_type == 'CALL' else 'P'
                 )
             if not contract:
                 return {
                     "success": False,
-                    "error": "Failed to create option contract"
-                }, 500
+                    "error": "IB could not qualify the exact option contract; refresh and recreate the order"
+                }, 422
 
             ib_order = conn.create_order(
                 action=action,
                 quantity=quantity,
                 order_type='LMT',
-                limit_price=limit_price
+                limit_price=limit_price,
+                tif='GTC' if order.get('intent') == 'CLOSE' else 'DAY'
             )
             if not ib_order:
                 return {
                     "success": False,
                     "error": "Failed to create limit order"
                 }, 500
+            ib_order.orderRef = f"AYNIW-{order_id}"
 
             if not db.claim_order_for_execution(order_id):
                 current_order = db.get_order(order_id) or {}
@@ -548,7 +622,11 @@ class OptionsService:
                     or "IB did not approve this order during preflight validation"
                 )
                 execution_details = {
-                    "ib_status": "Rejected",
+                    "ib_status": (
+                        "NotSubmitted"
+                        if (preflight or {}).get('timed_out')
+                        else "Rejected"
+                    ),
                     "error_code": (preflight or {}).get('error_code'),
                     "error_message": error_message,
                     "warning_text": (preflight or {}).get('warning_text'),
@@ -569,7 +647,7 @@ class OptionsService:
                     "order_id": order_id,
                     "status": "rejected",
                     "execution_details": execution_details
-                }, 422
+                }, 504 if (preflight or {}).get('timed_out') else 422
 
             if order.get('intent') == 'CLOSE':
                 try:
@@ -579,6 +657,30 @@ class OptionsService:
                     return self._close_order_error_response(
                         db, order_id, error, expected_status='submitting'
                     )
+            elif option_type == 'CALL':
+                covered_capacity = conn.get_covered_call_capacity(ticker, account)
+                if quantity > covered_capacity:
+                    message = (
+                        f"Covered CALL capacity changed during preflight; only "
+                        f"{covered_capacity} contract(s) remain. Recreate the order."
+                    )
+                    db.update_order_status(
+                        order_id=order_id,
+                        status='rejected',
+                        executed=True,
+                        execution_details={
+                            'ib_status': 'NotSubmitted',
+                            'error_message': message,
+                            'filled': 0,
+                            'remaining': quantity
+                        },
+                        expected_statuses=['submitting']
+                    )
+                    return {
+                        'success': False,
+                        'error': message,
+                        'status': 'rejected'
+                    }, 409
 
             transmit_attempted = True
             result = conn.place_order(contract, ib_order)
@@ -611,14 +713,14 @@ class OptionsService:
             error_message = result.get('error_message') or result.get('error')
             normalized_status = ib_status.lower()
 
-            if error_message or normalized_status in {'inactive', 'error'}:
-                order_status = "rejected"
-                finalized = True
-            elif normalized_status == 'filled':
+            if normalized_status == 'filled':
                 order_status = "executed"
                 finalized = True
             elif normalized_status in {'apicancelled', 'cancelled'}:
                 order_status = "canceled"
+                finalized = True
+            elif normalized_status == 'inactive':
+                order_status = "rejected"
                 finalized = True
             elif normalized_status in {
                 'submitted', 'presubmitted', 'pendingsubmit', 'apisubmit',
@@ -901,6 +1003,15 @@ class OptionsService:
         
         # Add options data to result
         result.update(options_data)
+
+        if not option_type or option_type == 'CALL':
+            try:
+                account = conn._order_account()
+                covered_capacity = conn.get_covered_call_capacity(ticker, account)
+            except Exception as error:
+                logger.error("Could not calculate covered CALL capacity for %s: %s", ticker, error)
+                covered_capacity = 0
+            result['covered_call_capacity'] = covered_capacity
         
         return result
 
@@ -1148,19 +1259,29 @@ class OptionsService:
                 }
                 
             updated_orders = []
+            status_snapshot = None
+            if hasattr(conn, 'get_order_status_snapshot'):
+                status_snapshot = conn.get_order_status_snapshot()
+
             for order in orders:
                 order_id = order.get('id')
                 ib_order_id = order.get('ib_order_id')
                 
                 # Only check orders that have been submitted to IB
-                if order.get('status') in {'processing', 'canceling', 'unknown'} and ib_order_id:
+                should_check = (
+                    order.get('status') in {'processing', 'canceling', 'unknown'}
+                    and bool(ib_order_id)
+                ) or order.get('status') == 'submitting'
+                if should_check:
                     try:
                         # Check status in TWS
-                        ib_status = conn.check_order_status(
-                            ib_order_id,
-                            perm_id=order.get('perm_id'),
-                            order_details=order
-                        )
+                        check_kwargs = {
+                            'perm_id': order.get('perm_id'),
+                            'order_details': order
+                        }
+                        if status_snapshot is not None:
+                            check_kwargs['status_snapshot'] = status_snapshot
+                        ib_status = conn.check_order_status(ib_order_id, **check_kwargs)
                         
                         if ib_status:
                             # Determine new status based on IB status
@@ -1170,25 +1291,26 @@ class OptionsService:
                             
                             # Map IB status to our status
                             raw_ib_status = ib_status.get('status')
-                            if ib_status.get('error_message') or raw_ib_status == 'Inactive':
-                                new_status = "rejected"
-                                executed = True
-                            elif raw_ib_status in ['Filled', 'ApiCancelled', 'Cancelled']:
+                            if raw_ib_status in ['Filled', 'ApiCancelled', 'Cancelled']:
                                 if raw_ib_status == 'Filled':
                                     new_status = "executed"
                                     executed = True  # Mark as executed if filled
                                 else:
                                     new_status = "canceled"
                                     executed = True  # Mark as executed if cancelled
+                            elif raw_ib_status == 'Inactive':
+                                new_status = "rejected"
+                                executed = True
                             elif raw_ib_status == 'PendingCancel':
                                 new_status = "canceling"
-                            elif raw_ib_status == 'NotFound':
+                            elif raw_ib_status in {'NotFound', 'Unknown'}:
                                 new_status = "unknown"
                                 executed = False
-                                ib_status['error_message'] = (
-                                    "IB did not return this order. Verify it in IB Gateway before retrying, "
-                                    "canceling, or placing a replacement."
-                                )
+                                if raw_ib_status == 'NotFound':
+                                    ib_status['error_message'] = (
+                                        "IB did not return this order. Verify it in IB Gateway before retrying, "
+                                        "canceling, or placing a replacement."
+                                    )
                                     
                             # Update execution details
                             execution_details = {

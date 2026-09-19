@@ -92,7 +92,15 @@ def save_order():
         # Entry orders must use this generic endpoint. Close orders are built
         # server-side from a live position through /close-order.
         order_data = dict(order_data)
+        if str(order_data.get('action', '')).strip().upper() != 'SELL':
+            return jsonify({
+                "error": (
+                    "Entry orders must be SELL TO OPEN. Close orders must be "
+                    "created from the exact position in Portfolio."
+                )
+            }), 400
         order_data['intent'] = 'OPEN'
+        order_data['isRollover'] = False
         for field in (
             'con_id', 'account_id', 'contract_multiplier',
             'exchange', 'currency', 'local_symbol'
@@ -103,6 +111,13 @@ def save_order():
             order_data = options_service.validate_order_data(order_data)
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
+
+        configured_account = str(options_service.config.get('account_id', '') or '').strip()
+        if not configured_account:
+            return jsonify({
+                "error": "An explicit IB account must be configured before staging an order"
+            }), 503
+        order_data['account_id'] = configured_account
         
         # Save order to database
         order_id = options_service.db.save_order(order_data)
@@ -147,8 +162,11 @@ def get_pending_orders():
         if is_rollover_param is not None:
             is_rollover = is_rollover_param.lower() == 'true'
         
-        # Get pending orders from database
-        orders = options_service.db.get_pending_orders(executed=executed, isRollover=is_rollover)
+        orders = options_service.get_pending_orders_with_ib(
+            executed=executed,
+            is_rollover=is_rollover,
+            force_refresh=not executed and is_rollover is None
+        )
         
         return jsonify({"orders": orders})
     except Exception as e:
@@ -248,6 +266,11 @@ def check_orders():
     try:
         # Use the options service to check and update order statuses
         response = options_service.check_pending_orders()
+        if response.get('success'):
+            payload = request.get_json(silent=True) or {}
+            response['orders'] = options_service.get_pending_orders_with_ib(
+                force_refresh=bool(payload.get('force_discovery'))
+            )
         
         # Return the response from the service
         return jsonify(response), 200
@@ -314,6 +337,7 @@ def rollover_option():
             'expiration': rollover_data['new_expiration'],
             'action': 'SELL',
             'intent': 'OPEN',
+            'account_id': buy_order['account_id'],
             'quantity': rollover_data['quantity'],
             'order_type': 'LIMIT',
             'premium': rollover_data.get('new_limit_price'),
@@ -328,7 +352,7 @@ def rollover_option():
             return jsonify({"error": str(error)}), 400
 
         # Store the two rollover legs in one transaction so a partial pair cannot exist.
-        order_ids = db.save_orders([buy_order, sell_order])
+        order_ids = db.save_rollover_pair(buy_order, sell_order)
         buy_order_id, sell_order_id = order_ids if len(order_ids) == 2 else (None, None)
         
         if buy_order_id and sell_order_id:
@@ -450,6 +474,51 @@ def update_order_quantity(order_id):
         return jsonify({"error": "Invalid quantity value"}), 400
     except Exception as e:
         logger.error(f"Error updating order quantity: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
+
+@bp.route('/order/<int:order_id>/premium', methods=['PUT'])
+def update_order_premium(order_id):
+    """Update a staged order's per-share limit price before IB submission."""
+    try:
+        request_data = request.get_json(silent=True) or {}
+        if 'premium' not in request_data:
+            return jsonify({"error": "Missing limit price"}), 400
+
+        db = current_app.config.get('database')
+        if not db:
+            return jsonify({"error": "Database not initialized"}), 500
+
+        order = db.get_order(order_id)
+        if not order:
+            return jsonify({"error": f"Order with ID {order_id} not found"}), 404
+        if order.get('status') != 'pending' or order.get('executed'):
+            return jsonify({
+                "error": "Limit price can only be changed before the order is sent to IB"
+            }), 409
+
+        try:
+            normalized_order = options_service.validate_order_data({
+                **order,
+                'premium': request_data['premium']
+            })
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+
+        premium = normalized_order['premium']
+        if not db.update_order_premium(order_id, premium):
+            return jsonify({
+                "error": "Order changed state before the new limit price was saved"
+            }), 409
+
+        return jsonify({
+            "success": True,
+            "message": f"Limit price updated to {premium:.2f}",
+            "order_id": order_id,
+            "premium": premium
+        }), 200
+    except Exception as e:
+        logger.error(f"Error updating order limit price: {str(e)}")
         logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 

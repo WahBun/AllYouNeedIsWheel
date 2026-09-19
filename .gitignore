@@ -14,6 +14,13 @@ venv/
 env/
 ENV/
 
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
 # IDE files
 .idea/
 .vscode/

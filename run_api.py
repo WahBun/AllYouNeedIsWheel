@@ -7,6 +7,7 @@ Script to start the Auto-Trader API server using platform-appropriate WSGI serve
 
 import os
 import sys
+import json
 import platform
 import argparse
 import subprocess
@@ -109,16 +110,33 @@ def main():
         args = parser.parse_args()
         
         # Set environment variable for connection config based on the flag
-        if args.realmoney:
-            os.environ['CONNECTION_CONFIG'] = 'connection_real.json'
-            logger.warning("Using REAL MONEY trading configuration! Be careful with your orders!")
-        else:
-            os.environ['CONNECTION_CONFIG'] = 'connection.json'
-            logger.info("Using paper trading configuration")
+        config_path = 'connection_real.json' if args.realmoney else 'connection.json'
+        os.environ['CONNECTION_CONFIG'] = config_path
+        try:
+            with open(config_path, 'r') as config_file:
+                connection_config = json.load(config_file)
+            account_suffix = str(connection_config.get('account_id') or '')[-4:] or 'none'
+            logger.warning(
+                "Using %s: port=%s, readonly=%s, account=****%s, client_id=%s",
+                config_path,
+                connection_config.get('port', 'unset'),
+                connection_config.get('readonly', True),
+                account_suffix,
+                connection_config.get('client_id', 1)
+            )
+        except (OSError, ValueError) as error:
+            logger.warning("Could not inspect %s before startup: %s", config_path, error)
         
         # Get port from environment variable or use default (changed from 5000 to 8000)
         port = os.environ.get('PORT', '8000')
-        workers = os.environ.get('WORKERS', '4')
+        requested_workers = int(os.environ.get('WORKERS', '1'))
+        workers = 1
+        if requested_workers != workers:
+            logger.warning(
+                "Ignoring WORKERS=%s: IB order tracking requires one web worker "
+                "to preserve a single API client identity",
+                requested_workers
+            )
         
         # Check if port is available
         import socket
@@ -142,7 +160,7 @@ def main():
                 from waitress import serve
                 from app import app
                 # Start the server
-                serve(app, host='0.0.0.0', port=int(port), threads=int(workers))
+                serve(app, host='0.0.0.0', port=int(port), threads=workers)
             except ImportError:
                 logger.error("Waitress is not installed. Please install it with: pip install waitress")
                 sys.exit(1)
@@ -151,9 +169,11 @@ def main():
             logger.info(f"Starting Auto-Trader API server on port {port} with {workers} workers using gunicorn")
             try:
                 # Build the gunicorn command
-                cmd = f"gunicorn --workers={workers} --bind=127.0.0.1:{port} app:app"
-                # Run gunicorn
-                os.system(cmd)
+                cmd = [
+                    'gunicorn', f'--workers={workers}',
+                    f'--bind=127.0.0.1:{port}', 'app:app'
+                ]
+                subprocess.call(cmd)
             except Exception as e:
                 logger.error(f"Error starting gunicorn: {str(e)}")
                 

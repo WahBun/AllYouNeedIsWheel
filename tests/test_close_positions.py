@@ -16,7 +16,7 @@ class TestConfig:
 
 class FakeCloseConnection:
     def __init__(self, position=-3, con_id=81001):
-        self.account = 'U0002766'
+        self.account = 'U1234567'
         self.position = position
         self.contract = SimpleNamespace(
             secType='OPT',
@@ -58,12 +58,16 @@ class FakeCloseConnection:
     def create_option_contract(self, **kwargs):
         raise AssertionError('Close orders must not reconstruct an option contract')
 
-    def create_order(self, action, quantity, order_type, limit_price):
+    def get_qualified_option_contract(self, *args, **kwargs):
+        raise AssertionError('Close orders must use the exact held contract')
+
+    def create_order(self, action, quantity, order_type, limit_price, tif='DAY'):
         order = SimpleNamespace(
             action=action,
             totalQuantity=quantity,
             orderType=order_type,
             lmtPrice=limit_price,
+            tif=tif,
             account=self.account
         )
         self.created_orders.append(order)
@@ -230,6 +234,7 @@ class ClosePositionSafetyTests(unittest.TestCase):
         self.assertIs(connection.placed_contract, connection.contract)
         self.assertEqual(connection.created_orders[0].action, 'BUY')
         self.assertEqual(connection.created_orders[0].lmtPrice, 0.31)
+        self.assertEqual(connection.created_orders[0].tif, 'GTC')
         self.assertEqual(connection.place_calls, 1)
 
 
@@ -255,17 +260,15 @@ class CloseOrderRouteTests(unittest.TestCase):
             'action': 'BUY',
             'intent': 'CLOSE',
             'con_id': 81001,
-            'account_id': 'U0002766',
+            'account_id': 'U1234567',
             'strike': 9,
             'expiration': '20991219',
             'premium': 0.31,
             'quantity': 1
         }, headers=self.headers)
 
-        self.assertEqual(response.status_code, 201)
-        order = self.db.get_order(response.get_json()['order_id'])
-        self.assertEqual(order['intent'], 'OPEN')
-        self.assertIsNone(order['con_id'])
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.db.get_orders(), [])
 
     def test_pending_close_quantity_is_locked(self):
         order_id = self.db.save_order({
@@ -274,7 +277,7 @@ class CloseOrderRouteTests(unittest.TestCase):
             'action': 'BUY',
             'intent': 'CLOSE',
             'con_id': 81001,
-            'account_id': 'U0002766',
+            'account_id': 'U1234567',
             'strike': 9,
             'expiration': '20991219',
             'premium': 0.31,

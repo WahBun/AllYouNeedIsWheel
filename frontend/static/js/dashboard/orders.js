@@ -1,9 +1,25 @@
 /**
  * Orders module for handling pending orders
  */
-import { fetchPendingOrders, cancelOrder, executeOrder, checkOrderStatus, fetchWeeklyOptionIncome } from './api.js?v=safety-1';
+import {
+    fetchPendingOrders,
+    cancelOrder,
+    executeOrder,
+    checkOrderStatus,
+    fetchWeeklyOptionIncome,
+    updatePendingOrderPremium
+} from './api.js?v=pending-price-1';
 import { showAlert, getBadgeColor } from '../utils/alerts.js?v=close-position-1';
-import { formatCurrency } from './account.js?v=close-position-1';
+import { formatCurrency } from './account.js?v=account-live-2';
+import {
+    getActiveExternalOrders,
+    getCancelableWebOrders,
+    getOrderTimeInForce,
+    getOrderSyncInterval,
+    hasTrackedOrders,
+    shouldForceOrderDiscovery,
+    TRACKED_ORDER_STATUSES
+} from '../utils/order-sync.js?v=order-sync-6';
 
 // Store orders data
 let pendingOrdersData = [];
@@ -11,9 +27,8 @@ let weeklyOptionIncomeData = {}; // Changed from filledOrdersData
 
 // Auto-refresh timer
 let autoRefreshTimer = null;
-const AUTO_REFRESH_INTERVAL = 10000; // 10 seconds
+let statusCheckInFlight = false;
 const ACTIVE_ORDER_STATUSES = ['pending', 'submitting', 'processing', 'canceling', 'unknown'];
-const TRACKED_ORDER_STATUSES = ['submitting', 'processing', 'canceling', 'unknown'];
 const TERMINAL_ORDER_STATUSES = ['executed', 'canceled', 'rejected'];
 const orderExecutionInFlight = new Set();
 
@@ -96,7 +111,7 @@ function updatePendingOrdersTable() {
     const visibleOrders = pendingOrdersData.filter(order => ACTIVE_ORDER_STATUSES.includes(order.status));
     
     if (visibleOrders.length === 0) {
-        pendingOrdersTable.innerHTML = `<tr><td colspan="8" class="text-center">${tr('orders.noPending')}</td></tr>`;
+        pendingOrdersTable.innerHTML = `<tr><td colspan="9" class="text-center">${tr('orders.noPending')}</td></tr>`;
         return;
     }
     
@@ -128,9 +143,15 @@ function updatePendingOrdersTable() {
         
         // Get the badge color for status
         const badgeColor = getBadgeColor(order.status);
-        
+
         // IB order information
-        const ibOrderId = order.ib_order_id || 'Not sent';
+        const isExternalIbOrder = Boolean(order.external_ib);
+        const ibOrderId = isExternalIbOrder
+            ? (order.perm_id ?? '-')
+            : (order.ib_order_id ?? 'Not sent');
+        const ibOrderIdLabel = isExternalIbOrder
+            ? tr('orders.ibPermId')
+            : tr('orders.ibId');
         const ibStatus = order.ib_status || '-';
         const errorMessage = order.error_message || order.error || '';
         
@@ -141,6 +162,7 @@ function updatePendingOrdersTable() {
         // Set quantity or default to 1
         const quantity = order.quantity || 1;
         const intent = String(order.intent || 'OPEN').toUpperCase();
+        const timeInForce = getOrderTimeInForce(order);
         const orderSide = intent === 'CLOSE'
             ? (order.action === 'BUY' ? tr('close.buyToClose') : tr('close.sellToClose'))
             : (order.action === 'SELL' ? tr('orders.sellToOpen') : tr('orders.buyToOpen'));
@@ -167,7 +189,7 @@ function updatePendingOrdersTable() {
             statusHtml += `
                 <br>
                 <small class="text-muted mt-1">
-                    <strong>${tr('orders.ibId')}</strong> ${ibOrderId}
+                    <strong>${ibOrderIdLabel}</strong> ${ibOrderId}
                 </small>
                 <br>
                 <small class="text-muted">
@@ -208,17 +230,34 @@ function updatePendingOrdersTable() {
         const quantityCell = order.status === 'pending' && intent !== 'CLOSE'
             ? `<input type="number" class="form-control form-control-sm quantity-input" data-order-id="${order.id}" value="${quantity}" min="1" max="100">`
             : `${quantity}`;
-        
-        // Create the row HTML
-        row.innerHTML = `
-            <td>${order.ticker}</td>
-            <td>${typeHtml}</td>
-            <td>${strike}</td>
-            <td>${order.expiration || 'N/A'}</td>
-            <td>${premium}</td>
-            <td>${quantityCell}</td>
-            <td>${statusHtml}</td>
-            <td>
+        const premiumCell = order.status === 'pending' && !isExternalIbOrder
+            ? `
+                <div class="input-group input-group-sm pending-price-editor">
+                    <span class="input-group-text">$</span>
+                    <input
+                        type="number"
+                        class="form-control pending-price-input"
+                        data-order-id="${order.id}"
+                        value="${Number(order.premium).toFixed(2)}"
+                        min="0.01"
+                        step="0.01"
+                        inputmode="decimal"
+                        aria-label="${tr('orders.limitPricePerShare')}"
+                    >
+                    <button
+                        type="button"
+                        class="btn btn-outline-primary save-order-price"
+                        data-order-id="${order.id}"
+                        title="${tr('orders.saveLimitPrice')}"
+                        aria-label="${tr('orders.saveLimitPrice')}"
+                        disabled
+                    ><i class="bi bi-check-lg"></i></button>
+                </div>
+            `
+            : premium;
+        const actionsHtml = isExternalIbOrder
+            ? `<span class="badge bg-secondary" title="${tr('orders.ibManagedHelp')}">${tr('orders.ibManaged')}</span>`
+            : `
                 <div class="btn-group btn-group-sm">
                     <button class="btn btn-outline-primary execute-order" data-order-id="${order.id}" ${order.status !== 'pending' ? 'disabled' : ''}>
                         <i class="bi bi-play-fill"></i> ${tr('common.execute')}
@@ -227,7 +266,19 @@ function updatePendingOrdersTable() {
                         <i class="bi bi-x-circle"></i> ${tr('common.cancel')}
                     </button>
                 </div>
-            </td>
+            `;
+        
+        // Create the row HTML
+        row.innerHTML = `
+            <td>${order.ticker}</td>
+            <td>${typeHtml}</td>
+            <td>${strike}</td>
+            <td>${order.expiration || 'N/A'}</td>
+            <td>${premiumCell}</td>
+            <td>${quantityCell}</td>
+            <td class="text-center">${timeInForce}</td>
+            <td>${statusHtml}</td>
+            <td>${actionsHtml}</td>
         `;
         
         pendingOrdersTable.appendChild(row);
@@ -236,8 +287,9 @@ function updatePendingOrdersTable() {
     // Add event listeners
     addOrdersTableEventListeners();
     
-    // Also update the filled orders if any order was executed
-    updateFilledOrdersTable();
+    if (document.getElementById('filled-orders-table')) {
+        updateFilledOrdersTable();
+    }
 }
 
 /**
@@ -246,7 +298,6 @@ function updatePendingOrdersTable() {
 function updateFilledOrdersTable() {
     const filledOrdersTable = document.getElementById('filled-orders-table');
     if (!filledOrdersTable) {
-        console.error('Could not find filled-orders-table element in the DOM');
         return;
     }
     
@@ -395,6 +446,54 @@ function addOrdersTableEventListeners() {
             }
         });
     });
+
+    document.querySelectorAll('.pending-price-input').forEach(input => {
+        const row = input.closest('tr');
+        const saveButton = row?.querySelector('.save-order-price');
+        const executeButton = row?.querySelector('.execute-order');
+        const orderId = Number(input.dataset.orderId);
+        const order = pendingOrdersData.find(item => item.id === orderId);
+
+        const reset = () => {
+            input.value = Number(order?.premium || 0).toFixed(2);
+            input.classList.remove('is-invalid');
+            delete input.dataset.dirty;
+            if (saveButton) saveButton.disabled = true;
+            if (executeButton) executeButton.disabled = false;
+        };
+
+        input.addEventListener('input', () => {
+            const value = Number(input.value);
+            const roundedValue = Number(value.toFixed(2));
+            const valid = Number.isFinite(value)
+                && value >= 0.01
+                && Math.abs(value - roundedValue) < Number.EPSILON * 10
+                && !(order?.option_type === 'PUT' && value > Number(order.strike));
+            const dirty = valid && roundedValue !== Number(order?.premium);
+
+            input.classList.toggle('is-invalid', !valid);
+            if (dirty || !valid) {
+                input.dataset.dirty = 'true';
+            } else {
+                delete input.dataset.dirty;
+            }
+            if (saveButton) saveButton.disabled = !dirty;
+            if (executeButton) executeButton.disabled = dirty || !valid;
+        });
+
+        input.addEventListener('keydown', event => {
+            if (event.key === 'Enter' && saveButton && !saveButton.disabled) {
+                event.preventDefault();
+                saveButton.click();
+            } else if (event.key === 'Escape') {
+                reset();
+            }
+        });
+
+        saveButton?.addEventListener('click', () => {
+            void savePendingOrderPrice(orderId, input, saveButton, executeButton);
+        });
+    });
     
     // Add listener to refresh pending orders button
     const refreshPendingOrdersButton = document.getElementById('refresh-pending-orders');
@@ -422,8 +521,14 @@ function confirmOrderExecution(orderId, sourceButton) {
         return;
     }
 
+    if (window.shouldConfirmOrderExecution?.() === false) {
+        void executeOrderById(orderId, sourceButton);
+        return;
+    }
+
     const quantity = Number(order.quantity || 1);
     const price = Number(order.premium || 0);
+    const strike = Number(order.strike || 0);
     const multiplier = Number(order.contract_multiplier || 100);
     const total = price * multiplier * quantity;
     const intent = String(order.intent || 'OPEN').toUpperCase();
@@ -438,8 +543,15 @@ function confirmOrderExecution(orderId, sourceButton) {
         `${tr('common.expiration')}: ${order.expiration}`,
         `${tr('common.quantity')}: ${quantity}`,
         `${tr('common.limitPrice')}: ${formatCurrency(price)} / share`,
+        `${tr('orders.timeInForce')}: ${getOrderTimeInForce(order)}`,
         `${tr('close.orderTotal')}: ${formatCurrency(total)}`,
-        ...(intent === 'CLOSE' ? [`${tr('close.account')}: •••• ${accountSuffix}`] : [])
+        ...(intent === 'OPEN' && order.option_type === 'PUT'
+            ? [`${tr('options.cashRequired')}: ${formatCurrency(strike * multiplier * quantity)}`]
+            : []),
+        ...(intent === 'OPEN' && order.option_type === 'CALL'
+            ? [`${tr('orders.coveredShares')}: ${multiplier * quantity}`]
+            : []),
+        `${tr('close.account')}: •••• ${accountSuffix}`
     ].join('\n');
 
     const modalElement = document.getElementById('confirmOrderModal');
@@ -580,19 +692,16 @@ async function loadPendingOrders() {
             pendingOrdersData = pendingData.orders;
             console.log(`Loaded ${pendingOrdersData.length} pending orders`);
             updatePendingOrdersTable();
-            if (pendingOrdersData.some(order => TRACKED_ORDER_STATUSES.includes(order.status))) {
-                startAutoRefresh();
-            } else {
-                stopAutoRefresh();
-            }
+            startAutoRefresh(false);
         }
         
-        if (document.getElementById('filled-orders-table')) {
-            await loadFilledOrders();
-        }
+        return document.getElementById('filled-orders-table')
+            ? await loadFilledOrders()
+            : null;
     } catch (error) {
         console.error('Error loading pending orders:', error);
         showAlert('Error loading pending orders', 'danger');
+        return null;
     }
 }
 
@@ -611,6 +720,7 @@ async function loadFilledOrders() {
             
             // Update the table
             updateFilledOrdersTable();
+            return incomeData;
         } else {
             console.warn('No weekly option income data received from API');
         }
@@ -618,83 +728,99 @@ async function loadFilledOrders() {
         console.error('Error loading weekly option income:', error);
         showAlert(`Error loading weekly income data: ${error.message}`, 'danger');
     }
+    return null;
 }
 
 /**
  * Check for order status updates with TWS
  */
 async function checkOrdersStatus() {
+    if (statusCheckInFlight || document.hidden || hasActiveOrderEditor()) {
+        return;
+    }
+
+    statusCheckInFlight = true;
     try {
-        // Track every state that may still change at IB.
-        const hasProcessingOrders = pendingOrdersData.some(order => 
-            TRACKED_ORDER_STATUSES.includes(order.status));
-            
-        if (hasProcessingOrders) {
-            const result = await checkOrderStatus();
-            
-            if (result && result.success && result.updated_orders && result.updated_orders.length > 0) {
-                console.log(`Received ${result.updated_orders.length} updated orders from status check`);
-                
-                // Track if any order's status changed to executed
-                let orderWasExecuted = false;
-                
-                // Update the orders that changed
-                result.updated_orders.forEach(updatedOrder => {
+        const result = await checkOrderStatus(
+            shouldForceOrderDiscovery(pendingOrdersData)
+        );
+
+        if (result && result.success && !hasActiveOrderEditor()) {
+            const updatedOrders = result.updated_orders || [];
+            const orderWasExecuted = updatedOrders.some(updatedOrder => {
+                const orderIndex = pendingOrdersData.findIndex(order => order.id == updatedOrder.id);
+                return orderIndex !== -1
+                    && pendingOrdersData[orderIndex].status !== 'executed'
+                    && updatedOrder.status === 'executed';
+            });
+
+            if (Array.isArray(result.orders)) {
+                pendingOrdersData = result.orders;
+            } else {
+                updatedOrders.forEach(updatedOrder => {
                     const orderIndex = pendingOrdersData.findIndex(order => order.id == updatedOrder.id);
                     if (orderIndex !== -1) {
-                        // Check if this order is newly executed
-                        if (pendingOrdersData[orderIndex].status !== 'executed' && 
-                            updatedOrder.status === 'executed') {
-                            orderWasExecuted = true;
-                        }
-                        
-                        // Update the order with new status and details
                         pendingOrdersData[orderIndex] = {
                             ...pendingOrdersData[orderIndex],
                             ...updatedOrder
                         };
                     }
                 });
-                
-                // Update the pending orders table
-                updatePendingOrdersTable();
-                
-                // If any order was executed, reload the filled orders
-                if (orderWasExecuted) {
-                    console.log('An order was executed, refreshing filled orders');
-                    await loadFilledOrders();
-                }
-                
-                // If no more processing orders, stop auto-refresh
-                const stillHasProcessingOrders = pendingOrdersData.some(order => 
-                    TRACKED_ORDER_STATUSES.includes(order.status));
-                    
-                if (!stillHasProcessingOrders) {
-                    stopAutoRefresh();
-                }
             }
-        } else {
-            // No processing orders, no need for auto-refresh
-            stopAutoRefresh();
+
+            updatePendingOrdersTable();
+
+            if (orderWasExecuted) {
+                console.log('An order was executed, refreshing filled orders');
+                await loadFilledOrders();
+            }
         }
     } catch (error) {
         console.error('Error checking order status:', error);
         // Don't show alert for this routine operation
+    } finally {
+        statusCheckInFlight = false;
     }
+}
+
+function hasActiveOrderEditor() {
+    return Boolean(
+        document.querySelector('.pending-price-input[data-dirty="true"]')
+        || document.activeElement?.matches('.pending-price-input, .quantity-input')
+    );
 }
 
 /**
  * Start the auto-refresh timer for order status
  */
-function startAutoRefresh() {
-    // Don't create multiple timers
-    if (autoRefreshTimer) {
+function scheduleNextOrderSync() {
+    if (autoRefreshTimer || document.hidden || !document.getElementById('pending-orders-table')) {
         return;
     }
-    
-    // Create a new timer
-    autoRefreshTimer = setInterval(checkOrdersStatus, AUTO_REFRESH_INTERVAL);
-    console.log('Auto-refresh started');
+
+    autoRefreshTimer = setTimeout(runOrderSyncCycle, getOrderSyncInterval(pendingOrdersData));
+}
+
+async function runOrderSyncCycle() {
+    autoRefreshTimer = null;
+    await checkOrdersStatus();
+    scheduleNextOrderSync();
+}
+
+function startAutoRefresh(syncNow = true) {
+    if (document.hidden) {
+        return;
+    }
+
+    if (syncNow) {
+        if (autoRefreshTimer) {
+            clearTimeout(autoRefreshTimer);
+            autoRefreshTimer = null;
+        }
+        void runOrderSyncCycle();
+    } else {
+        scheduleNextOrderSync();
+    }
 }
 
 /**
@@ -702,9 +828,16 @@ function startAutoRefresh() {
  */
 function stopAutoRefresh() {
     if (autoRefreshTimer) {
-        clearInterval(autoRefreshTimer);
+        clearTimeout(autoRefreshTimer);
         autoRefreshTimer = null;
-        console.log('Auto-refresh stopped');
+    }
+}
+
+function syncOrdersWhenVisible() {
+    if (document.hidden) {
+        stopAutoRefresh();
+    } else {
+        startAutoRefresh();
     }
 }
 
@@ -757,12 +890,45 @@ async function updateOrderQuantity(orderId, quantity) {
     }
 }
 
+async function savePendingOrderPrice(orderId, input, saveButton, executeButton) {
+    const orderIndex = pendingOrdersData.findIndex(order => order.id === orderId);
+    if (orderIndex === -1) return;
+
+    const premium = Number(input.value);
+    input.disabled = true;
+    saveButton.disabled = true;
+    saveButton.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>';
+
+    let saved = false;
+    try {
+        const result = await updatePendingOrderPremium(orderId, premium);
+        pendingOrdersData[orderIndex].premium = result.premium;
+        input.value = Number(result.premium).toFixed(2);
+        input.classList.remove('is-invalid');
+        delete input.dataset.dirty;
+        if (executeButton) executeButton.disabled = false;
+        saved = true;
+        showAlert(tr('orders.limitPriceUpdated', { price: Number(result.premium).toFixed(2) }), 'success');
+    } catch (error) {
+        input.classList.add('is-invalid');
+        input.dataset.dirty = 'true';
+        showAlert(tr('orders.limitPriceUpdateFailed', { error: error.message }), 'danger');
+    } finally {
+        input.disabled = false;
+        saveButton.innerHTML = '<i class="bi bi-check-lg"></i>';
+        saveButton.disabled = input.dataset.dirty !== 'true';
+        if (!saved) input.focus();
+    }
+}
+
 // Set up event listener for the custom ordersUpdated event
 document.addEventListener('ordersUpdated', loadPendingOrders);
 document.addEventListener('languageChanged', () => {
     updatePendingOrdersTable();
     updateFilledOrdersTable();
 });
+document.addEventListener('visibilitychange', syncOrdersWhenVisible);
+window.addEventListener('focus', syncOrdersWhenVisible);
 
 // Make sure auto-refresh is stopped when the page is unloaded
 window.addEventListener('beforeunload', stopAutoRefresh);
@@ -830,11 +996,16 @@ function addPositionsToTable(positions, table) {
  */
 async function cancelAllPendingOrders() {
     try {
-        // Filter only pending orders
-        const pendingOrders = pendingOrdersData.filter(order => order.status === 'pending');
+        const pendingOrders = getCancelableWebOrders(pendingOrdersData);
+        const externalOrders = getActiveExternalOrders(pendingOrdersData);
         
         if (pendingOrders.length === 0) {
-            showAlert(tr('orders.noPendingToCancel'), 'info');
+            showAlert(
+                externalOrders.length > 0
+                    ? tr('orders.externalCancelInIb', { count: externalOrders.length })
+                    : tr('orders.noPendingToCancel'),
+                'info'
+            );
             return;
         }
         
@@ -856,7 +1027,15 @@ async function cancelAllPendingOrders() {
         await loadPendingOrders();
         
         // Show success message
-        showAlert(tr('orders.canceledOrders', { count: pendingOrders.length }), 'success');
+        showAlert(
+            externalOrders.length > 0
+                ? tr('orders.canceledWebOrders', {
+                    count: pendingOrders.length,
+                    externalCount: externalOrders.length
+                })
+                : tr('orders.canceledOrders', { count: pendingOrders.length }),
+            'success'
+        );
     } catch (error) {
         console.error('Error canceling all orders:', error);
         showAlert('Error canceling all orders: ' + error.message, 'danger');

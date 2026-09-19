@@ -2,8 +2,12 @@
  * Portfolio module
  * Handles portfolio view and position management
  */
-import { loadPositionsTable } from '../dashboard/account.js?v=close-position-1';
-import { loadPendingOrders } from '../dashboard/orders.js?v=close-position-1';
+import {
+    loadPositionsTable,
+    refreshLivePositions,
+    startLivePositionUpdates
+} from '../dashboard/account.js?v=account-live-2';
+import { loadPendingOrders } from '../dashboard/orders.js?v=execution-pref-1';
 import { showAlert } from '../utils/alerts.js?v=close-position-1';
 import { initializeClosePosition } from './close-position.js?v=refactor-safety-2';
 
@@ -30,8 +34,20 @@ async function initializePortfolio() {
         const refreshPortfolioButton = document.getElementById('refresh-portfolio');
         if (refreshPortfolioButton) {
             refreshPortfolioButton.addEventListener('click', async () => {
-                await loadPositionsTable();
-                showAlert('Portfolio refreshed successfully', 'success');
+                const originalContent = refreshPortfolioButton.innerHTML;
+                refreshPortfolioButton.disabled = true;
+                refreshPortfolioButton.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>';
+                try {
+                    const liveResult = await refreshLivePositions();
+                    const result = liveResult || await loadPositionsTable();
+                    if (!result) throw new Error('Portfolio data is unavailable');
+                    showAlert('Portfolio refreshed successfully', 'success');
+                } catch (error) {
+                    showAlert(`Portfolio refresh failed: ${error.message}`, 'danger');
+                } finally {
+                    refreshPortfolioButton.disabled = false;
+                    refreshPortfolioButton.innerHTML = originalContent;
+                }
             });
         }
         
@@ -39,6 +55,7 @@ async function initializePortfolio() {
             loadPositionsTable(),
             loadPendingOrders()
         ]);
+        startLivePositionUpdates();
         
         console.log('Portfolio initialization complete');
     } catch (error) {

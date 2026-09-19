@@ -8,6 +8,12 @@ from api.services.portfolio_service import PortfolioService
 bp = Blueprint('portfolio', __name__, url_prefix='/api/portfolio')
 portfolio_service = PortfolioService()
 
+
+def _no_store_json(payload, status=200):
+    response = jsonify(payload)
+    response.headers['Cache-Control'] = 'no-store, max-age=0'
+    return response, status
+
 @bp.route('/', methods=['GET'])
 def get_portfolio():
     """
@@ -38,6 +44,30 @@ def get_positions():
         return jsonify(results)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/bootstrap', methods=['GET'])
+def get_portfolio_bootstrap():
+    """Load account summary and positions with one Gateway read."""
+    try:
+        result = portfolio_service.get_portfolio_bootstrap()
+        if not result:
+            return _no_store_json({'error': 'Portfolio is unavailable'}, 503)
+        return _no_store_json(result)
+    except Exception as e:
+        return _no_store_json({'error': str(e)}, 500)
+
+
+@bp.route('/live', methods=['GET'])
+def get_live_positions():
+    """Sample prices from persistent IB market-data subscriptions."""
+    try:
+        result = portfolio_service.get_live_positions()
+        if not result:
+            return _no_store_json({'error': 'Live portfolio data is unavailable'}, 503)
+        return _no_store_json(result)
+    except Exception as e:
+        return _no_store_json({'error': str(e)}, 503)
 
 @bp.route('/option-position/<int:con_id>/quote', methods=['GET'])
 def get_option_position_quote(con_id):
