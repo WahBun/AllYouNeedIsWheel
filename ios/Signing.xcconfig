@@ -1,0 +1,4 @@
+// Public defaults; personal device signing stays in the ignored local file.
+DEVELOPMENT_TEAM =
+PRODUCT_BUNDLE_IDENTIFIER = com.example.wheel
+#include? "Signing.local.xcconfig"

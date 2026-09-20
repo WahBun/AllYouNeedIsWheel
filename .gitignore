@@ -21,6 +21,13 @@ ENV/
 *.pem
 *.key
 
+# Xcode local state
+.DS_Store
+ios/Signing.local.xcconfig
+DerivedData/
+xcuserdata/
+*.xcuserstate
+
 # IDE files
 .idea/
 .vscode/

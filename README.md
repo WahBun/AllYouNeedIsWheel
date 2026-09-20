@@ -10,6 +10,7 @@ AllYouNeedIsWheel is a financial options trading assistant specifically designed
 
 ## Features
 
+- **Native iOS preview**: SwiftUI client for iOS 18+, sharing this backend. Xcode setup, local signing, supported workflows and limitations are documented in [ios/README.md](ios/README.md).
 - **Multi-device access**: Host on a Mac mini and connect from a MacBook or phone through your private Tailnet. See [Mac mini + Tailscale deployment](docs/MAC_MINI_TAILSCALE.md).
 - **iPhone Home Screen**: Add the HTTPS site from Safari to launch Wheel as a standalone web app. No native package or offline trading cache is required; see the deployment guide for setup and replacing old shortcuts.
 - **Responsive navigation**: Pages are served independently of serialized IB operations; identical in-flight reads share work across devices.
