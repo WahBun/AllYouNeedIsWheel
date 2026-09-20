@@ -47,7 +47,16 @@ custom CSP tickers, hidden tickers, SGOV exclusion, available CC coverage, quote
 spread/Greeks, manual limits and batch draft staging. Preferences are local to
 the app/backend context, not automatically imported from browser localStorage.
 Pending entry quantities can be edited; close quantities remain locked after
-staging. Execution confirmation defaults on and is configurable in Orders.
+staging. Execution and cancellation share one confirmation preference in Orders,
+defaulting on and retaining the existing saved preference. It applies to swipe
+actions, order details and cancel-all. Swipes reveal buttons; full-swipe execution
+is disabled. Trade entries stage drafts directly from a left-swipe button, detail
+view or Stage all, without confirmation; right-swipe hides the ticker. Staging
+does not execute at IB. Close/rollover staging and edit confirmations remain separate.
+Tabs follow Portfolio, Trade, Orders, Settings. Hidden tickers are restored only
+within the selected CC/CSP strategy. Premium estimates use green, occupied CC
+coverage uses a compact warning, and spread colors follow the web thresholds:
+up to 10% green, up to 20% amber, above 20% red.
 Cancel-all skips external and unknown orders and stops on the first failure.
 Short-position rollovers stage two independent legs; they are not atomic spreads.
 Portfolio samples the backend live endpoint between less frequent summary reads.
@@ -70,9 +79,11 @@ identities or credentials in public commits.
 
 ## Verification
 
-The 2026-09-20 preview review passed 21 simulator tests, including quote failures,
+The 2026-09-20 preview review passed 26 simulator tests, including quote failures,
 stale responses, manual input preservation, default covered-call quantity,
-exact-contract demo closes, currency formatting and write-timeout locking.
+exact-contract demo closes, currency formatting, write-timeout locking, spread
+thresholds, quick-action validation, duplicate draft protection and strategy-scoped
+hidden tickers.
 English/light and Simplified Chinese/dark layouts, navigation and hide/restore
 were checked in the simulator. Debug tests and Release compilation are checked
 without submitting real broker orders. Market-hours latency, partial fills and

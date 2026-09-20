@@ -222,8 +222,8 @@ struct RootView: View {
         @Bindable var store = store
         TabView(selection: $store.selectedTab) {
             NavigationStack(path: $portfolioPath) { PortfolioView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Portfolio", locale: appLocale), systemImage: "chart.pie") }.tag("portfolio")
-            NavigationStack(path: $ordersPath) { OrdersView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Orders", locale: appLocale), systemImage: "list.bullet.rectangle") }.tag("orders")
             NavigationStack(path: $tradePath) { OpportunitiesView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Trade", locale: appLocale), systemImage: "arrow.left.arrow.right") }.tag("trade")
+            NavigationStack(path: $ordersPath) { OrdersView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Orders", locale: appLocale), systemImage: "list.bullet.rectangle") }.tag("orders")
             NavigationStack { SettingsView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Settings", locale: appLocale), systemImage: "gearshape") }.tag("settings")
         }
         .tint(.teal)
@@ -319,11 +319,17 @@ struct PortfolioView: View {
     }
 }
 
+enum TradingColors {
+    static func profit(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(red: 0.25, green: 0.95, blue: 0.48) : Color(red: 0.02, green: 0.46, blue: 0.20)
+    }
+}
+
 struct PositionPnLMeter: View {
     @Environment(\.colorScheme) private var colorScheme
     let position: Position
     private var profitColor: Color {
-        colorScheme == .dark ? Color(red: 0.25, green: 0.95, blue: 0.48) : Color(red: 0.02, green: 0.46, blue: 0.20)
+        TradingColors.profit(colorScheme)
     }
     private var percentage: Double? {
         guard let cost = position.avg_cost, let pnl = position.unrealized_pnl else { return nil }
@@ -418,12 +424,14 @@ struct OrdersView: View {
     @State private var preferences = false
     @State private var cancelAll = false
     @State private var cancelling = false
+    @State private var quickOrder: Order?
+    @State private var quickCancel = false
     private var cancelable: [Order] { store.orders.filter { TradeRules.cancelable($0) } }
     var body: some View {
         List {
             StatusView(orders: true)
             Picker("Orders", selection: $history) { Text("Pending").tag(false); Text("Executed records").tag(true) }.pickerStyle(.segmented)
-            if preferences { Toggle("Confirm before Execute", isOn: $confirmExecution) }
+            if preferences { Toggle("Confirm execution and cancellation", isOn: $confirmExecution) }
             if let error = store.orderError ?? store.error { Text(error).foregroundStyle(.orange) }
             if (history ? store.filledOrders : store.orders).isEmpty { ContentUnavailableView("No orders", systemImage: "checkmark.circle") }
             ForEach(history ? store.filledOrders : store.orders) { order in
@@ -439,26 +447,74 @@ struct OrdersView: View {
                         if order.isRollover == true { Text("Rollover leg · independent order").font(.caption).foregroundStyle(.orange) }
                     }.padding(.vertical, 6)
                 }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    if !history && TradeRules.editable(order) {
+                        Button("Execute", systemImage: "paperplane") {
+                            if confirmExecution { quickCancel = false; quickOrder = order }
+                            else { performQuick(order, cancel: false) }
+                        }.tint(.teal)
+                    }
+                }
+                .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                    if !history && TradeRules.cancelable(order) {
+                        Button("Cancel order", systemImage: "xmark.circle") {
+                            if confirmExecution { quickCancel = true; quickOrder = order }
+                            else { performQuick(order, cancel: true) }
+                        }.tint(.red)
+                    }
+                }
             }
-            if !history { Button("Cancel all eligible (\(cancelable.count))", role: .destructive) { cancelAll = true }.disabled(cancelable.isEmpty) }
+            if !history { Button("Cancel all eligible (\(cancelable.count))", role: .destructive) {
+                if confirmExecution { cancelAll = true } else { performCancelAll() }
+            }.disabled(cancelable.isEmpty) }
             TradingNotice()
         }.navigationTitle(localizedLabel("Orders", locale: locale)).refreshable { if history { await store.loadFilled() } else { await store.refresh() } }
         .toolbar { Button("Order preferences", systemImage: "gearshape") { preferences.toggle() } }
         .onChange(of: history) { if history { Task { await store.loadFilled() } } }
+        .onChange(of: "\(store.demo)-\(store.address)") { quickOrder = nil; cancelAll = false }
         .disabled(cancelling || store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))
+        .confirmationDialog(LocalizedStringKey(quickCancel ? "Cancel order" : "Execute"), isPresented: Binding(get: { quickOrder != nil }, set: { if !$0 { quickOrder = nil } }), titleVisibility: .visible) {
+            Button(LocalizedStringKey(quickCancel ? "Cancel order" : "Execute"), role: quickCancel ? .destructive : nil) {
+                if let order = quickOrder { performQuick(order, cancel: quickCancel) }
+                quickOrder = nil
+            }
+        } message: {
+            if let order = quickOrder {
+                Text("\(order.name) · \(order.action ?? "") · \(order.option_type ?? "") · \(money(order.strike)) · \(order.expiration ?? "")\n\(order.quantity?.formatted() ?? "—") · \(money(order.premium)) · \(order.tif ?? (order.intent == "CLOSE" ? "GTC" : "DAY"))\n\(store.demo ? "Simulation only" : "Connected backend · real orders may execute")")
+            }
+        }
         .confirmationDialog("Cancel \(cancelable.count) eligible orders?", isPresented: $cancelAll, titleVisibility: .visible) {
             Button("Cancel eligible orders", role: .destructive) {
-                let snapshot = cancelable
-                Task {
-                    cancelling = true; defer { cancelling = false }
-                    for order in snapshot {
-                        guard let id = order.id.local else { continue }
-                        if !(await store.trading.write("api/options/cancel/\(id)", store: store)) { break }
-                    }
-                    await store.refresh()
-                }
+                performCancelAll()
             }
         } message: { Text("IB-managed and unknown orders are excluded. Stops on the first failure. Cancellation remains pending until IB confirms it.") }
+    }
+    private func performCancelAll() {
+        guard !cancelling, !store.trading.busy, !store.opportunities.batchRunning else { return }
+        let snapshot = cancelable
+        let context = "\(store.demo)-\(store.address)"
+        cancelling = true
+        Task {
+            defer { cancelling = false }
+            for order in snapshot {
+                guard context == "\(store.demo)-\(store.address)" else { break }
+                guard let current = store.orders.first(where: { $0.id == order.id }),
+                      TradeRules.cancelable(current), let id = current.id.local else { continue }
+                if !(await store.trading.write("api/options/cancel/\(id)", store: store)) { break }
+            }
+            await store.refreshOrders()
+        }
+    }
+    private func performQuick(_ snapshot: Order, cancel: Bool) {
+        let context = "\(store.demo)-\(store.address)"
+        Task {
+            guard context == "\(store.demo)-\(store.address)", !history, !cancelling, !store.trading.busy, !store.opportunities.batchRunning,
+                  let current = store.orders.first(where: { $0.id == snapshot.id }), let id = current.id.local,
+                  cancel ? TradeRules.cancelable(current) : TradeRules.editable(current),
+                  TradeRules.unchanged(current, since: snapshot) else { return }
+            _ = await store.trading.write("api/options/\(cancel ? "cancel" : "execute")/\(id)", store: store)
+            await store.refreshOrders()
+        }
     }
 }
 

@@ -1,5 +1,14 @@
 import SwiftUI
 
+struct PremiumValue: View {
+    let amount: Double?
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        Text(money(amount)).monospacedDigit()
+            .foregroundStyle(amount.map { $0.isFinite && $0 > 0 } == true ? TradingColors.profit(scheme) : Color.secondary)
+    }
+}
+
 struct ContractQuote: Decodable, Identifiable {
     var strike: Double
     var expiration: String
@@ -69,6 +78,11 @@ final class OpportunityBook {
         UserDefaults.standard.set(data, forKey: preferenceKey)
     }
     func key(_ ticker: String, _ type: String) -> String { ticker + ":" + type }
+    func hasHidden(type: String) -> Bool { excluded.contains { $0.hasSuffix(":" + type) } }
+    func restoreHidden(type: String) {
+        excluded.removeAll { $0.hasSuffix(":" + type) }
+        save()
+    }
     func symbols(_ store: WheelStore, type: String) -> [String] {
         let held = (store.portfolio?.positions ?? []).filter { $0.security_type == "STK" && $0.position >= 100 }.map(\.symbol)
         return Set(type == "CALL" ? held : held + custom).filter { $0 != "SGOV" && !excluded.contains(key($0, type)) }.sorted()
@@ -144,11 +158,27 @@ final class OpportunityBook {
         }
     }
     func stage(_ row: OpportunityRow, store: WheelStore) async -> Bool {
-        guard row.canStage, rows[key(row.ticker, row.type)]?.staged != true,
+        guard row.canStage, let current = rows[key(row.ticker, row.type)], current.canStage,
+              current.quote?.id == row.quote?.id, current.price == row.price, current.quantity == row.quantity,
               let quote = row.quote, let price = TradeRules.price(row.price) else { return false }
         let result = await store.trading.write("api/options/order", body: ["ticker": row.ticker, "action": "SELL", "option_type": row.type, "strike": quote.strike, "expiration": quote.expiration, "quantity": row.quantity, "premium": price], store: store)
         if result { rows[key(row.ticker, row.type)]?.staged = true }
         return result
+    }
+    func stageAndOpenOrders(_ snapshots: [OpportunityRow], store: WheelStore) async {
+        guard !batchRunning, !store.trading.busy, !snapshots.isEmpty else { return }
+        batchRunning = true
+        defer { batchRunning = false }
+        let token = generation
+        var added = false
+        for row in snapshots {
+            guard token == generation, await stage(row, store: store) else { break }
+            added = true
+        }
+        if added, token == generation {
+            await store.refreshOrders()
+            if token == generation { store.selectedTab = "orders" }
+        }
     }
 }
 
@@ -179,11 +209,10 @@ struct OpportunitiesView: View {
     @Environment(WheelStore.self) private var store
     @State private var type = "CALL"
     @State private var ticker = ""
-    @State private var batch = false
     private var book: OpportunityBook { store.opportunities }
     private var symbols: [String] { book.symbols(store, type: type) }
     private var ready: [OpportunityRow] { symbols.compactMap { book.rows[book.key($0, type)] }.filter(\.canStage) }
-    private var autoRefresh: Bool { visible && phase == .active && store.selectedTab == "trade" && !batch && !book.batchRunning && !store.trading.busy }
+    private var autoRefresh: Bool { visible && phase == .active && store.selectedTab == "trade" && !book.batchRunning && !store.trading.busy }
     var body: some View {
         List {
             Section {
@@ -196,7 +225,10 @@ struct OpportunitiesView: View {
                             guard symbol != "SGOV", symbol.range(of: "^[A-Z0-9.-]{1,15}$", options: .regularExpression) != nil else { return }
                             book.custom = Array(Set(book.custom + [symbol])).sorted(); book.excluded.removeAll { $0 == book.key(symbol, type) }; book.save(); ticker = ""
                             Task { await book.load(symbol, type: type, store: store) }
-                        }.disabled(ticker.isEmpty)
+                        }.labelStyle(.iconOnly)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .help("Add")
+                            .disabled(ticker.isEmpty)
                     }
                 }
                 if book.loading && symbols.allSatisfy({ book.rows[book.key($0, type)]?.quote == nil }) { ProgressView("Loading opportunities…") }
@@ -207,29 +239,49 @@ struct OpportunitiesView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack { Text(symbol).font(.headline); Spacer(); Text(money(row?.stockPrice)) }
                         if let quote = row?.quote {
-                            HStack { Text("\(money(quote.strike)) · \(quote.expiration)"); Spacer(); Text(money(row?.total)) }.font(.caption)
-                            Text(row?.staged == true ? LocalizedStringKey("Staged in Orders") : type == "CALL" && row?.capacity == 0 ? LocalizedStringKey("Coverage already reserved") : "\(row?.quantity ?? 1) contracts · \(money(TradeRules.price(row?.price ?? "")))").font(.caption).foregroundStyle(.secondary)
+                            HStack { Text("\(money(quote.strike)) · \(quote.expiration)"); Spacer(); PremiumValue(amount: row?.total) }.font(.caption)
+                            if type == "CALL" && row?.capacity == 0 {
+                                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                    Image(systemName: "exclamationmark.triangle.fill").accessibilityHidden(true)
+                                    Text("Coverage already reserved")
+                                }
+                                    .font(.caption).foregroundStyle(.orange)
+                            } else {
+                                Text(row?.staged == true ? LocalizedStringKey("Staged in Orders") : "\(row?.quantity ?? 1) contracts · \(money(TradeRules.price(row?.price ?? "")))").font(.caption).foregroundStyle(.secondary)
+                            }
                         } else if row?.loading == true { ProgressView() }
                         else { Text(LocalizedStringKey(row?.error ?? "Quote not loaded")).font(.caption).foregroundStyle(.secondary) }
                         if row?.quote != nil, row?.error != nil {
                             Label("STALE", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
                         }
                     }.padding(.vertical, 4)
-                }.swipeActions { Button("Hide", role: .destructive) { book.excluded.append(book.key(symbol, type)); book.save() } }
+                }
+                .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                    Button("Hide", systemImage: "eye.slash") { book.excluded.append(book.key(symbol, type)); book.save() }.tint(.gray)
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    if let row, row.canStage {
+                        Button("Stage entry", systemImage: "plus.circle") {
+                            Task { await book.stageAndOpenOrders([row], store: store) }
+                        }.tint(.teal)
+                    }
+                }
             }
             if symbols.isEmpty { ContentUnavailableView("No opportunities", systemImage: "list.bullet.rectangle") }
             Section("Selected-contract estimates") {
-                LabeledContent("Premium", value: money(ready.reduce(0) { $0 + ($1.total ?? 0) }))
+                LabeledContent("Premium") { PremiumValue(amount: ready.reduce(0) { $0 + ($1.total ?? 0) }) }
                 if type == "PUT" { LabeledContent("Cash required", value: money(ready.reduce(0) { $0 + ($1.quote?.strike ?? 0) * 100 * Double($1.quantity) })) }
-                Button("Stage all (\(ready.count))", systemImage: "plus.circle") { batch = true }.disabled(ready.isEmpty)
+                Button("Stage all (\(ready.count))", systemImage: "plus.circle") {
+                    let snapshot = ready
+                    Task { await book.stageAndOpenOrders(snapshot, store: store) }
+                }.disabled(ready.isEmpty)
             }
             Section { TradingNotice() }
         }.navigationTitle(localizedLabel("Trade", locale: locale))
         .toolbar {
-            if !book.excluded.isEmpty {
+            if book.hasHidden(type: type) {
                 Button("Restore hidden opportunity tickers", systemImage: "eye") {
-                    book.excluded = []
-                    book.save()
+                    book.restoreHidden(type: type)
                 }.labelStyle(.iconOnly)
                     .help("Restore hidden opportunity tickers")
             }
@@ -245,17 +297,6 @@ struct OpportunitiesView: View {
             }
         }
         .disabled(store.trading.busy || book.batchRunning || (!store.demo && store.trading.uncertain))
-        .confirmationDialog("Stage \(ready.count) local drafts?", isPresented: $batch, titleVisibility: .visible) {
-            Button("Stage drafts") {
-                let snapshot = ready
-                Task {
-                    book.batchRunning = true
-                    defer { book.batchRunning = false }
-                    for row in snapshot { if !(await book.stage(row, store: store)) { break } }
-                    await store.refresh(); store.selectedTab = "orders"
-                }
-            }
-        } message: { Text("Orders are not sent to IB until Execute. Stops on the first failure; completed drafts remain in Orders.") }
     }
 }
 
@@ -263,7 +304,6 @@ struct OpportunityDetail: View {
     let ticker: String
     let type: String
     @Environment(WheelStore.self) private var store
-    @State private var confirm = false
     private var book: OpportunityBook { store.opportunities }
     private var key: String { book.key(ticker, type) }
     private var row: OpportunityRow { book.rows[key] ?? OpportunityRow(ticker: ticker, type: type) }
@@ -284,7 +324,7 @@ struct OpportunityDetail: View {
                 Section("SELL TO OPEN") {
                     LabeledContent("Strike", value: money(quote.strike))
                     LabeledContent("Bid / Ask", value: "\(money(quote.bid)) / \(money(quote.ask))")
-                    LabeledContent("Spread", value: quote.spread.map { String(format: "%.1f%%", $0) } ?? "—")
+                    LabeledContent("Spread") { SpreadValue(percentage: quote.spread) }
                     LabeledContent("Delta", value: quote.delta.map { String(format: "%.2f", $0) } ?? "—")
                     LabeledContent("IV", value: quote.implied_volatility.flatMap { $0 > 0 ? String(format: "%.1f%%", $0) : nil } ?? "—")
                     if let updated = row.updated { LabeledContent("Retrieved") { Text(updated, style: .time) } }
@@ -296,22 +336,27 @@ struct OpportunityDetail: View {
                     }), in: 1...max(1, min(100, type == "CALL" ? row.capacity : 100)))
                     if type == "CALL" {
                         LabeledContent("Available coverage", value: String(row.capacity))
-                        if row.capacity == 0 { Text("Coverage already reserved").foregroundStyle(.orange) }
+                        if row.capacity == 0 {
+                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                Image(systemName: "exclamationmark.triangle.fill").accessibilityHidden(true)
+                                Text("Coverage already reserved")
+                            }.foregroundStyle(.orange)
+                        }
                     }
-                    LabeledContent("Premium", value: money(row.total))
+                    LabeledContent("Premium") { PremiumValue(amount: row.total) }
                     if type == "PUT" { LabeledContent("Cash required", value: money(quote.strike * 100 * Double(row.quantity))) }
                     LabeledContent("Annualized premium estimate", value: money(row.total.flatMap { TradingMath.annualized(premium: $0, expiration: quote.expiration) }))
                     LabeledContent("Time in force", value: "DAY")
-                    Button(LocalizedStringKey(row.staged ? "Staged in Orders" : "Stage entry"), systemImage: "plus.circle") { confirm = true }.disabled(!row.canStage)
+                    Button(LocalizedStringKey(row.staged ? "Staged in Orders" : "Stage entry"), systemImage: "plus.circle") {
+                        let snapshot = row
+                        Task { await book.stageAndOpenOrders([snapshot], store: store) }
+                    }.disabled(!row.canStage)
                 }
             }
             Section { TradingNotice() }
         }.navigationTitle(ticker)
         .modifier(KeyboardDismissal())
         .disabled(row.loading || store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))
-        .confirmationDialog("Stage SELL \(row.quantity) \(ticker) \(type)?", isPresented: $confirm, titleVisibility: .visible) {
-            Button("Stage draft") { Task { if await book.stage(row, store: store) { await store.refresh(); store.selectedTab = "orders" } } }
-        } message: { Text("\(row.quote?.expiration ?? "") · \(money(row.quote?.strike)) · Limit \(money(TradeRules.price(row.price))) · DAY") }
     }
     private func updatePreference(_ change: (inout OpportunityPreference) -> Void) {
         var next = preference; change(&next); book.preferences[key] = next; book.save()

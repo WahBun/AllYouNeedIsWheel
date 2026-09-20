@@ -11,12 +11,12 @@
         }
       }
     },
-    "%@ · %@ · Limit %@ · DAY" : {
+    "%@ · %@ · %@ · %@ · %@\n%@ · %@ · %@\n%@" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$@ · %2$@ · Limit %3$@ · DAY"
+            "value" : "%1$@ · %2$@ · %3$@ · %4$@ · %5$@\n%6$@ · %7$@ · %8$@\n%9$@"
           }
         }
       }
@@ -620,23 +620,6 @@
         }
       }
     },
-    "Confirm before Execute" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "执行前确认"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "執行前確認"
-          }
-        }
-      }
-    },
     "Confirm demo action" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -650,6 +633,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "確認示範操作"
+          }
+        }
+      }
+    },
+    "Confirm execution and cancellation" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "执行及撤单前确认"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "執行及撤單前確認"
           }
         }
       }
@@ -1784,6 +1784,7 @@
       }
     },
     "Orders are not sent to IB until Execute. Stops on the first failure; completed drafts remain in Orders." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {

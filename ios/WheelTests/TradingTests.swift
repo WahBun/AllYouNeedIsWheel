@@ -21,6 +21,82 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testHiddenTickersAreScopedToStrategy() {
+        let book = OpportunityBook()
+        book.excluded = [book.key("TSLL", "PUT")]
+        XCTAssertTrue(book.hasHidden(type: "PUT"))
+        XCTAssertFalse(book.hasHidden(type: "CALL"))
+        book.restoreHidden(type: "CALL")
+        XCTAssertEqual(book.excluded, ["TSLL:PUT"])
+        book.excluded.append(book.key("CRCL", "CALL"))
+        book.restoreHidden(type: "PUT")
+        XCTAssertEqual(book.excluded, ["CRCL:CALL"])
+        XCTAssertFalse(book.hasHidden(type: "PUT"))
+        XCTAssertTrue(book.hasHidden(type: "CALL"))
+        book.restoreHidden(type: "CALL")
+        XCTAssertTrue(book.excluded.isEmpty)
+    }
+    func testQuickStageCreatesOnlyDraftAndPreventsDuplicate() async {
+        let store = WheelStore()
+        await store.refreshPortfolio()
+        let book = store.opportunities
+        book.preferences = [:]
+        await book.load("TSLL", type: "CALL", store: store)
+        let snapshot = book.rows["TSLL:CALL"]!
+        let count = store.trading.demoOrders.count
+        await book.stageAndOpenOrders([snapshot], store: store)
+        XCTAssertEqual(store.trading.demoOrders.count, count + 1)
+        XCTAssertEqual(store.trading.demoOrders.last?.status, "pending")
+        XCTAssertEqual(store.trading.demoOrders.last?.quantity, 3)
+        XCTAssertEqual(store.selectedTab, "orders")
+        XCTAssertFalse(book.batchRunning)
+        await book.stageAndOpenOrders([snapshot], store: store)
+        XCTAssertEqual(store.trading.demoOrders.count, count + 1)
+    }
+    func testQuickStageRejectsChangedQuoteOrFailedRefresh() async {
+        let store = WheelStore()
+        await store.refreshPortfolio()
+        let book = store.opportunities
+        await book.load("TSLL", type: "CALL", store: store)
+        let snapshot = book.rows["TSLL:CALL"]!
+        let count = store.trading.demoOrders.count
+        book.rows["TSLL:CALL"]?.price = "0.35"
+        await book.stageAndOpenOrders([snapshot], store: store)
+        XCTAssertEqual(store.trading.demoOrders.count, count)
+        book.rows["TSLL:CALL"] = snapshot
+        book.rows["TSLL:CALL"]?.error = "Offline"
+        await book.stageAndOpenOrders([snapshot], store: store)
+        XCTAssertEqual(store.trading.demoOrders.count, count)
+        XCTAssertFalse(book.batchRunning)
+    }
+    func testSpreadBandsMatchWebBoundaries() {
+        XCTAssertEqual(SpreadBand.classify(0), .tight)
+        XCTAssertEqual(SpreadBand.classify(10), .tight)
+        XCTAssertEqual(SpreadBand.classify(10.01), .medium)
+        XCTAssertEqual(SpreadBand.classify(20), .medium)
+        XCTAssertEqual(SpreadBand.classify(20.01), .wide)
+        for value: Double? in [nil, .nan, .infinity, -1] {
+            XCTAssertEqual(SpreadBand.classify(value), .unavailable)
+        }
+    }
+    func testQuickActionRevalidation() {
+        let original = Order(id: 8, ticker: "TEST", action: "SELL", option_type: "CALL", strike: 10, expiration: "20261016", premium: 0.5, quantity: 2, status: "pending", tif: "DAY", intent: "OPEN")
+        XCTAssertTrue(TradeRules.unchanged(original, since: original))
+        XCTAssertTrue(TradeRules.editable(original))
+        var changed = original
+        changed.premium = 0.6
+        XCTAssertFalse(TradeRules.unchanged(changed, since: original))
+        changed = original; changed.quantity = 1
+        XCTAssertFalse(TradeRules.unchanged(changed, since: original))
+        changed = original; changed.status = "processing"
+        XCTAssertFalse(TradeRules.editable(changed))
+        XCTAssertTrue(TradeRules.cancelable(changed))
+        changed.status = "unknown"
+        XCTAssertFalse(TradeRules.cancelable(changed))
+        changed = original; changed.external_ib = true
+        XCTAssertFalse(TradeRules.editable(changed))
+        XCTAssertFalse(TradeRules.cancelable(changed))
+    }
     private func closeQuote(_ mid: Double = 0.6, held: Double = -3) -> [String: Any] {
         ["position": held, "close_action": held < 0 ? "BUY" : "SELL", "bid": mid - 0.01, "mid": mid, "ask": mid + 0.01, "quote_time": "Frozen snapshot", "is_frozen": true]
     }

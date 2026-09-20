@@ -13,6 +13,12 @@ struct OrderID: Decodable, Hashable, ExpressibleByIntegerLiteral, CustomStringCo
 }
 
 enum TradeRules {
+    static func unchanged(_ current: Order, since snapshot: Order) -> Bool {
+        current.id == snapshot.id && current.premium == snapshot.premium && current.quantity == snapshot.quantity &&
+        current.name == snapshot.name && current.action == snapshot.action && current.intent == snapshot.intent &&
+        current.strike == snapshot.strike && current.expiration == snapshot.expiration &&
+        current.option_type == snapshot.option_type && current.tif == snapshot.tif
+    }
     static func price(_ text: String) -> Double? {
         guard let value = Decimal(string: text, locale: Locale(identifier: "en_US_POSIX")), value > 0,
               text.range(of: #"^\d+(\.\d{1,2})?$"#, options: .regularExpression) != nil else { return nil }
@@ -212,7 +218,9 @@ struct OrderDetail: View {
                         if TradeRules.hasUnsavedEdits(order, price: price, quantity: quantity) { Text("Save price and quantity changes before Execute.").font(.caption).foregroundStyle(.orange) }
                     }
                 }
-                if TradeRules.cancelable(order) { Section { Button("Cancel order", role: .destructive) { action = "Cancel order" } } }
+                if TradeRules.cancelable(order) { Section { Button("Cancel order", role: .destructive) {
+                    if confirmExecution { action = "Cancel order" } else { perform("Cancel order") }
+                } } }
             } else { ContentUnavailableView("Order no longer pending", systemImage: "checkmark.circle") }
             Section { TradingNotice() }
         }
@@ -293,7 +301,7 @@ struct CloseTicket: View {
                     LabeledContent("Limit total", value: money(TradeRules.price(price).map { $0 * Double(quantity) * (quote?["multiplier"] as? Double ?? 100) }))
                     LabeledContent("Time in force", value: "GTC")
                     LabeledContent("Estimated P&L before fees", value: money(TradingMath.closePnL(entry: quote?["avg_cost_per_share"] as? Double, limit: TradeRules.price(price), quantity: quantity, multiplier: quote?["multiplier"] as? Double ?? 100, buy: quote?["close_action"] as? String == "BUY")))
-                    LabeledContent("Spread", value: (quote?["spread_percent"] as? Double).map { String(format: "%.1f%%", $0) } ?? "—")
+                    LabeledContent("Spread") { SpreadValue(percentage: quote?["spread_percent"] as? Double) }
                 }
             }
             Section {
@@ -327,5 +335,31 @@ struct CloseTicket: View {
             if store.demo { return ["position": position.position, "close_action": position.position < 0 ? "BUY" : "SELL", "bid": 0.17, "mid": 0.18, "ask": 0.19, "multiplier": 100.0, "account_suffix": "DEMO", "is_frozen": true, "quote_time": "Demo"] }
             return try await store.trading.get("api/portfolio/option-position/\(position.con_id ?? 0)/quote", base: store.address)
         }, allowed: { active && context == requestedContext && !store.trading.busy && store.trading.version == tradeVersion })
+    }
+}
+
+enum SpreadBand {
+    case tight, medium, wide, unavailable
+    static func classify(_ percentage: Double?) -> SpreadBand {
+        guard let percentage, percentage.isFinite, percentage >= 0 else { return .unavailable }
+        return percentage <= 10 ? .tight : percentage <= 20 ? .medium : .wide
+    }
+}
+
+struct SpreadValue: View {
+    let percentage: Double?
+    @Environment(\.colorScheme) private var scheme
+    private var color: Color {
+        let dark = scheme == .dark
+        switch SpreadBand.classify(percentage) {
+        case .tight: return dark ? Color(red: 66/255, green: 211/255, blue: 146/255) : Color(red: 25/255, green: 135/255, blue: 84/255)
+        case .medium: return dark ? Color(red: 242/255, green: 201/255, blue: 76/255) : Color(red: 183/255, green: 121/255, blue: 31/255)
+        case .wide: return dark ? Color(red: 1, green: 107/255, blue: 107/255) : Color(red: 220/255, green: 53/255, blue: 69/255)
+        case .unavailable: return .secondary
+        }
+    }
+    var body: some View {
+        Text(SpreadBand.classify(percentage) == .unavailable ? "—" : String(format: "%.1f%%", percentage!))
+            .monospacedDigit().foregroundStyle(color)
     }
 }
