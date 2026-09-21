@@ -298,7 +298,7 @@ struct PortfolioView: View {
                 }
                 LeverageMeter(percentage: store.portfolio?.summary.leverage_percentage)
             }
-            ForEach(["STK", "OPT"], id: \.self) { type in
+            ForEach(["OPT", "STK"], id: \.self) { type in
                 Section(LocalizedStringKey(type == "STK" ? "Stocks" : "Options")) {
                     ForEach((store.portfolio?.positions ?? []).filter { $0.security_type == type }) { position in
                         NavigationLink { PositionDetail(position: position) } label: {

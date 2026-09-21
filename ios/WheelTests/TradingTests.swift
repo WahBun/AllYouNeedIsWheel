@@ -24,8 +24,10 @@ final class TradingTests: XCTestCase {
     func testTradeRefreshPriorityPreservesInitialPortfolioLoad() {
         XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: false))
         XCTAssertFalse(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: true))
-        XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: true, age: 31))
-        XCTAssertFalse(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: true, age: 31, quotesLoading: true))
+        XCTAssertFalse(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: true, age: 10))
+        XCTAssertFalse(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: true, age: 59.9))
+        XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: true, age: 60))
+        XCTAssertFalse(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: true, age: 60, quotesLoading: true))
         XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: "portfolio", hasPortfolio: true))
         XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: "orders", hasPortfolio: true))
     }

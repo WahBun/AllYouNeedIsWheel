@@ -3,7 +3,7 @@ import Observation
 
 enum RefreshLoop {
     static func shouldRefreshPortfolio(tab: String, hasPortfolio: Bool, age: TimeInterval = 0, quotesLoading: Bool = false) -> Bool {
-        tab != "trade" || !hasPortfolio || (age >= 30 && !quotesLoading)
+        tab != "trade" || !hasPortfolio || (age >= 60 && !quotesLoading)
     }
     static func delay(elapsed: TimeInterval, failed: Bool) -> TimeInterval {
         failed ? 10 : max(0.25, 2 - elapsed)
