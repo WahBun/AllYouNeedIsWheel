@@ -99,7 +99,8 @@ def stock_quotes():
         conn = options_service._ensure_connection()
         if not conn:
             return jsonify(error='IB connection unavailable'), 503
-        response = jsonify(data=conn.get_stock_quote_batch(symbols))
+        diagnostics = request.args.get('diagnostics') == '1'
+        response = jsonify(data=conn.get_stock_quote_batch(symbols, **({'diagnostics': True} if diagnostics else {})))
         response.headers['Cache-Control'] = 'no-store'
         return response
     except Exception:

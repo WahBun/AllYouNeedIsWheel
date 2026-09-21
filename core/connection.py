@@ -395,11 +395,14 @@ class IBConnection:
         return None
 
     def _ticker_price(self, ticker):
+        return self._ticker_price_with_source(ticker)[0]
+
+    def _ticker_price_with_source(self, ticker):
         """
         Extract the best usable price from an IB ticker, safely ignoring NaN.
         """
         if ticker is None:
-            return None
+            return None, None
 
         try:
             market_price = self._valid_price(ticker.marketPrice())
@@ -419,11 +422,13 @@ class IBConnection:
         if bid_price is not None and ask_price is not None:
             bid_ask_mid = (bid_price + ask_price) / 2
 
-        for price in (market_price, last_price, close_price, bid_ask_mid, bid_price, ask_price, last_rth_trade):
+        for source, price in (('marketPrice()', market_price), ('last', last_price),
+                              ('close', close_price), ('midpoint', bid_ask_mid),
+                              ('bid', bid_price), ('ask', ask_price), ('lastRTHTrade', last_rth_trade)):
             if price is not None:
-                return price
+                return price, source
 
-        return None
+        return None, None
 
     def _has_valid_two_sided_quote(self, ticker):
         """Return whether a ticker can produce a safe midpoint price."""
@@ -519,26 +524,66 @@ class IBConnection:
                 return close
         return None
 
-    def get_stock_quote_batch(self, symbols):
+    def stock_quote_diagnostics(self, contract, ticker):
+        entry = self._market_ticker_cache.get(self._market_ticker_key(contract), {})
+        contract = entry.get('contract', contract)
+        tick_time = getattr(ticker, 'time', None)
+        timestamp = tick_time.timestamp() if isinstance(tick_time, datetime) and tick_time.tzinfo else None
+        wrapper = getattr(self.ib, 'wrapper', None)
+        mappings = getattr(wrapper, 'ticker2ReqId', {})
+        requests = mappings.get('mktData', {}) if isinstance(mappings, dict) else {}
+        request_id = requests.get(ticker) if requests else None
+        price, source = self._ticker_price_with_source(ticker)
+        basis = None
+        if source == 'marketPrice()':
+            try:
+                basis = 'midpoint' if ticker.hasBidAsk() and not ticker.bid <= ticker.last <= ticker.ask else 'last'
+            except (AttributeError, TypeError):
+                pass
+        return {
+            'con_id': getattr(contract, 'conId', None),
+            'exchange': getattr(contract, 'exchange', None),
+            'primary_exchange': getattr(contract, 'primaryExchange', None),
+            'request_id': request_id,
+            'requested_data_type': entry.get('requested_data_type'),
+            'actual_data_type': getattr(ticker, 'marketDataType', None),
+            'bid': self._valid_price(getattr(ticker, 'bid', None)),
+            'ask': self._valid_price(getattr(ticker, 'ask', None)),
+            'last': self._valid_price(getattr(ticker, 'last', None)),
+            'close': self._valid_price(getattr(ticker, 'close', None)),
+            'selected_price': price, 'selected_source': source,
+            'market_price_basis': basis,
+            'last_tick_at': timestamp,
+            'last_tick_age_seconds': max(0, time.time() - timestamp) if timestamp is not None else None,
+            'cache_access_at': entry.get('used_at'),
+        }
+
+    def get_stock_quote_batch(self, symbols, diagnostics=False):
         """Sample all requested stock streams after one event-loop yield."""
         if not self.is_connected():
             raise RuntimeError('IB connection unavailable')
         self._ensure_event_loop()
         self.set_market_data_type(1 if is_market_hours() else 2)
         tickers = {}
+        contracts = {}
         for symbol in symbols:
             try:
                 contract = self.get_qualified_stock_contract(symbol)
                 if contract is not None:
                     tickers[symbol] = self.get_market_ticker(contract)
+                    contracts[symbol] = contract
             except Exception:
                 logger.exception('Stock stream unavailable for %s', symbol)
         # Do not wait separately for missing prices or option bid/ask.
         self.ib.sleep(0.1)
-        return {symbol: {
+        result = {symbol: {
             'stock_price': self._ticker_price(tickers[symbol]) if symbol in tickers else None,
             'previous_close': self.get_stock_previous_close(symbol)
         } for symbol in symbols}
+        if diagnostics:
+            for symbol, ticker in tickers.items():
+                result[symbol]['diagnostics'] = self.stock_quote_diagnostics(contracts[symbol], ticker)
+        return result
 
     def get_stock_price(self, symbol):
         """

@@ -1,4 +1,7 @@
 import unittest
+import time
+from datetime import datetime, timezone, timedelta
+from ib_async import Stock, Ticker
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from flask import Flask
@@ -9,6 +12,32 @@ from api.services.options_service import OptionsService
 
 
 class MarketSubscriptionLifecycleTests(unittest.TestCase):
+    def test_diagnostics_separate_recent_access_from_old_tick_without_writes(self):
+        conn = self.connection()
+        contract = Stock('TEST', 'SMART', 'USD', conId=123)
+        ticker = Ticker(contract=contract)
+        ticker.bid, ticker.ask, ticker.last, ticker.close = 10.2, 10.24, 10.22, 9.63
+        ticker.bidSize = ticker.askSize = 1
+        ticker.marketDataType = 1
+        ticker.time = datetime.now(timezone.utc) - timedelta(seconds=300)
+        conn.ib.wrapper = SimpleNamespace(ticker2ReqId={'mktData': {ticker: 42}})
+        conn._market_ticker_cache[conn._market_ticker_key(contract)] = {
+            'used_at': time.time(), 'requested_data_type': 1, 'ticker': ticker, 'contract': contract
+        }
+        result = conn.stock_quote_diagnostics(contract, ticker)
+        self.assertEqual(result['selected_price'], 10.22)
+        self.assertEqual(result['selected_source'], 'marketPrice()')
+        self.assertEqual(result['request_id'], 42)
+        self.assertEqual(result['actual_data_type'], 1)
+        self.assertGreaterEqual(result['last_tick_age_seconds'], 300)
+        self.assertLess(time.time() - result['cache_access_at'], 1)
+        conn.ib.reqMktData.assert_not_called()
+        conn.ib.cancelMktData.assert_not_called()
+        ticker.time = None
+        ticker.last = float('nan')
+        self.assertIsNone(conn.stock_quote_diagnostics(contract, ticker)['last_tick_age_seconds'])
+        self.assertIsNone(conn.stock_quote_diagnostics(contract, ticker)['last'])
+
     def test_stock_batch_samples_all_streams_after_one_yield(self):
         conn = self.connection()
         conn.is_connected = lambda: True
@@ -37,6 +66,9 @@ class MarketSubscriptionLifecycleTests(unittest.TestCase):
             self.assertEqual(result.status_code, 200)
             self.assertEqual(result.headers['Cache-Control'], 'no-store')
             conn.get_stock_quote_batch.assert_called_once_with(['TEST'])
+            result = client.get('/api/options/stock-quotes?tickers=TEST&diagnostics=1')
+            self.assertEqual(result.status_code, 200)
+            conn.get_stock_quote_batch.assert_called_with(['TEST'], diagnostics=True)
 
     def connection(self):
         conn = object.__new__(IBConnection)
