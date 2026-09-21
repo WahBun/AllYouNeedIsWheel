@@ -12,6 +12,32 @@ from api.services.options_service import OptionsService
 
 
 class MarketSubscriptionLifecycleTests(unittest.TestCase):
+    def test_portfolio_contract_gets_smart_route_without_mutating_position(self):
+        conn = self.connection()
+        held = Stock('TEST', '', 'USD', conId=123, primaryExchange='NASDAQ')
+        ticker = conn.get_market_ticker(held)
+        routed = conn.ib.reqMktData.call_args.args[0]
+        self.assertEqual(routed.exchange, 'SMART')
+        self.assertEqual(routed.conId, held.conId)
+        self.assertEqual(routed.primaryExchange, 'NASDAQ')
+        self.assertEqual(held.exchange, '')
+        self.assertIs(conn.get_market_ticker(Stock('TEST', 'SMART', 'USD', conId=123)), ticker)
+        conn.ib.reqMktData.assert_called_once()
+
+    def test_incomplete_cached_subscription_is_replaced_once(self):
+        conn = self.connection()
+        held = Stock('TEST', '', 'USD', conId=123)
+        old_ticker = Ticker(contract=held)
+        key = conn._market_ticker_key(held)
+        conn._market_ticker_cache[key] = {
+            'contract': held, 'ticker': old_ticker, 'used_at': time.time(), 'requested_data_type': 2
+        }
+        conn.get_market_ticker(held)
+        conn.ib.cancelMktData.assert_called_once_with(held)
+        self.assertEqual(conn.ib.reqMktData.call_args.args[0].exchange, 'SMART')
+        conn.get_market_ticker(held)
+        conn.ib.reqMktData.assert_called_once()
+
     def test_diagnostics_separate_recent_access_from_old_tick_without_writes(self):
         conn = self.connection()
         contract = Stock('TEST', 'SMART', 'USD', conId=123)

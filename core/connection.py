@@ -270,11 +270,16 @@ class IBConnection:
 
     def get_market_ticker(self, contract, generic_tick_list=''):
         """Reuse a small set of live subscriptions so repeat refreshes are fast."""
+        # Portfolio contracts may omit routing; never mutate IB's held contract.
+        if getattr(contract, 'secType', '') in {'STK', 'OPT'} and not getattr(contract, 'exchange', ''):
+            contract = copy.copy(contract)
+            contract.exchange = 'SMART'
         self._prune_market_ticker_cache()
         key = self._market_ticker_key(contract, generic_tick_list)
         cached = self._market_ticker_cache.get(key)
-        if cached and cached.get('requested_data_type') != self._market_data_type:
-            # A pre-open subscription must not be reused as a live subscription.
+        incomplete_route = cached and getattr(cached['contract'], 'secType', '') in {'STK', 'OPT'} and not getattr(cached['contract'], 'exchange', '')
+        if cached and (cached.get('requested_data_type') != self._market_data_type or incomplete_route):
+            # Renew subscriptions created with an obsolete mode or missing route.
             self.ib.cancelMktData(cached['contract'])
             # ib_async reuses the Ticker object even after cancellation.
             for field in ('bid', 'ask', 'last', 'close', 'impliedVolatility'):
