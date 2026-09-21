@@ -30,6 +30,15 @@ def otm_options():
     otm_percentage = float(request.args.get('otm', 10))
     option_type = request.args.get('optionType')  # Parameter for filtering by option type
     expiration = request.args.get('expiration')   # New parameter for filtering by expiration date
+    strike = None
+    if 'strike' in request.args:
+        try:
+            strike = float(request.args['strike'])
+            if not math.isfinite(strike) or strike <= 0 or option_type not in ['CALL', 'PUT']:
+                raise ValueError()
+            datetime.datetime.strptime(expiration or '', '%Y%m%d')
+        except (ValueError, TypeError):
+            return jsonify(error='Invalid exact strike selection'), 400
     
     # Validate option_type if provided
     if option_type and option_type not in ['CALL', 'PUT']:
@@ -41,10 +50,32 @@ def otm_options():
         ticker=ticker,
         otm_percentage=otm_percentage,
         option_type=option_type,
-        expiration=expiration
+        expiration=expiration,
+        **({'strike': strike} if strike is not None else {})
     )
     
     return jsonify(result)
+
+@bp.route('/strikes', methods=['GET'])
+def option_strikes():
+    ticker = request.args.get('ticker', '').strip().upper()
+    expiration = request.args.get('expiration', '')
+    kind = request.args.get('optionType')
+    try:
+        if not ticker or len(ticker) > 15 or not all(c.isalnum() or c in '.-' for c in ticker) or kind not in ['CALL', 'PUT']:
+            raise ValueError()
+        datetime.datetime.strptime(expiration, '%Y%m%d')
+    except ValueError:
+        return jsonify(error='Invalid contract selection'), 400
+    try:
+        conn = options_service._ensure_connection()
+        if not conn:
+            return jsonify(error='IB connection unavailable'), 503
+        response = jsonify(strikes=conn.get_option_strikes(ticker, expiration, 'C' if kind == 'CALL' else 'P'))
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except Exception:
+        return jsonify(error='Strike list unavailable; please retry'), 503
 
 @bp.route('/stock-price', methods=['GET'])
 def get_stock_price():

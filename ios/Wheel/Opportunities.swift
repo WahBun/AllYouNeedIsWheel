@@ -93,6 +93,7 @@ struct OpportunityPreference: Codable, Equatable {
     var otm = 10
     var expiration = ""
     var quantity: Int?
+    var strike: Double?
 }
 
 @MainActor @Observable
@@ -154,7 +155,10 @@ final class OpportunityBook {
             else { dates = try await store.trading.get("api/options/expirations", base: store.address, query: [URLQueryItem(name: "ticker", value: ticker)])["expirations"] as? [[String: Any]] ?? [] }
             guard generation == token, !Task.isCancelled else { return }
             row.dates = dates.compactMap { $0["value"] as? String }
-            if !row.dates.contains(preference.expiration) { preference.expiration = (dates.first { $0["is_default"] as? Bool == true } ?? dates.first)?["value"] as? String ?? "" }
+            if !row.dates.contains(preference.expiration) {
+                preference.expiration = (dates.first { $0["is_default"] as? Bool == true } ?? dates.first)?["value"] as? String ?? ""
+                preference.strike = nil
+            }
             guard !preference.expiration.isEmpty else { throw AppError.message("No expiration available.") }
             let shares = (store.portfolio?.positions ?? []).filter { $0.symbol == ticker && $0.security_type == "STK" }.reduce(0) { $0 + $1.position }
             row.shares = shares
@@ -162,10 +166,12 @@ final class OpportunityBook {
             if store.demo {
                 row.stockPrice = ticker == "TSLL" ? 10.25 : 92.5
                 row.previousClose = ticker == "TSLL" ? 10 : 94
-                row.quote = ContractQuote(strike: (row.stockPrice! * (1 + (type == "CALL" ? 1 : -1) * Double(preference.otm) / 100)).rounded(), expiration: preference.expiration, bid: 0.25, ask: 0.29, delta: type == "CALL" ? 0.23 : -0.19, implied_volatility: 45)
+                row.quote = ContractQuote(strike: preference.strike ?? (row.stockPrice! * (1 + (type == "CALL" ? 1 : -1) * Double(preference.otm) / 100)).rounded(), expiration: preference.expiration, bid: 0.25, ask: 0.29, delta: type == "CALL" ? 0.23 : -0.19, implied_volatility: 45)
                 row.capacity = TradingMath.capacity(shares: shares, available: Int(shares / 100))
             } else {
-                let result = try await store.trading.get("api/options/otm", base: store.address, query: [URLQueryItem(name: "tickers", value: ticker), URLQueryItem(name: "optionType", value: type), URLQueryItem(name: "otm", value: String(preference.otm)), URLQueryItem(name: "expiration", value: preference.expiration)])
+                var query = [URLQueryItem(name: "tickers", value: ticker), URLQueryItem(name: "optionType", value: type), URLQueryItem(name: "otm", value: String(preference.otm)), URLQueryItem(name: "expiration", value: preference.expiration)]
+                if let strike = preference.strike { query.append(URLQueryItem(name: "strike", value: String(strike))) }
+                let result = try await store.trading.get("api/options/otm", base: store.address, query: query)
                 guard let item = (result["data"] as? [String: [String: Any]])?[ticker] else { throw AppError.message("Option data unavailable.") }
                 row.stockPrice = item["stock_price"] as? Double
                 row.previousClose = item["previous_close"] as? Double
@@ -174,6 +180,11 @@ final class OpportunityBook {
                     row.quote = try JSONDecoder().decode(ContractQuote.self, from: JSONSerialization.data(withJSONObject: value))
                 }
                 guard row.quote != nil else { throw AppError.message(item["error"] as? String ?? "No matching option quote.") }
+                if let strike = preference.strike {
+                    guard row.quote?.strike == strike, row.quote?.expiration == preference.expiration else {
+                        throw AppError.message("Selected contract unavailable. Refresh before staging.")
+                    }
+                }
             }
             guard generation == token, !Task.isCancelled, tradeVersion == store.trading.version,
                   !store.trading.busy, preferences[key] == originalPreference else { return }
@@ -366,6 +377,8 @@ struct OpportunityDetail: View {
     let type: String
     @Environment(\.scenePhase) private var phase
     @State private var visible = false
+    @State private var strikes: [Double] = []
+    @State private var strikeError: String?
     @Environment(WheelStore.self) private var store
     private var book: OpportunityBook { store.opportunities }
     private var key: String { book.key(ticker, type) }
@@ -376,10 +389,17 @@ struct OpportunityDetail: View {
         Form {
             Section(LocalizedStringKey(type == "CALL" ? "Covered call" : "Cash-secured put")) {
                 LabeledContent("Stock price") { OpportunityPrice(row: row) }
-                Stepper("OTM \(preference.otm)%", value: Binding(get: { preference.otm }, set: { value in updatePreference { $0.otm = value } }), in: 0...80)
-                Picker("Expiration", selection: Binding(get: { preference.expiration }, set: { value in updatePreference { $0.expiration = value } })) {
+                Stepper("OTM \(preference.otm)%", value: Binding(get: { preference.otm }, set: { value in updatePreference { $0.otm = value; $0.strike = nil } }), in: 0...80)
+                Picker("Expiration", selection: Binding(get: { preference.expiration }, set: { value in updatePreference { $0.expiration = value; $0.strike = nil } })) {
                     ForEach(row.dates, id: \.self) { Text($0).tag($0) }
                 }
+                Picker("Strike", selection: Binding(get: { preference.strike ?? 0 }, set: { value in updatePreference { $0.strike = value == 0 ? nil : value } })) {
+                    Text("OTM \(preference.otm)%").tag(0.0)
+                    ForEach(Array(Set(strikes + [preference.strike, row.quote?.strike].compactMap { $0 })).sorted(), id: \.self) { value in
+                        Text(money(value)).tag(value)
+                    }
+                }
+                if let strikeError { Text(LocalizedStringKey(strikeError)).font(.caption).foregroundStyle(.orange) }
                 Button("Refresh quote", systemImage: "arrow.clockwise") { Task { await book.load(ticker, type: type, store: store) } }.disabled(row.loading)
                 if row.loading && row.quote == nil { ProgressView() }
                 if let error = row.error { Text(error).foregroundStyle(.orange) }
@@ -422,11 +442,28 @@ struct OpportunityDetail: View {
         .modifier(KeyboardDismissal())
         .onAppear { visible = true }
         .onDisappear { visible = false }
-        .task(id: "\(autoRefresh)-\(store.demo)-\(store.address)-\(key)-\(preference.otm)-\(preference.expiration)") {
+        .task(id: "\(autoRefresh)-\(store.demo)-\(store.address)-\(key)-\(preference.otm)-\(preference.expiration)-\(preference.strike ?? 0)") {
             guard autoRefresh else { return }
             await RefreshLoop.run {
                 await book.load(ticker, type: type, store: store, background: true)
                 return row.error != nil
+            }
+        }
+        .task(id: "strikes-\(visible)-\(store.demo)-\(store.address)-\(key)-\(preference.expiration)") {
+            strikes = []; strikeError = nil
+            guard visible, !preference.expiration.isEmpty else { return }
+            do {
+                let next: [Double]
+                if store.demo { next = ticker == "TSLL" ? Array(1...30).map(Double.init) : stride(from: 50.0, through: 150.0, by: 5).map { $0 } }
+                else {
+                    let payload = try await store.trading.get("api/options/strikes", base: store.address, query: [URLQueryItem(name: "ticker", value: ticker), URLQueryItem(name: "optionType", value: type), URLQueryItem(name: "expiration", value: preference.expiration)])
+                    next = payload["strikes"] as? [Double] ?? []
+                }
+                guard !Task.isCancelled else { return }
+                strikes = next.filter { $0.isFinite && $0 > 0 }
+            } catch {
+                guard !Task.isCancelled else { return }
+                strikeError = connectionMessage(error)
             }
         }
         .disabled(store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))

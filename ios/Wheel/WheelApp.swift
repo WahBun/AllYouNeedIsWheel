@@ -67,6 +67,7 @@ final class WheelStore {
     var demo = true
     var address = UserDefaults.standard.string(forKey: "backendURL") ?? ""
     var portfolio: Bootstrap?
+    var priceDirections: [String: Int] = [:]
     var orders: [Order] = []
     var filledOrders: [Order] = []
     var weekly: WeeklyIncome?
@@ -124,6 +125,11 @@ final class WheelStore {
                 next = Bootstrap(summary: summary, positions: live.positions)
             }
             guard requestedRevision == revision, requestedTradeVersion == trading.version, !trading.busy, !Task.isCancelled else { return }
+            priceDirections = Dictionary(next.positions.map { position in
+                (position.id, TradingMath.priceDirection(
+                    previous: portfolio?.positions.first { $0.id == position.id }?.market_price,
+                    current: position.market_price))
+            }, uniquingKeysWith: { _, latest in latest })
             portfolio = next
             if reloadSummary { lastSummary = Date() }
             updated = Date()
@@ -174,7 +180,7 @@ final class WheelStore {
             if token == revision { filledOrders = decoded.orders }
         } catch { if token == revision { orderError = connectionMessage(error) } }
     }
-    func changeMode() { revision += 1; portfolio = nil; orders = []; filledOrders = []; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
+    func changeMode() { revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
 }
 
 func connectionMessage(_ error: Error) -> String {
@@ -309,7 +315,7 @@ struct PortfolioView: View {
                                 }
                                 Spacer()
                                 VStack(alignment: .trailing, spacing: 5) {
-                                    Text(money(position.market_price)).monospacedDigit()
+                                    PositionMarketPrice(position: position)
                                     PositionPnLMeter(position: position)
                                 }
                             }.padding(.vertical, 6)
@@ -319,7 +325,7 @@ struct PortfolioView: View {
             }
             if let weekly = store.weekly {
                 Section("Expiring this Friday") {
-                    LabeledContent("Entry premium · not realized profit", value: money(weekly.total_income))
+                    LabeledContent("Entry premium · not realized profit") { PremiumValue(amount: weekly.total_income, perSymbol: true) }
                     LabeledContent("Positions", value: String(weekly.positions_count))
                     LabeledContent("Put notional", value: money(weekly.total_put_notional))
                 }
@@ -335,6 +341,20 @@ struct PortfolioView: View {
 enum TradingColors {
     static func profit(_ scheme: ColorScheme) -> Color {
         scheme == .dark ? Color(red: 0.25, green: 0.95, blue: 0.48) : Color(red: 0.02, green: 0.46, blue: 0.20)
+    }
+}
+
+struct PositionMarketPrice: View {
+    let position: Position
+    @Environment(WheelStore.self) private var store
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let fresh = !store.demo && store.error == nil && context.date.timeIntervalSince(store.updated ?? .distantPast) < 15
+            let direction = fresh ? (store.priceDirections[position.id] ?? 0) : 0
+            Text(money(position.market_price)).monospacedDigit()
+                .foregroundStyle(direction > 0 ? TradingColors.profit(scheme) : direction < 0 ? Color.red : Color.primary)
+        }
     }
 }
 
@@ -382,7 +402,8 @@ struct PositionPnLMeter: View {
     @ViewBuilder private var returnRate: some View {
         if let percentage {
             Text(percentage.formatted(.number.precision(.fractionLength(1)).sign(strategy: .always())) + "%")
-                .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+                .font(.caption2).monospacedDigit()
+                .foregroundStyle(percentage == 0 ? Color.secondary : (percentage > 0 ? profitColor : Color.red).opacity(0.8))
         }
     }
 }

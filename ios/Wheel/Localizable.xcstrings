@@ -1949,6 +1949,9 @@
         }
       }
     },
+    "OTM %@%%" : {
+
+    },
     "Pending" : {
       "localizations" : {
         "zh-Hans" : {
@@ -2338,6 +2341,7 @@
       }
     },
     "Save price and quantity changes before Execute." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {

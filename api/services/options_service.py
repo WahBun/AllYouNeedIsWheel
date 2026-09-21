@@ -812,7 +812,7 @@ class OptionsService:
                 "error": str(error),
                 "status": "unknown" if transmit_attempted else "rejected"
             }, 500
-    def get_otm_options(self, ticker, otm_percentage=10, option_type=None, expiration=None):
+    def get_otm_options(self, ticker, otm_percentage=10, option_type=None, expiration=None, strike=None):
         """
         Get option contracts that are OTM by the specified percentage
         
@@ -850,7 +850,7 @@ class OptionsService:
         
         for ticker in tickers:
             try:
-                ticker_data = self._process_ticker_for_otm(conn, ticker, otm_percentage, expiration, is_market_open, option_type)
+                ticker_data = self._process_ticker_for_otm(conn, ticker, otm_percentage, expiration, is_market_open, option_type, strike)
                 result[ticker] = ticker_data
             except Exception as e:
                 logger.error(f"Error processing {ticker} for OTM options: {e}")
@@ -890,7 +890,7 @@ class OptionsService:
 
         return {}
         
-    def _process_ticker_for_otm(self, conn, ticker, otm_percentage, expiration=None, is_market_open=None, option_type=None):
+    def _process_ticker_for_otm(self, conn, ticker, otm_percentage, expiration=None, is_market_open=None, option_type=None, strike=None):
         """
         Process a single ticker for OTM options
         
@@ -958,6 +958,8 @@ class OptionsService:
                 # Calculate target strikes
                 call_strike = round(stock_price * (1 + otm_percentage / 100), 2)
                 put_strike = round(stock_price * (1 - otm_percentage / 100), 2)
+                if strike is not None:
+                    call_strike = put_strike = strike
                 
                 # Adjust to standard strike increments
                 call_strike = self._adjust_to_standard_strike(call_strike)
@@ -981,7 +983,7 @@ class OptionsService:
                         target_expiration,
                         'C',
                         call_strike,
-                        stock_price=stock_price
+                        stock_price=stock_price, **({'exact_strike': True} if strike is not None else {})
                     )
                     if call_option:
                         options.append(call_option)
@@ -993,7 +995,7 @@ class OptionsService:
                         target_expiration,
                         'P',
                         put_strike,
-                        stock_price=stock_price
+                        stock_price=stock_price, **({'exact_strike': True} if strike is not None else {})
                     )
                     if put_option:
                         options.append(put_option)

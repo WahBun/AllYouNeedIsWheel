@@ -461,6 +461,30 @@ class IBConnection:
         ]
         return significant_errors[-1] if significant_errors else None
     
+    def get_option_strikes(self, symbol, expiration, right):
+        key = (symbol, expiration, right)
+        cache = getattr(self, '_expiry_strike_cache', {})
+        self._expiry_strike_cache = cache
+        cached = self._cached_value(cache, key, 1800)
+        if cached is not None:
+            return cached
+        previous_timeout = self.ib.RequestTimeout
+        self.ib.RequestTimeout = self.order_preflight_timeout
+        try:
+            details = self.ib.reqContractDetails(Option(symbol=symbol,
+                lastTradeDateOrContractMonth=expiration, right=right,
+                exchange='SMART', currency='USD', multiplier='100'))
+            strikes = sorted({float(d.contract.strike) for d in details
+                if d.contract.symbol == symbol and d.contract.right == right
+                and d.contract.lastTradeDateOrContractMonth == expiration
+                and d.contract.currency == 'USD' and d.contract.multiplier == '100'
+                and self._valid_price(d.contract.strike) is not None})
+            if strikes:
+                cache[key] = (time.time(), strikes)
+            return strikes
+        finally:
+            self.ib.RequestTimeout = previous_timeout
+
     def get_stock_previous_close(self, symbol):
         """Read IB's prior-close tick from the existing stock subscription only."""
         if not self.is_connected():
@@ -602,7 +626,7 @@ class IBConnection:
             logger.error(f"Error setting market data type: {e}")
             return False
             
-    def get_option_chain(self, symbol, expiration=None, right='C', target_strike=None, exchange='SMART', stock_price=None):
+    def get_option_chain(self, symbol, expiration=None, right='C', target_strike=None, exchange='SMART', stock_price=None, exact_strike=False):
         """
         Get option chain for a given symbol, expiration, and right
         
@@ -692,7 +716,12 @@ class IBConnection:
                 logger.error(f"No expiration date available for {symbol}")
                 return None
 
-            if target_strike is not None:
+            if exact_strike:
+                contract = self.get_qualified_option_contract(symbol, expiration, target_strike, right, exchange)
+                if contract is not None and (contract.strike != target_strike or contract.lastTradeDateOrContractMonth != expiration or contract.right != right):
+                    contract = None
+                option_contracts = [contract] if contract is not None else []
+            elif target_strike is not None:
                 contract = self.get_nearest_qualified_option_contract(
                     symbol, expiration, strikes, right, target_strike, exchange
                 )

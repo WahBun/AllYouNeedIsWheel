@@ -21,6 +21,55 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testExecuteSavesEditedPriceFirstAndStopsOnSaveFailure() async {
+        let savedLock = UserDefaults.standard.object(forKey: "unresolvedTradingWrite")
+        defer {
+            UserDefaults.standard.set(savedLock, forKey: "unresolvedTradingWrite")
+            MockProtocol.payload = nil; MockProtocol.fail = false
+        }
+        let store = WheelStore()
+        store.demo = false; store.address = "https://mock.invalid"
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        store.trading.uncertain = false
+        let order = Order(id: 42, ticker: "TEST", action: "SELL", option_type: "PUT", strike: 10, expiration: "20261016", premium: 0.2, quantity: 1, status: "pending")
+        store.orders = [order]
+        MockProtocol.requests = []; MockProtocol.fail = false
+        MockProtocol.payload = { _ in ["success": true] }
+        let success = await store.trading.executeWithPrice(order, price: "0.21", store: store)
+        XCTAssertTrue(success)
+        XCTAssertEqual(MockProtocol.requests.map { $0.url!.path }, ["/api/options/order/42/premium", "/api/options/execute/42"])
+        XCTAssertEqual(MockProtocol.requests.map { $0.httpMethod! }, ["PUT", "POST"])
+        MockProtocol.requests = []; MockProtocol.fail = true
+        let failed = await store.trading.executeWithPrice(order, price: "0.22", store: store)
+        XCTAssertFalse(failed)
+        XCTAssertEqual(MockProtocol.requests.count, 1)
+        XCTAssertTrue(store.trading.uncertain)
+    }
+    func testManualStrikeSelectionDoesNotAcceptNearbyQuote() async {
+        let store = WheelStore()
+        await store.refreshPortfolio()
+        let book = store.opportunities
+        book.preferences = [:]
+        await book.load("TSLL", type: "PUT", store: store)
+        book.preferences["TSLL:PUT"]?.strike = 8
+        await book.load("TSLL", type: "PUT", store: store, background: true)
+        XCTAssertEqual(book.rows["TSLL:PUT"]?.quote?.strike, 8)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        store.demo = false; store.address = "https://mock.invalid"
+        MockProtocol.fail = false
+        MockProtocol.payload = { request in
+            XCTAssertTrue(request.url!.query!.contains("strike=8"))
+            return ["data": ["TSLL": ["stock_price": 10, "puts": [["strike": 9, "expiration": "20261016", "bid": 0.2, "ask": 0.3]]]]]
+        }
+        defer { MockProtocol.payload = nil }
+        await book.load("TSLL", type: "PUT", store: store, background: true)
+        XCTAssertNotNil(book.rows["TSLL:PUT"]?.error)
+        XCTAssertFalse(book.rows["TSLL:PUT"]!.canStage)
+    }
     func testTradeRefreshPriorityPreservesInitialPortfolioLoad() {
         XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: false))
         XCTAssertFalse(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: true))

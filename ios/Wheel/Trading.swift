@@ -96,6 +96,19 @@ final class TradingSession {
         return payload
     }
 
+    func executeWithPrice(_ order: Order, price: String, store: WheelStore) async -> Bool {
+        guard TradeRules.editable(order), let id = order.id.local, let limit = TradeRules.price(price),
+              let current = store.orders.first(where: { $0.id == order.id }),
+              TradeRules.editable(current), TradeRules.unchanged(current, since: order) else { return false }
+        let address = store.address
+        let demo = store.demo
+        if limit != order.premium {
+            guard await write("api/options/order/\(id)/premium", method: "PUT", body: ["premium": limit], store: store) else { return false }
+        }
+        guard address == store.address, demo == store.demo else { return false }
+        return await write("api/options/execute/\(id)", store: store)
+    }
+
     func write(_ path: String, method: String = "POST", body: [String: Any] = [:], store: WheelStore) async -> Bool {
         guard !busy, store.demo || !uncertain else { return false }
         busy = true
@@ -193,7 +206,13 @@ struct OrderDetail: View {
                     LabeledContent("Contract", value: "\(order.expiration ?? "") · \(money(order.strike)) \(order.option_type ?? "")")
                     LabeledContent("Action", value: "\(order.action ?? "") TO \(order.intent ?? "OPEN")")
                     LabeledContent("Quantity", value: order.quantity?.formatted() ?? "—")
-                    LabeledContent("Limit", value: money(order.premium))
+                    LabeledContent("Limit") {
+                        if TradeRules.editable(order) {
+                            TextField("0.00", text: $price).keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing).monospacedDigit()
+                                .accessibilityLabel("Limit price")
+                        } else { Text(money(order.premium)) }
+                    }
                     LabeledContent("Time in force", value: order.tif ?? (order.intent == "CLOSE" ? "GTC" : "DAY"))
                     LabeledContent("Status", value: order.ib_status ?? order.status)
                     if let id = order.ib_order_id { LabeledContent("IB order ID", value: String(id)) }
@@ -202,10 +221,6 @@ struct OrderDetail: View {
                 }
                 if order.external_ib == true { Text("IB-managed order. Modify or cancel in IB.").foregroundStyle(.secondary) }
                 if TradeRules.editable(order) {
-                    Section("Limit price") {
-                        TextField("0.00", text: $price).keyboardType(.decimalPad)
-                        Button("Save price") { action = "Save price" }.disabled(TradeRules.price(price) == nil)
-                    }
                     if order.intent != "CLOSE" {
                         Section("Quantity") {
                             Stepper("Contracts: \(quantity)", value: $quantity, in: 1...100)
@@ -214,8 +229,7 @@ struct OrderDetail: View {
                     }
                     Section {
                         Button("Execute", systemImage: "paperplane") { if confirmExecution { action = "Execute" } else { perform("Execute") } }
-                            .disabled(TradeRules.hasUnsavedEdits(order, price: price, quantity: quantity))
-                        if TradeRules.hasUnsavedEdits(order, price: price, quantity: quantity) { Text("Save price and quantity changes before Execute.").font(.caption).foregroundStyle(.orange) }
+                            .disabled(TradeRules.price(price) == nil || (order.intent != "CLOSE" && Double(quantity) != order.quantity))
                     }
                 }
                 if TradeRules.cancelable(order) { Section { Button("Cancel order", role: .destructive) {
@@ -235,14 +249,19 @@ struct OrderDetail: View {
                 self.action = nil
             }
         } message: {
-            Text("\(current?.name ?? initial.name) · \(current?.action ?? "") \(action == "Save quantity" ? String(quantity) : current?.quantity?.formatted() ?? "") · \(current?.option_type ?? "") \(money(current?.strike)) · \(current?.expiration ?? "")\nLimit \(money(action == "Save price" ? TradeRules.price(price) : current?.premium)) · \(current?.tif ?? (current?.intent == "CLOSE" ? "GTC" : "DAY"))\n\(store.demo ? "Simulation only" : "Connected backend · real orders may execute")")
+            Text("\(current?.name ?? initial.name) · \(current?.action ?? "") \(action == "Save quantity" ? String(quantity) : current?.quantity?.formatted() ?? "") · \(current?.option_type ?? "") \(money(current?.strike)) · \(current?.expiration ?? "")\nLimit \(money(action == "Execute" ? TradeRules.price(price) : current?.premium)) · \(current?.tif ?? (current?.intent == "CLOSE" ? "GTC" : "DAY"))\n\(store.demo ? "Simulation only" : "Connected backend · real orders may execute")")
         }
     }
     private func perform(_ action: String) {
         guard let order = current, let id = order.id.local else { return }
         guard action == "Cancel order" ? TradeRules.cancelable(order) : TradeRules.editable(order) else { return }
         guard action != "Save quantity" || order.intent != "CLOSE" else { return }
-        guard action != "Execute" || !TradeRules.hasUnsavedEdits(order, price: price, quantity: quantity) else { return }
+        if action == "Execute" {
+            guard TradeRules.price(price) != nil, order.intent == "CLOSE" || Double(quantity) == order.quantity else { return }
+            let requestedPrice = price
+            Task { _ = await store.trading.executeWithPrice(order, price: requestedPrice, store: store); await store.refresh() }
+            return
+        }
         let suffix = action == "Save quantity" ? "quantity" : "premium"
         let path = action == "Execute" ? "api/options/execute/\(id)" : action == "Cancel order" ? "api/options/cancel/\(id)" : "api/options/order/\(id)/\(suffix)"
         let body: [String: Any] = action == "Save price" ? ["premium": TradeRules.price(price) ?? 0] : action == "Save quantity" ? ["quantity": quantity] : [:]
