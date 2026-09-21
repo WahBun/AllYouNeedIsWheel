@@ -16,7 +16,7 @@ def install_api_dispatcher(app):
     app.extensions['ib_api_executor'] = executor
 
     def dispatch():
-        if not request.path.startswith('/api/'):
+        if not request.path.startswith('/api/') or (request.method == 'GET' and request.path == '/api/options/market-session'):
             return original_dispatch()
         key = None
         if request.method == 'GET':

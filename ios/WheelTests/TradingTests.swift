@@ -21,6 +21,33 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testMarketSessionGateCachesClosedAndRecoversOnRecheck() async {
+        let store = WheelStore()
+        store.demo = false; store.address = "https://mock.invalid"
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        MockProtocol.fail = false; MockProtocol.requests = []
+        MockProtocol.payload = { _ in ["is_open": false, "server_time": 100.0, "next_transition": 1000.0] }
+        defer { MockProtocol.payload = nil; MockProtocol.fail = false }
+        let first = await store.opportunities.allowsAutomaticRefresh(store)
+        let second = await store.opportunities.allowsAutomaticRefresh(store)
+        XCTAssertFalse(first); XCTAssertFalse(second)
+        XCTAssertEqual(MockProtocol.requests.count, 1)
+        XCTAssertEqual(store.opportunities.marketOpen, false)
+        store.opportunities.invalidateMarketSession()
+        MockProtocol.payload = { _ in ["is_open": true, "server_time": 100.0, "next_transition": 200.0] }
+        let opened = await store.opportunities.allowsAutomaticRefresh(store)
+        XCTAssertTrue(opened)
+        store.opportunities.invalidateMarketSession()
+        MockProtocol.fail = true
+        let unavailable = await store.opportunities.allowsAutomaticRefresh(store)
+        XCTAssertFalse(unavailable)
+        XCTAssertNil(store.opportunities.marketOpen)
+        store.demo = true
+        let demo = await store.opportunities.allowsAutomaticRefresh(store)
+        XCTAssertTrue(demo)
+    }
     func testStrikeMenuPrioritizesMultiplesOfFiveWithoutDroppingOtherContracts() {
         XCTAssertEqual(TradingMath.orderedStrikes([77.5, 81, 80, 75, 80, .nan, -1]), [75, 80, 81, 77.5])
     }

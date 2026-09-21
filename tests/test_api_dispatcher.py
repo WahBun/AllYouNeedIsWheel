@@ -47,6 +47,21 @@ class ApiDispatcherTests(unittest.TestCase):
                 self.release.set()
             self.assertEqual(slow.result().json['value'], 'one')
 
+    def test_market_session_lookup_does_not_wait_for_ib(self):
+        @self.app.route('/api/options/market-session')
+        def session():
+            return {'is_open': False}
+        with ThreadPoolExecutor(2) as clients:
+            slow = clients.submit(self.get, '/api/slow?value=one')
+            self.assertTrue(self.entered.wait(2))
+            try:
+                result = clients.submit(self.get, '/api/options/market-session').result(timeout=1)
+                self.assertEqual(result.status_code, 200)
+                self.assertFalse(slow.done())
+            finally:
+                self.release.set()
+            slow.result()
+
     def test_api_execution_stays_on_one_thread_and_writes_are_not_deduplicated(self):
         self.release.set()
         with ThreadPoolExecutor(3) as clients:

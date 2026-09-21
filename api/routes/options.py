@@ -17,6 +17,17 @@ logger = logging.getLogger('api.routes.options')
 bp = Blueprint('options', __name__, url_prefix='/api/options')
 options_service = OptionsService()
 
+@bp.route('/market-session', methods=['GET'])
+def get_market_session():
+    try:
+        from core.market_session import market_session
+        response = jsonify(market_session())
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except Exception:
+        logger.exception('Market session lookup failed')
+        return jsonify(error='Market session unavailable'), 503
+
 # Market status is now checked directly in the route functions
 
 # Helper function to check market status with better error handling

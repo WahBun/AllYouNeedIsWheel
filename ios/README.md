@@ -97,6 +97,16 @@ are explicitly synthetic. No live account what-if request was made during tests.
 
 ## Verification Results
 
+Trade automatic quotes now follow the NYSE regular-session calendar via
+`GET /api/options/market-session`, including holidays, early closes and DST.
+Install the updated backend requirements before using this iOS version.
+The calendar endpoint bypasses the IB queue and never requests broker data.
+Outside the session, existing quotes remain visible with a closed-market notice;
+manual refresh remains available. Unknown session status pauses automatic quotes
+with a separate notice. The app rechecks on foreground entry and at session
+boundaries; Demo is unaffected. This polling policy is not an exchange trading
+permission check and does not stop order-status reconciliation.
+
 The 2026-09-21 preview review passed 28 simulator tests, including quote failures,
 stale responses, manual input preservation, default covered-call quantity,
 exact-contract demo closes, currency formatting, write-timeout locking, spread

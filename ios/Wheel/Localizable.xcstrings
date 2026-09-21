@@ -1,9 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "—" : {
-
-    },
     "%@ · %@" : {
       "localizations" : {
         "en" : {
@@ -1043,10 +1040,16 @@
         }
       }
     },
-    "Retry" : {
+    "Market closed · quotes are not live" : {
       "localizations" : {
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "重试" } },
-        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "重試" } }
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "休市 · 非实时报价" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "休市 · 非即時報價" } }
+      }
+    },
+    "Market hours unavailable · automatic quotes paused" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "交易时段状态不可用 · 自动报价已暂停" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "交易時段狀態不可用 · 自動報價已暫停" } }
       }
     },
     "Done" : {
@@ -2292,6 +2295,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "取得時間"
+          }
+        }
+      }
+    },
+    "Retry" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重试"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重試"
           }
         }
       }

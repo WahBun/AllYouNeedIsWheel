@@ -112,6 +112,32 @@ final class OpportunityBook {
     var removedPuts: [String] = []
     var rows: [String: OpportunityRow] = [:]
     var strikeLists: [String: (values: [Double], date: Date)] = [:]
+    var marketOpen: Bool?
+    private var sessionExpires = Date.distantPast
+    func invalidateMarketSession() { sessionExpires = .distantPast }
+    func allowsAutomaticRefresh(_ store: WheelStore) async -> Bool {
+        if store.demo { return true }
+        if Date() < sessionExpires { return marketOpen == true }
+        let token = generation
+        do {
+            let data = try await store.trading.get("api/options/market-session", base: store.address)
+            guard !Task.isCancelled, token == generation else { return false }
+            guard let open = data["is_open"] as? Bool,
+                  let server = data["server_time"] as? Double,
+                  let transition = data["next_transition"] as? Double,
+                  server.isFinite, transition.isFinite, transition > server else {
+                throw AppError.message("Market session unavailable")
+            }
+            marketOpen = open
+            sessionExpires = Date().addingTimeInterval(min(30, transition - server))
+            return open
+        } catch {
+            guard !Task.isCancelled, token == generation else { return false }
+            marketOpen = nil
+            sessionExpires = Date().addingTimeInterval(10)
+            return false
+        }
+    }
     var loading = false
     var batchRunning = false
     private var generation = 0
@@ -119,6 +145,7 @@ final class OpportunityBook {
     struct Saved: Codable { var preferences: [String: OpportunityPreference]; var custom: [String]; var excluded: [String]; var removedPuts: [String]? }
     func configure(context: String) {
         generation += 1; rows = [:]; strikeLists = [:]; loading = false
+        marketOpen = nil; sessionExpires = .distantPast
         preferenceKey = "opportunities-v1-" + context
         let saved = UserDefaults.standard.data(forKey: preferenceKey).flatMap { try? JSONDecoder().decode(Saved.self, from: $0) }
         preferences = saved?.preferences ?? [:]; custom = saved?.custom ?? []; excluded = saved?.excluded ?? []
@@ -289,6 +316,7 @@ struct OpportunitiesView: View {
     private var autoRefresh: Bool { visible && phase == .active && store.selectedTab == "trade" && !book.batchRunning && !store.trading.busy }
     var body: some View {
         List {
+            MarketSessionNotice()
             Section {
                 Picker("Strategy", selection: $type) { Text("Covered calls").tag("CALL"); Text("Cash-secured puts").tag("PUT") }.pickerStyle(.segmented)
                 if type == "PUT" {
@@ -372,7 +400,9 @@ struct OpportunitiesView: View {
         .onDisappear { visible = false }
         .task(id: "\(autoRefresh)-\(store.demo)-\(store.address)-\(type)-\(symbols.joined(separator: ","))") {
             guard autoRefresh else { return }
+            book.invalidateMarketSession()
             await RefreshLoop.run {
+                guard await book.allowsAutomaticRefresh(store) else { return false }
                 await book.refreshAll(type: type, store: store, background: true)
                 return symbols.contains { book.rows[book.key($0, type)]?.error != nil }
             }
@@ -399,6 +429,7 @@ struct OpportunityDetail: View {
     private var autoRefresh: Bool { visible && !showStrikes && phase == .active && store.selectedTab == "trade" && !book.batchRunning && !store.trading.busy }
     var body: some View {
         Form {
+            MarketSessionNotice()
             Section(LocalizedStringKey(type == "CALL" ? "Covered call" : "Cash-secured put")) {
                 LabeledContent("Stock price") { OpportunityPrice(row: row) }
                 Stepper("OTM \(preference.otm)%", value: Binding(get: { preference.otm }, set: { value in updatePreference { $0.otm = value; $0.strike = nil } }), in: 0...80)
@@ -457,7 +488,9 @@ struct OpportunityDetail: View {
         .onDisappear { visible = false }
         .task(id: "\(autoRefresh)-\(store.demo)-\(store.address)-\(key)-\(preference.otm)-\(preference.expiration)-\(preference.strike ?? 0)") {
             guard autoRefresh else { return }
+            book.invalidateMarketSession()
             await RefreshLoop.run {
+                guard await book.allowsAutomaticRefresh(store) else { return false }
                 await book.load(ticker, type: type, store: store, background: true)
                 return row.error != nil
             }
@@ -521,5 +554,17 @@ struct OpportunityDetail: View {
     private func updatePreference(_ change: (inout OpportunityPreference) -> Void) {
         var next = preference; change(&next); book.preferences[key] = next; book.save()
         book.rows[key]?.quote = nil; book.rows[key]?.price = ""; book.rows[key]?.staged = false
+    }
+}
+
+struct MarketSessionNotice: View {
+    @Environment(WheelStore.self) private var store
+    var body: some View {
+        if !store.demo && store.opportunities.marketOpen != true {
+            Label(LocalizedStringKey(store.opportunities.marketOpen == false
+                ? "Market closed · quotes are not live"
+                : "Market hours unavailable · automatic quotes paused"), systemImage: "clock")
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 }

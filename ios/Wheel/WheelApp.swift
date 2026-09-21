@@ -254,8 +254,8 @@ struct RootView: View {
                 return store.error != nil
             }
         }
-        .task(id: "orders-\(phase)-\(store.demo)-\(store.address)-\(store.selectedTab)") {
-            guard phase == .active, store.selectedTab != "trade" else { return }
+        .task(id: "orders-\(phase)-\(store.demo)-\(store.address)-\(store.selectedTab)-\(String(describing: store.opportunities.marketOpen))") {
+            guard phase == .active, store.selectedTab != "trade" || store.opportunities.marketOpen == false else { return }
             await RefreshLoop.run { await store.refreshOrders(); return store.orderError != nil }
         }
     }
