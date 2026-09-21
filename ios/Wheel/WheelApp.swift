@@ -129,7 +129,7 @@ final class WheelStore {
             updated = Date()
             error = nil
             UserDefaults.standard.set(address, forKey: "backendURL")
-            if reloadSummary {
+            if reloadSummary && selectedTab != "trade" {
                 let income: WeeklyIncome? = try? await read(base.appendingPathComponent("api/portfolio/weekly-income"))
                 guard requestedRevision == revision, !Task.isCancelled else { return }
                 weekly = income
@@ -237,12 +237,19 @@ struct RootView: View {
         .onChange(of: "\(store.demo)-\(store.address)") {
             portfolioPath = NavigationPath(); ordersPath = NavigationPath(); tradePath = NavigationPath()
         }
-        .task(id: "\(phase)-\(store.demo)-\(store.address)") {
+        .task(id: "\(phase)-\(store.demo)-\(store.address)-\(store.selectedTab)") {
             guard phase == .active else { return }
-            await RefreshLoop.run { await store.refreshPortfolio(); return store.error != nil }
+            await RefreshLoop.run {
+                if RefreshLoop.shouldRefreshPortfolio(tab: store.selectedTab, hasPortfolio: store.portfolio != nil,
+                    age: Date().timeIntervalSince(store.updated ?? .distantPast),
+                    quotesLoading: store.opportunities.loading || store.opportunities.rows.values.contains { $0.loading }) {
+                    await store.refreshPortfolio()
+                }
+                return store.error != nil
+            }
         }
-        .task(id: "orders-\(phase)-\(store.demo)-\(store.address)") {
-            guard phase == .active else { return }
+        .task(id: "orders-\(phase)-\(store.demo)-\(store.address)-\(store.selectedTab)") {
+            guard phase == .active, store.selectedTab != "trade" else { return }
             await RefreshLoop.run { await store.refreshOrders(); return store.orderError != nil }
         }
     }

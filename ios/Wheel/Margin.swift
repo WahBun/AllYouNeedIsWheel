@@ -12,6 +12,22 @@ struct MarginImpact: Decodable {
     let warning: String?
     let retrieved_at: String
 
+    static func displayTime(_ timestamp: String, timeZone: TimeZone = .current) -> String {
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var date = parser.date(from: timestamp)
+        if date == nil {
+            parser.formatOptions = [.withInternetDateTime]
+            date = parser.date(from: timestamp)
+        }
+        guard let date else { return "—" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "MM-dd HH:mm:ss"
+        return formatter.string(from: date)
+    }
+
     func matches(_ holding: Position) -> Bool {
         con_id == holding.con_id && position == holding.position && currency == "USD" &&
         estimated && !additive && scenario == "close_entire_position" &&
@@ -71,7 +87,7 @@ struct PositionMarginView: View {
                 if let impact, let latest, impact.matches(latest) {
                     LabeledContent("Initial margin change", value: signedMoney(impact.initial_change))
                     LabeledContent("Maintenance margin change", value: signedMoney(impact.maintenance_change))
-                    LabeledContent("Retrieved", value: impact.retrieved_at)
+                    LabeledContent("Retrieved", value: MarginImpact.displayTime(impact.retrieved_at))
                     if let warning = impact.warning, !warning.isEmpty { Text(warning).foregroundStyle(.orange) }
                 }
                 Text("Negative means less required margin; positive means more. Closing a hedge can increase margin. This is not the holding's actual margin allocation.")

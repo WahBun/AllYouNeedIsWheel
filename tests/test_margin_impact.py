@@ -16,6 +16,8 @@ class MarginImpactTests(unittest.TestCase):
             account='TEST_ACCOUNT', position=-2,
             contract=SimpleNamespace(conId=42, secType='OPT', exchange='', symbol='TEST'))
         self.conn.ib = Mock()
+        self.conn.ib.RequestTimeout = 0
+        self.conn.order_preflight_timeout = 10
         self.conn.ib.accountSummary.return_value = [SimpleNamespace(
             account='TEST_ACCOUNT', tag='InitMarginReq', currency='USD')]
         self.conn.ib.positions.return_value = [self.holding]
@@ -42,6 +44,17 @@ class MarginImpactTests(unittest.TestCase):
         self.holding.contract.secType = 'STK'
         self.conn.get_position_margin_impact(42)
         self.assertEqual(self.conn.what_if_order.call_args.args[1].action, 'SELL')
+
+    def test_account_read_timeout_is_bounded_and_restored(self):
+        def stalled_account(*args):
+            self.assertEqual(self.conn.ib.RequestTimeout, 10)
+            raise TimeoutError()
+        self.conn.ib.accountSummary.side_effect = stalled_account
+        with self.assertRaises(TimeoutError):
+            self.conn.get_position_margin_impact(42)
+        self.assertEqual(self.conn.ib.RequestTimeout, 0)
+        self.conn.what_if_order.assert_not_called()
+        self.conn.ib.placeOrder.assert_not_called()
 
     def test_unknown_or_other_account_position_rejected(self):
         with self.assertRaises(ValueError):

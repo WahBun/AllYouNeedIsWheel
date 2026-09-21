@@ -21,6 +21,61 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testTradeRefreshPriorityPreservesInitialPortfolioLoad() {
+        XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: false))
+        XCTAssertFalse(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: true))
+        XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: true, age: 31))
+        XCTAssertFalse(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: true, age: 31, quotesLoading: true))
+        XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: "portfolio", hasPortfolio: true))
+        XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: "orders", hasPortfolio: true))
+    }
+    func testDailyChangeUsesPreviousCloseAndRejectsMissingBaseline() {
+        XCTAssertEqual(TradingMath.dailyChange(price: 102, close: 100)!, 2, accuracy: 0.0001)
+        XCTAssertEqual(TradingMath.dailyChange(price: 98, close: 100)!, -2, accuracy: 0.0001)
+        XCTAssertEqual(TradingMath.dailyChange(price: 100, close: 100), 0)
+        XCTAssertNil(TradingMath.dailyChange(price: 100, close: nil))
+        XCTAssertNil(TradingMath.dailyChange(price: 100, close: 0))
+        XCTAssertNil(TradingMath.dailyChange(price: .nan, close: 100))
+    }
+    func testQuoteDirectionComparesConsecutiveValidPrices() {
+        XCTAssertEqual(TradingMath.priceDirection(previous: 10, current: 10.01), 1)
+        XCTAssertEqual(TradingMath.priceDirection(previous: 10, current: 9.99), -1)
+        XCTAssertEqual(TradingMath.priceDirection(previous: 10, current: 10), 0)
+        XCTAssertEqual(TradingMath.priceDirection(previous: nil, current: 10), 0)
+        XCTAssertEqual(TradingMath.priceDirection(previous: 10, current: .nan), 0)
+        XCTAssertEqual(TradingMath.priceDirection(previous: 10, current: -1), 0)
+    }
+    func testRemovePutDoesNotHideCallOrReturnThroughRestore() async throws {
+        let store = WheelStore()
+        await store.refreshPortfolio()
+        let book = OpportunityBook()
+        let context = "test-" + UUID().uuidString
+        defer { UserDefaults.standard.removeObject(forKey: "opportunities-v1-" + context) }
+        book.configure(context: context)
+        book.custom = ["TEST"]
+        book.excluded = ["TSLL:PUT"]
+        book.removePut("TSLL")
+        book.removePut("TEST")
+        book.restoreHidden(type: "PUT")
+        XCTAssertFalse(book.symbols(store, type: "PUT").contains("TSLL"))
+        XCTAssertFalse(book.custom.contains("TEST"))
+        XCTAssertTrue(book.symbols(store, type: "CALL").contains("TSLL"))
+        XCTAssertFalse(book.hasHidden(type: "PUT"))
+        book.configure(context: context)
+        XCTAssertTrue(book.removedPuts.contains("TSLL"))
+        XCTAssertTrue(book.removedPuts.contains("TEST"))
+        let old = Data(#"{"preferences":{},"custom":["TEST"],"excluded":[]}"#.utf8)
+        let decoded = try JSONDecoder().decode(OpportunityBook.Saved.self, from: old)
+        XCTAssertNil(decoded.removedPuts)
+    }
+    func testMarginTimestampUsesCompactLocalTime() {
+        let zone = TimeZone(secondsFromGMT: 8 * 3600)!
+        XCTAssertEqual(MarginImpact.displayTime("2026-09-21T02:22:26.044748+00:00", timeZone: zone), "09-21 10:22:26")
+        XCTAssertEqual(MarginImpact.displayTime("2026-09-21T02:22:26Z", timeZone: zone), "09-21 10:22:26")
+        XCTAssertEqual(MarginImpact.displayTime("2026-09-20T20:22:26Z", timeZone: zone), "09-21 04:22:26")
+        XCTAssertEqual(MarginImpact.displayTime("invalid", timeZone: zone), "—")
+    }
+
     func testMarginImpactRequiresExactPositionAndEstimateSemantics() {
         let position = Position(symbol: "TEST", position: -2, security_type: "OPT", con_id: 42)
         let impact = MarginImpact(con_id: 42, position: -2, currency: "USD", initial_change: -200,
@@ -130,7 +185,8 @@ final class TradingTests: XCTestCase {
     func testRefreshCadenceAccountsForRequestTimeAndBackoff() {
         XCTAssertEqual(RefreshLoop.delay(elapsed: 0.4, failed: false), 1.6, accuracy: 0.001)
         XCTAssertEqual(RefreshLoop.delay(elapsed: 8, failed: false), 0.25)
-        XCTAssertEqual(RefreshLoop.delay(elapsed: 1, failed: true), 9)
+        XCTAssertEqual(RefreshLoop.delay(elapsed: 1, failed: true), 10)
+        XCTAssertEqual(RefreshLoop.delay(elapsed: 30, failed: true), 10)
     }
     func testQuoteRefreshPreservesManualPriceQuantityAndBlankInput() async {
         let state = CloseQuoteState()
@@ -290,6 +346,33 @@ final class TradingTests: XCTestCase {
         XCTAssertEqual(book.rows["TSLL:CALL"]?.quote?.id, previous.quote?.id)
         XCTAssertFalse(book.rows["TSLL:CALL"]!.canStage)
         XCTAssertFalse(book.rows["TSLL:CALL"]!.loading)
+    }
+    func testOpportunityAutoRefreshFollowsMidUntilPriceIsEdited() async {
+        let store = WheelStore()
+        await store.refreshPortfolio()
+        let book = store.opportunities
+        book.preferences = [:]
+        await book.load("TSLL", type: "PUT", store: store)
+        let quote = book.rows["TSLL:PUT"]!.quote!
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        store.demo = false; store.address = "https://mock.invalid"
+        MockProtocol.fail = false
+        MockProtocol.payload = { _ in ["data": ["TSLL": ["stock_price": 10.25, "puts": [[
+            "strike": quote.strike, "expiration": quote.expiration, "bid": 0.4, "ask": 0.6
+        ]]]]] }
+        defer { MockProtocol.payload = nil }
+        await book.load("TSLL", type: "PUT", store: store, background: true)
+        XCTAssertEqual(book.rows["TSLL:PUT"]?.price, "0.50")
+        book.rows["TSLL:PUT"]?.price = "0.48"
+        book.rows["TSLL:PUT"]?.manualPrice = true
+        book.rows["TSLL:PUT"]?.quantity = 2
+        await book.load("TSLL", type: "PUT", store: store, background: true)
+        XCTAssertEqual(book.rows["TSLL:PUT"]?.price, "0.48")
+        XCTAssertEqual(book.rows["TSLL:PUT"]?.quantity, 2)
+        XCTAssertEqual(book.rows["TSLL:PUT"]?.quote?.mid, 0.5)
+        XCTAssertNil(book.rows["TSLL:PUT"]?.error)
     }
     func testStaleOpportunityCannotStage() {
         var row = OpportunityRow(ticker: "TEST", type: "PUT")

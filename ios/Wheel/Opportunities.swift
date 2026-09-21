@@ -2,10 +2,39 @@ import SwiftUI
 
 struct PremiumValue: View {
     let amount: Double?
+    var perSymbol = false
     @Environment(\.colorScheme) private var scheme
+    private var premiumColor: Color {
+        if perSymbol {
+            return scheme == .dark ? Color(red: 1, green: 0.70, blue: 0.81) : Color(red: 0.70, green: 0.24, blue: 0.42)
+        }
+        return scheme == .dark ? Color(red: 0.70, green: 1, blue: 0.30) : Color(red: 0.28, green: 0.46, blue: 0.02)
+    }
     var body: some View {
         Text(money(amount)).monospacedDigit()
-            .foregroundStyle(amount.map { $0.isFinite && $0 > 0 } == true ? TradingColors.profit(scheme) : Color.secondary)
+            .foregroundStyle(amount.map { $0.isFinite && $0 > 0 } == true
+                ? premiumColor
+                : Color.secondary)
+    }
+}
+
+struct OpportunityPrice: View {
+    let row: OpportunityRow?
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let fresh = row?.error == nil && context.date.timeIntervalSince(row?.updated ?? .distantPast) < 30
+            let direction = fresh ? (row?.priceDirection ?? 0) : 0
+            HStack(spacing: 6) {
+                Text(money(row?.stockPrice)).monospacedDigit()
+                    .foregroundStyle(direction > 0 ? TradingColors.profit(scheme) : direction < 0 ? Color.red : Color.primary)
+                if let change = TradingMath.dailyChange(price: row?.stockPrice, close: row?.previousClose) {
+                    Text(String(format: "%+.2f%%", change))
+                        .font(.caption).monospacedDigit()
+                        .foregroundStyle(!fresh ? Color.secondary : change > 0 ? TradingColors.profit(scheme) : change < 0 ? Color.red : Color.secondary)
+                }
+            }
+        }
     }
 }
 
@@ -22,6 +51,16 @@ struct ContractQuote: Decodable, Identifiable {
 }
 
 enum TradingMath {
+    static func dailyChange(price: Double?, close: Double?) -> Double? {
+        guard let price, let close, price.isFinite, close.isFinite, price > 0, close > 0 else { return nil }
+        let result = (price / close - 1) * 100
+        return result.isFinite ? result : nil
+    }
+    static func priceDirection(previous: Double?, current: Double?) -> Int {
+        guard let previous, let current, previous.isFinite, current.isFinite,
+              previous > 0, current > 0 else { return 0 }
+        return current > previous ? 1 : current < previous ? -1 : 0
+    }
     static func mid(_ bid: Double?, _ ask: Double?) -> Double? {
         guard let bid, let ask, bid.isFinite, ask.isFinite, bid > 0, ask >= bid else { return nil }
         return (bid + ask) / 2
@@ -61,23 +100,31 @@ final class OpportunityBook {
     var preferences: [String: OpportunityPreference] = [:]
     var custom: [String] = []
     var excluded: [String] = []
+    var removedPuts: [String] = []
     var rows: [String: OpportunityRow] = [:]
     var loading = false
     var batchRunning = false
     private var generation = 0
     private var preferenceKey = ""
-    struct Saved: Codable { var preferences: [String: OpportunityPreference]; var custom: [String]; var excluded: [String] }
+    struct Saved: Codable { var preferences: [String: OpportunityPreference]; var custom: [String]; var excluded: [String]; var removedPuts: [String]? }
     func configure(context: String) {
         generation += 1; rows = [:]; loading = false
         preferenceKey = "opportunities-v1-" + context
         let saved = UserDefaults.standard.data(forKey: preferenceKey).flatMap { try? JSONDecoder().decode(Saved.self, from: $0) }
         preferences = saved?.preferences ?? [:]; custom = saved?.custom ?? []; excluded = saved?.excluded ?? []
+        removedPuts = saved?.removedPuts ?? []
     }
     func save() {
-        guard !preferenceKey.isEmpty, let data = try? JSONEncoder().encode(Saved(preferences: preferences, custom: custom, excluded: excluded)) else { return }
+        guard !preferenceKey.isEmpty, let data = try? JSONEncoder().encode(Saved(preferences: preferences, custom: custom, excluded: excluded, removedPuts: removedPuts)) else { return }
         UserDefaults.standard.set(data, forKey: preferenceKey)
     }
     func key(_ ticker: String, _ type: String) -> String { ticker + ":" + type }
+    func removePut(_ ticker: String) {
+        custom.removeAll { $0 == ticker }
+        if !removedPuts.contains(ticker) { removedPuts.append(ticker) }
+        excluded.removeAll { $0 == key(ticker, "PUT") }
+        save()
+    }
     func hasHidden(type: String) -> Bool { excluded.contains { $0.hasSuffix(":" + type) } }
     func restoreHidden(type: String) {
         excluded.removeAll { $0.hasSuffix(":" + type) }
@@ -85,7 +132,9 @@ final class OpportunityBook {
     }
     func symbols(_ store: WheelStore, type: String) -> [String] {
         let held = (store.portfolio?.positions ?? []).filter { $0.security_type == "STK" && $0.position >= 100 }.map(\.symbol)
-        return Set(type == "CALL" ? held : held + custom).filter { $0 != "SGOV" && !excluded.contains(key($0, type)) }.sorted()
+        return Set(type == "CALL" ? held : held + custom).filter {
+            $0 != "SGOV" && !excluded.contains(key($0, type)) && (type != "PUT" || !removedPuts.contains($0))
+        }.sorted()
     }
     func load(_ ticker: String, type: String, store: WheelStore, background: Bool = false) async {
         let token = generation
@@ -112,12 +161,14 @@ final class OpportunityBook {
             row.quote = nil
             if store.demo {
                 row.stockPrice = ticker == "TSLL" ? 10.25 : 92.5
+                row.previousClose = ticker == "TSLL" ? 10 : 94
                 row.quote = ContractQuote(strike: (row.stockPrice! * (1 + (type == "CALL" ? 1 : -1) * Double(preference.otm) / 100)).rounded(), expiration: preference.expiration, bid: 0.25, ask: 0.29, delta: type == "CALL" ? 0.23 : -0.19, implied_volatility: 45)
                 row.capacity = TradingMath.capacity(shares: shares, available: Int(shares / 100))
             } else {
                 let result = try await store.trading.get("api/options/otm", base: store.address, query: [URLQueryItem(name: "tickers", value: ticker), URLQueryItem(name: "optionType", value: type), URLQueryItem(name: "otm", value: String(preference.otm)), URLQueryItem(name: "expiration", value: preference.expiration)])
                 guard let item = (result["data"] as? [String: [String: Any]])?[ticker] else { throw AppError.message("Option data unavailable.") }
                 row.stockPrice = item["stock_price"] as? Double
+                row.previousClose = item["previous_close"] as? Double
                 row.capacity = TradingMath.capacity(shares: shares, available: item["covered_call_capacity"] as? Int)
                 if let value = (item[type == "CALL" ? "calls" : "puts"] as? [[String: Any]])?.first {
                     row.quote = try JSONDecoder().decode(ContractQuote.self, from: JSONSerialization.data(withJSONObject: value))
@@ -130,6 +181,7 @@ final class OpportunityBook {
                 row.price = previous?.price ?? ""; row.manualPrice = true
             } else { row.price = row.quote?.mid.map { String(format: "%.2f", $0) } ?? ""; row.manualPrice = false }
             row.quantity = type == "CALL" ? min(max(1, preference.quantity ?? row.capacity), max(1, row.capacity)) : max(1, min(100, preference.quantity ?? (shares >= 100 ? Int(shares / 100) : 1)))
+            row.priceDirection = TradingMath.priceDirection(previous: previous?.stockPrice, current: row.stockPrice)
             row.updated = Date()
             if previous?.quote != nil, let latest = rows[key] {
                 row.quantity = latest.quantity
@@ -188,6 +240,8 @@ struct OpportunityRow: Identifiable {
     var dates: [String] = []
     var quote: ContractQuote?
     var stockPrice: Double?
+    var previousClose: Double?
+    var priceDirection = 0
     var shares = 0.0
     var capacity = 0
     var quantity = 1
@@ -223,7 +277,9 @@ struct OpportunitiesView: View {
                         Button("Add", systemImage: "plus") {
                             let symbol = ticker.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
                             guard symbol != "SGOV", symbol.range(of: "^[A-Z0-9.-]{1,15}$", options: .regularExpression) != nil else { return }
-                            book.custom = Array(Set(book.custom + [symbol])).sorted(); book.excluded.removeAll { $0 == book.key(symbol, type) }; book.save(); ticker = ""
+                            book.custom = Array(Set(book.custom + [symbol])).sorted()
+                            book.excluded.removeAll { $0 == book.key(symbol, type) }
+                            book.removedPuts.removeAll { $0 == symbol }; book.save(); ticker = ""
                             Task { await book.load(symbol, type: type, store: store) }
                         }.labelStyle(.iconOnly)
                             .frame(minWidth: 44, minHeight: 44)
@@ -237,9 +293,9 @@ struct OpportunitiesView: View {
                 let row = book.rows[book.key(symbol, type)]
                 NavigationLink { OpportunityDetail(ticker: symbol, type: type) } label: {
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack { Text(symbol).font(.headline); Spacer(); Text(money(row?.stockPrice)) }
+                        HStack { Text(symbol).font(.headline); Spacer(); OpportunityPrice(row: row) }
                         if let quote = row?.quote {
-                            HStack { Text("\(money(quote.strike)) · \(quote.expiration)"); Spacer(); PremiumValue(amount: row?.total) }.font(.caption)
+                            HStack { Text("\(money(quote.strike)) · \(quote.expiration)"); Spacer(); PremiumValue(amount: row?.total, perSymbol: true) }.font(.caption)
                             if type == "CALL" && row?.capacity == 0 {
                                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                                     Image(systemName: "exclamationmark.triangle.fill").accessibilityHidden(true)
@@ -258,6 +314,11 @@ struct OpportunitiesView: View {
                 }
                 .swipeActions(edge: .leading, allowsFullSwipe: false) {
                     Button("Hide", systemImage: "eye.slash") { book.excluded.append(book.key(symbol, type)); book.save() }.tint(.gray)
+                    if type == "PUT" {
+                        Button(role: .destructive) { book.removePut(symbol) } label: {
+                            Label("Remove", systemImage: "trash")
+                        }.tint(.red)
+                    }
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     if let row, row.canStage {
@@ -303,21 +364,24 @@ struct OpportunitiesView: View {
 struct OpportunityDetail: View {
     let ticker: String
     let type: String
+    @Environment(\.scenePhase) private var phase
+    @State private var visible = false
     @Environment(WheelStore.self) private var store
     private var book: OpportunityBook { store.opportunities }
     private var key: String { book.key(ticker, type) }
     private var row: OpportunityRow { book.rows[key] ?? OpportunityRow(ticker: ticker, type: type) }
     private var preference: OpportunityPreference { book.preferences[key] ?? OpportunityPreference() }
+    private var autoRefresh: Bool { visible && phase == .active && store.selectedTab == "trade" && !book.batchRunning && !store.trading.busy }
     var body: some View {
         Form {
             Section(LocalizedStringKey(type == "CALL" ? "Covered call" : "Cash-secured put")) {
-                LabeledContent("Stock price", value: money(row.stockPrice))
+                LabeledContent("Stock price") { OpportunityPrice(row: row) }
                 Stepper("OTM \(preference.otm)%", value: Binding(get: { preference.otm }, set: { value in updatePreference { $0.otm = value } }), in: 0...80)
                 Picker("Expiration", selection: Binding(get: { preference.expiration }, set: { value in updatePreference { $0.expiration = value } })) {
                     ForEach(row.dates, id: \.self) { Text($0).tag($0) }
                 }
-                Button("Refresh quote", systemImage: "arrow.clockwise") { Task { await book.load(ticker, type: type, store: store) } }
-                if row.loading { ProgressView() }
+                Button("Refresh quote", systemImage: "arrow.clockwise") { Task { await book.load(ticker, type: type, store: store) } }.disabled(row.loading)
+                if row.loading && row.quote == nil { ProgressView() }
                 if let error = row.error { Text(error).foregroundStyle(.orange) }
             }
             if let quote = row.quote {
@@ -327,7 +391,7 @@ struct OpportunityDetail: View {
                     LabeledContent("Spread") { SpreadValue(percentage: quote.spread) }
                     LabeledContent("Delta", value: quote.delta.map { String(format: "%.2f", $0) } ?? "—")
                     LabeledContent("IV", value: quote.implied_volatility.flatMap { $0 > 0 ? String(format: "%.1f%%", $0) : nil } ?? "—")
-                    if let updated = row.updated { LabeledContent("Retrieved") { Text(updated, style: .time) } }
+                    if let updated = row.updated { LabeledContent("Retrieved", value: updated.formatted(.dateTime.hour().minute().second())) }
                     Text(LocalizedStringKey(store.demo ? "Demo quote" : store.portfolio?.summary.is_frozen == true ? "Frozen portfolio · verify quote" : "Snapshot quote · verify before execution")).font(.caption).foregroundStyle(.secondary)
                     TextField("Limit per share", text: Binding(get: { row.price }, set: { book.rows[key]?.price = $0; book.rows[key]?.manualPrice = true })).keyboardType(.decimalPad)
                     Button("Use mid", systemImage: "equal") { book.rows[key]?.price = quote.mid.map { String(format: "%.2f", $0) } ?? ""; book.rows[key]?.manualPrice = true }.disabled(quote.mid == nil)
@@ -343,7 +407,7 @@ struct OpportunityDetail: View {
                             }.foregroundStyle(.orange)
                         }
                     }
-                    LabeledContent("Premium") { PremiumValue(amount: row.total) }
+                    LabeledContent("Premium") { PremiumValue(amount: row.total, perSymbol: true) }
                     if type == "PUT" { LabeledContent("Cash required", value: money(quote.strike * 100 * Double(row.quantity))) }
                     LabeledContent("Annualized premium estimate", value: money(row.total.flatMap { TradingMath.annualized(premium: $0, expiration: quote.expiration) }))
                     LabeledContent("Time in force", value: "DAY")
@@ -356,7 +420,16 @@ struct OpportunityDetail: View {
             Section { TradingNotice() }
         }.navigationTitle(ticker)
         .modifier(KeyboardDismissal())
-        .disabled(row.loading || store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
+        .task(id: "\(autoRefresh)-\(store.demo)-\(store.address)-\(key)-\(preference.otm)-\(preference.expiration)") {
+            guard autoRefresh else { return }
+            await RefreshLoop.run {
+                await book.load(ticker, type: type, store: store, background: true)
+                return row.error != nil
+            }
+        }
+        .disabled(store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))
     }
     private func updatePreference(_ change: (inout OpportunityPreference) -> Void) {
         var next = preference; change(&next); book.preferences[key] = next; book.save()

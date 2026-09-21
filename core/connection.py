@@ -461,6 +461,24 @@ class IBConnection:
         ]
         return significant_errors[-1] if significant_errors else None
     
+    def get_stock_previous_close(self, symbol):
+        """Read IB's prior-close tick from the existing stock subscription only."""
+        if not self.is_connected():
+            return None
+        for entry in self._market_ticker_cache.values():
+            contract = entry['contract']
+            if contract.symbol != symbol or contract.secType != 'STK':
+                continue
+            if time.time() - entry['used_at'] > 300:
+                continue
+            try:
+                close = float(entry['ticker'].close)
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if math.isfinite(close) and 0 < close < 1e100:
+                return close
+        return None
+
     def get_stock_price(self, symbol):
         """
         Get the current price of a stock
@@ -1411,6 +1429,14 @@ class IBConnection:
 
     def get_position_margin_impact(self, con_id):
         """Estimate closing one exact holding; never place a live order."""
+        previous_timeout = self.ib.RequestTimeout
+        self.ib.RequestTimeout = self.order_preflight_timeout
+        try:
+            return self._position_margin_impact(con_id)
+        finally:
+            self.ib.RequestTimeout = previous_timeout
+
+    def _position_margin_impact(self, con_id):
         from ib_async import MarketOrder
 
         account = self._order_account()

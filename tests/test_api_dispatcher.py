@@ -123,3 +123,39 @@ class ApiDispatcherTests(unittest.TestCase):
                 for future in pending:
                     self.assertEqual(future.result().status_code, 200)
                 self.assertEqual(len(self.calls), 4)
+
+    def test_duplicate_read_can_join_full_queue_and_slots_recover(self):
+        executor = self.app.extensions['ib_api_executor']
+        submit = executor.submit
+        waiting = threading.Event()
+        joined = threading.Event()
+        count = []
+
+        def instrumented_submit(fn):
+            future = submit(fn)
+            result = future.result
+            def wait(*args, **kwargs):
+                count.append(1)
+                if len(count) == 4:
+                    waiting.set()
+                if len(count) == 5:
+                    joined.set()
+                return result(*args, **kwargs)
+            future.result = wait
+            return future
+
+        with patch.object(executor, 'submit', side_effect=instrumented_submit) as submitted:
+            with ThreadPoolExecutor(5) as clients:
+                pending = [clients.submit(self.get, f'/api/slow?value={n}') for n in range(4)]
+                try:
+                    self.assertTrue(waiting.wait(2))
+                    duplicate = clients.submit(self.get, '/api/slow?value=0&t=99')
+                    self.assertTrue(joined.wait(2))
+                    self.assertEqual(submitted.call_count, 4)
+                    self.assertEqual(self.get('/api/slow?value=new').status_code, 503)
+                finally:
+                    self.release.set()
+                for future in pending:
+                    self.assertEqual(future.result().status_code, 200)
+                self.assertEqual(duplicate.result().status_code, 200)
+        self.assertEqual(self.get('/api/slow?value=recovered').status_code, 200)

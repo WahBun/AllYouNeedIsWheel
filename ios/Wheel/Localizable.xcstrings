@@ -2219,6 +2219,23 @@
         }
       }
     },
+    "Remove" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移除"
+          }
+        }
+      }
+    },
     "Request acknowledged. Refresh Orders to check broker status." : {
       "extractionState" : "stale",
       "localizations" : {
