@@ -1,5 +1,6 @@
 import math
 import unittest
+import time
 from types import SimpleNamespace
 
 from core.connection import IBConnection
@@ -18,6 +19,26 @@ class FakeIB:
 
 
 class OptionQuoteReadinessTests(unittest.TestCase):
+    def test_existing_subscription_does_not_repeat_five_second_bid_ask_wait(self):
+        ticker = SimpleNamespace(bid=0.6, ask=math.nan, last=0.61, close=0.59,
+                                 modelGreeks=None, impliedVolatility=math.nan)
+        contract = SimpleNamespace(symbol='TEST', strike=12.0, right='C',
+                                   lastTradeDateOrContractMonth='20261016')
+        connection = IBConnection.__new__(IBConnection)
+        connection.ib = FakeIB(ticker, ask_at=999)
+        connection.is_connected = lambda: True
+        connection.set_market_data_type = lambda _: True
+        connection.get_option_definition = lambda *_: (SimpleNamespace(), SimpleNamespace(strikes=[12.0]))
+        connection.get_nearest_qualified_option_contract = lambda *_: contract
+        connection.get_market_ticker = lambda *_: ticker
+        connection._market_ticker_cache = {
+            connection._market_ticker_key(contract, '106'): {'used_at': time.time()}
+        }
+        result = connection.get_option_chain('TEST', '20261016', 'C', 12.0, stock_price=10)
+        self.assertEqual(connection.ib.sleep_count, 1)
+        self.assertEqual(result['options'][0]['ask'], 0)
+        self.assertEqual(result['options'][0]['bid'], 0.6)
+
     def test_ready_quote_does_not_wait_for_missing_greeks(self):
         ticker = SimpleNamespace(bid=0.60, ask=0.62, last=0.61, close=0.59,
                                  modelGreeks=None, impliedVolatility=math.nan)

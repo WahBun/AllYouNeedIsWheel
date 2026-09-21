@@ -10,6 +10,7 @@ import math
 import time
 import json
 import datetime
+import re
 
 # Set up logger
 logger = logging.getLogger('api.routes.options')
@@ -88,6 +89,23 @@ def option_strikes():
     except Exception:
         logger.exception('Strike list query failed for %s %s %s', ticker, expiration, kind)
         return jsonify(error='Strike list unavailable; please retry'), 503
+
+@bp.route('/stock-quotes', methods=['GET'])
+def stock_quotes():
+    symbols = list(dict.fromkeys(s.strip().upper() for s in request.args.get('tickers', '').split(',')))
+    if not 1 <= len(symbols) <= 32 or any(not re.fullmatch(r'[A-Z0-9.-]{1,15}', s) for s in symbols):
+        return jsonify(error='Invalid tickers'), 400
+    try:
+        conn = options_service._ensure_connection()
+        if not conn:
+            return jsonify(error='IB connection unavailable'), 503
+        response = jsonify(data=conn.get_stock_quote_batch(symbols))
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except Exception:
+        logger.exception('Stock quote batch failed')
+        return jsonify(error='Stock quotes unavailable'), 503
+
 
 @bp.route('/stock-price', methods=['GET'])
 def get_stock_price():

@@ -21,6 +21,60 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testRefreshPicksUpAddedSymbolAndKeepsUpdatingExistingRows() async {
+        let store = WheelStore()
+        store.demo = false; store.address = "https://mock.invalid"
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        let book = store.opportunities
+        book.custom = ["CRCL"]; book.excluded = []; book.removedPuts = []; book.preferences = [:]
+        MockProtocol.requests = []; MockProtocol.fail = false
+        MockProtocol.payload = { request in
+            if request.url!.path.hasSuffix("expirations") {
+                return ["expirations": [["value": "20261016", "is_default": true]]]
+            }
+            let symbol = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!.first { $0.name == "tickers" }!.value!
+            return ["data": [symbol: ["stock_price": 100, "previous_close": 95,
+                "puts": [["strike": 90, "expiration": "20261016", "bid": 1, "ask": 1.2]]]]]
+        }
+        defer { MockProtocol.payload = nil }
+        await book.refreshAll(type: "PUT", store: store, background: true)
+        let firstUpdate = book.rows["CRCL:PUT"]?.updated
+        book.custom.append("TSLL")
+        await book.refreshAll(type: "PUT", store: store, background: true)
+        await book.refreshAll(type: "PUT", store: store, background: true)
+        XCTAssertGreaterThan(book.rows["CRCL:PUT"]!.updated!, firstUpdate!)
+        XCTAssertNotNil(book.rows["TSLL:PUT"]?.updated)
+        XCTAssertEqual(book.rows["TSLL:PUT"]?.previousClose, 95)
+        XCTAssertFalse(book.loading)
+        XCTAssertFalse(book.rows["CRCL:PUT"]!.loading)
+        XCTAssertFalse(book.rows["TSLL:PUT"]!.loading)
+        XCTAssertEqual(MockProtocol.requests.filter { $0.url!.path.hasSuffix("otm") }.count, 5)
+        MockProtocol.payload = { _ in ["data": [
+            "CRCL": ["stock_price": 102, "previous_close": 95],
+            "TSLL": ["stock_price": 99, "previous_close": 98]]]
+        }
+        let priceFailed = await book.refreshPrices(["CRCL", "TSLL"], type: "PUT", store: store)
+        XCTAssertFalse(priceFailed)
+        XCTAssertEqual(book.rows["CRCL:PUT"]?.priceDirection, 1)
+        XCTAssertEqual(book.rows["TSLL:PUT"]?.priceDirection, -1)
+        XCTAssertEqual(book.rows["CRCL:PUT"]?.stockUpdated, book.rows["TSLL:PUT"]?.stockUpdated)
+        XCTAssertEqual(book.rows["TSLL:PUT"]?.previousClose, 98)
+        MockProtocol.payload = { request in
+            if request.url!.query!.contains("TSLL") { return ["error": "Quote unavailable"] }
+            return ["data": ["CRCL": ["stock_price": 101, "previous_close": 95,
+                "puts": [["strike": 90, "expiration": "20261016", "bid": 1, "ask": 1.2]]]]]
+        }
+        await book.refreshAll(type: "PUT", store: store, background: true)
+        XCTAssertNotNil(book.rows["TSLL:PUT"]?.error)
+        MockProtocol.requests = []
+        await book.refreshAll(type: "PUT", store: store, background: true)
+        XCTAssertEqual(MockProtocol.requests.count, 1)
+        XCTAssertTrue(MockProtocol.requests[0].url!.query!.contains("CRCL"))
+        XCTAssertEqual(book.rows["CRCL:PUT"]?.stockPrice, 102)
+    }
+
     func testMarketSessionGateCachesClosedAndRecoversOnRecheck() async {
         let store = WheelStore()
         store.demo = false; store.address = "https://mock.invalid"

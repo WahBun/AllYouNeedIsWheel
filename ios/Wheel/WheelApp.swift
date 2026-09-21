@@ -79,7 +79,7 @@ final class WheelStore {
     var updated: Date?
     var trading = TradingSession()
     var opportunities = OpportunityBook()
-    var selectedTab = "portfolio"
+    var selectedTab = "settings"
     init() { opportunities.configure(context: "demo") }
     private var revision = 0
     private var lastSummary: Date?

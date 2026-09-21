@@ -940,13 +940,6 @@ class OptionsService:
         # Store stock price in result
         result['stock_price'] = stock_price
         result['previous_close'] = None
-        if conn and conn.is_connected():
-            try:
-                previous_close = conn.get_stock_previous_close(ticker)
-                if isinstance(previous_close, (int, float)) and math.isfinite(previous_close) and previous_close > 0:
-                    result['previous_close'] = previous_close
-            except Exception:
-                logger.debug('Prior close unavailable for %s', ticker)
         
         # Store position size in result
         result['position'] = position_size
@@ -1019,6 +1012,15 @@ class OptionsService:
         
         # Add options data to result
         result.update(options_data)
+
+        # The close tick can arrive while the option quote is being collected.
+        if conn and conn.is_connected():
+            try:
+                previous_close = conn.get_stock_previous_close(ticker)
+                if isinstance(previous_close, (int, float)) and math.isfinite(previous_close) and previous_close > 0:
+                    result['previous_close'] = previous_close
+            except Exception:
+                logger.debug('Prior close unavailable for %s', ticker)
 
         if not option_type or option_type == 'CALL':
             try:

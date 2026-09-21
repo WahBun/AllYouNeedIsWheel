@@ -97,6 +97,15 @@ are explicitly synthetic. No live account what-if request was made during tests.
 
 ## Verification Results
 
+Trade stock prices and prior-close percentages use one batch request to
+`GET /api/options/stock-quotes` on a separate two-second target loop. The batch
+updates rows together; option responses cannot overwrite that stock sample.
+Option quote failures back off per symbol, not for the entire board. Existing
+IB subscriptions are sampled without repeating the initial bid/ask wait; market
+data mode changes renew the affected subscriptions. Requests still share the
+serialized IB dispatcher, so cold qualification or broker/network delays can
+exceed two seconds. Deploy the backend before installing this app version.
+
 Trade automatic quotes now follow the NYSE regular-session calendar via
 `GET /api/options/market-session`, including holidays, early closes and DST.
 Install the updated backend requirements before using this iOS version.

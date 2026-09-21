@@ -262,11 +262,26 @@ class IBConnection:
         )
         return contract_key, generic_tick_list
 
+    def has_market_subscription(self, contract, generic_tick_list=''):
+        entry = getattr(self, '_market_ticker_cache', {}).get(
+            self._market_ticker_key(contract, generic_tick_list))
+        return bool(entry and time.time() - entry['used_at'] <= 300
+                    and entry.get('requested_data_type') == getattr(self, '_market_data_type', None))
+
     def get_market_ticker(self, contract, generic_tick_list=''):
         """Reuse a small set of live subscriptions so repeat refreshes are fast."""
         self._prune_market_ticker_cache()
         key = self._market_ticker_key(contract, generic_tick_list)
         cached = self._market_ticker_cache.get(key)
+        if cached and cached.get('requested_data_type') != self._market_data_type:
+            # A pre-open subscription must not be reused as a live subscription.
+            self.ib.cancelMktData(cached['contract'])
+            # ib_async reuses the Ticker object even after cancellation.
+            for field in ('bid', 'ask', 'last', 'close', 'impliedVolatility'):
+                setattr(cached['ticker'], field, math.nan)
+            cached['ticker'].modelGreeks = None
+            del self._market_ticker_cache[key]
+            cached = None
         if cached:
             cached['used_at'] = time.time()
             return cached['ticker']
@@ -286,7 +301,8 @@ class IBConnection:
         self._market_ticker_cache[key] = {
             'used_at': time.time(),
             'ticker': ticker,
-            'contract': contract
+            'contract': contract,
+            'requested_data_type': self._market_data_type
         }
         return ticker
     
@@ -503,6 +519,27 @@ class IBConnection:
                 return close
         return None
 
+    def get_stock_quote_batch(self, symbols):
+        """Sample all requested stock streams after one event-loop yield."""
+        if not self.is_connected():
+            raise RuntimeError('IB connection unavailable')
+        self._ensure_event_loop()
+        self.set_market_data_type(1 if is_market_hours() else 2)
+        tickers = {}
+        for symbol in symbols:
+            try:
+                contract = self.get_qualified_stock_contract(symbol)
+                if contract is not None:
+                    tickers[symbol] = self.get_market_ticker(contract)
+            except Exception:
+                logger.exception('Stock stream unavailable for %s', symbol)
+        # Do not wait separately for missing prices or option bid/ask.
+        self.ib.sleep(0.1)
+        return {symbol: {
+            'stock_price': self._ticker_price(tickers[symbol]) if symbol in tickers else None,
+            'previous_close': self.get_stock_previous_close(symbol)
+        } for symbol in symbols}
+
     def get_stock_price(self, symbol):
         """
         Get the current price of a stock
@@ -538,11 +575,12 @@ class IBConnection:
                 return None
             
             # Request market data
+            subscribed = self.has_market_subscription(qualified_contract)
             ticker = self.get_market_ticker(qualified_contract)
             
             # Frozen quotes can arrive a few seconds after the subscription is
             # opened. Valid prices still return immediately on the first update.
-            for _ in range(50):
+            for _ in range(1 if subscribed else 50):
                 self.ib.sleep(0.1)
                 if self._ticker_price(ticker) is not None:
                     break
@@ -754,6 +792,7 @@ class IBConnection:
             for contract in option_contracts:
                 try:
                     # Request market data with model computation
+                    subscribed = self.has_market_subscription(contract, '106')
                     ticker = self.get_market_ticker(contract, '106')
                    
                     # Last/close and Greeks can arrive before bid/ask, especially
@@ -762,7 +801,7 @@ class IBConnection:
                     # Drain incoming ticks once, then wait only for executable
                     # bid/ask. Optional Greeks must not delay an available quote.
                     self.ib.sleep(0.01)
-                    for attempt in range(50):
+                    for attempt in range(0 if subscribed else 50):
                         if self._has_valid_two_sided_quote(ticker):
                             break
                         self.ib.sleep(0.1)

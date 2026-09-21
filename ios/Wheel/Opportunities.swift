@@ -113,6 +113,8 @@ final class OpportunityBook {
     var rows: [String: OpportunityRow] = [:]
     var strikeLists: [String: (values: [Double], date: Date)] = [:]
     var marketOpen: Bool?
+    var priceError: String?
+    private var pricesLoading = false
     private var sessionExpires = Date.distantPast
     func invalidateMarketSession() { sessionExpires = .distantPast }
     func allowsAutomaticRefresh(_ store: WheelStore) async -> Bool {
@@ -141,10 +143,13 @@ final class OpportunityBook {
     var loading = false
     var batchRunning = false
     private var generation = 0
+    private var retryAfter: [String: Date] = [:]
     private var preferenceKey = ""
     struct Saved: Codable { var preferences: [String: OpportunityPreference]; var custom: [String]; var excluded: [String]; var removedPuts: [String]? }
     func configure(context: String) {
         generation += 1; rows = [:]; strikeLists = [:]; loading = false
+        retryAfter = [:]
+        pricesLoading = false; priceError = nil
         marketOpen = nil; sessionExpires = .distantPast
         preferenceKey = "opportunities-v1-" + context
         let saved = UserDefaults.standard.data(forKey: preferenceKey).flatMap { try? JSONDecoder().decode(Saved.self, from: $0) }
@@ -237,6 +242,10 @@ final class OpportunityBook {
                     row.price = latest.price; row.manualPrice = true
                 }
             }
+            if let latest = rows[key], latest.stockUpdated != nil {
+                row.stockPrice = latest.stockPrice; row.previousClose = latest.previousClose
+                row.priceDirection = latest.priceDirection; row.stockUpdated = latest.stockUpdated
+            }
             row.error = nil
             preferences[key] = preference; save()
         } catch {
@@ -247,13 +256,50 @@ final class OpportunityBook {
               !store.trading.busy else { return }
         row.loading = false; rows[key] = row
     }
+    func refreshPrices(_ symbols: [String], type: String, store: WheelStore) async -> Bool {
+        guard !pricesLoading, !symbols.isEmpty, !store.demo, !store.trading.busy else { return false }
+        pricesLoading = true
+        let token = generation
+        defer { if token == generation { pricesLoading = false } }
+        do {
+            let result = try await store.trading.get("api/options/stock-quotes", base: store.address,
+                query: [URLQueryItem(name: "tickers", value: symbols.joined(separator: ","))])
+            guard token == generation, !Task.isCancelled else { return false }
+            guard let data = result["data"] as? [String: [String: Any]] else {
+                throw AppError.message("Stock quotes unavailable")
+            }
+            // Publish the whole batch together, without waiting for option quotes.
+            let sampledAt = Date()
+            for symbol in symbols {
+                guard let item = data[symbol], let price = item["stock_price"] as? Double,
+                      price.isFinite, price > 0 else { continue }
+                let rowKey = key(symbol, type)
+                var row = rows[rowKey] ?? OpportunityRow(ticker: symbol, type: type)
+                row.priceDirection = TradingMath.priceDirection(previous: row.stockPrice, current: price)
+                row.stockPrice = price
+                row.previousClose = item["previous_close"] as? Double
+                row.stockUpdated = sampledAt
+                rows[rowKey] = row
+            }
+            priceError = nil
+            return false
+        } catch {
+            guard token == generation, !Task.isCancelled else { return false }
+            priceError = connectionMessage(error)
+            return true
+        }
+    }
     func refreshAll(type: String, store: WheelStore, background: Bool = false) async {
         guard !loading else { return }; loading = true
         let token = generation
         defer { if token == generation { loading = false } }
         for symbol in symbols(store, type: type) {
             guard token == generation, !Task.isCancelled else { return }
+            let rowKey = key(symbol, type)
+            if background, let retry = retryAfter[rowKey], retry > Date() { continue }
             await load(symbol, type: type, store: store, background: background)
+            guard token == generation, !Task.isCancelled else { return }
+            retryAfter[rowKey] = rows[rowKey]?.error == nil ? nil : Date().addingTimeInterval(10)
         }
     }
     func stage(_ row: OpportunityRow, store: WheelStore) async -> Bool {
@@ -298,6 +344,7 @@ struct OpportunityRow: Identifiable {
     var loading = false
     var staged = false
     var updated: Date?
+    var stockUpdated: Date?
     var id: String { ticker + ":" + type }
     var canStage: Bool { !staged && error == nil && quote != nil && Date().timeIntervalSince(updated ?? .distantPast) < 30 && TradeRules.price(price) != nil && quantity > 0 && quantity <= 100 && (type != "CALL" || quantity <= capacity) }
     var total: Double? { TradeRules.price(price).map { $0 * 100 * Double(quantity) } }
@@ -317,6 +364,7 @@ struct OpportunitiesView: View {
     var body: some View {
         List {
             MarketSessionNotice()
+            if let error = book.priceError { Text(error).font(.caption).foregroundStyle(.orange) }
             Section {
                 Picker("Strategy", selection: $type) { Text("Covered calls").tag("CALL"); Text("Cash-secured puts").tag("PUT") }.pickerStyle(.segmented)
                 if type == "PUT" {
@@ -328,7 +376,9 @@ struct OpportunitiesView: View {
                             book.custom = Array(Set(book.custom + [symbol])).sorted()
                             book.excluded.removeAll { $0 == book.key(symbol, type) }
                             book.removedPuts.removeAll { $0 == symbol }; book.save(); ticker = ""
-                            Task { await book.load(symbol, type: type, store: store) }
+                            if book.marketOpen == false {
+                                Task { await book.load(symbol, type: "PUT", store: store) }
+                            }
                         }.labelStyle(.iconOnly)
                             .frame(minWidth: 44, minHeight: 44)
                             .help("Add")
@@ -398,13 +448,20 @@ struct OpportunitiesView: View {
         .refreshable { await book.refreshAll(type: type, store: store) }
         .onAppear { visible = true }
         .onDisappear { visible = false }
-        .task(id: "\(autoRefresh)-\(store.demo)-\(store.address)-\(type)-\(symbols.joined(separator: ","))") {
+        .task(id: "prices-\(autoRefresh)-\(store.demo)-\(store.address)-\(type)") {
+            guard autoRefresh, !store.demo else { return }
+            await RefreshLoop.run {
+                guard await book.allowsAutomaticRefresh(store) else { return false }
+                return await book.refreshPrices(book.symbols(store, type: type), type: type, store: store)
+            }
+        }
+        .task(id: "\(autoRefresh)-\(store.demo)-\(store.address)-\(type)") {
             guard autoRefresh else { return }
             book.invalidateMarketSession()
             await RefreshLoop.run {
                 guard await book.allowsAutomaticRefresh(store) else { return false }
                 await book.refreshAll(type: type, store: store, background: true)
-                return symbols.contains { book.rows[book.key($0, type)]?.error != nil }
+                return false
             }
         }
         .disabled(store.trading.busy || book.batchRunning || (!store.demo && store.trading.uncertain))
@@ -430,9 +487,9 @@ struct OpportunityDetail: View {
     var body: some View {
         Form {
             MarketSessionNotice()
+            if let error = book.priceError { Text(error).font(.caption).foregroundStyle(.orange) }
             Section(LocalizedStringKey(type == "CALL" ? "Covered call" : "Cash-secured put")) {
                 LabeledContent("Stock price") { OpportunityPrice(row: row) }
-                Stepper("OTM \(preference.otm)%", value: Binding(get: { preference.otm }, set: { value in updatePreference { $0.otm = value; $0.strike = nil } }), in: 0...80)
                 Picker("Expiration", selection: Binding(get: { preference.expiration }, set: { value in updatePreference { $0.expiration = value; $0.strike = nil } })) {
                     ForEach(row.dates, id: \.self) { Text($0).tag($0) }
                 }
@@ -486,6 +543,13 @@ struct OpportunityDetail: View {
         .modifier(KeyboardDismissal())
         .onAppear { visible = true }
         .onDisappear { visible = false }
+        .task(id: "prices-\(autoRefresh)-\(store.demo)-\(store.address)-\(key)") {
+            guard autoRefresh, !store.demo else { return }
+            await RefreshLoop.run {
+                guard await book.allowsAutomaticRefresh(store) else { return false }
+                return await book.refreshPrices([ticker], type: type, store: store)
+            }
+        }
         .task(id: "\(autoRefresh)-\(store.demo)-\(store.address)-\(key)-\(preference.otm)-\(preference.expiration)-\(preference.strike ?? 0)") {
             guard autoRefresh else { return }
             book.invalidateMarketSession()
