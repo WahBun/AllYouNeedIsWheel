@@ -1,6 +1,9 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "—" : {
+
+    },
     "%@ · %@" : {
       "localizations" : {
         "en" : {
@@ -1040,6 +1043,12 @@
         }
       }
     },
+    "Retry" : {
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "重试" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "重試" } }
+      }
+    },
     "Done" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1948,9 +1957,6 @@
           }
         }
       }
-    },
-    "OTM %@%%" : {
-
     },
     "Pending" : {
       "localizations" : {

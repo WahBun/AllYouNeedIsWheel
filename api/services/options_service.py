@@ -962,8 +962,9 @@ class OptionsService:
                     call_strike = put_strike = strike
                 
                 # Adjust to standard strike increments
-                call_strike = self._adjust_to_standard_strike(call_strike)
-                put_strike = self._adjust_to_standard_strike(put_strike)
+                if strike is None:
+                    call_strike = self._adjust_to_standard_strike(call_strike)
+                    put_strike = self._adjust_to_standard_strike(put_strike)
                 
                 options = []
                 

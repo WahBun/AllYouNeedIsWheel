@@ -75,6 +75,7 @@ def option_strikes():
         response.headers['Cache-Control'] = 'no-store'
         return response
     except Exception:
+        logger.exception('Strike list query failed for %s %s %s', ticker, expiration, kind)
         return jsonify(error='Strike list unavailable; please retry'), 503
 
 @bp.route('/stock-price', methods=['GET'])

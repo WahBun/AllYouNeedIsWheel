@@ -21,6 +21,9 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testStrikeMenuPrioritizesMultiplesOfFiveWithoutDroppingOtherContracts() {
+        XCTAssertEqual(TradingMath.orderedStrikes([77.5, 81, 80, 75, 80, .nan, -1]), [75, 80, 81, 77.5])
+    }
     func testExecuteSavesEditedPriceFirstAndStopsOnSaveFailure() async {
         let savedLock = UserDefaults.standard.object(forKey: "unresolvedTradingWrite")
         defer {

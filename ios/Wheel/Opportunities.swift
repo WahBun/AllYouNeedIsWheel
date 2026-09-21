@@ -51,6 +51,14 @@ struct ContractQuote: Decodable, Identifiable {
 }
 
 enum TradingMath {
+    static func orderedStrikes(_ values: [Double]) -> [Double] {
+        func rank(_ value: Double) -> Int {
+            value.truncatingRemainder(dividingBy: 5) == 0 ? 0 : value.rounded() == value ? 1 : 2
+        }
+        return Set(values.filter { $0.isFinite && $0 > 0 }).sorted {
+            rank($0) == rank($1) ? $0 < $1 : rank($0) < rank($1)
+        }
+    }
     static func dailyChange(price: Double?, close: Double?) -> Double? {
         guard let price, let close, price.isFinite, close.isFinite, price > 0, close > 0 else { return nil }
         let result = (price / close - 1) * 100
@@ -103,13 +111,14 @@ final class OpportunityBook {
     var excluded: [String] = []
     var removedPuts: [String] = []
     var rows: [String: OpportunityRow] = [:]
+    var strikeLists: [String: (values: [Double], date: Date)] = [:]
     var loading = false
     var batchRunning = false
     private var generation = 0
     private var preferenceKey = ""
     struct Saved: Codable { var preferences: [String: OpportunityPreference]; var custom: [String]; var excluded: [String]; var removedPuts: [String]? }
     func configure(context: String) {
-        generation += 1; rows = [:]; loading = false
+        generation += 1; rows = [:]; strikeLists = [:]; loading = false
         preferenceKey = "opportunities-v1-" + context
         let saved = UserDefaults.standard.data(forKey: preferenceKey).flatMap { try? JSONDecoder().decode(Saved.self, from: $0) }
         preferences = saved?.preferences ?? [:]; custom = saved?.custom ?? []; excluded = saved?.excluded ?? []
@@ -379,12 +388,15 @@ struct OpportunityDetail: View {
     @State private var visible = false
     @State private var strikes: [Double] = []
     @State private var strikeError: String?
+    @State private var showStrikes = false
+    @State private var strikesLoading = false
+    @State private var strikeRetry = 0
     @Environment(WheelStore.self) private var store
     private var book: OpportunityBook { store.opportunities }
     private var key: String { book.key(ticker, type) }
     private var row: OpportunityRow { book.rows[key] ?? OpportunityRow(ticker: ticker, type: type) }
     private var preference: OpportunityPreference { book.preferences[key] ?? OpportunityPreference() }
-    private var autoRefresh: Bool { visible && phase == .active && store.selectedTab == "trade" && !book.batchRunning && !store.trading.busy }
+    private var autoRefresh: Bool { visible && !showStrikes && phase == .active && store.selectedTab == "trade" && !book.batchRunning && !store.trading.busy }
     var body: some View {
         Form {
             Section(LocalizedStringKey(type == "CALL" ? "Covered call" : "Cash-secured put")) {
@@ -393,13 +405,14 @@ struct OpportunityDetail: View {
                 Picker("Expiration", selection: Binding(get: { preference.expiration }, set: { value in updatePreference { $0.expiration = value; $0.strike = nil } })) {
                     ForEach(row.dates, id: \.self) { Text($0).tag($0) }
                 }
-                Picker("Strike", selection: Binding(get: { preference.strike ?? 0 }, set: { value in updatePreference { $0.strike = value == 0 ? nil : value } })) {
-                    Text("OTM \(preference.otm)%").tag(0.0)
-                    ForEach(Array(Set(strikes + [preference.strike, row.quote?.strike].compactMap { $0 })).sorted(), id: \.self) { value in
-                        Text(money(value)).tag(value)
-                    }
+                LabeledContent("Strike") {
+                    Button { showStrikes = true } label: {
+                        HStack(spacing: 5) {
+                            Text(money(preference.strike ?? row.quote?.strike))
+                            Image(systemName: "chevron.up.chevron.down").font(.caption)
+                        }
+                    }.disabled(preference.expiration.isEmpty)
                 }
-                if let strikeError { Text(LocalizedStringKey(strikeError)).font(.caption).foregroundStyle(.orange) }
                 Button("Refresh quote", systemImage: "arrow.clockwise") { Task { await book.load(ticker, type: type, store: store) } }.disabled(row.loading)
                 if row.loading && row.quote == nil { ProgressView() }
                 if let error = row.error { Text(error).foregroundStyle(.orange) }
@@ -449,10 +462,45 @@ struct OpportunityDetail: View {
                 return row.error != nil
             }
         }
-        .task(id: "strikes-\(visible)-\(store.demo)-\(store.address)-\(key)-\(preference.expiration)") {
+        .sheet(isPresented: $showStrikes) {
+            NavigationStack {
+                List {
+                    if strikesLoading { ProgressView() }
+                    if let strikeError {
+                        Text(LocalizedStringKey(strikeError)).foregroundStyle(.orange)
+                        Button("Retry", systemImage: "arrow.clockwise") { strikeRetry += 1 }
+                    }
+                    ForEach(TradingMath.orderedStrikes(strikes), id: \.self) { value in
+                        Button {
+                            updatePreference { $0.strike = value }
+                            showStrikes = false
+                        } label: {
+                            HStack {
+                                Text(money(value)); Spacer()
+                                if value == (preference.strike ?? row.quote?.strike) { Image(systemName: "checkmark") }
+                            }
+                        }
+                    }
+                }.navigationTitle("Strike")
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { showStrikes = false } } }
+            }.presentationDetents([.medium, .large])
+        }
+        .task(id: "strikes-\(showStrikes)-\(strikeRetry)-\(store.demo)-\(store.address)-\(key)-\(preference.expiration)") {
             strikes = []; strikeError = nil
-            guard visible, !preference.expiration.isEmpty else { return }
+            guard showStrikes, !preference.expiration.isEmpty else { return }
+            strikesLoading = true
+            defer { strikesLoading = false }
             do {
+                let cacheKey = key + ":" + preference.expiration
+                if let cached = book.strikeLists[cacheKey], Date().timeIntervalSince(cached.date) < 1800 {
+                    strikes = cached.values
+                    return
+                }
+                // Let the initial quote finish before requesting contract metadata.
+                while row.loading || book.loading {
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                try Task.checkCancellation()
                 let next: [Double]
                 if store.demo { next = ticker == "TSLL" ? Array(1...30).map(Double.init) : stride(from: 50.0, through: 150.0, by: 5).map { $0 } }
                 else {
@@ -461,6 +509,8 @@ struct OpportunityDetail: View {
                 }
                 guard !Task.isCancelled else { return }
                 strikes = next.filter { $0.isFinite && $0 > 0 }
+                if strikes.isEmpty { strikeError = "No matching option quote." }
+                if !strikes.isEmpty { book.strikeLists[cacheKey] = (strikes, Date()) }
             } catch {
                 guard !Task.isCancelled else { return }
                 strikeError = connectionMessage(error)
