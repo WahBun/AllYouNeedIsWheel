@@ -26,7 +26,7 @@ struct RolloverTicket: View {
                 Text("\(position.symbol) · \(position.detail)")
                 LabeledContent("BUY TO CLOSE · GTC", value: money(TradeRules.price(closePrice)))
                 LabeledContent("Bid / Ask", value: "\(money(closing?["bid"] as? Double)) / \(money(closing?["ask"] as? Double))")
-                TextField("Close limit per share", text: $closePrice).keyboardType(.decimalPad)
+                PriceInput(title: "Close limit per share", text: $closePrice)
                 if held > 0 { Stepper("Contracts: \(quantity) of \(held)", value: $quantity, in: 1...held) }
             }
             Section("New option · SELL TO OPEN · DAY") {
@@ -38,7 +38,7 @@ struct RolloverTicket: View {
                     LabeledContent("Bid / Ask", value: "\(money(quote.bid)) / \(money(quote.ask))")
                     LabeledContent("Delta", value: quote.delta.map { String(format: "%.2f", $0) } ?? "—")
                 }
-                TextField("Open limit per share", text: $openPrice).keyboardType(.decimalPad)
+                PriceInput(title: "Open limit per share", text: $openPrice)
             }
             Section("Net premium before fees") {
                 if let buy = TradeRules.price(closePrice), let sell = TradeRules.price(openPrice) {

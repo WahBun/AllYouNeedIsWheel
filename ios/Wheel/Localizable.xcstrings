@@ -51,6 +51,16 @@
         }
       }
     },
+    "%@ contracts · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ contracts · %2$@"
+          }
+        }
+      }
+    },
     "%lld contracts · %@" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -535,19 +545,19 @@
         }
       }
     },
-    "Close / Take profit" : {
+    "Close" : {
       "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "平仓 / 止盈"
+            "value" : "平仓"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "平倉 / 止盈"
+            "value" : "平倉"
           }
         }
       }
@@ -956,6 +966,9 @@
         }
       }
     },
+    "Delta" : {
+
+    },
     "DEMO" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1038,18 +1051,6 @@
             "value" : "示範資料已更新，未向券商傳送請求。"
           }
         }
-      }
-    },
-    "Market closed · quotes are not live" : {
-      "localizations" : {
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "休市 · 非实时报价" } },
-        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "休市 · 非即時報價" } }
-      }
-    },
-    "Market hours unavailable · automatic quotes paused" : {
-      "localizations" : {
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "交易时段状态不可用 · 自动报价已暂停" } },
-        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "交易時段狀態不可用 · 自動報價已暫停" } }
       }
     },
     "Done" : {
@@ -1454,6 +1455,9 @@
         }
       }
     },
+    "IV" : {
+
+    },
     "Language" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1687,6 +1691,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "保證金影響"
+          }
+        }
+      }
+    },
+    "Market closed · quotes are not live" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "休市 · 非实时报价"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "休市 · 非即時報價"
+          }
+        }
+      }
+    },
+    "Market hours unavailable · automatic quotes paused" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "交易时段状态不可用 · 自动报价已暂停"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "交易時段狀態不可用 · 自動報價已暫停"
           }
         }
       }
@@ -2585,7 +2623,6 @@
       }
     },
     "Spread" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -2806,7 +2843,6 @@
       }
     },
     "Staged in Orders" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {

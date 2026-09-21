@@ -1,9 +1,52 @@
 import SwiftUI
 
+struct PriceInput: View {
+    var title: LocalizedStringKey
+    @Binding var text: String
+    @State private var showing = false
+    @State private var choices: [Double] = []
+    var body: some View {
+        HStack {
+            TextField(title, text: $text).keyboardType(.decimalPad).monospacedDigit()
+            Button {
+                choices = TradeRules.priceChoices(around: TradeRules.price(text) ?? 0.01)
+                showing = true
+            } label: { Image(systemName: "chevron.up.chevron.down") }
+                .buttonStyle(.borderless).accessibilityLabel(title)
+        }
+        .sheet(isPresented: $showing) {
+            NavigationStack {
+                ScrollViewReader { proxy in
+                    List(choices, id: \.self) { value in
+                        Button {
+                            text = String(format: "%.2f", value)
+                            showing = false
+                        } label: {
+                            HStack {
+                                Text(money(value)).monospacedDigit()
+                                Spacer()
+                                if TradeRules.price(text) == value { Image(systemName: "checkmark") }
+                            }
+                        }.id(value)
+                    }
+                    .navigationTitle(title)
+                    .task {
+                        // List rows are not laid out until the sheet presentation completes.
+                        let selected = TradeRules.price(text)
+                        do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+                        if let selected { proxy.scrollTo(selected, anchor: .center) }
+                    }
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { showing = false } } }
+                }
+            }.presentationDetents([.medium, .large])
+        }
+    }
+}
+
 extension Order {
     private enum CodingKeys: String, CodingKey {
         case id, ticker, symbol, action, option_type, strike, expiration, premium, quantity, status
-        case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, error_message, isRollover
+        case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, error_message, isRollover, filled
     }
 
     init(from decoder: Decoder) throws {
@@ -19,6 +62,13 @@ extension Order {
             throw DecodingError.dataCorruptedError(forKey: key, in: values, debugDescription: "Expected boolean or 0/1")
         }
         id = try values.decode(OrderID.self, forKey: .id)
+        // Persisted broker IDs are SQLite TEXT; fresh broker responses use numbers.
+        func brokerID(_ key: CodingKeys) throws -> Int? {
+            guard values.contains(key), try !values.decodeNil(forKey: key) else { return nil }
+            if let value = try? values.decode(Int.self, forKey: key) { return value }
+            if let text = try? values.decode(String.self, forKey: key), let value = Int(text) { return value }
+            throw DecodingError.dataCorruptedError(forKey: key, in: values, debugDescription: "Expected integer broker ID")
+        }
         status = try values.decode(String.self, forKey: .status)
         ticker = try values.decodeIfPresent(String.self, forKey: .ticker)
         symbol = try values.decodeIfPresent(String.self, forKey: .symbol)
@@ -33,10 +83,11 @@ extension Order {
         external_ib = try flag(.external_ib)
         ib_status = try values.decodeIfPresent(String.self, forKey: .ib_status)
         executed = try flag(.executed)
-        ib_order_id = try values.decodeIfPresent(Int.self, forKey: .ib_order_id)
-        perm_id = try values.decodeIfPresent(Int.self, forKey: .perm_id)
+        ib_order_id = try brokerID(.ib_order_id)
+        perm_id = try brokerID(.perm_id)
         error_message = try values.decodeIfPresent(String.self, forKey: .error_message)
         isRollover = try flag(.isRollover)
+        filled = try values.decodeIfPresent(Double.self, forKey: .filled)
     }
 }
 
@@ -178,7 +229,7 @@ final class TradingSession {
                         throw AppError.message("Position quote is invalid. Refresh before staging.")
                     }
                     demoOrders.append(Order(id: OrderID(nextDemoID), ticker: position.symbol,
-                        action: position.position < 0 ? "BUY" : "SELL", option_type: position.option_type,
+                        action: position.position < 0 ? "BUY" : "SELL", option_type: position.security_type == "STK" ? "STOCK" : position.option_type,
                         strike: position.strike, expiration: position.expiration, premium: body["limit_price"] as? Double,
                         quantity: Double(qty), status: "pending", tif: "GTC", intent: "CLOSE"))
                     nextDemoID += 1
@@ -203,6 +254,17 @@ final class TradingSession {
             uncertain = false
             UserDefaults.standard.set(false, forKey: "unresolvedTradingWrite")
             message = result["message"] as? String ?? "Request acknowledged. Refresh Orders to check broker status."
+            // Apply the acknowledgement before polling, so a failed refresh cannot
+            // leave a submitted order executable as a local pending draft.
+            if path.hasPrefix("api/options/execute/"),
+               let id = Int(path.split(separator: "/").last ?? ""),
+               let index = store.orders.firstIndex(where: { $0.id.local == id }) {
+                let status = result["status"] as? String ?? "unknown"
+                store.orders[index].status = ["processing", "executed"].contains(status) ? status : "unknown"
+                let details = result["execution_details"] as? [String: Any]
+                store.orders[index].ib_status = details?["ib_status"] as? String
+                store.orders[index].executed = status == "executed"
+            }
             if let canceledOrder, ["canceled", "cancelled"].contains((result["status"] as? String ?? "").lowercased()) {
                 store.opportunities.confirmCancellation(canceledOrder, remaining: store.orders)
                 store.orders.removeAll { $0.id == canceledOrder.id }
@@ -257,7 +319,7 @@ struct OrderDetail: View {
         Form {
             if let order = current {
                 Section(order.name) {
-                    LabeledContent("Contract", value: "\(order.expiration ?? "") · \(money(order.strike)) \(order.option_type ?? "")")
+                    LabeledContent("Contract", value: order.option_type == "STOCK" ? order.name : "\(order.expiration ?? "") · \(money(order.strike)) \(order.option_type ?? "")")
                     LabeledContent("Action", value: "\(order.action ?? "") TO \(order.intent ?? "OPEN")")
                     LabeledContent("Quantity", value: order.quantity?.formatted() ?? "—")
                     LabeledContent("Limit") {
@@ -319,8 +381,10 @@ struct OrderDetail: View {
                         }
                     }.id(value)
                 }.navigationTitle("Limit price")
-                    .onAppear {
-                        if let selected = TradeRules.price(price) { proxy.scrollTo(selected, anchor: .center) }
+                    .task {
+                        let selected = TradeRules.price(price)
+                        do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+                        if let selected { proxy.scrollTo(selected, anchor: .center) }
                     }
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { showPrices = false } } }
                 }
@@ -381,8 +445,13 @@ struct CloseTicket: View {
                 LabeledContent("Quote") { Text(LocalizedStringKey((quote?["is_frozen"] as? Bool == true) ? "Frozen" : "Check quote time")) }
                 LabeledContent("Server snapshot", value: (quote?["quote_time"] as? String)?.replacingOccurrences(of: "T", with: " ") ?? "—")
                 if let date = state.receivedAt { LabeledContent("Last refreshed", value: date.formatted(.dateTime.hour().minute().second())) }
-                Text(LocalizedStringKey(active ? "Auto refresh · about 2 seconds" : "Auto refresh paused")).font(.caption).foregroundStyle(.secondary)
-                if loading && quote != nil { ProgressView().controlSize(.small) }
+                HStack(spacing: 6) {
+                    Circle().fill(error == nil ? Color.teal : .orange)
+                        .frame(width: 6, height: 6)
+                        .opacity(loading ? 0.35 : 1)
+                        .accessibilityHidden(true)
+                    Text(LocalizedStringKey(active ? "Auto refresh · about 2 seconds" : "Auto refresh paused"))
+                }.font(.caption).foregroundStyle(.secondary)
                 HStack { ForEach(["bid", "mid", "ask"], id: \.self) { field in
                     Button { if let value = quote?[field] as? Double, value > 0 { state.markPriceEdited(String(format: "%.2f", value)) } } label: { VStack { Text(LocalizedStringKey(field.capitalized)); Text(money(quote?[field] as? Double)) } }.buttonStyle(.borderless).frame(maxWidth: .infinity)
                 } }
@@ -400,7 +469,7 @@ struct CloseTicket: View {
                         Spacer()
                         Button("All") { state.quantity = held }
                     }.buttonStyle(.borderless)
-                    TextField("Limit per share", text: Binding(get: { price }, set: { state.markPriceEdited($0) })).keyboardType(.decimalPad)
+                    PriceInput(title: "Limit per share", text: Binding(get: { price }, set: { state.markPriceEdited($0) }))
                     LabeledContent("Remaining", value: String(max(0, held - quantity)))
                     LabeledContent("Limit total", value: money(TradeRules.price(price).map { $0 * Double(quantity) * (quote?["multiplier"] as? Double ?? 100) }))
                     LabeledContent("Time in force", value: "GTC")
@@ -414,7 +483,7 @@ struct CloseTicket: View {
                     .disabled(!state.valid || staged)
                 TradingNotice()
             }
-        }.navigationTitle(localizedLabel("Close / Take profit", locale: locale))
+        }.navigationTitle(localizedLabel("Close", locale: locale))
         .modifier(KeyboardDismissal())
         .disabled(store.trading.busy || (!store.demo && store.trading.uncertain))
         .onAppear { visible = true }
@@ -436,7 +505,10 @@ struct CloseTicket: View {
         let requestedContext = context
         let tradeVersion = store.trading.version
         await state.refresh(fetch: {
-            if store.demo { return ["position": position.position, "close_action": position.position < 0 ? "BUY" : "SELL", "bid": 0.17, "mid": 0.18, "ask": 0.19, "multiplier": 100.0, "account_suffix": "DEMO", "is_frozen": true, "quote_time": "Demo"] }
+            if store.demo {
+                let mid = position.security_type == "STK" ? max(0.02, position.market_price ?? 10) : 0.18
+                return ["position": position.position, "close_action": position.position < 0 ? "BUY" : "SELL", "bid": mid - 0.01, "mid": mid, "ask": mid + 0.01, "multiplier": position.security_type == "STK" ? 1.0 : 100.0, "account_suffix": "DEMO", "is_frozen": true, "quote_time": "Demo"]
+            }
             return try await store.trading.get("api/portfolio/option-position/\(position.con_id ?? 0)/quote", base: store.address)
         }, allowed: { active && context == requestedContext && !store.trading.busy && store.trading.version == tradeVersion })
     }

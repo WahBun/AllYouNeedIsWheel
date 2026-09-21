@@ -120,7 +120,8 @@ class OptionsService:
             raise ValueError("Invalid ticker")
 
         option_type = str(order_data.get('option_type', '')).strip().upper()
-        if option_type not in {'CALL', 'PUT'}:
+        stock_close = option_type == 'STOCK' and order_data.get('intent') == 'CLOSE' and order_data.get('action') == 'SELL'
+        if option_type not in {'CALL', 'PUT'} and not stock_close:
             raise ValueError("Option type must be CALL or PUT")
 
         action = str(order_data.get('action', '')).strip().upper()
@@ -135,12 +136,12 @@ class OptionsService:
             strike = float(order_data.get('strike'))
         except (TypeError, ValueError):
             raise ValueError("Strike must be a positive number")
-        if not math.isfinite(strike) or strike <= 0:
+        if not math.isfinite(strike) or (strike <= 0 and not (stock_close and strike == 0)):
             raise ValueError("Strike must be a positive number")
 
         expiration = str(order_data.get('expiration', '')).strip().replace('-', '')
         try:
-            expiration_date = datetime.strptime(expiration, '%Y%m%d').date()
+            expiration_date = market_today() if stock_close and not expiration else datetime.strptime(expiration, '%Y%m%d').date()
         except ValueError:
             raise ValueError("Expiration must use YYYYMMDD format")
         if expiration_date < market_today():
@@ -155,7 +156,7 @@ class OptionsService:
             raise ValueError("Quantity must be a whole number")
         if isinstance(quantity_value, float) and not quantity_value.is_integer():
             raise ValueError("Quantity must be a whole number")
-        max_quantity = int(self.config.get('max_order_quantity', 100))
+        max_quantity = int(self.config.get('max_stock_close_quantity', 100000)) if stock_close else int(self.config.get('max_order_quantity', 100))
         if quantity < 1 or quantity > max_quantity:
             raise ValueError(f"Quantity must be between 1 and {max_quantity}")
 
@@ -293,6 +294,13 @@ class OptionsService:
             raise ValueError("Close quantity exceeds the current option position")
 
         contract = position['contract']
+        if order.get('option_type') == 'STOCK':
+            if getattr(contract, 'secType', '') != 'STK' or current_quantity <= 0 or order.get('action') != 'SELL':
+                raise ValueError('Only existing long stock positions can be closed')
+            if str(getattr(contract, 'symbol', '')) != order.get('ticker'):
+                raise ValueError('Held stock does not match the order')
+            self._validate_stock_coverage(conn, order, account, db)
+            return position
         expected_right = 'C' if order.get('option_type') == 'CALL' else 'P'
         if getattr(contract, 'right', '') != expected_right:
             raise ValueError("The held option type no longer matches this close order")
@@ -324,6 +332,18 @@ class OptionsService:
             'error': message,
             'status': 'rejected'
         }, 409
+
+    def _validate_stock_coverage(self, conn, order, account, db):
+        position = conn.get_option_position_by_con_id(order['con_id'], account)
+        held = float((position or {}).get('position', 0) or 0)
+        available = conn.get_unreserved_stock_shares(order['ticker'], account)
+        # Local staged CALLs have not reached IB yet but reserve the same shares.
+        pending = db.get_orders(ticker=order['ticker'], status_filter=['pending', 'submitting', 'unknown'], limit=100000)
+        for other in pending:
+            if other.get('action') == 'SELL' and other.get('option_type') == 'CALL' and other.get('intent', 'OPEN') == 'OPEN':
+                available -= float(other.get('quantity', 0) or 0) * float(other.get('contract_multiplier', 100) or 100)
+        if not math.isfinite(available) or available < held or order['quantity'] > available:
+            raise ValueError('Shares are reserved for covered CALLs; close or cancel those CALLs first')
 
     def _prepare_close_order_data(self, close_data, db=None):
         """Build a validated close order from the exact current IB position."""
@@ -391,14 +411,17 @@ class OptionsService:
             }, 409
 
         contract = position['contract']
+        is_stock = getattr(contract, 'secType', '') == 'STK'
+        if is_stock and current_quantity <= 0:
+            return None, {'success': False, 'error': 'Only existing long stock positions can be closed'}, 409
         try:
-            multiplier = float(getattr(contract, 'multiplier', 100) or 100)
+            multiplier = 1 if is_stock else float(getattr(contract, 'multiplier', 100) or 100)
         except (TypeError, ValueError):
             multiplier = 100
 
         order_data = {
             'ticker': str(getattr(contract, 'symbol', '') or '').upper(),
-            'option_type': 'CALL' if getattr(contract, 'right', '') == 'C' else 'PUT',
+            'option_type': 'STOCK' if is_stock else ('CALL' if getattr(contract, 'right', '') == 'C' else 'PUT'),
             'action': close_action,
             'intent': 'CLOSE',
             'strike': float(getattr(contract, 'strike', 0) or 0),
@@ -418,6 +441,8 @@ class OptionsService:
 
         try:
             order_data = self.validate_order_data(order_data)
+            if is_stock:
+                self._validate_stock_coverage(conn, order_data, account, db)
         except ValueError as error:
             return None, {'success': False, 'error': str(error)}, 400
 

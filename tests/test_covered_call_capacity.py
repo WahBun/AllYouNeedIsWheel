@@ -51,6 +51,15 @@ class FakeIB:
 
 
 class CoveredCallCapacityTests(unittest.TestCase):
+    def test_active_stock_sale_reserves_shares_against_new_calls(self):
+        connection = IBConnection.__new__(IBConnection)
+        connection.ib = FakeIB()
+        connection._order_account = lambda: 'U1234567'
+        connection.ib._active_order.contract = contract('STK')
+        connection.ib._active_order.orderStatus.remaining = 150
+        self.assertEqual(connection.get_unreserved_stock_shares('TSLL', 'U1234567'), 50)
+        self.assertEqual(connection.get_covered_call_capacity('TSLL', 'U1234567'), 0)
+
     def test_existing_short_calls_and_active_sell_orders_reduce_capacity(self):
         connection = IBConnection.__new__(IBConnection)
         connection.ib = FakeIB()

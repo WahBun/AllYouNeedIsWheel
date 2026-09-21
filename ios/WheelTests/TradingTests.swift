@@ -21,6 +21,82 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testHistoryRequiresActualFillNotExecutedFlag() throws {
+        for status in ["canceled", "cancelled", "rejected", "pending", "processing"] {
+            let order = try JSONDecoder().decode(Order.self, from: Data("{\"id\":1,\"status\":\"\(status)\",\"executed\":1,\"filled\":0}".utf8))
+            XCTAssertFalse(order.hasFill)
+        }
+        XCTAssertTrue(Order(id: 1, status: "executed").hasFill)
+        XCTAssertTrue(Order(id: 1, status: "processing", ib_status: "Filled").hasFill)
+        XCTAssertTrue(Order(id: 1, status: "canceled", filled: 1).hasFill)
+    }
+
+    func testStagingPreservesOrderLimitAndRestoresMarketPrice() async {
+        let store = WheelStore()
+        await store.refreshPortfolio()
+        let book = store.opportunities
+        await book.load("TSLL", type: "PUT", store: store)
+        book.rows["TSLL:PUT"]?.price = "0.83"
+        book.rows["TSLL:PUT"]?.manualPrice = true
+        let staged = await book.stage(book.rows["TSLL:PUT"]!, store: store)
+        XCTAssertTrue(staged)
+        XCTAssertEqual(store.orders.last!.premium!, 0.83, accuracy: 0.000001)
+        XCTAssertFalse(book.rows["TSLL:PUT"]!.manualPrice)
+        XCTAssertTrue(book.rows["TSLL:PUT"]!.staged)
+        XCTAssertFalse(book.rows["TSLL:PUT"]!.canStage)
+        var row = book.rows["TSLL:PUT"]!
+        row.quote?.bid = 0.70; row.quote?.ask = 0.74
+        row.followMarketPrice()
+        XCTAssertEqual(row.price, "0.72")
+        XCTAssertEqual(store.orders.last!.premium!, 0.83, accuracy: 0.000001)
+        row.quote?.bid = nil
+        row.followMarketPrice()
+        XCTAssertEqual(row.price, "")
+        XCTAssertNil(row.total)
+    }
+
+    func testBrokerIDsDecodeDatabaseStringsAndLiveNumbers() throws {
+        for ids in [#""ib_order_id":"123","perm_id":"456""#, #""ib_order_id":123,"perm_id":456"#] {
+            let data = Data("{\"id\":1,\"status\":\"processing\",\"executed\":0,\(ids)}".utf8)
+            let order = try JSONDecoder().decode(Order.self, from: data)
+            XCTAssertEqual(order.ib_order_id, 123)
+            XCTAssertEqual(order.perm_id, 456)
+            XCTAssertFalse(TradeRules.editable(order))
+        }
+        let absent = try JSONDecoder().decode(Order.self, from: Data(#"{"id":1,"status":"pending","perm_id":null}"#.utf8))
+        XCTAssertNil(absent.ib_order_id)
+        XCTAssertNil(absent.perm_id)
+        XCTAssertThrowsError(try JSONDecoder().decode(Order.self, from: Data(#"{"id":1,"status":"processing","ib_order_id":"invalid"}"#.utf8)))
+    }
+
+    func testExecuteAcknowledgementSurvivesFailedOrderRefresh() async {
+        let saved = UserDefaults.standard.object(forKey: "unresolvedTradingWrite")
+        defer {
+            MockProtocol.payload = nil; MockProtocol.fail = false
+            UserDefaults.standard.set(saved, forKey: "unresolvedTradingWrite")
+        }
+        let store = WheelStore()
+        store.demo = false; store.address = "https://mock.invalid"
+        store.orders = [Order(id: 42, ticker: "TEST", premium: 0.83, quantity: 1, status: "pending")]
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        store.trading.uncertain = false
+        MockProtocol.fail = false
+        MockProtocol.payload = { _ in ["success": true, "status": "processing", "execution_details": ["ib_status": "Submitted"]] }
+        let success = await store.trading.write("api/options/execute/42", store: store)
+        XCTAssertTrue(success)
+        XCTAssertEqual(store.orders.first?.status, "processing")
+        XCTAssertEqual(store.orders.first?.ib_status, "Submitted")
+        MockProtocol.fail = true
+        await store.refreshOrders()
+        XCTAssertNotNil(store.orderError)
+        XCTAssertEqual(store.orders.first?.status, "processing")
+        XCTAssertFalse(TradeRules.editable(store.orders[0]))
+        let repeated = await store.trading.executeWithPrice(store.orders[0], price: "0.83", store: store)
+        XCTAssertFalse(repeated)
+    }
+
     func testPriceChoicesUsePositiveCentSteps() {
         let prices = TradeRules.priceChoices(around: 4.88)
         XCTAssertEqual(prices.count, 41)
@@ -227,7 +303,8 @@ final class TradingTests: XCTestCase {
         XCTAssertTrue(demo)
     }
     func testStrikeMenuPrioritizesMultiplesOfFiveWithoutDroppingOtherContracts() {
-        XCTAssertEqual(TradingMath.orderedStrikes([77.5, 81, 80, 75, 80, .nan, -1]), [75, 80, 81, 77.5])
+        XCTAssertEqual(TradingMath.orderedStrikes([77.5, 81, 80, 75, 80, .nan, -1]), [75, 77.5, 80, 81])
+        XCTAssertEqual(TradingMath.orderedStrikes([10, 9, 11, 5, 8]), [5, 8, 9, 10, 11])
     }
     func testExecuteSavesEditedPriceFirstAndStopsOnSaveFailure() async {
         let savedLock = UserDefaults.standard.object(forKey: "unresolvedTradingWrite")
@@ -249,6 +326,9 @@ final class TradingTests: XCTestCase {
         XCTAssertTrue(success)
         XCTAssertEqual(MockProtocol.requests.map { $0.url!.path }, ["/api/options/order/42/premium", "/api/options/execute/42"])
         XCTAssertEqual(MockProtocol.requests.map { $0.httpMethod! }, ["PUT", "POST"])
+        // Start a separate draft for the save-failure scenario; the acknowledged
+        // order above is intentionally no longer executable.
+        store.orders = [order]
         MockProtocol.requests = []; MockProtocol.fail = true
         let failed = await store.trading.executeWithPrice(order, price: "0.22", store: store)
         XCTAssertFalse(failed)
@@ -582,7 +662,8 @@ final class TradingTests: XCTestCase {
         book.rows["TSLL:CALL"]?.staged = true
         await book.load("TSLL", type: "CALL", store: store, background: true)
         XCTAssertEqual(book.rows["TSLL:CALL"]?.quantity, 2)
-        XCTAssertEqual(book.rows["TSLL:CALL"]?.price, "")
+        XCTAssertEqual(book.rows["TSLL:CALL"]?.price, book.rows["TSLL:CALL"]?.quote?.mid.map { String(format: "%.2f", $0) })
+        XCTAssertFalse(book.rows["TSLL:CALL"]!.manualPrice)
         XCTAssertEqual(book.rows["TSLL:CALL"]?.staged, true)
         XCTAssertFalse(book.rows["TSLL:CALL"]!.canStage)
     }

@@ -90,6 +90,61 @@ class FakeCloseConnection:
 
 
 class ClosePositionSafetyTests(unittest.TestCase):
+    def stock_connection(self, position=300, available=300):
+        connection = FakeCloseConnection(position=position)
+        connection.contract.secType = 'STK'
+        connection.contract.right = ''
+        connection.contract.strike = 0
+        connection.contract.lastTradeDateOrContractMonth = ''
+        connection.contract.multiplier = ''
+        connection.get_unreserved_stock_shares = lambda *args: available
+        return connection
+
+    def test_stock_close_uses_shares_and_exact_contract(self):
+        connection = self.stock_connection()
+        service = self.make_service(connection)
+        result, status = service.stage_close_order({'con_id': 81001, 'quantity': 300, 'limit_price': 10})
+        self.assertEqual(status, 201)
+        order = self.db.get_order(result['order_id'])
+        self.assertEqual(order['option_type'], 'STOCK')
+        self.assertEqual(order['contract_multiplier'], 1)
+        executed, code = service.execute_order(result['order_id'], self.db)
+        self.assertEqual(code, 200, executed)
+        self.assertEqual(connection.place_calls, 1)
+        self.assertIs(connection.placed_contract, connection.contract)
+
+    def test_stock_with_any_cc_cannot_even_sell_one_share(self):
+        connection = self.stock_connection(300, 200)
+        service = self.make_service(connection)
+        result, code = service.stage_close_order({'con_id': 81001, 'quantity': 1, 'limit_price': 10})
+        self.assertFalse(result['success'])
+        self.assertEqual(connection.place_calls, 0)
+
+    def test_stock_close_rechecks_cc_before_execution(self):
+        connection = self.stock_connection()
+        service = self.make_service(connection)
+        result, code = service.stage_close_order({'con_id': 81001, 'quantity': 1, 'limit_price': 10})
+        connection.get_unreserved_stock_shares = lambda *args: 200
+        outcome, code = service.execute_order(result['order_id'], self.db)
+        self.assertFalse(outcome['success'])
+        self.assertEqual(connection.place_calls, 0)
+
+    def test_pending_local_call_blocks_stock_close(self):
+        connection = self.stock_connection()
+        service = self.make_service(connection)
+        self.db.save_order({'ticker': 'TSLL', 'option_type': 'CALL', 'action': 'SELL',
+                            'intent': 'OPEN', 'strike': 12, 'expiration': '20991219',
+                            'premium': 0.5, 'quantity': 1})
+        result, code = service.stage_close_order({'con_id': 81001, 'quantity': 1, 'limit_price': 10})
+        self.assertFalse(result['success'])
+        self.assertEqual(connection.place_calls, 0)
+
+    def test_short_stock_and_oversized_close_are_rejected(self):
+        for held, qty in [(-30, 1), (30, 31)]:
+            service = self.make_service(self.stock_connection(held, held))
+            result, code = service.stage_close_order({'con_id': 81001, 'quantity': qty, 'limit_price': 10})
+            self.assertFalse(result['success'])
+
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db = OptionsDatabase(str(Path(self.temp_dir.name) / 'close-orders.db'))

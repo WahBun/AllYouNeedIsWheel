@@ -996,7 +996,7 @@ class IBConnection:
         )
 
     def get_option_position_by_con_id(self, con_id, account_id=None):
-        """Return one exact option position from the configured IB account."""
+        """Return an exact held option or stock; retain the legacy method name."""
         if not self.is_connected():
             return None
 
@@ -1016,7 +1016,7 @@ class IBConnection:
 
         for item in position_items:
             contract = getattr(item, 'contract', None)
-            if not contract or getattr(contract, 'secType', '') != 'OPT':
+            if not contract or getattr(contract, 'secType', '') not in {'OPT', 'STK'}:
                 continue
             if int(getattr(contract, 'conId', 0) or 0) != normalized_con_id:
                 continue
@@ -1042,7 +1042,7 @@ class IBConnection:
         return None
 
     def get_open_option_order_quantity(self, con_id, action=None, account_id=None):
-        """Return the remaining quantity of matching active IB option orders."""
+        """Return remaining quantity of matching active option or stock orders."""
         if not self.is_connected():
             return float('inf')
 
@@ -1068,7 +1068,7 @@ class IBConnection:
             contract = getattr(trade, 'contract', None)
             order = getattr(trade, 'order', None)
             order_status = getattr(trade, 'orderStatus', None)
-            if not contract or not order or getattr(contract, 'secType', '') != 'OPT':
+            if not contract or not order or getattr(contract, 'secType', '') not in {'OPT', 'STK'}:
                 continue
             if int(getattr(contract, 'conId', 0) or 0) != normalized_con_id:
                 continue
@@ -1093,7 +1093,7 @@ class IBConnection:
         return remaining_quantity
 
     def get_option_position_quote(self, con_id, account_id=None):
-        """Fetch a quote for an exact held option contract."""
+        """Fetch a quote for an exact held option or stock contract."""
         position = self.get_option_position_by_con_id(con_id, account_id)
         if not position:
             return None
@@ -1102,7 +1102,7 @@ class IBConnection:
         self.set_market_data_type(2 if is_frozen else 1)
 
         contract = position['contract']
-        ticker = self.get_market_ticker(contract, '106')
+        ticker = self.get_market_ticker(contract, '' if contract.secType == 'STK' else '106')
         for _ in range(25):
             self.ib.sleep(0.1)
             if any(
@@ -1140,6 +1140,10 @@ class IBConnection:
 
     def get_covered_call_capacity(self, symbol, account_id=None):
         """Return standard CALL contracts still covered by uncommitted shares."""
+        return int(self.get_unreserved_stock_shares(symbol, account_id) // 100)
+
+    def get_unreserved_stock_shares(self, symbol, account_id=None):
+        """Shares remaining after held short calls and active broker sell calls."""
         selected_account = account_id or self._order_account()
         if not selected_account:
             return 0
@@ -1188,9 +1192,9 @@ class IBConnection:
             seen_orders.add(order_key)
 
             if (
-                getattr(contract, 'secType', '') != 'OPT'
+                getattr(contract, 'secType', '') not in {'OPT', 'STK'}
                 or getattr(contract, 'symbol', '') != symbol
-                or getattr(contract, 'right', '') != 'C'
+                or (getattr(contract, 'secType', '') == 'OPT' and getattr(contract, 'right', '') != 'C')
                 or str(getattr(order, 'action', '') or '').upper() != 'SELL'
             ):
                 continue
@@ -1205,7 +1209,7 @@ class IBConnection:
             if remaining is None:
                 remaining = getattr(order, 'totalQuantity', 0)
             try:
-                multiplier = float(getattr(contract, 'multiplier', 100) or 100)
+                multiplier = 1 if contract.secType == 'STK' else float(getattr(contract, 'multiplier', 100) or 100)
                 active_sell_call_share_equivalent += max(0.0, float(remaining or 0)) * multiplier
             except (TypeError, ValueError):
                 continue
@@ -1214,7 +1218,7 @@ class IBConnection:
             0.0,
             stock_shares - short_call_share_equivalent - active_sell_call_share_equivalent
         )
-        return int(available_shares // 100)
+        return available_shares
 
     def get_live_portfolio(self):
         """Sample held positions from reusable streaming market-data subscriptions."""

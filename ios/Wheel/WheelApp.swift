@@ -58,6 +58,11 @@ struct Order: Decodable, Identifiable {
     var perm_id: Int? = nil
     var error_message: String? = nil
     var isRollover: Bool? = nil
+    var filled: Double? = nil
+    var hasFill: Bool {
+        if let filled, filled.isFinite, filled > 0 { return true }
+        return ib_status?.lowercased() == "filled" || ["filled", "executed"].contains(status.lowercased())
+    }
     var name: String { ticker ?? symbol ?? "Option" }
 }
 struct Orders: Decodable { var orders: [Order] }
@@ -177,7 +182,7 @@ final class WheelStore {
         do {
             let result = try await trading.get("api/options/pending-orders", base: address, query: [URLQueryItem(name: "executed", value: "true")])
             let decoded = try JSONDecoder().decode(Orders.self, from: JSONSerialization.data(withJSONObject: result))
-            if token == revision { filledOrders = decoded.orders }
+            if token == revision { filledOrders = decoded.orders.filter { $0.hasFill } }
         } catch { if token == revision { orderError = connectionMessage(error) } }
     }
     func changeMode() { revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
@@ -430,6 +435,12 @@ struct PositionDetail: View {
     let position: Position
     @Environment(WheelStore.self) private var store
     private var latest: Position { store.portfolio?.positions.first { $0.id == position.id } ?? position }
+    private var stockHasCall: Bool {
+        guard latest.security_type == "STK" else { return false }
+        return store.portfolio?.positions.contains { $0.symbol == latest.symbol && $0.security_type == "OPT" && $0.option_type == "CALL" && $0.position < 0 } == true || store.orders.contains {
+            $0.name == latest.symbol && $0.option_type == "CALL" && $0.action == "SELL" && $0.intent != "CLOSE" && !["canceled", "cancelled", "rejected", "executed", "filled"].contains($0.status)
+        }
+    }
     var body: some View {
         Form {
             Section(position.detail) {
@@ -441,10 +452,11 @@ struct PositionDetail: View {
                 NavigationLink("Margin impact") { PositionMarginView(position: latest) }
             }
             if store.portfolio?.positions.contains(where: { $0.id == position.id && $0.position != 0 }) == true,
-               position.security_type == "OPT", let conID = position.con_id, conID > 0 {
+               (position.security_type == "OPT" || (position.security_type == "STK" && latest.position > 0)), let conID = position.con_id, conID > 0 {
                 Section {
-                    NavigationLink("Close / Take profit") { CloseTicket(position: latest) }
-                    if latest.position < 0 { NavigationLink("Rollover") { RolloverTicket(position: latest) } }
+                    NavigationLink("Close") { CloseTicket(position: latest) }.disabled(stockHasCall)
+                    if stockHasCall { Text("Close covered CALLs before selling shares.").font(.caption).foregroundStyle(.orange) }
+                    if latest.security_type == "OPT" && latest.position < 0 { NavigationLink("Rollover") { RolloverTicket(position: latest) } }
                 }
             }
         }.navigationTitle(position.symbol)
@@ -479,7 +491,11 @@ struct OrdersView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack { Text(order.name).font(.headline); Spacer(); Text(money(order.premium)).monospacedDigit() }
                         HStack { Text("\(order.action ?? "") · \(order.option_type ?? "")"); Spacer(); Text(order.status).foregroundStyle(.teal) }.font(.caption)
-                        Text("\(order.expiration ?? "") · \(money(order.strike)) · Qty \(order.quantity?.formatted() ?? "—") · \(order.tif ?? (order.intent == "CLOSE" ? "GTC" : "DAY"))").font(.caption).foregroundStyle(.secondary)
+                        if order.option_type == "STOCK" {
+                            Text("\(Int(order.quantity ?? 0)) shares").font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            Text("\(order.expiration ?? "") · \(money(order.strike)) · Qty \(order.quantity?.formatted() ?? "—") · \(order.tif ?? (order.intent == "CLOSE" ? "GTC" : "DAY"))").font(.caption).foregroundStyle(.secondary)
+                        }
                         if order.external_ib == true { Text("IB managed").font(.caption).foregroundStyle(.secondary) }
                         if order.isRollover == true { Text("Rollover leg · independent order").font(.caption).foregroundStyle(.orange) }
                     }.padding(.vertical, 6)

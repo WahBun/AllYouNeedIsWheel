@@ -39,6 +39,8 @@ class PortfolioService:
 
     @staticmethod
     def _contract_multiplier(contract):
+        if getattr(contract, 'secType', '') == 'STK':
+            return 1
         try:
             multiplier = float(getattr(contract, 'multiplier', 100) or 100)
         except (TypeError, ValueError):
@@ -52,7 +54,7 @@ class PortfolioService:
         return {
             'expiration': str(contract.lastTradeDateOrContractMonth or ''),
             'strike': float(contract.strike or 0),
-            'option_type': 'CALL' if contract.right == 'C' else 'PUT',
+            'option_type': 'STOCK' if getattr(contract, 'secType', '') == 'STK' else ('CALL' if contract.right == 'C' else 'PUT'),
             'con_id': int(getattr(contract, 'conId', 0) or 0),
             'local_symbol': str(getattr(contract, 'localSymbol', '') or ''),
             'exchange': str(getattr(contract, 'exchange', '') or 'SMART'),
@@ -218,7 +220,7 @@ class PortfolioService:
                 'market_value': position.get('market_value', 0),
                 'avg_cost': position.get('avg_cost', 0),
                 'unrealized_pnl': position.get('unrealized_pnl', 0),
-                'security_type': 'OPT',
+                'security_type': getattr(contract, 'secType', 'OPT'),
                 'bid': position.get('bid'),
                 'ask': position.get('ask'),
                 'last': position.get('last'),
