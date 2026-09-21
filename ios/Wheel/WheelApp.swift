@@ -82,6 +82,10 @@ final class WheelStore {
     init() { opportunities.configure(context: "demo") }
     private var revision = 0
     private var lastSummary: Date?
+    func isConnected(to candidate: String) -> Bool {
+        !demo && candidate.trimmingCharacters(in: .whitespacesAndNewlines) == address &&
+        portfolio != nil && error == nil && Date().timeIntervalSince(updated ?? .distantPast) < 15
+    }
 
     func refresh() async {
         await refreshPortfolio()
@@ -96,8 +100,8 @@ final class WheelStore {
         defer { busy = false }
         if demo {
             portfolio = Bootstrap(summary: Summary(account_value: 25000, cash_balance: 12693, excess_liquidity: 14500, is_frozen: true, initial_margin: 4500, leverage_percentage: 18), positions: [
-                Position(symbol: "TSLL", position: 300, market_price: 10.25, market_value: 3075, unrealized_pnl: 125, security_type: "STK", avg_cost: 2950.0 / 300),
-                Position(symbol: "CRCL", position: 100, market_price: 92.5, market_value: 9250, unrealized_pnl: -150, security_type: "STK", avg_cost: 94),
+                Position(symbol: "TSLL", position: 300, market_price: 10.25, market_value: 3075, unrealized_pnl: 125, security_type: "STK", con_id: 2, avg_cost: 2950.0 / 300),
+                Position(symbol: "CRCL", position: 100, market_price: 92.5, market_value: 9250, unrealized_pnl: -150, security_type: "STK", con_id: 3, avg_cost: 94),
                 Position(symbol: "TSLL", position: -1, market_price: 0.18, market_value: -18, unrealized_pnl: 32, security_type: "OPT", strike: 9, expiration: "20261016", option_type: "PUT", con_id: 1, avg_cost: 50, multiplier: 100)
             ])
             weekly = WeeklyIncome(total_income: 0, positions_count: 0, total_put_notional: 0)
@@ -282,7 +286,9 @@ struct PortfolioView: View {
             }
             if let error = store.error { Section { Label(error, systemImage: "wifi.exclamationmark").foregroundStyle(.orange) } }
             Section("Margin") {
-                LabeledContent("Initial margin", value: money(store.portfolio?.summary.initial_margin))
+                NavigationLink { MarginOverview() } label: {
+                    LabeledContent("Initial margin", value: money(store.portfolio?.summary.initial_margin))
+                }
                 LeverageMeter(percentage: store.portfolio?.summary.leverage_percentage)
             }
             ForEach(["STK", "OPT"], id: \.self) { type in
@@ -404,6 +410,7 @@ struct PositionDetail: View {
                 LabeledContent("Current price", value: money(latest.market_price))
                 LabeledContent("Market value", value: money(latest.market_value))
                 LabeledContent("Unrealized P&L", value: money(latest.unrealized_pnl))
+                NavigationLink("Margin impact") { PositionMarginView(position: latest) }
             }
             if store.portfolio?.positions.contains(where: { $0.id == position.id && $0.position != 0 }) == true,
                position.security_type == "OPT", let conID = position.con_id, conID > 0 {
@@ -533,15 +540,26 @@ struct SettingsView: View {
             Section("Connection") {
                 Toggle("Demo mode", isOn: $store.demo).onChange(of: store.demo) { store.changeMode() }
                 TextField("https://your-mini.ts.net", text: $draft).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).focused($addressFocused).submitLabel(.done).onSubmit { addressFocused = false }
-                Button(LocalizedStringKey(connecting ? "Connecting…" : "Connect")) {
+                Button {
                     addressFocused = false; connecting = true
                     store.address = draft.trimmingCharacters(in: .whitespacesAndNewlines); store.demo = false; store.changeMode()
+                    let requestedAddress = store.address
                     Task {
                         defer { connecting = false }
                         while store.busy {
                             do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
                         }
-                        await store.refresh()
+                        guard !store.demo, store.address == requestedAddress else { return }
+                        await store.refreshPortfolio()
+                        if store.isConnected(to: requestedAddress), store.selectedTab == "settings" {
+                            store.selectedTab = "portfolio"
+                        }
+                    }
+                } label: {
+                    if !connecting && store.isConnected(to: draft) {
+                        Label("CONNECTED", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    } else {
+                        Text(LocalizedStringKey(connecting ? "Connecting…" : "Connect"))
                     }
                 }.disabled(draft.isEmpty || connecting)
                 if let error = store.error { Text(error).font(.footnote).foregroundStyle(.orange) }

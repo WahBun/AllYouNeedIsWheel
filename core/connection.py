@@ -1409,6 +1409,63 @@ class IBConnection:
             logger.error(traceback.format_exc())
             return None
 
+    def get_position_margin_impact(self, con_id):
+        """Estimate closing one exact holding; never place a live order."""
+        from ib_async import MarketOrder
+
+        account = self._order_account()
+        if not self.is_connected() or not account:
+            raise ValueError('Configured IB account is unavailable')
+        currencies = {
+            value.currency for value in self.ib.accountSummary(account)
+            if value.account == account and value.tag == 'InitMarginReq'
+        }
+        # What-if changes use the account base currency, not contract currency.
+        if currencies != {'USD'}:
+            raise ValueError('Margin impact currently requires a verified USD base account')
+
+        positions = self.ib.positions(account)
+        item = next((p for p in positions if p.account == account
+                     and p.contract.conId == con_id and p.position != 0), None)
+        if item is None or item.contract.secType not in {'STK', 'OPT'}:
+            raise ValueError('Exact stock or option holding was not found')
+        held_position = float(item.position)
+        quantity = abs(held_position)
+        if not math.isfinite(quantity) or quantity <= 0:
+            raise ValueError('Invalid held quantity')
+        contract = copy.copy(item.contract)
+        if not contract.exchange:
+            contract.exchange = 'SMART'
+        order = MarketOrder('SELL' if item.position > 0 else 'BUY', quantity,
+                            account=account, whatIf=True, tif='DAY')
+        result = self.what_if_order(contract, order)
+        if not result.get('success'):
+            raise ValueError('IB margin estimate unavailable; no order was submitted')
+
+        def amount(key):
+            try:
+                value = float(result.get(key))
+            except (TypeError, ValueError):
+                return None
+            # IB uses an extremely large double as an unavailable sentinel.
+            return value if math.isfinite(value) and abs(value) < 1e100 else None
+
+        initial = amount('init_margin_change')
+        maintenance = amount('maint_margin_change')
+        if initial is None or maintenance is None:
+            raise ValueError('IB did not return usable margin estimates')
+        current = next((p for p in self.ib.positions(account)
+                        if p.account == account and p.contract.conId == con_id), None)
+        if current is None or current.position != held_position:
+            raise ValueError('Position changed during estimate; refresh before retrying')
+        return {
+            'con_id': con_id, 'symbol': contract.symbol, 'position': held_position,
+            'currency': 'USD', 'initial_change': initial, 'maintenance_change': maintenance,
+            'estimated': True, 'additive': False, 'scenario': 'close_entire_position',
+            'warning': result.get('warning_text', ''),
+            'retrieved_at': datetime.now(pytz.UTC).isoformat()
+        }
+
     def what_if_order(self, contract, order):
         """
         Ask IB to validate an order without transmitting it.

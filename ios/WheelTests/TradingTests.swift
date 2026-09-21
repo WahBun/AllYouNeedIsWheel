@@ -21,6 +21,33 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testMarginImpactRequiresExactPositionAndEstimateSemantics() {
+        let position = Position(symbol: "TEST", position: -2, security_type: "OPT", con_id: 42)
+        let impact = MarginImpact(con_id: 42, position: -2, currency: "USD", initial_change: -200,
+            maintenance_change: 50, estimated: true, additive: false, scenario: "close_entire_position", warning: nil, retrieved_at: "Demo")
+        XCTAssertTrue(impact.matches(position))
+        var changed = position; changed.position = -1
+        XCTAssertFalse(impact.matches(changed))
+        changed = position; changed.con_id = 99
+        XCTAssertFalse(impact.matches(changed))
+        XCTAssertFalse(MarginImpact(con_id: 42, position: -2, currency: "HKD", initial_change: -200,
+            maintenance_change: 50, estimated: true, additive: false, scenario: "close_entire_position", warning: nil, retrieved_at: "Demo").matches(position))
+    }
+    func testConnectionFeedbackRequiresFreshDataFromMatchingBackend() async {
+        let store = WheelStore()
+        await store.refreshPortfolio()
+        store.address = "https://mock.invalid"
+        XCTAssertFalse(store.isConnected(to: store.address))
+        store.demo = false
+        XCTAssertTrue(store.isConnected(to: " https://mock.invalid "))
+        XCTAssertFalse(store.isConnected(to: "https://other.invalid"))
+        store.error = "Offline"
+        XCTAssertFalse(store.isConnected(to: store.address))
+        store.error = nil; store.updated = Date(timeIntervalSinceNow: -20)
+        XCTAssertFalse(store.isConnected(to: store.address))
+        store.changeMode()
+        XCTAssertFalse(store.isConnected(to: store.address))
+    }
     func testHiddenTickersAreScopedToStrategy() {
         let book = OpportunityBook()
         book.excluded = [book.key("TSLL", "PUT")]

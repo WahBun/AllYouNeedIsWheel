@@ -77,13 +77,32 @@ after a physical iOS 18 navigation-bar crash; the simulator tests are not a
 substitute for physical-device acceptance. Do not put real addresses, signing
 identities or credentials in public commits.
 
-## Verification
+## Margin inspection
 
-The 2026-09-20 preview review passed 26 simulator tests, including quote failures,
+Initial margin opens a symbol-grouped holding list. Position details also link
+to margin impact. The account total remains the reported IB value; individual
+holdings are not assigned fabricated portions of that total. On explicit request,
+the new backend endpoint `/api/portfolio/position/<con_id>/margin-impact` simulates
+closing the entire exact holding with IB what-if. It reports signed initial and
+maintenance margin changes, not actual margin used or an additive allocation.
+Positive changes can occur when removing a hedge. The estimate excludes a joint
+simulation of other closing legs and can change with markets or pending orders.
+
+This endpoint requires the updated backend and a verified USD base account.
+It uses the existing serialized IB dispatcher and what-if preflight only, never
+the live order submission or database staging path. It is manually requested,
+not part of periodic refresh. Unsupported, missing or sentinel results remain
+unavailable rather than zero. Old backends show an update notice. Demo estimates
+are explicitly synthetic. No live account what-if request was made during tests.
+
+## Verification Results
+
+The 2026-09-21 preview review passed 28 simulator tests, including quote failures,
 stale responses, manual input preservation, default covered-call quantity,
 exact-contract demo closes, currency formatting, write-timeout locking, spread
 thresholds, quick-action validation, duplicate draft protection and strategy-scoped
-hidden tickers.
+hidden tickers, connection status and margin-estimate identity validation.
+The backend unittest suite also passed, including eight mocked margin-impact tests.
 English/light and Simplified Chinese/dark layouts, navigation and hide/restore
 were checked in the simulator. Debug tests and Release compilation are checked
 without submitting real broker orders. Market-hours latency, partial fills and

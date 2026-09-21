@@ -99,6 +99,7 @@ class PortfolioService:
                 'unrealized_pnl': pos.get('unrealized_pnl'),
                 'security_type': pos_type
             }
+            position_data['con_id'] = int(getattr(contract, 'conId', 0) or 0)
 
             if (
                 pos_type == 'OPT'
@@ -112,6 +113,12 @@ class PortfolioService:
 
         return positions_list
         
+    def get_position_margin_impact(self, con_id):
+        conn = self._ensure_connection()
+        if not conn:
+            raise ValueError('IB connection is unavailable')
+        return conn.get_position_margin_impact(con_id)
+
     def get_portfolio_summary(self):
         """
         Get account summary information including cash balance and account value

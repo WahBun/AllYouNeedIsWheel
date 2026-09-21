@@ -138,3 +138,16 @@ def get_weekly_income():
             'total_income': 0,
             'positions_count': 0
         }), 500
+
+
+@bp.route('/position/<int:con_id>/margin-impact', methods=['GET'])
+def get_margin_impact(con_id):
+    """On-demand IB what-if estimate, not an actual margin allocation."""
+    if con_id <= 0:
+        return _no_store_json({'error': 'Invalid contract identifier'}, 400)
+    try:
+        return _no_store_json(portfolio_service.get_position_margin_impact(con_id))
+    except ValueError as exc:
+        return _no_store_json({'error': str(exc)}, 503)
+    except Exception:
+        return _no_store_json({'error': 'Margin estimate unavailable; no order was submitted'}, 503)

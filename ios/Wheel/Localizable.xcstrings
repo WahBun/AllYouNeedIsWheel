@@ -973,6 +973,22 @@
         }
       }
     },
+    "Demo estimate · not broker data" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "演示估算 · 非券商数据"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "示範估算 · 非券商資料"
+          }
+        }
+      }
+    },
     "Demo mode" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1054,6 +1070,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "開倉權利金 · 非已實現利潤"
+          }
+        }
+      }
+    },
+    "Estimate margin impact" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查询保证金影响"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查詢保證金影響"
+          }
+        }
+      }
+    },
+    "Estimated closing impact" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "预计平仓影响"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "預計平倉影響"
           }
         }
       }
@@ -1311,6 +1360,22 @@
         }
       }
     },
+    "IB reports account-level margin, not an exact allocation per holding. Position estimates are hypothetical changes and must not be added together." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IB 提供账户级保证金，而非逐笔精确分摊。各持仓估算是假设变化，不可相加。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IB 提供帳戶級保證金，而非逐筆精確分攤。各持倉估算是假設變化，不可相加。"
+          }
+        }
+      }
+    },
     "IB-managed and unknown orders are excluded. Stops on the first failure. Cancellation remains pending until IB confirms it." : {
       "localizations" : {
         "zh-Hans" : {
@@ -1356,6 +1421,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "初始保證金"
+          }
+        }
+      }
+    },
+    "Initial margin change" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "初始保证金变化"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "初始保證金變化"
           }
         }
       }
@@ -1529,6 +1611,23 @@
         }
       }
     },
+    "Maintenance margin change" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "维持保证金变化"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "維持保證金變化"
+          }
+        }
+      }
+    },
     "Margin" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1542,6 +1641,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "保證金"
+          }
+        }
+      }
+    },
+    "Margin details" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保证金明细"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保證金明細"
+          }
+        }
+      }
+    },
+    "Margin impact" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保证金影响"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保證金影響"
           }
         }
       }
@@ -1593,6 +1726,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最低 iOS 版本"
+          }
+        }
+      }
+    },
+    "Negative means less required margin; positive means more. Closing a hedge can increase margin. This is not the holding's actual margin allocation." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "负数表示所需保证金减少，正数表示增加。平掉对冲持仓可能增加保证金。这不是该持仓的实际占用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "負數表示所需保證金減少，正數表示增加。平掉對沖持倉可能增加保證金。這不是該持倉的實際佔用。"
           }
         }
       }
@@ -2200,6 +2349,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "儲存數量"
+          }
+        }
+      }
+    },
+    "Scenario: close this entire holding while leaving all other positions unchanged." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "假设：平掉当前整笔持仓，其他持仓保持不变。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "假設：平掉目前整筆持倉，其他持倉保持不變。"
           }
         }
       }
@@ -2859,6 +3024,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未實現損益"
+          }
+        }
+      }
+    },
+    "Update the backend to enable position margin estimates." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请更新后端以启用持仓保证金估算。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請更新後端以啟用持倉保證金估算。"
           }
         }
       }
