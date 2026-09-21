@@ -1882,6 +1882,14 @@ class IBConnection:
 
         return self._trade_matches_order_details(trade, order_details)
 
+    def _bounded_order_read(self, request, *args):
+        previous_timeout = getattr(self.ib, 'RequestTimeout', 0)
+        self.ib.RequestTimeout = 3
+        try:
+            return request(*args)
+        finally:
+            self.ib.RequestTimeout = previous_timeout
+
     def get_order_status_snapshot(self, force_refresh=False):
         """Refresh IB's order cache once for a batch of local status checks."""
         if not self.is_connected():
@@ -1893,8 +1901,8 @@ class IBConnection:
         authoritative_open_trades = None
         if force_refresh or now - last_refresh >= 5:
             try:
-                refreshed_trades.extend(self.ib.reqOpenOrders() or [])
-                refreshed_trades.extend(self.ib.reqAllOpenOrders() or [])
+                refreshed_trades.extend(self._bounded_order_read(self.ib.reqOpenOrders) or [])
+                refreshed_trades.extend(self._bounded_order_read(self.ib.reqAllOpenOrders) or [])
                 self.ib.sleep(0.15)
                 # An empty response is meaningful: IB currently has no open
                 # orders. Keep it separate from ib.trades(), whose entries from
@@ -2083,13 +2091,14 @@ class IBConnection:
             try:
                 completed_trades = status_snapshot.get('completed_trades')
                 if completed_trades is None:
-                    completed_trades = self.ib.reqCompletedOrders(False)
+                    completed_trades = self._bounded_order_read(self.ib.reqCompletedOrders, False)
                     self.ib.sleep(0.2)
                     status_snapshot['completed_trades'] = completed_trades
                 for trade in completed_trades:
                     if self._trade_matches_order(trade, order_id, perm_id, order_details):
                         return self._trade_to_status(trade)
             except Exception as e:
+                status_snapshot['completed_trades'] = []
                 logger.warning(f"Could not refresh completed orders: {e}")
 
             # Execution callbacks are not sufficient to prove the whole order

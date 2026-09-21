@@ -310,6 +310,19 @@ final class OpportunityBook {
         if result { rows[key(row.ticker, row.type)]?.staged = true }
         return result
     }
+    func confirmCancellation(_ order: Order, remaining: [Order]) {
+        guard order.action == "SELL", order.intent != "CLOSE", order.isRollover != true,
+              let type = order.option_type else { return }
+        let rowKey = key(order.name, type)
+        guard let row = rows[rowKey], row.quote?.strike == order.strike,
+              row.quote?.expiration == order.expiration else { return }
+        let duplicate = remaining.contains {
+            $0.id != order.id && $0.name == order.name && $0.action == "SELL" &&
+            $0.option_type == type && $0.strike == order.strike && $0.expiration == order.expiration &&
+            !["canceled", "cancelled", "rejected", "filled"].contains($0.status.lowercased())
+        }
+        if !duplicate { rows[rowKey]?.staged = false }
+    }
     func stageAndOpenOrders(_ snapshots: [OpportunityRow], store: WheelStore) async {
         guard !batchRunning, !store.trading.busy, !snapshots.isEmpty else { return }
         batchRunning = true
@@ -393,15 +406,25 @@ struct OpportunitiesView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack { Text(symbol).font(.headline); Spacer(); OpportunityPrice(row: row) }
                         if let quote = row?.quote {
-                            HStack { Text("\(money(quote.strike)) · \(quote.expiration)"); Spacer(); PremiumValue(amount: row?.total, perSymbol: true) }.font(.caption)
+                            HStack(alignment: .top) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("\(money(quote.strike)) · \(quote.expiration)")
+                                    Text("\(row?.quantity ?? 1) · \(money(TradeRules.price(row?.price ?? "")))")
+                                        .accessibilityLabel(Text("\(row?.quantity ?? 1) contracts · \(money(TradeRules.price(row?.price ?? "")))"))
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 8)
+                                PremiumValue(amount: row?.total, perSymbol: true)
+                            }.font(.caption)
+                            OpportunityMetrics(quote: quote)
                             if type == "CALL" && row?.capacity == 0 {
                                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                                     Image(systemName: "exclamationmark.triangle.fill").accessibilityHidden(true)
                                     Text("Coverage already reserved")
                                 }
                                     .font(.caption).foregroundStyle(.orange)
-                            } else {
-                                Text(row?.staged == true ? LocalizedStringKey("Staged in Orders") : "\(row?.quantity ?? 1) contracts · \(money(TradeRules.price(row?.price ?? "")))").font(.caption).foregroundStyle(.secondary)
+                            } else if row?.staged == true {
+                                Text("Staged in Orders").font(.caption).foregroundStyle(.secondary)
                             }
                         } else if row?.loading == true { ProgressView() }
                         else { Text(LocalizedStringKey(row?.error ?? "Quote not loaded")).font(.caption).foregroundStyle(.secondary) }
@@ -468,6 +491,27 @@ struct OpportunitiesView: View {
     }
 }
 
+struct OpportunityMetrics: View {
+    let quote: ContractQuote
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) { metrics }.fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 4) { metrics }
+        }.font(.caption).monospacedDigit()
+    }
+    @ViewBuilder private var metrics: some View {
+        SpreadValue(percentage: quote.spread)
+            .accessibilityLabel(Text("Spread"))
+            .accessibilityValue(quote.spread.map { String(format: "%.1f%%", $0) } ?? "—")
+        QuoteMetricValue(metric: .delta, value: quote.delta)
+            .accessibilityLabel(Text("Delta"))
+            .accessibilityValue(QuoteMetric.delta.formatted(quote.delta))
+        QuoteMetricValue(metric: .iv, value: quote.implied_volatility)
+            .accessibilityLabel(Text("IV"))
+            .accessibilityValue(QuoteMetric.iv.formatted(quote.implied_volatility))
+    }
+}
+
 struct OpportunityDetail: View {
     let ticker: String
     let type: String
@@ -510,8 +554,8 @@ struct OpportunityDetail: View {
                     LabeledContent("Strike", value: money(quote.strike))
                     LabeledContent("Bid / Ask", value: "\(money(quote.bid)) / \(money(quote.ask))")
                     LabeledContent("Spread") { SpreadValue(percentage: quote.spread) }
-                    LabeledContent("Delta", value: quote.delta.map { String(format: "%.2f", $0) } ?? "—")
-                    LabeledContent("IV", value: quote.implied_volatility.flatMap { $0 > 0 ? String(format: "%.1f%%", $0) : nil } ?? "—")
+                    LabeledContent("Delta") { QuoteMetricValue(metric: .delta, value: quote.delta) }
+                    LabeledContent("IV") { QuoteMetricValue(metric: .iv, value: quote.implied_volatility) }
                     if let updated = row.updated { LabeledContent("Retrieved", value: updated.formatted(.dateTime.hour().minute().second())) }
                     Text(LocalizedStringKey(store.demo ? "Demo quote" : store.portfolio?.summary.is_frozen == true ? "Frozen portfolio · verify quote" : "Snapshot quote · verify before execution")).font(.caption).foregroundStyle(.secondary)
                     TextField("Limit per share", text: Binding(get: { row.price }, set: { book.rows[key]?.price = $0; book.rows[key]?.manualPrice = true })).keyboardType(.decimalPad)

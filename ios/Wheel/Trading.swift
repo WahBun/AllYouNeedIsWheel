@@ -1,5 +1,45 @@
 import SwiftUI
 
+extension Order {
+    private enum CodingKeys: String, CodingKey {
+        case id, ticker, symbol, action, option_type, strike, expiration, premium, quantity, status
+        case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, error_message, isRollover
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        // SQLite stores BOOLEAN columns as 0/1; broker-only rows use JSON booleans.
+        func flag(_ key: CodingKeys) throws -> Bool? {
+            guard values.contains(key) else { return nil }
+            if try values.decodeNil(forKey: key) { return nil }
+            if let value = try? values.decode(Bool.self, forKey: key) { return value }
+            if let value = try? values.decode(Int.self, forKey: key), value == 0 || value == 1 {
+                return value == 1
+            }
+            throw DecodingError.dataCorruptedError(forKey: key, in: values, debugDescription: "Expected boolean or 0/1")
+        }
+        id = try values.decode(OrderID.self, forKey: .id)
+        status = try values.decode(String.self, forKey: .status)
+        ticker = try values.decodeIfPresent(String.self, forKey: .ticker)
+        symbol = try values.decodeIfPresent(String.self, forKey: .symbol)
+        action = try values.decodeIfPresent(String.self, forKey: .action)
+        option_type = try values.decodeIfPresent(String.self, forKey: .option_type)
+        strike = try values.decodeIfPresent(Double.self, forKey: .strike)
+        expiration = try values.decodeIfPresent(String.self, forKey: .expiration)
+        premium = try values.decodeIfPresent(Double.self, forKey: .premium)
+        quantity = try values.decodeIfPresent(Double.self, forKey: .quantity)
+        tif = try values.decodeIfPresent(String.self, forKey: .tif)
+        intent = try values.decodeIfPresent(String.self, forKey: .intent)
+        external_ib = try flag(.external_ib)
+        ib_status = try values.decodeIfPresent(String.self, forKey: .ib_status)
+        executed = try flag(.executed)
+        ib_order_id = try values.decodeIfPresent(Int.self, forKey: .ib_order_id)
+        perm_id = try values.decodeIfPresent(Int.self, forKey: .perm_id)
+        error_message = try values.decodeIfPresent(String.self, forKey: .error_message)
+        isRollover = try flag(.isRollover)
+    }
+}
+
 struct OrderID: Decodable, Hashable, ExpressibleByIntegerLiteral, CustomStringConvertible {
     let description: String
     init(integerLiteral value: Int) { description = String(value) }
@@ -13,6 +53,11 @@ struct OrderID: Decodable, Hashable, ExpressibleByIntegerLiteral, CustomStringCo
 }
 
 enum TradeRules {
+    static func priceChoices(around value: Double?) -> [Double] {
+        guard let value, value.isFinite, value > 0, value < 1_000_000 else { return [] }
+        let cents = Int((value * 100).rounded())
+        return (max(1, cents - 20)...max(1, cents + 20)).map { Double($0) / 100 }
+    }
     static func unchanged(_ current: Order, since snapshot: Order) -> Bool {
         current.id == snapshot.id && current.premium == snapshot.premium && current.quantity == snapshot.quantity &&
         current.name == snapshot.name && current.action == snapshot.action && current.intent == snapshot.intent &&
@@ -74,7 +119,7 @@ final class TradingSession {
         request.httpMethod = "POST"
         request.setValue("1", forHTTPHeaderField: "X-All-You-Need-Is-Wheel")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["force_discovery": true])
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["force_discovery": false])
         let payload = try await send(request)
         guard payload["success"] as? Bool == true else { throw AppError.message("Order status could not be verified.") }
         return try JSONDecoder().decode(Orders.self, from: JSONSerialization.data(withJSONObject: payload))
@@ -114,6 +159,8 @@ final class TradingSession {
         busy = true
         version += 1
         message = nil
+        let canceledOrder = path.hasPrefix("api/options/cancel/")
+            ? store.orders.first { $0.id.local == Int(path.split(separator: "/").last ?? "") } : nil
         defer { busy = false; version += 1 }
         do {
             if store.demo {
@@ -137,6 +184,7 @@ final class TradingSession {
                     nextDemoID += 1
                 } else { try simulate(path, body: body) }
                 store.orders = demoOrders
+                if let canceledOrder { store.opportunities.confirmCancellation(canceledOrder, remaining: store.orders) }
                 message = "Demo updated. No broker request was sent."
                 return true
             }
@@ -155,6 +203,10 @@ final class TradingSession {
             uncertain = false
             UserDefaults.standard.set(false, forKey: "unresolvedTradingWrite")
             message = result["message"] as? String ?? "Request acknowledged. Refresh Orders to check broker status."
+            if let canceledOrder, ["canceled", "cancelled"].contains((result["status"] as? String ?? "").lowercased()) {
+                store.opportunities.confirmCancellation(canceledOrder, remaining: store.orders)
+                store.orders.removeAll { $0.id == canceledOrder.id }
+            }
             return true
         } catch {
             message = error.localizedDescription + (uncertain && !store.demo ? " Do not resubmit. Verify in IB and the web app; trading is locked pending review." : "")
@@ -197,6 +249,8 @@ struct OrderDetail: View {
     @State private var price = ""
     @State private var action: String?
     @State private var quantity = 1
+    @State private var showPrices = false
+    @State private var priceChoices: [Double] = []
     @AppStorage("confirmBeforeOrderExecution") private var confirmExecution = true
     private var current: Order? { store.orders.first { $0.id == initial.id } }
     var body: some View {
@@ -208,9 +262,16 @@ struct OrderDetail: View {
                     LabeledContent("Quantity", value: order.quantity?.formatted() ?? "—")
                     LabeledContent("Limit") {
                         if TradeRules.editable(order) {
-                            TextField("0.00", text: $price).keyboardType(.decimalPad)
-                                .multilineTextAlignment(.trailing).monospacedDigit()
-                                .accessibilityLabel("Limit price")
+                            HStack(spacing: 8) {
+                                TextField("0.00", text: $price).keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing).monospacedDigit()
+                                    .accessibilityLabel("Limit price")
+                                Button {
+                                    priceChoices = TradeRules.priceChoices(around: TradeRules.price(price) ?? order.premium)
+                                    showPrices = true
+                                } label: { Image(systemName: "chevron.up.chevron.down") }
+                                    .accessibilityLabel("Limit price")
+                            }
                         } else { Text(money(order.premium)) }
                     }
                     LabeledContent("Time in force", value: order.tif ?? (order.intent == "CLOSE" ? "GTC" : "DAY"))
@@ -241,6 +302,30 @@ struct OrderDetail: View {
         .modifier(KeyboardDismissal())
         .disabled(store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))
         .navigationTitle(initial.name)
+        .sheet(isPresented: $showPrices) {
+            NavigationStack {
+                ScrollViewReader { proxy in
+                List(priceChoices, id: \.self) { value in
+                    Button {
+                        guard let current, TradeRules.editable(current), !store.trading.busy,
+                              store.demo || !store.trading.uncertain else { return }
+                        price = String(format: "%.2f", value)
+                        showPrices = false
+                    } label: {
+                        HStack {
+                            Text(money(value)).monospacedDigit()
+                            Spacer()
+                            if TradeRules.price(price) == value { Image(systemName: "checkmark") }
+                        }
+                    }.id(value)
+                }.navigationTitle("Limit price")
+                    .onAppear {
+                        if let selected = TradeRules.price(price) { proxy.scrollTo(selected, anchor: .center) }
+                    }
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { showPrices = false } } }
+                }
+            }.presentationDetents([.medium, .large])
+        }
         .onAppear { price = String(format: "%.2f", current?.premium ?? 0); quantity = max(1, min(100, Int(current?.quantity ?? 1))) }
         .confirmationDialog(LocalizedStringKey(action ?? "Confirm"), isPresented: Binding(get: { action != nil }, set: { if !$0 { action = nil } }), titleVisibility: .visible) {
             Button(store.demo ? LocalizedStringKey("Confirm demo action") : "Confirm \(localizedAction)") {
@@ -362,6 +447,44 @@ enum SpreadBand {
     static func classify(_ percentage: Double?) -> SpreadBand {
         guard let percentage, percentage.isFinite, percentage >= 0 else { return .unavailable }
         return percentage <= 10 ? .tight : percentage <= 20 ? .medium : .wide
+    }
+}
+
+enum QuoteMetric {
+    case delta, iv
+    enum Level { case low, medium, high, unavailable }
+    func level(_ value: Double?) -> Level {
+        guard let value, value.isFinite else { return .unavailable }
+        switch self {
+        case .delta:
+            guard abs(value) <= 1 else { return .unavailable }
+            return abs(value) <= 0.30 ? .low : abs(value) <= 0.50 ? .medium : .high
+        case .iv:
+            guard value > 0 else { return .unavailable }
+            return value <= 50 ? .low : value <= 70 ? .medium : .high
+        }
+    }
+    func formatted(_ value: Double?) -> String {
+        guard level(value) != .unavailable, let value else { return "—" }
+        return String(format: self == .delta ? "%.2f" : "%.1f%%", value)
+    }
+}
+
+struct QuoteMetricValue: View {
+    let metric: QuoteMetric
+    let value: Double?
+    @Environment(\.colorScheme) private var scheme
+    private var color: Color {
+        let dark = scheme == .dark
+        switch metric.level(value) {
+        case .low: return dark ? Color(red: 66/255, green: 211/255, blue: 146/255) : Color(red: 25/255, green: 135/255, blue: 84/255)
+        case .medium: return dark ? Color(red: 242/255, green: 201/255, blue: 76/255) : Color(red: 183/255, green: 121/255, blue: 31/255)
+        case .high: return dark ? Color(red: 1, green: 107/255, blue: 107/255) : Color(red: 220/255, green: 53/255, blue: 69/255)
+        case .unavailable: return .secondary
+        }
+    }
+    var body: some View {
+        Text(metric.formatted(value)).monospacedDigit().foregroundStyle(color)
     }
 }
 

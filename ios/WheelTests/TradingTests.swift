@@ -21,6 +21,130 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testPriceChoicesUsePositiveCentSteps() {
+        let prices = TradeRules.priceChoices(around: 4.88)
+        XCTAssertEqual(prices.count, 41)
+        XCTAssertEqual(prices.first, 4.68)
+        XCTAssertEqual(prices.last, 5.08)
+        XCTAssertTrue(prices.contains(4.88))
+        XCTAssertEqual(TradeRules.priceChoices(around: 0.01).first, 0.01)
+        XCTAssertTrue(TradeRules.priceChoices(around: .nan).isEmpty)
+    }
+
+    func testConfirmedCancellationReleasesOnlyMatchingEntry() async {
+        let store = WheelStore()
+        await store.refreshPortfolio()
+        await store.opportunities.load("TSLL", type: "PUT", store: store)
+        let book = store.opportunities
+        let quote = book.rows["TSLL:PUT"]!.quote!
+        let order = Order(id: 42, ticker: "TSLL", action: "SELL", option_type: "PUT", strike: quote.strike,
+                          expiration: quote.expiration, premium: 0.4, quantity: 1, status: "pending")
+        book.rows["TSLL:PUT"]?.staged = true
+        var duplicate = order; duplicate.id = 43
+        book.confirmCancellation(order, remaining: [duplicate])
+        XCTAssertTrue(book.rows["TSLL:PUT"]!.staged)
+        book.confirmCancellation(order, remaining: [])
+        XCTAssertFalse(book.rows["TSLL:PUT"]!.staged)
+        book.rows["TSLL:PUT"]?.staged = true
+        var close = order; close.intent = "CLOSE"
+        book.confirmCancellation(close, remaining: [])
+        XCTAssertTrue(book.rows["TSLL:PUT"]!.staged)
+    }
+
+    func testPendingCancelDoesNotReleaseStagedEntryButConfirmedCancelDoes() async {
+        let saved = UserDefaults.standard.object(forKey: "unresolvedTradingWrite")
+        defer {
+            MockProtocol.payload = nil
+            UserDefaults.standard.set(saved, forKey: "unresolvedTradingWrite")
+        }
+        let store = WheelStore()
+        await store.refreshPortfolio()
+        await store.opportunities.load("TSLL", type: "PUT", store: store)
+        let quote = store.opportunities.rows["TSLL:PUT"]!.quote!
+        store.orders = [Order(id: 42, ticker: "TSLL", action: "SELL", option_type: "PUT",
+            strike: quote.strike, expiration: quote.expiration, status: "processing")]
+        store.opportunities.rows["TSLL:PUT"]?.staged = true
+        store.demo = false; store.address = "https://mock.invalid"
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        store.trading.uncertain = false
+        MockProtocol.fail = false
+        MockProtocol.payload = { _ in ["success": true, "status": "canceling"] }
+        _ = await store.trading.write("api/options/cancel/42", store: store)
+        XCTAssertTrue(store.opportunities.rows["TSLL:PUT"]!.staged)
+        XCTAssertEqual(store.orders.count, 1)
+        MockProtocol.payload = { _ in ["success": true, "status": "canceled"] }
+        _ = await store.trading.write("api/options/cancel/42", store: store)
+        XCTAssertFalse(store.opportunities.rows["TSLL:PUT"]!.staged)
+        XCTAssertTrue(store.orders.isEmpty)
+    }
+
+    func testQuoteMetricColorBoundariesAndInvalidValues() {
+        for sign in [-1.0, 1.0] {
+            XCTAssertEqual(QuoteMetric.delta.level(sign * 0.30), .low)
+            XCTAssertEqual(QuoteMetric.delta.level(sign * 0.31), .medium)
+            XCTAssertEqual(QuoteMetric.delta.level(sign * 0.50), .medium)
+            XCTAssertEqual(QuoteMetric.delta.level(sign * 0.51), .high)
+            XCTAssertEqual(QuoteMetric.delta.level(sign * 1.01), .unavailable)
+        }
+        XCTAssertEqual(QuoteMetric.delta.formatted(-0.24), "-0.24")
+        XCTAssertEqual(QuoteMetric.delta.level(0), .low)
+        XCTAssertEqual(QuoteMetric.iv.level(50), .low)
+        XCTAssertEqual(QuoteMetric.iv.level(50.1), .medium)
+        XCTAssertEqual(QuoteMetric.iv.level(70), .medium)
+        XCTAssertEqual(QuoteMetric.iv.level(70.1), .high)
+        XCTAssertEqual(QuoteMetric.iv.formatted(74.8), "74.8%")
+        for value: Double? in [nil, .nan, .infinity] {
+            XCTAssertEqual(QuoteMetric.delta.level(value), .unavailable)
+            XCTAssertEqual(QuoteMetric.iv.level(value), .unavailable)
+        }
+        XCTAssertEqual(QuoteMetric.iv.level(0), .unavailable)
+        XCTAssertEqual(QuoteMetric.iv.level(-1), .unavailable)
+    }
+
+    func testOrdersDecodeSQLiteAndBrokerBooleanFlagsTogether() throws {
+        let payload = Data(#"{"orders":[{"id":42,"ticker":"CRCL","action":"SELL","option_type":"PUT","strike":90,"expiration":"20261016","premium":4.9,"quantity":1,"status":"pending","executed":0,"isRollover":0,"ib_order_id":null},{"id":"ib-123","ticker":"TEST","status":"processing","external_ib":true,"executed":false,"isRollover":false},{"id":43,"status":"filled","executed":1,"isRollover":1},{"id":44,"status":"pending","executed":null}]}"#.utf8)
+        let orders = try JSONDecoder().decode(Orders.self, from: payload).orders
+        XCTAssertEqual(orders.count, 4)
+        XCTAssertEqual(orders[0].executed, false)
+        XCTAssertEqual(orders[0].isRollover, false)
+        XCTAssertEqual(orders[0].premium, 4.9)
+        XCTAssertTrue(TradeRules.editable(orders[0]))
+        XCTAssertEqual(orders[1].external_ib, true)
+        XCTAssertFalse(TradeRules.editable(orders[1]))
+        XCTAssertEqual(orders[2].executed, true)
+        XCTAssertEqual(orders[2].isRollover, true)
+        XCTAssertNil(orders[3].executed)
+        XCTAssertNil(orders[3].isRollover)
+        for invalid in ["2", "-1", "\"false\""] {
+            let data = Data("{\"id\":42,\"status\":\"pending\",\"executed\":\(invalid)}".utf8)
+            XCTAssertThrowsError(try JSONDecoder().decode(Order.self, from: data))
+        }
+    }
+
+    func testOrderRefreshAcceptsDatabaseFlagsWithoutAnyTradingWrite() async {
+        let store = WheelStore()
+        store.demo = false; store.address = "https://mock.invalid"
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        MockProtocol.fail = false; MockProtocol.requests = []
+        MockProtocol.payload = { _ in ["success": true, "orders": [[
+            "id": 42, "ticker": "CRCL", "status": "pending", "executed": 0, "isRollover": 0
+        ]]] }
+        defer { MockProtocol.payload = nil }
+        await store.refreshOrders()
+        XCTAssertNil(store.orderError)
+        XCTAssertEqual(store.orders.first?.name, "CRCL")
+        XCTAssertNotNil(store.ordersUpdated)
+        XCTAssertEqual(MockProtocol.requests.map { $0.url!.path }, ["/api/options/check-orders"])
+        MockProtocol.payload = { _ in ["success": true, "orders": [["id": 43, "status": "pending", "executed": 2]]] }
+        await store.refreshOrders()
+        XCTAssertNotNil(store.orderError)
+        XCTAssertEqual(store.orders.first?.name, "CRCL")
+    }
+
     func testRefreshPicksUpAddedSymbolAndKeepsUpdatingExistingRows() async {
         let store = WheelStore()
         store.demo = false; store.address = "https://mock.invalid"

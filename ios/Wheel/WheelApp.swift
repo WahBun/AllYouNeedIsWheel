@@ -468,7 +468,9 @@ struct OrdersView: View {
             Picker("Orders", selection: $history) { Text("Pending").tag(false); Text("Executed records").tag(true) }.pickerStyle(.segmented)
             if preferences { Toggle("Confirm execution and cancellation", isOn: $confirmExecution) }
             if let error = store.orderError ?? store.error { Text(error).foregroundStyle(.orange) }
-            if (history ? store.filledOrders : store.orders).isEmpty { ContentUnavailableView("No orders", systemImage: "checkmark.circle") }
+            if (history ? store.filledOrders : store.orders).isEmpty && store.orderError == nil && store.error == nil {
+                ContentUnavailableView("No orders", systemImage: "checkmark.circle")
+            }
             ForEach(history ? store.filledOrders : store.orders) { order in
                 NavigationLink {
                     if history { Form { Text(order.name); Text("\(order.expiration ?? "") · \(money(order.strike)) \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Limit", value: money(order.premium)); LabeledContent("Quantity", value: order.quantity?.formatted() ?? "—") } }
