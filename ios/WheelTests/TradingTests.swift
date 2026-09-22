@@ -2,6 +2,7 @@ import XCTest
 @testable import Wheel
 
 final class MockProtocol: URLProtocol {
+    static var statusCode = 200
     static var requests: [URLRequest] = []
     static var fail = false
     static var payload: ((URLRequest) -> [String: Any])?
@@ -10,7 +11,7 @@ final class MockProtocol: URLProtocol {
     override func startLoading() {
         Self.requests.append(request)
         if Self.fail { client?.urlProtocol(self, didFailWithError: URLError(.timedOut)); return }
-        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        let response = HTTPURLResponse(url: request.url!, statusCode: Self.statusCode, httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         let body = Self.payload?(request) ?? ["success": true, "status": "processing"]
         client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: body))
@@ -21,6 +22,40 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testPartialFillUsesActualPriceAndQuantity() throws {
+        let order = try JSONDecoder().decode(Order.self, from: Data(#"{"id":1,"status":"canceled","premium":0.83,"quantity":3,"filled":1,"avg_fill_price":0.85}"#.utf8))
+        XCTAssertTrue(order.hasFill)
+        XCTAssertEqual(order.fillPrice, 0.85)
+        XCTAssertEqual(order.filledQuantity, 1)
+        let missing = Order(id: 2, premium: 0.83, quantity: 3, status: "executed")
+        XCTAssertNil(missing.fillPrice)
+        XCTAssertNil(missing.filledQuantity)
+    }
+
+    func test502AddsDiagnosticReferenceWithoutRetryingWrite() async {
+        let saved = UserDefaults.standard.object(forKey: "unresolvedTradingWrite")
+        defer {
+            MockProtocol.statusCode = 200; MockProtocol.payload = nil
+            UserDefaults.standard.set(saved, forKey: "unresolvedTradingWrite")
+        }
+        let store = WheelStore()
+        store.demo = false; store.address = "https://mock.invalid"
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        store.trading.uncertain = false
+        MockProtocol.fail = false; MockProtocol.statusCode = 502; MockProtocol.requests = []
+        MockProtocol.payload = { _ in ["error": "Acknowledgement unavailable"] }
+        let success = await store.trading.write("api/options/execute/42", store: store)
+        XCTAssertFalse(success)
+        XCTAssertTrue(store.trading.uncertain)
+        XCTAssertEqual(MockProtocol.requests.count, 1)
+        let id = MockProtocol.requests.first?.value(forHTTPHeaderField: "X-Wheel-Request-ID") ?? ""
+        XCTAssertEqual(id.count, 32)
+        XCTAssertTrue(store.trading.message?.contains(id) == true)
+        XCTAssertTrue(store.trading.message?.contains("HTTP 502") == true)
+    }
+
     func testHistoryRequiresActualFillNotExecutedFlag() throws {
         for status in ["canceled", "cancelled", "rejected", "pending", "processing"] {
             let order = try JSONDecoder().decode(Order.self, from: Data("{\"id\":1,\"status\":\"\(status)\",\"executed\":1,\"filled\":0}".utf8))
@@ -130,7 +165,7 @@ final class TradingTests: XCTestCase {
     func testPendingCancelDoesNotReleaseStagedEntryButConfirmedCancelDoes() async {
         let saved = UserDefaults.standard.object(forKey: "unresolvedTradingWrite")
         defer {
-            MockProtocol.payload = nil
+            MockProtocol.payload = nil; MockProtocol.fail = false
             UserDefaults.standard.set(saved, forKey: "unresolvedTradingWrite")
         }
         let store = WheelStore()
@@ -154,6 +189,11 @@ final class TradingTests: XCTestCase {
         _ = await store.trading.write("api/options/cancel/42", store: store)
         XCTAssertFalse(store.opportunities.rows["TSLL:PUT"]!.staged)
         XCTAssertTrue(store.orders.isEmpty)
+        MockProtocol.fail = true
+        await store.refreshOrders()
+        XCTAssertNotNil(store.orderError)
+        XCTAssertTrue(store.orders.isEmpty)
+        XCTAssertFalse(store.opportunities.rows["TSLL:PUT"]!.staged)
     }
 
     func testQuoteMetricColorBoundariesAndInvalidValues() {

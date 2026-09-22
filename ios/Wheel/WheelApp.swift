@@ -59,6 +59,15 @@ struct Order: Decodable, Identifiable {
     var error_message: String? = nil
     var isRollover: Bool? = nil
     var filled: Double? = nil
+    var avg_fill_price: Double? = nil
+    var fillPrice: Double? {
+        guard let value = avg_fill_price, value.isFinite, value > 0 else { return nil }
+        return value
+    }
+    var filledQuantity: Double? {
+        guard let value = filled, value.isFinite, value > 0 else { return nil }
+        return value
+    }
     var hasFill: Bool {
         if let filled, filled.isFinite, filled > 0 { return true }
         return ib_status?.lowercased() == "filled" || ["filled", "executed"].contains(status.lowercased())
@@ -165,7 +174,7 @@ final class WheelStore {
             orders = result.orders; ordersUpdated = Date(); orderError = nil
         } catch {
             guard token == revision, !Task.isCancelled else { return }
-            orderError = connectionMessage(error)
+            orderError = "Order refresh failed; displayed data may be outdated. " + connectionMessage(error)
         }
     }
 
@@ -485,16 +494,16 @@ struct OrdersView: View {
             }
             ForEach(history ? store.filledOrders : store.orders) { order in
                 NavigationLink {
-                    if history { Form { Text(order.name); Text("\(order.expiration ?? "") · \(money(order.strike)) \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Limit", value: money(order.premium)); LabeledContent("Quantity", value: order.quantity?.formatted() ?? "—") } }
+                    if history { Form { Text(order.name); Text("\(order.expiration ?? "") · \(money(order.strike)) \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Average fill price", value: money(order.fillPrice)); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
                     else { OrderDetail(initial: order) }
                 } label: {
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack { Text(order.name).font(.headline); Spacer(); Text(money(order.premium)).monospacedDigit() }
+                        HStack { Text(order.name).font(.headline); Spacer(); Text(money(history ? order.fillPrice : order.premium)).monospacedDigit() }
                         HStack { Text("\(order.action ?? "") · \(order.option_type ?? "")"); Spacer(); Text(order.status).foregroundStyle(.teal) }.font(.caption)
                         if order.option_type == "STOCK" {
-                            Text("\(Int(order.quantity ?? 0)) shares").font(.caption).foregroundStyle(.secondary)
+                            Text("\((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—") shares").font(.caption).foregroundStyle(.secondary)
                         } else {
-                            Text("\(order.expiration ?? "") · \(money(order.strike)) · Qty \(order.quantity?.formatted() ?? "—") · \(order.tif ?? (order.intent == "CLOSE" ? "GTC" : "DAY"))").font(.caption).foregroundStyle(.secondary)
+                            Text("\(order.expiration ?? "") · \(money(order.strike)) · Qty \((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—") · \(order.tif ?? (order.intent == "CLOSE" ? "GTC" : "DAY"))").font(.caption).foregroundStyle(.secondary)
                         }
                         if order.external_ib == true { Text("IB managed").font(.caption).foregroundStyle(.secondary) }
                         if order.isRollover == true { Text("Rollover leg · independent order").font(.caption).foregroundStyle(.orange) }

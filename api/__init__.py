@@ -47,6 +47,9 @@ def create_app(config=None):
         app.config.update(config)
         logger.debug("Applied custom configuration")
 
+    from api.request_diagnostics import install_request_diagnostics
+    install_request_diagnostics(app)
+
     @app.before_request
     def protect_trading_writes():
         if (

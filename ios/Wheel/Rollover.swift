@@ -6,7 +6,10 @@ struct RolloverTicket: View {
     @Environment(WheelStore.self) private var store
     @State private var dates: [String] = []
     @State private var expiration = ""
-    @State private var otm = 10
+    @State private var strikes: [Double] = []
+    @State private var strike: Double?
+    @State private var strikeInput = ""
+    @State private var showStrikes = false
     @State private var quantity = 1
     @State private var held = 0
     @State private var closing: [String: Any]?
@@ -30,10 +33,16 @@ struct RolloverTicket: View {
                 if held > 0 { Stepper("Contracts: \(quantity) of \(held)", value: $quantity, in: 1...held) }
             }
             Section("New option · SELL TO OPEN · DAY") {
-                Stepper("OTM \(otm)%", value: $otm, in: 0...80)
                 Picker("Expiration", selection: $expiration) { Text("Select date").tag(""); ForEach(dates, id: \.self) { Text($0).tag($0) } }
-                Button("Refresh both quotes", systemImage: "arrow.clockwise") { Task { await loadQuotes() } }.disabled(expiration.isEmpty)
-                Picker("Strike", selection: $selected) { Text("Select contract").tag(""); ForEach(candidates) { Text(money($0.strike)).tag($0.id) } }
+                LabeledContent("Strike") {
+                    Button {
+                        strikeInput = strike.map { String(format: "%.2f", $0) } ?? ""
+                        showStrikes = true
+                    } label: {
+                        HStack { Text(money(strike)); Image(systemName: "chevron.up.chevron.down") }
+                    }.disabled(strikes.isEmpty)
+                }
+                Button("Refresh both quotes", systemImage: "arrow.clockwise") { Task { await loadQuotes() } }.disabled(expiration.isEmpty || strike == nil)
                 if let quote {
                     LabeledContent("Bid / Ask", value: "\(money(quote.bid)) / \(money(quote.ask))")
                     LabeledContent("Delta", value: quote.delta.map { String(format: "%.2f", $0) } ?? "—")
@@ -48,14 +57,43 @@ struct RolloverTicket: View {
                 Button(LocalizedStringKey(staged ? "Staged in Orders" : "Stage rollover pair"), systemImage: "arrow.triangle.2.circlepath") { confirm = true }.disabled(!valid)
             }
             if loading { ProgressView() }
-            if let error { Text(error).foregroundStyle(.orange) }
+            if let error {
+                Text(error).foregroundStyle(.orange)
+                if strikes.isEmpty && !expiration.isEmpty {
+                    Button("Retry", systemImage: "arrow.clockwise") { Task { await loadStrikes() } }
+                }
+            }
             TradingNotice()
         }.navigationTitle(localizedLabel("Rollover", locale: locale))
         .modifier(KeyboardDismissal())
         .disabled(loading || store.trading.busy || (!store.demo && store.trading.uncertain))
         .task { await loadDates() }
-        .onChange(of: expiration) { invalidate() }
-        .onChange(of: otm) { invalidate() }
+        .task(id: expiration) { await loadStrikes() }
+        .onChange(of: strike) { invalidate() }
+        .sheet(isPresented: $showStrikes) {
+            NavigationStack {
+                ScrollViewReader { proxy in
+                    VStack {
+                        HStack {
+                            TextField("Strike", text: $strikeInput).keyboardType(.decimalPad)
+                            Button("Done") {
+                                guard let value = TradeRules.price(strikeInput), strikes.contains(value) else { return }
+                                strike = value; showStrikes = false
+                            }.disabled(TradeRules.price(strikeInput).map { !strikes.contains($0) } ?? true)
+                        }.padding()
+                        List(strikes, id: \.self) { value in
+                            Button { strike = value; showStrikes = false } label: {
+                                HStack { Text(money(value)); Spacer(); if value == strike { Image(systemName: "checkmark") } }
+                            }.id(value)
+                        }.task {
+                            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+                            if let strike { proxy.scrollTo(strike, anchor: .center) }
+                        }
+                    }.navigationTitle("Strike")
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { showStrikes = false } } }
+                }
+            }.presentationDetents([.medium, .large])
+        }
         .onChange(of: selected) { openPrice = quote?.mid.map { String(format: "%.2f", $0) } ?? "" }
         .confirmationDialog("Stage two \(position.symbol) orders?", isPresented: $confirm, titleVisibility: .visible) {
             Button("Stage pair") {
@@ -77,24 +115,45 @@ struct RolloverTicket: View {
         } catch { self.error = error.localizedDescription }
     }
     private func loadQuotes() async {
+        guard let strike else { return }
         loading = true; error = nil; invalidate(); defer { loading = false }
         do {
             guard position.position < 0, let id = position.con_id else { throw AppError.message("Only exact short option positions can be rolled.") }
             if store.demo {
                 closing = ["position": position.position, "close_action": "BUY", "bid": 0.17, "ask": 0.19, "multiplier": 100.0]
-                candidates = [ContractQuote(strike: position.strike ?? 9, expiration: expiration, bid: 0.25, ask: 0.29)]
+                candidates = [ContractQuote(strike: strike, expiration: expiration, bid: 0.25, ask: 0.29)]
             } else {
                 closing = try await store.trading.get("api/portfolio/option-position/\(id)/quote", base: store.address)
-                let response = try await store.trading.get("api/options/otm", base: store.address, query: [URLQueryItem(name: "tickers", value: position.symbol), URLQueryItem(name: "optionType", value: position.option_type), URLQueryItem(name: "otm", value: String(otm)), URLQueryItem(name: "expiration", value: expiration)])
+                let response = try await store.trading.get("api/options/otm", base: store.address, query: [URLQueryItem(name: "tickers", value: position.symbol), URLQueryItem(name: "optionType", value: position.option_type), URLQueryItem(name: "strike", value: String(strike)), URLQueryItem(name: "expiration", value: expiration)])
                 let item = (response["data"] as? [String: [String: Any]])?[position.symbol]
                 let values = item?[position.option_type == "CALL" ? "calls" : "puts"] as? [[String: Any]] ?? []
                 candidates = try JSONDecoder().decode([ContractQuote].self, from: JSONSerialization.data(withJSONObject: values))
             }
+            candidates = candidates.filter { $0.strike == strike && $0.expiration == expiration }
+            guard !candidates.isEmpty else { throw AppError.message("No matching option quote.") }
             guard closing?["close_action"] as? String == "BUY", (closing?["multiplier"] as? Double ?? 100) == 100 else { throw AppError.message("Unsupported rollover contract.") }
             held = Int(abs(closing?["position"] as? Double ?? 0)); quantity = held
             selected = candidates.first?.id ?? ""
             closePrice = (closing?["ask"] as? Double).flatMap { $0 > 0 ? String(format: "%.2f", $0) : nil } ?? ""
             openPrice = quote?.mid.map { String(format: "%.2f", $0) } ?? ""
         } catch { closing = nil; candidates = []; self.error = error.localizedDescription }
+    }
+    private func loadStrikes() async {
+        invalidate(); strikes = []; strike = nil
+        guard !expiration.isEmpty else { return }
+        loading = true; error = nil
+        defer { loading = false }
+        do {
+            let values: [Double]
+            if store.demo { values = position.symbol == "TSLL" ? Array(1...30).map(Double.init) : stride(from: 50.0, through: 150.0, by: 1).map { $0 } }
+            else {
+                let payload = try await store.trading.get("api/options/strikes", base: store.address, query: [URLQueryItem(name: "ticker", value: position.symbol), URLQueryItem(name: "optionType", value: position.option_type), URLQueryItem(name: "expiration", value: expiration)])
+                values = payload["strikes"] as? [Double] ?? []
+            }
+            try Task.checkCancellation()
+            strikes = TradingMath.orderedStrikes(values)
+            strike = strikes.min { abs($0 - (position.strike ?? 0)) < abs($1 - (position.strike ?? 0)) }
+            if strikes.isEmpty { error = "No matching option quote." }
+        } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
     }
 }

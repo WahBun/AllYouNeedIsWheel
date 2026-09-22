@@ -46,7 +46,7 @@ struct PriceInput: View {
 extension Order {
     private enum CodingKeys: String, CodingKey {
         case id, ticker, symbol, action, option_type, strike, expiration, premium, quantity, status
-        case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, error_message, isRollover, filled
+        case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, error_message, isRollover, filled, avg_fill_price
     }
 
     init(from decoder: Decoder) throws {
@@ -88,6 +88,7 @@ extension Order {
         error_message = try values.decodeIfPresent(String.self, forKey: .error_message)
         isRollover = try flag(.isRollover)
         filled = try values.decodeIfPresent(Double.self, forKey: .filled)
+        avg_fill_price = try values.decodeIfPresent(Double.self, forKey: .avg_fill_price)
     }
 }
 
@@ -182,13 +183,25 @@ final class TradingSession {
     }
 
     private func send(_ request: URLRequest) async throws -> [String: Any] {
-        let (data, response) = try await session.data(for: request)
+        var request = request
+        let reference = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        request.setValue(reference, forHTTPHeaderField: "X-Wheel-Request-ID")
+        let operation = request.url?.lastPathComponent ?? "request"
+        let diagnostic = "\(request.httpMethod ?? "GET") \(operation) · ref \(reference)"
+        let data: Data
+        let response: URLResponse
+        do { (data, response) = try await session.data(for: request) }
+        catch {
+            if Task.isCancelled { throw error }
+            throw AppError.message("\(connectionMessage(error)) [\(diagnostic)]")
+        }
         guard let http = response as? HTTPURLResponse else { throw AppError.message("Invalid backend response.") }
         let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         guard (200..<300).contains(http.statusCode), let payload else {
-            throw AppError.message(payload?["error"] as? String ?? "Backend returned HTTP \(http.statusCode).")
+            let source = http.value(forHTTPHeaderField: "X-Wheel-Response-Origin") == "application" ? "application" : "unverified origin"
+            throw AppError.message("\(payload?["error"] as? String ?? "Request failed.") [HTTP \(http.statusCode) · \(source) · \(diagnostic)]")
         }
-        if let error = payload["error"] as? String { throw AppError.message(error) }
+        if let error = payload["error"] as? String { throw AppError.message("\(error) [\(diagnostic)]") }
         return payload
     }
 
@@ -420,6 +433,7 @@ struct OrderDetail: View {
 
 struct CloseTicket: View {
     @Environment(\.locale) private var locale
+    @Environment(\.colorScheme) private var scheme
     let position: Position
     @Environment(WheelStore.self) private var store
     @Environment(\.scenePhase) private var phase
@@ -453,7 +467,13 @@ struct CloseTicket: View {
                     Text(LocalizedStringKey(active ? "Auto refresh · about 2 seconds" : "Auto refresh paused"))
                 }.font(.caption).foregroundStyle(.secondary)
                 HStack { ForEach(["bid", "mid", "ask"], id: \.self) { field in
-                    Button { if let value = quote?[field] as? Double, value > 0 { state.markPriceEdited(String(format: "%.2f", value)) } } label: { VStack { Text(LocalizedStringKey(field.capitalized)); Text(money(quote?[field] as? Double)) } }.buttonStyle(.borderless).frame(maxWidth: .infinity)
+                    Button { if let value = quote?[field] as? Double, value > 0 { state.markPriceEdited(String(format: "%.2f", value)) } } label: {
+                        VStack {
+                            Text(LocalizedStringKey(field.capitalized)).underline(false)
+                            Text(money(quote?[field] as? Double)).underline(false).monospacedDigit()
+                        }.frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                        .foregroundStyle(SpreadValue.color(for: quote?["spread_percent"] as? Double, scheme: scheme))
                 } }
             }
             if loading && quote == nil { ProgressView() }
@@ -468,7 +488,8 @@ struct CloseTicket: View {
                         Button("Leave runner") { state.quantity = max(1, held - 1) }.disabled(held < 2)
                         Spacer()
                         Button("All") { state.quantity = held }
-                    }.buttonStyle(.borderless)
+                    }.buttonStyle(.plain).tint(.cyan)
+                        .foregroundStyle(.tint).underline(false)
                     PriceInput(title: "Limit per share", text: Binding(get: { price }, set: { state.markPriceEdited($0) }))
                     LabeledContent("Remaining", value: String(max(0, held - quantity)))
                     LabeledContent("Limit total", value: money(TradeRules.price(price).map { $0 * Double(quantity) * (quote?["multiplier"] as? Double ?? 100) }))
@@ -507,7 +528,7 @@ struct CloseTicket: View {
         await state.refresh(fetch: {
             if store.demo {
                 let mid = position.security_type == "STK" ? max(0.02, position.market_price ?? 10) : 0.18
-                return ["position": position.position, "close_action": position.position < 0 ? "BUY" : "SELL", "bid": mid - 0.01, "mid": mid, "ask": mid + 0.01, "multiplier": position.security_type == "STK" ? 1.0 : 100.0, "account_suffix": "DEMO", "is_frozen": true, "quote_time": "Demo"]
+                return ["position": position.position, "close_action": position.position < 0 ? "BUY" : "SELL", "bid": mid - 0.01, "mid": mid, "ask": mid + 0.01, "spread_percent": 0.02 / mid * 100, "multiplier": position.security_type == "STK" ? 1.0 : 100.0, "account_suffix": "DEMO", "is_frozen": true, "quote_time": "Demo"]
             }
             return try await store.trading.get("api/portfolio/option-position/\(position.con_id ?? 0)/quote", base: store.address)
         }, allowed: { active && context == requestedContext && !store.trading.busy && store.trading.version == tradeVersion })
@@ -563,7 +584,7 @@ struct QuoteMetricValue: View {
 struct SpreadValue: View {
     let percentage: Double?
     @Environment(\.colorScheme) private var scheme
-    private var color: Color {
+    static func color(for percentage: Double?, scheme: ColorScheme) -> Color {
         let dark = scheme == .dark
         switch SpreadBand.classify(percentage) {
         case .tight: return dark ? Color(red: 66/255, green: 211/255, blue: 146/255) : Color(red: 25/255, green: 135/255, blue: 84/255)
@@ -574,6 +595,6 @@ struct SpreadValue: View {
     }
     var body: some View {
         Text(SpreadBand.classify(percentage) == .unavailable ? "—" : String(format: "%.1f%%", percentage!))
-            .monospacedDigit().foregroundStyle(color)
+            .monospacedDigit().foregroundStyle(Self.color(for: percentage, scheme: scheme))
     }
 }

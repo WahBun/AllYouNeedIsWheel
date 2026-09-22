@@ -61,6 +61,9 @@
         }
       }
     },
+    "%@ shares" : {
+
+    },
     "%lld contracts · %@" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -561,6 +564,9 @@
           }
         }
       }
+    },
+    "Close covered CALLs before selling shares." : {
+
     },
     "Close limit per share" : {
       "extractionState" : "stale",
@@ -2455,6 +2461,7 @@
       }
     },
     "Select contract" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
