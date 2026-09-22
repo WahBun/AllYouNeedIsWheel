@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import Wheel
 
 final class MockProtocol: URLProtocol {
@@ -22,6 +23,121 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testFillHistoryIncludesActivePartialFillsAndRetainsDataOnFailure() async {
+        defer { MockProtocol.payload = nil; MockProtocol.fail = false }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        let store = WheelStore()
+        store.demo = false; store.address = "https://mock.invalid"
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        var partial = Order(id: 901, ticker: "TEST", action: "SELL", option_type: "PUT",
+                            premium: 0.80, quantity: 3, status: "processing")
+        partial.filled = 1; partial.avg_fill_price = 0.73
+        store.orders = [partial]
+        MockProtocol.payload = { _ in ["orders": []] }
+        await store.loadFilled()
+        XCTAssertEqual(store.filledOrders.count, 1)
+        XCTAssertEqual(store.filledOrders.first?.fillPrice, 0.73)
+        XCTAssertEqual(store.filledOrders.first?.filledQuantity, 1)
+        MockProtocol.fail = true
+        await store.loadFilled()
+        XCTAssertEqual(store.filledOrders.count, 1)
+        XCTAssertNotNil(store.filledError)
+        XCTAssertNil(store.orderError)
+        MockProtocol.fail = false
+        await store.loadFilled()
+        XCTAssertNil(store.filledError)
+    }
+
+    func testPricePickerFirstLayoutShowsReferenceAndDoesNotResetScrolling() {
+        for height in [300.0, 600.0] {
+            for price in [0.01, 0.72, 0.81, 90.0] {
+                let values = TradeRules.priceChoices(around: price)
+                var picked: Double?
+                let controller = PriceChoiceController(values: values, selected: price) { picked = $0 }
+                controller.loadViewIfNeeded()
+                controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: height)
+                controller.view.layoutIfNeeded()
+                controller.viewDidLayoutSubviews()
+                let row = values.firstIndex { TradeRules.priceChoiceID($0) == TradeRules.priceChoiceID(price) }!
+                let path = IndexPath(row: row, section: 0)
+                XCTAssertTrue(controller.tableView.indexPathsForVisibleRows?.contains(path) == true)
+                XCTAssertNotNil(controller.tableView.cellForRow(at: path))
+                controller.tableView.setContentOffset(.zero, animated: false)
+                controller.viewDidLayoutSubviews()
+                XCTAssertEqual(controller.tableView.contentOffset.y, 0)
+                controller.tableView(controller.tableView, didSelectRowAt: path)
+                XCTAssertEqual(picked, values[row])
+            }
+        }
+    }
+
+    func testPricePickerTargetMatchesRowsInIntegerCents() {
+        for cents in 1...1000 {
+            let input = String(format: "%.2f", Double(cents) / 100)
+            let parsed = TradeRules.price(input)
+            let target = TradeRules.priceChoiceID(parsed)
+            XCTAssertEqual(target, cents)
+            XCTAssertTrue(TradeRules.priceChoices(around: parsed).contains { TradeRules.priceChoiceID($0) == target })
+        }
+        XCTAssertNil(TradeRules.priceChoiceID(.nan))
+    }
+
+    func testAcknowledgedNoticeClearsOnlyAfterSuccessfulRefresh() async {
+        let saved = UserDefaults.standard.object(forKey: "unresolvedTradingWrite")
+        defer {
+            MockProtocol.payload = nil; MockProtocol.fail = false
+            UserDefaults.standard.set(saved, forKey: "unresolvedTradingWrite")
+        }
+        let store = WheelStore()
+        store.demo = false; store.address = "https://mock.invalid"
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        store.trading.uncertain = false
+        MockProtocol.fail = false
+        MockProtocol.payload = { _ in ["success": true, "status": "canceling", "message": "Waiting for confirmation"] }
+        _ = await store.trading.write("api/options/cancel/42", store: store)
+        MockProtocol.fail = true
+        await store.refreshOrders()
+        XCTAssertEqual(store.trading.message, "Waiting for confirmation")
+        MockProtocol.fail = false
+        MockProtocol.payload = { _ in ["success": true, "orders": []] }
+        await store.refreshOrders()
+        XCTAssertNil(store.trading.message)
+        store.trading.uncertain = true
+        store.trading.message = "Verify in IB"
+        await store.refreshOrders()
+        XCTAssertEqual(store.trading.message, "Verify in IB")
+        XCTAssertTrue(store.trading.uncertain)
+    }
+
+    func testOrderRefreshRetries502OnceAndClearsWarning() async {
+        defer { MockProtocol.statusCode = 200; MockProtocol.payload = nil }
+        let store = WheelStore()
+        store.demo = false; store.address = "https://mock.invalid"
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        MockProtocol.requests = []; MockProtocol.fail = false; MockProtocol.statusCode = 502
+        MockProtocol.payload = { _ in
+            MockProtocol.statusCode = 200
+            return ["success": true, "orders": [["id": 1, "status": "processing"]]]
+        }
+        await store.refreshOrders()
+        XCTAssertEqual(MockProtocol.requests.count, 2)
+        XCTAssertNil(store.orderError)
+        XCTAssertFalse(store.ordersRetrying)
+        XCTAssertEqual(store.orders.first?.status, "processing")
+        MockProtocol.requests = []; MockProtocol.statusCode = 502
+        MockProtocol.payload = { _ in ["error": "Unavailable"] }
+        await store.refreshOrders()
+        XCTAssertEqual(MockProtocol.requests.count, 2)
+        XCTAssertNotNil(store.orderError)
+        XCTAssertFalse(store.ordersRetrying)
+        XCTAssertEqual(store.orders.first?.status, "processing")
+    }
+
     func testPartialFillUsesActualPriceAndQuantity() throws {
         let order = try JSONDecoder().decode(Order.self, from: Data(#"{"id":1,"status":"canceled","premium":0.83,"quantity":3,"filled":1,"avg_fill_price":0.85}"#.utf8))
         XCTAssertTrue(order.hasFill)
@@ -140,6 +256,33 @@ final class TradingTests: XCTestCase {
         XCTAssertTrue(prices.contains(4.88))
         XCTAssertEqual(TradeRules.priceChoices(around: 0.01).first, 0.01)
         XCTAssertTrue(TradeRules.priceChoices(around: .nan).isEmpty)
+    }
+
+    func testExistingEntryBlocksReloadAndStageRegardlessOfPrice() async {
+        let store = WheelStore()
+        store.demo = true
+        await store.opportunities.load("TSLL", type: "PUT", store: store)
+        let book = store.opportunities
+        let row = book.rows["TSLL:PUT"]!
+        let quote = row.quote!
+        var order = Order(id: 42, ticker: "TSLL", action: "SELL", option_type: "PUT", strike: quote.strike,
+                          expiration: quote.expiration, premium: 0.72, quantity: 1, status: "pending")
+        store.orders = [order]
+        await book.load("TSLL", type: "PUT", store: store)
+        XCTAssertTrue(book.rows["TSLL:PUT"]!.staged)
+        XCTAssertFalse(book.rows["TSLL:PUT"]!.canStage)
+        let staged = await book.stage(row, store: store)
+        XCTAssertFalse(staged)
+        for status in ["pending", "processing", "unknown", "PendingCancel"] {
+            order.status = status
+            XCTAssertTrue(book.hasActiveEntry(row, orders: [order]))
+        }
+        order.strike = quote.strike + 1
+        XCTAssertFalse(book.hasActiveEntry(row, orders: [order]))
+        order.strike = quote.strike
+        order.status = "canceled"
+        book.synchronizeEntries(orders: [order])
+        XCTAssertFalse(book.rows["TSLL:PUT"]!.staged)
     }
 
     func testConfirmedCancellationReleasesOnlyMatchingEntry() async {

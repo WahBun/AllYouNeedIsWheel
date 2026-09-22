@@ -31,6 +31,18 @@ class OptionsService:
     """
     Service for handling options data operations
     """
+    @staticmethod
+    def _preserve_confirmed_fill(order, details):
+        # Sparse status/cancellation replies do not undo known executions.
+        previous = float(order.get('filled') or 0)
+        reported = float(details.get('filled') or 0)
+        if previous > 0 and reported == 0:
+            details['filled'] = previous
+            details['avg_fill_price'] = order.get('avg_fill_price', 0)
+            details['remaining'] = max(float(order.get('quantity') or 0) - previous, 0)
+        elif previous > 0 and reported == previous and not details.get('avg_fill_price'):
+            details['avg_fill_price'] = order.get('avg_fill_price', 0)
+
     def __init__(self):
         self.config = Config()
         self.connection = None
@@ -1372,6 +1384,7 @@ class OptionsService:
                                 "commission": ib_status.get('commission', 0),
                                 "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                             }
+                            self._preserve_confirmed_fill(order, execution_details)
                             # Missing/unknown snapshots are not evidence that
                             # previously confirmed executions disappeared.
                             if new_status == 'unknown':
@@ -1558,6 +1571,7 @@ class OptionsService:
                 )
             }
 
+            self._preserve_confirmed_fill(order, execution_details)
             if not db.update_order_status(
                 order_id=order_id,
                 status=local_status,

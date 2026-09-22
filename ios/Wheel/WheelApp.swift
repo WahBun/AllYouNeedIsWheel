@@ -84,8 +84,11 @@ final class WheelStore {
     var priceDirections: [String: Int] = [:]
     var orders: [Order] = []
     var filledOrders: [Order] = []
+    var filledError: String?
+    private var filledBusy = false
     var weekly: WeeklyIncome?
     var orderError: String?
+    var ordersRetrying = false
     var busy = false
     var ordersBusy = false
     var ordersUpdated: Date?
@@ -166,14 +169,30 @@ final class WheelStore {
         ordersBusy = true
         let token = revision
         let tradeVersion = trading.version
-        defer { ordersBusy = false }
-        if demo { orders = trading.demoOrders; ordersUpdated = Date(); orderError = nil; return }
+        defer { ordersBusy = false; ordersRetrying = false }
+        if demo {
+            orders = trading.demoOrders; ordersUpdated = Date(); orderError = nil
+            opportunities.synchronizeEntries(orders: orders)
+            trading.ordersDidRefresh(); return
+        }
         do {
-            let result = try await trading.synchronizedOrders(base: address)
+            let result: Orders
+            do {
+                result = try await trading.synchronizedOrders(base: address)
+            } catch let failure as BackendHTTPError where failure.status == 502 {
+                guard token == revision, tradeVersion == trading.version, !trading.busy, !Task.isCancelled else { return }
+                orderError = failure.localizedDescription
+                ordersRetrying = true
+                try await Task.sleep(for: .seconds(1))
+                guard token == revision, tradeVersion == trading.version, !trading.busy else { return }
+                result = try await trading.synchronizedOrders(base: address)
+            }
             guard token == revision, tradeVersion == trading.version, !trading.busy, !Task.isCancelled else { return }
             orders = result.orders; ordersUpdated = Date(); orderError = nil
+            opportunities.synchronizeEntries(orders: orders)
+            trading.ordersDidRefresh()
         } catch {
-            guard token == revision, !Task.isCancelled else { return }
+            guard token == revision, tradeVersion == trading.version, !Task.isCancelled else { return }
             orderError = "Order refresh failed; displayed data may be outdated. " + connectionMessage(error)
         }
     }
@@ -186,15 +205,24 @@ final class WheelStore {
         return try JSONDecoder().decode(T.self, from: data)
     }
     func loadFilled() async {
+        guard !filledBusy, !trading.busy else { return }
+        filledBusy = true
+        defer { filledBusy = false }
         let token = revision
-        if demo { filledOrders = []; return }
+        let version = trading.version
+        if demo { filledOrders = trading.demoOrders.filter { $0.hasFill }; filledError = nil; return }
         do {
             let result = try await trading.get("api/options/pending-orders", base: address, query: [URLQueryItem(name: "executed", value: "true")])
             let decoded = try JSONDecoder().decode(Orders.self, from: JSONSerialization.data(withJSONObject: result))
-            if token == revision { filledOrders = decoded.orders.filter { $0.hasFill } }
-        } catch { if token == revision { orderError = connectionMessage(error) } }
+            guard token == revision, version == trading.version, !Task.isCancelled else { return }
+            let completedIDs = Set(decoded.orders.map(\.id))
+            filledOrders = (decoded.orders + orders.filter { !completedIDs.contains($0.id) }).filter { $0.hasFill }
+            filledError = nil
+        } catch {
+            if token == revision, version == trading.version, !Task.isCancelled { filledError = connectionMessage(error) }
+        }
     }
-    func changeMode() { revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
+    func changeMode() { revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
 }
 
 func connectionMessage(_ error: Error) -> String {
@@ -269,8 +297,13 @@ struct RootView: View {
             }
         }
         .task(id: "orders-\(phase)-\(store.demo)-\(store.address)-\(store.selectedTab)-\(String(describing: store.opportunities.marketOpen))") {
-            guard phase == .active, store.selectedTab != "trade" || store.opportunities.marketOpen == false else { return }
-            await RefreshLoop.run { await store.refreshOrders(); return store.orderError != nil }
+            guard phase == .active else { return }
+            await RefreshLoop.run {
+                if store.selectedTab != "trade" || Date().timeIntervalSince(store.ordersUpdated ?? .distantPast) >= 10 {
+                    await store.refreshOrders()
+                }
+                return store.orderError != nil
+            }
         }
     }
 }
@@ -487,9 +520,18 @@ struct OrdersView: View {
         List {
             StatusView(orders: true)
             Picker("Orders", selection: $history) { Text("Pending").tag(false); Text("Executed records").tag(true) }.pickerStyle(.segmented)
+            if history, let error = store.filledError {
+                Text(error).font(.caption).foregroundStyle(.orange)
+            }
             if preferences { Toggle("Confirm execution and cancellation", isOn: $confirmExecution) }
-            if let error = store.orderError ?? store.error { Text(error).foregroundStyle(.orange) }
-            if (history ? store.filledOrders : store.orders).isEmpty && store.orderError == nil && store.error == nil {
+            if store.ordersRetrying {
+                Text("Connection interrupted. Retrying…").font(.caption).foregroundStyle(.orange)
+            } else if let error = store.orderError {
+                DisclosureGroup("Order status needs verification") {
+                    Text(error).font(.caption).textSelection(.enabled)
+                }.foregroundStyle(.orange)
+            } else if let error = store.error { Text(error).foregroundStyle(.orange) }
+            if (history ? store.filledOrders : store.orders).isEmpty && store.orderError == nil && store.error == nil && (!history || store.filledError == nil) {
                 ContentUnavailableView("No orders", systemImage: "checkmark.circle")
             }
             ForEach(history ? store.filledOrders : store.orders) { order in
@@ -500,6 +542,10 @@ struct OrdersView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack { Text(order.name).font(.headline); Spacer(); Text(money(history ? order.fillPrice : order.premium)).monospacedDigit() }
                         HStack { Text("\(order.action ?? "") · \(order.option_type ?? "")"); Spacer(); Text(order.status).foregroundStyle(.teal) }.font(.caption)
+                        if !history, let filled = order.filledQuantity {
+                            Text("Filled \(filled.formatted()) / \(order.quantity?.formatted() ?? "—") · \(money(order.fillPrice))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                         if order.option_type == "STOCK" {
                             Text("\((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—") shares").font(.caption).foregroundStyle(.secondary)
                         } else {
@@ -533,6 +579,7 @@ struct OrdersView: View {
         }.navigationTitle(localizedLabel("Orders", locale: locale)).refreshable { if history { await store.loadFilled() } else { await store.refresh() } }
         .toolbar { Button("Order preferences", systemImage: "gearshape") { preferences.toggle() } }
         .onChange(of: history) { if history { Task { await store.loadFilled() } } }
+        .onChange(of: store.ordersUpdated) { if history { Task { await store.loadFilled() } } }
         .onChange(of: "\(store.demo)-\(store.address)") { quickOrder = nil; cancelAll = false }
         .disabled(cancelling || store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))
         .confirmationDialog(LocalizedStringKey(quickCancel ? "Cancel order" : "Execute"), isPresented: Binding(get: { quickOrder != nil }, set: { if !$0 { quickOrder = nil } }), titleVisibility: .visible) {

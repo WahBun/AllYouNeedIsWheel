@@ -788,6 +788,9 @@
         }
       }
     },
+    "Connection interrupted. Retrying…" : {
+
+    },
     "Contract" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1223,6 +1226,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本週五到期"
+          }
+        }
+      }
+    },
+    "Filled %@ / %@ · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Filled %1$@ / %2$@ · %3$@"
           }
         }
       }

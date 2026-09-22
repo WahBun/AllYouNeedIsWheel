@@ -182,7 +182,13 @@ def save_order():
         order_data['account_id'] = configured_account
         
         # Save order to database
-        order_id = options_service.db.save_order(order_data)
+        order_id, created = options_service.db.save_entry_order(order_data)
+        if not created:
+            return jsonify({
+                "success": False,
+                "error": "An active entry order already exists for this contract. Refresh Orders before continuing.",
+                "order_id": order_id
+            }), 409
         
         if order_id:
             return jsonify({"success": True, "order_id": order_id}), 201

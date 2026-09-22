@@ -1,43 +1,107 @@
 import SwiftUI
+import UIKit
+
+struct BackendHTTPError: LocalizedError {
+    let status: Int
+    let message: String
+    var errorDescription: String? { message }
+}
+
+struct PricePickerSnapshot: Identifiable {
+    let id = UUID()
+    let selected: Double
+    let values: [Double]
+
+    init(around value: Double) {
+        selected = value
+        values = TradeRules.priceChoices(around: value)
+    }
+}
+
+struct PriceChoiceList: UIViewControllerRepresentable {
+    let values: [Double]
+    let selected: Double?
+    let choose: (Double) -> Void
+    func makeUIViewController(context: Context) -> PriceChoiceController {
+        PriceChoiceController(values: values, selected: selected, choose: choose)
+    }
+    func updateUIViewController(_ controller: PriceChoiceController, context: Context) {
+        controller.choose = choose
+    }
+}
+
+final class PriceChoiceController: UITableViewController {
+    let values: [Double]
+    let selected: Double?
+    var choose: (Double) -> Void
+    private var positioned = false
+
+    init(values: [Double], selected: Double?, choose: @escaping (Double) -> Void) {
+        self.values = values
+        self.selected = selected
+        self.choose = choose
+        super.init(style: .plain)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        tableView.backgroundColor = .clear
+        tableView.rowHeight = 52
+        tableView.estimatedRowHeight = 0
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "price")
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Position on the first real layout, before presentation, without a delayed jump.
+        guard !positioned, tableView.bounds.height > 0,
+              let target = TradeRules.priceChoiceID(selected),
+              let row = values.firstIndex(where: { TradeRules.priceChoiceID($0) == target }) else { return }
+        positioned = true
+        tableView.scrollToRow(at: IndexPath(row: row, section: 0), at: .middle, animated: false)
+    }
+
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { values.count }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "price", for: indexPath)
+        let value = values[indexPath.row]
+        var content = cell.defaultContentConfiguration()
+        content.text = money(value)
+        content.textProperties.font = .monospacedDigitSystemFont(ofSize: 17, weight: .regular)
+        content.textProperties.color = tableView.tintColor
+        cell.contentConfiguration = content
+        cell.backgroundColor = .clear
+        cell.accessoryType = TradeRules.priceChoiceID(value) == TradeRules.priceChoiceID(selected) ? .checkmark : .none
+        return cell
+    }
+
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        choose(values[indexPath.row])
+    }
+}
 
 struct PriceInput: View {
     var title: LocalizedStringKey
     @Binding var text: String
-    @State private var showing = false
-    @State private var choices: [Double] = []
+    @State private var picker: PricePickerSnapshot?
     var body: some View {
         HStack {
             TextField(title, text: $text).keyboardType(.decimalPad).monospacedDigit()
             Button {
-                choices = TradeRules.priceChoices(around: TradeRules.price(text) ?? 0.01)
-                showing = true
+                picker = PricePickerSnapshot(around: TradeRules.price(text) ?? 0.01)
             } label: { Image(systemName: "chevron.up.chevron.down") }
                 .buttonStyle(.borderless).accessibilityLabel(title)
         }
-        .sheet(isPresented: $showing) {
+        .sheet(item: $picker) { snapshot in
             NavigationStack {
-                ScrollViewReader { proxy in
-                    List(choices, id: \.self) { value in
-                        Button {
+                    PriceChoiceList(values: snapshot.values, selected: snapshot.selected) { value in
                             text = String(format: "%.2f", value)
-                            showing = false
-                        } label: {
-                            HStack {
-                                Text(money(value)).monospacedDigit()
-                                Spacer()
-                                if TradeRules.price(text) == value { Image(systemName: "checkmark") }
-                            }
-                        }.id(value)
+                            picker = nil
                     }
                     .navigationTitle(title)
-                    .task {
-                        // List rows are not laid out until the sheet presentation completes.
-                        let selected = TradeRules.price(text)
-                        do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
-                        if let selected { proxy.scrollTo(selected, anchor: .center) }
-                    }
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { showing = false } } }
-                }
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { picker = nil } } }
             }.presentationDetents([.medium, .large])
         }
     }
@@ -105,6 +169,10 @@ struct OrderID: Decodable, Hashable, ExpressibleByIntegerLiteral, CustomStringCo
 }
 
 enum TradeRules {
+    static func priceChoiceID(_ value: Double?) -> Int? {
+        guard let value, value.isFinite, value > 0, value < 1_000_001 else { return nil }
+        return Int((value * 100).rounded())
+    }
     static func priceChoices(around value: Double?) -> [Double] {
         guard let value, value.isFinite, value > 0, value < 1_000_000 else { return [] }
         let cents = Int((value * 100).rounded())
@@ -143,6 +211,12 @@ final class TradingSession {
     var busy = false
     var version = 0
     var message: String?
+    private var acknowledgedMessage = false
+    func ordersDidRefresh() {
+        guard acknowledgedMessage, !uncertain, !busy else { return }
+        message = nil
+        acknowledgedMessage = false
+    }
     var uncertain = UserDefaults.standard.bool(forKey: "unresolvedTradingWrite")
     var demoOrders = [Order(id: 1, ticker: "TSLL", action: "BUY", option_type: "PUT", strike: 9, expiration: "20261016", premium: 0.01, quantity: 1, status: "pending", tif: "GTC", intent: "CLOSE")]
     private let session: URLSession
@@ -150,7 +224,7 @@ final class TradingSession {
         self.session = session ?? URLSession(configuration: .ephemeral, delegate: NoRedirect(), delegateQueue: nil)
     }
     private var nextDemoID = 2
-    func resetContext() { message = nil }
+    func resetContext() { message = nil; acknowledgedMessage = false }
     func acknowledgeReview() {
         uncertain = false
         UserDefaults.standard.set(false, forKey: "unresolvedTradingWrite")
@@ -199,7 +273,7 @@ final class TradingSession {
         let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         guard (200..<300).contains(http.statusCode), let payload else {
             let source = http.value(forHTTPHeaderField: "X-Wheel-Response-Origin") == "application" ? "application" : "unverified origin"
-            throw AppError.message("\(payload?["error"] as? String ?? "Request failed.") [HTTP \(http.statusCode) · \(source) · \(diagnostic)]")
+            throw BackendHTTPError(status: http.statusCode, message: "\(payload?["error"] as? String ?? "Request failed.") [HTTP \(http.statusCode) · \(source) · \(diagnostic)]")
         }
         if let error = payload["error"] as? String { throw AppError.message("\(error) [\(diagnostic)]") }
         return payload
@@ -223,6 +297,7 @@ final class TradingSession {
         busy = true
         version += 1
         message = nil
+        acknowledgedMessage = false
         let canceledOrder = path.hasPrefix("api/options/cancel/")
             ? store.orders.first { $0.id.local == Int(path.split(separator: "/").last ?? "") } : nil
         defer { busy = false; version += 1 }
@@ -250,6 +325,7 @@ final class TradingSession {
                 store.orders = demoOrders
                 if let canceledOrder { store.opportunities.confirmCancellation(canceledOrder, remaining: store.orders) }
                 message = "Demo updated. No broker request was sent."
+                acknowledgedMessage = true
                 return true
             }
             var request = URLRequest(url: try endpoint(store.address, path), timeoutInterval: 30)
@@ -267,6 +343,7 @@ final class TradingSession {
             uncertain = false
             UserDefaults.standard.set(false, forKey: "unresolvedTradingWrite")
             message = result["message"] as? String ?? "Request acknowledged. Refresh Orders to check broker status."
+            acknowledgedMessage = true
             // Apply the acknowledgement before polling, so a failed refresh cannot
             // leave a submitted order executable as a local pending draft.
             if path.hasPrefix("api/options/execute/"),
@@ -324,8 +401,7 @@ struct OrderDetail: View {
     @State private var price = ""
     @State private var action: String?
     @State private var quantity = 1
-    @State private var showPrices = false
-    @State private var priceChoices: [Double] = []
+    @State private var pricePicker: PricePickerSnapshot?
     @AppStorage("confirmBeforeOrderExecution") private var confirmExecution = true
     private var current: Order? { store.orders.first { $0.id == initial.id } }
     var body: some View {
@@ -342,8 +418,7 @@ struct OrderDetail: View {
                                     .multilineTextAlignment(.trailing).monospacedDigit()
                                     .accessibilityLabel("Limit price")
                                 Button {
-                                    priceChoices = TradeRules.priceChoices(around: TradeRules.price(price) ?? order.premium)
-                                    showPrices = true
+                                    pricePicker = PricePickerSnapshot(around: TradeRules.price(price) ?? order.premium ?? 0.01)
                                 } label: { Image(systemName: "chevron.up.chevron.down") }
                                     .accessibilityLabel("Limit price")
                             }
@@ -377,30 +452,15 @@ struct OrderDetail: View {
         .modifier(KeyboardDismissal())
         .disabled(store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))
         .navigationTitle(initial.name)
-        .sheet(isPresented: $showPrices) {
+        .sheet(item: $pricePicker) { snapshot in
             NavigationStack {
-                ScrollViewReader { proxy in
-                List(priceChoices, id: \.self) { value in
-                    Button {
+                PriceChoiceList(values: snapshot.values, selected: snapshot.selected) { value in
                         guard let current, TradeRules.editable(current), !store.trading.busy,
                               store.demo || !store.trading.uncertain else { return }
                         price = String(format: "%.2f", value)
-                        showPrices = false
-                    } label: {
-                        HStack {
-                            Text(money(value)).monospacedDigit()
-                            Spacer()
-                            if TradeRules.price(price) == value { Image(systemName: "checkmark") }
-                        }
-                    }.id(value)
+                        pricePicker = nil
                 }.navigationTitle("Limit price")
-                    .task {
-                        let selected = TradeRules.price(price)
-                        do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
-                        if let selected { proxy.scrollTo(selected, anchor: .center) }
-                    }
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { showPrices = false } } }
-                }
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { pricePicker = nil } } }
             }.presentationDetents([.medium, .large])
         }
         .onAppear { price = String(format: "%.2f", current?.premium ?? 0); quantity = max(1, min(100, Int(current?.quantity ?? 1))) }

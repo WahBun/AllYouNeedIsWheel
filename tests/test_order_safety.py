@@ -137,6 +137,22 @@ class OrderSafetyTests(unittest.TestCase):
         service._ensure_connection = lambda: connection
         return service
 
+    def test_entry_staging_rejects_duplicate_even_at_another_price(self):
+        data = valid_order()
+        data['account_id'] = 'TEST_ACCOUNT'
+        order_id, created = self.db.save_entry_order(data)
+        self.assertTrue(created)
+        data['premium'] = 0.77
+        for status in ('pending', 'processing', 'canceling', 'unknown'):
+            self.db.update_order_status(order_id, status, executed=False)
+            duplicate_id, created = self.db.save_entry_order(data)
+            self.assertFalse(created)
+            self.assertEqual(duplicate_id, order_id)
+        self.db.update_order_status(order_id, 'canceled', executed=True)
+        replacement_id, created = self.db.save_entry_order(data)
+        self.assertTrue(created)
+        self.assertNotEqual(replacement_id, order_id)
+
     def test_validation_rejects_unsafe_values(self):
         service = self.make_service()
         for change in (
@@ -547,6 +563,38 @@ class OrderSafetyTests(unittest.TestCase):
         self.assertEqual(connection.place_calls, 0)
         self.assertEqual(connection.status_calls[0][2]['id'], order_id)
 
+    def test_partial_fill_survives_sparse_cancel_reply_and_remains_in_history(self):
+        for direct_cancel in (False, True):
+            with self.subTest(direct_cancel=direct_cancel):
+                connection = FakeIBConnection(status={
+                    'order_id': 29, 'status': 'Cancelled',
+                    'filled': 0, 'remaining': 0, 'avg_fill_price': 0
+                })
+                service = self.make_service(connection)
+                data = valid_order()
+                data['quantity'] = 3
+                order_id = self.db.save_order(data)
+                self.db.update_order_status(order_id, 'processing', executed=False,
+                    execution_details={'ib_order_id': 29, 'filled': 1, 'remaining': 2, 'avg_fill_price': 0.73})
+                if direct_cancel:
+                    service.cancel_order(order_id)
+                else:
+                    service.check_pending_orders()
+                order = self.db.get_order(order_id)
+                self.assertEqual(order['status'], 'canceled')
+                self.assertEqual(order['filled'], 1)
+                self.assertEqual(order['avg_fill_price'], 0.73)
+                self.assertNotIn(order_id, [item['id'] for item in self.db.get_pending_orders()])
+                self.assertIn(order_id, [item['id'] for item in self.db.get_pending_orders(executed=True)])
+                self.assertEqual(connection.place_calls, 0)
+
+    def test_new_fill_replaces_previous_average(self):
+        details = {'filled': 3, 'remaining': 0, 'avg_fill_price': 0.75}
+        OptionsService._preserve_confirmed_fill(
+            {'filled': 1, 'quantity': 3, 'avg_fill_price': 0.73}, details)
+        self.assertEqual(details['filled'], 3)
+        self.assertEqual(details['avg_fill_price'], 0.75)
+
     def test_unknown_broker_status_preserves_partial_fill(self):
         for broker_status in ('NotFound', 'UnexpectedState'):
             with self.subTest(broker_status=broker_status):
@@ -690,6 +738,14 @@ class TradingRouteSafetyTests(unittest.TestCase):
         self.assertEqual(saved['ticker'], 'TSLL')
         self.assertEqual(saved['premium'], 0.73)
         self.assertEqual(saved['account_id'], 'U1234567')
+
+    def test_repeated_entry_with_changed_limit_returns_conflict(self):
+        first = self.client.post('/api/options/order', json=valid_order(), headers=self.headers)
+        second = self.client.post('/api/options/order', json=valid_order(premium=0.77), headers=self.headers)
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 409)
+        self.assertEqual(second.get_json()['order_id'], first.get_json()['order_id'])
+        self.assertEqual(len(self.db.get_pending_orders()), 1)
 
     def test_browser_cannot_override_entry_account(self):
         response = self.client.post(

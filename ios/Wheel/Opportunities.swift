@@ -241,6 +241,7 @@ final class OpportunityBook {
                 row.stockPrice = latest.stockPrice; row.previousClose = latest.previousClose
                 row.priceDirection = latest.priceDirection; row.stockUpdated = latest.stockUpdated
             }
+            row.staged = row.staged || hasActiveEntry(row, orders: store.orders)
             if row.staged { row.followMarketPrice() }
             row.error = nil
             preferences[key] = preference; save()
@@ -299,6 +300,11 @@ final class OpportunityBook {
         }
     }
     func stage(_ row: OpportunityRow, store: WheelStore) async -> Bool {
+        guard !hasActiveEntry(row, orders: store.orders) else {
+            rows[key(row.ticker, row.type)]?.staged = true
+            rows[key(row.ticker, row.type)]?.followMarketPrice()
+            return false
+        }
         guard row.canStage, let current = rows[key(row.ticker, row.type)], current.canStage,
               current.quote?.id == row.quote?.id, current.price == row.price, current.quantity == row.quantity,
               let quote = row.quote, let price = TradeRules.price(row.price) else { return false }
@@ -308,6 +314,23 @@ final class OpportunityBook {
             rows[key(row.ticker, row.type)]?.followMarketPrice()
         }
         return result
+    }
+    func hasActiveEntry(_ row: OpportunityRow, orders: [Order]) -> Bool {
+        guard let quote = row.quote else { return false }
+        return orders.contains {
+            $0.name.uppercased() == row.ticker.uppercased() && $0.action?.uppercased() == "SELL" &&
+            $0.intent?.uppercased() != "CLOSE" && $0.option_type?.uppercased() == row.type.uppercased() &&
+            $0.strike == quote.strike && $0.expiration == quote.expiration &&
+            !["canceled", "cancelled", "apicancelled", "rejected", "filled", "executed"].contains($0.status.lowercased())
+        }
+    }
+    func synchronizeEntries(orders: [Order]) {
+        for rowKey in Array(rows.keys) {
+            guard var row = rows[rowKey], row.quote != nil else { continue }
+            row.staged = hasActiveEntry(row, orders: orders)
+            if row.staged { row.followMarketPrice() }
+            rows[rowKey] = row
+        }
     }
     func confirmCancellation(_ order: Order, remaining: [Order]) {
         guard order.action == "SELL", order.intent != "CLOSE", order.isRollover != true,

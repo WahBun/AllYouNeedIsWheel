@@ -231,6 +231,23 @@ class OptionsDatabase:
             print(f"Error during database migration: {str(e)}")
             print(traceback.format_exc())
     
+    def save_entry_order(self, order_data):
+        """Atomically reject another active entry for the same account/contract."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            existing = conn.execute('''
+                SELECT id FROM orders
+                WHERE ticker = ? AND option_type = ? AND strike = ? AND expiration = ?
+                  AND action = 'SELL' AND COALESCE(intent, 'OPEN') = 'OPEN'
+                  AND (account_id = ? OR account_id IS NULL OR account_id = '')
+                  AND status IN ('pending', 'submitting', 'processing', 'canceling', 'unknown')
+                LIMIT 1
+            ''', (order_data['ticker'], order_data['option_type'], order_data['strike'],
+                  order_data['expiration'], order_data['account_id'])).fetchone()
+            if existing:
+                return existing[0], False
+            return self._insert_order(conn.cursor(), order_data), True
+
     def save_order(self, order_data):
         """
         Save an option order to the database using flattened structure
