@@ -61,9 +61,7 @@
         }
       }
     },
-    "%@ shares" : {
-
-    },
+    "%@ shares" : {},
     "%lld contracts · %@" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -565,9 +563,7 @@
         }
       }
     },
-    "Close covered CALLs before selling shares." : {
-
-    },
+    "Close covered CALLs before selling shares." : {},
     "Close limit per share" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -788,9 +784,7 @@
         }
       }
     },
-    "Connection interrupted. Retrying…" : {
-
-    },
+    "Connection interrupted. Retrying…" : {},
     "Contract" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -975,9 +969,7 @@
         }
       }
     },
-    "Delta" : {
-
-    },
+    "Delta" : {},
     "DEMO" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1474,9 +1466,7 @@
         }
       }
     },
-    "IV" : {
-
-    },
+    "IV" : {},
     "Language" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3211,6 +3201,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "版本"
+          }
+        }
+      }
+    },
+    "Last fill time" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last fill time"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最后成交时间"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最後成交時間"
+          }
+        }
+      }
+    },
+    "Commission" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Commission"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手续费"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手續費"
           }
         }
       }

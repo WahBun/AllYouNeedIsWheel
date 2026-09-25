@@ -60,6 +60,27 @@ struct Order: Decodable, Identifiable {
     var isRollover: Bool? = nil
     var filled: Double? = nil
     var avg_fill_price: Double? = nil
+    var fill_time: String? = nil
+    var fill_action: String? = nil
+    var commission: Double? = nil
+    var commission_currency: String? = nil
+    var fillTimeLabel: String {
+        guard let fill_time else { return "—" }
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fractional = parser.date(from: fill_time)
+        parser.formatOptions = [.withInternetDateTime]
+        guard let date = fractional ?? parser.date(from: fill_time) else { return "—" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss zzz"
+        return formatter.string(from: date)
+    }
+    var commissionLabel: String {
+        guard let commission, commission.isFinite, abs(commission) < 1e100,
+              commission_currency == nil || commission_currency == "USD" else { return "—" }
+        return "$" + commission.formatted(.number.precision(.fractionLength(2...6)))
+    }
+
     var fillPrice: Double? {
         guard let value = avg_fill_price, value.isFinite, value > 0 else { return nil }
         return value
@@ -536,7 +557,7 @@ struct OrdersView: View {
             }
             ForEach(history ? store.filledOrders : store.orders) { order in
                 NavigationLink {
-                    if history { Form { Text(order.name); Text("\(order.expiration ?? "") · \(money(order.strike)) \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Average fill price", value: money(order.fillPrice)); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
+                    if history { Form { Text(order.name); Text("\(order.expiration ?? "") · \(money(order.strike)) \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Action", value: order.fill_action ?? order.action ?? "—"); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: order.commissionLabel); LabeledContent("Average fill price", value: money(order.fillPrice)); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
                     else { OrderDetail(initial: order) }
                 } label: {
                     VStack(alignment: .leading, spacing: 8) {

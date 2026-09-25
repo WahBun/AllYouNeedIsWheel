@@ -1763,6 +1763,65 @@ class IBConnection:
         finally:
             self.ib.errorEvent -= error_handler
 
+    @staticmethod
+    def _fill_metadata(fills, expected_filled=None):
+        """Broker executions only: timezone-qualified time and complete fee reports."""
+        unique = {}
+        for fill in fills:
+            execution = getattr(fill, 'execution', None)
+            key = getattr(execution, 'execId', '')
+            if key:
+                unique[key] = fill
+        times, actions, fees, currencies = [], set(), [], set()
+        complete = bool(unique)
+        if expected_filled is not None:
+            reported_quantity = sum(float(getattr(fill.execution, 'shares', 0) or 0) for fill in unique.values())
+            complete = complete and reported_quantity >= float(expected_filled or 0)
+        for fill in unique.values():
+            execution = fill.execution
+            stamp = getattr(execution, 'time', None)
+            if isinstance(stamp, datetime) and stamp.tzinfo is not None:
+                times.append(stamp)
+            action = {'BOT': 'BUY', 'SLD': 'SELL', 'BUY': 'BUY', 'SELL': 'SELL'}.get(getattr(execution, 'side', ''))
+            if action:
+                actions.add(action)
+            report = getattr(fill, 'commissionReport', None)
+            fee = getattr(report, 'commission', None)
+            currency = getattr(report, 'currency', '')
+            if (getattr(report, 'execId', '') != getattr(execution, 'execId', '')
+                    or not currency or not isinstance(fee, (int, float))
+                    or not math.isfinite(fee) or abs(fee) >= 1e100):
+                complete = False
+            else:
+                fees.append(fee)
+                currencies.add(currency)
+        return {
+            'fill_time': max(times).isoformat() if times else None,
+            'fill_action': next(iter(actions)) if len(actions) == 1 else None,
+            'commission': sum(fees) if complete and len(currencies) == 1 else None,
+            'commission_currency': next(iter(currencies)) if complete and len(currencies) == 1 else None,
+        }
+
+    def get_order_fill_metadata(self, details):
+        """Read cached broker fills; never infer a fill from submission timestamps."""
+        account = self._order_account()
+        if not account:
+            return self._fill_metadata([])
+        perm = str(details.get('perm_id') or '')
+        ref = f"AYNIW-{details['id']}"
+        fills = []
+        for fill in self.ib.fills():
+            execution = getattr(fill, 'execution', None)
+            if getattr(execution, 'acctNumber', '') != account:
+                continue
+            if perm and perm != '0':
+                matched = str(getattr(execution, 'permId', '')) == perm
+            else:
+                matched = getattr(execution, 'orderRef', '') == ref
+            if matched:
+                fills.append(fill)
+        return self._fill_metadata(fills, details.get('filled'))
+
     def _trade_to_status(self, trade):
         order = getattr(trade, 'order', None)
         order_status = getattr(trade, 'orderStatus', None)
@@ -1783,7 +1842,7 @@ class IBConnection:
             'remaining': getattr(order_status, 'remaining', getattr(order, 'totalQuantity', 0)),
             'avg_fill_price': float(getattr(order_status, 'avgFillPrice', 0) or 0),
             'last_fill_price': float(getattr(order_status, 'lastFillPrice', 0) or 0),
-            'commission': 0,
+            **self._fill_metadata(getattr(trade, 'fills', []), getattr(order_status, 'filled', 0)),
             'why_held': getattr(order_status, 'whyHeld', ''),
             'client_id': getattr(order_status, 'clientId', 0),
             'market_cap': getattr(order_status, 'mktCapPrice', 0)
@@ -2137,7 +2196,7 @@ class IBConnection:
                     for item in matching_executions
                 )
                 avg_fill_price = fill_value / filled if filled else 0
-                commission = 0
+                matching_fills = []
                 for fill in self.ib.fills():
                     execution = getattr(fill, 'execution', None)
                     if not execution:
@@ -2152,8 +2211,7 @@ class IBConnection:
                     else:
                         matches_fill = getattr(execution, 'orderId', 0) == order_id
                     if matches_fill:
-                        report = getattr(fill, 'commissionReport', None)
-                        commission += float(getattr(report, 'commission', 0) or 0)
+                        matching_fills.append(fill)
 
                 try:
                     expected_quantity = float((order_details or {}).get('quantity', 0) or 0)
@@ -2165,7 +2223,7 @@ class IBConnection:
                     'filled': filled,
                     'remaining': max(expected_quantity - filled, 0),
                     'avg_fill_price': avg_fill_price,
-                    'commission': commission
+                    **self._fill_metadata(matching_fills, filled)
                 }
                 if not fully_filled:
                     result['error_message'] = (

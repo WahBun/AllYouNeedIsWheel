@@ -23,6 +23,22 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testBrokerFillMetadataAndLegacyOrders() throws {
+        let payload = #"{"id":1,"status":"executed","action":"SELL","fill_action":"SELL","fill_time":"2026-09-23T15:28:55+00:00","commission":0.771867,"commission_currency":"USD"}"#
+        let order = try JSONDecoder().decode(Order.self, from: Data(payload.utf8))
+        XCTAssertEqual(order.fill_action, "SELL")
+        XCTAssertNotEqual(order.fillTimeLabel, "—")
+        XCTAssertTrue(order.commissionLabel.hasPrefix("$"))
+        XCTAssertFalse(order.commissionLabel.contains("USD"))
+        XCTAssertEqual(order.commission, 0.771867)
+        let legacy = try JSONDecoder().decode(Order.self, from: Data(#"{"id":2,"status":"executed"}"#.utf8))
+        XCTAssertEqual(legacy.fillTimeLabel, "—")
+        XCTAssertEqual(legacy.commissionLabel, "—")
+        var foreign = order
+        foreign.commission_currency = "EUR"
+        XCTAssertEqual(foreign.commissionLabel, "—")
+    }
+
     func testFillHistoryIncludesActivePartialFillsAndRetainsDataOnFailure() async {
         defer { MockProtocol.payload = nil; MockProtocol.fail = false }
         let config = URLSessionConfiguration.ephemeral

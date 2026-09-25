@@ -110,7 +110,7 @@ struct PriceInput: View {
 extension Order {
     private enum CodingKeys: String, CodingKey {
         case id, ticker, symbol, action, option_type, strike, expiration, premium, quantity, status
-        case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, error_message, isRollover, filled, avg_fill_price
+        case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, error_message, isRollover, filled, avg_fill_price, fill_time, fill_action, commission, commission_currency
     }
 
     init(from decoder: Decoder) throws {
@@ -153,6 +153,10 @@ extension Order {
         isRollover = try flag(.isRollover)
         filled = try values.decodeIfPresent(Double.self, forKey: .filled)
         avg_fill_price = try values.decodeIfPresent(Double.self, forKey: .avg_fill_price)
+        fill_time = try values.decodeIfPresent(String.self, forKey: .fill_time)
+        fill_action = try values.decodeIfPresent(String.self, forKey: .fill_action)
+        commission = try values.decodeIfPresent(Double.self, forKey: .commission)
+        commission_currency = try values.decodeIfPresent(String.self, forKey: .commission_currency)
     }
 }
 

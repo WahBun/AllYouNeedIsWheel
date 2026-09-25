@@ -175,6 +175,11 @@ class OptionsDatabase:
                     
                     print(f"Migration: Marked {len(potential_rollover_pairs) * 2} orders as potential rollovers")
 
+            for name, kind in [('fill_time', 'TEXT'), ('fill_action', 'TEXT'),
+                               ('commission', 'REAL'), ('commission_currency', 'TEXT')]:
+                if name not in column_names:
+                    cursor.execute(f'ALTER TABLE orders ADD COLUMN {name} {kind}')
+
             if 'perm_id' not in column_names:
                 print("Running migration: Adding perm_id column to orders table")
                 cursor.execute("ALTER TABLE orders ADD COLUMN perm_id TEXT")
@@ -404,6 +409,13 @@ class OptionsDatabase:
                 isRollover=isRollover
             )
 
+    def get_broker_order_identities(self):
+        """Unpaginated identity projection, including completed orders."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            return [dict(row) for row in conn.execute(
+                'SELECT id, perm_id, account_id FROM orders')]
+
     def claim_order_for_execution(self, order_id):
         """Atomically claim a pending order so concurrent clicks cannot submit it twice."""
         conn = None
@@ -443,6 +455,13 @@ class OptionsDatabase:
             set_clauses = ['status = ?', 'executed = ?']
             params = [status, executed]
 
+            # A fee captured for an earlier partial fill is not the full-order fee.
+            if isinstance(execution_details, dict) and execution_details.get('filled') is not None:
+                previous = cursor.execute('SELECT filled FROM orders WHERE id = ?', (order_id,)).fetchone()
+                if (previous and float(execution_details['filled'] or 0) > float(previous[0] or 0)
+                        and execution_details.get('commission') is None):
+                    set_clauses.extend(['commission = NULL', 'commission_currency = NULL'])
+
             field_mappings = {
                 'ib_order_id': 'ib_order_id',
                 'perm_id': 'perm_id',
@@ -453,11 +472,15 @@ class OptionsDatabase:
                 'filled': 'filled',
                 'remaining': 'remaining',
                 'avg_fill_price': 'avg_fill_price',
+                'fill_time': 'fill_time',
+                'fill_action': 'fill_action',
+                'commission': 'commission',
+                'commission_currency': 'commission_currency',
                 'is_mock': 'is_mock'
             }
             if isinstance(execution_details, dict):
                 for api_field, db_field in field_mappings.items():
-                    if api_field in execution_details:
+                    if api_field in execution_details and (api_field not in {'fill_time', 'fill_action', 'commission', 'commission_currency'} or execution_details[api_field] is not None):
                         set_clauses.append(f"{db_field} = ?")
                         params.append(execution_details[api_field])
 

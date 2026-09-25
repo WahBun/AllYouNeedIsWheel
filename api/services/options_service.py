@@ -80,7 +80,23 @@ class OptionsService:
             executed=executed,
             isRollover=is_rollover
         )
-        if executed or is_rollover is not None:
+        if executed:
+            # Late commission reports can arrive after the order became terminal.
+            conn = self._ensure_connection()
+            if conn and hasattr(conn, 'get_order_fill_metadata'):
+                for order in local_orders:
+                    if not order.get('filled'):
+                        continue
+                    try:
+                        metadata = {key: value for key, value in conn.get_order_fill_metadata(order).items() if value is not None}
+                        if metadata and self.db.update_order_status(order['id'], order['status'],
+                                executed=bool(order.get('executed')), execution_details=metadata,
+                                expected_statuses=[order['status']]):
+                            order.update(metadata)
+                    except Exception as error:
+                        logger.warning('Could not enrich broker fill metadata: %s', type(error).__name__)
+            return local_orders
+        if is_rollover is not None:
             return local_orders
 
         conn = self._ensure_connection()
@@ -100,22 +116,23 @@ class OptionsService:
             logger.error("Could not load active IB option orders: %s", error)
             return local_orders
 
-        local_perm_ids = {
-            str(order.get('perm_id'))
-            for order in local_orders
-            if order.get('perm_id') not in (None, '', 0, '0')
-        }
-        local_order_refs = {
-            f"AYNIW-{order.get('id')}"
-            for order in local_orders
-            if order.get('id') is not None
-        }
-
+        # Include terminal and off-page local orders: an old open-order snapshot
+        # must not resurrect a filled app order as an unrelated IB-managed row.
+        identities = [item for item in self.db.get_broker_order_identities()
+                      if not item.get('account_id') or item['account_id'] == account]
+        local_perm_ids = {str(item['perm_id']) for item in identities
+                          if item.get('perm_id') not in (None, '', 0, '0')}
+        refs_without_perm = {f"AYNIW-{item['id']}" for item in identities
+                             if item.get('perm_id') in (None, '', 0, '0')}
+        all_refs = {f"AYNIW-{item['id']}" for item in identities}
         external_orders = []
         for order in ib_orders:
-            if str(order.get('perm_id')) in local_perm_ids:
+            perm = order.get('perm_id')
+            if str(perm) in local_perm_ids:
                 continue
-            if order.get('order_ref') in local_order_refs:
+            # Distinct known permIds remain visible even if a reference was reused.
+            refs = all_refs if perm in (None, '', 0, '0') else refs_without_perm
+            if order.get('order_ref') in refs:
                 continue
             external_orders.append(order)
 
@@ -787,7 +804,8 @@ class OptionsService:
                 "warning_text": result.get('warning_text') or preflight.get('warning_text'),
                 "filled": result.get('filled', 0),
                 "remaining": result.get('remaining', quantity),
-                "avg_fill_price": result.get('avg_fill_price', 0)
+                "avg_fill_price": result.get('avg_fill_price', 0),
+                **{key: result.get(key) for key in ('fill_time', 'fill_action', 'commission', 'commission_currency')}
             }
 
             tracked = db.update_order_status(
@@ -1381,7 +1399,10 @@ class OptionsService:
                                 "filled": ib_status.get('filled', 0),
                                 "remaining": ib_status.get('remaining', 0),
                                 "avg_fill_price": ib_status.get('avg_fill_price', 0),
-                                "commission": ib_status.get('commission', 0),
+                                "commission": ib_status.get('commission'),
+                                "commission_currency": ib_status.get('commission_currency'),
+                                "fill_time": ib_status.get('fill_time'),
+                                "fill_action": ib_status.get('fill_action'),
                                 "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                             }
                             self._preserve_confirmed_fill(order, execution_details)
