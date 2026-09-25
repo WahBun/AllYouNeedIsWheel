@@ -27,6 +27,29 @@ class ApiDispatcherTests(unittest.TestCase):
 
         install_api_dispatcher(self.app)
 
+    def test_background_sync_uses_same_serial_executor(self):
+        class OneTick:
+            def __init__(self):
+                self.count = 0
+            def wait(self, timeout):
+                self.count += 1
+                return self.count > 1
+        app = Flask('background-test')
+        called = threading.Event()
+        thread_ids = []
+        def callback():
+            thread_ids.append(threading.get_ident())
+            called.set()
+        app.extensions['ib_background_sync'] = callback
+        with patch('api.request_dispatcher.Event', OneTick):
+            install_api_dispatcher(app)
+        executor = app.extensions['ib_api_executor']
+        try:
+            self.assertTrue(called.wait(2))
+            self.assertEqual(thread_ids, [executor.submit(threading.get_ident).result()])
+        finally:
+            executor.shutdown(wait=True)
+
     def tearDown(self):
         self.release.set()
         self.app.extensions['ib_api_executor'].shutdown(wait=True)

@@ -1,7 +1,7 @@
 """Keep IB operations on one thread while web pages remain independently responsive."""
 
 from concurrent.futures import ThreadPoolExecutor
-from threading import RLock, BoundedSemaphore
+from threading import RLock, BoundedSemaphore, Event, Thread
 import logging
 import time
 
@@ -16,6 +16,35 @@ def install_api_dispatcher(app):
     pending_reads = {}
     original_dispatch = app.dispatch_request
     app.extensions['ib_api_executor'] = executor
+    stop_background = Event()
+    app.extensions['ib_background_stop'] = stop_background
+
+    def background_loop():
+        # One outstanding background job at most, sharing HTTP admission and executor.
+        outstanding = None
+        while not stop_background.wait(10):
+            if app.testing or (outstanding is not None and not outstanding.done()):
+                continue
+            with lock:
+                if pending_reads or not slots.acquire(blocking=False):
+                    continue
+                def synchronize():
+                    try:
+                        with app.app_context():
+                            app.extensions['ib_background_sync']()
+                    except Exception as error:
+                        logging.getLogger('autotrader.api').warning(
+                            'Background fill sync unavailable: %s', type(error).__name__)
+                try:
+                    outstanding = executor.submit(synchronize)
+                except RuntimeError:
+                    slots.release()
+                    return
+                outstanding.add_done_callback(lambda done: slots.release())
+
+    if app.extensions.get('ib_background_sync') and not app.testing:
+        Thread(target=background_loop, name='fill-sync-scheduler', daemon=True).start()
+
 
     def dispatch():
         if not request.path.startswith('/api/') or (request.method == 'GET' and request.path == '/api/options/market-session'):

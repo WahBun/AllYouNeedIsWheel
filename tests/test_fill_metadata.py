@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace as NS
@@ -16,6 +17,59 @@ def fill(key='synthetic-exec', fee=0.771867, currency='USD', side='SLD', report=
 
 
 class FillMetadataTests(unittest.TestCase):
+    def test_execution_refresh_is_account_scoped_bounded_and_throttled(self):
+        calls = []
+        conn = IBConnection.__new__(IBConnection)
+        conn._order_account = lambda: 'TEST'
+        conn.is_connected = lambda: True
+        def request(filter):
+            calls.append((filter.acctCode, conn.ib.RequestTimeout))
+            return []
+        conn.ib = NS(reqExecutions=request, RequestTimeout=99, sleep=lambda delay: None)
+        with patch('core.connection.time.monotonic', return_value=100):
+            self.assertTrue(conn.refresh_execution_history())
+            self.assertFalse(conn.refresh_execution_history())
+        self.assertEqual(calls, [('TEST', 3)])
+        self.assertEqual(conn.ib.RequestTimeout, 99)
+        with patch('core.connection.time.monotonic', return_value=161):
+            self.assertTrue(conn.refresh_execution_history())
+        self.assertEqual(len(calls), 2)
+        def fail(filter):
+            raise TimeoutError()
+        conn.ib.reqExecutions = fail
+        with patch('core.connection.time.monotonic', return_value=222):
+            with self.assertRaises(TimeoutError):
+                conn.refresh_execution_history()
+            self.assertFalse(conn.refresh_execution_history())
+        self.assertEqual(conn.ib.RequestTimeout, 99)
+
+    def test_background_sync_saves_late_commission_without_history_screen(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = str(Path(root) / 'test.db')
+            db = OptionsDatabase(path)
+            order_id = db.save_order(dict(ticker='TEST', option_type='PUT', action='SELL',
+                strike=10, expiration='20261016', premium=.62, quantity=1))
+            db.update_order_status(order_id, 'executed', True,
+                {'perm_id': 123, 'filled': 1, 'avg_fill_price': .62})
+            item = fill(report=False)
+            conn = IBConnection.__new__(IBConnection)
+            conn.ib = NS(fills=lambda: [item], sleep=lambda delay: None)
+            conn._order_account = lambda: 'TEST'
+            conn.refresh_execution_history = lambda: False
+            service = OptionsService.__new__(OptionsService)
+            service.db = db
+            service._ensure_connection = lambda: conn
+            service.synchronize_fills()
+            self.assertIsNotNone(db.get_order(order_id)['fill_time'])
+            self.assertIsNone(db.get_order(order_id)['commission'])
+            item.commissionReport.execId = item.execution.execId
+            service.synchronize_fills()
+            self.assertEqual(db.get_order(order_id)['commission'], .771867)
+            self.assertEqual(db.get_fills_missing_metadata(), [])
+            # Reopening the database does not require IB or an open market.
+            reopened = OptionsDatabase(path)
+            self.assertEqual(reopened.get_order(order_id)['commission'], .771867)
+
     def test_time_action_precision_and_duplicate_execution(self):
         item = fill()
         result = IBConnection._fill_metadata([item, item], 1)

@@ -1285,6 +1285,33 @@ class OptionsService:
         # Sanitize the entire result dictionary
         sanitize_dict(result)
         
+    def synchronize_fills(self):
+        """Read-only broker synchronization, including terminal orders with late fees."""
+        pending = self.db.get_orders(
+            status_filter=['submitting', 'processing', 'canceling', 'unknown'], limit=200)
+        missing = self.db.get_fills_missing_metadata()
+        if not pending and not missing:
+            return
+        conn = self._ensure_connection()
+        if not conn:
+            return
+        try:
+            conn.refresh_execution_history()
+        except Exception as error:
+            logger.warning('Execution refresh unavailable: %s', type(error).__name__)
+        # Callback processing is needed even when the request is rate-limited.
+        conn.ib.sleep(0.05)
+        if pending:
+            self.check_pending_orders()
+        # Re-read after status updates so newly completed fills are included.
+        for order in self.db.get_fills_missing_metadata():
+            metadata = {key: value for key, value in conn.get_order_fill_metadata(order).items()
+                        if value is not None and value != order.get(key)}
+            if metadata:
+                self.db.update_order_status(order['id'], order['status'],
+                    executed=bool(order.get('executed')), execution_details=metadata,
+                    expected_statuses=[order['status']])
+
     def check_pending_orders(self):
         """
         Check status of pending/processing orders and update them in the database

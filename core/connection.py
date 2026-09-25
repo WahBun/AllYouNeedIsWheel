@@ -18,7 +18,7 @@ from core.utils import is_market_hours, market_today
 from .currency import CurrencyHelper
 
 # Import ib_async instead of ib_insync
-from ib_async import IB, Stock, Option, Contract, util
+from ib_async import IB, Stock, Option, Contract, ExecutionFilter, util
 
 # Import our logging configuration
 from core.logging_config import get_logger
@@ -345,6 +345,7 @@ class IBConnection:
             
             self._connected = self.ib.isConnected()
             if self._connected:
+                self._fill_refresh_at = {}
                 self._market_ticker_cache.clear()
                 self._market_data_type = None
                 logger.info(f"Successfully connected to IB with client ID {self.client_id}")
@@ -1801,6 +1802,23 @@ class IBConnection:
             'commission': sum(fees) if complete and len(currencies) == 1 else None,
             'commission_currency': next(iter(currencies)) if complete and len(currencies) == 1 else None,
         }
+
+    def refresh_execution_history(self):
+        """Bounded read on the existing IB thread; not gated by market hours."""
+        account = self._order_account()
+        if not account or not self.is_connected():
+            return False
+        stamps = getattr(self, '_fill_refresh_at', {})
+        now = time.monotonic()
+        if now - stamps.get(account, float('-inf')) < 60:
+            return False
+        # Throttle failures too, so outages do not flood IB with requests.
+        stamps[account] = now
+        self._fill_refresh_at = stamps
+        self._bounded_order_read(self.ib.reqExecutions, ExecutionFilter(acctCode=account))
+        # Commission callbacks can trail execDetailsEnd; later cycles collect them.
+        self.ib.sleep(0.05)
+        return True
 
     def get_order_fill_metadata(self, details):
         """Read cached broker fills; never infer a fill from submission timestamps."""

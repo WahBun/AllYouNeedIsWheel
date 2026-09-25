@@ -128,3 +128,19 @@ without submitting real broker orders. Market-hours latency, partial fills and
 wireless iOS 18 behavior still require device acceptance; tests do not guarantee
 execution or full web feature parity. Publishing code does not deploy the backend
 or install the app on a phone.
+
+## Background fill persistence
+
+The backend schedules fill reconciliation every 10 seconds on the existing single
+IB API executor, even when the phone is closed. Only one background job may be
+outstanding; it shares the HTTP admission limit. It checks submitted orders and
+persists missing metadata for confirmed fills, including terminal orders whose
+commission arrives later. No order is placed, modified, canceled, or resubmitted
+by this job. Synchronization is not gated by market hours.
+
+Missing fills trigger an account-scoped reqExecutions read, at most once per
+minute, with a three-second request timeout. Reconnection resets that throttle.
+Only the execution history exposed by the running IB session can be recovered;
+this does not implement Flex or guarantee recovery after a long offline period.
+Saved metadata remains available without broker history. Deploy the backend
+update on Mini; no iOS rebuild is needed for this scheduling change.

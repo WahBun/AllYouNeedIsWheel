@@ -68,6 +68,7 @@ def create_app(config=None):
     app.register_blueprint(recommendations.bp)
     logger.info("Registered API blueprints")
     from api.request_dispatcher import install_api_dispatcher
+    app.extensions['ib_background_sync'] = options.options_service.synchronize_fills
     install_api_dispatcher(app)
     
     @app.route('/health')

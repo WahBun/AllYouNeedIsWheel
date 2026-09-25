@@ -409,6 +409,15 @@ class OptionsDatabase:
                 isRollover=isRollover
             )
 
+    def get_fills_missing_metadata(self, limit=200):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            return [dict(row) for row in conn.execute(
+                """SELECT * FROM orders WHERE filled > 0
+                   AND (fill_time IS NULL OR fill_action IS NULL OR commission IS NULL
+                        OR commission_currency IS NULL)
+                   ORDER BY timestamp DESC, id DESC LIMIT ?""", (limit,))]
+
     def get_broker_order_identities(self):
         """Unpaginated identity projection, including completed orders."""
         with sqlite3.connect(self.db_path) as conn:
