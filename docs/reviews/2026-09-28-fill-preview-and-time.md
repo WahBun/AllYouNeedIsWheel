@@ -30,3 +30,18 @@ and a previous-day conversion. Simulator Demo settings/preview entry was observe
 Full animated banner interaction, bilingual/theme visual checks and haptics remain
 unverified: Device Hub capture/input intermittently failed during UI verification.
 No backend changes or production record edits are included.
+
+## Explicit backend timezone configuration
+
+The backend accepts optional `execution_timezone` in its existing connection JSON.
+Set an IANA zone such as `UTC` or `America/New_York` only after confirming the API
+execution output convention. The value is validated before client construction and
+assigned to ib_async.TimezoneTWS before connecting. An omitted value retains the
+library default; this compatibility default does NOT fix ambiguous timestamps.
+Changing it replaces the shared connection through the existing manager, so apply
+only at a suitable service update boundary, not while a submission is in progress.
+Timezone-qualified execution times are normalized to UTC before persistence.
+
+159 Python tests passed, including explicit configuration, invalid-zone rejection,
+connection identity and seasonal UTC conversion. No deployed configuration or stored
+record was changed. Raw API output and targeted historical correction remain pending.

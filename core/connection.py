@@ -12,7 +12,8 @@ import json
 import threading
 import traceback
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import pytz
 from core.utils import is_market_hours, market_today
 from .currency import CurrencyHelper
@@ -59,7 +60,7 @@ class IBConnection:
     """
     def __init__(
         self, host='127.0.0.1', port=7497, client_id=1, timeout=20,
-        readonly=True, account_id=None, order_preflight_timeout=10
+        readonly=True, account_id=None, order_preflight_timeout=10, execution_timezone=None
     ):
         """
         Initialize the IB connection
@@ -78,7 +79,12 @@ class IBConnection:
         self.readonly = readonly
         self.account_id = account_id
         self.order_preflight_timeout = max(1, float(order_preflight_timeout))
+        # Only set this from verified API output settings, not the host timezone.
+        if execution_timezone:
+            ZoneInfo(execution_timezone)  # Reject invalid configuration before connecting.
         self.ib = IB()
+        if execution_timezone:
+            self.ib.TimezoneTWS = execution_timezone
         self._connected = False
         self._qualified_stock_cache = {}
         self._qualified_option_cache = {}
@@ -1782,7 +1788,7 @@ class IBConnection:
             execution = fill.execution
             stamp = getattr(execution, 'time', None)
             if isinstance(stamp, datetime) and stamp.tzinfo is not None:
-                times.append(stamp)
+                times.append(stamp.astimezone(timezone.utc))
             action = {'BOT': 'BUY', 'SLD': 'SELL', 'BUY': 'BUY', 'SELL': 'SELL'}.get(getattr(execution, 'side', ''))
             if action:
                 actions.add(action)
