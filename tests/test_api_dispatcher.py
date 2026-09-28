@@ -1,7 +1,7 @@
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from flask import Flask, request
 from api.request_dispatcher import install_api_dispatcher
@@ -92,6 +92,75 @@ class ApiDispatcherTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 3)
         self.assertEqual(len({entry[0] for entry in self.calls}), 1)
         self.assertEqual([response.json['value'] for response in responses], ['0', '1', '2'])
+
+    def test_expired_queued_write_never_reaches_handler(self):
+        executor = self.app.extensions['ib_api_executor']
+        entered = threading.Event()
+        release = threading.Event()
+        queued = threading.Event()
+        def blocker():
+            entered.set()
+            release.wait(3)
+        executor.submit(blocker)
+        self.assertTrue(entered.wait(1))
+        submit = executor.submit
+        now = [100.0]
+        def observed_submit(fn):
+            future = submit(fn)
+            queued.set()
+            return future
+        try:
+            with patch('api.request_dispatcher.time.monotonic', side_effect=lambda: now[0]), patch.object(executor, 'submit', side_effect=observed_submit):
+                with ThreadPoolExecutor(1) as clients:
+                    response = clients.submit(self.get, '/api/slow?value=expired', 'POST')
+                    self.assertTrue(queued.wait(1))
+                    now[0] += 11
+                    release.set()
+                    result = response.result(timeout=2)
+                    self.assertEqual(result.status_code, 503)
+                    self.assertIn('no operation was started', result.json['error'])
+                    self.assertEqual(self.calls, [])
+        finally:
+            release.set()
+        self.release.set()
+        self.assertEqual(self.get('/api/slow?value=fresh', 'POST').status_code, 200)
+
+    def test_http_wait_timeout_cancels_only_unstarted_job(self):
+        from concurrent.futures import TimeoutError
+        executor = self.app.extensions['ib_api_executor']
+        entered, release = threading.Event(), threading.Event()
+        def blocker():
+            entered.set()
+            release.wait(3)
+        executor.submit(blocker)
+        self.assertTrue(entered.wait(1))
+        submit = executor.submit
+        def timed_submit(fn):
+            future = submit(fn)
+            future.result = Mock(side_effect=TimeoutError())
+            return future
+        try:
+            with patch.object(executor, 'submit', side_effect=timed_submit):
+                response = self.get('/api/slow?value=canceled', 'POST')
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual(self.calls, [])
+        finally:
+            release.set()
+        executor.submit(lambda: None).result(timeout=2)
+        self.assertEqual(self.calls, [])
+
+    def test_running_job_keeps_acknowledgement_after_http_wait_timeout(self):
+        from concurrent.futures import Future, TimeoutError
+        executor = self.app.extensions['ib_api_executor']
+        future = Future()
+        future.set_running_or_notify_cancel()
+        future.set_result((b'{"success": true}', 200, [('Content-Type', 'application/json')]))
+        original = future.result
+        future.result = Mock(side_effect=[TimeoutError(), original()])
+        with patch.object(executor, 'submit', return_value=future):
+            response = self.get('/api/slow', 'POST')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json['success'])
 
     def test_executor_survives_a_failed_view(self):
         @self.app.route('/api/fail')

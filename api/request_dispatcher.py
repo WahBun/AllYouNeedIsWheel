@@ -1,6 +1,6 @@
 """Keep IB operations on one thread while web pages remain independently responsive."""
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError, CancelledError
 from threading import RLock, BoundedSemaphore, Event, Thread
 import logging
 import time
@@ -62,9 +62,18 @@ def install_api_dispatcher(app):
             ))
             key = (request.path, args)
 
+        def expired_response():
+            response = jsonify(error='Request expired before execution; no operation was started')
+            response.status_code = 503
+            response.headers['Retry-After'] = '2'
+            return response
+
         @copy_current_request_context
         def run():
             started = time.monotonic()
+            if started - queued_at >= 10:
+                response = expired_response()
+                return response.get_data(), response.status_code, list(response.headers)
             logger.debug('ib_job_start id=%s queue_ms=%.1f', request_id, (started - queued_at) * 1000)
             try:
                 response = app.make_response(original_dispatch())
@@ -105,7 +114,19 @@ def install_api_dispatcher(app):
                         slots.release()
 
                 future.add_done_callback(completed)
-        body, status, headers = future.result()
+        try:
+            body, status, headers = future.result(timeout=10)
+        except TimeoutError:
+            # Cancel only jobs that have not begun. A running trade must retain
+            # its acknowledgement path; never report it as not submitted.
+            if future.cancel():
+                return expired_response()
+            try:
+                body, status, headers = future.result()
+            except CancelledError:
+                return expired_response()
+        except CancelledError:
+            return expired_response()
         return app.response_class(body, status=status, headers=headers)
 
     app.dispatch_request = dispatch

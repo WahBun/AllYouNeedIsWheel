@@ -126,7 +126,7 @@ class IBConnection:
             return cached
 
         stock = Stock(symbol, exchange, currency)
-        qualified_contracts = self.ib.qualifyContracts(stock)
+        qualified_contracts = self._bounded_order_read(self.ib.qualifyContracts, stock, timeout_seconds=5)
         if not qualified_contracts:
             return None
 
@@ -145,7 +145,7 @@ class IBConnection:
         if cached_chain is not None:
             return stock, cached_chain
 
-        chains = self.ib.reqSecDefOptParams(stock.symbol, '', stock.secType, stock.conId)
+        chains = self._bounded_order_read(self.ib.reqSecDefOptParams, stock.symbol, '', stock.secType, stock.conId, timeout_seconds=5)
         if not chains:
             return stock, None
 
@@ -172,7 +172,7 @@ class IBConnection:
             currency=currency,
             multiplier=100
         )
-        qualified_contracts = self.ib.qualifyContracts(contract)
+        qualified_contracts = self._bounded_order_read(self.ib.qualifyContracts, contract, timeout_seconds=5)
         if not qualified_contracts:
             return None
 
@@ -935,7 +935,7 @@ class IBConnection:
         return CurrencyHelper.convert_amount(value, currency, 'USD')
 
     def _account_info_from_summary(self, account_id, account_fields):
-        account_values = self.ib.accountSummary(account_id)
+        account_values = self._bounded_order_read(self.ib.accountSummary, account_id, timeout_seconds=5)
         if not account_values:
             return None
 
@@ -1058,7 +1058,7 @@ class IBConnection:
         normalized_action = str(action or '').upper()
 
         try:
-            self.ib.reqAllOpenOrders()
+            self._bounded_order_read(self.ib.reqAllOpenOrders)
             self.ib.sleep(0.2)
         except Exception as error:
             logger.warning("Could not refresh open orders before close validation: %s", error)
@@ -1150,7 +1150,7 @@ class IBConnection:
             return 0
 
         try:
-            self.ib.reqAllOpenOrders()
+            self._bounded_order_read(self.ib.reqAllOpenOrders)
             self.ib.sleep(0.2)
         except Exception as error:
             logger.warning("Could not refresh open orders before covered CALL validation: %s", error)
@@ -1968,9 +1968,9 @@ class IBConnection:
 
         return self._trade_matches_order_details(trade, order_details)
 
-    def _bounded_order_read(self, request, *args):
+    def _bounded_order_read(self, request, *args, timeout_seconds=3):
         previous_timeout = getattr(self.ib, 'RequestTimeout', 0)
-        self.ib.RequestTimeout = 3
+        self.ib.RequestTimeout = timeout_seconds
         try:
             return request(*args)
         finally:

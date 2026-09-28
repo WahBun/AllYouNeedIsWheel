@@ -60,6 +60,35 @@ class ConnectionManagerTests(unittest.TestCase):
         self.assertEqual(len(FakeConnection.instances), 1)
         self.assertEqual(connection.connect_calls, 2)
 
+    def test_outage_has_one_attempt_and_shared_backoff_then_recovers(self):
+        from unittest.mock import patch
+        now = [100.0]
+        manager = IBConnectionManager(FakeConnection, clock=lambda: now[0])
+        connection = manager.get_connection(self.config)
+        connection.connected = False
+        with patch.object(connection, 'connect', return_value=False) as connect:
+            self.assertIsNone(manager.get_connection(self.config))
+            self.assertIsNone(manager.get_connection(self.config))
+            self.assertEqual(connect.call_count, 1)
+            self.assertEqual(len(FakeConnection.instances), 1)
+            now[0] += 10
+            self.assertIsNone(manager.get_connection(self.config))
+            self.assertEqual(connect.call_count, 2)
+        now[0] += 10
+        self.assertIs(manager.get_connection(self.config), connection)
+
+    def test_changed_config_bypasses_old_connection_backoff(self):
+        from unittest.mock import patch
+        manager = IBConnectionManager(FakeConnection, clock=lambda: 100)
+        connection = manager.get_connection(self.config)
+        connection.connected = False
+        with patch.object(connection, 'connect', return_value=False):
+            self.assertIsNone(manager.get_connection(self.config))
+        replacement = manager.get_connection({**self.config, 'timeout': 5})
+        self.assertIsNot(replacement, connection)
+        self.assertEqual(replacement.kwargs['timeout'], 5)
+        self.assertEqual(connection.disconnect_calls, 1)
+
     def test_replaces_session_when_connection_settings_change(self):
         manager = IBConnectionManager(connection_factory=FakeConnection)
         first = manager.get_connection(self.config)
