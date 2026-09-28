@@ -118,6 +118,9 @@ final class WheelStore {
     var error: String?
     var updated: Date?
     var fillPreview = FillPreview()
+    private var fillTracker = FillTracker()
+    private var fillSnapshot: [Order] = []
+    private var fillSnapshotAt: Date?
     var trading = TradingSession()
     var opportunities = OpportunityBook()
     var selectedTab = "settings"
@@ -212,7 +215,24 @@ final class WheelStore {
                 result = try await trading.synchronizedOrders(base: address)
             }
             guard token == revision, tradeVersion == trading.version, !trading.busy, !Task.isCancelled else { return }
+            let disappeared = !Set(orders.map(\.id)).subtracting(result.orders.map(\.id)).isEmpty
             orders = result.orders; ordersUpdated = Date(); orderError = nil
+            if fillSnapshotAt == nil || disappeared || Date().timeIntervalSince(fillSnapshotAt!) >= 10 {
+                do {
+                    let payload = try await trading.get("api/options/pending-orders", base: address,
+                        query: [URLQueryItem(name: "executed", value: "true")])
+                    let history = try JSONDecoder().decode(Orders.self, from: JSONSerialization.data(withJSONObject: payload))
+                    guard token == revision, tradeVersion == trading.version, !trading.busy, !Task.isCancelled else { return }
+                    fillSnapshot = history.orders
+                    fillSnapshotAt = Date()
+                } catch {
+                    // Keep known quantities on failures; a missing response is never a fill.
+                    guard token == revision, tradeVersion == trading.version, !Task.isCancelled else { return }
+                }
+            }
+            if fillSnapshotAt != nil {
+                fillPreview.enqueue(fillTracker.ingest(fillSnapshot + orders))
+            }
             opportunities.synchronizeEntries(orders: orders)
             trading.ordersDidRefresh()
         } catch {
@@ -246,7 +266,7 @@ final class WheelStore {
             if token == revision, version == trading.version, !Task.isCancelled { filledError = connectionMessage(error) }
         }
     }
-    func changeMode() { fillPreview.clear(); revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
+    func changeMode() { fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
 }
 
 func connectionMessage(_ error: Error) -> String {
@@ -303,6 +323,7 @@ struct RootView: View {
             NavigationStack { SettingsView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Settings", locale: appLocale), systemImage: "gearshape") }.tag("settings")
         }
         .modifier(FillBannerOverlay(preview: store.fillPreview))
+        .onChange(of: phase) { if phase != .active { store.fillPreview.clear() } }
         .tint(.teal)
         .environment(\.locale, Locale(identifier: appLanguage == "system" ? (Locale.preferredLanguages.first ?? "en") : appLanguage))
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)

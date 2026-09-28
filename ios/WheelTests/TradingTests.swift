@@ -141,7 +141,7 @@ final class TradingTests: XCTestCase {
             return ["success": true, "orders": [["id": 1, "status": "processing"]]]
         }
         await store.refreshOrders()
-        XCTAssertEqual(MockProtocol.requests.count, 2)
+        XCTAssertEqual(MockProtocol.requests.filter { $0.url?.lastPathComponent == "check-orders" }.count, 2)
         XCTAssertNil(store.orderError)
         XCTAssertFalse(store.ordersRetrying)
         XCTAssertEqual(store.orders.first?.status, "processing")
@@ -413,7 +413,7 @@ final class TradingTests: XCTestCase {
         XCTAssertNil(store.orderError)
         XCTAssertEqual(store.orders.first?.name, "CRCL")
         XCTAssertNotNil(store.ordersUpdated)
-        XCTAssertEqual(MockProtocol.requests.map { $0.url!.path }, ["/api/options/check-orders"])
+        XCTAssertEqual(MockProtocol.requests.map { $0.url!.path }, ["/api/options/check-orders", "/api/options/pending-orders"])
         MockProtocol.payload = { _ in ["success": true, "orders": [["id": 43, "status": "pending", "executed": 2]]] }
         await store.refreshOrders()
         XCTAssertNotNil(store.orderError)
