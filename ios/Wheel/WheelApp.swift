@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 @main
 struct WheelApp: App {
@@ -383,8 +384,12 @@ struct PortfolioView: View {
             Section {
                 StatusView()
                 VStack(alignment: .leading, spacing: 12) {
+                    NavigationLink { AllocationView() } label: {
+                        VStack(alignment: .leading, spacing: 12) {
                     Text("Net liquidation").font(.subheadline).foregroundStyle(.secondary)
                     Text(money(store.portfolio?.summary.account_value)).font(.system(size: 36, weight: .semibold, design: .rounded)).minimumScaleFactor(0.6).lineLimit(1)
+                        }
+                    }.buttonStyle(.plain)
                     HStack {
                         metric("Cash", money(store.portfolio?.summary.cash_balance))
                         Spacer()
@@ -433,11 +438,6 @@ struct PortfolioView: View {
     }
 }
 
-enum TradingColors {
-    static func profit(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(red: 0.25, green: 0.95, blue: 0.48) : Color(red: 0.02, green: 0.46, blue: 0.20)
-    }
-}
 
 struct PositionMarketPrice: View {
     let position: Position
@@ -518,6 +518,175 @@ struct LeverageMeter: View {
                 .tint(tint)
                 .accessibilityHidden(true)
         }.padding(.vertical, 4)
+    }
+}
+
+struct AllocationItem: Identifiable {
+    let id: String
+    let name: String
+    let value: Double
+}
+
+struct AllocationData {
+    let assets: [AllocationItem]
+    let liabilities: [AllocationItem]
+    let missingCount: Int
+    let net: Double?
+    var total: Double { assets.reduce(0) { $0 + $1.value } }
+    var accountedNet: Double { total + liabilities.reduce(0) { $0 + $1.value } }
+    var difference: Double? { net.map { $0 - accountedNet } }
+
+    init(_ portfolio: Bootstrap?) {
+        var positive: [String: Double] = [:]
+        var negative: [String: Double] = [:]
+        var missing = 0
+        for position in portfolio?.positions ?? [] where position.position != 0 {
+            guard let value = position.market_value, value.isFinite else { missing += 1; continue }
+            let symbol = position.symbol.uppercased()
+            if value > 0 { positive[symbol, default: 0] += value }
+            if value < 0 { negative[symbol, default: 0] += value }
+        }
+        var assets = positive.map { AllocationItem(id: "asset:\($0.key)", name: $0.key, value: $0.value) }
+        var liabilities = negative.map { AllocationItem(id: "liability:\($0.key)", name: $0.key, value: $0.value) }
+        if let cash = portfolio?.summary.cash_balance, cash.isFinite {
+            if cash > 0 { assets.append(AllocationItem(id: "cash", name: "Cash", value: cash)) }
+            if cash < 0 { liabilities.append(AllocationItem(id: "cash", name: "Cash", value: cash)) }
+        } else if portfolio != nil { missing += 1 }
+        self.assets = assets.sorted { $0.value == $1.value ? $0.id < $1.id : $0.value > $1.value }
+        self.liabilities = liabilities.sorted { $0.value == $1.value ? $0.id < $1.id : $0.value < $1.value }
+        missingCount = missing
+        net = portfolio?.summary.account_value.flatMapFinite
+    }
+}
+
+private extension Double {
+    var flatMapFinite: Double? { isFinite ? self : nil }
+}
+
+struct AllocationView: View {
+    @Environment(\.locale) private var locale
+    @Environment(WheelStore.self) private var store
+    @Environment(\.colorScheme) private var scheme
+    @State private var selected: String?
+    @State private var sharePresented = false
+    @State private var angle: Double?
+    private var data: AllocationData { AllocationData(store.portfolio) }
+    private func color(_ item: AllocationItem) -> Color {
+        if item.name == "SGOV" { return TradingColors.symbol("SGOV", scheme: scheme) }
+        if item.id == "cash" { return .gray }
+        let colors: [Color] = [.teal, .blue, .pink, .orange, .mint, .indigo]
+        let keys = data.assets.filter { $0.name != "SGOV" && $0.id != "cash" }.map(\.id).sorted()
+        return colors[(keys.firstIndex(of: item.id) ?? 0) % colors.count]
+    }
+    var body: some View {
+        List {
+            Section {
+                if data.total > 0 {
+                    Chart(data.assets.sorted { $0.id < $1.id }) { item in
+                        SectorMark(angle: .value("Market value", item.value), innerRadius: .ratio(0.72), angularInset: 1.5)
+                            .foregroundStyle(color(item))
+                            .opacity(selected == nil || selected == item.id ? 1 : 0.35)
+                            .accessibilityLabel(item.name)
+                            .accessibilityValue("\((item.value / data.total).formatted(.percent.precision(.fractionLength(1))))")
+                    }
+                    .chartAngleSelection(value: $angle)
+                    .chartBackground { _ in
+                        VStack(spacing: 5) {
+                            Text("Net liquidation").font(.caption).foregroundStyle(.secondary)
+                            Text(money(data.net)).font(.title3.weight(.semibold)).monospacedDigit()
+                                .lineLimit(1).minimumScaleFactor(0.6)
+                        }.frame(maxWidth: 160).allowsHitTesting(false)
+                    }
+                    .frame(height: 270)
+                    .listRowBackground(Color.clear)
+                } else { ContentUnavailableView("No portfolio", systemImage: "chart.pie") }
+            }
+            Section("Positive assets") {
+                ForEach(data.assets) { item in
+                    Button { selected = selected == item.id ? nil : item.id } label: {
+                        HStack(spacing: 10) {
+                            Circle().fill(color(item)).frame(width: 8, height: 8)
+                            if item.id == "cash" { Text("Cash") } else { SymbolText(symbol: item.name) }
+                            Spacer(minLength: 8)
+                            VStack(alignment: .trailing, spacing: 3) {
+                                Text(money(item.value)).monospacedDigit()
+                                Text((item.value / data.total).formatted(.percent.precision(.fractionLength(1))))
+                                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            }
+                            if selected == item.id { Image(systemName: "checkmark").foregroundStyle(color(item)) }
+                        }.contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                }
+                LabeledContent("Total", value: money(data.total))
+            }
+            if !data.liabilities.isEmpty {
+                Section("Short positions & negative cash") {
+                    ForEach(data.liabilities) { item in
+                        HStack {
+                            if item.id == "cash" { Text("Cash") } else { SymbolText(symbol: item.name) }
+                            Spacer()
+                            Text(money(item.value)).monospacedDigit().foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            Section("Reconciliation") {
+                LabeledContent("Estimated net value", value: money(data.accountedNet))
+                LabeledContent("Net liquidation", value: money(data.net))
+                LabeledContent("Difference", value: money(data.difference))
+                if data.missingCount > 0 { Label("Some market values are unavailable", systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+                if let error = store.error { Text(error).font(.caption).foregroundStyle(.orange) }
+            }
+        }
+        .navigationTitle(localizedLabel("Allocation", locale: locale))
+        .toolbar { ToolbarItem(placement: .topBarTrailing) {
+            Button { sharePresented = true } label: { Image(systemName: "square.and.arrow.up") }
+                .accessibilityLabel("Share holdings")
+                .disabled(store.portfolio == nil)
+        } }
+        .sheet(isPresented: $sharePresented) { HoldingsSharePreview(portfolio: store.portfolio) }
+        .refreshable { await store.refreshPortfolio() }
+        .onChange(of: angle) {
+            guard let angle else { return }
+            var end = 0.0
+            selected = data.assets.sorted { $0.id < $1.id }.first { item in end += item.value; return angle < end }?.id
+        }
+        .onChange(of: data.assets.map(\.id)) {
+            if !data.assets.contains(where: { $0.id == selected }) { selected = nil }
+        }
+    }
+}
+
+struct SymbolText: View {
+    let symbol: String
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        if symbol.uppercased() == "SGOV" {
+            Text(symbol).foregroundStyle(TradingColors.symbol(symbol, scheme: scheme))
+        } else {
+            Text(symbol)
+        }
+    }
+}
+
+extension View {
+    @ViewBuilder func symbolTitle(_ symbol: String) -> some View {
+        if symbol.uppercased() == "SGOV" {
+            self.navigationTitle(symbol).navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .principal) { SymbolText(symbol: symbol).font(.headline) } }
+        } else {
+            self.navigationTitle(symbol)
+        }
+    }
+}
+
+enum TradingColors {
+    static func symbol(_ symbol: String, scheme: ColorScheme) -> Color {
+        guard symbol.uppercased() == "SGOV" else { return .primary }
+        return scheme == .dark ? Color(red: 1.00, green: 0.88, blue: 0.58) : Color(red: 0.78, green: 0.60, blue: 0.16)
+    }
+    static func profit(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(red: 0.25, green: 0.95, blue: 0.48) : Color(red: 0.02, green: 0.46, blue: 0.20)
     }
 }
 
