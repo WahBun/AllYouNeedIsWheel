@@ -3,7 +3,7 @@ import Observation
 
 struct FillNotice: Identifiable {
     let id = UUID()
-    let order: Order
+    var order: Order
     var demo = false
     var filled: Double { order.filledQuantity ?? 0 }
     var complete: Bool { order.ib_status?.lowercased() == "filled" || order.status.lowercased() == "executed" || (order.quantity.map { $0 > 0 && filled >= $0 } ?? false) }
@@ -54,6 +54,17 @@ final class FillPreview {
     private var queue: [FillNotice] = []
     private var task: Task<Void, Never>?
     func enqueue(_ notices: [FillNotice]) { queue.append(contentsOf: notices); advance() }
+    func updateMetadata(_ orders: [Order]) {
+        func updated(_ value: FillNotice) -> FillNotice {
+            guard !value.demo, let latest = orders.first(where: {
+                $0.id == value.order.id && $0.filledQuantity == value.order.filledQuantity
+            }) else { return value }
+            var copy = value; copy.order = latest; return copy
+        }
+        if let value = notice { notice = updated(value) }
+        if let value = detail { detail = updated(value) }
+        queue = queue.map(updated)
+    }
     func advance() {
         if notice == nil, detail == nil, !queue.isEmpty { notice = queue.removeFirst() }
     }
@@ -101,6 +112,9 @@ struct FillBannerOverlay: ViewModifier {
                                     Text("Average fill price")
                                     Text(verbatim: money(notice.order.fillPrice))
                                 }.font(.caption).foregroundStyle(.secondary)
+                                if notice.order.intent == "CLOSE" {
+                                    HStack { Text("Realized P&L"); RealizedProfit(order: notice.order) }.font(.caption.weight(.semibold))
+                                }
                             }
                         }.foregroundStyle(.primary).contentShape(Rectangle())
                     }.buttonStyle(.plain)
@@ -140,6 +154,7 @@ struct FillBannerOverlay: ViewModifier {
                     else {
                         LabeledContent("Last fill time", value: notice.order.fillTimeLabel)
                         LabeledContent("Commission", value: notice.order.commissionLabel)
+                        if notice.order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: notice.order) } }
                     }
                 }
                 .navigationTitle(LocalizedStringKey(notice.demo ? "Demo fill details" : notice.complete ? "Order filled" : "Partially filled"))

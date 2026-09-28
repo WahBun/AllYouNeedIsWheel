@@ -85,6 +85,8 @@ class IBConnection:
         self.ib = IB()
         if execution_timezone:
             self.ib.TimezoneTWS = execution_timezone
+        from core.realized_pnl import install_realized_pnl_capture
+        install_realized_pnl_capture(self.ib)
         from core.execution_time import install_execution_utc_format
         install_execution_utc_format(self.ib)
         if execution_diagnostic_order_ref:
@@ -1787,6 +1789,7 @@ class IBConnection:
                 unique[key] = fill
         times, actions, fees, currencies = [], set(), [], set()
         complete = bool(unique)
+        pnl_values = []
         if expected_filled is not None:
             reported_quantity = sum(float(getattr(fill.execution, 'shares', 0) or 0) for fill in unique.values())
             complete = complete and reported_quantity >= float(expected_filled or 0)
@@ -1799,6 +1802,9 @@ class IBConnection:
             if action:
                 actions.add(action)
             report = getattr(fill, 'commissionReport', None)
+            pnl = getattr(report, '_wheel_realized_pnl', None)
+            if isinstance(pnl, (int, float)) and math.isfinite(pnl) and abs(pnl) < 1e100:
+                pnl_values.append(pnl)
             fee = getattr(report, 'commission', None)
             currency = getattr(report, 'currency', '')
             if (getattr(report, 'execId', '') != getattr(execution, 'execId', '')
@@ -1813,6 +1819,7 @@ class IBConnection:
             'fill_action': next(iter(actions)) if len(actions) == 1 else None,
             'commission': sum(fees) if complete and len(currencies) == 1 else None,
             'commission_currency': next(iter(currencies)) if complete and len(currencies) == 1 else None,
+            'realized_pnl': sum(pnl_values) if complete and currencies == {'USD'} and len(pnl_values) == len(unique) else None,
         }
 
     def refresh_execution_history(self):

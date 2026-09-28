@@ -176,7 +176,7 @@ class OptionsDatabase:
                     print(f"Migration: Marked {len(potential_rollover_pairs) * 2} orders as potential rollovers")
 
             for name, kind in [('fill_time', 'TEXT'), ('fill_action', 'TEXT'),
-                               ('commission', 'REAL'), ('commission_currency', 'TEXT')]:
+                               ('commission', 'REAL'), ('commission_currency', 'TEXT'), ('realized_pnl', 'REAL')]:
                 if name not in column_names:
                     cursor.execute(f'ALTER TABLE orders ADD COLUMN {name} {kind}')
 
@@ -415,7 +415,8 @@ class OptionsDatabase:
             return [dict(row) for row in conn.execute(
                 """SELECT * FROM orders WHERE filled > 0
                    AND (fill_time IS NULL OR fill_action IS NULL OR commission IS NULL
-                        OR commission_currency IS NULL)
+                        OR commission_currency IS NULL
+                        OR (intent = 'CLOSE' AND realized_pnl IS NULL))
                    ORDER BY timestamp DESC, id DESC LIMIT ?""", (limit,))]
 
     def get_broker_order_identities(self):
@@ -470,6 +471,9 @@ class OptionsDatabase:
                 if (previous and float(execution_details['filled'] or 0) > float(previous[0] or 0)
                         and execution_details.get('commission') is None):
                     set_clauses.extend(['commission = NULL', 'commission_currency = NULL'])
+                if (previous and float(execution_details['filled'] or 0) > float(previous[0] or 0)
+                        and execution_details.get('realized_pnl') is None):
+                    set_clauses.append('realized_pnl = NULL')
 
             field_mappings = {
                 'ib_order_id': 'ib_order_id',
@@ -485,11 +489,12 @@ class OptionsDatabase:
                 'fill_action': 'fill_action',
                 'commission': 'commission',
                 'commission_currency': 'commission_currency',
+                'realized_pnl': 'realized_pnl',
                 'is_mock': 'is_mock'
             }
             if isinstance(execution_details, dict):
                 for api_field, db_field in field_mappings.items():
-                    if api_field in execution_details and (api_field not in {'fill_time', 'fill_action', 'commission', 'commission_currency'} or execution_details[api_field] is not None):
+                    if api_field in execution_details and (api_field not in {'fill_time', 'fill_action', 'commission', 'commission_currency', 'realized_pnl'} or execution_details[api_field] is not None):
                         set_clauses.append(f"{db_field} = ?")
                         params.append(execution_details[api_field])
 

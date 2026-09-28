@@ -64,6 +64,7 @@ struct Order: Decodable, Identifiable {
     var fill_action: String? = nil
     var commission: Double? = nil
     var commission_currency: String? = nil
+    var realized_pnl: Double? = nil
     var fillTimeLabel: String {
         guard let fill_time else { return "—" }
         let parser = ISO8601DateFormatter()
@@ -231,6 +232,7 @@ final class WheelStore {
                 }
             }
             if fillSnapshotAt != nil {
+                fillPreview.updateMetadata(fillSnapshot + orders)
                 fillPreview.enqueue(fillTracker.ingest(fillSnapshot + orders))
             }
             opportunities.synchronizeEntries(orders: orders)
@@ -582,7 +584,7 @@ struct OrdersView: View {
             }
             ForEach(history ? store.filledOrders : store.orders) { order in
                 NavigationLink {
-                    if history { Form { Text(order.name); Text("\(order.expiration ?? "") · \(money(order.strike)) \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Action", value: order.fill_action ?? order.action ?? "—"); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: order.commissionLabel); LabeledContent("Average fill price", value: money(order.fillPrice)); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
+                    if history { Form { Text(order.name); Text("\(order.expiration ?? "") · \(money(order.strike)) \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Action", value: order.fill_action ?? order.action ?? "—"); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: order.commissionLabel); if order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: order) } }; LabeledContent("Average fill price", value: money(order.fillPrice)); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
                     else { OrderDetail(initial: order) }
                 } label: {
                     VStack(alignment: .leading, spacing: 8) {
@@ -596,6 +598,9 @@ struct OrdersView: View {
                             Text("\((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—") shares").font(.caption).foregroundStyle(.secondary)
                         } else {
                             Text("\(order.expiration ?? "") · \(money(order.strike)) · Qty \((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—") · \(order.tif ?? (order.intent == "CLOSE" ? "GTC" : "DAY"))").font(.caption).foregroundStyle(.secondary)
+                        }
+                        if history && order.intent == "CLOSE" && order.hasFill {
+                            HStack { Text("Realized P&L"); Spacer(); RealizedProfit(order: order) }.font(.subheadline)
                         }
                         if order.external_ib == true { Text("IB managed").font(.caption).foregroundStyle(.secondary) }
                         if order.isRollover == true { Text("Rollover leg · independent order").font(.caption).foregroundStyle(.orange) }

@@ -805,7 +805,7 @@ class OptionsService:
                 "filled": result.get('filled', 0),
                 "remaining": result.get('remaining', quantity),
                 "avg_fill_price": result.get('avg_fill_price', 0),
-                **{key: result.get(key) for key in ('fill_time', 'fill_action', 'commission', 'commission_currency')}
+                **{key: result.get(key) for key in ('fill_time', 'fill_action', 'commission', 'commission_currency', 'realized_pnl')}
             }
 
             tracked = db.update_order_status(
@@ -1428,6 +1428,7 @@ class OptionsService:
                                 "avg_fill_price": ib_status.get('avg_fill_price', 0),
                                 "commission": ib_status.get('commission'),
                                 "commission_currency": ib_status.get('commission_currency'),
+                                "realized_pnl": ib_status.get('realized_pnl'),
                                 "fill_time": ib_status.get('fill_time'),
                                 "fill_action": ib_status.get('fill_action'),
                                 "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
