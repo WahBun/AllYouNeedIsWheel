@@ -60,7 +60,7 @@ class IBConnection:
     """
     def __init__(
         self, host='127.0.0.1', port=7497, client_id=1, timeout=20,
-        readonly=True, account_id=None, order_preflight_timeout=10, execution_timezone=None
+        readonly=True, account_id=None, order_preflight_timeout=10, execution_timezone=None, execution_diagnostic_order_ref=None
     ):
         """
         Initialize the IB connection
@@ -85,6 +85,10 @@ class IBConnection:
         self.ib = IB()
         if execution_timezone:
             self.ib.TimezoneTWS = execution_timezone
+        if execution_diagnostic_order_ref:
+            from core.execution_diagnostics import install_execution_time_diagnostic
+            install_execution_time_diagnostic(
+                self.ib, account_id, execution_diagnostic_order_ref, logger)
         self._connected = False
         self._qualified_stock_cache = {}
         self._qualified_option_cache = {}

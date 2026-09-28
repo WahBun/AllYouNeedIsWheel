@@ -31,7 +31,8 @@ class IBConnectionManager:
             config.get('account_id'),
             float(config.get('order_preflight_timeout', 10)),
             float(config.get('timeout', 20)),
-            config.get('execution_timezone') or None
+            config.get('execution_timezone') or None,
+            config.get('execution_diagnostic_order_ref') or None
         )
 
     def get_connection(self, config):
@@ -53,11 +54,12 @@ class IBConnectionManager:
                 self._connection_key = key
                 self._retry_after = 0.0
             if self._connection is None:
-                host, port, client_id, readonly, account_id, preflight, timeout, execution_timezone = key
+                host, port, client_id, readonly, account_id, preflight, timeout, execution_timezone, diagnostic_ref = key
                 self._connection = self._connection_factory(
                     host=host, port=port, client_id=client_id, timeout=timeout,
                     readonly=readonly, account_id=account_id,
-                    order_preflight_timeout=preflight, execution_timezone=execution_timezone)
+                    order_preflight_timeout=preflight, execution_timezone=execution_timezone,
+                    execution_diagnostic_order_ref=diagnostic_ref)
             # One attempt per request, including recovery of an existing session.
             try:
                 connected = self._connection.connect()
