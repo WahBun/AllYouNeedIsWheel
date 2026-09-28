@@ -72,6 +72,8 @@ struct Order: Decodable, Identifiable {
         parser.formatOptions = [.withInternetDateTime]
         guard let date = fractional ?? parser.date(from: fill_time) else { return "—" }
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "America/New_York")
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss zzz"
         return formatter.string(from: date)
     }
@@ -115,6 +117,7 @@ final class WheelStore {
     var ordersUpdated: Date?
     var error: String?
     var updated: Date?
+    var fillPreview = FillPreview()
     var trading = TradingSession()
     var opportunities = OpportunityBook()
     var selectedTab = "settings"
@@ -243,7 +246,7 @@ final class WheelStore {
             if token == revision, version == trading.version, !Task.isCancelled { filledError = connectionMessage(error) }
         }
     }
-    func changeMode() { revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
+    func changeMode() { fillPreview.clear(); revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
 }
 
 func connectionMessage(_ error: Error) -> String {
@@ -299,6 +302,7 @@ struct RootView: View {
             NavigationStack(path: $ordersPath) { OrdersView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Orders", locale: appLocale), systemImage: "list.bullet.rectangle") }.tag("orders")
             NavigationStack { SettingsView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Settings", locale: appLocale), systemImage: "gearshape") }.tag("settings")
         }
+        .modifier(FillBannerOverlay(preview: store.fillPreview))
         .tint(.teal)
         .environment(\.locale, Locale(identifier: appLanguage == "system" ? (Locale.preferredLanguages.first ?? "en") : appLanguage))
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
@@ -686,6 +690,13 @@ struct SettingsView: View {
                     }
                 }.disabled(draft.isEmpty || connecting)
                 if let error = store.error { Text(error).font(.footnote).foregroundStyle(.orange) }
+            }
+            if store.demo {
+                Section("Fill notification preview") {
+                    Button("Preview fill notifications", systemImage: "bell.badge") { store.fillPreview.start() }
+                    Text("Switch to any tab: a partial fill appears after 3 seconds, followed by a full fill after 11 seconds.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             }
             Section("Remote maintenance") {
                 NavigationLink { RemoteMaintenanceView() } label: {
