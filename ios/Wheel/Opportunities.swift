@@ -494,13 +494,19 @@ struct OpportunitiesView: View {
                     .help("Restore hidden opportunity tickers")
             }
         }
-        .refreshable { await book.refreshAll(type: type, store: store) }
+        .refreshable {
+            _ = await book.refreshPrices(symbols, type: type, store: store)
+            await book.refreshAll(type: type, store: store)
+        }
         .onAppear { visible = true }
         .onDisappear { visible = false }
         .task(id: "prices-\(autoRefresh)-\(store.demo)-\(store.address)-\(type)") {
             guard autoRefresh, !store.demo else { return }
+            var lastSample = Date.distantPast
             await RefreshLoop.run {
-                guard await book.allowsAutomaticRefresh(store) else { return false }
+                let marketOpen = await book.allowsAutomaticRefresh(store)
+                guard marketOpen || Date().timeIntervalSince(lastSample) >= 30 else { return false }
+                lastSample = Date()
                 return await book.refreshPrices(book.symbols(store, type: type), type: type, store: store)
             }
         }
