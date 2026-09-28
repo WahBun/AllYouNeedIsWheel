@@ -223,12 +223,13 @@ final class TradingSession {
     }
     var uncertain = UserDefaults.standard.bool(forKey: "unresolvedTradingWrite")
     var demoOrders = [Order(id: 1, ticker: "TSLL", action: "BUY", option_type: "PUT", strike: 9, expiration: "20261016", premium: 0.01, quantity: 1, status: "pending", tif: "GTC", intent: "CLOSE")]
+    private let metadataCache = ContractMetadataCache()
     private let session: URLSession
     init(session: URLSession? = nil) {
         self.session = session ?? URLSession(configuration: .ephemeral, delegate: NoRedirect(), delegateQueue: nil)
     }
     private var nextDemoID = 2
-    func resetContext() { message = nil; acknowledgedMessage = false }
+    func resetContext() { message = nil; acknowledgedMessage = false; metadataCache.clear() }
     func acknowledgeReview() {
         uncertain = false
         UserDefaults.standard.set(false, forKey: "unresolvedTradingWrite")
@@ -240,7 +241,10 @@ final class TradingSession {
         components.queryItems = query.isEmpty ? nil : query
         var request = URLRequest(url: components.url!, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         request.httpMethod = "GET"
-        return try await send(request)
+        let metadataRequest = request
+        return try await metadataCache.load(components.url!) { [self] in
+            try await send(metadataRequest)
+        }
     }
 
     func synchronizedOrders(base: String) async throws -> Orders {

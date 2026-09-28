@@ -356,8 +356,8 @@ final class OpportunityBook {
             added = true
         }
         if added, token == generation {
+            store.selectedTab = "orders"
             await store.refreshOrders()
-            if token == generation { store.selectedTab = "orders" }
         }
     }
 }
@@ -676,15 +676,6 @@ struct OpportunityDetail: View {
             strikesLoading = true
             defer { strikesLoading = false }
             do {
-                let cacheKey = key + ":" + preference.expiration
-                if let cached = book.strikeLists[cacheKey], Date().timeIntervalSince(cached.date) < 1800 {
-                    strikes = cached.values
-                    return
-                }
-                // Let the initial quote finish before requesting contract metadata.
-                while row.loading || book.loading {
-                    try await Task.sleep(for: .milliseconds(100))
-                }
                 try Task.checkCancellation()
                 let next: [Double]
                 if store.demo { next = ticker == "TSLL" ? Array(1...30).map(Double.init) : stride(from: 50.0, through: 150.0, by: 5).map { $0 } }
@@ -695,7 +686,6 @@ struct OpportunityDetail: View {
                 guard !Task.isCancelled else { return }
                 strikes = next.filter { $0.isFinite && $0 > 0 }
                 if strikes.isEmpty { strikeError = "No matching option quote." }
-                if !strikes.isEmpty { book.strikeLists[cacheKey] = (strikes, Date()) }
             } catch {
                 guard !Task.isCancelled else { return }
                 strikeError = connectionMessage(error)

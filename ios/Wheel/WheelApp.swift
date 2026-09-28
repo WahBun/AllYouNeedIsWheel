@@ -306,7 +306,7 @@ struct RootView: View {
         .onChange(of: "\(store.demo)-\(store.address)") {
             portfolioPath = NavigationPath(); ordersPath = NavigationPath(); tradePath = NavigationPath()
         }
-        .task(id: "\(phase)-\(store.demo)-\(store.address)-\(store.selectedTab)") {
+        .task(id: "\(phase)-\(store.demo)-\(store.address)") {
             guard phase == .active else { return }
             await RefreshLoop.run {
                 if RefreshLoop.shouldRefreshPortfolio(tab: store.selectedTab, hasPortfolio: store.portfolio != nil,
@@ -317,7 +317,7 @@ struct RootView: View {
                 return store.error != nil
             }
         }
-        .task(id: "orders-\(phase)-\(store.demo)-\(store.address)-\(store.selectedTab)-\(String(describing: store.opportunities.marketOpen))") {
+        .task(id: "orders-\(phase)-\(store.demo)-\(store.address)") {
             guard phase == .active else { return }
             await RefreshLoop.run {
                 if store.selectedTab != "trade" || Date().timeIntervalSince(store.ordersUpdated ?? .distantPast) >= 10 {
