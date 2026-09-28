@@ -3248,6 +3248,310 @@
           }
         }
       }
+    },
+    "Remote maintenance" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remote maintenance"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程维护"
+          }
+        }
+      }
+    },
+    "Mini screen sharing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mini screen sharing"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mini 屏幕共享"
+          }
+        }
+      }
+    },
+    "Screen sharing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Screen sharing"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "屏幕共享"
+          }
+        }
+      }
+    },
+    "Open screen sharing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open screen sharing"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开屏幕共享"
+          }
+        }
+      }
+    },
+    "Copied" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copied"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已复制"
+          }
+        }
+      }
+    },
+    "Copy connection address" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy connection address"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制连接地址"
+          }
+        }
+      }
+    },
+    "Save your Mini HTTPS backend address in Settings first." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save your Mini HTTPS backend address in Settings first."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先在设置中保存 Mini 的 HTTPS 后端地址。"
+          }
+        }
+      }
+    },
+    "On Mac, use Screen Sharing. On iPhone, a compatible VNC client is required; Wheel does not include a remote desktop client." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On Mac, use Screen Sharing. On iPhone, a compatible VNC client is required; Wheel does not include a remote desktop client."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac 请使用系统屏幕共享；iPhone 需要兼容的 VNC 客户端。Wheel 不内置远程桌面。"
+          }
+        }
+      }
+    },
+    "Reconnect Gateway" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reconnect Gateway"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新登录 Gateway"
+          }
+        }
+      }
+    },
+    "1. Keep Tailscale connected on both devices." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1. Keep Tailscale connected on both devices."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1. 保持两台设备的 Tailscale 已连接。"
+          }
+        }
+      }
+    },
+    "2. Sign in to screen sharing with the Mini macOS account and password, not your IB account." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2. Sign in to screen sharing with the Mini macOS account and password, not your IB account."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2. 使用 Mini 的 macOS 用户名和密码登录屏幕共享，此处不是 IB 账户。"
+          }
+        }
+      }
+    },
+    "3. In Gateway, enter your IB password and complete IB Key verification on your phone." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3. In Gateway, enter your IB password and complete IB Key verification on your phone."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3. 在 Gateway 输入 IB 密码，在手机上完成 IB Key 验证。"
+          }
+        }
+      }
+    },
+    "4. Return to Wheel and tap Connect. Closing the remote viewer does not require quitting Gateway." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4. Return to Wheel and tap Connect. Closing the remote viewer does not require quitting Gateway."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4. 返回 Wheel 点击连接。关闭远程查看窗口即可，无需退出 Gateway。"
+          }
+        }
+      }
+    },
+    "Keyboard and access" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keyboard and access"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "键盘与访问权限"
+          }
+        }
+      }
+    },
+    "If typing is incorrect, select ABC on Mini and check Caps Lock. Use Mini's Accessibility Keyboard if needed. Test ordinary text before typing a password." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If typing is incorrect, select ABC on Mini and check Caps Lock. Use Mini's Accessibility Keyboard if needed. Test ordinary text before typing a password."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输入异常时，在 Mini 选择 ABC 并检查大写锁定；必要时使用 Mini 的辅助功能键盘。先用普通文字测试，再输入密码。"
+          }
+        }
+      }
+    },
+    "Mini must allow your macOS account to observe and control the screen. Use Standard sharing; no public port forwarding is needed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mini must allow your macOS account to observe and control the screen. Use Standard sharing; no public port forwarding is needed."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mini 必须允许你的 macOS 账户观察和控制屏幕。使用标准共享即可，无需公网端口转发。"
+          }
+        }
+      }
+    },
+    "Wheel does not store remote desktop or IB passwords." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wheel does not store remote desktop or IB passwords."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wheel 不保存远程桌面或 IB 密码。"
+          }
+        }
+      }
+    },
+    "No compatible screen sharing app" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No compatible screen sharing app"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有兼容的屏幕共享应用"
+          }
+        }
+      }
+    },
+    "Copy the connection address into your VNC client, or use Screen Sharing on your Mac." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy the connection address into your VNC client, or use Screen Sharing on your Mac."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请将连接地址复制到 VNC 客户端，或使用 Mac 的系统屏幕共享。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

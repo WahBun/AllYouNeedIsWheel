@@ -687,6 +687,11 @@ struct SettingsView: View {
                 }.disabled(draft.isEmpty || connecting)
                 if let error = store.error { Text(error).font(.footnote).foregroundStyle(.orange) }
             }
+            Section("Remote maintenance") {
+                NavigationLink { RemoteMaintenanceView() } label: {
+                    Label("Mini screen sharing", systemImage: "desktopcomputer")
+                }
+            }
             Section("Appearance") {
                 Picker("Language", selection: $appLanguage) {
                     Text("System").tag("system")
