@@ -85,6 +85,8 @@ class IBConnection:
         self.ib = IB()
         if execution_timezone:
             self.ib.TimezoneTWS = execution_timezone
+        from core.execution_time import install_execution_utc_format
+        install_execution_utc_format(self.ib)
         if execution_diagnostic_order_ref:
             from core.execution_diagnostics import install_execution_time_diagnostic
             install_execution_time_diagnostic(
