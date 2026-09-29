@@ -1142,12 +1142,22 @@ class IBConnection:
         if mid is not None:
             spread_percent = ((ask - bid) / mid) * 100
 
+        greeks = getattr(ticker, 'modelGreeks', None)
+        delta = getattr(greeks, 'delta', None)
+        if not isinstance(delta, (int, float)) or not -1 <= delta <= 1:
+            delta = None
+        iv = self._valid_price(getattr(ticker, 'impliedVolatility', None))
+        if iv is None:
+            iv = self._valid_price(getattr(greeks, 'impliedVol', None))
+
         position.update({
             'bid': bid,
             'ask': ask,
             'last': last,
             'mid': mid,
             'spread_percent': spread_percent,
+            'delta': delta,
+            'implied_volatility': iv * 100 if iv is not None else None,
             'is_frozen': is_frozen,
             'quote_time': datetime.now().isoformat(timespec='seconds')
         })

@@ -226,6 +226,8 @@ class PortfolioService:
                 'last': position.get('last'),
                 'mid': position.get('mid'),
                 'spread_percent': position.get('spread_percent'),
+                'delta': position.get('delta'),
+                'implied_volatility': position.get('implied_volatility'),
                 'is_frozen': position.get('is_frozen', False),
                 'quote_time': position.get('quote_time')
             }

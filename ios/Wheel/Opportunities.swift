@@ -532,12 +532,21 @@ struct OpportunityMetrics: View {
         }.font(.caption).monospacedDigit()
     }
     @ViewBuilder private var metrics: some View {
+        delta
+        spread
+        iv
+    }
+    private var spread: some View {
         SpreadValue(percentage: quote.spread)
             .accessibilityLabel(Text("Spread"))
             .accessibilityValue(quote.spread.map { String(format: "%.1f%%", $0) } ?? "—")
+    }
+    private var delta: some View {
         QuoteMetricValue(metric: .delta, value: quote.delta)
             .accessibilityLabel(Text("Delta"))
             .accessibilityValue(QuoteMetric.delta.formatted(quote.delta))
+    }
+    private var iv: some View {
         QuoteMetricValue(metric: .iv, value: quote.implied_volatility)
             .accessibilityLabel(Text("IV"))
             .accessibilityValue(QuoteMetric.iv.formatted(quote.implied_volatility))
