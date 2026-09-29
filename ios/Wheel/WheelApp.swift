@@ -408,6 +408,9 @@ struct PortfolioView: View {
                 Section(LocalizedStringKey(type == "STK" ? "Stocks" : "Options")) {
                     ForEach((store.portfolio?.positions ?? []).filter { $0.security_type == type }) { position in
                         NavigationLink { PositionDetail(position: position) } label: {
+                            if position.security_type == "OPT" {
+                                PortfolioOptionRow(position: position)
+                            } else {
                             HStack(alignment: .top) {
                                 VStack(alignment: .leading, spacing: 5) {
                                     Text(position.symbol).font(.headline)
@@ -419,6 +422,7 @@ struct PortfolioView: View {
                                     PositionPnLMeter(position: position)
                                 }
                             }.padding(.vertical, 6)
+                            }
                         }
                     }
                 }
