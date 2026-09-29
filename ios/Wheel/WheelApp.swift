@@ -461,7 +461,14 @@ struct PositionPnLMeter: View {
     @Environment(\.colorScheme) private var colorScheme
     let position: Position
     private var profitColor: Color {
-        TradingColors.profit(colorScheme)
+        colorScheme == .dark ? Color(red: 0.36, green: 0.68, blue: 1) : Color(red: 0.05, green: 0.35, blue: 0.75)
+    }
+    private var lossColor: Color {
+        colorScheme == .dark ? Color(red: 1, green: 0.57, blue: 0.28) : Color(red: 0.72, green: 0.29, blue: 0.03)
+    }
+    private var amountColor: Color {
+        guard let pnl = position.unrealized_pnl, pnl.isFinite, pnl != 0 else { return .secondary }
+        return pnl > 0 ? profitColor : lossColor
     }
     private var percentage: Double? {
         guard let cost = position.avg_cost, let pnl = position.unrealized_pnl else { return nil }
@@ -483,7 +490,7 @@ struct PositionPnLMeter: View {
                     let width = half * min(abs(percentage), 100) / 100
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.secondary.opacity(0.18))
-                        Capsule().fill(percentage >= 0 ? profitColor : .red)
+                        Capsule().fill(percentage >= 0 ? profitColor : lossColor)
                             .frame(width: width)
                             .offset(x: percentage >= 0 ? half : half - width)
                         Rectangle().fill(Color.secondary.opacity(0.6))
@@ -496,13 +503,13 @@ struct PositionPnLMeter: View {
     private var amount: some View {
         Text(money(position.unrealized_pnl))
             .font(.caption).monospacedDigit()
-            .foregroundStyle((position.unrealized_pnl ?? 0) >= 0 ? profitColor : .red)
+            .foregroundStyle(amountColor)
     }
     @ViewBuilder private var returnRate: some View {
         if let percentage {
             Text(percentage.formatted(.number.precision(.fractionLength(1)).sign(strategy: .always())) + "%")
                 .font(.caption2).monospacedDigit()
-                .foregroundStyle(percentage == 0 ? Color.secondary : (percentage > 0 ? profitColor : Color.red).opacity(0.8))
+                .foregroundStyle(percentage == 0 ? Color.secondary : (percentage > 0 ? profitColor : lossColor).opacity(0.8))
         }
     }
 }
