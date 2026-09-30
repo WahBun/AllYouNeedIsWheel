@@ -565,7 +565,7 @@ final class TradingTests: XCTestCase {
         XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: true, age: 60))
         XCTAssertFalse(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: true, age: 60, quotesLoading: true))
         XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: "portfolio", hasPortfolio: true))
-        XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: "orders", hasPortfolio: true))
+        XCTAssertFalse(RefreshLoop.shouldRefreshPortfolio(tab: "orders", hasPortfolio: true))
     }
     func testDailyChangeUsesPreviousCloseAndRejectsMissingBaseline() {
         XCTAssertEqual(TradingMath.dailyChange(price: 102, close: 100)!, 2, accuracy: 0.0001)

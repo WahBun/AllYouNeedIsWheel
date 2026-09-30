@@ -3,6 +3,19 @@ import XCTest
 
 @MainActor
 final class InteractionPerformanceTests: XCTestCase {
+    func testHiddenPortfolioRefreshBudget() {
+        for tab in ["settings", "orders", "trade"] {
+            let reads = stride(from: 0.0, to: 60.0, by: 2.0).filter {
+                RefreshLoop.shouldRefreshPortfolio(tab: tab, hasPortfolio: true, age: $0)
+            }
+            XCTAssertTrue(reads.isEmpty)
+            XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: tab, hasPortfolio: true, age: 60))
+            XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: tab, hasPortfolio: false))
+        }
+        XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: "portfolio", hasPortfolio: true, age: 0))
+        XCTAssertFalse(RefreshLoop.shouldRefreshPortfolio(tab: "trade", hasPortfolio: true, age: 60, quotesLoading: true))
+    }
+
     func testTradingReadsUseCacheOnlyForContractLists() async throws {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockProtocol.self]

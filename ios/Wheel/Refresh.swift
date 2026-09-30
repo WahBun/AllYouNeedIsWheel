@@ -3,7 +3,10 @@ import Observation
 
 enum RefreshLoop {
     static func shouldRefreshPortfolio(tab: String, hasPortfolio: Bool, age: TimeInterval = 0, quotesLoading: Bool = false) -> Bool {
-        tab != "trade" || !hasPortfolio || (age >= 60 && !quotesLoading)
+        if !hasPortfolio || tab == "portfolio" { return true }
+        // Hidden holdings need only a periodic summary refresh. Keep the separate
+        // order loop running so fills are still detected on every tab.
+        return age >= 60 && (tab != "trade" || !quotesLoading)
     }
     static func delay(elapsed: TimeInterval, failed: Bool) -> TimeInterval {
         failed ? 10 : max(0.25, 2 - elapsed)
