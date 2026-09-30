@@ -461,7 +461,7 @@ struct PositionPnLMeter: View {
     @Environment(\.colorScheme) private var colorScheme
     let position: Position
     private var profitColor: Color {
-        colorScheme == .dark ? Color(red: 0.70, green: 0.52, blue: 1) : Color(red: 0.43, green: 0.20, blue: 0.76)
+        colorScheme == .dark ? Color(red: 1, green: 0.88, blue: 0.25) : Color(red: 0.55, green: 0.39, blue: 0.00)
     }
     private var lossColor: Color {
         colorScheme == .dark ? Color(red: 1, green: 0.32, blue: 0.82) : Color(red: 0.70, green: 0.08, blue: 0.46)
