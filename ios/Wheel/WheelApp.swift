@@ -461,10 +461,10 @@ struct PositionPnLMeter: View {
     @Environment(\.colorScheme) private var colorScheme
     let position: Position
     private var profitColor: Color {
-        colorScheme == .dark ? Color(red: 1, green: 0.88, blue: 0.25) : Color(red: 0.55, green: 0.39, blue: 0.00)
+        Color(red: 57.0 / 255, green: 1, blue: 20.0 / 255)
     }
     private var lossColor: Color {
-        colorScheme == .dark ? Color(red: 1, green: 0.32, blue: 0.82) : Color(red: 0.70, green: 0.08, blue: 0.46)
+        Color(red: 1, green: 94.0 / 255, blue: 94.0 / 255)
     }
     private var amountColor: Color {
         guard let pnl = position.unrealized_pnl, pnl.isFinite, pnl != 0 else { return .secondary }
