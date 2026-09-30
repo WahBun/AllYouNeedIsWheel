@@ -905,26 +905,34 @@ struct SettingsView: View {
                                 Image(systemName: store.isConnected(to: draft) ? "checkmark.circle.fill" : "link")
                                     .font(.title3.weight(.semibold))
                             }
-                        }.frame(width: 26).accessibilityHidden(true)
+                        }
+                        .frame(width: 36, height: 36)
+                        .background(.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        .overlay { RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(.white.opacity(0.3), lineWidth: 0.5) }
+                        .accessibilityHidden(true)
                         Text(LocalizedStringKey(connecting ? "Connecting…" : store.isConnected(to: draft) ? "CONNECTED" : "Connect"))
                             .font(.headline)
                         Spacer(minLength: 8)
-                        Image(systemName: "arrow.up.right")
-                            .font(.subheadline.weight(.bold)).accessibilityHidden(true)
                     }
                     .foregroundStyle(Color.black.opacity(0.85))
                     .padding(.horizontal, 18)
-                    .padding(.vertical, 16)
-                    .frame(maxWidth: .infinity, minHeight: 54)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, minHeight: 60)
                     .background {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .fill(LinearGradient(colors: [Color(red: 0.40, green: 0.94, blue: 0.89), Color(red: 0.25, green: 0.73, blue: 0.98)], startPoint: .topLeading, endPoint: .bottomTrailing))
                     }
                     .overlay {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(.white.opacity(0.3), lineWidth: 1)
+                            .fill(LinearGradient(colors: [.white.opacity(0.18), .clear], startPoint: .top, endPoint: .center))
+                            .allowsHitTesting(false)
                     }
-                    .shadow(color: .cyan.opacity(draft.isEmpty ? 0 : 0.18), radius: 8, y: 3)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(LinearGradient(colors: [.white.opacity(0.6), .white.opacity(0.10)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+                            .allowsHitTesting(false)
+                    }
+                    .shadow(color: .cyan.opacity(draft.isEmpty ? 0 : 0.20), radius: 10, y: 4)
                     .opacity(draft.isEmpty ? 0.45 : connecting ? 0.75 : 1)
                     .contentShape(RoundedRectangle(cornerRadius: 16))
                 }.buttonStyle(.plain)
