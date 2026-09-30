@@ -616,8 +616,13 @@ struct OpportunityDetail: View {
                     LabeledContent("IV") { QuoteMetricValue(metric: .iv, value: quote.implied_volatility) }
                     if let updated = row.updated { LabeledContent("Retrieved", value: updated.formatted(.dateTime.hour().minute().second())) }
                     Text(LocalizedStringKey(store.demo ? "Demo quote" : store.portfolio?.summary.is_frozen == true ? "Frozen portfolio · verify quote" : "Snapshot quote · verify before execution")).font(.caption).foregroundStyle(.secondary)
-                    PriceInput(title: "Limit per share", text: Binding(get: { row.price }, set: { book.rows[key]?.price = $0; book.rows[key]?.manualPrice = true }))
-                    Button("Use mid", systemImage: "equal") { book.rows[key]?.price = quote.mid.map { String(format: "%.2f", $0) } ?? ""; book.rows[key]?.manualPrice = true }.disabled(quote.mid == nil)
+                    HStack(spacing: 16) {
+                        PriceInput(title: "Limit per share", text: Binding(get: { row.price }, set: { book.rows[key]?.price = $0; book.rows[key]?.manualPrice = true }))
+                        Button("Use mid", systemImage: "equal") {
+                            book.rows[key]?.price = quote.mid.map { String(format: "%.2f", $0) } ?? ""
+                            book.rows[key]?.manualPrice = true
+                        }.buttonStyle(.borderless).fixedSize(horizontal: true, vertical: false).disabled(quote.mid == nil)
+                    }
                     Stepper("Contracts: \(row.quantity)", value: Binding(get: { row.quantity }, set: { value in
                         book.rows[key]?.quantity = value; var pref = preference; pref.quantity = value; book.preferences[key] = pref; book.save()
                     }), in: 1...max(1, min(100, type == "CALL" ? row.capacity : 100)))
