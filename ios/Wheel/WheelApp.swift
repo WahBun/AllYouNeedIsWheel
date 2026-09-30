@@ -919,7 +919,7 @@ struct SettingsView: View {
                             GildedConnectionLabel(active: store.selectedTab == "settings")
                         } else {
                             Text(LocalizedStringKey(connecting ? "Connecting…" : "Connect"))
-                                .font(.headline)
+                                .font(.system(.headline, design: .default, weight: .bold))
                         }
                         Spacer(minLength: 8)
                     }
@@ -1017,7 +1017,7 @@ private struct GildedConnectionLabel: View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !active || phase != .active || reduceMotion)) { context in
             let progress = reduceMotion ? 0.5 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
             Text("CONNECTED")
-                .font(.headline.weight(.bold))
+                .font(.system(.headline, design: .monospaced, weight: .regular))
                 .foregroundStyle(Color(red: 0.34, green: 0.16, blue: 0.02))
                 .overlay {
                     GeometryReader { geometry in
@@ -1025,7 +1025,7 @@ private struct GildedConnectionLabel: View {
                             .frame(width: geometry.size.width * 0.7)
                             .offset(x: geometry.size.width * (progress * 1.7 - 0.7))
                     }
-                    .mask(Text("CONNECTED").font(.headline.weight(.bold)))
+                    .mask(Text("CONNECTED").font(.system(.headline, design: .monospaced, weight: .regular)))
                     .accessibilityHidden(true)
                     .allowsHitTesting(false)
                 }
