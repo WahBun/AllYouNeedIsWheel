@@ -1014,7 +1014,7 @@ private struct GildedConnectionLabel: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var lettering: some View {
-        Text(verbatim: "𝓢𝓾𝓬𝓬𝓮𝓼𝓼𝓯𝓾𝓵🎉🎉")
+        Text(verbatim: "𝓢𝓾𝓬𝓬𝓮𝓼𝓼𝓯𝓾𝓵")
             .font(.system(.headline, design: .default, weight: .regular))
             .lineLimit(1).minimumScaleFactor(0.7)
     }
@@ -1031,7 +1031,7 @@ private struct GildedConnectionLabel: View {
                                     .offset(x: geometry.size.width * (progress * 1.7 - 0.7))
                             }
                         }
-                        // Mask both text and emoji so the entire label shares the gold finish.
+                        // Mask the lettering with the gold finish.
                         .mask(lettering)
                         .allowsHitTesting(false)
                 }
