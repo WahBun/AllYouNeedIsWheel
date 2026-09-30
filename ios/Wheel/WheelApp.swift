@@ -923,7 +923,8 @@ struct SettingsView: View {
                         Spacer(minLength: 8)
                     }
                     .foregroundStyle(Color.black.opacity(0.85))
-                    .padding(.horizontal, 18)
+                    .padding(.leading, 12)
+                    .padding(.trailing, 18)
                     .padding(.vertical, 12)
                     .frame(maxWidth: .infinity, minHeight: 60)
                     .background {
