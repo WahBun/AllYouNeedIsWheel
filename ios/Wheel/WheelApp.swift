@@ -906,8 +906,9 @@ struct SettingsView: View {
                             if connecting {
                                 ProgressView().tint(Color.black.opacity(0.8))
                             } else {
-                                Image(systemName: store.isConnected(to: draft) ? "checkmark.circle.fill" : "link")
+                                Image(systemName: store.isConnected(to: draft) ? "checkmark.circle" : "link")
                                     .font(.title3.weight(.semibold))
+                                    .foregroundStyle(store.isConnected(to: draft) ? Color.white : Color.black.opacity(0.85))
                             }
                         }
                         .frame(width: 36, height: 36)
