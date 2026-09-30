@@ -480,9 +480,15 @@ struct OpportunitiesView: View {
             Section("Selected-contract estimates") {
                 LabeledContent("Premium") { PremiumValue(amount: ready.reduce(0) { $0 + ($1.total ?? 0) }) }
                 if type == "PUT" { LabeledContent("Cash required", value: money(ready.reduce(0) { $0 + ($1.quote?.strike ?? 0) * 100 * Double($1.quantity) })) }
-                Button("Stage all (\(ready.count))", systemImage: "plus.circle") {
+                Button {
                     let snapshot = ready
                     Task { await book.stageAndOpenOrders(snapshot, store: store) }
+                } label: {
+                    HStack {
+                        Text("Stage all (\(ready.count))")
+                        Spacer()
+                        Image(systemName: "plus.circle").accessibilityHidden(true)
+                    }.contentShape(Rectangle())
                 }.disabled(ready.isEmpty)
             }
             Section { TradingNotice() }
