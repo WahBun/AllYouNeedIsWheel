@@ -942,6 +942,12 @@ struct SettingsView: View {
                             .strokeBorder(LinearGradient(colors: [.white.opacity(0.6), .white.opacity(0.10)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
                             .allowsHitTesting(false)
                     }
+                    .overlay {
+                        if connecting {
+                            ConnectingGlow(active: store.selectedTab == "settings")
+                                .allowsHitTesting(false).accessibilityHidden(true)
+                        }
+                    }
                     .shadow(color: .cyan.opacity(!hasAddress ? 0 : 0.20), radius: 10, y: 4)
                     .opacity(!hasAddress ? 0.45 : connecting ? 0.75 : 1)
                     .contentShape(RoundedRectangle(cornerRadius: 16))
@@ -1023,6 +1029,20 @@ private struct GildedConnectionLabel: View {
                     .accessibilityHidden(true)
                     .allowsHitTesting(false)
                 }
+        }
+    }
+}
+
+private struct ConnectingGlow: View {
+    let active: Bool
+    @Environment(\.scenePhase) private var phase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !active || phase != .active || reduceMotion)) { context in
+            let intensity = reduceMotion ? 0.0 : (sin(context.date.timeIntervalSinceReferenceDate * .pi / 1.5) + 1) / 2
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(.white.opacity(0.15 + intensity * 0.4), lineWidth: 1.5)
+                .shadow(color: .cyan.opacity(0.1 + intensity * 0.25), radius: 3 + intensity * 5)
         }
     }
 }
