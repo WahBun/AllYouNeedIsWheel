@@ -13,9 +13,10 @@ extension EnvironmentValues {
 }
 enum DemoMetricColors {
     static func color(_ progress: Double, scheme: ColorScheme) -> Color {
+        let high: (Double, Double, Double) = (209.0 / 255.0, 196.0 / 255.0, 233.0 / 255.0)
         let stops: [(Double, Double, Double)] = scheme == .dark
-            ? [(0.44, 0.73, 1), (1, 0.84, 0.32), (209.0 / 255, 196.0 / 255, 233.0 / 255)]
-            : [(0.12, 0.36, 0.67), (0.53, 0.37, 0.02), (209.0 / 255, 196.0 / 255, 233.0 / 255)]
+            ? [(0.44, 0.73, 1), (1, 0.84, 0.32), high]
+            : [(0.12, 0.36, 0.67), (0.53, 0.37, 0.02), high]
         let value = min(1, max(0, progress)) * 2
         let index = min(1, Int(value))
         let fraction = value - Double(index)

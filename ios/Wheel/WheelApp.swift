@@ -893,10 +893,13 @@ struct SettingsView: View {
                 if let error = store.error { Text(error).font(.footnote).foregroundStyle(.orange) }
             }
             if store.demo {
-                Section("Fill notification preview") {
+                Section("Demo Test") {
                     Button("Preview fill notifications", systemImage: "bell.badge") { store.fillPreview.start() }
                     Text("Switch to any tab: a partial fill appears after 3 seconds, followed by a full fill after 11 seconds.")
                         .font(.footnote).foregroundStyle(.secondary)
+                    NavigationLink { MetricPalettePreview() } label: {
+                        Label("Demo colors", systemImage: "paintpalette")
+                    }
                 }
             }
             Section("Remote maintenance") {
@@ -923,7 +926,6 @@ struct SettingsView: View {
                     Button("I have verified the order outcome") { reviewed = true }
                 }
             }
-            if store.demo { NavigationLink("Demo colors") { MetricPalettePreview() } }
             Section("App") {
                 LabeledContent("Minimum iOS", value: "18.0")
                 LabeledContent("Trading access") { Text(LocalizedStringKey(store.demo ? "Simulated" : "Confirmation required")) }
