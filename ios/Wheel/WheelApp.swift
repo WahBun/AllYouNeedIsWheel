@@ -931,11 +931,11 @@ struct SettingsView: View {
                 }
             }
             Section("App") {
-                LabeledContent("Minimum iOS", value: "18.0")
+                LabeledContent("Minimum iOS") { Text("18.0").padding(.trailing, 20) }
                 NavigationLink { TradingAccessView() } label: {
                     LabeledContent("Trading access") { Text(verbatim: store.demo ? localizedLabel("Simulated", locale: locale) : "Live") }
                 }
-                LabeledContent("Version", value: "0.2")
+                LabeledContent("Version") { Text("0.2").padding(.trailing, 20) }
             }
         }.navigationTitle(localizedLabel("Settings", locale: locale)).onAppear { draft = store.address }
         .toolbar {
