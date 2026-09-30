@@ -871,7 +871,7 @@ struct SettingsView: View {
         @Bindable var store = store
         Form {
             Section("Connection") {
-                Toggle("Demo mode", isOn: $store.demo).onChange(of: store.demo) { store.changeMode() }
+                Toggle("Demo mode", isOn: $store.demo).tint(.teal).onChange(of: store.demo) { store.changeMode() }
                 TextField("https://your-mini.ts.net", text: $draft).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).focused($addressFocused).submitLabel(.done).onSubmit { addressFocused = false }
                 Button {
                     addressFocused = false; connecting = true
@@ -924,7 +924,7 @@ struct SettingsView: View {
                     Text("Light").tag("light")
                     Text("Dark").tag("dark")
                 }
-            }
+            }.tint(.teal)
             if store.trading.uncertain {
                 Section("Unconfirmed request") {
                     Text("Check the exact order in IB and the web app, including fills and pending orders. Clearing this lock does not cancel or resubmit anything.")
