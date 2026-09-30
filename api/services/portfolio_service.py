@@ -7,6 +7,7 @@ import logging
 from config import Config
 from api.services.connection_manager import get_shared_connection
 import traceback
+from api.services.entry_price import recorded_entry_price
 
 logger = logging.getLogger('api.services.portfolio')
 
@@ -62,6 +63,9 @@ class PortfolioService:
             'trading_class': str(getattr(contract, 'tradingClass', '') or ''),
             'multiplier': multiplier,
             'avg_cost_per_share': abs(avg_cost) / multiplier,
+            'entry_fill_price': recorded_entry_price(self.config.get('db_path'), account_id, int(getattr(contract, 'conId', 0) or 0), position,
+                symbol=str(contract.symbol), expiration=str(contract.lastTradeDateOrContractMonth),
+                strike=float(contract.strike), option_type='CALL' if contract.right == 'C' else 'PUT'),
             'account_id': account_id,
             'close_action': 'BUY' if position < 0 else 'SELL'
         }
