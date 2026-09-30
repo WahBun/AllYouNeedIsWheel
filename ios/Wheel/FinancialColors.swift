@@ -1,7 +1,13 @@
 import SwiftUI
+import UIKit
 
 enum FinancialColors {
-    static let gain = Color(red: 57.0 / 255, green: 1, blue: 20.0 / 255)
+    // Match the Trade summary premium; use a darker green on light surfaces.
+    static let gain = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.70, green: 1, blue: 0.30, alpha: 1)
+            : UIColor(red: 0.28, green: 0.46, blue: 0.02, alpha: 1)
+    })
     static let loss = Color(red: 1, green: 94.0 / 255, blue: 94.0 / 255)
 }
 private struct DemoMetricPaletteKey: EnvironmentKey { static let defaultValue = false }

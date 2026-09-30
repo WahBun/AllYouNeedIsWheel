@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct PremiumValue: View {
+    @Environment(\.customPalette) private var customPalette
     let amount: Double?
     var perSymbol = false
     @Environment(\.colorScheme) private var scheme
@@ -8,7 +9,7 @@ struct PremiumValue: View {
         if perSymbol {
             return scheme == .dark ? Color(red: 1, green: 0.70, blue: 0.81) : Color(red: 0.70, green: 0.24, blue: 0.42)
         }
-        return scheme == .dark ? Color(red: 0.70, green: 1, blue: 0.30) : Color(red: 0.28, green: 0.46, blue: 0.02)
+        return customPalette.color("gain", scheme: scheme, fallback: FinancialColors.gain)
     }
     var body: some View {
         Text(money(amount)).monospacedDigit()
