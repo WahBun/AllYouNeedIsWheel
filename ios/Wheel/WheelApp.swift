@@ -1016,8 +1016,9 @@ private struct GildedConnectionLabel: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !active || phase != .active || reduceMotion)) { context in
             let progress = reduceMotion ? 0.5 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
-            Text("CONNECTED")
-                .font(.system(.headline, design: .monospaced, weight: .regular))
+            Text(verbatim: "ℂ𝕆ℕℕ𝔼ℂ𝕋𝔼𝔻")
+                .font(.system(.headline, design: .default, weight: .regular))
+                .accessibilityLabel(Text("CONNECTED"))
                 .foregroundStyle(Color(red: 0.34, green: 0.16, blue: 0.02))
                 .overlay {
                     GeometryReader { geometry in
@@ -1025,7 +1026,7 @@ private struct GildedConnectionLabel: View {
                             .frame(width: geometry.size.width * 0.7)
                             .offset(x: geometry.size.width * (progress * 1.7 - 0.7))
                     }
-                    .mask(Text("CONNECTED").font(.system(.headline, design: .monospaced, weight: .regular)))
+                    .mask(Text(verbatim: "ℂ𝕆ℕℕ𝔼ℂ𝕋𝔼𝔻").font(.system(.headline, design: .default, weight: .regular)))
                     .accessibilityHidden(true)
                     .allowsHitTesting(false)
                 }
