@@ -914,8 +914,12 @@ struct SettingsView: View {
                         .background(.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                         .overlay { RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(.white.opacity(0.3), lineWidth: 0.5) }
                         .accessibilityHidden(true)
-                        Text(LocalizedStringKey(connecting ? "Connecting…" : store.isConnected(to: draft) ? "CONNECTED" : "Connect"))
-                            .font(.headline)
+                        if !connecting && store.isConnected(to: draft) {
+                            GildedConnectionLabel(active: store.selectedTab == "settings")
+                        } else {
+                            Text(LocalizedStringKey(connecting ? "Connecting…" : "Connect"))
+                                .font(.headline)
+                        }
                         Spacer(minLength: 8)
                     }
                     .foregroundStyle(Color.black.opacity(0.85))
@@ -993,6 +997,30 @@ struct SettingsView: View {
         .disabled(store.trading.busy || store.opportunities.batchRunning)
         .confirmationDialog("Have you verified the order in IB and the web app?", isPresented: $reviewed, titleVisibility: .visible) {
             Button("Verified · unlock trading") { store.trading.acknowledgeReview() }
+        }
+    }
+}
+
+private struct GildedConnectionLabel: View {
+    let active: Bool
+    @Environment(\.scenePhase) private var phase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !active || phase != .active || reduceMotion)) { context in
+            let progress = reduceMotion ? 0.5 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
+            Text("CONNECTED")
+                .font(.headline.weight(.bold))
+                .foregroundStyle(Color(red: 0.34, green: 0.16, blue: 0.02))
+                .overlay {
+                    GeometryReader { geometry in
+                        LinearGradient(colors: [.clear, Color(red: 0.76, green: 0.42, blue: 0.06), Color(red: 1, green: 0.87, blue: 0.48), Color(red: 0.76, green: 0.42, blue: 0.06), .clear], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: geometry.size.width * 0.7)
+                            .offset(x: geometry.size.width * (progress * 1.7 - 0.7))
+                    }
+                    .mask(Text("CONNECTED").font(.headline.weight(.bold)))
+                    .accessibilityHidden(true)
+                    .allowsHitTesting(false)
+                }
         }
     }
 }
