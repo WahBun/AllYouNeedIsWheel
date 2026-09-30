@@ -15,8 +15,8 @@ service = PerformanceService()
 
 
 def configuration():
-    path = os.environ.get('WHEEL_PERFORMANCE_CONFIG')
-    if not path:
+    path = os.environ.get('WHEEL_PERFORMANCE_CONFIG', os.path.expanduser('~/Library/Application Support/Wheel/performance/config.json'))
+    if not os.path.isfile(path):
         return {}
     with open(os.path.expanduser(path)) as source:
         return json.load(source)
