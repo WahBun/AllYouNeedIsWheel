@@ -461,7 +461,7 @@ struct PositionPnLMeter: View {
     @Environment(\.colorScheme) private var colorScheme
     let position: Position
     private var profitColor: Color {
-        colorScheme == .dark ? Color(red: 0.36, green: 0.68, blue: 1) : Color(red: 0.05, green: 0.35, blue: 0.75)
+        colorScheme == .dark ? Color(red: 0.76, green: 0.65, blue: 1) : Color(red: 0.43, green: 0.24, blue: 0.72)
     }
     private var lossColor: Color {
         colorScheme == .dark ? Color(red: 1, green: 0.57, blue: 0.28) : Color(red: 0.72, green: 0.29, blue: 0.03)
@@ -483,20 +483,6 @@ struct PositionPnLMeter: View {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 6) { amount; returnRate }
                 VStack(alignment: .trailing, spacing: 3) { amount; returnRate }
-            }
-            if let percentage {
-                GeometryReader { geometry in
-                    let half = geometry.size.width / 2
-                    let width = half * min(abs(percentage), 100) / 100
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.secondary.opacity(0.18))
-                        Capsule().fill(percentage >= 0 ? profitColor : lossColor)
-                            .frame(width: width)
-                            .offset(x: percentage >= 0 ? half : half - width)
-                        Rectangle().fill(Color.secondary.opacity(0.6))
-                            .frame(width: 1, height: 7).offset(x: half - 0.5)
-                    }
-                }.frame(width: 112, height: 4).accessibilityHidden(true)
             }
         }
     }
