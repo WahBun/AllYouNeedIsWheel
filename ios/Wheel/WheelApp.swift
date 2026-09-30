@@ -326,7 +326,7 @@ struct RootView: View {
             NavigationStack { SettingsView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Settings", locale: appLocale), systemImage: "gearshape") }.tag("settings")
         }
         .modifier(FillBannerOverlay(preview: store.fillPreview))
-        .environment(\.demoMetricPalette, store.demo)
+        .environment(\.demoMetricPalette, true)
         .onChange(of: phase) { if phase != .active { store.fillPreview.clear() } }
         .tint(.teal)
         .environment(\.locale, Locale(identifier: appLanguage == "system" ? (Locale.preferredLanguages.first ?? "en") : appLanguage))
