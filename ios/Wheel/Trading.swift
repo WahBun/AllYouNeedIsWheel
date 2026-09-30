@@ -570,8 +570,13 @@ struct CloseTicket: View {
             }
             Section {
                 Button("Refresh quote", systemImage: "arrow.clockwise") { Task { await load() } }.disabled(loading)
-                Button(LocalizedStringKey(staged ? "Staged in Orders" : "Stage close order"), systemImage: "plus.circle") { confirm = true }
-                    .disabled(!state.valid || staged)
+                Button { confirm = true } label: {
+                    HStack {
+                        Text(LocalizedStringKey(staged ? "Staged in Orders" : "Stage close order"))
+                        Spacer()
+                        Image(systemName: "plus.circle").accessibilityHidden(true)
+                    }.contentShape(Rectangle())
+                }.disabled(!state.valid || staged)
                 TradingNotice()
             }
         }.navigationTitle(localizedLabel("Close", locale: locale))

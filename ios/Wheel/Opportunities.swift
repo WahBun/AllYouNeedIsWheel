@@ -634,9 +634,15 @@ struct OpportunityDetail: View {
                     if type == "PUT" { LabeledContent("Cash required", value: money(quote.strike * 100 * Double(row.quantity))) }
                     LabeledContent("Annualized premium estimate", value: money(row.total.flatMap { TradingMath.annualized(premium: $0, expiration: quote.expiration) }))
                     LabeledContent("Time in force", value: "DAY")
-                    Button(LocalizedStringKey(row.staged ? "Staged in Orders" : "Stage entry"), systemImage: "plus.circle") {
+                    Button {
                         let snapshot = row
                         Task { await book.stageAndOpenOrders([snapshot], store: store) }
+                    } label: {
+                        HStack {
+                            Text(LocalizedStringKey(row.staged ? "Staged in Orders" : "Stage entry"))
+                            Spacer()
+                            Image(systemName: "plus.circle").accessibilityHidden(true)
+                        }.contentShape(Rectangle())
                     }.disabled(!row.canStage)
                 }
             }
