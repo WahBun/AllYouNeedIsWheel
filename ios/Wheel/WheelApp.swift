@@ -909,17 +909,23 @@ struct SettingsView: View {
                 }
             }
             Section("Appearance") {
-                Picker("Language", selection: $appLanguage) {
+                Picker(selection: $appLanguage) {
                     Text("System").tag("system")
                     Text(verbatim: "English").tag("en")
                     Text(verbatim: "简体中文").tag("zh-Hans")
                     Text(verbatim: "繁體中文").tag("zh-Hant")
+                } label: {
+                    Image(systemName: "globe").frame(width: 24).accessibilityLabel(Text("Language"))
                 }
-                Picker("Theme", selection: $appearance) {
+                .accessibilityLabel(Text("Language"))
+                Picker(selection: $appearance) {
                     Text("System").tag("system")
                     Text("Light").tag("light")
                     Text("Dark").tag("dark")
+                } label: {
+                    Image(systemName: "circle.lefthalf.filled").frame(width: 24).accessibilityLabel(Text("Theme"))
                 }
+                .accessibilityLabel(Text("Theme"))
                 NavigationLink { MetricPalettePreview() } label: {
                     Label("Custom colors", systemImage: "paintpalette")
                 }
