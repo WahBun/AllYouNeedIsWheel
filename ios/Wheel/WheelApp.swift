@@ -871,9 +871,13 @@ struct SettingsView: View {
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("appLanguage") private var appLanguage = "system"
     @Environment(WheelStore.self) private var store
-    @State private var draft = ""
+    @State private var draft = "https://"
     @State private var reviewed = false
     @State private var connecting = false
+    private var hasAddress: Bool {
+        let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !value.isEmpty && value != "https://"
+    }
     @FocusState private var addressFocused: Bool
     var body: some View {
         @Bindable var store = store
@@ -932,12 +936,12 @@ struct SettingsView: View {
                             .strokeBorder(LinearGradient(colors: [.white.opacity(0.6), .white.opacity(0.10)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
                             .allowsHitTesting(false)
                     }
-                    .shadow(color: .cyan.opacity(draft.isEmpty ? 0 : 0.20), radius: 10, y: 4)
-                    .opacity(draft.isEmpty ? 0.45 : connecting ? 0.75 : 1)
+                    .shadow(color: .cyan.opacity(!hasAddress ? 0 : 0.20), radius: 10, y: 4)
+                    .opacity(!hasAddress ? 0.45 : connecting ? 0.75 : 1)
                     .contentShape(RoundedRectangle(cornerRadius: 16))
                 }.buttonStyle(.plain)
                     .listRowSeparator(.hidden)
-                    .disabled(draft.isEmpty || connecting)
+                    .disabled(!hasAddress || connecting)
                 if let error = store.error { Text(error).font(.footnote).foregroundStyle(.orange) }
             }
             if store.demo {
@@ -982,7 +986,7 @@ struct SettingsView: View {
                 }
                 LabeledContent("Version") { Text("0.2").padding(.trailing, 20) }
             }
-        }.navigationTitle(localizedLabel("Settings", locale: locale)).onAppear { draft = store.address }
+        }.navigationTitle(localizedLabel("Settings", locale: locale)).onAppear { draft = store.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "https://" : store.address }
         .toolbar {
             if addressFocused { ToolbarItem(placement: .topBarTrailing) { Button("Done") { addressFocused = false } } }
         }
