@@ -65,7 +65,6 @@ struct MetricPalettePreview: View {
                         Circle().fill(palette.color("accent", scheme: scheme, fallback: scheme == .dark ? Color(red: 0.93, green: 0.92, blue: 0.89) : Color(red: 0.27, green: 0.28, blue: 0.30)))
                             .frame(width: 24, height: 24)
                             .overlay(Circle().stroke(.secondary.opacity(0.4), lineWidth: 1))
-                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     }.frame(minHeight: 44).contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
