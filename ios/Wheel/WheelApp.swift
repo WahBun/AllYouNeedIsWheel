@@ -379,6 +379,7 @@ struct StatusView: View {
 }
 
 struct PortfolioView: View {
+    @Environment(\.locale) private var locale
     @Environment(WheelStore.self) private var store
     var body: some View {
         List {
@@ -436,7 +437,7 @@ struct PortfolioView: View {
                 }
             }
             if store.portfolio == nil && !store.busy { ContentUnavailableView("No portfolio", systemImage: "chart.pie", description: Text("Connect your backend in Settings.")) }
-        }.navigationTitle("Wheel").refreshable { await store.refresh() }
+        }.navigationTitle(localizedLabel("Portfolio", locale: locale)).refreshable { await store.refresh() }
     }
     func metric(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) { Text(LocalizedStringKey(title)).font(.caption).foregroundStyle(.secondary); Text(value).font(.subheadline.weight(.medium)).monospacedDigit() }

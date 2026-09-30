@@ -2348,13 +2348,13 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "持仓"
+            "value" : "投资组合"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "持倉"
+            "value" : "投資組合"
           }
         }
       }
