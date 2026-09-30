@@ -1013,23 +1013,30 @@ private struct GildedConnectionLabel: View {
     let active: Bool
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var lettering: some View {
+        Text(verbatim: "𝓢𝓾𝓬𝓬𝓮𝓼𝓼𝓯𝓾𝓵🎉🎉")
+            .font(.system(.headline, design: .default, weight: .regular))
+            .lineLimit(1).minimumScaleFactor(0.7)
+    }
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !active || phase != .active || reduceMotion)) { context in
             let progress = reduceMotion ? 0.5 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
-            Text(verbatim: "ℂ𝕆ℕℕ𝔼ℂ𝕋𝔼𝔻")
-                .font(.system(.headline, design: .default, weight: .regular))
-                .accessibilityLabel(Text("CONNECTED"))
-                .foregroundStyle(Color(red: 0.34, green: 0.16, blue: 0.02))
+            lettering.hidden()
                 .overlay {
-                    GeometryReader { geometry in
-                        LinearGradient(colors: [.clear, Color(red: 0.76, green: 0.42, blue: 0.06), Color(red: 1, green: 0.87, blue: 0.48), Color(red: 0.76, green: 0.42, blue: 0.06), .clear], startPoint: .leading, endPoint: .trailing)
-                            .frame(width: geometry.size.width * 0.7)
-                            .offset(x: geometry.size.width * (progress * 1.7 - 0.7))
-                    }
-                    .mask(Text(verbatim: "ℂ𝕆ℕℕ𝔼ℂ𝕋𝔼𝔻").font(.system(.headline, design: .default, weight: .regular)))
-                    .accessibilityHidden(true)
-                    .allowsHitTesting(false)
+                    Color(red: 0.34, green: 0.16, blue: 0.02)
+                        .overlay {
+                            GeometryReader { geometry in
+                                LinearGradient(colors: [.clear, Color(red: 0.76, green: 0.42, blue: 0.06), Color(red: 1, green: 0.87, blue: 0.48), Color(red: 0.76, green: 0.42, blue: 0.06), .clear], startPoint: .leading, endPoint: .trailing)
+                                    .frame(width: geometry.size.width * 0.7)
+                                    .offset(x: geometry.size.width * (progress * 1.7 - 0.7))
+                            }
+                        }
+                        // Mask both text and emoji so the entire label shares the gold finish.
+                        .mask(lettering)
+                        .allowsHitTesting(false)
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("CONNECTED"))
         }
     }
 }
