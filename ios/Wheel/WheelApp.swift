@@ -408,6 +408,9 @@ struct PortfolioView: View {
             }
             if let error = store.error { Section { Label(error, systemImage: "wifi.exclamationmark").foregroundStyle(.orange) } }
             Section("Margin") {
+                NavigationLink { PerformanceView() } label: {
+                    Label("Performance", systemImage: "chart.xyaxis.line")
+                }
                 NavigationLink { MarginOverview() } label: {
                     LabeledContent("Initial margin", value: money(store.portfolio?.summary.initial_margin))
                 }

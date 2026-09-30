@@ -47,7 +47,7 @@ def install_api_dispatcher(app):
 
 
     def dispatch():
-        if not request.path.startswith('/api/') or (request.method == 'GET' and request.path == '/api/options/market-session'):
+        if not request.path.startswith('/api/') or (request.method == 'GET' and request.path in {'/api/options/market-session', '/api/performance/history'}):
             return original_dispatch()
         key = None
         # The HTTP context owns the diagnostic ID; copied worker contexts have their own g.
