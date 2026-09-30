@@ -461,14 +461,19 @@ struct PositionPnLMeter: View {
     @Environment(\.colorScheme) private var colorScheme
     let position: Position
     private var profitColor: Color {
-        colorScheme == .dark ? Color(red: 0.76, green: 0.65, blue: 1) : Color(red: 0.43, green: 0.24, blue: 0.72)
+        colorScheme == .dark ? Color(red: 0.25, green: 0.94, blue: 1) : Color(red: 0.00, green: 0.40, blue: 0.48)
     }
     private var lossColor: Color {
-        colorScheme == .dark ? Color(red: 1, green: 0.57, blue: 0.28) : Color(red: 0.72, green: 0.29, blue: 0.03)
+        colorScheme == .dark ? Color(red: 1, green: 0.32, blue: 0.82) : Color(red: 0.70, green: 0.08, blue: 0.46)
     }
     private var amountColor: Color {
         guard let pnl = position.unrealized_pnl, pnl.isFinite, pnl != 0 else { return .secondary }
         return pnl > 0 ? profitColor : lossColor
+    }
+    private var glowColor: Color {
+        guard colorScheme == .dark, let pnl = position.unrealized_pnl,
+              pnl.isFinite, pnl != 0 else { return .clear }
+        return amountColor.opacity(0.35)
     }
     private var percentage: Double? {
         guard let cost = position.avg_cost, let pnl = position.unrealized_pnl else { return nil }
@@ -490,12 +495,14 @@ struct PositionPnLMeter: View {
         Text(money(position.unrealized_pnl))
             .font(.caption).monospacedDigit()
             .foregroundStyle(amountColor)
+            .shadow(color: glowColor, radius: 2)
     }
     @ViewBuilder private var returnRate: some View {
         if let percentage {
             Text(percentage.formatted(.number.precision(.fractionLength(1)).sign(strategy: .always())) + "%")
                 .font(.caption2).monospacedDigit()
-                .foregroundStyle(percentage == 0 ? Color.secondary : (percentage > 0 ? profitColor : lossColor).opacity(0.8))
+                .foregroundStyle(percentage == 0 ? Color.secondary : (percentage > 0 ? profitColor : lossColor))
+                .shadow(color: percentage == 0 ? .clear : glowColor, radius: 2)
         }
     }
 }
