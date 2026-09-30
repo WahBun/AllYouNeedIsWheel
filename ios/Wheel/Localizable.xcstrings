@@ -1,6 +1,22 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Colors apply to Demo and Live. Light and Dark are saved separately. Thresholds remain 30 / 70." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "颜色同时应用于 Demo 和 Live，浅色和深色分别保存。分界线保持 30／70。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顏色同時套用於 Demo 和 Live，淺色和深色分別儲存。分界線維持 30／70。"
+          }
+        }
+      }
+    },
     "Custom colors" : {
       "localizations" : {
         "zh-Hans" : {

@@ -59,7 +59,7 @@ struct MetricPalettePreview: View {
                 }
             }
             Section {
-                Text("Demo only. Colors are saved separately for Light and Dark. Thresholds remain 30 / 70.").font(.footnote).foregroundStyle(.secondary)
+                Text("Colors apply to Demo and Live. Light and Dark are saved separately. Thresholds remain 30 / 70.").font(.footnote).foregroundStyle(.secondary)
                 Button("Restore default colors") { json = "{}" }
             }
         }.environment(\.customPalette, palette)

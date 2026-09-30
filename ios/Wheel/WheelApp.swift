@@ -319,7 +319,7 @@ struct RootView: View {
     @State private var tradePath = NavigationPath()
     private var appLocale: Locale { Locale(identifier: appLanguage == "system" ? (Locale.preferredLanguages.first ?? "en") : appLanguage) }
     @Environment(\.colorScheme) private var systemScheme
-    private var demoAccent: Color {
+    private var appAccent: Color {
         let dark = appearance == "dark" || (appearance == "system" && systemScheme == .dark)
         return CustomPalette(json: customColorsJSON).color("accent", scheme: dark ? .dark : .light, fallback: dark ? Color(red: 0.93, green: 0.92, blue: 0.89) : Color(red: 0.27, green: 0.28, blue: 0.30))
     }
@@ -333,9 +333,9 @@ struct RootView: View {
         }
         .modifier(FillBannerOverlay(preview: store.fillPreview))
         .environment(\.demoMetricPalette, true)
-        .environment(\.customPalette, store.demo ? CustomPalette(json: customColorsJSON) : CustomPalette())
+        .environment(\.customPalette, CustomPalette(json: customColorsJSON))
         .onChange(of: phase) { if phase != .active { store.fillPreview.clear() } }
-        .tint(store.demo ? demoAccent : .teal)
+        .tint(appAccent)
         .environment(\.locale, Locale(identifier: appLanguage == "system" ? (Locale.preferredLanguages.first ?? "en") : appLanguage))
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         // Keep each tab's navigation controller stable on iOS 18 when reconnecting.
@@ -908,11 +908,6 @@ struct SettingsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            Section("Remote maintenance") {
-                NavigationLink { RemoteMaintenanceView() } label: {
-                    Label("Mini screen sharing", systemImage: "desktopcomputer")
-                }
-            }
             Section("Appearance") {
                 Picker("Language", selection: $appLanguage) {
                     Text("System").tag("system")
@@ -925,10 +920,8 @@ struct SettingsView: View {
                     Text("Light").tag("light")
                     Text("Dark").tag("dark")
                 }
-                if store.demo {
-                    NavigationLink { MetricPalettePreview() } label: {
-                        Label("Custom colors", systemImage: "paintpalette")
-                    }
+                NavigationLink { MetricPalettePreview() } label: {
+                    Label("Custom colors", systemImage: "paintpalette")
                 }
             }.tint(.teal)
             if store.trading.uncertain {
@@ -939,7 +932,9 @@ struct SettingsView: View {
             }
             Section("App") {
                 LabeledContent("Minimum iOS", value: "18.0")
-                LabeledContent("Trading access") { Text(LocalizedStringKey(store.demo ? "Simulated" : "Confirmation required")) }
+                NavigationLink { TradingAccessView() } label: {
+                    LabeledContent("Trading access") { Text(verbatim: store.demo ? localizedLabel("Simulated", locale: locale) : "Live") }
+                }
                 LabeledContent("Version", value: "0.2")
             }
         }.navigationTitle(localizedLabel("Settings", locale: locale)).onAppear { draft = store.address }
