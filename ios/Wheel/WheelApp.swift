@@ -897,12 +897,39 @@ struct SettingsView: View {
                         }
                     }
                 } label: {
-                    if !connecting && store.isConnected(to: draft) {
-                        Label("CONNECTED", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                    } else {
-                        Text(LocalizedStringKey(connecting ? "Connecting…" : "Connect"))
+                    HStack(spacing: 12) {
+                        Group {
+                            if connecting {
+                                ProgressView().tint(Color.black.opacity(0.8))
+                            } else {
+                                Image(systemName: store.isConnected(to: draft) ? "checkmark.circle.fill" : "link")
+                                    .font(.title3.weight(.semibold))
+                            }
+                        }.frame(width: 26).accessibilityHidden(true)
+                        Text(LocalizedStringKey(connecting ? "Connecting…" : store.isConnected(to: draft) ? "CONNECTED" : "Connect"))
+                            .font(.headline)
+                        Spacer(minLength: 8)
+                        Image(systemName: "arrow.up.right")
+                            .font(.subheadline.weight(.bold)).accessibilityHidden(true)
                     }
-                }.disabled(draft.isEmpty || connecting)
+                    .foregroundStyle(Color.black.opacity(0.85))
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: .infinity, minHeight: 54)
+                    .background {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(LinearGradient(colors: [Color(red: 0.40, green: 0.94, blue: 0.89), Color(red: 0.25, green: 0.73, blue: 0.98)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(.white.opacity(0.3), lineWidth: 1)
+                    }
+                    .shadow(color: .cyan.opacity(draft.isEmpty ? 0 : 0.18), radius: 8, y: 3)
+                    .opacity(draft.isEmpty ? 0.45 : connecting ? 0.75 : 1)
+                    .contentShape(RoundedRectangle(cornerRadius: 16))
+                }.buttonStyle(.plain)
+                    .listRowSeparator(.hidden)
+                    .disabled(draft.isEmpty || connecting)
                 if let error = store.error { Text(error).font(.footnote).foregroundStyle(.orange) }
             }
             if store.demo {
