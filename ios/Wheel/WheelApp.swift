@@ -317,6 +317,11 @@ struct RootView: View {
     @State private var ordersPath = NavigationPath()
     @State private var tradePath = NavigationPath()
     private var appLocale: Locale { Locale(identifier: appLanguage == "system" ? (Locale.preferredLanguages.first ?? "en") : appLanguage) }
+    @Environment(\.colorScheme) private var systemScheme
+    private var demoAccent: Color {
+        let dark = appearance == "dark" || (appearance == "system" && systemScheme == .dark)
+        return dark ? Color(red: 0.93, green: 0.92, blue: 0.89) : Color(red: 0.27, green: 0.28, blue: 0.30)
+    }
     var body: some View {
         @Bindable var store = store
         TabView(selection: $store.selectedTab) {
@@ -328,7 +333,7 @@ struct RootView: View {
         .modifier(FillBannerOverlay(preview: store.fillPreview))
         .environment(\.demoMetricPalette, true)
         .onChange(of: phase) { if phase != .active { store.fillPreview.clear() } }
-        .tint(.teal)
+        .tint(store.demo ? demoAccent : .teal)
         .environment(\.locale, Locale(identifier: appLanguage == "system" ? (Locale.preferredLanguages.first ?? "en") : appLanguage))
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         // Keep each tab's navigation controller stable on iOS 18 when reconnecting.
