@@ -12,11 +12,14 @@ extension EnvironmentValues {
     }
 }
 enum DemoMetricColors {
+    static func band(_ value: Double) -> Double {
+        value <= 30 ? 0 : value <= 70 ? 0.5 : 1
+    }
     static func color(_ progress: Double, scheme: ColorScheme) -> Color {
         let high: (Double, Double, Double) = (209.0 / 255.0, 196.0 / 255.0, 233.0 / 255.0)
         let stops: [(Double, Double, Double)] = scheme == .dark
-            ? [(0.44, 0.73, 1), (1, 0.84, 0.32), high]
-            : [(0.12, 0.36, 0.67), (0.53, 0.37, 0.02), high]
+            ? [(0.44, 0.73, 1), (1, 0.72, 0.48), high]
+            : [(0.12, 0.36, 0.67), (1, 0.72, 0.48), high]
         let value = min(1, max(0, progress)) * 2
         let index = min(1, Int(value))
         let fraction = value - Double(index)
@@ -35,8 +38,8 @@ struct MetricPalettePreview: View {
             }
             Section("Delta / Spread / IV") {
                 HStack { Text("Low"); Spacer(); OpportunityMetrics(quote: ContractQuote(strike: 10, expiration: "", bid: 0.99, ask: 1.01, delta: 0.15, implied_volatility: 20)) }
-                HStack { Text("Medium"); Spacer(); OpportunityMetrics(quote: ContractQuote(strike: 10, expiration: "", bid: 0.9, ask: 1.1, delta: 0.5, implied_volatility: 70)) }
-                HStack { Text("High"); Spacer(); OpportunityMetrics(quote: ContractQuote(strike: 10, expiration: "", bid: 0.8, ask: 1.2, delta: 1, implied_volatility: 140)) }
+                HStack { Text("Medium"); Spacer(); OpportunityMetrics(quote: ContractQuote(strike: 10, expiration: "", bid: 0.75, ask: 1.25, delta: 0.5, implied_volatility: 70)) }
+                HStack { Text("High"); Spacer(); OpportunityMetrics(quote: ContractQuote(strike: 10, expiration: "", bid: 0.6, ask: 1.4, delta: 1, implied_volatility: 140)) }
             }
         }.environment(\.demoMetricPalette, true)
             .navigationTitle("Demo colors")

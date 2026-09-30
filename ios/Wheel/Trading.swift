@@ -608,7 +608,7 @@ enum SpreadBand {
     case tight, medium, wide, unavailable
     static func classify(_ percentage: Double?) -> SpreadBand {
         guard let percentage, percentage.isFinite, percentage >= 0 else { return .unavailable }
-        return percentage <= 10 ? .tight : percentage <= 20 ? .medium : .wide
+        return percentage <= 30 ? .tight : percentage <= 70 ? .medium : .wide
     }
 }
 
@@ -620,10 +620,10 @@ enum QuoteMetric {
         switch self {
         case .delta:
             guard abs(value) <= 1 else { return .unavailable }
-            return abs(value) <= 0.30 ? .low : abs(value) <= 0.50 ? .medium : .high
+            return abs(value) <= 0.30 ? .low : abs(value) <= 0.70 ? .medium : .high
         case .iv:
             guard value > 0 else { return .unavailable }
-            return value <= 50 ? .low : value <= 70 ? .medium : .high
+            return value <= 30 ? .low : value <= 70 ? .medium : .high
         }
     }
     func formatted(_ value: Double?) -> String {
@@ -636,19 +636,9 @@ struct QuoteMetricValue: View {
     let metric: QuoteMetric
     let value: Double?
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.demoMetricPalette) private var demoPalette
     private var color: Color {
-        if demoPalette {
-            guard metric.level(value) != .unavailable, let value else { return .secondary }
-            return DemoMetricColors.color(metric == .delta ? abs(value) : value / 140, scheme: scheme)
-        }
-        let dark = scheme == .dark
-        switch metric.level(value) {
-        case .low: return dark ? Color(red: 66/255, green: 211/255, blue: 146/255) : Color(red: 25/255, green: 135/255, blue: 84/255)
-        case .medium: return dark ? Color(red: 242/255, green: 201/255, blue: 76/255) : Color(red: 183/255, green: 121/255, blue: 31/255)
-        case .high: return dark ? Color(red: 1, green: 107/255, blue: 107/255) : Color(red: 220/255, green: 53/255, blue: 69/255)
-        case .unavailable: return .secondary
-        }
+        guard metric.level(value) != .unavailable, let value else { return .secondary }
+        return DemoMetricColors.color(DemoMetricColors.band(metric == .delta ? abs(value) * 100 : value), scheme: scheme)
     }
     var body: some View {
         Text(metric.formatted(value)).monospacedDigit().foregroundStyle(color)
@@ -658,22 +648,12 @@ struct QuoteMetricValue: View {
 struct SpreadValue: View {
     let percentage: Double?
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.demoMetricPalette) private var demoPalette
-    static func color(for percentage: Double?, scheme: ColorScheme, demoPalette: Bool = false) -> Color {
-        if demoPalette {
-            guard SpreadBand.classify(percentage) != .unavailable, let percentage else { return .secondary }
-            return DemoMetricColors.color(percentage / 40, scheme: scheme)
-        }
-        let dark = scheme == .dark
-        switch SpreadBand.classify(percentage) {
-        case .tight: return dark ? Color(red: 66/255, green: 211/255, blue: 146/255) : Color(red: 25/255, green: 135/255, blue: 84/255)
-        case .medium: return dark ? Color(red: 242/255, green: 201/255, blue: 76/255) : Color(red: 183/255, green: 121/255, blue: 31/255)
-        case .wide: return dark ? Color(red: 1, green: 107/255, blue: 107/255) : Color(red: 220/255, green: 53/255, blue: 69/255)
-        case .unavailable: return .secondary
-        }
+    static func color(for percentage: Double?, scheme: ColorScheme) -> Color {
+        guard SpreadBand.classify(percentage) != .unavailable, let percentage else { return .secondary }
+        return DemoMetricColors.color(DemoMetricColors.band(percentage), scheme: scheme)
     }
     var body: some View {
         Text(SpreadBand.classify(percentage) == .unavailable ? "—" : String(format: "%.1f%%", percentage!))
-            .monospacedDigit().foregroundStyle(Self.color(for: percentage, scheme: scheme, demoPalette: demoPalette))
+            .monospacedDigit().foregroundStyle(Self.color(for: percentage, scheme: scheme))
     }
 }

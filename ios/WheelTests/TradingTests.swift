@@ -359,14 +359,14 @@ final class TradingTests: XCTestCase {
         for sign in [-1.0, 1.0] {
             XCTAssertEqual(QuoteMetric.delta.level(sign * 0.30), .low)
             XCTAssertEqual(QuoteMetric.delta.level(sign * 0.31), .medium)
-            XCTAssertEqual(QuoteMetric.delta.level(sign * 0.50), .medium)
-            XCTAssertEqual(QuoteMetric.delta.level(sign * 0.51), .high)
+            XCTAssertEqual(QuoteMetric.delta.level(sign * 0.70), .medium)
+            XCTAssertEqual(QuoteMetric.delta.level(sign * 0.71), .high)
             XCTAssertEqual(QuoteMetric.delta.level(sign * 1.01), .unavailable)
         }
         XCTAssertEqual(QuoteMetric.delta.formatted(-0.24), "-0.24")
         XCTAssertEqual(QuoteMetric.delta.level(0), .low)
-        XCTAssertEqual(QuoteMetric.iv.level(50), .low)
-        XCTAssertEqual(QuoteMetric.iv.level(50.1), .medium)
+        XCTAssertEqual(QuoteMetric.iv.level(30), .low)
+        XCTAssertEqual(QuoteMetric.iv.level(30.1), .medium)
         XCTAssertEqual(QuoteMetric.iv.level(70), .medium)
         XCTAssertEqual(QuoteMetric.iv.level(70.1), .high)
         XCTAssertEqual(QuoteMetric.iv.formatted(74.8), "74.8%")
@@ -691,10 +691,10 @@ final class TradingTests: XCTestCase {
     }
     func testSpreadBandsMatchWebBoundaries() {
         XCTAssertEqual(SpreadBand.classify(0), .tight)
-        XCTAssertEqual(SpreadBand.classify(10), .tight)
-        XCTAssertEqual(SpreadBand.classify(10.01), .medium)
-        XCTAssertEqual(SpreadBand.classify(20), .medium)
-        XCTAssertEqual(SpreadBand.classify(20.01), .wide)
+        XCTAssertEqual(SpreadBand.classify(30), .tight)
+        XCTAssertEqual(SpreadBand.classify(30.01), .medium)
+        XCTAssertEqual(SpreadBand.classify(70), .medium)
+        XCTAssertEqual(SpreadBand.classify(70.01), .wide)
         for value: Double? in [nil, .nan, .infinity, -1] {
             XCTAssertEqual(SpreadBand.classify(value), .unavailable)
         }
@@ -787,8 +787,8 @@ final class TradingTests: XCTestCase {
         XCTAssertTrue(TradeRules.hasUnsavedEdits(order, price: "0.50", quantity: 1))
     }
     func testLanguageLabelsPreserveTradingTermsAndBrand() {
-        XCTAssertEqual(localizedLabel("Portfolio", locale: Locale(identifier: "zh-Hans")), "持仓")
-        XCTAssertEqual(localizedLabel("Portfolio", locale: Locale(identifier: "zh-Hant")), "持倉")
+        XCTAssertEqual(localizedLabel("Portfolio", locale: Locale(identifier: "zh-Hans")), "投资组合")
+        XCTAssertEqual(localizedLabel("Portfolio", locale: Locale(identifier: "zh-Hant")), "投資組合")
         XCTAssertEqual(localizedLabel("Portfolio", locale: Locale(identifier: "en")), "Portfolio")
         for value in ["Wheel", "Call", "Put", "OTM", "Delta", "IV", "GTC", "DAY", "TSLL"] {
             XCTAssertEqual(localizedLabel(value, locale: Locale(identifier: "zh-Hans")), value)
