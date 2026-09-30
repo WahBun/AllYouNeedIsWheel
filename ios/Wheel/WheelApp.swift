@@ -915,7 +915,7 @@ struct SettingsView: View {
                     Text(verbatim: "简体中文").tag("zh-Hans")
                     Text(verbatim: "繁體中文").tag("zh-Hant")
                 } label: {
-                    Image(systemName: "globe").frame(width: 24).accessibilityLabel(Text("Language"))
+                    Label("Language", systemImage: "globe")
                 }
                 .accessibilityLabel(Text("Language"))
                 Picker(selection: $appearance) {
@@ -923,7 +923,7 @@ struct SettingsView: View {
                     Text("Light").tag("light")
                     Text("Dark").tag("dark")
                 } label: {
-                    Image(systemName: "circle.lefthalf.filled").frame(width: 24).accessibilityLabel(Text("Theme"))
+                    Label("Theme", systemImage: "circle.lefthalf.filled")
                 }
                 .accessibilityLabel(Text("Theme"))
                 NavigationLink { MetricPalettePreview() } label: {

@@ -55,7 +55,7 @@ struct MetricPalettePreview: View {
                 metricRow("High", band: "high", progress: 1, values: ["1.00", "80.0%", "140.0%"])
 
             }
-            Section("System color") {
+            Section {
                 Button {
                     editing = PaletteEditTarget(id: "accent", title: "System color", fallback: scheme == .dark ? Color(red: 0.93, green: 0.92, blue: 0.89) : Color(red: 0.27, green: 0.28, blue: 0.30))
                 } label: {
