@@ -3,6 +3,17 @@ import XCTest
 
 @MainActor
 final class InteractionPerformanceTests: XCTestCase {
+    func testHistoryRefreshOnlyWhileVisible() {
+        for tab in ["portfolio", "trade", "orders", "settings"] {
+            for active in [false, true] {
+                for history in [false, true] {
+                    XCTAssertEqual(RefreshLoop.shouldRefreshHistory(tab: tab, showingHistory: history, active: active),
+                                   tab == "orders" && active && history)
+                }
+            }
+        }
+    }
+
     func testHiddenPortfolioRefreshBudget() {
         for tab in ["settings", "orders", "trade"] {
             let reads = stride(from: 0.0, to: 60.0, by: 2.0).filter {

@@ -738,6 +738,7 @@ struct PositionDetail: View {
 }
 
 struct OrdersView: View {
+    @Environment(\.scenePhase) private var phase
     @Environment(\.locale) private var locale
     @Environment(WheelStore.self) private var store
     @AppStorage("confirmBeforeOrderExecution") private var confirmExecution = true
@@ -747,6 +748,7 @@ struct OrdersView: View {
     @State private var cancelling = false
     @State private var quickOrder: Order?
     @State private var quickCancel = false
+    private var refreshHistory: Bool { RefreshLoop.shouldRefreshHistory(tab: store.selectedTab, showingHistory: history, active: phase == .active) }
     private var cancelable: [Order] { store.orders.filter { TradeRules.cancelable($0) } }
     var body: some View {
         List {
@@ -813,8 +815,10 @@ struct OrdersView: View {
             TradingNotice()
         }.navigationTitle(localizedLabel("Orders", locale: locale)).refreshable { if history { await store.loadFilled() } else { await store.refresh() } }
         .toolbar { Button("Order preferences", systemImage: "gearshape") { preferences.toggle() } }
-        .onChange(of: history) { if history { Task { await store.loadFilled() } } }
-        .onChange(of: store.ordersUpdated) { if history { Task { await store.loadFilled() } } }
+        .task(id: "history-\(refreshHistory)-\(store.demo)-\(store.address)") {
+            if refreshHistory { await store.loadFilled() }
+        }
+        .onChange(of: store.ordersUpdated) { if refreshHistory { Task { await store.loadFilled() } } }
         .onChange(of: "\(store.demo)-\(store.address)") { quickOrder = nil; cancelAll = false }
         .disabled(cancelling || store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))
         .confirmationDialog(LocalizedStringKey(quickCancel ? "Cancel order" : "Execute"), isPresented: Binding(get: { quickOrder != nil }, set: { if !$0 { quickOrder = nil } }), titleVisibility: .visible) {

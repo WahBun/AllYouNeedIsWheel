@@ -2,6 +2,10 @@ import Foundation
 import Observation
 
 enum RefreshLoop {
+    static func shouldRefreshHistory(tab: String, showingHistory: Bool, active: Bool) -> Bool {
+        active && tab == "orders" && showingHistory
+    }
+
     static func shouldRefreshPortfolio(tab: String, hasPortfolio: Bool, age: TimeInterval = 0, quotesLoading: Bool = false) -> Bool {
         if !hasPortfolio || tab == "portfolio" { return true }
         // Hidden holdings need only a periodic summary refresh. Keep the separate
