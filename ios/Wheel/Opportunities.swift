@@ -616,15 +616,14 @@ struct OpportunityDetail: View {
                     LabeledContent("IV") { QuoteMetricValue(metric: .iv, value: quote.implied_volatility) }
                     if let updated = row.updated { LabeledContent("Retrieved", value: updated.formatted(.dateTime.hour().minute().second())) }
                     Text(LocalizedStringKey(store.demo ? "Demo quote" : store.portfolio?.summary.is_frozen == true ? "Frozen portfolio · verify quote" : "Snapshot quote · verify before execution")).font(.caption).foregroundStyle(.secondary)
-                    HStack(spacing: 10) {
+                    HStack(spacing: 16) {
                         PriceInput(title: "Limit per share", text: Binding(get: { row.price }, set: { book.rows[key]?.price = $0; book.rows[key]?.manualPrice = true }))
-                            .frame(minWidth: 70, idealWidth: 90, maxWidth: 110)
+                            .frame(width: 76)
                         Button("Use mid") {
                             book.rows[key]?.price = quote.mid.map { String(format: "%.2f", $0) } ?? ""
                             book.rows[key]?.manualPrice = true
                         }.font(.subheadline).buttonStyle(.borderless)
                             .fixedSize(horizontal: true, vertical: false).disabled(quote.mid == nil)
-                        Spacer(minLength: 0)
                         HStack(spacing: 2) {
                             Text("×").foregroundStyle(.secondary).accessibilityHidden(true)
                             Picker("Contracts", selection: Binding(get: { row.quantity }, set: { value in
@@ -639,7 +638,7 @@ struct OpportunityDetail: View {
                                 .accessibilityLabel(Text("Contracts"))
                                 .fixedSize(horizontal: true, vertical: false)
                         }
-                    }
+                    }.frame(maxWidth: .infinity, alignment: .center)
                     if type == "CALL" {
                         LabeledContent("Available coverage", value: String(row.capacity))
                         if row.capacity == 0 {
