@@ -1,6 +1,86 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Custom colors" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义颜色"
+          }
+        }
+      }
+    },
+    "System color" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "系统主色"
+          }
+        }
+      }
+    },
+    "P&L colors" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "盈亏颜色"
+          }
+        }
+      }
+    },
+    "Profit" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "盈利"
+          }
+        }
+      }
+    },
+    "Loss" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "亏损"
+          }
+        }
+      }
+    },
+    "Apply" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "应用"
+          }
+        }
+      }
+    },
+    "Restore default colors" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复默认颜色"
+          }
+        }
+      }
+    },
+    "Demo only. Colors are saved separately for Light and Dark. Thresholds remain 30 / 70." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅在 Demo 生效。浅色和深色模式分别保存，分界线仍为 30／70。"
+          }
+        }
+      }
+    },
     "Share holdings" : {
       "localizations" : {
         "zh-Hans" : {

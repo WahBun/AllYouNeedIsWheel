@@ -13,11 +13,12 @@ extension Order {
 }
 
 struct RealizedProfit: View {
+    @Environment(\.customPalette) private var customPalette
     let order: Order
     @Environment(\.colorScheme) private var scheme
     private var color: Color {
         guard let value = order.realizedProfit, value != 0 else { return .secondary }
-        return value > 0 ? FinancialColors.gain : FinancialColors.loss
+        return customPalette.color(value > 0 ? "gain" : "loss", scheme: scheme, fallback: value > 0 ? FinancialColors.gain : FinancialColors.loss)
     }
     var body: some View {
         Text(order.realizedProfitLabel).monospacedDigit().foregroundStyle(color)

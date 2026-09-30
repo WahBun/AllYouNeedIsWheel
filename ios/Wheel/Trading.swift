@@ -501,6 +501,7 @@ struct OrderDetail: View {
 }
 
 struct CloseTicket: View {
+    @Environment(\.customPalette) private var customPalette
     @Environment(\.locale) private var locale
     @Environment(\.colorScheme) private var scheme
     let position: Position
@@ -542,7 +543,7 @@ struct CloseTicket: View {
                             Text(money(quote?[field] as? Double)).underline(false).monospacedDigit()
                         }.frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
                     }.buttonStyle(.plain)
-                        .foregroundStyle(SpreadValue.color(for: quote?["spread_percent"] as? Double, scheme: scheme))
+                        .foregroundStyle(SpreadValue.color(for: quote?["spread_percent"] as? Double, scheme: scheme, palette: customPalette))
                 } }
             }
             if loading && quote == nil { ProgressView() }
@@ -633,12 +634,13 @@ enum QuoteMetric {
 }
 
 struct QuoteMetricValue: View {
+    @Environment(\.customPalette) private var customPalette
     let metric: QuoteMetric
     let value: Double?
     @Environment(\.colorScheme) private var scheme
     private var color: Color {
         guard metric.level(value) != .unavailable, let value else { return .secondary }
-        return DemoMetricColors.color(DemoMetricColors.band(metric == .delta ? abs(value) * 100 : value), scheme: scheme)
+        return customPalette.metric(metric == .delta ? "delta" : "iv", value: metric == .delta ? abs(value) * 100 : value, scheme: scheme)
     }
     var body: some View {
         Text(metric.formatted(value)).monospacedDigit().foregroundStyle(color)
@@ -646,14 +648,15 @@ struct QuoteMetricValue: View {
 }
 
 struct SpreadValue: View {
+    @Environment(\.customPalette) private var customPalette
     let percentage: Double?
     @Environment(\.colorScheme) private var scheme
-    static func color(for percentage: Double?, scheme: ColorScheme) -> Color {
+    static func color(for percentage: Double?, scheme: ColorScheme, palette: CustomPalette = CustomPalette()) -> Color {
         guard SpreadBand.classify(percentage) != .unavailable, let percentage else { return .secondary }
-        return DemoMetricColors.color(DemoMetricColors.band(percentage), scheme: scheme)
+        return palette.metric("spread", value: percentage, scheme: scheme)
     }
     var body: some View {
         Text(SpreadBand.classify(percentage) == .unavailable ? "—" : String(format: "%.1f%%", percentage!))
-            .monospacedDigit().foregroundStyle(Self.color(for: percentage, scheme: scheme))
+            .monospacedDigit().foregroundStyle(Self.color(for: percentage, scheme: scheme, palette: customPalette))
     }
 }

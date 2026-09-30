@@ -30,18 +30,40 @@ enum DemoMetricColors {
     }
 }
 struct MetricPalettePreview: View {
+    @AppStorage("demoCustomColors") private var json = "{}"
+    @Environment(\.colorScheme) private var scheme
+    private var palette: CustomPalette { CustomPalette(json: json) }
     var body: some View {
         List {
             Section("P&L") {
-                Text("+$128.00  +12.8%").foregroundStyle(FinancialColors.gain)
-                Text("−$64.00  −6.4%").foregroundStyle(FinancialColors.loss)
+                Text("+$128.00  +12.8%").foregroundStyle(palette.color("gain", scheme: scheme, fallback: FinancialColors.gain))
+                Text("−$64.00  −6.4%").foregroundStyle(palette.color("loss", scheme: scheme, fallback: FinancialColors.loss))
             }
             Section("Delta / Spread / IV") {
                 HStack { Text("Low"); Spacer(); OpportunityMetrics(quote: ContractQuote(strike: 10, expiration: "", bid: 0.99, ask: 1.01, delta: 0.15, implied_volatility: 20)) }
                 HStack { Text("Medium"); Spacer(); OpportunityMetrics(quote: ContractQuote(strike: 10, expiration: "", bid: 0.75, ask: 1.25, delta: 0.5, implied_volatility: 70)) }
                 HStack { Text("High"); Spacer(); OpportunityMetrics(quote: ContractQuote(strike: 10, expiration: "", bid: 0.6, ask: 1.4, delta: 1, implied_volatility: 140)) }
             }
-        }.environment(\.demoMetricPalette, true)
-            .navigationTitle("Demo colors")
+            Section("System color") {
+                PaletteColorEditor(title: "System color", colorKey: "accent", fallback: scheme == .dark ? Color(red: 0.93, green: 0.92, blue: 0.89) : Color(red: 0.27, green: 0.28, blue: 0.30))
+            }
+            Section("P&L colors") {
+                PaletteColorEditor(title: "Profit", colorKey: "gain", fallback: FinancialColors.gain)
+                PaletteColorEditor(title: "Loss", colorKey: "loss", fallback: FinancialColors.loss)
+            }
+            ForEach(["Delta", "Spread", "IV"], id: \.self) { name in
+                Section(name) {
+                    PaletteColorEditor(title: "Low", colorKey: name.lowercased() + ".low", fallback: DemoMetricColors.color(0, scheme: scheme))
+                    PaletteColorEditor(title: "Medium", colorKey: name.lowercased() + ".medium", fallback: DemoMetricColors.color(0.5, scheme: scheme))
+                    PaletteColorEditor(title: "High", colorKey: name.lowercased() + ".high", fallback: DemoMetricColors.color(1, scheme: scheme))
+                }
+            }
+            Section {
+                Text("Demo only. Colors are saved separately for Light and Dark. Thresholds remain 30 / 70.").font(.footnote).foregroundStyle(.secondary)
+                Button("Restore default colors") { json = "{}" }
+            }
+        }.environment(\.customPalette, palette)
+        .environment(\.demoMetricPalette, true)
+            .navigationTitle("Custom colors")
     }
 }

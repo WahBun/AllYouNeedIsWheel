@@ -309,6 +309,7 @@ func localizedLabel(_ key: String, locale: Locale) -> String {
 }
 
 struct RootView: View {
+    @AppStorage("demoCustomColors") private var customColorsJSON = "{}"
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("appLanguage") private var appLanguage = "system"
     @Environment(WheelStore.self) private var store
@@ -320,7 +321,7 @@ struct RootView: View {
     @Environment(\.colorScheme) private var systemScheme
     private var demoAccent: Color {
         let dark = appearance == "dark" || (appearance == "system" && systemScheme == .dark)
-        return dark ? Color(red: 0.93, green: 0.92, blue: 0.89) : Color(red: 0.27, green: 0.28, blue: 0.30)
+        return CustomPalette(json: customColorsJSON).color("accent", scheme: dark ? .dark : .light, fallback: dark ? Color(red: 0.93, green: 0.92, blue: 0.89) : Color(red: 0.27, green: 0.28, blue: 0.30))
     }
     var body: some View {
         @Bindable var store = store
@@ -332,6 +333,7 @@ struct RootView: View {
         }
         .modifier(FillBannerOverlay(preview: store.fillPreview))
         .environment(\.demoMetricPalette, true)
+        .environment(\.customPalette, store.demo ? CustomPalette(json: customColorsJSON) : CustomPalette())
         .onChange(of: phase) { if phase != .active { store.fillPreview.clear() } }
         .tint(store.demo ? demoAccent : .teal)
         .environment(\.locale, Locale(identifier: appLanguage == "system" ? (Locale.preferredLanguages.first ?? "en") : appLanguage))
@@ -451,6 +453,7 @@ struct PortfolioView: View {
 
 
 struct PositionMarketPrice: View {
+    @Environment(\.customPalette) private var customPalette
     let position: Position
     @Environment(WheelStore.self) private var store
     @Environment(\.colorScheme) private var scheme
@@ -459,19 +462,20 @@ struct PositionMarketPrice: View {
             let fresh = !store.demo && store.error == nil && context.date.timeIntervalSince(store.updated ?? .distantPast) < 15
             let direction = fresh ? (store.priceDirections[position.id] ?? 0) : 0
             Text(money(position.market_price)).monospacedDigit()
-                .foregroundStyle(direction > 0 ? TradingColors.profit(scheme) : direction < 0 ? FinancialColors.loss : Color.primary)
+                .foregroundStyle(direction > 0 ? customPalette.color("gain", scheme: scheme, fallback: FinancialColors.gain) : direction < 0 ? customPalette.color("loss", scheme: scheme, fallback: FinancialColors.loss) : Color.primary)
         }
     }
 }
 
 struct PositionPnLMeter: View {
+    @Environment(\.customPalette) private var customPalette
     @Environment(\.colorScheme) private var colorScheme
     let position: Position
     private var profitColor: Color {
-        FinancialColors.gain
+        customPalette.color("gain", scheme: colorScheme, fallback: FinancialColors.gain)
     }
     private var lossColor: Color {
-        FinancialColors.loss
+        customPalette.color("loss", scheme: colorScheme, fallback: FinancialColors.loss)
     }
     private var amountColor: Color {
         guard let pnl = position.unrealized_pnl, pnl.isFinite, pnl != 0 else { return .secondary }
@@ -902,9 +906,6 @@ struct SettingsView: View {
                     Button("Preview fill notifications", systemImage: "bell.badge") { store.fillPreview.start() }
                     Text("Switch to any tab: a partial fill appears after 3 seconds, followed by a full fill after 11 seconds.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    NavigationLink { MetricPalettePreview() } label: {
-                        Label("Demo colors", systemImage: "paintpalette")
-                    }
                 }
             }
             Section("Remote maintenance") {
@@ -923,6 +924,11 @@ struct SettingsView: View {
                     Text("System").tag("system")
                     Text("Light").tag("light")
                     Text("Dark").tag("dark")
+                }
+                if store.demo {
+                    NavigationLink { MetricPalettePreview() } label: {
+                        Label("Custom colors", systemImage: "paintpalette")
+                    }
                 }
             }.tint(.teal)
             if store.trading.uncertain {
