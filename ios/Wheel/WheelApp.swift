@@ -924,7 +924,7 @@ struct SettingsView: View {
             Section("App") {
                 LabeledContent("Minimum iOS", value: "18.0")
                 LabeledContent("Trading access") { Text(LocalizedStringKey(store.demo ? "Simulated" : "Confirmation required")) }
-                LabeledContent("Version", value: "0.2 preview")
+                LabeledContent("Version", value: "0.2")
             }
         }.navigationTitle(localizedLabel("Settings", locale: locale)).onAppear { draft = store.address }
         .toolbar {
