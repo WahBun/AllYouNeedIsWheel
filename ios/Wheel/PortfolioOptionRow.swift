@@ -15,20 +15,17 @@ struct PortfolioOptionRow: View {
                 SymbolText(symbol: position.symbol).font(.headline)
                 Text(position.option_type ?? "—")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text("· " + position.position.formatted())
+                    .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityLabel(Text("Quantity"))
+                    .accessibilityValue(position.position.formatted())
                 Spacer(minLength: 8)
+                PositionMarketPrice(position: position)
             }
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(money(position.strike)) · \(position.expiration ?? "—")")
                         .monospacedDigit()
-                    HStack(spacing: 4) {
-                        Text(position.position.formatted())
-                        Text("·")
-                        PositionMarketPrice(position: position)
-                    }.foregroundStyle(.secondary)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(Text("Quantity"))
-                        .accessibilityValue("\(position.position.formatted()) · \(money(position.market_price))")
                 }
                 Spacer(minLength: 0)
                 PositionPnLMeter(position: position)

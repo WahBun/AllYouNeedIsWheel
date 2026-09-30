@@ -326,6 +326,7 @@ struct RootView: View {
             NavigationStack { SettingsView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Settings", locale: appLocale), systemImage: "gearshape") }.tag("settings")
         }
         .modifier(FillBannerOverlay(preview: store.fillPreview))
+        .environment(\.demoMetricPalette, store.demo)
         .onChange(of: phase) { if phase != .active { store.fillPreview.clear() } }
         .tint(.teal)
         .environment(\.locale, Locale(identifier: appLanguage == "system" ? (Locale.preferredLanguages.first ?? "en") : appLanguage))
@@ -452,7 +453,7 @@ struct PositionMarketPrice: View {
             let fresh = !store.demo && store.error == nil && context.date.timeIntervalSince(store.updated ?? .distantPast) < 15
             let direction = fresh ? (store.priceDirections[position.id] ?? 0) : 0
             Text(money(position.market_price)).monospacedDigit()
-                .foregroundStyle(direction > 0 ? TradingColors.profit(scheme) : direction < 0 ? Color.red : Color.primary)
+                .foregroundStyle(direction > 0 ? TradingColors.profit(scheme) : direction < 0 ? FinancialColors.loss : Color.primary)
         }
     }
 }
@@ -461,10 +462,10 @@ struct PositionPnLMeter: View {
     @Environment(\.colorScheme) private var colorScheme
     let position: Position
     private var profitColor: Color {
-        Color(red: 57.0 / 255, green: 1, blue: 20.0 / 255)
+        FinancialColors.gain
     }
     private var lossColor: Color {
-        Color(red: 1, green: 94.0 / 255, blue: 94.0 / 255)
+        FinancialColors.loss
     }
     private var amountColor: Color {
         guard let pnl = position.unrealized_pnl, pnl.isFinite, pnl != 0 else { return .secondary }
@@ -690,7 +691,7 @@ enum TradingColors {
         return scheme == .dark ? Color(red: 1.00, green: 0.88, blue: 0.58) : Color(red: 0.78, green: 0.60, blue: 0.16)
     }
     static func profit(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(red: 0.25, green: 0.95, blue: 0.48) : Color(red: 0.02, green: 0.46, blue: 0.20)
+        FinancialColors.gain
     }
 }
 
@@ -921,6 +922,7 @@ struct SettingsView: View {
                     Button("I have verified the order outcome") { reviewed = true }
                 }
             }
+            if store.demo { NavigationLink("Demo colors") { MetricPalettePreview() } }
             Section("App") {
                 LabeledContent("Minimum iOS", value: "18.0")
                 LabeledContent("Trading access") { Text(LocalizedStringKey(store.demo ? "Simulated" : "Confirmation required")) }

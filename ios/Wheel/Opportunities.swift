@@ -27,11 +27,11 @@ struct OpportunityPrice: View {
             let direction = fresh ? (row?.priceDirection ?? 0) : 0
             HStack(spacing: 6) {
                 Text(money(row?.stockPrice)).monospacedDigit()
-                    .foregroundStyle(direction > 0 ? TradingColors.profit(scheme) : direction < 0 ? Color.red : Color.primary)
+                    .foregroundStyle(direction > 0 ? TradingColors.profit(scheme) : direction < 0 ? FinancialColors.loss : Color.primary)
                 if let change = TradingMath.dailyChange(price: row?.stockPrice, close: row?.previousClose) {
                     Text(String(format: "%+.2f%%", change))
                         .font(.caption).monospacedDigit()
-                        .foregroundStyle(!fresh ? Color.secondary : change > 0 ? TradingColors.profit(scheme) : change < 0 ? Color.red : Color.secondary)
+                        .foregroundStyle(!fresh ? Color.secondary : change > 0 ? TradingColors.profit(scheme) : change < 0 ? FinancialColors.loss : Color.secondary)
                 }
             }
         }

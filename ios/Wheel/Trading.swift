@@ -636,7 +636,12 @@ struct QuoteMetricValue: View {
     let metric: QuoteMetric
     let value: Double?
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.demoMetricPalette) private var demoPalette
     private var color: Color {
+        if demoPalette {
+            guard metric.level(value) != .unavailable, let value else { return .secondary }
+            return DemoMetricColors.color(metric == .delta ? abs(value) : value / 140, scheme: scheme)
+        }
         let dark = scheme == .dark
         switch metric.level(value) {
         case .low: return dark ? Color(red: 66/255, green: 211/255, blue: 146/255) : Color(red: 25/255, green: 135/255, blue: 84/255)
@@ -653,7 +658,12 @@ struct QuoteMetricValue: View {
 struct SpreadValue: View {
     let percentage: Double?
     @Environment(\.colorScheme) private var scheme
-    static func color(for percentage: Double?, scheme: ColorScheme) -> Color {
+    @Environment(\.demoMetricPalette) private var demoPalette
+    static func color(for percentage: Double?, scheme: ColorScheme, demoPalette: Bool = false) -> Color {
+        if demoPalette {
+            guard SpreadBand.classify(percentage) != .unavailable, let percentage else { return .secondary }
+            return DemoMetricColors.color(percentage / 40, scheme: scheme)
+        }
         let dark = scheme == .dark
         switch SpreadBand.classify(percentage) {
         case .tight: return dark ? Color(red: 66/255, green: 211/255, blue: 146/255) : Color(red: 25/255, green: 135/255, blue: 84/255)
@@ -664,6 +674,6 @@ struct SpreadValue: View {
     }
     var body: some View {
         Text(SpreadBand.classify(percentage) == .unavailable ? "—" : String(format: "%.1f%%", percentage!))
-            .monospacedDigit().foregroundStyle(Self.color(for: percentage, scheme: scheme))
+            .monospacedDigit().foregroundStyle(Self.color(for: percentage, scheme: scheme, demoPalette: demoPalette))
     }
 }
