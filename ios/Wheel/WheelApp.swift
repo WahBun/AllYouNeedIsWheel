@@ -454,16 +454,20 @@ struct PortfolioView: View {
 
 struct PositionMarketPrice: View {
     @Environment(\.customPalette) private var customPalette
+    @Environment(\.scenePhase) private var phase
+    @State private var visible = false
     let position: Position
     @Environment(WheelStore.self) private var store
     @Environment(\.colorScheme) private var scheme
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
+        TimelineView(.animation(minimumInterval: 1, paused: !visible || phase != .active || store.selectedTab != "portfolio")) { context in
             let fresh = !store.demo && store.error == nil && context.date.timeIntervalSince(store.updated ?? .distantPast) < 15
             let direction = fresh ? (store.priceDirections[position.id] ?? 0) : 0
             Text(money(position.market_price)).monospacedDigit()
                 .foregroundStyle(direction > 0 ? customPalette.color("gain", scheme: scheme, fallback: FinancialColors.gain) : direction < 0 ? customPalette.color("loss", scheme: scheme, fallback: FinancialColors.loss) : Color.primary)
         }
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
     }
 }
 

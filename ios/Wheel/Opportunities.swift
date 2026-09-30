@@ -21,10 +21,13 @@ struct PremiumValue: View {
 
 struct OpportunityPrice: View {
     @Environment(\.customPalette) private var customPalette
+    @Environment(\.scenePhase) private var phase
+    @State private var visible = false
+    @Environment(WheelStore.self) private var store
     let row: OpportunityRow?
     @Environment(\.colorScheme) private var scheme
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
+        TimelineView(.animation(minimumInterval: 1, paused: !visible || phase != .active || store.selectedTab != "trade")) { context in
             let fresh = row?.error == nil && context.date.timeIntervalSince(row?.updated ?? .distantPast) < 30
             let direction = fresh ? (row?.priceDirection ?? 0) : 0
             HStack(spacing: 6) {
@@ -37,6 +40,8 @@ struct OpportunityPrice: View {
                 }
             }
         }
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
     }
 }
 
