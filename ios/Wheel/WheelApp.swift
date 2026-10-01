@@ -51,6 +51,14 @@ struct WheelApp: App {
     }
 }
 
+struct ReportedStockCost: Decodable {
+    var date: String
+    var quantity: Double
+    var basis: Double
+    var average: Double
+    var currency: String
+}
+
 struct Position: Decodable, Identifiable {
     var symbol: String
     var position: Double
@@ -63,6 +71,7 @@ struct Position: Decodable, Identifiable {
     var option_type: String?
     var con_id: Int?
     var entry_fill_price: Double? = nil
+    var reported_cost: ReportedStockCost? = nil
     var avg_cost: Double?
     var multiplier: Double?
     var id: String { "\(symbol)-\(security_type)-\(con_id ?? 0)-\(expiration ?? "")-\(strike ?? 0)" }
@@ -1064,9 +1073,21 @@ struct PositionDetail: View {
     }
     var body: some View {
         Form {
+            if latest.security_type == "STK", let cost = latest.reported_cost {
+                Section {
+                    LabeledContent("Average cost", value: cost.average.formatted(.currency(code: cost.currency)))
+                    LabeledContent("Cost basis", value: cost.basis.formatted(.currency(code: cost.currency)))
+                    LabeledContent("Report date", value: cost.date)
+                    LabeledContent("Reported shares", value: cost.quantity.formatted())
+                } header: {
+                    Text("IBKR reported cost")
+                } footer: {
+                    Text("Official report snapshot. Live Gateway cost and P&L below use a separate basis; recent trades may not yet be included.")
+                }
+            }
             Section(position.detail) {
                 LabeledContent("Quantity", value: latest.position.formatted())
-                LabeledContent("Average cost", value: money(latest.avg_cost))
+                LabeledContent("Gateway average cost", value: money(latest.avg_cost))
                 LabeledContent("Current price", value: money(latest.market_price))
                 LabeledContent("Market value", value: money(latest.market_value))
                 LabeledContent("Unrealized P&L", value: money(latest.unrealized_pnl))

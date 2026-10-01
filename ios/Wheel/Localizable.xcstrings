@@ -1,6 +1,66 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+  "Official report snapshot. Live Gateway cost and P&L below use a separate basis; recent trades may not yet be included.": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "官方报表快照。下方实时 Gateway 成本与盈亏使用另一口径，最近的交易可能尚未计入报表。"
+        }
+      }
+    }
+  },
+  "Gateway average cost": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Gateway 平均成本"
+        }
+      }
+    }
+  },
+  "IBKR reported cost": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "IBKR 报表成本"
+        }
+      }
+    }
+  },
+  "Reported shares": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "报表股数"
+        }
+      }
+    }
+  },
+  "Report date": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "报表日期"
+        }
+      }
+    }
+  },
+  "Cost basis": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "成本总额"
+        }
+      }
+    }
+  },
   "Awaiting the first daily report for this period" : {
     "extractionState" : "manual",
     "localizations" : {
