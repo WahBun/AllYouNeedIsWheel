@@ -1,6 +1,75 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Update the backend to use stock DAY or OVT orders." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update the backend to use stock DAY or OVT orders."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请更新后端后使用股票 DAY 或 OVT 订单。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請更新後端後使用股票 DAY 或 OVT 訂單。"
+          }
+        }
+      }
+    },
+    "OVT · Overnight session only. Requires broker permission and an eligible stock." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OVT · Overnight session only. Requires broker permission and an eligible stock."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OVT · 仅限单次隔夜时段，需券商权限及标的支持。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OVT · 僅限單次隔夜時段，需券商權限及標的支援。"
+          }
+        }
+      }
+    },
+    "Stage %lld %@ at %@ · %@?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stage %lld %@ at %@ · %@?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂存 %lld 份 %@，限价 %@ · %@？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暫存 %lld 份 %@，限價 %@ · %@？"
+          }
+        }
+      }
+    },
     "· %@" : {
 
     },
@@ -76,16 +145,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ · %@ %@ · %@ · %@ · %@\n限價 %@ · %@\n%@"
-          }
-        }
-      }
-    },
-    "%@ → %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ → %2$@"
           }
         }
       }
@@ -187,9 +246,6 @@
       }
     },
     "● SPX" : {
-
-    },
-    "0.2" : {
 
     },
     "1. Keep Tailscale connected on both devices." : {
@@ -296,6 +352,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "需要填寫私有 HTTPS 後端地址。"
+          }
+        }
+      }
+    },
+    "Access & Feedback" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Access & Feedback"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "权限与建议"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "權限與建議"
           }
         }
       }
@@ -1849,6 +1928,29 @@
         }
       }
     },
+    "English lettering" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "English lettering"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "英文点缀"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "英文點綴"
+          }
+        }
+      }
+    },
     "Enter your private HTTPS backend address in Settings." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2030,6 +2132,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本週五到期"
+          }
+        }
+      }
+    },
+    "Feedback" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feedback"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "意见反馈"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "意見回饋"
           }
         }
       }
@@ -5302,7 +5427,6 @@
       }
     },
     "Total" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {

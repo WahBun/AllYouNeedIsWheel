@@ -206,6 +206,7 @@ class OptionsDatabase:
                 print("Migration completed: rollover_close_order_id column added")
 
             close_order_columns = {
+                'tif': 'TEXT',
                 'intent': "TEXT NOT NULL DEFAULT 'OPEN'",
                 'con_id': 'INTEGER',
                 'account_id': 'TEXT',
@@ -278,8 +279,8 @@ class OptionsDatabase:
                  earnings_max_contracts, earnings_premium_per_contract, 
                  earnings_total_premium, earnings_return_on_cash, 
                  earnings_return_on_capital, status, executed, isRollover,
-                 rollover_close_order_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 rollover_close_order_id, tif)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 timestamp,
                 order_data.get('ticker', ''),
@@ -315,7 +316,8 @@ class OptionsDatabase:
                 'pending',
                 False,
                 order_data.get('isRollover', False),
-                order_data.get('rollover_close_order_id')
+                order_data.get('rollover_close_order_id'),
+                order_data.get('tif')
             ))
 
         return cursor.lastrowid

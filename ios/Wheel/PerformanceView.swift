@@ -81,6 +81,13 @@ struct PerformanceView: View {
     @State private var revision = 0
     private var active: Bool { visible && phase == .active && store.selectedTab == "portfolio" }
     private var context: String { "\(active)-\(store.demo)-\(store.address)-\(period)-\(revision)" }
+    private var performanceLegend: some View {
+        HStack(spacing: 6) {
+            Text("● Portfolio").foregroundStyle(gain)
+            if benchmarks.showsSPX { Text("● SPX").foregroundStyle(PerformanceColors.spx) }
+            if benchmarks.showsNQ100 { Text("● NQ100").foregroundStyle(.orange) }
+        }
+    }
     private var gain: Color { palette.color("gain", scheme: scheme, fallback: FinancialColors.gain) }
     private var loss: Color { palette.color("loss", scheme: scheme, fallback: FinancialColors.loss) }
     // Daily P&L / previous reported NAV is provisional, not an official intraday TWR.
@@ -164,7 +171,7 @@ struct PerformanceView: View {
 
                     }
                     .chartXAxis {
-                        if period == "ALL", let first = history.points.first, let last = history.points.last {
+                        if let first = history.points.first, let last = history.points.last {
                             AxisMarks(values: [first.day, last.day]) { value in
                                 AxisValueLabel(anchor: value.as(Date.self) == first.day ? .topLeading : .topTrailing) {
                                     if let date = value.as(Date.self) {
@@ -193,10 +200,7 @@ struct PerformanceView: View {
                             .id(period + benchmarks.rawValue)
                     }
                     .frame(height: 240)
-                    HStack { Text("● Portfolio").foregroundStyle(gain); if benchmarks.showsSPX { Text("● SPX").foregroundStyle(PerformanceColors.spx) }; if benchmarks.showsNQ100 { Text("● NQ100").foregroundStyle(.orange) } }.font(.caption)
-                    if period != "ALL" {
-                        Text("\(history.start) → \(history.end)").font(.caption).foregroundStyle(.secondary)
-                    }
+                    performanceLegend.font(.caption)
                     if history.limited_history { Text("Limited history for this period").font(.caption).foregroundStyle(.orange) }
                     if history.stale { Text("Cached history · refresh pending").font(.caption).foregroundStyle(.orange) }
                     if let warning = history.warning { NoticeText(warning).font(.caption).foregroundStyle(.orange) }

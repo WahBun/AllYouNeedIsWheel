@@ -328,7 +328,7 @@ final class TradingSession {
                     demoOrders.append(Order(id: OrderID(nextDemoID), ticker: position.symbol,
                         action: position.position < 0 ? "BUY" : "SELL", option_type: position.security_type == "STK" ? "STOCK" : position.option_type,
                         strike: position.strike, expiration: position.expiration, premium: body["limit_price"] as? Double,
-                        quantity: Double(qty), status: "pending", tif: "GTC", intent: "CLOSE"))
+                        quantity: Double(qty), status: "pending", tif: position.security_type == "STK" ? (body["tif"] as? String ?? "GTC") : "GTC", intent: "CLOSE"))
                     nextDemoID += 1
                 } else { try simulate(path, body: body) }
                 store.orders = demoOrders
@@ -436,7 +436,7 @@ struct OrderDetail: View {
                             }
                         } else { Text(money(order.premium)) }
                     }
-                    LabeledContent("Time in force", value: order.tif ?? (order.intent == "CLOSE" ? "GTC" : "DAY"))
+                    LabeledContent("Time in force", value: order.timingLabel)
                     LabeledContent("Status", value: order.ib_status ?? order.status)
                     if let id = order.ib_order_id { LabeledContent("IB order ID", value: String(id)) }
                     if let id = order.perm_id { LabeledContent("Permanent ID", value: String(id)) }
@@ -484,7 +484,7 @@ struct OrderDetail: View {
                 self.action = nil
             }
         } message: {
-            Text("\(current?.name ?? initial.name) · \(current?.action ?? "") \(action == "Save quantity" ? String(quantity) : current?.quantity?.formatted() ?? "") · \(current?.option_type ?? "") · \(money(current?.strike)) · \(current?.expiration ?? "")\nLimit \(money(action == "Execute" ? TradeRules.price(price) : current?.premium)) · \(current?.tif ?? (current?.intent == "CLOSE" ? "GTC" : "DAY"))\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
+            Text("\(current?.name ?? initial.name) · \(current?.action ?? "") \(action == "Save quantity" ? String(quantity) : current?.quantity?.formatted() ?? "") · \(current?.option_type ?? "") · \(money(current?.strike)) · \(current?.expiration ?? "")\nLimit \(money(action == "Execute" ? TradeRules.price(price) : current?.premium)) · \((current ?? initial).timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
         }
     }
     private func perform(_ action: String) {
@@ -519,7 +519,14 @@ struct CloseTicket: View {
     private var loading: Bool { state.loading }
     private var error: String? { state.error }
     private var active: Bool { visible && phase == .active && store.selectedTab == "portfolio" && !confirm && !staged }
-    private var context: String { "\(store.demo)-\(store.address)-\(position.con_id ?? 0)" }
+    @State private var stockTIF = "GTC"
+    private var isStock: Bool { position.security_type == "STK" }
+    private var timingSupported: Bool {
+        !isStock || stockTIF == "GTC" || store.demo ||
+            (quote?["stock_tifs"] as? [String] ?? []).contains(stockTIF)
+    }
+    private var timingLabel: String { stockTIF == "OVERNIGHT" ? "OVT" : stockTIF }
+    private var context: String { "\(store.demo)-\(store.address)-\(position.con_id ?? 0)-\(stockTIF)" }
     @State private var confirm = false
     @State private var staged = false
     private var held: Int { state.held }
@@ -553,6 +560,23 @@ struct CloseTicket: View {
             header: { SymbolText(symbol: position.symbol) }
             if loading && quote == nil { ProgressView() }
             if let error { Text(LocalizedStringKey("Quote refresh failed. The last quote is not current; staging is disabled.")).foregroundStyle(.orange); NoticeText(error).font(.caption) }
+            Section {
+                    if isStock {
+                        Picker("Time in force", selection: $stockTIF) {
+                            Text("DAY").tag("DAY")
+                            Text("GTC").tag("GTC")
+                            Text("OVT").tag("OVERNIGHT")
+                        }
+                        if !timingSupported {
+                            Text("Update the backend to use stock DAY or OVT orders.")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
+                        if stockTIF == "OVERNIGHT" {
+                            Text("OVT · Overnight session only. Requires broker permission and an eligible stock.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+            }
             if held > 0 {
                 Section("Close quantity") {
                     if quantity > held { Text("Position quantity changed. Review the close quantity.").foregroundStyle(.orange) }
@@ -568,7 +592,7 @@ struct CloseTicket: View {
                     PriceInput(title: "Limit per share", text: Binding(get: { price }, set: { state.markPriceEdited($0) }))
                     LabeledContent("Remaining", value: String(max(0, held - quantity)))
                     LabeledContent("Limit total", value: money(TradeRules.price(price).map { $0 * Double(quantity) * (quote?["multiplier"] as? Double ?? 100) }))
-                    LabeledContent("Time in force", value: "GTC")
+                    if !isStock { LabeledContent("Time in force", value: "GTC") }
                     LabeledContent("Estimated P&L before fees", value: money(TradingMath.closePnL(entry: quote?["avg_cost_per_share"] as? Double, limit: TradeRules.price(price), quantity: quantity, multiplier: quote?["multiplier"] as? Double ?? 100, buy: quote?["close_action"] as? String == "BUY")))
                     LabeledContent("Spread") { SpreadValue(percentage: quote?["spread_percent"] as? Double) }
                 }
@@ -581,7 +605,7 @@ struct CloseTicket: View {
                         Spacer()
                         Image(systemName: "plus.circle").accessibilityHidden(true)
                     }.contentShape(Rectangle())
-                }.disabled(!state.valid || staged)
+                }.disabled(!state.valid || !timingSupported || staged)
                 TradingNotice()
             }
         }.navigationTitle(localizedLabel("Close", locale: locale))
@@ -594,10 +618,12 @@ struct CloseTicket: View {
             guard active else { state.invalidate(); return }
             await RefreshLoop.run { await load(); return state.error != nil }
         }
-        .confirmationDialog("Stage \(quantity) \(position.symbol) at \(money(TradeRules.price(price)))?", isPresented: $confirm, titleVisibility: .visible) {
+        .confirmationDialog("Stage \(quantity) \(position.symbol) at \(money(TradeRules.price(price))) · \(isStock ? timingLabel : "GTC")?", isPresented: $confirm, titleVisibility: .visible) {
             Button("Stage · Execute separately in Orders") {
-                guard let value = TradeRules.price(price), let id = position.con_id, state.valid else { state.error = "Quote expired or quantity changed. Refresh and review before staging."; return }
-                Task { staged = await store.trading.write("api/options/close-order", body: ["con_id": id, "quantity": quantity, "limit_price": value], store: store); await store.refresh(); if staged { store.selectedTab = "orders" } }
+                guard let value = TradeRules.price(price), let id = position.con_id, state.valid, timingSupported else { state.error = "Quote expired or quantity changed. Refresh and review before staging."; return }
+                var body: [String: Any] = ["con_id": id, "quantity": quantity, "limit_price": value]
+                if isStock { body["tif"] = stockTIF }
+                Task { staged = await store.trading.write("api/options/close-order", body: body, store: store); await store.refresh(); if staged { store.selectedTab = "orders" } }
             }
         }
     }
@@ -608,9 +634,14 @@ struct CloseTicket: View {
         await state.refresh(fetch: {
             if store.demo {
                 let mid = position.security_type == "STK" ? max(0.02, position.market_price ?? 10) : 0.18
-                return ["position": position.position, "close_action": position.position < 0 ? "BUY" : "SELL", "bid": mid - 0.01, "mid": mid, "ask": mid + 0.01, "spread_percent": 0.02 / mid * 100, "multiplier": position.security_type == "STK" ? 1.0 : 100.0, "account_suffix": "DEMO", "is_frozen": true, "quote_time": "Demo"]
+                return ["position": position.position, "close_action": position.position < 0 ? "BUY" : "SELL", "bid": mid - 0.01, "mid": mid, "ask": mid + 0.01, "spread_percent": 0.02 / mid * 100, "multiplier": position.security_type == "STK" ? 1.0 : 100.0, "account_suffix": "DEMO", "is_frozen": true, "quote_time": "Demo", "stock_tifs": ["DAY", "GTC", "OVERNIGHT"], "quote_session": stockTIF == "OVERNIGHT" ? "OVERNIGHT" : "REGULAR"]
             }
-            return try await store.trading.get("api/portfolio/option-position/\(position.con_id ?? 0)/quote", base: store.address)
+            let query = isStock ? [URLQueryItem(name: "tif", value: stockTIF)] : []
+            let result = try await store.trading.get("api/portfolio/option-position/\(position.con_id ?? 0)/quote", base: store.address, query: query)
+            if stockTIF == "OVERNIGHT" && result["quote_session"] as? String != "OVERNIGHT" {
+                throw AppError.message("Update the backend to use stock DAY or OVT orders.")
+            }
+            return result
         }, allowed: { active && context == requestedContext && !store.trading.busy && store.trading.version == tradeVersion })
     }
 }

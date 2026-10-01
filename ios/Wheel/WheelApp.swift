@@ -94,6 +94,10 @@ struct Order: Decodable, Identifiable {
     var quantity: Double?
     var status: String
     var tif: String?
+    var timingLabel: String {
+        let value = tif ?? (intent == "CLOSE" ? "GTC" : "DAY")
+        return value == "OVERNIGHT" ? "OVT" : value
+    }
     var intent: String? = nil
     var external_ib: Bool? = nil
     var ib_status: String? = nil
@@ -189,9 +193,11 @@ final class WheelStore {
         let requestedTradeVersion = trading.version
         defer { busy = false }
         if demo {
-            portfolio = Bootstrap(summary: Summary(account_value: 25000, cash_balance: 12693, excess_liquidity: 14500, is_frozen: true, initial_margin: 4500, leverage_percentage: 18), positions: [
+            portfolio = Bootstrap(summary: Summary(account_value: 25000, cash_balance: 2693, excess_liquidity: 14500, is_frozen: true, initial_margin: 4500, leverage_percentage: 18), positions: [
                 Position(symbol: "TSLL", position: 300, market_price: 10.25, market_value: 3075, unrealized_pnl: 125, security_type: "STK", con_id: 2, avg_cost: 2950.0 / 300),
                 Position(symbol: "CRCL", position: 100, market_price: 92.5, market_value: 9250, unrealized_pnl: -150, security_type: "STK", con_id: 3, avg_cost: 94),
+                // Synthetic preview holding for the core-asset finish; never used in Live.
+                Position(symbol: "VOO", position: 20, market_price: 500, market_value: 10000, unrealized_pnl: 200, security_type: "STK", con_id: 4, avg_cost: 490),
                 Position(symbol: "TSLL", position: -1, market_price: 0.18, market_value: -18, unrealized_pnl: 32, security_type: "OPT", strike: 9, expiration: "20261016", option_type: "PUT", con_id: 1, avg_cost: 50, multiplier: 100)
             ])
             weekly = WeeklyIncome(total_income: 0, positions_count: 0, total_put_notional: 0)
@@ -708,7 +714,18 @@ struct AllocationView: View {
                         }.contentShape(Rectangle())
                     }.buttonStyle(.plain)
                 }
-                LabeledContent("Total", value: money(data.total))
+                LabeledContent {
+                    Text(money(data.total)).monospacedDigit()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "square.3.layers.3d")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Color(red: 0.66, green: 0.59, blue: 0.43))
+                            .frame(width: 8, height: 8)
+                            .accessibilityHidden(true)
+                        Text("Total")
+                    }
+                }
             }
             if !data.liabilities.isEmpty {
                 Section("Short positions & negative cash") {
@@ -840,10 +857,10 @@ private struct PerformanceShimmerLabel: View {
 }
 
 enum CoreAssetStyle {
-    static let symbols = ["SGOV", "VTI", "QQQ", "SPY"]
+    static let symbols = ["SGOV", "VTI", "QQQ", "SPY", "VOO"]
     static func contains(_ symbol: String) -> Bool { symbols.contains(symbol.uppercased()) }
     static func lettering(_ symbol: String) -> String {
-        ["SGOV": "𝕊𝔾𝕆𝕍", "VTI": "𝕍𝕋𝕀", "QQQ": "ℚℚℚ", "SPY": "𝕊ℙ𝕐"][symbol.uppercased()] ?? symbol
+        ["SGOV": "𝕊𝔾𝕆𝕍", "VTI": "𝕍𝕋𝕀", "QQQ": "ℚℚℚ", "SPY": "𝕊ℙ𝕐", "VOO": "𝕍𝕆𝕆"][symbol.uppercased()] ?? symbol
     }
     static let red = Color(red: 0.84, green: 0.13, blue: 0.09)
     static let brightGold = Color(red: 1, green: 0.84, blue: 0.32)
@@ -1079,7 +1096,7 @@ struct OrdersView: View {
                         if order.option_type == "STOCK" {
                             Text("\((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—") shares").font(.caption).foregroundStyle(.secondary)
                         } else {
-                            Text("\(order.expiration ?? "") · \(money(order.strike)) · Qty \((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—") · \(order.tif ?? (order.intent == "CLOSE" ? "GTC" : "DAY"))").font(.caption).foregroundStyle(.secondary)
+                            Text("\(order.expiration ?? "") · \(money(order.strike)) · Qty \((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—") · \(order.timingLabel)").font(.caption).foregroundStyle(.secondary)
                         }
                         if history && order.intent == "CLOSE" && order.hasFill {
                             HStack { Text("Realized P&L"); Spacer(); RealizedProfit(order: order) }.font(.subheadline)
@@ -1124,7 +1141,7 @@ struct OrdersView: View {
             }
         } message: {
             if let order = quickOrder {
-                Text("\(order.name) · \(order.action ?? "") · \(order.option_type ?? "") · \(money(order.strike)) · \(order.expiration ?? "")\n\(order.quantity?.formatted() ?? "—") · \(money(order.premium)) · \(order.tif ?? (order.intent == "CLOSE" ? "GTC" : "DAY"))\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
+                Text("\(order.name) · \(order.action ?? "") · \(order.option_type ?? "") · \(money(order.strike)) · \(order.expiration ?? "")\n\(order.quantity?.formatted() ?? "—") · \(money(order.premium)) · \(order.timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
             }
         }
         .confirmationDialog("Cancel \(cancelable.count) eligible orders?", isPresented: $cancelAll, titleVisibility: .visible) {
@@ -1163,6 +1180,13 @@ struct OrdersView: View {
 }
 
 struct SettingsView: View {
+    private static let appVersion: String = {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        let label = version.flatMap { $0.isEmpty ? nil : $0 } ?? "—"
+        guard let build, !build.isEmpty else { return label }
+        return "\(label) (\(build))"
+    }()
     @Environment(\.locale) private var locale
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("appLanguage") private var appLanguage = "system"
@@ -1293,9 +1317,9 @@ struct SettingsView: View {
             Section {
                 LabeledContent("Minimum iOS") { Text("18.0").padding(.trailing, 20) }
                 NavigationLink { TradingAccessView() } label: {
-                    LabeledContent("Trading access") { Text(verbatim: store.demo ? localizedLabel("Simulated", locale: locale) : localizedLabel("Live", locale: locale)) }
+                    LabeledContent("Access & Feedback") { Text(verbatim: store.demo ? localizedLabel("Simulated", locale: locale) : localizedLabel("Live", locale: locale)) }
                 }
-                LabeledContent("Version") { Text("0.2").padding(.trailing, 20) }
+                LabeledContent("Version") { Text(verbatim: Self.appVersion).padding(.trailing, 20) }
             } header: {
                 Text("App")
             } footer: {

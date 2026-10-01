@@ -38,6 +38,7 @@ struct HoldingsSharePreview: View {
     @State private var renderID = UUID()
     @State private var importError = false
     @State private var background: HoldingsShareBackground = .wallStreet
+    @AppStorage("shareEnglishLettering") private var showLettering = true
     var body: some View {
         NavigationStack {
             ScrollView { VStack(spacing: 20) {
@@ -71,6 +72,9 @@ struct HoldingsSharePreview: View {
                     PhotosPicker(selection: $photo, matching: .images) {
                         Label("Import background", systemImage: "photo.badge.plus")
                     }.buttonStyle(.bordered)
+                    Toggle("English lettering", isOn: $showLettering)
+                        .tint(.cyan)
+                        .onChange(of: showLettering) { renderID = UUID() }
                     ShareLink(item: image, preview: SharePreview("Holdings", image: image)) {
                         Label("Share image", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
                     }.buttonStyle(.borderedProminent)
@@ -81,7 +85,7 @@ struct HoldingsSharePreview: View {
             }.padding() }.navigationTitle("Share holdings").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
                 .task(id: renderID) {
-                    let renderer = ImageRenderer(content: HoldingsShareArtwork(slices: slices, background: background, customImage: customActive ? customImage : nil).frame(width: 1080, height: 1080))
+                    let renderer = ImageRenderer(content: HoldingsShareArtwork(slices: slices, background: background, customImage: customActive ? customImage : nil, showLettering: showLettering).frame(width: 1080, height: 1080))
                     renderer.scale = 1
                     if let rendered = renderer.uiImage { image = Image(uiImage: rendered) }
                 }
@@ -117,6 +121,7 @@ struct HoldingsShareArtwork: View {
     let slices: [HoldingsShareSlice]
     var background: HoldingsShareBackground = .wallStreet
     var customImage: UIImage?
+    var showLettering = true
     private let colors: [Color] = [.cyan, .mint, .purple, .orange, .red, .green, .teal, .blue]
     var body: some View {
         GeometryReader { geometry in
@@ -125,6 +130,11 @@ struct HoldingsShareArtwork: View {
             let center = CGPoint(x: size / 2, y: size * 0.49)
             ZStack {
                 (customImage.map { Image(uiImage: $0) } ?? Image(background.rawValue)).resizable().scaledToFill().frame(width: size, height: size).clipped()
+                if showLettering {
+                    ShareEditorialLettering()
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
                 Canvas { context, _ in
                     let total = slices.reduce(0) { $0 + $1.value }
                     var start = -Double.pi / 2
@@ -176,6 +186,51 @@ struct HoldingsShareArtwork: View {
                     .position(center)
                 if slices.isEmpty { Text("No portfolio").font(.title).foregroundStyle(.white).position(x: center.x, y: size * 0.8) }
             }
+        }
+    }
+}
+
+/// A shared, resolution-independent lettering layer for built-in and imported backdrops.
+/// All built-in backgrounds are clean; the same toggle governs every background.
+private struct ShareEditorialLettering: View {
+    var body: some View {
+        Canvas { context, canvas in
+            let size = canvas.width
+            func label(_ text: String, x: CGFloat, y: CGFloat, font: CGFloat = 0.012,
+                       tracking: CGFloat = 0.003, anchor: UnitPoint = .topLeading) {
+                let lettering = Text(verbatim: text)
+                    .font(.system(size: size * font, weight: .medium))
+                    .tracking(size * tracking)
+                    .foregroundStyle(.white.opacity(0.7))
+                context.drawLayer { layer in
+                    layer.addFilter(.shadow(color: .black.opacity(0.9), radius: size * 0.003))
+                    layer.draw(lettering, at: CGPoint(x: size * x, y: size * y), anchor: anchor)
+                }
+            }
+            label("U.S. STOCKS", x: 0.03, y: 0.025, font: 0.017, tracking: 0.007)
+            for (index, word) in ["INVEST", "TRADE", "COMPOUND"].enumerated() {
+                label(word, x: 0.03, y: 0.064 + CGFloat(index) * 0.02)
+            }
+            for (index, word) in ["DISCIPLINE", "EXECUTION", "FREEDOM"].enumerated() {
+                label(word, x: 0.974, y: 0.064 + CGFloat(index) * 0.029, anchor: .topTrailing)
+            }
+            label("NO RISK.", x: 0.03, y: 0.846, font: 0.015, tracking: 0.006)
+            label("NO STORY.", x: 0.03, y: 0.878, font: 0.015, tracking: 0.006)
+            for (index, word) in ["PRICE ACTION", "PATIENCE", "DISCIPLINE", "BETTER TRADER"].enumerated() {
+                label(word, x: 0.84, y: 0.818 + CGFloat(index) * 0.027, font: 0.011, tracking: 0.002)
+            }
+            label("SMALL STEPS BIG RESULTS", x: 0.5, y: 0.955, font: 0.012,
+                  tracking: 0.007, anchor: .top)
+            let script = Text(verbatim: "Trade\nYour Plan")
+                .font(.custom("SnellRoundhand", size: size * 0.023))
+                .foregroundStyle(.white.opacity(0.55))
+            context.draw(script, at: CGPoint(x: size * 0.95, y: size * 0.47))
+            var rules = Path()
+            for y in [0.134, 0.915] {
+                rules.move(to: CGPoint(x: size * 0.03, y: size * y))
+                rules.addLine(to: CGPoint(x: size * 0.068, y: size * y))
+            }
+            context.stroke(rules, with: .color(.yellow.opacity(0.65)), lineWidth: size * 0.002)
         }
     }
 }

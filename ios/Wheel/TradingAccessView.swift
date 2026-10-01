@@ -3,6 +3,8 @@ import SwiftUI
 struct TradingAccessView: View {
     @Environment(WheelStore.self) private var store
     @Environment(\.locale) private var locale
+    @State private var showingFeedback = false
+
     var body: some View {
         Form {
             Section {
@@ -15,6 +17,15 @@ struct TradingAccessView: View {
                     Label("Mini screen sharing", systemImage: "desktopcomputer")
                 }
             }
-        }.navigationTitle(localizedLabel("Trading access", locale: locale))
+            Section {
+                Button { showingFeedback = true } label: {
+                    Label("Feedback", systemImage: "bubble.left.and.text.bubble.right")
+                }
+            }
+        }
+        .navigationTitle(localizedLabel("Access & Feedback", locale: locale))
+        .sheet(isPresented: $showingFeedback) {
+            FeedbackView().ignoresSafeArea()
+        }
     }
 }

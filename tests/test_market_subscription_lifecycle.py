@@ -24,6 +24,16 @@ class MarketSubscriptionLifecycleTests(unittest.TestCase):
         self.assertIs(conn.get_market_ticker(Stock('TEST', 'SMART', 'USD', conId=123)), ticker)
         conn.ib.reqMktData.assert_called_once()
 
+    def test_overnight_subscription_is_separate_from_smart(self):
+        conn = self.connection()
+        smart = Stock('TEST', 'SMART', 'USD', conId=123)
+        overnight = Stock('TEST', 'OVERNIGHT', 'USD', conId=123)
+        conn.get_market_ticker(smart)
+        conn.get_market_ticker(overnight)
+        self.assertEqual(conn.ib.reqMktData.call_count, 2)
+        self.assertEqual(conn.ib.reqMktData.call_args.args[0].exchange, 'OVERNIGHT')
+        conn.ib.cancelMktData.assert_not_called()
+
     def test_incomplete_cached_subscription_is_replaced_once(self):
         conn = self.connection()
         held = Stock('TEST', '', 'USD', conId=123)

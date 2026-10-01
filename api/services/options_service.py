@@ -4,6 +4,7 @@ Handles options data retrieval and processing
 """
 
 import logging
+from core.order_timing import order_tif, routed_contract
 import math
 import re
 import time
@@ -257,6 +258,7 @@ class OptionsService:
             **prices,
             **close_fields
         })
+        normalized['tif'] = order_tif(normalized)
         return normalized
         
     def _adjust_to_standard_strike(self, price):
@@ -329,6 +331,8 @@ class OptionsService:
             if str(getattr(contract, 'symbol', '')) != order.get('ticker'):
                 raise ValueError('Held stock does not match the order')
             self._validate_stock_coverage(conn, order, account, db)
+            position = dict(position)
+            position['contract'] = routed_contract(contract, order_tif(order))
             return position
         expected_right = 'C' if order.get('option_type') == 'CALL' else 'P'
         if getattr(contract, 'right', '') != expected_right:
@@ -456,6 +460,7 @@ class OptionsService:
             'strike': float(getattr(contract, 'strike', 0) or 0),
             'expiration': str(getattr(contract, 'lastTradeDateOrContractMonth', '') or ''),
             'premium': limit_price,
+            'tif': close_data.get('tif', 'GTC'),
             'quantity': quantity,
             'con_id': con_id,
             'account_id': str(account),
@@ -646,7 +651,7 @@ class OptionsService:
                 quantity=quantity,
                 order_type='LMT',
                 limit_price=limit_price,
-                tif='GTC' if order.get('intent') == 'CLOSE' else 'DAY'
+                tif='DAY' if order['tif'] == 'OVERNIGHT' else order['tif']
             )
             if not ib_order:
                 return {

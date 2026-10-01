@@ -28,7 +28,7 @@ PRODUCT_BUNDLE_IDENTIFIER = com.yourname.wheel
 - **Orders**：草稿与成交历史分开，外部订单只读；滑动展示操作按钮，不使用整段滑动直接执行。执行／撤单确认默认启用，可调整已有偏好。
 - **Settings**：连接、语言、主题与自定义颜色。Demo 操作仅在本地模拟；未确认的真实提交结果需要人工核实后解除锁定。
 
-SGOV、VTI、QQQ、SPY 有专属字体、流光和 Allocation 扇区铺色。VTI／QQQ／SPY 保留 Trade 使用资格，只有 SGOV 被排除。动画遵守减少动态效果和前后台状态。设置签名使用红／亮金／暗金流光。
+SGOV、VTI、QQQ、SPY、VOO 有专属字体、流光和 Allocation 扇区铺色。VTI／QQQ／SPY／VOO 保留 Trade 使用资格，只有 SGOV 被排除。动画遵守减少动态效果和前后台状态。设置签名使用红／亮金／暗金流光。
 
 ## 数据边界
 
@@ -61,3 +61,18 @@ xcodebuild -project ios/Wheel.xcodeproj -scheme Wheel \
 测试使用 mocked transport／Demo，覆盖数据有效性、过期报价、刷新退避、用户编辑保留、订单权限和不确定提交等路径。2026-10-01 本地开发版本通过 89 项模拟器回归；这个记录不代表任意 GitHub 提交都已通过同样检查。
 
 安装新版本前先确保 Mini 后端具备对应接口。模拟器测试不能代替真机的语言／主题、点击区域、无线安装、盘中行情与成交验收。推送代码不会自动部署 Mini，也不会自动更新手机。
+
+### Stock sell timing
+
+Long-stock close tickets support DAY, GTC (default), and OVT. OVT is stored as
+`OVERNIGHT` and submitted through the TWS `OVERNIGHT` exchange with `DAY` validity;
+it requires an eligible USD stock and the account's overnight permissions. Quotes
+use the same overnight route and never fall back to a SMART portfolio price.
+Option timing remains unchanged. Stock buying is outside this feature.
+
+Update the backend together with the app before using DAY or OVT in live mode.
+Startup migrates the orders table with a nullable `tif` column; existing close
+orders retain GTC. The app blocks new timing choices when backend support is
+missing. Broker preflight and covered-call share reservations still apply.
+Future exchange schedule changes require a separate review; no calendar-triggered
+order-rule change is built in.

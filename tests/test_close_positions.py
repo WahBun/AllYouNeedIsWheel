@@ -113,6 +113,53 @@ class ClosePositionSafetyTests(unittest.TestCase):
         self.assertEqual(connection.place_calls, 1)
         self.assertIs(connection.placed_contract, connection.contract)
 
+    def test_stock_timing_persists_and_routes_through_preflight_and_submission(self):
+        for tif in ('DAY', 'GTC', 'OVERNIGHT'):
+            with self.subTest(tif=tif):
+                connection = self.stock_connection()
+                preflight_routes = []
+                connection.what_if_order = lambda contract, order: (preflight_routes.append(
+                    (contract.conId, contract.exchange, order.tif)) or {'success': True})
+                service = self.make_service(connection)
+                result, status = service.stage_close_order({
+                    'con_id': 81001, 'quantity': 1, 'limit_price': 10, 'tif': tif})
+                self.assertEqual(status, 201, result)
+                stored = self.db.get_order(result['order_id'])
+                self.assertEqual(stored['tif'], tif)
+                outcome, status = service.execute_order(result['order_id'], self.db)
+                self.assertEqual(status, 200, outcome)
+                expected_route = 'OVERNIGHT' if tif == 'OVERNIGHT' else 'SMART'
+                expected_tif = 'DAY' if tif == 'OVERNIGHT' else tif
+                self.assertEqual(preflight_routes, [(81001, expected_route, expected_tif)])
+                self.assertEqual(connection.placed_contract.exchange, expected_route)
+                self.assertEqual(connection.placed_contract.conId, 81001)
+                self.assertEqual(connection.contract.exchange, 'SMART')
+                self.assertEqual(connection.created_orders[0].tif, expected_tif)
+                # Independent mock positions, release the local active-close reservation.
+                self.db.update_order_status(result['order_id'], 'cancelled', executed=True)
+
+    def test_invalid_stock_timing_cannot_stage(self):
+        for tif in ('IOC', '', True, 'OVT'):
+            connection = self.stock_connection()
+            result, status = self.make_service(connection).stage_close_order({
+                'con_id': 81001, 'quantity': 1, 'limit_price': 10, 'tif': tif})
+            self.assertEqual(status, 400, result)
+            self.assertEqual(connection.place_calls, 0)
+
+    def test_option_timing_cannot_be_changed(self):
+        connection = FakeCloseConnection()
+        result, status = self.make_service(connection).stage_close_order({
+            'con_id': 81001, 'quantity': 1, 'limit_price': 0.5, 'tif': 'OVERNIGHT'})
+        self.assertEqual(status, 400, result)
+        self.assertEqual(connection.place_calls, 0)
+
+    def test_overnight_does_not_bypass_covered_call_check(self):
+        connection = self.stock_connection(300, 200)
+        result, status = self.make_service(connection).stage_close_order({
+            'con_id': 81001, 'quantity': 1, 'limit_price': 10, 'tif': 'OVERNIGHT'})
+        self.assertEqual(status, 400, result)
+        self.assertEqual(connection.place_calls, 0)
+
     def test_stock_with_any_cc_cannot_even_sell_one_share(self):
         connection = self.stock_connection(300, 200)
         service = self.make_service(connection)

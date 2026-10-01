@@ -3,6 +3,7 @@ Stock and Options Trading Connection Module for Interactive Brokers
 """
 
 import logging
+from core.order_timing import routed_contract
 import asyncio
 import copy
 import math
@@ -274,7 +275,10 @@ class IBConnection:
             getattr(contract, 'strike', 0),
             getattr(contract, 'right', '')
         )
-        return contract_key, generic_tick_list
+        exchange = getattr(contract, 'exchange', '')
+        if not exchange and getattr(contract, 'secType', '') in {'STK', 'OPT'}:
+            exchange = 'SMART'
+        return contract_key, generic_tick_list, exchange
 
     def has_market_subscription(self, contract, generic_tick_list=''):
         entry = getattr(self, '_market_ticker_cache', {}).get(
@@ -1107,16 +1111,19 @@ class IBConnection:
 
         return remaining_quantity
 
-    def get_option_position_quote(self, con_id, account_id=None):
+    def get_option_position_quote(self, con_id, account_id=None, tif=None):
         """Fetch a quote for an exact held option or stock contract."""
         position = self.get_option_position_by_con_id(con_id, account_id)
         if not position:
             return None
 
-        is_frozen = not is_market_hours()
+        overnight = tif == 'OVERNIGHT'
+        is_frozen = not is_market_hours() and not overnight
         self.set_market_data_type(2 if is_frozen else 1)
 
-        contract = position['contract']
+        contract = routed_contract(position['contract'], tif)
+        position = dict(position)
+        position['contract'] = contract
         ticker = self.get_market_ticker(contract, '' if contract.secType == 'STK' else '106')
         for _ in range(25):
             self.ib.sleep(0.1)
@@ -1128,7 +1135,7 @@ class IBConnection:
 
         bid = self._valid_price(getattr(ticker, 'bid', None))
         ask = self._valid_price(getattr(ticker, 'ask', None))
-        last = (
+        last = self._valid_price(getattr(ticker, 'last', None)) if overnight else (
             self._valid_price(getattr(ticker, 'last', None))
             or self._valid_price(getattr(ticker, 'close', None))
             or self._valid_price(position.get('market_price'))
@@ -1158,7 +1165,8 @@ class IBConnection:
             'spread_percent': spread_percent,
             'delta': delta,
             'implied_volatility': iv * 100 if iv is not None else None,
-            'is_frozen': is_frozen,
+            'is_frozen': is_frozen or getattr(ticker, 'marketDataType', 1) in (2, 3, 4),
+            'quote_session': 'OVERNIGHT' if overnight else 'REGULAR',
             'quote_time': datetime.now().isoformat(timespec='seconds')
         })
         return position

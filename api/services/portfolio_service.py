@@ -205,14 +205,14 @@ class PortfolioService:
             'as_of': portfolio.get('as_of')
         }
 
-    def get_option_position_quote(self, con_id):
+    def get_option_position_quote(self, con_id, tif=None):
         """Return a fresh quote and close-order metadata for one held option."""
         try:
             conn = self._ensure_connection()
             if not conn:
                 return None
 
-            position = conn.get_option_position_quote(con_id)
+            position = conn.get_option_position_quote(con_id, tif=tif) if tif else conn.get_option_position_quote(con_id)
             if not position:
                 return None
 
@@ -233,7 +233,9 @@ class PortfolioService:
                 'delta': position.get('delta'),
                 'implied_volatility': position.get('implied_volatility'),
                 'is_frozen': position.get('is_frozen', False),
-                'quote_time': position.get('quote_time')
+                'quote_time': position.get('quote_time'),
+                'quote_session': position.get('quote_session', 'REGULAR'),
+                'stock_tifs': (['DAY', 'GTC', 'OVERNIGHT'] if getattr(contract, 'currency', '') == 'USD' else ['DAY', 'GTC']) if getattr(contract, 'secType', '') == 'STK' else []
             }
             serialized.update(self._option_position_fields(
                 contract,

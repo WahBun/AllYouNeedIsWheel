@@ -22,3 +22,19 @@ class PositionQuoteMetricsTests(unittest.TestCase):
             result = self.quote(delta, iv)
             self.assertIsNone(result['delta'])
             self.assertIsNone(result['implied_volatility'])
+
+    def test_overnight_routes_exact_stock_without_regular_price_fallback(self):
+        conn = object.__new__(IBConnection)
+        conn.ib = Mock()
+        contract = NS(secType='STK', currency='USD', conId=123, exchange='SMART')
+        conn.get_option_position_by_con_id = Mock(return_value={'contract': contract, 'market_price': 100})
+        conn.set_market_data_type = Mock()
+        conn.get_market_ticker = Mock(return_value=NS(bid=None, ask=None, last=None, close=100))
+        with patch('core.connection.is_market_hours', return_value=False):
+            result = conn.get_option_position_quote(123, tif='OVERNIGHT')
+        self.assertIsNone(result['last'])
+        self.assertIsNone(result['mid'])
+        self.assertEqual(result['quote_session'], 'OVERNIGHT')
+        self.assertEqual(conn.get_market_ticker.call_args.args[0].exchange, 'OVERNIGHT')
+        self.assertEqual(contract.exchange, 'SMART')
+        conn.set_market_data_type.assert_called_once_with(1)
