@@ -632,3 +632,23 @@ def get_option_expirations():
 def amend_working_order(order_id):
     response, status = options_service.amend_order(order_id, request.get_json(silent=True))
     return jsonify(response), status
+
+
+@bp.get('/entry-margin')
+def entry_margin():
+    """Explicit on-demand estimate, serialized with other IB reads; never stage/execute."""
+    try:
+        from api.services.entry_margin import estimate_put_margin
+        conn = options_service._ensure_connection()
+        if not conn:
+            return jsonify(error='IB connection unavailable'), 503
+        payload = estimate_put_margin(conn, request.args.get('ticker', ''), request.args.get('expiration', ''),
+                                      request.args.get('strike'), request.args.get('quantity'), request.args.get('price'))
+        response = jsonify(payload)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except ValueError as error:
+        return jsonify(error=str(error)), 422
+    except Exception:
+        logger.exception('Entry margin estimate unavailable')
+        return jsonify(error='Margin estimate unavailable; no order was submitted'), 503
