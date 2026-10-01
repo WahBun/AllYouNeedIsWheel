@@ -1,7 +1,8 @@
 # Mac mini + Tailscale 部署
 
-在 Mini 上运行一个网页版和 IB Gateway，MacBook、手机通过同一个 Tailnet
-访问。下面使用占位符，不包含账户、设备 IP 或密码。
+在 Mini 上运行 Python 后端与 IB Gateway，iOS App 通过 Tailnet 私有 HTTPS 访问。
+首次部署（包括 Docker 与 Xcode）以[主 README](../README.md)为入口。本页保留
+LaunchAgent、维护与旧网页访问说明。下面使用占位符，不包含账户、设备 IP 或密码。
 
 ## 1. 本机安装
 
@@ -71,7 +72,7 @@ tailscale serve --tcp=8000 off
 
 ### 推荐：私有 HTTPS 与 iPhone 主屏幕
 
-长期使用建议启用 HTTPS，前面的 IP/TCP 入口只用于初期验证或临时备用。
+原生 iOS App 必须使用 HTTPS；前面的 IP/TCP 入口仅适用于旧网页初期验证或临时备用。
 先确认 MagicDNS 已开启，在 Tailscale 管理页面授权 Serve/HTTPS；不要开启 Funnel。
 
 ```sh

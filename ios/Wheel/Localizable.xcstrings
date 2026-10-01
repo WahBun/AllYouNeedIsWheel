@@ -1,402 +1,8 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "Colors apply to Demo and Live. Light and Dark are saved separately. Thresholds remain 30 / 70." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "颜色同时应用于 Demo 和 Live，浅色和深色分别保存。分界线保持 30／70。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "顏色同時套用於 Demo 和 Live，淺色和深色分別儲存。分界線維持 30／70。"
-          }
-        }
-      }
-    },
-    "Custom colors" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自定义颜色"
-          }
-        }
-      }
-    },
-    "System color" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "系统主色"
-          }
-        }
-      }
-    },
-    "P&L colors" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "盈亏颜色"
-          }
-        }
-      }
-    },
-    "Profit" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "盈利"
-          }
-        }
-      }
-    },
-    "Loss" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "亏损"
-          }
-        }
-      }
-    },
-    "Apply" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "应用"
-          }
-        }
-      }
-    },
-    "Restore default colors" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "恢复默认颜色"
-          }
-        }
-      }
-    },
-    "Demo only. Colors are saved separately for Light and Dark. Thresholds remain 30 / 70." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅在 Demo 生效。浅色和深色模式分别保存，分界线仍为 30／70。"
-          }
-        }
-      }
-    },
-    "Share holdings" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "分享持仓"
-          }
-        }
-      }
-    },
-    "Share image" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "分享图片"
-          }
-        }
-      }
-    },
-    "Random background" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "随机背景"
-          }
-        }
-      }
-    },
-    "Wall Street" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "华尔街"
-          }
-        }
-      }
-    },
-    "Deep Space" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "深蓝星空"
-          }
-        }
-      }
-    },
-    "Golden Peaks" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "黑金山峦"
-          }
-        }
-      }
-    },
-    "Aurora" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "极光"
-          }
-        }
-      }
-    },
-    "Moonlit Coast" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "月夜海岸"
-          }
-        }
-      }
-    },
-    "Neon City" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "赛博都市"
-          }
-        }
-      }
-    },
-    "Ink Mountains" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "水墨山景"
-          }
-        }
-      }
-    },
-    "Holdings" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "持仓"
-          }
-        }
-      }
-    },
-    "Weights use absolute position values plus positive cash. Account details and amounts are hidden." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "比例按持仓市值绝对值及正现金计算。图片不展示账户信息和金额。"
-          }
-        }
-      }
-    },
-    "Allocation" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "资产配置"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "資產配置"
-          }
-        }
-      }
-    },
-    "Positive assets" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正资产"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正資產"
-          }
-        }
-      }
-    },
-    "Short positions & negative cash" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "空头持仓与负现金"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "空頭持倉與負現金"
-          }
-        }
-      }
-    },
-    "Reconciliation" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "净值核对"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "淨值核對"
-          }
-        }
-      }
-    },
-    "Estimated net value" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按持仓估算净值"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "按持倉估算淨值"
-          }
-        }
-      }
-    },
-    "Difference" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "差额"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "差額"
-          }
-        }
-      }
-    },
-    "Some market values are unavailable" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "部分持仓市值暂不可用"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "部分持倉市值暫不可用"
-          }
-        }
-      }
-    },
-    "My background" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "我的背景"
-          }
-        }
-      }
-    },
-    "Import background" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "导入背景"
-          }
-        }
-      }
-    },
-    "Unable to import image" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法导入图片"
-          }
-        }
-      }
-    },
-    "Choose another photo and try again." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请选择其他图片后重试。"
-          }
-        }
-      }
-    },
-    "Realized P&L" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Realized P&L"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已实现盈亏"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已實現損益"
-          }
-        }
-      }
+    "· %@" : {
+
     },
     "%@ · %@" : {
       "localizations" : {
@@ -404,6 +10,16 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "%@ · %@ · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@ · %3$@"
           }
         }
       }
@@ -419,46 +35,78 @@
       }
     },
     "%@ · %@ · Qty %@ · %@" : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@ · %2$@ · Qty %3$@ · %4$@"
           }
-        }
-      }
-    },
-    "%@ · %@ %@" : {
-      "localizations" : {
-        "en" : {
+        },
+        "zh-Hans" : {
           "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ · %2$@ %3$@"
+            "state" : "translated",
+            "value" : "%@ · %@ · 数量 %@ · %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@ · 數量 %@ · %@"
           }
         }
       }
     },
-    "%@ · %@ %@ · %@ %@ · %@\nLimit %@ · %@\n%@" : {
+    "%@ · %@ %@ · %@ · %@ · %@\nLimit %@ · %@\n%@" : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$@ · %2$@ %3$@ · %4$@ %5$@ · %6$@\nLimit %7$@ · %8$@\n%9$@"
+            "value" : "%1$@ · %2$@ %3$@ · %4$@ · %5$@ · %6$@\nLimit %7$@ · %8$@\n%9$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@ %@ · %@ · %@ · %@\n限价 %@ · %@\n%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@ %@ · %@ · %@ · %@\n限價 %@ · %@\n%@"
           }
         }
       }
     },
-    "%@ contracts · %@" : {
+    "%@ → %@" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$@ contracts · %2$@"
+            "value" : "%1$@ → %2$@"
           }
         }
       }
     },
-    "%@ shares" : {},
+    "%@ shares" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 股"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 股"
+          }
+        }
+      }
+    },
     "%lld contracts · %@" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -493,6 +141,165 @@
         }
       }
     },
+    "%lldd" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld天"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld天"
+          }
+        }
+      }
+    },
+    "+$128.00  +12.8%" : {
+
+    },
+    "×" : {
+
+    },
+    "−$64.00  −6.4%" : {
+
+    },
+    "● NQ100" : {
+
+    },
+    "● Portfolio" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "● 投资组合"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "● 投資組合"
+          }
+        }
+      }
+    },
+    "● SPX" : {
+
+    },
+    "0.2" : {
+
+    },
+    "1. Keep Tailscale connected on both devices." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1. Keep Tailscale connected on both devices."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1. 保持两台设备的 Tailscale 已连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1. 保持兩台設備的 Tailscale 已連接。"
+          }
+        }
+      }
+    },
+    "2. Sign in to screen sharing with the Mini macOS account and password, not your IB account." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2. Sign in to screen sharing with the Mini macOS account and password, not your IB account."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2. 使用 Mini 的 macOS 用户名和密码登录屏幕共享，此处不是 IB 账户。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2. 使用 Mini 的 macOS 用戶名和密碼登錄屏幕共享，此處不是 IB 賬戶。"
+          }
+        }
+      }
+    },
+    "3. In Gateway, enter your IB password and complete IB Key verification on your phone." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3. In Gateway, enter your IB password and complete IB Key verification on your phone."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3. 在 Gateway 输入 IB 密码，在手机上完成 IB Key 验证。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "3. 在 Gateway 輸入 IB 密碼，在手機上完成 IB Key 驗證。"
+          }
+        }
+      }
+    },
+    "4. Return to Wheel and tap Connect. Closing the remote viewer does not require quitting Gateway." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4. Return to Wheel and tap Connect. Closing the remote viewer does not require quitting Gateway."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4. 返回 Wheel 点击连接。关闭远程查看窗口即可，无需退出 Gateway。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4. 返回 Wheel 點擊連接。關閉遠程查看窗口即可，無需退出 Gateway。"
+          }
+        }
+      }
+    },
+    "18.0" : {
+
+    },
+    "A private HTTPS backend address is required." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要填写私有 HTTPS 后端地址。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要填寫私有 HTTPS 後端地址。"
+          }
+        }
+      }
+    },
     "Account" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -506,6 +313,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "帳戶"
+          }
+        }
+      }
+    },
+    "Account base currency · IBKR daily P&L" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以账户基础货币计价 · IBKR 当日盈亏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以帳戶基礎貨幣計價 · IBKR 當日損益"
           }
         }
       }
@@ -578,6 +401,40 @@
         }
       }
     },
+    "ALL" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部"
+          }
+        }
+      }
+    },
+    "Allocation" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "资产配置"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "資產配置"
+          }
+        }
+      }
+    },
     "Annualized premium estimate" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -596,7 +453,6 @@
       }
     },
     "App" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -629,6 +485,23 @@
         }
       }
     },
+    "Apply" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "应用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "應用"
+          }
+        }
+      }
+    },
     "Ask" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -642,6 +515,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ask"
+          }
+        }
+      }
+    },
+    "Aurora" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "极光"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "極光"
           }
         }
       }
@@ -714,6 +604,40 @@
         }
       }
     },
+    "Average fill price" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均成交价"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均成交價"
+          }
+        }
+      }
+    },
+    "Backend unavailable. Check your connection and Tailscale." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "后端暂不可用，请检查网络及 Tailscale 连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "後端暫不可用，請檢查網絡及 Tailscale 連接。"
+          }
+        }
+      }
+    },
     "Bid" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -748,12 +672,25 @@
         }
       }
     },
-    "BUY %@ %@ at %@\nSELL %@ %@ · %@ %@ at %@\nExecution is separate in Orders." : {
+    "BUY %@ %@ at %@\nSELL %@ %@ · %@ · %@ at %@\nExecution is separate in Orders." : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "BUY %1$@ %2$@ at %3$@\nSELL %4$@ %5$@ · %6$@ %7$@ at %8$@\nExecution is separate in Orders."
+            "value" : "BUY %1$@ %2$@ at %3$@\nSELL %4$@ %5$@ · %6$@ · %7$@ at %8$@\nExecution is separate in Orders."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "买入 %@ %@，价格 %@\n卖出 %@ %@ · %@ · %@，价格 %@\n请在订单页分别执行。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "買入 %@ %@，價格 %@\n賣出 %@ %@ · %@ · %@，價格 %@\n請在訂單頁分別執行。"
           }
         }
       }
@@ -771,6 +708,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "BUY TO CLOSE · GTC"
+          }
+        }
+      }
+    },
+    "Cached history · refresh pending" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前显示缓存历史数据 · 等待刷新"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目前顯示快取歷史資料 · 等待重新整理"
           }
         }
       }
@@ -843,8 +796,24 @@
         }
       }
     },
+    "Cannot reach the backend. Check the address and Tailscale connection." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法连接后端，请检查地址及 Tailscale 连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法連接後端，請檢查地址及 Tailscale 連接。"
+          }
+        }
+      }
+    },
     "Cash" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -943,6 +912,22 @@
         }
       }
     },
+    "Choose another photo and try again." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请选择其他图片后重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請選擇其他圖片後重試。"
+          }
+        }
+      }
+    },
     "Close" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -960,7 +945,23 @@
         }
       }
     },
-    "Close covered CALLs before selling shares." : {},
+    "Close covered CALLs before selling shares." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卖出股票前，请先平仓对应的备兑看涨期权。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "賣出股票前，請先平倉對應的備兌看漲期權。"
+          }
+        }
+      }
+    },
     "Close limit per share" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -991,6 +992,63 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "平倉數量"
+          }
+        }
+      }
+    },
+    "Colors apply to Demo and Live. Light and Dark are saved separately. Thresholds remain 30 / 70." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "颜色同时应用于 Demo 和 Live，浅色和深色分别保存。分界线保持 30／70。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顏色同時套用於 Demo 和 Live，淺色和深色分別儲存。分界線維持 30／70。"
+          }
+        }
+      }
+    },
+    "Commission" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Commission"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手续费"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "手續費"
+          }
+        }
+      }
+    },
+    "Compare with" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "对比基准"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "比較基準"
           }
         }
       }
@@ -1114,7 +1172,6 @@
       }
     },
     "CONNECTED" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -1181,7 +1238,40 @@
         }
       }
     },
-    "Connection interrupted. Retrying…" : {},
+    "Connection interrupted. Retrying…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接中断，正在重试…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連接中斷，正在重試…"
+          }
+        }
+      }
+    },
+    "Connection timed out. Check your network and Tailscale, then retry." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接超时，请检查网络与 Tailscale 后重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連接超時，請檢查網絡與 Tailscale 後重試。"
+          }
+        }
+      }
+    },
     "Contract" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1195,6 +1285,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "合約"
+          }
+        }
+      }
+    },
+    "Contract mismatch" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合约信息不匹配。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合約信息不匹配。"
+          }
+        }
+      }
+    },
+    "Contracts" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合约数量"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合約數量"
           }
         }
       }
@@ -1229,6 +1353,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "合約數：%lld / %lld"
+          }
+        }
+      }
+    },
+    "Copied" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copied"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已复制"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已複製"
+          }
+        }
+      }
+    },
+    "Copy connection address" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy connection address"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制连接地址"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "複製連接地址"
+          }
+        }
+      }
+    },
+    "Copy the connection address into your VNC client, or use Screen Sharing on your Mac." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy the connection address into your VNC client, or use Screen Sharing on your Mac."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请将连接地址复制到 VNC 客户端，或使用 Mac 的系统屏幕共享。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請將連接地址複製到 VNC 客戶端，或使用 Mac 的系統屏幕共享。"
           }
         }
       }
@@ -1333,6 +1525,40 @@
         }
       }
     },
+    "Custom colors" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定义颜色"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自定義顏色"
+          }
+        }
+      }
+    },
+    "Daily P&L" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当日盈亏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "當日損益"
+          }
+        }
+      }
+    },
     "Dark" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1345,6 +1571,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "深色"
+          }
+        }
+      }
+    },
+    "Days to expiration: %lld" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "距离到期：%lld天"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "距離到期：%lld天"
           }
         }
       }
@@ -1366,7 +1609,48 @@
         }
       }
     },
-    "Delta" : {},
+    "Deep Space" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "深蓝星空"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "深藍星空"
+          }
+        }
+      }
+    },
+    "Delta" : {
+
+    },
+    "Demo" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "演示"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "示範"
+          }
+        }
+      }
+    },
     "DEMO" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1400,6 +1684,29 @@
         }
       }
     },
+    "Demo fill details" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demo fill details"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "演示成交详情"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "示範成交詳情"
+          }
+        }
+      }
+    },
     "Demo mode" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1413,6 +1720,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "示範模式"
+          }
+        }
+      }
+    },
+    "Demo only. Colors are saved separately for Light and Dark. Thresholds remain 30 / 70." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅在 Demo 生效。浅色和深色模式分别保存，分界线仍为 30／70。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "僅在 Demo 生效。淺色和深色模式分別保存，分界線仍為 30／70。"
           }
         }
       }
@@ -1451,6 +1775,63 @@
         }
       }
     },
+    "Difference" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "差额"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "差額"
+          }
+        }
+      }
+    },
+    "Dismiss notification" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dismiss notification"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭通知"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉通知"
+          }
+        }
+      }
+    },
+    "Do not resubmit. Verify in IB and the web app; trading is locked pending review." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请勿重复提交。请在 IB 和网页端核实；交易已锁定，等待核查。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請勿重復提交。請在 IB 和網頁端覈實；交易已鎖定，等待核查。"
+          }
+        }
+      }
+    },
     "Done" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1464,6 +1845,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "完成"
+          }
+        }
+      }
+    },
+    "Enter your private HTTPS backend address in Settings." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请在设置中输入你的私有 HTTPS 后端地址。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請在設置中輸入你的私有 HTTPS 後端地址。"
           }
         }
       }
@@ -1514,6 +1912,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "預計平倉影響"
+          }
+        }
+      }
+    },
+    "Estimated net value" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按持仓估算净值"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按持倉估算淨值"
           }
         }
       }
@@ -1619,18 +2034,53 @@
         }
       }
     },
+    "Fill notification preview" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fill notification preview"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成交提醒预览"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成交提醒預覽"
+          }
+        }
+      }
+    },
     "Filled %@ / %@ · %@" : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "Filled %1$@ / %2$@ · %3$@"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已成交 %@ / %@ · %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已成交 %@ / %@ · %@"
+          }
         }
       }
     },
     "Frozen" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -1676,6 +2126,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "凍結資料 · 請核對報價"
+          }
+        }
+      }
+    },
+    "Gateway unavailable." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gateway 暂不可用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gateway 暫時無法使用。"
+          }
+        }
+      }
+    },
+    "Golden Peaks" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "黑金山峦"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "黑金山巒"
           }
         }
       }
@@ -1727,6 +2211,72 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "隱藏"
+          }
+        }
+      }
+    },
+    "Hide liquidity and cash" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收起流动性和现金"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收起流動性和現金"
+          }
+        }
+      }
+    },
+    "History is still generating. Try Refresh shortly." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "历史数据仍在生成，请稍后刷新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "歷史資料仍在產生，請稍後重新整理。"
+          }
+        }
+      }
+    },
+    "History: compounded daily IBKR TWR. SPX and NQ100: FRED daily price indices, excluding reinvested dividends. Intraday estimate uses daily P&L / last reported NAV; deposits, withdrawals and IB reset times may affect comparability. Final returns follow the next Flex report." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "历史收益按 IBKR 每日时间加权收益率（TWR）复利计算。SPX 与 NQ100 使用 FRED 每日价格指数，不含股息再投资。盘中收益按当日盈亏与最近报告净资产的比值估算；出入金及 IB 数据重置时间可能影响可比性。最终收益以下一份 Flex 报表为准。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "歷史報酬按 IBKR 每日時間加權報酬率（TWR）複利計算。SPX 與 NQ100 使用 FRED 每日價格指數，不含股息再投資。盤中報酬按當日損益與最近報告淨資產的比值估算；出入金及 IB 資料重設時間可能影響可比性。最終報酬以下一份 Flex 報表為準。"
+          }
+        }
+      }
+    },
+    "Holdings" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "持仓"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "持倉"
           }
         }
       }
@@ -1829,8 +2379,46 @@
         }
       }
     },
-    "Initial margin" : {
+    "If typing is incorrect, select ABC on Mini and check Caps Lock. Use Mini's Accessibility Keyboard if needed. Test ordinary text before typing a password." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If typing is incorrect, select ABC on Mini and check Caps Lock. Use Mini's Accessibility Keyboard if needed. Test ordinary text before typing a password."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输入异常时，在 Mini 选择 ABC 并检查大写锁定；必要时使用 Mini 的辅助功能键盘。先用普通文字测试，再输入密码。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "輸入異常時，在 Mini 選擇 ABC 並檢查大寫鎖定；必要時使用 Mini 的輔助功能鍵盤。先用普通文字測試，再輸入密碼。"
+          }
+        }
+      }
+    },
+    "Import background" : {
       "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入背景"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "導入背景"
+          }
+        }
+      }
+    },
+    "Initial margin" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -1863,9 +2451,118 @@
         }
       }
     },
-    "IV" : {},
-    "Language" : {
+    "Ink Mountains" : {
       "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "水墨山景"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "水墨山景"
+          }
+        }
+      }
+    },
+    "Intraday estimate" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "盘中估算收益率"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "盤中估算報酬率"
+          }
+        }
+      }
+    },
+    "Invalid backend address." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "后端地址无效。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "後端網址無效。"
+          }
+        }
+      }
+    },
+    "Invalid backend response." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "后端响应无效。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "後端響應無效。"
+          }
+        }
+      }
+    },
+    "Invalid response." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "响应无效。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "伺服器回應無效。"
+          }
+        }
+      }
+    },
+    "IV" : {
+
+    },
+    "Keyboard and access" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keyboard and access"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "键盘与访问权限"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "鍵盤與訪問權限"
+          }
+        }
+      }
+    },
+    "Language" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -1877,6 +2574,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "語言"
+          }
+        }
+      }
+    },
+    "Last fill time" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last fill time"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最后成交时间"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最後成交時間"
           }
         }
       }
@@ -1916,7 +2636,6 @@
       }
     },
     "Leverage" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -2016,6 +2735,56 @@
         }
       }
     },
+    "Limited history for this period" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此时间范围内的历史数据不完整"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此時間範圍內的歷史資料不完整"
+          }
+        }
+      }
+    },
+    "Live" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实盘"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "實盤"
+          }
+        }
+      }
+    },
+    "Live account P&L unavailable." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "账户实时盈亏暂不可用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "帳戶即時損益暫時無法使用。"
+          }
+        }
+      }
+    },
     "Loading opportunities…" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2029,6 +2798,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在載入交易機會…"
+          }
+        }
+      }
+    },
+    "Loss" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "亏损"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "虧損"
           }
         }
       }
@@ -2135,6 +2921,23 @@
         }
       }
     },
+    "Market session unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂时无法获取交易时段。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暫時無法獲取交易時段。"
+          }
+        }
+      }
+    },
     "Market value" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2169,6 +2972,51 @@
         }
       }
     },
+    "Mini must allow your macOS account to observe and control the screen. Use Standard sharing; no public port forwarding is needed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mini must allow your macOS account to observe and control the screen. Use Standard sharing; no public port forwarding is needed."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mini 必须允许你的 macOS 账户观察和控制屏幕。使用标准共享即可，无需公网端口转发。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mini 必須允許你的 macOS 賬戶觀察和控制屏幕。使用標準共享即可，無需公網端口轉發。"
+          }
+        }
+      }
+    },
+    "Mini screen sharing" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mini screen sharing"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mini 屏幕共享"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mini 屏幕共享"
+          }
+        }
+      }
+    },
     "Minimum iOS" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2186,6 +3034,56 @@
         }
       }
     },
+    "Moonlit Coast" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "月夜海岸"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "月夜海岸"
+          }
+        }
+      }
+    },
+    "MTD" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本月"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本月"
+          }
+        }
+      }
+    },
+    "My background" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "我的背景"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "我的背景"
+          }
+        }
+      }
+    },
     "Negative means less required margin; positive means more. Closing a hedge can increase margin. This is not the holding's actual margin allocation." : {
       "localizations" : {
         "zh-Hans" : {
@@ -2198,6 +3096,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "負數表示所需保證金減少，正數表示增加。平掉對沖持倉可能增加保證金。這不是該持倉的實際佔用。"
+          }
+        }
+      }
+    },
+    "Neon City" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "赛博都市"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "賽博都市"
           }
         }
       }
@@ -2252,6 +3167,80 @@
         }
       }
     },
+    "No compatible screen sharing app" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No compatible screen sharing app"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有兼容的屏幕共享应用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "沒有兼容的屏幕共享應用"
+          }
+        }
+      }
+    },
+    "No expiration available." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无可用到期日。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暫無可用到期日。"
+          }
+        }
+      }
+    },
+    "No internet connection. Check Wi-Fi or cellular data." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "网络未连接，请检查 Wi-Fi 或蜂窝数据。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "網絡未連接，請檢查 Wi-Fi 或蜂窩數據。"
+          }
+        }
+      }
+    },
+    "No matching option quote." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有匹配的期权报价。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "沒有匹配的期權報價。"
+          }
+        }
+      }
+    },
     "No opportunities" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2287,7 +3276,6 @@
       }
     },
     "No portfolio" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -2299,6 +3287,45 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "暫無持倉資料"
+          }
+        }
+      }
+    },
+    "On Mac, use Screen Sharing. On iPhone, a compatible VNC client is required; Wheel does not include a remote desktop client." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On Mac, use Screen Sharing. On iPhone, a compatible VNC client is required; Wheel does not include a remote desktop client."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac 请使用系统屏幕共享；iPhone 需要兼容的 VNC 客户端。Wheel 不内置远程桌面。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac 請使用系統屏幕共享；iPhone 需要兼容的 VNC 客戶端。Wheel 不內置遠程桌面。"
+          }
+        }
+      }
+    },
+    "Only exact short option positions can be rolled." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只能对明确匹配的期权空头持仓进行移仓。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只能對明確匹配的期權空頭持倉進行移倉。"
           }
         }
       }
@@ -2320,6 +3347,46 @@
         }
       }
     },
+    "Open screen sharing" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open screen sharing"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开屏幕共享"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打開屏幕共享"
+          }
+        }
+      }
+    },
+    "Option data unavailable." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂时无法获取期权数据。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暫時無法獲取期權數據。"
+          }
+        }
+      }
+    },
     "Options" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2333,6 +3400,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "期權"
+          }
+        }
+      }
+    },
+    "Order filled" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Order filled"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部成交"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部成交"
+          }
+        }
+      }
+    },
+    "Order no longer exists." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "该订单已不存在。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "該訂單已不存在。"
           }
         }
       }
@@ -2354,6 +3461,23 @@
         }
       }
     },
+    "Order outcome needs verification in IB and the web app." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请在 IB 和网页端核实订单结果。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請在 IB 和網頁端覈實訂單結果。"
+          }
+        }
+      }
+    },
     "Order preferences" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2367,6 +3491,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "訂單偏好"
+          }
+        }
+      }
+    },
+    "Order refresh failed; displayed data may be outdated." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "订单刷新失败，当前显示的数据可能已过期。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "訂單刷新失敗，當前顯示的數據可能已過期。"
+          }
+        }
+      }
+    },
+    "Order status could not be verified." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法确认订单状态。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法確認訂單狀態。"
+          }
+        }
+      }
+    },
+    "Order status needs verification" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "订单状态需要核实"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "訂單狀態需要核實"
           }
         }
       }
@@ -2405,6 +3580,46 @@
         }
       }
     },
+    "P&L colors" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "盈亏颜色"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "盈虧顏色"
+          }
+        }
+      }
+    },
+    "Partially filled" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Partially filled"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分成交"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分成交"
+          }
+        }
+      }
+    },
     "Pending" : {
       "localizations" : {
         "zh-Hans" : {
@@ -2417,6 +3632,124 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "待處理"
+          }
+        }
+      }
+    },
+    "Performance" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收益表现"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收益表現"
+          }
+        }
+      }
+    },
+    "Performance and Gateway account must match." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收益数据账户必须与 Gateway 账户一致。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收益資料帳戶必須與 Gateway 帳戶一致。"
+          }
+        }
+      }
+    },
+    "Performance configuration unavailable." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取收益数据配置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法讀取收益資料設定。"
+          }
+        }
+      }
+    },
+    "Performance endpoint unavailable." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收益接口暂不可用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收益資料服務暫時無法使用。"
+          }
+        }
+      }
+    },
+    "Performance history is not configured on this backend." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此后端尚未配置收益历史数据。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此後端尚未設定收益歷史資料。"
+          }
+        }
+      }
+    },
+    "Performance requires a live backend with Flex history." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收益表现需要连接已配置 Flex 历史数据的真实后端。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收益表現需要連接已設定 Flex 歷史資料的實際後端。"
+          }
+        }
+      }
+    },
+    "Period" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "时间范围"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "時間範圍"
           }
         }
       }
@@ -2455,6 +3788,23 @@
         }
       }
     },
+    "Portfolio only" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅投资组合"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "僅投資組合"
+          }
+        }
+      }
+    },
     "Position quantity changed. Review the close quantity." : {
       "localizations" : {
         "zh-Hans" : {
@@ -2467,6 +3817,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "持倉數量已變化，請核對平倉數量。"
+          }
+        }
+      }
+    },
+    "Position quote is invalid. Refresh before staging." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "持仓报价无效，请刷新后再暂存订单。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "持倉報價無效，請刷新後再暫存訂單。"
           }
         }
       }
@@ -2488,6 +3855,23 @@
         }
       }
     },
+    "Positive assets" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正资产"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正資產"
+          }
+        }
+      }
+    },
     "Premium" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2501,6 +3885,68 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "權利金"
+          }
+        }
+      }
+    },
+    "Preview fill notifications" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preview fill notifications"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "预览成交提醒"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "預覽成交提醒"
+          }
+        }
+      }
+    },
+    "Preview only. No order was submitted or changed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preview only. No order was submitted or changed."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅供预览，没有提交或更改任何订单。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "僅供預覽，沒有提交或更改任何訂單。"
+          }
+        }
+      }
+    },
+    "Profit" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "盈利"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "盈利"
           }
         }
       }
@@ -2523,7 +3969,6 @@
       }
     },
     "Quantity" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -2607,6 +4052,102 @@
         }
       }
     },
+    "Random background" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "随机背景"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隨機背景"
+          }
+        }
+      }
+    },
+    "Realized P&L" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Realized P&L"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已实现盈亏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已實現損益"
+          }
+        }
+      }
+    },
+    "Reconciliation" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "净值核对"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "淨值核對"
+          }
+        }
+      }
+    },
+    "Reconnect Gateway" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reconnect Gateway"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新登录 Gateway"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新登錄 Gateway"
+          }
+        }
+      }
+    },
+    "Refresh" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "刷新"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新整理"
+          }
+        }
+      }
+    },
     "Refresh all" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2675,6 +4216,29 @@
         }
       }
     },
+    "Remote maintenance" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remote maintenance"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "远程维护"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "遠程維護"
+          }
+        }
+      }
+    },
     "Remove" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2692,6 +4256,23 @@
         }
       }
     },
+    "Reported return" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已结算收益率"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已結算報酬率"
+          }
+        }
+      }
+    },
     "Request acknowledged. Refresh Orders to check broker status." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2705,6 +4286,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "請求已確認。請重新整理訂單，核對券商狀態。"
+          }
+        }
+      }
+    },
+    "Request failed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请求失败。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請求失敗。"
+          }
+        }
+      }
+    },
+    "Restore default colors" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复默认颜色"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢復默認顏色"
           }
         }
       }
@@ -2844,6 +4459,28 @@
         }
       }
     },
+    "Save your Mini HTTPS backend address in Settings first." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save your Mini HTTPS backend address in Settings first."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先在设置中保存 Mini 的 HTTPS 后端地址。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請先在設置中保存 Mini 的 HTTPS 後端地址。"
+          }
+        }
+      }
+    },
     "Scenario: close this entire holding while leaving all other positions unchanged." : {
       "localizations" : {
         "zh-Hans" : {
@@ -2856,6 +4493,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "假設：平掉目前整筆持倉，其他持倉保持不變。"
+          }
+        }
+      }
+    },
+    "Screen sharing" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Screen sharing"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "屏幕共享"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "屏幕共享"
+          }
+        }
+      }
+    },
+    "Secure connection failed (%@). Check Tailscale and open this exact HTTPS address in Safari on this iPhone. Verify automatic date/time and any VPN or proxy interference. Certificate checks remain enabled." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安全连接失败（%@）。请检查 Tailscale，并在此 iPhone 的 Safari 中打开相同的 HTTPS 地址。检查自动日期与时间设置，以及 VPN 或代理是否干扰连接。证书验证仍保持启用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安全連接失敗（%@）。請檢查 Tailscale，並在此 iPhone 的 Safari 中打開相同的 HTTPS 地址。檢查自動日期與時間設置，以及 VPN 或代理是否干擾連接。證書驗證仍保持啓用。"
           }
         }
       }
@@ -2889,6 +4566,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "選擇日期"
+          }
+        }
+      }
+    },
+    "Selected contract unavailable. Refresh before staging." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所选合约暂不可用，请刷新后再暂存订单。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所選合約暫不可用，請刷新後再暫存訂單。"
           }
         }
       }
@@ -2978,6 +4672,90 @@
         }
       }
     },
+    "Share holdings" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享持仓"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享持倉"
+          }
+        }
+      }
+    },
+    "Share image" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享图片"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分享圖片"
+          }
+        }
+      }
+    },
+    "Short position not found." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未找到对应的空头持仓。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未找到對應的空頭持倉。"
+          }
+        }
+      }
+    },
+    "Short positions & negative cash" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "空头持仓与负现金"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "空頭持倉與負現金"
+          }
+        }
+      }
+    },
+    "Show liquidity and cash" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展开流动性和现金"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展開流動性和現金"
+          }
+        }
+      }
+    },
     "Simulated" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3025,6 +4803,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "快照報價 · 執行前請核對"
+          }
+        }
+      }
+    },
+    "Some market values are unavailable" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分持仓市值暂不可用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分持倉市值暫不可用"
           }
         }
       }
@@ -3092,6 +4887,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "建立 %lld 張本機草稿？"
+          }
+        }
+      }
+    },
+    "Stage all (%@)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部暂存（%@）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部暫存（%@）"
           }
         }
       }
@@ -3316,6 +5128,23 @@
         }
       }
     },
+    "Stock quotes unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂时无法获取股票报价。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暫時無法獲取股票報價。"
+          }
+        }
+      }
+    },
     "Stocks" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3367,6 +5196,29 @@
         }
       }
     },
+    "Switch to any tab: a partial fill appears after 3 seconds, followed by a full fill after 11 seconds." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch to any tab: a partial fill appears after 3 seconds, followed by a full fill after 11 seconds."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可切换到任意标签页：3 秒后提示部分成交，11 秒后提示全部成交。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可切換到任意標籤頁：3 秒後提示部分成交，11 秒後提示全部成交。"
+          }
+        }
+      }
+    },
     "System" : {
       "localizations" : {
         "zh-Hans" : {
@@ -3383,8 +5235,23 @@
         }
       }
     },
+    "System color" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "系统主色"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "系統主色"
+          }
+        }
+      }
+    },
     "Theme" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -3413,6 +5280,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "有效期"
+          }
+        }
+      }
+    },
+    "Today" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今日"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今日"
+          }
+        }
+      }
+    },
+    "Total" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合计"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "合計"
           }
         }
       }
@@ -3467,6 +5368,23 @@
         }
       }
     },
+    "Unable to import image" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法导入图片"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法導入圖片"
+          }
+        }
+      }
+    },
     "Unconfirmed request" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3502,7 +5420,6 @@
       }
     },
     "Unrealized P&L" : {
-      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -3514,6 +5431,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未實現損益"
+          }
+        }
+      }
+    },
+    "Unsupported rollover contract." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不支持此移仓合约。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不支持此移倉合約。"
           }
         }
       }
@@ -3602,302 +5536,35 @@
         }
       }
     },
-    "Last fill time" : {
+    "Wall Street" : {
+      "extractionState" : "stale",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Last fill time"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最后成交时间"
+            "value" : "华尔街"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最後成交時間"
+            "value" : "華爾街"
           }
         }
       }
     },
-    "Commission" : {
+    "Weights use absolute position values plus positive cash. Account details and amounts are hidden." : {
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Commission"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "手续费"
+            "value" : "比例按持仓市值绝对值及正现金计算。图片不展示账户信息和金额。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "手續費"
-          }
-        }
-      }
-    },
-    "Remote maintenance" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remote maintenance"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "远程维护"
-          }
-        }
-      }
-    },
-    "Mini screen sharing" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mini screen sharing"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mini 屏幕共享"
-          }
-        }
-      }
-    },
-    "Screen sharing" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Screen sharing"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "屏幕共享"
-          }
-        }
-      }
-    },
-    "Open screen sharing" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open screen sharing"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "打开屏幕共享"
-          }
-        }
-      }
-    },
-    "Copied" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Copied"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已复制"
-          }
-        }
-      }
-    },
-    "Copy connection address" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Copy connection address"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "复制连接地址"
-          }
-        }
-      }
-    },
-    "Save your Mini HTTPS backend address in Settings first." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Save your Mini HTTPS backend address in Settings first."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请先在设置中保存 Mini 的 HTTPS 后端地址。"
-          }
-        }
-      }
-    },
-    "On Mac, use Screen Sharing. On iPhone, a compatible VNC client is required; Wheel does not include a remote desktop client." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "On Mac, use Screen Sharing. On iPhone, a compatible VNC client is required; Wheel does not include a remote desktop client."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mac 请使用系统屏幕共享；iPhone 需要兼容的 VNC 客户端。Wheel 不内置远程桌面。"
-          }
-        }
-      }
-    },
-    "Reconnect Gateway" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reconnect Gateway"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重新登录 Gateway"
-          }
-        }
-      }
-    },
-    "1. Keep Tailscale connected on both devices." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1. Keep Tailscale connected on both devices."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1. 保持两台设备的 Tailscale 已连接。"
-          }
-        }
-      }
-    },
-    "2. Sign in to screen sharing with the Mini macOS account and password, not your IB account." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "2. Sign in to screen sharing with the Mini macOS account and password, not your IB account."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "2. 使用 Mini 的 macOS 用户名和密码登录屏幕共享，此处不是 IB 账户。"
-          }
-        }
-      }
-    },
-    "3. In Gateway, enter your IB password and complete IB Key verification on your phone." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "3. In Gateway, enter your IB password and complete IB Key verification on your phone."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "3. 在 Gateway 输入 IB 密码，在手机上完成 IB Key 验证。"
-          }
-        }
-      }
-    },
-    "4. Return to Wheel and tap Connect. Closing the remote viewer does not require quitting Gateway." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "4. Return to Wheel and tap Connect. Closing the remote viewer does not require quitting Gateway."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "4. 返回 Wheel 点击连接。关闭远程查看窗口即可，无需退出 Gateway。"
-          }
-        }
-      }
-    },
-    "Keyboard and access" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keyboard and access"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "键盘与访问权限"
-          }
-        }
-      }
-    },
-    "If typing is incorrect, select ABC on Mini and check Caps Lock. Use Mini's Accessibility Keyboard if needed. Test ordinary text before typing a password." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "If typing is incorrect, select ABC on Mini and check Caps Lock. Use Mini's Accessibility Keyboard if needed. Test ordinary text before typing a password."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "输入异常时，在 Mini 选择 ABC 并检查大写锁定；必要时使用 Mini 的辅助功能键盘。先用普通文字测试，再输入密码。"
-          }
-        }
-      }
-    },
-    "Mini must allow your macOS account to observe and control the screen. Use Standard sharing; no public port forwarding is needed." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mini must allow your macOS account to observe and control the screen. Use Standard sharing; no public port forwarding is needed."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mini 必须允许你的 macOS 账户观察和控制屏幕。使用标准共享即可，无需公网端口转发。"
+            "value" : "比例按持倉市值絕對值及正現金計算。圖片不展示賬戶信息和金額。"
           }
         }
       }
@@ -3915,235 +5582,28 @@
             "state" : "translated",
             "value" : "Wheel 不保存远程桌面或 IB 密码。"
           }
-        }
-      }
-    },
-    "No compatible screen sharing app" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No compatible screen sharing app"
-          }
         },
-        "zh-Hans" : {
+        "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "没有兼容的屏幕共享应用"
+            "value" : "Wheel 不保存遠程桌面或 IB 密碼。"
           }
         }
       }
     },
-    "Copy the connection address into your VNC client, or use Screen Sharing on your Mac." : {
+    "YTD" : {
+      "extractionState" : "stale",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Copy the connection address into your VNC client, or use Screen Sharing on your Mac."
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "请将连接地址复制到 VNC 客户端，或使用 Mac 的系统屏幕共享。"
-          }
-        }
-      }
-    },
-    "Order filled" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Order filled"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "全部成交"
+            "value" : "今年"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "全部成交"
-          }
-        }
-      }
-    },
-    "Partially filled" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Partially filled"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "部分成交"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "部分成交"
-          }
-        }
-      }
-    },
-    "Demo" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Demo"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "演示"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "示範"
-          }
-        }
-      }
-    },
-    "Dismiss notification" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dismiss notification"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "关闭通知"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "關閉通知"
-          }
-        }
-      }
-    },
-    "Demo fill details" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Demo fill details"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "演示成交详情"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "示範成交詳情"
-          }
-        }
-      }
-    },
-    "Preview only. No order was submitted or changed." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Preview only. No order was submitted or changed."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅供预览，没有提交或更改任何订单。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "僅供預覽，沒有提交或更改任何訂單。"
-          }
-        }
-      }
-    },
-    "Fill notification preview" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Fill notification preview"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "成交提醒预览"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "成交提醒預覽"
-          }
-        }
-      }
-    },
-    "Preview fill notifications" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Preview fill notifications"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "预览成交提醒"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "預覽成交提醒"
-          }
-        }
-      }
-    },
-    "Switch to any tab: a partial fill appears after 3 seconds, followed by a full fill after 11 seconds." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Switch to any tab: a partial fill appears after 3 seconds, followed by a full fill after 11 seconds."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "可切换到任意标签页：3 秒后提示部分成交，11 秒后提示全部成交。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "可切換到任意標籤頁：3 秒後提示部分成交，11 秒後提示全部成交。"
+            "value" : "今年"
           }
         }
       }

@@ -7,37 +7,50 @@ struct PortfolioOptionRow: View {
     @Environment(\.scenePhase) private var phase
     @State private var quote: ContractQuote?
     @State private var frozen = false
-    private var context: String { "\(store.demo)-\(store.address)-\(position.id)-\(store.selectedTab)-\(phase == .active)" }
+    @State private var visible = false
+    private var context: String { "\(visible)-\(store.demo)-\(store.address)-\(position.id)-\(store.selectedTab)-\(phase == .active)" }
     private var emptyQuote: ContractQuote { ContractQuote(strike: position.strike ?? 0, expiration: position.expiration ?? "") }
+    private var contractSummary: String {
+        let code = ["PUT": "P", "CALL": "C", "P": "P", "C": "C"][position.option_type?.uppercased() ?? ""] ?? "—"
+        let strike = position.strike.map { $0.formatted(.number.grouping(.never).precision(.fractionLength(0...4))) } ?? "—"
+        let entry = position.entry_fill_price.flatMap { value -> String? in
+            guard value.isFinite, value > 0 else { return nil }
+            return String(format: "%.2f", value)
+        } ?? "—"
+        var parts = ["\(strike)\(code)@\(entry)"]
+        if let expiration = position.expiration, let days = TradingMath.daysToExpiration(expiration) {
+            parts.append(String(max(0, days)))
+        }
+        return parts.joined(separator: " · ")
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 SymbolText(symbol: position.symbol).font(.headline)
-                Text(position.option_type ?? "—")
+                Text(verbatim: position.position.formatted())
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                Text("· " + position.position.formatted())
-                    .font(.caption).foregroundStyle(.secondary)
                     .accessibilityLabel(Text("Quantity"))
                     .accessibilityValue(position.position.formatted())
-                Spacer(minLength: 8)
+                Text(verbatim: contractSummary)
+                    .font(.caption).monospacedDigit()
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
                 PositionMarketPrice(position: position)
             }
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(money(position.strike)) · \(position.expiration ?? "—")")
-                        .monospacedDigit()
-                }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                OpportunityMetrics(quote: quote ?? emptyQuote)
                 Spacer(minLength: 0)
                 PositionPnLMeter(position: position)
                     .accessibilityLabel(Text("Unrealized P&L"))
             }.font(.caption)
-            OpportunityMetrics(quote: quote ?? emptyQuote)
             if frozen { Text("Frozen").font(.caption2).foregroundStyle(.secondary) }
         }.padding(.vertical, 4)
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
         .task(id: context) {
             quote = nil
             frozen = false
-            guard phase == .active, store.selectedTab == "portfolio" else { return }
+            guard visible, phase == .active, store.selectedTab == "portfolio" else { return }
             if store.demo {
                 quote = ContractQuote(strike: position.strike ?? 0, expiration: position.expiration ?? "", bid: 0.38, ask: 0.42, delta: position.option_type == "PUT" ? -0.25 : 0.25, implied_volatility: 45)
                 return

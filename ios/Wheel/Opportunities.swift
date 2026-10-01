@@ -28,7 +28,7 @@ struct OpportunityPrice: View {
     @Environment(\.colorScheme) private var scheme
     var body: some View {
         TimelineView(.animation(minimumInterval: 1, paused: !visible || phase != .active || store.selectedTab != "trade")) { context in
-            let fresh = row?.error == nil && context.date.timeIntervalSince(row?.updated ?? .distantPast) < 30
+            let fresh = row?.stockQuoteIsFresh(at: context.date, batchFailed: store.opportunities.priceError != nil) == true
             let direction = fresh ? (row?.priceDirection ?? 0) : 0
             HStack(spacing: 6) {
                 Text(money(row?.stockPrice)).monospacedDigit()
@@ -39,6 +39,33 @@ struct OpportunityPrice: View {
                         .foregroundStyle(!fresh ? Color.secondary : change > 0 ? customPalette.color("gain", scheme: scheme, fallback: FinancialColors.gain) : change < 0 ? customPalette.color("loss", scheme: scheme, fallback: FinancialColors.loss) : Color.secondary)
                 }
             }
+        }
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
+    }
+}
+
+struct OpportunityContractSummary: View {
+    let quote: ContractQuote
+    let type: String
+    let row: OpportunityRow?
+    @Environment(\.customPalette) private var palette
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.scenePhase) private var phase
+    @Environment(WheelStore.self) private var store
+    @State private var visible = false
+    var body: some View {
+        let strike = quote.strike.formatted(.number.grouping(.never).precision(.fractionLength(0...4)))
+        let mid = quote.mid.map { String(format: "%.2f", $0) } ?? "—"
+        let suffix = TradingMath.daysToExpiration(quote.expiration).map { " · \(max(0, $0))" } ?? ""
+        TimelineView(.animation(minimumInterval: 1, paused: !visible || phase != .active || store.selectedTab != "trade")) { context in
+            let fresh = row?.error == nil && context.date.timeIntervalSince(row?.updated ?? .distantPast) < 30
+            let direction = fresh ? (row?.midDirection ?? 0) : 0
+            let color = direction > 0 ? palette.color("gain", scheme: scheme, fallback: FinancialColors.gain)
+                : direction < 0 ? palette.color("loss", scheme: scheme, fallback: FinancialColors.loss) : Color.primary
+            (Text(verbatim: strike + (type == "CALL" ? "C" : "P"))
+             + Text(verbatim: "@" + mid).foregroundColor(color)
+             + Text(verbatim: suffix))
         }
         .onAppear { visible = true }
         .onDisappear { visible = false }
@@ -79,7 +106,7 @@ enum TradingMath {
         guard shares.isFinite, shares >= 0, shares < Double(Int.max) else { return 0 }
         return max(0, min(Int(shares / 100), available ?? 0))
     }
-    static func annualized(premium: Double, expiration: String, now: Date = Date()) -> Double? {
+    static func daysToExpiration(_ expiration: String, now: Date = Date()) -> Int? {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "America/New_York")
@@ -89,8 +116,10 @@ enum TradingMath {
         guard let expiry = formatter.date(from: compact), formatter.string(from: expiry) == compact else { return nil }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = formatter.timeZone
-        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: expiry).day ?? 0
-        guard days > 0, premium.isFinite, premium >= 0 else { return nil }
+        return calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: expiry).day
+    }
+    static func annualized(premium: Double, expiration: String, now: Date = Date()) -> Double? {
+        guard let days = daysToExpiration(expiration, now: now), days > 0, premium.isFinite, premium >= 0 else { return nil }
         return premium * 365 / Double(days)
     }
     static func closePnL(entry: Double?, limit: Double?, quantity: Int, multiplier: Double, buy: Bool) -> Double? {
@@ -180,6 +209,19 @@ final class OpportunityBook {
             $0 != "SGOV" && !excluded.contains(key($0, type)) && (type != "PUT" || !removedPuts.contains($0))
         }.sorted()
     }
+    func defaultCallQuantity(_ ticker: String, store: WheelStore) -> Int {
+        let positions = store.portfolio?.positions ?? []
+        let shares = positions.filter { $0.symbol == ticker && $0.security_type == "STK" }.reduce(0) { $0 + $1.position }
+        guard shares.isFinite, shares > 0 else { return 0 }
+        let heldCalls = positions.filter {
+            $0.symbol == ticker && $0.security_type == "OPT" && ["CALL", "C"].contains($0.option_type ?? "") && $0.position < 0
+        }.reduce(0) { $0 + abs($1.position) }
+        let reserved = store.orders.filter {
+            $0.name == ticker && ["CALL", "C"].contains($0.option_type ?? "") && $0.action == "SELL"
+                && !["filled", "executed", "cancelled", "canceled", "rejected", "inactive"].contains(($0.ib_status ?? $0.status).lowercased())
+        }.reduce(0.0) { $0 + max(0, ($1.quantity ?? 0) - ($1.filled ?? 0)) }
+        return max(0, Int(min(100, max(0, floor(shares / 100) - heldCalls - reserved))))
+    }
     func load(_ ticker: String, type: String, store: WheelStore, background: Bool = false) async {
         let token = generation
         let tradeVersion = store.trading.version
@@ -234,11 +276,18 @@ final class OpportunityBook {
             if previous?.quote?.id == row.quote?.id, previous?.manualPrice == true {
                 row.price = previous?.price ?? ""; row.manualPrice = true
             } else { row.price = row.quote?.mid.map { String(format: "%.2f", $0) } ?? ""; row.manualPrice = false }
-            row.quantity = type == "CALL" ? min(max(1, preference.quantity ?? row.capacity), max(1, row.capacity)) : max(1, min(100, preference.quantity ?? (shares >= 100 ? Int(shares / 100) : 1)))
+            row.quantity = type == "CALL" ? min(max(0, preference.quantity ?? row.capacity), min(100, row.capacity)) : max(1, min(100, preference.quantity ?? (shares >= 100 ? Int(shares / 100) : 1)))
             row.priceDirection = TradingMath.priceDirection(previous: previous?.stockPrice, current: row.stockPrice)
+            row.midDirection = previous?.quote?.id == row.quote?.id
+                ? TradingMath.priceDirection(previous: previous?.quote?.mid, current: row.quote?.mid) : 0
             row.updated = Date()
             if previous?.quote != nil, let latest = rows[key] {
-                row.quantity = latest.quantity
+                if type != "CALL" {
+                    row.quantity = latest.quantity
+                } else if latest.staged || preference.quantity != nil || latest.quantity != previous?.capacity {
+                    // Preserve an edited/staged amount, while still respecting refreshed coverage.
+                    row.quantity = min(max(0, latest.quantity), min(100, row.capacity))
+                }
                 row.staged = latest.staged
                 if latest.manualPrice, latest.quote?.id == row.quote?.id {
                     row.price = latest.price; row.manualPrice = true
@@ -376,6 +425,7 @@ struct OpportunityRow: Identifiable {
     var quote: ContractQuote?
     var stockPrice: Double?
     var previousClose: Double?
+    var midDirection = 0
     var priceDirection = 0
     var shares = 0.0
     var capacity = 0
@@ -388,6 +438,13 @@ struct OpportunityRow: Identifiable {
     var updated: Date?
     var stockUpdated: Date?
     var id: String { ticker + ":" + type }
+    func stockQuoteIsFresh(at now: Date, batchFailed: Bool) -> Bool {
+        guard !batchFailed, let price = stockPrice, price.isFinite, price > 0 else { return false }
+        // Stock batches and option requests have independent success timestamps.
+        if let stockUpdated { return (0..<30).contains(now.timeIntervalSince(stockUpdated)) }
+        guard error == nil, let updated else { return false }
+        return (0..<30).contains(now.timeIntervalSince(updated))
+    }
     var canStage: Bool { !staged && error == nil && quote != nil && Date().timeIntervalSince(updated ?? .distantPast) < 30 && TradeRules.price(price) != nil && quantity > 0 && quantity <= 100 && (type != "CALL" || quantity <= capacity) }
     var total: Double? { TradeRules.price(price).map { $0 * 100 * Double(quantity) } }
     mutating func followMarketPrice() {
@@ -401,7 +458,7 @@ struct OpportunitiesView: View {
     @State private var visible = false
     @Environment(\.locale) private var locale
     @Environment(WheelStore.self) private var store
-    @State private var type = "CALL"
+    @State private var type = "PUT"
     @State private var ticker = ""
     private var book: OpportunityBook { store.opportunities }
     private var symbols: [String] { book.symbols(store, type: type) }
@@ -410,9 +467,9 @@ struct OpportunitiesView: View {
     var body: some View {
         List {
             MarketSessionNotice()
-            if let error = book.priceError { Text(error).font(.caption).foregroundStyle(.orange) }
+            if let error = book.priceError { NoticeText(error).font(.caption).foregroundStyle(.orange) }
             Section {
-                Picker("Strategy", selection: $type) { Text("Covered calls").tag("CALL"); Text("Cash-secured puts").tag("PUT") }.pickerStyle(.segmented)
+                Picker("Strategy", selection: $type) { Text("Cash-secured puts").tag("PUT"); Text("Covered calls").tag("CALL") }.pickerStyle(.segmented)
                 if type == "PUT" {
                     HStack {
                         TextField("Add ticker", text: $ticker).textInputAutocapitalization(.characters).autocorrectionDisabled()
@@ -435,21 +492,39 @@ struct OpportunitiesView: View {
             }
             ForEach(symbols, id: \.self) { symbol in
                 let row = book.rows[book.key(symbol, type)]
-                NavigationLink { OpportunityDetail(ticker: symbol, type: type) } label: {
+                let displayQuantity = type == "CALL" && row?.quote == nil
+                    ? min(book.preferences[book.key(symbol, type)]?.quantity ?? book.defaultCallQuantity(symbol, store: store), book.defaultCallQuantity(symbol, store: store))
+                    : (row?.quantity ?? 1)
+                ArrowlessNavigationLink { OpportunityDetail(ticker: symbol, type: type) } label: {
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack { Text(symbol).font(.headline); Spacer(); OpportunityPrice(row: row) }
-                        if let quote = row?.quote {
-                            HStack(alignment: .top) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("\(money(quote.strike)) · \(quote.expiration)")
-                                    Text("\(row?.quantity ?? 1) · \(money(TradeRules.price(row?.price ?? "")))")
-                                        .accessibilityLabel(Text("\(row?.quantity ?? 1) contracts · \(money(TradeRules.price(row?.price ?? "")))"))
-                                        .foregroundStyle(.secondary)
+                        Grid(horizontalSpacing: 10, verticalSpacing: 8) {
+                            GridRow(alignment: .firstTextBaseline) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            SymbolText(symbol: symbol).font(.headline)
+                            Text(verbatim: String(-abs(displayQuantity)))
+                                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                .accessibilityLabel(Text("Quantity"))
+                                .accessibilityValue(String(-abs(displayQuantity)))
+                            if let quote = row?.quote {
+                                OpportunityContractSummary(quote: quote, type: type, row: row)
+                                    .font(.caption).monospacedDigit()
+                                    .lineLimit(1).minimumScaleFactor(0.8)
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                                OpportunityPrice(row: row)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .gridColumnAlignment(.center)
+                            }
+                            if let quote = row?.quote {
+                                GridRow(alignment: .firstTextBaseline) {
+                                    OpportunityMetrics(quote: quote)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    PremiumValue(amount: row?.total, perSymbol: true)
+                                        .font(.body.weight(.semibold)).monospacedDigit().fixedSize(horizontal: true, vertical: false)
                                 }
-                                Spacer(minLength: 8)
-                                PremiumValue(amount: row?.total, perSymbol: true)
-                            }.font(.caption)
-                            OpportunityMetrics(quote: quote)
+                            }
+                        }
+                        if row?.quote != nil {
                             if type == "CALL" && row?.capacity == 0 {
                                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                                     Image(systemName: "exclamationmark.triangle.fill").accessibilityHidden(true)
@@ -460,7 +535,7 @@ struct OpportunitiesView: View {
                                 Text("Staged in Orders").font(.caption).foregroundStyle(.secondary)
                             }
                         } else if row?.loading == true { ProgressView() }
-                        else { Text(LocalizedStringKey(row?.error ?? "Quote not loaded")).font(.caption).foregroundStyle(.secondary) }
+                        else { NoticeText(row?.error ?? "Quote not loaded").font(.caption).foregroundStyle(.secondary) }
                         if row?.quote != nil, row?.error != nil {
                             Label("STALE", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
                         }
@@ -586,7 +661,7 @@ struct OpportunityDetail: View {
     var body: some View {
         Form {
             MarketSessionNotice()
-            if let error = book.priceError { Text(error).font(.caption).foregroundStyle(.orange) }
+            if let error = book.priceError { NoticeText(error).font(.caption).foregroundStyle(.orange) }
             Section(LocalizedStringKey(type == "CALL" ? "Covered call" : "Cash-secured put")) {
                 LabeledContent("Stock price") { OpportunityPrice(row: row) }
                 Picker("Expiration", selection: Binding(get: { preference.expiration }, set: { value in updatePreference { $0.expiration = value; $0.strike = nil } })) {
@@ -605,7 +680,7 @@ struct OpportunityDetail: View {
                 }
                 Button("Refresh quote", systemImage: "arrow.clockwise") { Task { await book.load(ticker, type: type, store: store) } }.disabled(row.loading)
                 if row.loading && row.quote == nil { ProgressView() }
-                if let error = row.error { Text(error).foregroundStyle(.orange) }
+                if let error = row.error { NoticeText(error).foregroundStyle(.orange) }
             }
             if let quote = row.quote {
                 Section("SELL TO OPEN") {
@@ -665,7 +740,7 @@ struct OpportunityDetail: View {
                 }
             }
             Section { TradingNotice() }
-        }.navigationTitle(ticker)
+        }.symbolTitle(ticker)
         .modifier(KeyboardDismissal())
         .onAppear { visible = true }
         .onDisappear { visible = false }
@@ -700,7 +775,7 @@ struct OpportunityDetail: View {
                 List {
                     if strikesLoading { ProgressView() }
                     if let strikeError {
-                        Text(LocalizedStringKey(strikeError)).foregroundStyle(.orange)
+                        NoticeText(strikeError).foregroundStyle(.orange)
                         Button("Retry", systemImage: "arrow.clockwise") { strikeRetry += 1 }
                     }
                     ForEach(TradingMath.orderedStrikes(strikes), id: \.self) { value in

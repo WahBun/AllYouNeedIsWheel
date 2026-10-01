@@ -51,16 +51,16 @@ struct MarginOverview: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
             ForEach(symbols, id: \.self) { symbol in
-                Section(symbol) {
+                Section {
                     ForEach(positions.filter { $0.symbol == symbol }) { position in
-                        NavigationLink { PositionMarginView(position: position) } label: {
+                        ArrowlessNavigationLink { PositionMarginView(position: position) } label: {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(position.detail)
                                 Text("Estimated closing impact").font(.caption).foregroundStyle(.secondary)
                             }
                         }
                     }
-                }
+                } header: { SymbolText(symbol: symbol) }
             }
         }.navigationTitle("Margin details")
     }
@@ -77,18 +77,19 @@ struct PositionMarginView: View {
     private var context: String { "\(store.demo)-\(store.address)" }
     var body: some View {
         Form {
-            Section(position.symbol) {
+            Section {
                 Text(position.detail)
                 LabeledContent("Quantity", value: latest?.position.formatted() ?? "—")
                 Text("Scenario: close this entire holding while leaving all other positions unchanged.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
+            header: { SymbolText(symbol: position.symbol) }
             Section("Estimated closing impact") {
                 if let impact, let latest, impact.matches(latest) {
                     LabeledContent("Initial margin change", value: signedMoney(impact.initial_change))
                     LabeledContent("Maintenance margin change", value: signedMoney(impact.maintenance_change))
                     LabeledContent("Retrieved", value: MarginImpact.displayTime(impact.retrieved_at))
-                    if let warning = impact.warning, !warning.isEmpty { Text(warning).foregroundStyle(.orange) }
+                    if let warning = impact.warning, !warning.isEmpty { NoticeText(warning).foregroundStyle(.orange) }
                 }
                 Text("Negative means less required margin; positive means more. Closing a hedge can increase margin. This is not the holding's actual margin allocation.")
                     .font(.footnote).foregroundStyle(.secondary)
@@ -99,7 +100,7 @@ struct PositionMarginView: View {
                     Text("Update the backend to enable position margin estimates.").foregroundStyle(.orange)
                 }
                 if loading { ProgressView() }
-                if let error { Text(LocalizedStringKey(error)).foregroundStyle(.orange) }
+                if let error { NoticeText(error).foregroundStyle(.orange) }
                 if store.demo { Text("Demo estimate · not broker data").font(.caption).foregroundStyle(.secondary) }
             }
         }.navigationTitle("Margin impact")

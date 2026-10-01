@@ -2,10 +2,12 @@
 
 ## Workflow
 
-The web version is the primary iteration target. Desktop App/DMG updates are
-separate releases, made only after an explicit request. The interface starts in
-English unless a language was manually selected; theme and language preferences
-are stored per browser.
+The native iOS app is the primary user interface and the MacBook Pro is the
+primary Xcode development host. Mac mini runs the backend and IB Gateway.
+See the root README for the current end-to-end setup and ios/README.md for native
+behavior. The web workflow notes below describe the retained auxiliary interface;
+browser and app preferences are separate. Desktop App/DMG releases remain separate
+and require an explicit request.
 
 Keep code updates local unless the user explicitly requests a GitHub push.
 
@@ -86,7 +88,9 @@ price selection, summary updates, disabled state, and unchanged desktop pixels.
 
 ## Known Limitations
 
-- The market-hours helper lacks exchange holidays and early-close calendars.
+- The iOS Trade polling gate uses the NYSE calendar, including holidays and early closes.
+  This is not a universal trading-session model; older web helpers and intraday
+  performance estimates have separate, narrower behavior.
 - Earnings estimates annualize each quoted selection by 365 / calendar days to
   expiry using the New York date, then sum. Same-day/invalid expiries show N/A.
   These are repeat-premium estimates, not executed income or profit; they exclude

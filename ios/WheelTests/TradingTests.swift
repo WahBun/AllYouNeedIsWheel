@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import Observation
 @testable import Wheel
 
 final class MockProtocol: URLProtocol {
@@ -23,6 +24,23 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testDynamicNoticesLocalizeWithoutLosingDiagnostics() {
+        let tls = connectionMessage(NSError(domain: NSURLErrorDomain, code: -1200))
+        let message = "Order refresh failed; displayed data may be outdated. " + tls +
+            " [HTTP 502 · GET /api/test] Do not resubmit. Verify in IB and the web app; trading is locked pending review."
+        let simplified = localizedNotice(message, locale: Locale(identifier: "zh-Hans"))
+        XCTAssertTrue(simplified.contains("安全连接失败（-1200）"))
+        XCTAssertTrue(simplified.contains("订单刷新失败"))
+        XCTAssertTrue(simplified.contains("请勿重复提交"))
+        XCTAssertTrue(simplified.contains("[HTTP 502 · GET /api/test]"))
+        XCTAssertFalse(simplified.contains("Certificate checks"))
+        XCTAssertTrue(localizedNotice(tls, locale: Locale(identifier: "zh-Hant")).contains("安全連接失敗"))
+        XCTAssertEqual(localizedNotice(message, locale: Locale(identifier: "en")), message)
+        let unknown = "Broker diagnostic 123: unexpected payload"
+        XCTAssertEqual(localizedNotice(unknown, locale: Locale(identifier: "zh-Hans")), unknown)
+        XCTAssertTrue(localizedNotice(connectionMessage(URLError(.timedOut)), locale: Locale(identifier: "zh-Hans")).contains("连接超时"))
+    }
+
     func testBrokerFillMetadataAndLegacyOrders() throws {
         let payload = #"{"id":1,"status":"executed","action":"SELL","fill_action":"SELL","fill_time":"2026-09-23T15:28:55+00:00","commission":0.771867,"commission_currency":"USD"}"#
         let order = try JSONDecoder().decode(Order.self, from: Data(payload.utf8))
@@ -37,6 +55,57 @@ final class TradingTests: XCTestCase {
         var foreign = order
         foreign.commission_currency = "EUR"
         XCTAssertEqual(foreign.commissionLabel, "—")
+    }
+
+    func testAllocationTracksLivePortfolioChangesWithoutReopening() async {
+        let store = WheelStore()
+        store.portfolio = Bootstrap(summary: Summary(account_value: 200, cash_balance: 0), positions: [
+            Position(symbol: "SGOV", position: 1, market_value: 100, security_type: "STK"),
+            Position(symbol: "TSLL", position: 10, market_value: 100, security_type: "STK")
+        ])
+        let invalidated = expectation(description: "Live portfolio invalidates allocation")
+        withObservationTracking {
+            XCTAssertEqual(AllocationData(store.portfolio).total, 200)
+        } onChange: {
+            invalidated.fulfill()
+        }
+        store.portfolio?.positions[1].market_value = 150
+        await fulfillment(of: [invalidated], timeout: 1)
+        let changed = AllocationData(store.portfolio)
+        XCTAssertEqual(changed.total, 250)
+        XCTAssertEqual(changed.assets.first { $0.name == "TSLL" }!.value / changed.total, 0.6, accuracy: 0.000001)
+        store.portfolio?.positions.removeLast()
+        XCTAssertEqual(AllocationData(store.portfolio).assets.map(\.name), ["SGOV"])
+        store.portfolio?.summary.cash_balance = 150
+        XCTAssertEqual(AllocationData(store.portfolio).total, 250)
+        XCTAssertTrue(RefreshLoop.shouldRefreshPortfolio(tab: "portfolio", hasPortfolio: true))
+    }
+
+    func testAllocationSeparatesLiabilitiesAndReconcilesNet() {
+        let portfolio = Bootstrap(summary: Summary(account_value: 1090, cash_balance: -10), positions: [
+            Position(symbol: "SGOV", position: 10, market_value: 1000, security_type: "STK"),
+            Position(symbol: "TSLL", position: 20, market_value: 200, security_type: "STK"),
+            Position(symbol: "TSLL", position: -1, market_value: -100, security_type: "OPT")
+        ])
+        let data = AllocationData(portfolio)
+        XCTAssertEqual(data.total, 1200)
+        XCTAssertEqual(data.assets.count, 2)
+        XCTAssertEqual(data.liabilities.count, 2)
+        XCTAssertEqual(data.accountedNet, 1090)
+        XCTAssertEqual(data.difference, 0)
+        XCTAssertEqual(data.missingCount, 0)
+        XCTAssertEqual(data.assets.reduce(0) { $0 + $1.value / data.total }, 1, accuracy: 0.000001)
+    }
+
+    func testAllocationDoesNotInventMissingMarketValues() {
+        let portfolio = Bootstrap(summary: Summary(account_value: 100, cash_balance: 10), positions: [
+            Position(symbol: "TEST", position: 1, market_value: .nan, security_type: "STK")
+        ])
+        let data = AllocationData(portfolio)
+        XCTAssertEqual(data.total, 10)
+        XCTAssertEqual(data.missingCount, 1)
+        XCTAssertEqual(data.difference, 90)
+        XCTAssertEqual(AllocationData(nil).total, 0)
     }
 
     func testFillHistoryIncludesActivePartialFillsAndRetainsDataOnFailure() async {
@@ -794,6 +863,24 @@ final class TradingTests: XCTestCase {
             XCTAssertEqual(localizedLabel(value, locale: Locale(identifier: "zh-Hans")), value)
         }
     }
+    func testStockFreshnessUsesStockBatchNotOptionRefresh() {
+        let now = Date(timeIntervalSince1970: 1000)
+        var row = OpportunityRow(ticker: "TSLL", type: "CALL")
+        row.stockPrice = 10
+        row.updated = now
+        row.stockUpdated = now.addingTimeInterval(-31)
+        XCTAssertFalse(row.stockQuoteIsFresh(at: now, batchFailed: false))
+        row.stockUpdated = now
+        row.error = "Option request failed"
+        XCTAssertTrue(row.stockQuoteIsFresh(at: now, batchFailed: false))
+        XCTAssertFalse(row.stockQuoteIsFresh(at: now, batchFailed: true))
+        row.stockPrice = .nan
+        XCTAssertFalse(row.stockQuoteIsFresh(at: now, batchFailed: false))
+        row.stockPrice = 10; row.stockUpdated = nil; row.error = nil
+        XCTAssertTrue(row.stockQuoteIsFresh(at: now, batchFailed: false))
+        XCTAssertFalse(row.stockQuoteIsFresh(at: now.addingTimeInterval(30), batchFailed: false))
+    }
+
     func testQuotesAndCoveredCapacity() {
         XCTAssertNil(TradingMath.mid(nil, 1))
         XCTAssertNil(TradingMath.mid(0, 1))

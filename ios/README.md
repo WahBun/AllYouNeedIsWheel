@@ -1,146 +1,63 @@
-# Wheel iOS preview
+# Wheel iOS
 
-Open `Wheel.xcodeproj` in Xcode and run the Wheel scheme on an iPhone simulator.
-Deployment target: iOS 18.0. No external Swift packages are required.
+原生 SwiftUI iPhone 客户端，最低 iOS 18.0，无外部 Swift 包依赖。项目定位、Docker Gateway、Mini 后端、Tailscale HTTPS、Flex 和手机安装的完整流程见[主 README](../README.md)。
 
-## Local signing
+## 构建与签名
 
-Simulator builds need no personal signing identity. For physical devices, create
-`Signing.local.xcconfig` alongside `Signing.xcconfig`, setting `DEVELOPMENT_TEAM`
-and a unique `PRODUCT_BUNDLE_IDENTIFIER` for your own Apple developer account.
-The optional local file is ignored by Git; do not put personal signing values in
-`project.pbxproj`. The public defaults build as `com.example.wheel`.
-Enter your private HTTPS address only in the app, never in source control.
+打开 `Wheel.xcodeproj`，选择模拟器即可使用 Demo。真机签名在被忽略的 `Signing.local.xcconfig` 中配置：
 
-## Behavior and boundaries
+```xcconfig
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+PRODUCT_BUNDLE_IDENTIFIER = com.yourname.wheel
+```
 
-The preview starts with explicitly labeled synthetic demo data. Settings accepts
-a private HTTPS backend URL. Appearance follows the system by default, with
-optional Light and Dark overrides. Refreshes run sequentially while foregrounded
-with error backoff; order status is reconciled through check-orders.
-Portfolio and order refresh now run independently, targeting a two-second
-start-to-start cadence without overlapping requests within either stream.
-Requests taking longer than two seconds finish before another starts; failures
-back off to ten seconds. Account summaries refresh less often than held quotes.
-The close ticket polls only while visible in the active Portfolio tab and pauses
-for confirmation, backgrounding and completed staging. It preserves manual price
-and quantity edits, retains but marks failed quotes stale, and blocks staging
-when the last response is over 15 seconds old or the held quantity has shrunk.
-The successful-receipt clock is separate from the backend snapshot timestamp;
-neither is represented as an exchange tick timestamp. The visible Trade board
-also polls the selected strategy about every two seconds, sequentially per symbol,
-reusing expiration choices instead of fetching them on every tick. More symbols
-or slow backend responses lengthen that interval. It pauses offscreen, during
-confirmation and while staging. Manual limits, quantities and staged flags survive
-refresh; failed quotes retain their display but cannot stage. Opportunity drafts
-require a successful response within 30 seconds. Opportunity detail and rollover
-comparison quotes still use explicit refresh; these are not exchange tick streams.
-Settings offers system language, English, Simplified Chinese and Traditional
-Chinese. Wheel, tickers and trading abbreviations remain unchanged. Broker error
-messages are preserved verbatim. The app icon reuses the existing web brand asset.
+该文件与 `Signing.xcconfig` 位于同一目录。不要把个人签名写入公共项目文件，也不要把后端地址硬编码进源码。
 
-Trade supports covered-call and cash-secured-put drafts. Option positions support
-partial-close tickets. Orders supports pending-draft price edits, execution and
-cancellation with confirmation. Broker-managed external orders remain read-only.
-The opportunity board includes per-symbol OTM/expiration/quantity preferences,
-custom CSP tickers, hidden tickers, SGOV exclusion, available CC coverage, quote
-spread/Greeks, manual limits and batch draft staging. Preferences are local to
-the app/backend context, not automatically imported from browser localStorage.
-Pending entry quantities can be edited; close quantities remain locked after
-staging. Execution and cancellation share one confirmation preference in Orders,
-defaulting on and retaining the existing saved preference. It applies to swipe
-actions, order details and cancel-all. Swipes reveal buttons; full-swipe execution
-is disabled. Trade entries stage drafts directly from a left-swipe button, detail
-view or Stage all, without confirmation; right-swipe hides the ticker. Staging
-does not execute at IB. Close/rollover staging and edit confirmations remain separate.
-Tabs follow Portfolio, Trade, Orders, Settings. Hidden tickers are restored only
-within the selected CC/CSP strategy. Premium estimates use green, occupied CC
-coverage uses a compact warning, and spread colors follow the web thresholds:
-up to 10% green, up to 20% amber, above 20% red.
-Cancel-all skips external and unknown orders and stops on the first failure.
-Short-position rollovers stage two independent legs; they are not atomic spreads.
-Portfolio samples the backend live endpoint between less frequent summary reads.
-Already submitted orders cannot be repriced here. Ambiguous write outcomes lock
-further writes until the user verifies the exact order and fills in IB/web and
-explicitly acknowledges that review in Settings. Requests are not automatically
-resubmitted by the app.
+| Scheme | 用途 |
+| --- | --- |
+| Wheel | 开发、断点与模拟器测试，Run 附加 LLDB。 |
+| Wheel Wireless | 日常真机体验，Debug 构建但 Run 不附加 LLDB；不是 Release 包，也不负责建立无线配对。 |
 
-Demo actions are local simulations and never submit broker requests. Unit tests
-cover validation, external-order restrictions, simulated lifecycle and uncertain
-submission handling using a mocked transport. Run the Wheel scheme's tests in
-Xcode. No live trading was used for validation.
+有线配对与签名正常后再启用无线 Run。App 的 Tailscale 后端访问和 Xcode 无线调试是两条独立链路。
 
-This is not yet feature parity with the web app. Full web estimates,
-existing browser preference import, and comprehensive iOS 18
-physical-device trading validation remain. Reconnect navigation was corrected
-after a physical iOS 18 navigation-bar crash; the simulator tests are not a
-substitute for physical-device acceptance. Do not put real addresses, signing
-identities or credentials in public commits.
+## 页面与操作
 
-## Margin inspection
+- **Portfolio**：点击净资产金额进入 Allocation，Performance 打开收益图，Initial margin 打开保证金详情；金额右侧的隐藏点击区展开／收起现金与流动性。股票／期权支持详情、平仓与适用的移仓流程。
+- **Performance**：MTD／YTD／ALL，Portfolio 始终显示，SPX／NQ100 对比可选；浮框随手指移动，停止操作 3 秒隐藏。图表保留 0% 线、日期及百分比刻度。Demo 显示需要真实后端历史的提示。
+- **Trade**：CSP 在前、CC 在后；报价使用独立的股票批量读取与期权请求。mid 会随刷新更新，用户手动修改的限价和数量不会被行情覆盖。
+- **Orders**：草稿与成交历史分开，外部订单只读；滑动展示操作按钮，不使用整段滑动直接执行。执行／撤单确认默认启用，可调整已有偏好。
+- **Settings**：连接、语言、主题与自定义颜色。Demo 操作仅在本地模拟；未确认的真实提交结果需要人工核实后解除锁定。
 
-Initial margin opens a symbol-grouped holding list. Position details also link
-to margin impact. The account total remains the reported IB value; individual
-holdings are not assigned fabricated portions of that total. On explicit request,
-the new backend endpoint `/api/portfolio/position/<con_id>/margin-impact` simulates
-closing the entire exact holding with IB what-if. It reports signed initial and
-maintenance margin changes, not actual margin used or an additive allocation.
-Positive changes can occur when removing a hedge. The estimate excludes a joint
-simulation of other closing legs and can change with markets or pending orders.
+SGOV、VTI、QQQ、SPY 有专属字体、流光和 Allocation 扇区铺色。VTI／QQQ／SPY 保留 Trade 使用资格，只有 SGOV 被排除。动画遵守减少动态效果和前后台状态。设置签名使用红／亮金／暗金流光。
 
-This endpoint requires the updated backend and a verified USD base account.
-It uses the existing serialized IB dispatcher and what-if preflight only, never
-the live order submission or database staging path. It is manually requested,
-not part of periodic refresh. Unsupported, missing or sentinel results remain
-unavailable rather than zero. Old backends show an update notice. Demo estimates
-are explicitly synthetic. No live account what-if request was made during tests.
+## 数据边界
 
-## Verification Results
+- 持仓 `entry_fill_price` 来自后端可靠匹配的 `avg_fill_price`；无法确认时显示空值。它与 Trade 的当前 mid、委托限价及持仓成本不同。
+- CC 数量扣除已有空头 CALL 和活动卖单占用；暂存不会提交 IB。
+- 平仓需要精确合约、数量与账户校验。移仓暂存两个独立订单，不具备组合单的原子性。
+- 保证金详情由手动触发的 IB what-if 返回，模拟关闭整笔精确持仓；结果不是可相加的保证金分摊。
+- 收益历史按 Flex 每日 TWR 复利计算；SPX／NQ100 使用 FRED 价格指数。盘中 P&L 与延长曲线只是估算，见[收益数据说明](../docs/PERFORMANCE.md)。
+- 已知提示在显示时按 App 语言翻译；错误码、诊断后缀和未知券商返回保留，避免丢失排错依据。
 
-Trade stock prices and prior-close percentages use one batch request to
-`GET /api/options/stock-quotes` on a separate two-second target loop. The batch
-updates rows together; option responses cannot overwrite that stock sample.
-Option quote failures back off per symbol, not for the entire board. Existing
-IB subscriptions are sampled without repeating the initial bid/ask wait; market
-data mode changes renew the affected subscriptions. Requests still share the
-serialized IB dispatcher, so cold qualification or broker/network delays can
-exceed two seconds. Deploy the backend before installing this app version.
+## 刷新与交互
 
-Trade automatic quotes now follow the NYSE regular-session calendar via
-`GET /api/options/market-session`, including holidays, early closes and DST.
-Install the updated backend requirements before using this iOS version.
-The calendar endpoint bypasses the IB queue and never requests broker data.
-Outside the session, existing quotes remain visible with a closed-market notice;
-manual refresh remains available. Unknown session status pauses automatic quotes
-with a separate notice. The app rechecks on foreground entry and at session
-boundaries; Demo is unaffected. This polling policy is not an exchange trading
-permission check and does not stop order-status reconciliation.
+Portfolio 与订单读取分别串行运行，正常目标间隔约两秒、失败退避；慢请求结束后才发起下一次，不补发积压轮询。账户汇总、隐藏页面和休市行情采用较低频率。
 
-The 2026-09-21 preview review passed 28 simulator tests, including quote failures,
-stale responses, manual input preservation, default covered-call quantity,
-exact-contract demo closes, currency formatting, write-timeout locking, spread
-thresholds, quick-action validation, duplicate draft protection and strategy-scoped
-hidden tickers, connection status and margin-estimate identity validation.
-The backend unittest suite also passed, including eight mocked margin-impact tests.
-English/light and Simplified Chinese/dark layouts, navigation and hide/restore
-were checked in the simulator. Debug tests and Release compilation are checked
-without submitting real broker orders. Market-hours latency, partial fills and
-wireless iOS 18 behavior still require device acceptance; tests do not guarantee
-execution or full web feature parity. Publishing code does not deploy the backend
-or install the app on a phone.
+Trade 自动报价参考后端 NYSE 日历，处理假期、提前收盘和夏令时。休市保留已知报价并提示，仍支持手动刷新；市场状态不明时暂停自动报价。订单核对不依赖开盘状态。
 
-## Background fill persistence
+到期日与行权价元数据缓存五分钟、按纽约日期过期，并合并相同未完成请求；价格、订单和可用覆盖数量不由该缓存提供。报价过期会限制暂存。
 
-The backend schedules fill reconciliation every 10 seconds on the existing single
-IB API executor, even when the phone is closed. Only one background job may be
-outstanding; it shares the HTTP admission limit. It checks submitted orders and
-persists missing metadata for confirmed fills, including terminal orders whose
-commission arrives later. No order is placed, modified, canceled, or resubmitted
-by this job. Synchronization is not gated by market hours.
+图表手势状态隔离在浮框层，用二分查找定位历史日期；装饰动画限定刷新频率，并按可见性、标签页、后台和减少动态效果设置暂停。上述设计降低不必要工作，不是帧率或响应时间保证。
 
-Missing fills trigger an account-scoped reqExecutions read, at most once per
-minute, with a three-second request timeout. Reconnection resets that throttle.
-Only the execution history exposed by the running IB session can be recovered;
-this does not implement Flex or guarantee recovery after a long offline period.
-Saved metadata remains available without broker history. Deploy the backend
-update on Mini; no iOS rebuild is needed for this scheduling change.
+## 验证
+
+```sh
+# 从仓库根目录执行；用实际模拟器 ID 替换占位符
+xcrun simctl list devices available
+xcodebuild -project ios/Wheel.xcodeproj -scheme Wheel \
+  -destination 'platform=iOS Simulator,id=SIMULATOR_ID' test
+```
+
+测试使用 mocked transport／Demo，覆盖数据有效性、过期报价、刷新退避、用户编辑保留、订单权限和不确定提交等路径。2026-10-01 本地开发版本通过 89 项模拟器回归；这个记录不代表任意 GitHub 提交都已通过同样检查。
+
+安装新版本前先确保 Mini 后端具备对应接口。模拟器测试不能代替真机的语言／主题、点击区域、无线安装、盘中行情与成交验收。推送代码不会自动部署 Mini，也不会自动更新手机。

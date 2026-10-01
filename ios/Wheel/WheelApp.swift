@@ -1,6 +1,48 @@
 import SwiftUI
 import Charts
 
+
+// Keep native navigation and its accessibility action without a visible disclosure arrow.
+struct ArrowlessNavigationLink<Destination: View, Label: View>: View {
+    private let destination: () -> Destination
+    private let label: () -> Label
+
+    init(@ViewBuilder destination: @escaping () -> Destination, @ViewBuilder label: @escaping () -> Label) {
+        self.destination = destination
+        self.label = label
+    }
+
+    init(_ title: LocalizedStringKey, @ViewBuilder destination: @escaping () -> Destination) where Label == Text {
+        self.destination = destination
+        self.label = { Text(title) }
+    }
+
+    var body: some View {
+        label()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .overlay {
+                NavigationLink(destination: destination) { EmptyView() }
+                    .opacity(0)
+            }
+            .accessibilityRepresentation {
+                NavigationLink(destination: destination, label: label)
+            }
+    }
+}
+
+private struct ArrowlessDisclosureStyle: DisclosureGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button { configuration.isExpanded.toggle() } label: {
+                configuration.label.frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }.buttonStyle(.plain)
+            if configuration.isExpanded { configuration.content }
+        }
+    }
+}
+
 @main
 struct WheelApp: App {
     @State private var store = WheelStore()
@@ -20,11 +62,12 @@ struct Position: Decodable, Identifiable {
     var expiration: String?
     var option_type: String?
     var con_id: Int?
+    var entry_fill_price: Double? = nil
     var avg_cost: Double?
     var multiplier: Double?
     var id: String { "\(symbol)-\(security_type)-\(con_id ?? 0)-\(expiration ?? "")-\(strike ?? 0)" }
     var detail: String {
-        security_type == "OPT" ? "\(expiration ?? "") · \((strike ?? 0).formatted()) \(option_type ?? "")" : "\(Int(position)) shares"
+        security_type == "OPT" ? "\(expiration ?? "") · \((strike ?? 0).formatted()) · \(option_type ?? "")" : "\(Int(position)) shares"
     }
 }
 
@@ -171,9 +214,12 @@ final class WheelStore {
                 next = Bootstrap(summary: summary, positions: live.positions)
             }
             guard requestedRevision == revision, requestedTradeVersion == trading.version, !trading.busy, !Task.isCancelled else { return }
+            let previousPrices = Dictionary((portfolio?.positions ?? []).compactMap { position in
+                position.market_price.map { (position.id, $0) }
+            }, uniquingKeysWith: { _, latest in latest })
             priceDirections = Dictionary(next.positions.map { position in
                 (position.id, TradingMath.priceDirection(
-                    previous: portfolio?.positions.first { $0.id == position.id }?.market_price,
+                    previous: previousPrices[position.id],
                     current: position.market_price))
             }, uniquingKeysWith: { _, latest in latest })
             portfolio = next
@@ -277,6 +323,16 @@ func connectionMessage(_ error: Error) -> String {
     if (error as NSError).domain == NSURLErrorDomain && [-1200, -1201, -1202, -1203, -1204].contains(code) {
         return "Secure connection failed (\(code)). Check Tailscale and open this exact HTTPS address in Safari on this iPhone. Verify automatic date/time and any VPN or proxy interference. Certificate checks remain enabled."
     }
+    if (error as NSError).domain == NSURLErrorDomain {
+        switch code {
+        case NSURLErrorTimedOut: return "Connection timed out. Check your network and Tailscale, then retry."
+        case NSURLErrorNotConnectedToInternet: return "No internet connection. Check Wi-Fi or cellular data."
+        case NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost, NSURLErrorDNSLookupFailed:
+            return "Cannot reach the backend. Check the address and Tailscale connection."
+        case NSURLErrorNetworkConnectionLost: return "Connection interrupted. Retrying…"
+        default: break
+        }
+    }
     return error.localizedDescription
 }
 
@@ -306,6 +362,39 @@ func localizedLabel(_ key: String, locale: Locale) -> String {
     let language = identifier.hasPrefix("zh") ? (identifier.contains("Hant") || identifier.contains("TW") || identifier.contains("HK") ? "zh-Hant" : "zh-Hans") : "en"
     guard let path = Bundle.main.path(forResource: language, ofType: "lproj"), let bundle = Bundle(path: path) else { return key }
     return bundle.localizedString(forKey: key, value: key, table: nil)
+}
+
+// Resolve dynamic notices at display time so changing the app language also updates existing errors.
+func localizedNotice(_ message: String, locale: Locale) -> String {
+    let translated = localizedLabel(message, locale: locale)
+    if translated != message { return translated }
+    let refreshPrefix = "Order refresh failed; displayed data may be outdated. "
+    let lockSuffix = " Do not resubmit. Verify in IB and the web app; trading is locked pending review."
+    if message.hasPrefix(refreshPrefix) {
+        return localizedLabel(String(refreshPrefix.dropLast()), locale: locale) + " " +
+            localizedNotice(String(message.dropFirst(refreshPrefix.count)), locale: locale)
+    }
+    if message.hasSuffix(lockSuffix) {
+        return localizedNotice(String(message.dropLast(lockSuffix.count)), locale: locale) + " " +
+            localizedLabel(String(lockSuffix.dropFirst()), locale: locale)
+    }
+    if let diagnostics = message.range(of: " [") {
+        return localizedNotice(String(message[..<diagnostics.lowerBound]), locale: locale) + String(message[diagnostics.lowerBound...])
+    }
+    let securePrefix = "Secure connection failed ("
+    if message.hasPrefix(securePrefix), let end = message.range(of: "). "),
+       let code = Int(message[message.index(message.startIndex, offsetBy: securePrefix.count)..<end.lowerBound]) {
+        let format = localizedLabel("Secure connection failed (%@). Check Tailscale and open this exact HTTPS address in Safari on this iPhone. Verify automatic date/time and any VPN or proxy interference. Certificate checks remain enabled.", locale: locale)
+        return String(format: format, String(code))
+    }
+    return message
+}
+
+struct NoticeText: View {
+    let message: String
+    @Environment(\.locale) private var locale
+    init(_ message: String) { self.message = message }
+    var body: some View { Text(verbatim: localizedNotice(message, locale: locale)) }
 }
 
 struct RootView: View {
@@ -380,53 +469,108 @@ struct StatusView: View {
                 .accessibilityHidden(true)
             Text(LocalizedStringKey(store.demo ? "DEMO" : error != nil || updated == nil ? "STALE" : !orders && store.portfolio?.summary.is_frozen == true ? "FROZEN" : "CONNECTED"))
             Spacer()
-            if let date = updated { Text(date.formatted(.dateTime.hour().minute().second())).monospacedDigit() }
+            if !orders, let date = updated { Text(date.formatted(.dateTime.hour().minute().second())).monospacedDigit() }
         }.font(.caption).foregroundStyle(.secondary)
     }
 }
 
 struct PortfolioView: View {
     @Environment(\.locale) private var locale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("portfolioShowCashMetrics") private var showCashMetrics = false
+    @State private var cashMetricsHeight: CGFloat = 0
     @Environment(WheelStore.self) private var store
+    private enum SummaryDestination: String, Identifiable {
+        case performance, margin, allocation
+        var id: String { rawValue }
+    }
+    @State private var summaryDestination: SummaryDestination?
     var body: some View {
         List {
             Section {
                 StatusView()
-                VStack(alignment: .leading, spacing: 12) {
-                    NavigationLink { AllocationView() } label: {
-                        VStack(alignment: .leading, spacing: 12) {
-                    Text("Net liquidation").font(.subheadline).foregroundStyle(.secondary)
-                    Text(money(store.portfolio?.summary.account_value)).font(.system(size: 36, weight: .semibold, design: .rounded)).minimumScaleFactor(0.6).lineLimit(1)
-                        }
-                    }.buttonStyle(.plain)
+                VStack(alignment: .leading, spacing: 0) {
                     HStack {
-                        metric("Cash", money(store.portfolio?.summary.cash_balance))
-                        Spacer()
-                        metric("Excess liquidity", money(store.portfolio?.summary.excess_liquidity))
+                        Text("Net liquidation").font(.subheadline).foregroundStyle(.secondary)
+                        Spacer(minLength: 12)
+                        Button { summaryDestination = .performance } label: {
+                            PerformanceShimmerLabel().font(.subheadline)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                    }.padding(.bottom, 8)
+                    HStack(alignment: .bottom, spacing: 8) {
+                        Button { summaryDestination = .allocation } label: {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(money(store.portfolio?.summary.account_value)).font(.system(size: 32, weight: .semibold, design: .rounded)).monospacedDigit().minimumScaleFactor(0.6).lineLimit(1)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                        Spacer(minLength: 0)
+                        Button {
+                            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                                showCashMetrics.toggle()
+                            }
+                        } label: {
+                            Color.clear
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                            .accessibilityLabel(showCashMetrics ? Text("Hide liquidity and cash") : Text("Show liquidity and cash"))
                     }
-                }.padding(.vertical, 10)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .layoutPriority(1)
+                    VStack(spacing: 0) {
+                        HStack {
+                            metric("Excess liquidity", money(store.portfolio?.summary.excess_liquidity))
+                            Spacer()
+                            metric("Cash", money(store.portfolio?.summary.cash_balance))
+                        }.padding(.top, 12)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cashMetricsHeight = $0 }
+                    .frame(height: showCashMetrics ? cashMetricsHeight : 0, alignment: .top)
+                    .clipped()
+                    .accessibilityHidden(!showCashMetrics)
+                    .allowsHitTesting(showCashMetrics)
+                }.padding(.vertical, 6)
+                VStack(spacing: 8) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Button { summaryDestination = .margin } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Initial margin").font(.caption).foregroundStyle(.secondary)
+                                MarginWarningAmount(amount: store.portfolio?.summary.initial_margin,
+                                    netValue: store.portfolio?.summary.account_value,
+                                    active: store.selectedTab == "portfolio" && summaryDestination == nil)
+                            }
+                        }.buttonStyle(.plain)
+                        Spacer(minLength: 8)
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text("Leverage").font(.caption).foregroundStyle(.secondary)
+                            Text(store.portfolio?.summary.leverage_percentage.map { String(format: "%.1f%%", $0) } ?? "—")
+                                .monospacedDigit()
+                        }
+                    }
+                    LeverageMeter(percentage: store.portfolio?.summary.leverage_percentage, showsLabel: false)
+                }.font(.subheadline).padding(.vertical, 4)
             }
-            if let error = store.error { Section { Label(error, systemImage: "wifi.exclamationmark").foregroundStyle(.orange) } }
-            Section("Margin") {
-                NavigationLink { PerformanceView() } label: {
-                    Label("Performance", systemImage: "chart.xyaxis.line")
-                }
-                NavigationLink { MarginOverview() } label: {
-                    LabeledContent("Initial margin", value: money(store.portfolio?.summary.initial_margin))
-                }
-                LeverageMeter(percentage: store.portfolio?.summary.leverage_percentage)
-            }
+            if let error = store.error { Section { Label { NoticeText(error) } icon: { Image(systemName: "wifi.exclamationmark") }.foregroundStyle(.orange) } }
             ForEach(["OPT", "STK"], id: \.self) { type in
                 Section(LocalizedStringKey(type == "STK" ? "Stocks" : "Options")) {
                     ForEach((store.portfolio?.positions ?? []).filter { $0.security_type == type }) { position in
-                        NavigationLink { PositionDetail(position: position) } label: {
+                        ArrowlessNavigationLink { PositionDetail(position: position) } label: {
                             if position.security_type == "OPT" {
                                 PortfolioOptionRow(position: position)
                             } else {
                             HStack(alignment: .top) {
-                                VStack(alignment: .leading, spacing: 5) {
-                                    Text(position.symbol).font(.headline)
-                                    Text(position.detail).font(.caption).foregroundStyle(.secondary)
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    SymbolText(symbol: position.symbol).font(.headline)
+                                    Text(verbatim: position.position.formatted())
+                                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                                        .accessibilityLabel(Text("Quantity"))
+                                        .accessibilityValue(position.position.formatted())
                                 }
                                 Spacer()
                                 VStack(alignment: .trailing, spacing: 5) {
@@ -448,12 +592,323 @@ struct PortfolioView: View {
             }
             if store.portfolio == nil && !store.busy { ContentUnavailableView("No portfolio", systemImage: "chart.pie", description: Text("Connect your backend in Settings.")) }
         }.navigationTitle(localizedLabel("Portfolio", locale: locale)).refreshable { await store.refresh() }
+            .navigationDestination(item: $summaryDestination) { destination in
+                switch destination {
+                case .performance: PerformanceView()
+                case .margin: MarginOverview()
+                case .allocation: AllocationView()
+                }
+            }
     }
     func metric(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) { Text(LocalizedStringKey(title)).font(.caption).foregroundStyle(.secondary); Text(value).font(.subheadline.weight(.medium)).monospacedDigit() }
     }
 }
 
+struct AllocationItem: Identifiable {
+    let id: String
+    let name: String
+    let value: Double
+}
+
+struct AllocationData {
+    let assets: [AllocationItem]
+    let liabilities: [AllocationItem]
+    let missingCount: Int
+    let net: Double?
+    var total: Double { assets.reduce(0) { $0 + $1.value } }
+    var accountedNet: Double { total + liabilities.reduce(0) { $0 + $1.value } }
+    var difference: Double? { net.map { $0 - accountedNet } }
+
+    init(_ portfolio: Bootstrap?) {
+        var positive: [String: Double] = [:]
+        var negative: [String: Double] = [:]
+        var missing = 0
+        for position in portfolio?.positions ?? [] where position.position != 0 {
+            guard let value = position.market_value, value.isFinite else { missing += 1; continue }
+            let symbol = position.symbol.uppercased()
+            if value > 0 { positive[symbol, default: 0] += value }
+            if value < 0 { negative[symbol, default: 0] += value }
+        }
+        var assets = positive.map { AllocationItem(id: "asset:\($0.key)", name: $0.key, value: $0.value) }
+        var liabilities = negative.map { AllocationItem(id: "liability:\($0.key)", name: $0.key, value: $0.value) }
+        if let cash = portfolio?.summary.cash_balance, cash.isFinite {
+            if cash > 0 { assets.append(AllocationItem(id: "cash", name: "Cash", value: cash)) }
+            if cash < 0 { liabilities.append(AllocationItem(id: "cash", name: "Cash", value: cash)) }
+        } else if portfolio != nil { missing += 1 }
+        self.assets = assets.sorted { $0.value == $1.value ? $0.id < $1.id : $0.value > $1.value }
+        self.liabilities = liabilities.sorted { $0.value == $1.value ? $0.id < $1.id : $0.value < $1.value }
+        missingCount = missing
+        net = portfolio?.summary.account_value.flatMapFinite
+    }
+}
+
+private extension Double {
+    var flatMapFinite: Double? { isFinite ? self : nil }
+}
+
+struct AllocationView: View {
+    @Environment(\.locale) private var locale
+    @Environment(WheelStore.self) private var store
+    @Environment(\.colorScheme) private var scheme
+    @State private var selected: String?
+    @State private var sharePresented = false
+    @State private var angle: Double?
+    private var data: AllocationData { AllocationData(store.portfolio) }
+    private func color(_ item: AllocationItem) -> Color {
+        if CoreAssetStyle.contains(item.name) { return TradingColors.symbol(item.name, scheme: scheme) }
+        if item.id == "cash" { return .gray }
+        let colors: [Color] = [.teal, .blue, .pink, .orange, .mint, .indigo]
+        let keys = data.assets.filter { !CoreAssetStyle.contains($0.name) && $0.id != "cash" }.map(\.id).sorted()
+        return colors[(keys.firstIndex(of: item.id) ?? 0) % colors.count]
+    }
+    var body: some View {
+        List {
+            Section {
+                if data.total > 0 {
+                    Chart(data.assets.sorted { $0.id < $1.id }) { item in
+                        SectorMark(angle: .value("Market value", item.value), innerRadius: .ratio(0.72), angularInset: 1.5)
+                            .foregroundStyle(color(item))
+                            .opacity(selected == nil || selected == item.id ? 1 : 0.35)
+                            .accessibilityLabel(item.name)
+                            .accessibilityValue("\((item.value / data.total).formatted(.percent.precision(.fractionLength(1))))")
+                    }
+                    .chartAngleSelection(value: $angle)
+                    .chartBackground { _ in
+                        VStack(spacing: 5) {
+                            Text("Net liquidation").font(.caption).foregroundStyle(.secondary)
+                            Text(money(data.net)).font(.title3.weight(.semibold)).monospacedDigit()
+                                .lineLimit(1).minimumScaleFactor(0.6)
+                        }.frame(maxWidth: 160).allowsHitTesting(false)
+                    }
+                    .frame(height: 270)
+                    .overlay {
+                        ForEach(data.assets.filter { CoreAssetStyle.contains($0.name) }) { item in
+                            CoreAssetAllocationFlow(items: data.assets.sorted { $0.id < $1.id }, symbol: item.name,
+                                                    active: !sharePresented,
+                                                    highlighted: selected == nil || selected == item.id)
+                        }
+                    }
+                    .listRowBackground(Color.clear)
+                } else { ContentUnavailableView("No portfolio", systemImage: "chart.pie") }
+            }
+            Section("Positive assets") {
+                ForEach(data.assets) { item in
+                    Button { selected = selected == item.id ? nil : item.id } label: {
+                        HStack(spacing: 10) {
+                            Circle().fill(color(item)).frame(width: 8, height: 8)
+                            if item.id == "cash" { Text("Cash") } else { SymbolText(symbol: item.name) }
+                            Spacer(minLength: 8)
+                            VStack(alignment: .trailing, spacing: 3) {
+                                Text(money(item.value)).monospacedDigit()
+                                Text((item.value / data.total).formatted(.percent.precision(.fractionLength(1))))
+                                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            }
+                            if selected == item.id { Image(systemName: "checkmark").foregroundStyle(color(item)) }
+                        }.contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                }
+                LabeledContent("Total", value: money(data.total))
+            }
+            if !data.liabilities.isEmpty {
+                Section("Short positions & negative cash") {
+                    ForEach(data.liabilities) { item in
+                        HStack {
+                            if item.id == "cash" { Text("Cash") } else { SymbolText(symbol: item.name) }
+                            Spacer()
+                            Text(money(item.value)).monospacedDigit().foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            Section("Reconciliation") {
+                LabeledContent("Estimated net value", value: money(data.accountedNet))
+                LabeledContent("Net liquidation", value: money(data.net))
+                LabeledContent("Difference", value: money(data.difference))
+                if data.missingCount > 0 { Label("Some market values are unavailable", systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+                if let error = store.error { NoticeText(error).font(.caption).foregroundStyle(.orange) }
+            }
+        }
+        .navigationTitle(localizedLabel("Allocation", locale: locale))
+        .toolbar { ToolbarItem(placement: .topBarTrailing) {
+            Button { sharePresented = true } label: { Image(systemName: "square.and.arrow.up") }
+                .accessibilityLabel("Share holdings")
+                .disabled(store.portfolio == nil)
+        } }
+        .sheet(isPresented: $sharePresented) { HoldingsSharePreview(portfolio: store.portfolio) }
+        .refreshable { await store.refreshPortfolio() }
+        .onChange(of: angle) {
+            guard let angle else { return }
+            var end = 0.0
+            selected = data.assets.sorted { $0.id < $1.id }.first { item in end += item.value; return angle < end }?.id
+        }
+        .onChange(of: data.assets.map(\.id)) {
+            if !data.assets.contains(where: { $0.id == selected }) { selected = nil }
+        }
+    }
+}
+
+private struct CoreAssetAllocationFlow: View {
+    let items: [AllocationItem]
+    let symbol: String
+    let active: Bool
+    let highlighted: Bool
+    @Environment(\.scenePhase) private var phase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
+    @Environment(WheelStore.self) private var store
+    @State private var visible = false
+
+    var body: some View {
+        if let index = items.firstIndex(where: { $0.name == symbol }), !reduceMotion {
+            let total = items.reduce(0) { $0 + $1.value }
+            let start = -90 + items.prefix(index).reduce(0) { $0 + $1.value } / max(total, 1) * 360
+            let span = items[index].value / max(total, 1) * 360
+            let feather = min(28.0, span * 0.16)
+            TimelineView(.animation(minimumInterval: 1.0 / 30,
+                                    paused: !visible || !active || phase != .active || store.selectedTab != "portfolio")) { context in
+                let cycle = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 12) / 12
+                let travel = (1 - cos(cycle * 2 * .pi)) / 2
+                // Move the soft front fully beyond both ends before reversing.
+                // Everything behind it stays gold, so the sector is revealed rather than scanned.
+                let front = -feather + (span + 2 * feather) * travel
+                let gold = Color(red: 0.66, green: 0.36, blue: 0.07)
+                let strength = scheme == .dark ? 0.72 : 0.65
+                // Only the feather needs intermediate stops; the rest is a solid fill.
+                let colorAnchors = symbol == "SGOV" ? [Double]() : [span / 2, span]
+                let angles = Set([0.0, 360.0] + colorAnchors + (-4...4).map { front + feather * Double($0) / 4 }
+                    .filter { $0 > 0 && $0 < 360 }).sorted()
+                let stops: [Gradient.Stop] = angles.map { angle in
+                    let location = angle / 360
+                    let coverage = min(1, max(0, (front - angle + feather) / max(2 * feather, 0.001)))
+                    let softened = coverage * coverage * (3 - 2 * coverage)
+                    let finish = symbol == "SGOV" ? gold : CoreAssetStyle.sectorColor(angle / max(span, 0.001))
+                    return .init(color: finish.opacity((symbol == "SGOV" ? strength : 0.9) * softened), location: location)
+                }
+                AngularGradient(stops: stops, center: .center,
+                                startAngle: .degrees(start), endAngle: .degrees(start + 360))
+            }
+            .mask {
+                Chart(items) { item in
+                    SectorMark(angle: .value("Market value", item.value), innerRadius: .ratio(0.72), angularInset: 1.5)
+                        .foregroundStyle(item.name == symbol ? Color.white : Color.clear)
+                }
+            }
+            .opacity(highlighted ? 1 : 0.35)
+            .allowsHitTesting(false).accessibilityHidden(true)
+            .onAppear { visible = true }.onDisappear { visible = false }
+        }
+    }
+}
+
+private struct PerformanceShimmerLabel: View {
+    @Environment(\.locale) private var locale
+    @Environment(\.customPalette) private var palette
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.scenePhase) private var phase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(WheelStore.self) private var store
+    @State private var visible = false
+
+    private var lettering: Text {
+        let title = localizedLabel("Performance", locale: locale)
+        return Text(verbatim: title == "Performance" ? "𝒫ℯ𝓇𝒻ℴ𝓇𝓂𝒶𝓃𝒸ℯ" : title)
+    }
+    var body: some View {
+        let gain = palette.color("gain", scheme: scheme, fallback: FinancialColors.gain)
+        let loss = palette.color("loss", scheme: scheme, fallback: FinancialColors.loss)
+        TimelineView(.animation(minimumInterval: 1.0 / 30,
+                                paused: !visible || phase != .active || reduceMotion || store.selectedTab != "portfolio")) { context in
+            let progress = reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 8) / 8
+            lettering.hidden()
+                .overlay {
+                    GeometryReader { geometry in
+                        LinearGradient(colors: [PerformanceColors.spx, .orange, gain, loss, PerformanceColors.spx, .orange, gain, loss, PerformanceColors.spx],
+                                       startPoint: .leading, endPoint: .trailing)
+                            .frame(width: geometry.size.width * 2)
+                            .offset(x: -geometry.size.width * progress)
+                    }
+                    .mask(lettering)
+                    .allowsHitTesting(false)
+                }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Performance"))
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
+    }
+}
+
+enum CoreAssetStyle {
+    static let symbols = ["SGOV", "VTI", "QQQ", "SPY"]
+    static func contains(_ symbol: String) -> Bool { symbols.contains(symbol.uppercased()) }
+    static func lettering(_ symbol: String) -> String {
+        ["SGOV": "𝕊𝔾𝕆𝕍", "VTI": "𝕍𝕋𝕀", "QQQ": "ℚℚℚ", "SPY": "𝕊ℙ𝕐"][symbol.uppercased()] ?? symbol
+    }
+    static let red = Color(red: 0.84, green: 0.13, blue: 0.09)
+    static let brightGold = Color(red: 1, green: 0.84, blue: 0.32)
+    static let darkGold = Color(red: 0.58, green: 0.30, blue: 0.05)
+    static let signatureFlow: [Color] = [.clear, red, brightGold, darkGold, .clear]
+    static func sectorColor(_ fraction: Double) -> Color {
+        let stops: [(Double, Double, Double)] = [(0.84, 0.13, 0.09), (1, 0.84, 0.32), (0.58, 0.30, 0.05)]
+        let t = min(1, max(0, fraction)) * 2
+        let index = min(1, Int(t)), mix = t - Double(min(1, Int(t)))
+        let a = stops[index], b = stops[index + 1]
+        return Color(red: a.0 + (b.0 - a.0) * mix, green: a.1 + (b.1 - a.1) * mix, blue: a.2 + (b.2 - a.2) * mix)
+    }
+}
+
+struct SymbolText: View {
+    let symbol: String
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.scenePhase) private var phase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var visible = false
+    var body: some View {
+        if CoreAssetStyle.contains(symbol) {
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !visible || phase != .active || reduceMotion)) { context in
+                let progress = reduceMotion ? 0.5 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
+                Text(verbatim: CoreAssetStyle.lettering(symbol)).foregroundStyle(TradingColors.symbol(symbol, scheme: scheme))
+                    .overlay {
+                        if !reduceMotion {
+                            GeometryReader { geometry in
+                                LinearGradient(colors: symbol.uppercased() == "SGOV" ? [.clear, scheme == .dark ? Color.white : Color(red: 0.48, green: 0.23, blue: 0.02), .clear] : CoreAssetStyle.signatureFlow, startPoint: .leading, endPoint: .trailing)
+                                    .frame(width: geometry.size.width * 0.65)
+                                    .offset(x: geometry.size.width * (progress * 1.65 - 0.65))
+                            }.mask(Text(verbatim: CoreAssetStyle.lettering(symbol))).allowsHitTesting(false)
+                        }
+                    }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: symbol))
+            .onAppear { visible = true }.onDisappear { visible = false }
+        } else {
+            Text(symbol)
+        }
+    }
+}
+
+extension View {
+    @ViewBuilder func symbolTitle(_ symbol: String) -> some View {
+        if CoreAssetStyle.contains(symbol) {
+            self.navigationTitle(symbol).navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .principal) { SymbolText(symbol: symbol).font(.headline) } }
+        } else {
+            self.navigationTitle(symbol)
+        }
+    }
+}
+
+enum TradingColors {
+    static func symbol(_ symbol: String, scheme: ColorScheme) -> Color {
+        guard CoreAssetStyle.contains(symbol) else { return .primary }
+        if symbol.uppercased() != "SGOV" { return scheme == .dark ? CoreAssetStyle.brightGold : CoreAssetStyle.darkGold }
+        return scheme == .dark ? Color(red: 1.00, green: 0.88, blue: 0.58) : Color(red: 0.78, green: 0.60, blue: 0.16)
+    }
+    static func profit(_ scheme: ColorScheme) -> Color {
+        FinancialColors.gain
+    }
+}
 
 struct PositionMarketPrice: View {
     @Environment(\.customPalette) private var customPalette
@@ -527,6 +982,7 @@ struct PositionPnLMeter: View {
 
 struct LeverageMeter: View {
     let percentage: Double?
+    var showsLabel = true
     private var value: Double? { percentage.flatMap { $0.isFinite ? $0 : nil } }
     private var tint: Color {
         guard let value else { return .secondary }
@@ -534,181 +990,14 @@ struct LeverageMeter: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            LabeledContent("Leverage", value: value.map { String(format: "%.1f%%", $0) } ?? "—")
-                .monospacedDigit()
+            if showsLabel {
+                LabeledContent("Leverage", value: value.map { String(format: "%.1f%%", $0) } ?? "—")
+                    .monospacedDigit()
+            }
             ProgressView(value: min(100, max(0, value ?? 0)), total: 100)
                 .tint(tint)
                 .accessibilityHidden(true)
         }.padding(.vertical, 4)
-    }
-}
-
-struct AllocationItem: Identifiable {
-    let id: String
-    let name: String
-    let value: Double
-}
-
-struct AllocationData {
-    let assets: [AllocationItem]
-    let liabilities: [AllocationItem]
-    let missingCount: Int
-    let net: Double?
-    var total: Double { assets.reduce(0) { $0 + $1.value } }
-    var accountedNet: Double { total + liabilities.reduce(0) { $0 + $1.value } }
-    var difference: Double? { net.map { $0 - accountedNet } }
-
-    init(_ portfolio: Bootstrap?) {
-        var positive: [String: Double] = [:]
-        var negative: [String: Double] = [:]
-        var missing = 0
-        for position in portfolio?.positions ?? [] where position.position != 0 {
-            guard let value = position.market_value, value.isFinite else { missing += 1; continue }
-            let symbol = position.symbol.uppercased()
-            if value > 0 { positive[symbol, default: 0] += value }
-            if value < 0 { negative[symbol, default: 0] += value }
-        }
-        var assets = positive.map { AllocationItem(id: "asset:\($0.key)", name: $0.key, value: $0.value) }
-        var liabilities = negative.map { AllocationItem(id: "liability:\($0.key)", name: $0.key, value: $0.value) }
-        if let cash = portfolio?.summary.cash_balance, cash.isFinite {
-            if cash > 0 { assets.append(AllocationItem(id: "cash", name: "Cash", value: cash)) }
-            if cash < 0 { liabilities.append(AllocationItem(id: "cash", name: "Cash", value: cash)) }
-        } else if portfolio != nil { missing += 1 }
-        self.assets = assets.sorted { $0.value == $1.value ? $0.id < $1.id : $0.value > $1.value }
-        self.liabilities = liabilities.sorted { $0.value == $1.value ? $0.id < $1.id : $0.value < $1.value }
-        missingCount = missing
-        net = portfolio?.summary.account_value.flatMapFinite
-    }
-}
-
-private extension Double {
-    var flatMapFinite: Double? { isFinite ? self : nil }
-}
-
-struct AllocationView: View {
-    @Environment(\.locale) private var locale
-    @Environment(WheelStore.self) private var store
-    @Environment(\.colorScheme) private var scheme
-    @State private var selected: String?
-    @State private var sharePresented = false
-    @State private var angle: Double?
-    private var data: AllocationData { AllocationData(store.portfolio) }
-    private func color(_ item: AllocationItem) -> Color {
-        if item.name == "SGOV" { return TradingColors.symbol("SGOV", scheme: scheme) }
-        if item.id == "cash" { return .gray }
-        let colors: [Color] = [.teal, .blue, .pink, .orange, .mint, .indigo]
-        let keys = data.assets.filter { $0.name != "SGOV" && $0.id != "cash" }.map(\.id).sorted()
-        return colors[(keys.firstIndex(of: item.id) ?? 0) % colors.count]
-    }
-    var body: some View {
-        List {
-            Section {
-                if data.total > 0 {
-                    Chart(data.assets.sorted { $0.id < $1.id }) { item in
-                        SectorMark(angle: .value("Market value", item.value), innerRadius: .ratio(0.72), angularInset: 1.5)
-                            .foregroundStyle(color(item))
-                            .opacity(selected == nil || selected == item.id ? 1 : 0.35)
-                            .accessibilityLabel(item.name)
-                            .accessibilityValue("\((item.value / data.total).formatted(.percent.precision(.fractionLength(1))))")
-                    }
-                    .chartAngleSelection(value: $angle)
-                    .chartBackground { _ in
-                        VStack(spacing: 5) {
-                            Text("Net liquidation").font(.caption).foregroundStyle(.secondary)
-                            Text(money(data.net)).font(.title3.weight(.semibold)).monospacedDigit()
-                                .lineLimit(1).minimumScaleFactor(0.6)
-                        }.frame(maxWidth: 160).allowsHitTesting(false)
-                    }
-                    .frame(height: 270)
-                    .listRowBackground(Color.clear)
-                } else { ContentUnavailableView("No portfolio", systemImage: "chart.pie") }
-            }
-            Section("Positive assets") {
-                ForEach(data.assets) { item in
-                    Button { selected = selected == item.id ? nil : item.id } label: {
-                        HStack(spacing: 10) {
-                            Circle().fill(color(item)).frame(width: 8, height: 8)
-                            if item.id == "cash" { Text("Cash") } else { SymbolText(symbol: item.name) }
-                            Spacer(minLength: 8)
-                            VStack(alignment: .trailing, spacing: 3) {
-                                Text(money(item.value)).monospacedDigit()
-                                Text((item.value / data.total).formatted(.percent.precision(.fractionLength(1))))
-                                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                            }
-                            if selected == item.id { Image(systemName: "checkmark").foregroundStyle(color(item)) }
-                        }.contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                }
-                LabeledContent("Total", value: money(data.total))
-            }
-            if !data.liabilities.isEmpty {
-                Section("Short positions & negative cash") {
-                    ForEach(data.liabilities) { item in
-                        HStack {
-                            if item.id == "cash" { Text("Cash") } else { SymbolText(symbol: item.name) }
-                            Spacer()
-                            Text(money(item.value)).monospacedDigit().foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-            Section("Reconciliation") {
-                LabeledContent("Estimated net value", value: money(data.accountedNet))
-                LabeledContent("Net liquidation", value: money(data.net))
-                LabeledContent("Difference", value: money(data.difference))
-                if data.missingCount > 0 { Label("Some market values are unavailable", systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
-                if let error = store.error { Text(error).font(.caption).foregroundStyle(.orange) }
-            }
-        }
-        .navigationTitle(localizedLabel("Allocation", locale: locale))
-        .toolbar { ToolbarItem(placement: .topBarTrailing) {
-            Button { sharePresented = true } label: { Image(systemName: "square.and.arrow.up") }
-                .accessibilityLabel("Share holdings")
-                .disabled(store.portfolio == nil)
-        } }
-        .sheet(isPresented: $sharePresented) { HoldingsSharePreview(portfolio: store.portfolio) }
-        .refreshable { await store.refreshPortfolio() }
-        .onChange(of: angle) {
-            guard let angle else { return }
-            var end = 0.0
-            selected = data.assets.sorted { $0.id < $1.id }.first { item in end += item.value; return angle < end }?.id
-        }
-        .onChange(of: data.assets.map(\.id)) {
-            if !data.assets.contains(where: { $0.id == selected }) { selected = nil }
-        }
-    }
-}
-
-struct SymbolText: View {
-    let symbol: String
-    @Environment(\.colorScheme) private var scheme
-    var body: some View {
-        if symbol.uppercased() == "SGOV" {
-            Text(symbol).foregroundStyle(TradingColors.symbol(symbol, scheme: scheme))
-        } else {
-            Text(symbol)
-        }
-    }
-}
-
-extension View {
-    @ViewBuilder func symbolTitle(_ symbol: String) -> some View {
-        if symbol.uppercased() == "SGOV" {
-            self.navigationTitle(symbol).navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .principal) { SymbolText(symbol: symbol).font(.headline) } }
-        } else {
-            self.navigationTitle(symbol)
-        }
-    }
-}
-
-enum TradingColors {
-    static func symbol(_ symbol: String, scheme: ColorScheme) -> Color {
-        guard symbol.uppercased() == "SGOV" else { return .primary }
-        return scheme == .dark ? Color(red: 1.00, green: 0.88, blue: 0.58) : Color(red: 0.78, green: 0.60, blue: 0.16)
-    }
-    static func profit(_ scheme: ColorScheme) -> Color {
-        FinancialColors.gain
     }
 }
 
@@ -730,17 +1019,17 @@ struct PositionDetail: View {
                 LabeledContent("Current price", value: money(latest.market_price))
                 LabeledContent("Market value", value: money(latest.market_value))
                 LabeledContent("Unrealized P&L", value: money(latest.unrealized_pnl))
-                NavigationLink("Margin impact") { PositionMarginView(position: latest) }
+                ArrowlessNavigationLink("Margin impact") { PositionMarginView(position: latest) }
             }
             if store.portfolio?.positions.contains(where: { $0.id == position.id && $0.position != 0 }) == true,
                (position.security_type == "OPT" || (position.security_type == "STK" && latest.position > 0)), let conID = position.con_id, conID > 0 {
                 Section {
-                    NavigationLink("Close") { CloseTicket(position: latest) }.disabled(stockHasCall)
+                    ArrowlessNavigationLink("Close") { CloseTicket(position: latest) }.disabled(stockHasCall)
                     if stockHasCall { Text("Close covered CALLs before selling shares.").font(.caption).foregroundStyle(.orange) }
-                    if latest.security_type == "OPT" && latest.position < 0 { NavigationLink("Rollover") { RolloverTicket(position: latest) } }
+                    if latest.security_type == "OPT" && latest.position < 0 { ArrowlessNavigationLink("Rollover") { RolloverTicket(position: latest) } }
                 }
             }
-        }.navigationTitle(position.symbol)
+        }.symbolTitle(position.symbol)
     }
 }
 
@@ -762,26 +1051,26 @@ struct OrdersView: View {
             StatusView(orders: true)
             Picker("Orders", selection: $history) { Text("Pending").tag(false); Text("Executed records").tag(true) }.pickerStyle(.segmented)
             if history, let error = store.filledError {
-                Text(error).font(.caption).foregroundStyle(.orange)
+                NoticeText(error).font(.caption).foregroundStyle(.orange)
             }
             if preferences { Toggle("Confirm execution and cancellation", isOn: $confirmExecution) }
             if store.ordersRetrying {
                 Text("Connection interrupted. Retrying…").font(.caption).foregroundStyle(.orange)
             } else if let error = store.orderError {
                 DisclosureGroup("Order status needs verification") {
-                    Text(error).font(.caption).textSelection(.enabled)
-                }.foregroundStyle(.orange)
-            } else if let error = store.error { Text(error).foregroundStyle(.orange) }
+                    NoticeText(error).font(.caption).textSelection(.enabled)
+                }.disclosureGroupStyle(ArrowlessDisclosureStyle()).foregroundStyle(.orange)
+            } else if let error = store.error { NoticeText(error).foregroundStyle(.orange) }
             if (history ? store.filledOrders : store.orders).isEmpty && store.orderError == nil && store.error == nil && (!history || store.filledError == nil) {
                 ContentUnavailableView("No orders", systemImage: "checkmark.circle")
             }
             ForEach(history ? store.filledOrders : store.orders) { order in
-                NavigationLink {
-                    if history { Form { Text(order.name); Text("\(order.expiration ?? "") · \(money(order.strike)) \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Action", value: order.fill_action ?? order.action ?? "—"); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: order.commissionLabel); if order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: order) } }; LabeledContent("Average fill price", value: money(order.fillPrice)); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
+                ArrowlessNavigationLink {
+                    if history { Form { SymbolText(symbol: order.name); Text("\(order.expiration ?? "") · \(money(order.strike)) · \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Action", value: order.fill_action ?? order.action ?? "—"); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: order.commissionLabel); if order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: order) } }; LabeledContent("Average fill price", value: money(order.fillPrice)); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
                     else { OrderDetail(initial: order) }
                 } label: {
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack { Text(order.name).font(.headline); Spacer(); Text(money(history ? order.fillPrice : order.premium)).monospacedDigit() }
+                        HStack { SymbolText(symbol: order.name).font(.headline); Spacer(); Text(money(history ? order.fillPrice : order.premium)).monospacedDigit() }
                         HStack { Text("\(order.action ?? "") · \(order.option_type ?? "")"); Spacer(); Text(order.status).foregroundStyle(.teal) }.font(.caption)
                         if !history, let filled = order.filledQuantity {
                             Text("Filled \(filled.formatted()) / \(order.quantity?.formatted() ?? "—") · \(money(order.fillPrice))")
@@ -835,7 +1124,7 @@ struct OrdersView: View {
             }
         } message: {
             if let order = quickOrder {
-                Text("\(order.name) · \(order.action ?? "") · \(order.option_type ?? "") · \(money(order.strike)) · \(order.expiration ?? "")\n\(order.quantity?.formatted() ?? "—") · \(money(order.premium)) · \(order.tif ?? (order.intent == "CLOSE" ? "GTC" : "DAY"))\n\(store.demo ? "Simulation only" : "Connected backend · real orders may execute")")
+                Text("\(order.name) · \(order.action ?? "") · \(order.option_type ?? "") · \(money(order.strike)) · \(order.expiration ?? "")\n\(order.quantity?.formatted() ?? "—") · \(money(order.premium)) · \(order.tif ?? (order.intent == "CLOSE" ? "GTC" : "DAY"))\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
             }
         }
         .confirmationDialog("Cancel \(cancelable.count) eligible orders?", isPresented: $cancelAll, titleVisibility: .visible) {
@@ -913,7 +1202,7 @@ struct SettingsView: View {
                             if connecting {
                                 ProgressView().tint(Color.black.opacity(0.8))
                             } else {
-                                Image(systemName: store.isConnected(to: draft) ? "checkmark.circle" : "link")
+                                Image(systemName: store.isConnected(to: draft) ? "checkmark.circle" : "command")
                                     .font(.title3.weight(.semibold))
                                     .foregroundStyle(store.isConnected(to: draft) ? Color.white : Color.black.opacity(0.85))
                             }
@@ -933,8 +1222,8 @@ struct SettingsView: View {
                     .foregroundStyle(Color.black.opacity(0.85))
                     .padding(.leading, 12)
                     .padding(.trailing, 18)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity, minHeight: 60)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, minHeight: 52)
                     .background {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .fill(LinearGradient(colors: [Color(red: 0.40, green: 0.94, blue: 0.89), Color(red: 0.25, green: 0.73, blue: 0.98)], startPoint: .topLeading, endPoint: .bottomTrailing))
@@ -961,33 +1250,36 @@ struct SettingsView: View {
                 }.buttonStyle(.plain)
                     .listRowSeparator(.hidden)
                     .disabled(!hasAddress || connecting)
-                if let error = store.error { Text(error).font(.footnote).foregroundStyle(.orange) }
-            }
-            if store.demo {
-                Section("Demo Test") {
-                    Button("Preview fill notifications", systemImage: "bell.badge") { store.fillPreview.start() }
-                    Text("Switch to any tab: a partial fill appears after 3 seconds, followed by a full fill after 11 seconds.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
+                if let error = store.error { NoticeText(error).font(.footnote).foregroundStyle(.orange) }
             }
             Section("Appearance") {
-                Picker(selection: $appLanguage) {
-                    Text("System").tag("system")
-                    Text(verbatim: "English").tag("en")
-                    Text(verbatim: "简体中文").tag("zh-Hans")
-                    Text(verbatim: "繁體中文").tag("zh-Hant")
-                } label: {
+                HStack {
                     Label("Language", systemImage: "globe")
+                    Spacer(minLength: 8)
+                    Menu {
+                        Picker("Language", selection: $appLanguage) {
+                            Text("System").tag("system")
+                            Text(verbatim: "English").tag("en")
+                            Text(verbatim: "简体中文").tag("zh-Hans")
+                            Text(verbatim: "繁體中文").tag("zh-Hant")
+                        }
+                    } label: {
+                        SettingsChoiceLabel(value: appLanguage == "en" ? "English" : appLanguage == "zh-Hans" ? "简体中文" : appLanguage == "zh-Hant" ? "繁體中文" : localizedLabel("System", locale: locale), widthReference: appLanguage == "en" ? "System" : nil)
+                    }.buttonStyle(.plain).accessibilityLabel(Text("Language"))
                 }
-                .accessibilityLabel(Text("Language"))
-                Picker(selection: $appearance) {
-                    Text("System").tag("system")
-                    Text("Light").tag("light")
-                    Text("Dark").tag("dark")
-                } label: {
+                HStack {
                     Label("Theme", systemImage: "circle.lefthalf.filled")
+                    Spacer(minLength: 8)
+                    Menu {
+                        Picker("Theme", selection: $appearance) {
+                            Text("System").tag("system")
+                            Text("Light").tag("light")
+                            Text("Dark").tag("dark")
+                        }
+                    } label: {
+                        SettingsChoiceLabel(value: localizedLabel(appearance == "light" ? "Light" : appearance == "dark" ? "Dark" : "System", locale: locale))
+                    }.buttonStyle(.plain).accessibilityLabel(Text("Theme"))
                 }
-                .accessibilityLabel(Text("Theme"))
                 NavigationLink { MetricPalettePreview() } label: {
                     Label("Custom colors", systemImage: "paintpalette")
                 }
@@ -998,17 +1290,25 @@ struct SettingsView: View {
                     Button("I have verified the order outcome") { reviewed = true }
                 }
             }
-            Section("App") {
+            Section {
                 LabeledContent("Minimum iOS") { Text("18.0").padding(.trailing, 20) }
                 NavigationLink { TradingAccessView() } label: {
-                    LabeledContent("Trading access") { Text(verbatim: store.demo ? localizedLabel("Simulated", locale: locale) : "Live") }
+                    LabeledContent("Trading access") { Text(verbatim: store.demo ? localizedLabel("Simulated", locale: locale) : localizedLabel("Live", locale: locale)) }
                 }
                 LabeledContent("Version") { Text("0.2").padding(.trailing, 20) }
+            } header: {
+                Text("App")
+            } footer: {
+                GildedSignature()
+                    .textCase(nil)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+                    .accessibilityLabel(Text(verbatim: "Ben"))
             }
-        }.navigationTitle(localizedLabel("Settings", locale: locale)).onAppear { draft = store.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "https://" : store.address }
-        .toolbar {
-            if addressFocused { ToolbarItem(placement: .topBarTrailing) { Button("Done") { addressFocused = false } } }
         }
+        .listSectionSpacing(12)
+        .navigationTitle(localizedLabel("Settings", locale: locale)).onAppear { draft = store.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "https://" : store.address }
         .disabled(store.trading.busy || store.opportunities.batchRunning)
         .confirmationDialog("Have you verified the order in IB and the web app?", isPresented: $reviewed, titleVisibility: .visible) {
             Button("Verified · unlock trading") { store.trading.acknowledgeReview() }
@@ -1016,8 +1316,62 @@ struct SettingsView: View {
     }
 }
 
+private struct SettingsChoiceLabel: View {
+    let value: String
+    var widthReference: String? = nil
+    var body: some View {
+        HStack(spacing: 8) {
+            ZStack {
+                if let widthReference { Text(verbatim: widthReference).hidden().accessibilityHidden(true) }
+                Text(verbatim: value)
+            }.lineLimit(1).minimumScaleFactor(0.8)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.caption.weight(.semibold)).accessibilityHidden(true)
+        }
+        .foregroundStyle(.teal)
+        .padding(.horizontal, 10)
+        .frame(minHeight: 36)
+        .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 7))
+        .contentShape(Rectangle())
+    }
+}
+
+private struct GildedSignature: View {
+    @Environment(WheelStore.self) private var store
+    @Environment(\.scenePhase) private var phase
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var visible = false
+    private var lettering: some View {
+        Text(verbatim: "𝓑𝓮𝓷").font(.system(size: 26, weight: .regular))
+    }
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30,
+                                paused: !visible || phase != .active || store.selectedTab != "settings" || reduceMotion)) { context in
+            let progress = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
+            lettering.foregroundStyle(scheme == .dark
+                ? Color(red: 0.68, green: 0.39, blue: 0.09)
+                : Color(red: 0.52, green: 0.29, blue: 0.06))
+                .overlay {
+                    if !reduceMotion {
+                        GeometryReader { geometry in
+                            LinearGradient(colors: CoreAssetStyle.signatureFlow,
+                                startPoint: .leading, endPoint: .trailing)
+                                .frame(width: geometry.size.width * 0.8)
+                                .offset(x: geometry.size.width * (progress * 1.8 - 0.8))
+                        }.mask(lettering).allowsHitTesting(false)
+                    }
+                }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "Ben"))
+        .onAppear { visible = true }.onDisappear { visible = false }
+    }
+}
+
 private struct GildedConnectionLabel: View {
     let active: Bool
+    @State private var visible = false
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var lettering: some View {
@@ -1026,7 +1380,7 @@ private struct GildedConnectionLabel: View {
             .lineLimit(1).minimumScaleFactor(0.7)
     }
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !active || phase != .active || reduceMotion)) { context in
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !visible || !active || phase != .active || reduceMotion)) { context in
             let progress = reduceMotion ? 0.5 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
             lettering.hidden()
                 .overlay {
@@ -1045,19 +1399,60 @@ private struct GildedConnectionLabel: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("CONNECTED"))
         }
+        .onAppear { visible = true }.onDisappear { visible = false }
     }
 }
 
 private struct ConnectingGlow: View {
     let active: Bool
+    @State private var visible = false
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !active || phase != .active || reduceMotion)) { context in
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !visible || !active || phase != .active || reduceMotion)) { context in
             let intensity = reduceMotion ? 0.0 : (sin(context.date.timeIntervalSinceReferenceDate * .pi / 1.5) + 1) / 2
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(.white.opacity(0.15 + intensity * 0.4), lineWidth: 1.5)
                 .shadow(color: .cyan.opacity(0.1 + intensity * 0.25), radius: 3 + intensity * 5)
         }
+        .onAppear { visible = true }.onDisappear { visible = false }
+    }
+}
+
+private struct MarginWarningAmount: View {
+    let amount: Double?
+    let netValue: Double?
+    let active: Bool
+    @Environment(\.scenePhase) private var phase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var visible = false
+    private var warning: Bool {
+        guard let amount, let netValue, amount.isFinite, netValue.isFinite, amount > 0 else { return false }
+        return netValue <= 0 || amount / netValue >= 0.7
+    }
+    var body: some View {
+        let label = Text(money(amount)).monospacedDigit()
+        Group {
+            if warning {
+                TimelineView(.animation(minimumInterval: 1.0 / 30,
+                    paused: !active || !visible || phase != .active || reduceMotion)) { context in
+                    let progress = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2) / 2
+                    label.foregroundStyle(.red)
+                        .overlay {
+                            if !reduceMotion {
+                                GeometryReader { geometry in
+                                    LinearGradient(colors: [.clear, .red, Color(red: 1, green: 0.65, blue: 0.65), .red, .clear], startPoint: .leading, endPoint: .trailing)
+                                        .frame(width: geometry.size.width * 0.7)
+                                        .offset(x: geometry.size.width * (progress * 1.7 - 0.7))
+                                }.mask(label).allowsHitTesting(false).accessibilityHidden(true)
+                            }
+                        }
+                }
+            } else {
+                label
+            }
+        }
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
     }
 }

@@ -7,7 +7,7 @@ struct TradingAccessView: View {
         Form {
             Section {
                 LabeledContent("Trading access") {
-                    Text(verbatim: store.demo ? localizedLabel("Simulated", locale: locale) : "Live")
+                    Text(verbatim: store.demo ? localizedLabel("Simulated", locale: locale) : localizedLabel("Live", locale: locale))
                 }
             }
             Section("Remote maintenance") {

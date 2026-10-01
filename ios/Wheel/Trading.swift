@@ -397,7 +397,7 @@ struct TradingNotice: View {
         if !store.demo && store.trading.uncertain {
             Label("Unconfirmed request. Check IB and the web app before further trading.", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
         }
-        if let message = store.trading.message { Text(LocalizedStringKey(message)).font(.footnote).foregroundStyle(.secondary) }
+        if let message = store.trading.message { NoticeText(message).font(.footnote).foregroundStyle(.secondary) }
         if store.trading.busy { ProgressView("Sending request…") }
     }
 }
@@ -416,8 +416,11 @@ struct OrderDetail: View {
     var body: some View {
         Form {
             if let order = current {
-                Section(order.name) {
-                    LabeledContent("Contract", value: order.option_type == "STOCK" ? order.name : "\(order.expiration ?? "") · \(money(order.strike)) \(order.option_type ?? "")")
+                Section {
+                    LabeledContent("Contract") {
+                        if order.option_type == "STOCK" { SymbolText(symbol: order.name) }
+                        else { Text("\(order.expiration ?? "") · \(money(order.strike)) · \(order.option_type ?? "")") }
+                    }
                     LabeledContent("Action", value: "\(order.action ?? "") TO \(order.intent ?? "OPEN")")
                     LabeledContent("Quantity", value: order.quantity?.formatted() ?? "—")
                     LabeledContent("Limit") {
@@ -437,8 +440,9 @@ struct OrderDetail: View {
                     LabeledContent("Status", value: order.ib_status ?? order.status)
                     if let id = order.ib_order_id { LabeledContent("IB order ID", value: String(id)) }
                     if let id = order.perm_id { LabeledContent("Permanent ID", value: String(id)) }
-                    if let error = order.error_message, !error.isEmpty { Text(error).foregroundStyle(.orange) }
+                    if let error = order.error_message, !error.isEmpty { NoticeText(error).foregroundStyle(.orange) }
                 }
+                header: { SymbolText(symbol: order.name) }
                 if order.external_ib == true { Text("IB-managed order. Modify or cancel in IB.").foregroundStyle(.secondary) }
                 if TradeRules.editable(order) {
                     if order.intent != "CLOSE" {
@@ -460,7 +464,7 @@ struct OrderDetail: View {
         }
         .modifier(KeyboardDismissal())
         .disabled(store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))
-        .navigationTitle(initial.name)
+        .symbolTitle(initial.name)
         .sheet(item: $pricePicker) { snapshot in
             NavigationStack {
                 PriceChoiceList(values: snapshot.values, selected: snapshot.selected) { value in
@@ -480,7 +484,7 @@ struct OrderDetail: View {
                 self.action = nil
             }
         } message: {
-            Text("\(current?.name ?? initial.name) · \(current?.action ?? "") \(action == "Save quantity" ? String(quantity) : current?.quantity?.formatted() ?? "") · \(current?.option_type ?? "") \(money(current?.strike)) · \(current?.expiration ?? "")\nLimit \(money(action == "Execute" ? TradeRules.price(price) : current?.premium)) · \(current?.tif ?? (current?.intent == "CLOSE" ? "GTC" : "DAY"))\n\(store.demo ? "Simulation only" : "Connected backend · real orders may execute")")
+            Text("\(current?.name ?? initial.name) · \(current?.action ?? "") \(action == "Save quantity" ? String(quantity) : current?.quantity?.formatted() ?? "") · \(current?.option_type ?? "") · \(money(current?.strike)) · \(current?.expiration ?? "")\nLimit \(money(action == "Execute" ? TradeRules.price(price) : current?.premium)) · \(current?.tif ?? (current?.intent == "CLOSE" ? "GTC" : "DAY"))\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
         }
     }
     private func perform(_ action: String) {
@@ -522,7 +526,7 @@ struct CloseTicket: View {
     var body: some View {
         @Bindable var state = state
         Form {
-            Section(position.symbol) {
+            Section {
                 Text(position.detail)
                 LabeledContent("Action", value: "\(quote?["close_action"] as? String ?? "—") TO CLOSE")
                 LabeledContent("Account", value: quote?["account_suffix"] as? String ?? "—")
@@ -546,8 +550,9 @@ struct CloseTicket: View {
                         .foregroundStyle(SpreadValue.color(for: quote?["spread_percent"] as? Double, scheme: scheme, palette: customPalette))
                 } }
             }
+            header: { SymbolText(symbol: position.symbol) }
             if loading && quote == nil { ProgressView() }
-            if let error { Text(LocalizedStringKey("Quote refresh failed. The last quote is not current; staging is disabled.")).foregroundStyle(.orange); Text(error).font(.caption) }
+            if let error { Text(LocalizedStringKey("Quote refresh failed. The last quote is not current; staging is disabled.")).foregroundStyle(.orange); NoticeText(error).font(.caption) }
             if held > 0 {
                 Section("Close quantity") {
                     if quantity > held { Text("Position quantity changed. Review the close quantity.").foregroundStyle(.orange) }

@@ -26,7 +26,10 @@ struct RolloverTicket: View {
     var body: some View {
         Form {
             Section("Current short option") {
-                Text("\(position.symbol) · \(position.detail)")
+                HStack(spacing: 4) {
+                    SymbolText(symbol: position.symbol)
+                    Text("· \(position.detail)")
+                }
                 LabeledContent("BUY TO CLOSE · GTC", value: money(TradeRules.price(closePrice)))
                 LabeledContent("Bid / Ask", value: "\(money(closing?["bid"] as? Double)) / \(money(closing?["ask"] as? Double))")
                 PriceInput(title: "Close limit per share", text: $closePrice)
@@ -58,7 +61,7 @@ struct RolloverTicket: View {
             }
             if loading { ProgressView() }
             if let error {
-                Text(error).foregroundStyle(.orange)
+                NoticeText(error).foregroundStyle(.orange)
                 if strikes.isEmpty && !expiration.isEmpty {
                     Button("Retry", systemImage: "arrow.clockwise") { Task { await loadStrikes() } }
                 }
@@ -103,7 +106,7 @@ struct RolloverTicket: View {
                     await store.refresh(); if staged { store.selectedTab = "orders" }
                 }
             }
-        } message: { Text("BUY \(quantity) \(position.detail) at \(closePrice)\nSELL \(quantity) \(quote?.expiration ?? "") · \(money(quote?.strike)) \(position.option_type ?? "") at \(openPrice)\nExecution is separate in Orders.") }
+        } message: { Text("BUY \(quantity) \(position.detail) at \(closePrice)\nSELL \(quantity) \(quote?.expiration ?? "") · \(money(quote?.strike)) · \(position.option_type ?? "") at \(openPrice)\nExecution is separate in Orders.") }
     }
     private func invalidate() { candidates = []; selected = ""; openPrice = ""; closing = nil; closePrice = ""; staged = false }
     private func loadDates() async {
@@ -112,7 +115,7 @@ struct RolloverTicket: View {
             if store.demo { dates = ["20261120", "20261218"] }
             else { dates = (try await store.trading.get("api/options/expirations", base: store.address, query: [URLQueryItem(name: "ticker", value: position.symbol)])["expirations"] as? [[String: Any]] ?? []).compactMap { $0["value"] as? String }.filter { $0 > (position.expiration ?? "") } }
             expiration = dates.first ?? ""
-        } catch { self.error = error.localizedDescription }
+        } catch { self.error = connectionMessage(error) }
     }
     private func loadQuotes() async {
         guard let strike else { return }
@@ -136,7 +139,7 @@ struct RolloverTicket: View {
             selected = candidates.first?.id ?? ""
             closePrice = (closing?["ask"] as? Double).flatMap { $0 > 0 ? String(format: "%.2f", $0) : nil } ?? ""
             openPrice = quote?.mid.map { String(format: "%.2f", $0) } ?? ""
-        } catch { closing = nil; candidates = []; self.error = error.localizedDescription }
+        } catch { closing = nil; candidates = []; self.error = connectionMessage(error) }
     }
     private func loadStrikes() async {
         invalidate(); strikes = []; strike = nil
@@ -154,6 +157,6 @@ struct RolloverTicket: View {
             strikes = TradingMath.orderedStrikes(values)
             strike = strikes.min { abs($0 - (position.strike ?? 0)) < abs($1 - (position.strike ?? 0)) }
             if strikes.isEmpty { error = "No matching option quote." }
-        } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+        } catch { if !Task.isCancelled { self.error = connectionMessage(error) } }
     }
 }

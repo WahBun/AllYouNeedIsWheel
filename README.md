@@ -1,278 +1,296 @@
-# AllYouNeedIsWheel
+# AllYouNeedIsWheel iOS
 
-AllYouNeedIsWheel is a financial options trading assistant specifically designed for the "Wheel Strategy" that connects to Interactive Brokers (IB). It helps traders analyze, visualize, and execute the wheel strategy effectively by retrieving portfolio data, analyzing options chains for cash-secured puts and covered calls, and presenting recommendations through a user-friendly web interface.
-<img width="1680" alt="Screen Shot 2025-04-26 at 00 32 08" src="https://github.com/user-attachments/assets/d27d525e-1fb4-4494-b5be-eba17e774322" />
-<img width="1321" alt="Screen Shot 2025-04-26 at 00 33 00" src="https://github.com/user-attachments/assets/24634bbf-3110-46fa-85c4-b05301e11a88" />
-<img width="1311" alt="Screen Shot 2025-04-26 at 00 33 21" src="https://github.com/user-attachments/assets/0688ca0a-7fca-41fc-83b4-91881a2e9848" />
-<img width="1309" alt="Screen Shot 2025-04-26 at 00 33 41" src="https://github.com/user-attachments/assets/3e029e78-406c-44d4-b557-39b55c691f8a" />
-<img width="1500" alt="Screen Shot 2025-04-26 at 00 34 06" src="https://github.com/user-attachments/assets/12a6539c-f74a-4d18-b868-ac7bef766dc8" />
-<img width="1357" alt="Screen Shot 2025-04-26 at 00 34 38" src="https://github.com/user-attachments/assets/d9b2f57f-606d-4f4f-9d83-08b933ba71da" />
+**Wheel 策略的原生 iPhone 工作台。** 用一个 App 查看 IBKR 持仓、比较收益、筛选现金担保看跌期权（CSP）和备兑看涨期权（CC），并管理订单。
 
-## Features
+SwiftUI 构建，支持 iOS 18 及以上、英文／简体中文／繁体中文，以及浅色／深色模式。App 连接你自己运行的后端；IB 登录、行情连接和数据库留在 Mac mini，iPhone 不保存 IB 密码。
 
-- **Native iOS preview**: SwiftUI client for iOS 18+, sharing this backend. Xcode setup, local signing, supported workflows and limitations are documented in [ios/README.md](ios/README.md).
-- **Multi-device access**: Host on a Mac mini and connect from a MacBook or phone through your private Tailnet. See [Mac mini + Tailscale deployment](docs/MAC_MINI_TAILSCALE.md).
-- **iPhone Home Screen**: Add the HTTPS site from Safari to launch Wheel as a standalone web app. No native package or offline trading cache is required; see the deployment guide for setup and replacing old shortcuts.
-- **Responsive navigation**: Pages are served independently of serialized IB operations; identical in-flight reads share work across devices.
-- **Stable quote controls**: Two-second portfolio polling compensates for request time, pauses in hidden tabs and backs off after failures. Option selection discards outdated responses and clears old prices while loading.
-- **Phone-first trading layout**: Labeled, two-column option and order records on phones, with the desktop tables unchanged. Native OTM/quantity/price pickers accompany manual entry.
-- **Workflow navigation**: Successful staging reveals Pending; confirmed cancellations return to the relevant workspace or position across Dashboard, Portfolio and Rollover. Unconfirmed cancellations stay visible. See [navigation behavior](docs/WORKFLOW_NAVIGATION.md).
-- **Expiry-aware estimates**: Selected premiums are annualized individually using calendar days to expiration, not a fixed weekly multiplier. Estimates are not realized income or profit and exclude fees and losses.
-- **Order reconciliation**: Lost acknowledgements without an IB order ID remain eligible for reconciliation; unknown states preserve confirmed partial fills and never trigger automatic resubmission.
+项目保留了原有网页界面，作为同一后端的辅助入口。日常使用与界面开发以 **iOS App** 为主。
 
+> 本文对应当前 iOS 开发版本。源码构建安装不等于 App Store 发布；更新 GitHub、更新 Mini 后端和安装手机 App 是三个独立步骤。
 
-- **Portfolio Dashboard**: View your current portfolio positions, value, and performance metrics
-- **Wheel Strategy Focus**: Specialized tools for implementing the wheel strategy (selling cash-secured puts and covered calls)
-- **Options Analysis**: Analyze option chains to find the best cash-secured puts and covered calls for any stock ticker
-- **Trading Recommendations**: Get wheel strategy trade recommendations with projected premium income
-- **Option Rollover Management**: Tool for rolling option positions approaching strike price to later expirations
-- **Interactive Web Interface**: Modern, responsive web application with data visualizations
-- **API Integration**: Backend API to interact with Interactive Brokers
-- **Order Management**: Create, cancel, and execute wheel strategy option orders through the dashboard
-- **Position Closing**: Stage partial or full option closes from Portfolio, including a one-contract runner preset
-- **Execution Safety**: Exact-contract validation, duplicate-close protection, IB what-if checks, and separate stage/execute confirmation
-- **Practical Expirations**: Focus on standard monthly expirations and skip contracts with seven days or less remaining by default
-- **Quote Context**: View bid, mid, ask, spread percentage, and live/frozen market-data state
-- **Personalized Interface**: English/Chinese and light/dark mode controls
+## App 能做什么
 
-## Prerequisites
+| 页面 | 主要功能 |
+| --- | --- |
+| **Portfolio** | 净资产、可折叠现金与流动性、初始保证金及杠杆占比；股票与期权持仓、成交入场价、剩余天数和盈亏；资产分配、持仓分享、平仓与移仓入口。 |
+| **Performance** | MTD／YTD／ALL 收益曲线，SPX／NQ100 可选对比，拖动查看日期与收益，日内盈亏及临时收益估算。 |
+| **Trade** | CSP → CC 工作流，选择到期日与行权价、查看 bid／mid／ask、价差及 Greeks；合约数量和限价编辑、权利金估算、单笔或批量暂存订单。 |
+| **Orders** | 待处理订单、部分及全部成交记录；订单详情、允许范围内的编辑、执行与撤单；成交通知。 |
+| **Settings** | Demo、私有 HTTPS 连接、语言、主题及自定义颜色。 |
 
-- Python 3.10+
-- Interactive Brokers TWS (Trader Workstation) or IB Gateway
-- IB account with market data subscriptions for options
+CC 可用数量依据持股数量、已有空头 CALL 和占用中的卖出订单计算，而不是简单地把全部股票除以 100。持仓的入场价来自可靠匹配的成交记录；无法确定时留空，不用委托价或扣费后持仓成本冒充。
 
-## Installation
+SGOV、VTI、QQQ、SPY 有专属名称与资产分配动效。VTI／QQQ／SPY 仍可用于 Trade；SGOV 排除在 Trade 候选之外。装饰动画支持减少动态效果，并在后台或对应视图离开时暂停。
 
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/WahBun/AllYouNeedIsWheel.git
-   cd AllYouNeedIsWheel
-   ```
+### 数据与订单的含义
 
-2. Set up a virtual environment and install required dependencies:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
-   *Note: The `run_api.py` script will automatically check and install all required dependencies from requirements.txt when run, including platform-specific dependencies like waitress (Windows) or gunicorn (Unix/Linux/Mac).*
+- **Demo** 是合成数据和本地模拟操作，不是 IB 模拟盘。连接 Paper Gateway 才是在使用 IB 模拟账户。
+- **暂存不等于成交**：Trade 先建立草稿，Orders 的 Execute 才提交到 IB。执行／撤单确认偏好可在订单设置中调整。
+- 外部 IB 订单只读；提交结果不确定时锁定进一步写入，先核实 IB 的订单与成交，再解除锁定。不会因超时自动补发交易请求。
+- Frozen、过期或缺失报价不会变成可执行的实时价格。连接成功不代表具备全部市场数据权限。
+- 收益历史来自 Flex 每日 TWR；SPX／NQ100 是 FRED 每日价格指数，不含股息再投资。日内估算不是正式 TWR，最终以之后的 Flex 报表为准。
+- 移仓的两条腿分别暂存、分别执行，不是原子组合单；保证金影响是 IB what-if 估算，不是各持仓可相加的保证金分摊。
 
-3. Create your connection configuration file:
-   ```bash
-   cp connection.json.example connection.json
-   ```
+## 部署架构
 
-4. Edit `connection.json` with your Interactive Brokers connection details:
-   ```json
-   {
-       "host": "127.0.0.1",
-       "port": 4002,
-       "client_id": 1,
-       "readonly": true,
-       "account_id": "YOUR_ACCOUNT_ID",
-       "db_path": "options_dev.db",
-       "comment": "IB Gateway: 4002 paper, 4001 live. TWS: 7497 paper, 7496 live. Start with readonly true."
-   }
-   ```
-
-## Configuration
-
-Two connection files can be maintained. Their actual `port`, `readonly`, and
-`account_id` values determine the environment; the filename alone does not:
-- `connection.json` - Default local configuration
-- `connection_real.json` - Optional alternative selected by `--realmoney`
-
-The key configuration parameters are:
-- `host`: Usually "127.0.0.1" for local TWS/IB Gateway
-- `port`: IB Gateway uses 4002 for paper and 4001 for live; TWS uses 7497 for paper and 7496 for live
-- `client_id`: Unique client ID (important if you have multiple connections)
-- `readonly`: Set to `true` to prevent actual order execution (safer for testing)
-- `db_path`: Path to the SQLite database file
-
-## Interactive Brokers TWS/Gateway Configuration
-
-Configure TWS/Gateway for API connections with these essential settings:
-
-1. **Enable API**: 
-   - TWS: File → Global Configuration → API → Settings
-   - Gateway: Configure → Settings → API → Settings
-   - Check "Enable ActiveX and Socket Clients"
-   - Uncheck "Read-Only API" if you want to execute trades (required for orders)
-
-2. **Socket Port**: 
-   - Set it to match the selected paper or live port in your config file
-
-3. **Trusted IPs**:
-   - Add "127.0.0.1" to trusted IPs if running locally
-
-4. **Data Subscriptions**:
-   - Ensure you have market data subscriptions for options
-
-Note: TWS/Gateway must be running and logged in for the API to function.
-
-## Usage
-
-### Starting the Development Server
-
-```bash
-# Uses connection.json; its actual settings determine paper/live and readonly mode
-python3 run_api.py
-```
-### Starting the Production API Server
-
-```bash
-# Uses connection_real.json; inspect its settings before starting
-python3 run_api.py --realmoney
+```mermaid
+flowchart LR
+    Pro[MacBook Pro · Xcode / 签名 / 构建] -->|安装| Phone[iPhone · Wheel iOS]
+    Phone -->|Tailscale 私有 HTTPS| Serve[Mac mini · Tailscale Serve]
+    Serve -->|127.0.0.1:8000| API[Python / Flask · 单进程]
+    API --> DB[(SQLite · 订单与成交)]
+    API -->|本机 API 端口| Gateway[Docker · IB Gateway]
+    Gateway --> IB[Interactive Brokers]
+    API --> History[Flex / FRED · 收益历史]
 ```
 
-This will start the application on http://localhost:8000
+| 设备／组件 | 职责 |
+| --- | --- |
+| MacBook Pro | 主开发机：Xcode、Simulator、SwiftUI、签名与真机安装。 |
+| Mac mini | 长期运行：Docker Gateway、Python 后端、SQLite、Tailscale。 |
+| iPhone | 查看和操作 App，通过 Tailnet 访问 Mini。 |
+| GitHub | 正式代码来源；换电脑前 Commit → Push，另一台 Pull 后再开发。 |
 
+**下文的 Docker 只运行 IB Gateway。Wheel 后端运行在 Mini 的 Python 虚拟环境里**，不是整个项目都放进一个容器。仓库没有一键全栈 Docker 部署脚本。
 
-By default, the server runs on port 8000 with one process and eight HTTP threads.
-Page navigation and static assets are served independently of IB requests. All
-API operations run on one dedicated thread to preserve IB event-loop ownership
-and serial order execution. Identical in-flight GET requests share their result;
-writes are never merged or automatically retried. Up to four API requests can
-wait at once; additional requests receive HTTP 503 with Retry-After so navigation
-is not starved by a slow Gateway. The single process is a
-trading-safety requirement: IB only allows an individual API order to be managed
-reliably by the same API client identity that submitted it.
+## 1. 准备环境
 
-```bash
-# Change the web port
-PORT=8080 python3 run_api.py
+- **Mini**：Git、Python 3.10+、Docker Desktop、Tailscale；保持联网，避免系统休眠。
+- **Pro**：Git、能编译本项目并支持目标设备的 Xcode、Apple ID／开发签名；真机需 iOS 18+。
+- **iPhone**：Tailscale，与 Mini 加入同一 Tailnet。
+- **IBKR**：有效的 Gateway 登录、目标账户及需要的行情权限。先用 Paper／只读路径验证。
+
+先在 Mini 克隆并安装后端依赖：
+
+```sh
+mkdir -p "$HOME/Projects"
+cd "$HOME/Projects"
+git clone https://github.com/WahBun/AllYouNeedIsWheel.git
+cd AllYouNeedIsWheel
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+cp connection.json.example connection.json
 ```
 
-### API Endpoints
+已有安装不要覆盖配置或数据库。先查看 `git status`；干净工作区再用 `git pull --ff-only`。
 
-- **Portfolio**: 
-  - GET `/api/portfolio/` - Get current portfolio positions and account data
+## 2. Mini：Docker 运行 IB Gateway
 
-- **Options**:
-  - GET `/api/options/<ticker>` - Get option chain for ticker
-  - GET `/api/options/<ticker>/<expiration>` - Get option chain for specific expiration date
+使用 [gnzsnz/ib-gateway-docker](https://github.com/gnzsnz/ib-gateway-docker) 的镜像；它是独立上游项目。下面为首次部署的 Paper／只读示例，不是现有服务的重置命令。
 
-- **Orders**:
-  - GET `/api/options/orders` - Get orders with optional filters
-  - POST `/api/options/order` - Create a new order
-  - DELETE `/api/options/order/<order_id>` - Cancel an order
-  - PUT `/api/options/order/<order_id>` - Update an order status
-  - POST `/api/options/execute/<order_id>` - Execute an order through TWS
-  - POST `/api/options/close-order` - Stage an exact-contract close order for a held option
-  - POST `/api/options/rollover` - Create rollover orders (close current position and open new one)
+在仓库外创建私有目录，例如 `~/Services/wheel-gateway`。保存 `compose.yaml`：
 
-- **Stock Data**:
-  - GET `/api/stock/<ticker>` - Get stock price and basic data
-
-### Web Interface
-
-The web interface consists of three main pages:
-
-1. **Dashboard** (http://localhost:8000/): Overview of your portfolio and key metrics
-2. **Portfolio** (http://localhost:8000/portfolio): Detailed view of all positions
-3. **Rollover** (http://localhost:8000/rollover): Interface for managing option positions approaching strike price
-
-### Frozen Data
-
-The application automatically uses frozen data from Interactive Brokers in the following scenarios:
-- When the market is closed (outside of 9:30 AM - 4:00 PM ET, Monday-Friday)
-- On weekends (holiday detection is a known limitation)
-
-Frozen quotes come from Interactive Brokers rather than generated mock data. They are not current executable prices. Availability depends on the contract and market-data permissions.
-
-Market-hours detection currently checks US Eastern weekdays and regular hours.
-Exchange holidays and early closes are not yet modeled, so the LIVE/FROZEN label
-is not authoritative on those dates.
-
-When no connection to Interactive Brokers TWS/IB Gateway is available or when API requests fail for any reason, the application will return appropriate error messages rather than falling back to mock data.
-
-The application clearly indicates when it's using frozen data in the UI to avoid confusion with real-time market data.
-
-## Project Structure
-
-```
-AllYouNeedIsWheel/
-├── api/                      # Flask API backend
-│   ├── __init__.py           # API initialization and factory function
-│   ├── routes/               # API route modules
-│   ├── services/             # Business logic for API
-│   └── models/               # Data models
-├── core/                     # Core trading functionality
-│   ├── __init__.py
-│   ├── connection.py         # Interactive Brokers connection handling
-│   ├── logging_config.py     # Logging configuration
-│   └── utils.py              # Utility functions
-├── db/                       # Database operations
-│   ├── __init__.py
-│   └── database.py           # SQLite database wrapper
-├── frontend/                 # Frontend web application
-│   ├── static/               # Static assets (CSS, JS)
-│   └── templates/            # Jinja2 HTML templates
-├── logs/                     # Log files directory
-├── app.py                    # Main Flask application entry point
-├── run_api.py                # Production API server runner (cross-platform)
-├── config.py                 # Configuration handling
-├── connection.json           # IB connection configuration (paper trading)
-├── connection_real.json      # IB connection configuration (real money)
-├── connection.json.example   # Example configuration template
-├── options_dev.db            # Development database (SQLite)
-├── requirements.txt          # Python dependencies
-└── .gitignore                # Git ignore rules
+```yaml
+services:
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    restart: unless-stopped
+    environment:
+      TWS_USERID: ${TWS_USERID:?Set TWS_USERID}
+      TWS_PASSWORD: ${TWS_PASSWORD:?Set TWS_PASSWORD}
+      TRADING_MODE: paper
+      READ_ONLY_API: "yes"
+      VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:?Set VNC_SERVER_PASSWORD}
+      TWS_SETTINGS_PATH: /home/ibgateway/tws_settings
+    ports:
+      - "127.0.0.1:4002:4004"
+      - "127.0.0.1:5900:5900"
+    volumes:
+      - gateway-settings:/home/ibgateway/tws_settings
+volumes:
+  gateway-settings:
 ```
 
-## Development
+同目录新建 `.env`，仅在 Mini 本地填写：
 
-### Adding New Features
+```dotenv
+TWS_USERID=YOUR_PAPER_USERNAME
+TWS_PASSWORD=YOUR_PAPER_PASSWORD
+VNC_SERVER_PASSWORD=YOUR_PRIVATE_VNC_PASSWORD
+```
 
-1. For backend changes, add routes in `api/routes/` and implement business logic in `api/services/`
-2. For frontend changes, modify the templates in `frontend/templates/` and static assets in `frontend/static/`
-3. For database changes, update the schema and queries in `db/database.py`
+```sh
+chmod 600 .env
+docker compose pull
+docker compose up -d
+docker compose ps
+```
 
-### Database
+在 Mini 上用屏幕共享／VNC 客户端连接 `vnc://127.0.0.1:5900`，检查 Gateway 登录与 API 设置，按要求完成 IB Key／双重验证。不要把 VNC 或 IB API 端口暴露到公网。Docker 启动成功不等于 Gateway 已登录。
 
-The application uses SQLite for storage. Two database files are maintained:
-- `options_dev.db` - For development/testing
-- `options_prod.db` - For production use
+该镜像的 **Paper 转发端口是容器内 4004 → Mini 4002**；Live 对应容器内 4003 → Mini 4001。不要把容器转发端口与 Gateway 内部端口混用。Apple Silicon 应选择上游支持 ARM64 的镜像版本；验证成功后固定版本或 digest，避免无计划升级。端口与配置细节见[上游部署说明](https://github.com/gnzsnz/ib-gateway-docker#ports)。
 
-## Troubleshooting
+Docker Desktop 需要随用户登录启动；容器重启策略不能代替它，也不能绕过 IB 身份验证。不要为 Wheel 再启动一个与既有账户会话冲突的 Gateway。
 
-### Connection Issues
+## 3. Mini：连接 Python 后端
 
-- Ensure TWS or IB Gateway is running and API connections are enabled
-- Verify the correct port (Gateway: 4002 paper/4001 live; TWS: 7497 paper/7496 live)
-- Check that the client ID is not already in use
-- Confirm you have the right market data subscriptions for options
+编辑项目内的 `connection.json`，与上一步保持一致：
 
-### Common Errors
+```json
+{
+  "host": "127.0.0.1",
+  "port": 4002,
+  "client_id": 1,
+  "readonly": true,
+  "account_id": "YOUR_PAPER_ACCOUNT_ID",
+  "db_path": "options_dev.db"
+}
+```
 
-- "Socket Connection Broken": TWS/IB Gateway is not running
-- "Client ID already in use": Another application is using the same client ID
-- "No market data permissions": You need to subscribe to market data for the securities you're requesting
-- "ModuleNotFoundError: No module named 'fcntl'": This is a Windows-specific issue. The script will automatically install waitress as an alternative to gunicorn when run on Windows, or you can install it manually with `pip install waitress`
+`client_id` 要固定且不与其他应用冲突；`account_id` 必须是实际目标账户。文件名不决定 Paper／Live，实际 Gateway 会话、端口及账户才决定。
 
-## Security Notes
+```sh
+source .venv/bin/activate
+python run_api.py
+```
 
-- Never commit `connection_real.json` to version control (it's in `.gitignore`)
-- Always use `readonly: true` during development to prevent accidental order execution
-- Use caution when running with the `--realmoney` flag as real trades can be executed
-- Adding an order only stages it locally. Sending it to IB requires an explicit Execute action. An additional confirmation dialog can be enabled or disabled in trading settings.
-- Entry orders are limited to SELL TO OPEN. Position exits must be created from Portfolio so the exact held IB contract and account are revalidated.
-- Close orders are revalidated against the configured account, exact IB contract, current position, remaining quantity, and active IB orders immediately before submission.
-- Keep the web server at one worker and use a stable `client_id` so submitted orders remain queryable and cancelable after reconnects.
+另一个终端验证：
 
-## Deployment And Handoff
+```sh
+curl --fail http://127.0.0.1:8000/health
+curl --fail http://127.0.0.1:8000/api/portfolio/bootstrap
+curl --fail http://127.0.0.1:8000/api/options/market-session
+```
 
-- [Mac mini + Tailscale deployment and operations](docs/MAC_MINI_TAILSCALE.md)
-- [Project handoff, architecture, checks and known limitations](docs/HANDOFF.md)
-- Earnings estimates assume repeatable premiums over each contract's remaining calendar days. Same-day/invalid expiries show N/A; these estimates are not guaranteed returns and exclude fees and losses.
+`/health` 只说明 HTTP 服务正常；还要确认持仓接口返回正确账户的数据。不要把账户响应或未经脱敏的日志放到公开 issue。
 
-## License
+后端维持 **一个进程、八个 HTTP 线程、一个串行 IB 执行线程**。相同读取可以合并等待，写入不合并、不自动重试。不要通过增加 Gunicorn worker 数来提速，也不要重复启动后端。
 
-[Apache License 2.0](LICENSE)
+准备开启交易时，分别核对 Gateway 的 Read-Only API、后端 `readonly` 和目标账户。使用 Live 时还需对应的 Gateway 会话与端口；`python run_api.py --realmoney` 仅选择 `connection_real.json`，本身不会证明当前是正确实盘账户。
 
-## Acknowledgments
+## 4. Mini → iPhone：Tailscale 私有 HTTPS
 
-- [IB Async](https://github.com/ib-api-reloaded/ib_async) for Interactive Brokers API integration
-- [Flask](https://flask.palletsprojects.com/) for the web framework
-- [Gunicorn](https://gunicorn.org/) for WSGI HTTP server
-- [Waitress](https://docs.pylonsproject.org/projects/waitress/) for Windows-compatible WSGI HTTP server
+Mini、Pro 和 iPhone 加入同一 Tailnet，访问策略只允许所需设备访问。开启 MagicDNS 和 HTTPS 支持，然后在 Mini 执行：
+
+```sh
+tailscale status
+tailscale serve --bg --https=443 http://127.0.0.1:8000
+tailscale serve status
+```
+
+使用 Serve 输出的**完整 HTTPS 域名**，例如：
+
+```text
+https://YOUR-MINI.YOUR-TAILNET.ts.net
+```
+
+在 iPhone 保持 Tailscale 连接，用 Safari 打开该域名的 `/health`，再在 Wheel → Settings 填入同一根地址，点击 Connect。外出使用前再通过蜂窝网络验证一次。
+
+不要使用 Funnel 或路由器公网端口转发；不要跳过 TLS 证书验证。`--bg` 保存后台 Serve 配置，但仍依赖 Mini 和 Tailscale 在线。域名证书会进入公开证书透明度日志，因此设备名不宜包含私人信息。见 [Tailscale Serve 官方说明](https://tailscale.com/docs/features/tailscale-serve)和[命令参考](https://tailscale.com/docs/reference/tailscale-cli/serve)。
+
+## 5. Pro：构建并安装 iOS App
+
+在 Pro 克隆同一个仓库，打开 `ios/Wheel.xcodeproj`。App 无外部 Swift 包依赖。
+
+在 `ios/Signing.xcconfig` 同目录创建被 Git 忽略的 `Signing.local.xcconfig`：
+
+```xcconfig
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+PRODUCT_BUNDLE_IDENTIFIER = com.yourname.wheel
+```
+
+在 Xcode 的 Signing & Capabilities 确认自己的 Team 与自动签名。保持同一 bundle identifier 才是对现有 App 的更新；换标识会成为另一个安装。
+
+1. 首次用线连接并解锁 iPhone，确认信任，按系统要求启用开发者模式。
+2. 选择自己的 iPhone 作为运行目标，构建安装。
+3. 常规体验选择 **Wheel Wireless** scheme：Debug 构建，但启动不附加 LLDB，减少无线调试带来的启动与交互开销。
+4. 需要断点和调试时使用 **Wheel** scheme。
+5. App 首次从 Demo 开始；填写前一节的 HTTPS 地址后连接真实后端。
+
+### 无线 Run
+
+先完成一次有线配对，在 Xcode 的 Devices and Simulators 确认设备可用／网络连接已启用，再拔线。Pro 与 iPhone 应位于允许设备互访的同一局域网；访客 Wi-Fi、客户端隔离或 VPN 规则可能阻断调试。
+
+手机屏幕镜像的系统要求与 Xcode 无线安装不是同一件事。Tailscale 解决 App 到 Mini 的连接，也不等于已经配置好 Xcode 到 iPhone 的无线调试。
+
+Simulator 可直接运行 Demo；它不证明真机签名、无线连接或实盘行情已验证。签名账号的有效期与设备限制以 Apple 当前规则为准。
+
+## 6. 配置 Performance 收益历史
+
+Portfolio 能读取不代表收益历史已配置。Mini 还需要 IBKR Flex 的每日 Change in NAV，包含 TWR、From／To Date 和 Ending Value，并按日拆分；账户需与 Gateway 配置一致。
+
+在 Mini 创建私有文件：
+
+```text
+~/Library/Application Support/Wheel/performance/config.json
+```
+
+```json
+{
+  "token": "YOUR_FLEX_TOKEN",
+  "query_id": "YOUR_FLEX_QUERY_ID",
+  "account_id": "YOUR_CONFIGURED_GATEWAY_ACCOUNT",
+  "history_path": "/ABSOLUTE/PRIVATE/PATH/performance-history.sqlite3"
+}
+```
+
+先创建父目录，将文件权限设为 `600`；`history_path` 的父目录也应存在且可写。也可用后端环境变量 `WHEEL_PERFORMANCE_CONFIG` 指定另一个私有配置文件，或用 `report_path` 导入已有 CSV／XML。
+
+Token 不放进 App、Git 或 `connection.json`。该连接配置存在旧式日志输出，不能当作 Flex 密钥容器。收益档案要单独备份；ALL 展示实际保存的历史，不会凭空补全建仓以来缺失的日期。报表格式、缓存与估算边界见 [Performance 配置说明](docs/PERFORMANCE.md)。
+
+## 7. 长期运行与更新
+
+Mini 的 Python 后端可用 LaunchAgent 在用户登录后启动，完整 plist、加载与停止命令见 [Mini 运维指南](docs/MAC_MINI_TAILSCALE.md#3-macos-登录后自启动)。默认加载 `connection.json`；若实际使用其他文件，必须在 LaunchAgent 的 `EnvironmentVariables` 中明确配置 `CONNECTION_CONFIG`。自定义 Flex 路径同样通过环境变量传入。
+
+重启 Mini 后，FileVault 解锁、用户登录、Docker Desktop、Gateway 登录、Tailscale 和后端分别确认。不要把“容器自动重启”当成全链路已恢复。
+
+更新顺序：
+
+1. Pro 完成修改与检查 → Commit → Push；GitHub 是正式版本来源。
+2. Mini 检查工作区，备份本地连接配置、订单数据库和收益历史；SQLite 使用 backup API／`.backup`，不要仅复制运行中的主文件。
+3. Mini `git pull --ff-only`，按需更新依赖并测试；选择没有订单正在提交的窗口重启唯一后端。
+4. 验证本机健康与持仓读取，再验证 Tailnet HTTPS；涉及 API 变化时先更新后端，后安装 App。
+5. Pro 拉取同一版本，重新构建安装到手机。核对账户、持仓、报价状态和订单记录。
+
+不把配置、IB/Flex 凭据、数据库、日志、私有地址和个人签名信息提交到 Git。不要用 `git reset --hard`、删除数据库或重置全部 Serve 配置处理更新冲突。
+
+## 常见问题
+
+| 现象 | 排查顺序 |
+| --- | --- |
+| App 无法连接 | Mini 本机 `/health` → 持仓接口 → 两端 Tailscale → HTTPS 域名与策略。 |
+| 安全连接失败／`-1200` | Safari 打开同一地址，核对时间、证书、Tailscale 和代理干扰；不要关闭证书验证。 |
+| 有持仓但没有报价 | Gateway 登录、行情权限、合约是否可报价、市场状态；旧／冻结数据不是实时价。 |
+| 收益图为空 | Flex 配置、账户对应关系、每日 TWR 与本地收益档案；Demo 不提供真实收益历史。 |
+| HTTP 503／首次报价慢 | 串行 IB 队列或合约首次确认可能耗时；等待读取恢复，不要重复提交交易。 |
+| 无线 iPhone 不可用 | 首次配对、解锁、同网段设备互访、VPN 和路由器隔离规则。 |
+| 无线 Run 后启动卡顿 | 使用不附加调试器的 Wheel Wireless；调试时切回 Wheel。 |
+| 订单状态不确定 | 核对 IB 的准确订单与部分成交，再处理锁定；不自动补单。 |
+
+Trade 自动报价参考 NYSE 常规交易日历，包括假期、提前收盘与夏令时；这不是所有股票、期权或延长交易时段的交易许可判断。Performance 的盘中延长曲线仍是有限条件下的估算。
+
+## 开发与验证
+
+```sh
+# 后端：在已安装依赖的虚拟环境中执行，使用项目 mocks
+python -m unittest discover -s tests
+node --test tests/*.js
+
+# iOS：先列出可用模拟器，再将 SIMULATOR_ID 替换为本机目标
+xcrun simctl list devices available
+xcodebuild -project ios/Wheel.xcodeproj -scheme Wheel \
+  -destination 'platform=iOS Simulator,id=SIMULATOR_ID' test
+
+git diff --check
+```
+
+模拟测试不提交真实订单。通过编译和回归不等于已验证盘中延迟、真实成交、所有网络故障或所有 iOS 设备。
+
+```text
+iOS 开发入口：ios/Wheel.xcodeproj
+原生界面与状态：ios/Wheel/
+iOS 回归：ios/WheelTests/
+后端路由与服务：api/
+IB 连接与配置：core/、config.py
+订单数据库：db/
+后端与网页回归：tests/
+辅助网页：frontend/
+部署与数据说明：docs/
+```
+
+更多开发细节见 [iOS 指南](ios/README.md)。原网页与 App 共用后端，适合辅助核对；浏览器偏好不会自动迁移到 App。
+
+## License & Credits
+
+[Apache License 2.0](LICENSE)。项目基于 [xiao81/AllYouNeedIsWheel](https://github.com/xiao81/AllYouNeedIsWheel) 延续开发。感谢 [ib_async](https://github.com/ib-api-reloaded/ib_async)、SwiftUI／Charts、Flask，以及 [IB Gateway Docker](https://github.com/gnzsnz/ib-gateway-docker) 与 [Tailscale](https://tailscale.com/) 提供的基础工具。
