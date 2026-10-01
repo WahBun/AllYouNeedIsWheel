@@ -110,7 +110,7 @@ struct PriceInput: View {
 extension Order {
     private enum CodingKeys: String, CodingKey {
         case id, ticker, symbol, action, option_type, strike, expiration, premium, quantity, status
-        case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, error_message, isRollover, filled, avg_fill_price, fill_time, fill_action, commission, commission_currency, realized_pnl
+        case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, amendment_pending, error_message, isRollover, filled, avg_fill_price, fill_time, fill_action, commission, commission_currency, realized_pnl
     }
 
     init(from decoder: Decoder) throws {
@@ -149,6 +149,7 @@ extension Order {
         executed = try flag(.executed)
         ib_order_id = try brokerID(.ib_order_id)
         perm_id = try brokerID(.perm_id)
+        amendment_pending = try values.decodeIfPresent(String.self, forKey: .amendment_pending)
         error_message = try values.decodeIfPresent(String.self, forKey: .error_message)
         isRollover = try flag(.isRollover)
         filled = try values.decodeIfPresent(Double.self, forKey: .filled)
@@ -197,6 +198,13 @@ enum TradeRules {
     }
     static func editable(_ order: Order) -> Bool {
         order.id.local != nil && order.external_ib != true && order.executed != true && order.status.lowercased() == "pending"
+    }
+    static func amendable(_ order: Order) -> Bool {
+        order.id.local != nil && order.external_ib != true && order.executed != true &&
+        order.status.lowercased() == "processing" && order.amendment_pending == nil
+    }
+    static func amendmentQuantityLocked(_ order: Order) -> Bool {
+        order.isRollover == true || (order.option_type == "CALL" && order.action == "SELL" && order.intent != "CLOSE")
     }
     static func cancelable(_ order: Order) -> Bool {
         order.id.local != nil && order.external_ib != true && ["pending", "processing", "submitted", "presubmitted"].contains(order.status.lowercased())
@@ -385,6 +393,14 @@ final class TradingSession {
             guard let id = parts.compactMap({ Int($0) }).first, let index = demoOrders.firstIndex(where: { $0.id.local == id }) else { throw AppError.message("Order no longer exists.") }
             if path.contains("execute") { demoOrders[index].status = "processing" }
             else if path.contains("cancel") { demoOrders.remove(at: index) }
+            else if path.hasSuffix("amend") {
+                guard TradeRules.amendable(demoOrders[index]),
+                      let qty = body["quantity"] as? Int, Double(qty) > (demoOrders[index].filled ?? 0),
+                      !TradeRules.amendmentQuantityLocked(demoOrders[index]) || Double(qty) == demoOrders[index].quantity else { throw AppError.message("Order is not ready for modification; verify its broker state") }
+                demoOrders[index].quantity = Double(qty)
+                demoOrders[index].premium = body["premium"] as? Double
+                demoOrders[index].tif = body["tif"] as? String
+            }
             else if path.hasSuffix("premium") { demoOrders[index].premium = body["premium"] as? Double }
             else if path.hasSuffix("quantity") { demoOrders[index].quantity = (body["quantity"] as? Int).map(Double.init) }
         }
@@ -410,6 +426,8 @@ struct OrderDetail: View {
     @State private var price = ""
     @State private var action: String?
     @State private var quantity = 1
+    @State private var timing = "DAY"
+    @State private var editingSnapshot: Order?
     @State private var pricePicker: PricePickerSnapshot?
     @AppStorage("confirmBeforeOrderExecution") private var confirmExecution = true
     private var current: Order? { store.orders.first { $0.id == initial.id } }
@@ -422,9 +440,11 @@ struct OrderDetail: View {
                         else { Text("\(order.expiration ?? "") · \(money(order.strike)) · \(order.option_type ?? "")") }
                     }
                     LabeledContent("Action", value: "\(order.action ?? "") TO \(order.intent ?? "OPEN")")
-                    LabeledContent("Quantity", value: order.quantity?.formatted() ?? "—")
+                    if TradeRules.amendable(order) && !TradeRules.amendmentQuantityLocked(order) {
+                        Stepper("Total quantity: \(quantity)", value: $quantity, in: 1...max(100, Int(order.quantity ?? 1)))
+                    } else { LabeledContent("Quantity", value: order.quantity?.formatted() ?? "—") }
                     LabeledContent("Limit") {
-                        if TradeRules.editable(order) {
+                        if TradeRules.editable(order) || TradeRules.amendable(order) {
                             HStack(spacing: 8) {
                                 TextField("0.00", text: $price).keyboardType(.decimalPad)
                                     .multilineTextAlignment(.trailing).monospacedDigit()
@@ -436,7 +456,12 @@ struct OrderDetail: View {
                             }
                         } else { Text(money(order.premium)) }
                     }
-                    LabeledContent("Time in force", value: order.timingLabel)
+                    if TradeRules.amendable(order) && order.tif != "OVERNIGHT" {
+                        Picker("Time in force", selection: $timing) {
+                            Text("DAY").tag("DAY")
+                            Text("GTC").tag("GTC")
+                        }
+                    } else { LabeledContent("Time in force", value: order.timingLabel) }
                     LabeledContent("Status", value: order.ib_status ?? order.status)
                     if let id = order.ib_order_id { LabeledContent("IB order ID", value: String(id)) }
                     if let id = order.perm_id { LabeledContent("Permanent ID", value: String(id)) }
@@ -456,6 +481,19 @@ struct OrderDetail: View {
                             .disabled(TradeRules.price(price) == nil || (order.intent != "CLOSE" && Double(quantity) != order.quantity))
                     }
                 }
+                if order.amendment_pending != nil {
+                    Text("Order modification unconfirmed. Verify in IB; do not retry.").foregroundStyle(.orange)
+                }
+                if TradeRules.amendable(order) {
+                    Section {
+                        Text("Quantity is the total, including fills. Only the unfilled remainder can change.").font(.caption).foregroundStyle(.secondary)
+                        if TradeRules.amendmentQuantityLocked(order) {
+                            Text("Quantity is locked; limit price and time in force remain editable.").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Button("Save changes") { action = "Save changes" }
+                            .disabled(TradeRules.price(price) == nil || Double(quantity) <= (order.filled ?? 0))
+                    }
+                }
                 if TradeRules.cancelable(order) { Section { Button("Cancel order", role: .destructive) {
                     if confirmExecution { action = "Cancel order" } else { perform("Cancel order") }
                 } } }
@@ -468,7 +506,7 @@ struct OrderDetail: View {
         .sheet(item: $pricePicker) { snapshot in
             NavigationStack {
                 PriceChoiceList(values: snapshot.values, selected: snapshot.selected) { value in
-                        guard let current, TradeRules.editable(current), !store.trading.busy,
+                        guard let current, (TradeRules.editable(current) || TradeRules.amendable(current)), !store.trading.busy,
                               store.demo || !store.trading.uncertain else { return }
                         price = String(format: "%.2f", value)
                         pricePicker = nil
@@ -476,7 +514,12 @@ struct OrderDetail: View {
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { pricePicker = nil } } }
             }.presentationDetents([.medium, .large])
         }
-        .onAppear { price = String(format: "%.2f", current?.premium ?? 0); quantity = max(1, min(100, Int(current?.quantity ?? 1))) }
+        .onAppear {
+            editingSnapshot = current
+            price = String(format: "%.2f", current?.premium ?? 0)
+            quantity = max(1, Int(current?.quantity ?? 1))
+            timing = current?.tif ?? (current?.intent == "CLOSE" ? "GTC" : "DAY")
+        }
         .confirmationDialog(LocalizedStringKey(action ?? "Confirm"), isPresented: Binding(get: { action != nil }, set: { if !$0 { action = nil } }), titleVisibility: .visible) {
             Button(store.demo ? LocalizedStringKey("Confirm demo action") : "Confirm \(localizedAction)") {
                 guard let action else { return }
@@ -484,11 +527,26 @@ struct OrderDetail: View {
                 self.action = nil
             }
         } message: {
-            Text("\(current?.name ?? initial.name) · \(current?.action ?? "") \(action == "Save quantity" ? String(quantity) : current?.quantity?.formatted() ?? "") · \(current?.option_type ?? "") · \(money(current?.strike)) · \(current?.expiration ?? "")\nLimit \(money(action == "Execute" ? TradeRules.price(price) : current?.premium)) · \((current ?? initial).timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
+            Text("\(current?.name ?? initial.name) · \(current?.action ?? "") \((action == "Save quantity" || action == "Save changes") ? String(quantity) : current?.quantity?.formatted() ?? "") · \(current?.option_type ?? "") · \(money(current?.strike)) · \(current?.expiration ?? "")\nLimit \(money((action == "Execute" || action == "Save changes") ? TradeRules.price(price) : current?.premium)) · \(action == "Save changes" ? (timing == "OVERNIGHT" ? "OVT" : timing) : (current ?? initial).timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
         }
     }
     private func perform(_ action: String) {
         guard let order = current, let id = order.id.local else { return }
+        if action == "Save changes" {
+            guard TradeRules.amendable(order), let snapshot = editingSnapshot,
+                  TradeRules.unchanged(order, since: snapshot), let limit = TradeRules.price(price),
+                  Double(quantity) > (order.filled ?? 0),
+                  !TradeRules.amendmentQuantityLocked(order) || Double(quantity) == order.quantity else { return }
+            let expected: [String: Any] = ["quantity": snapshot.quantity ?? 0, "premium": snapshot.premium ?? 0,
+                "tif": snapshot.tif ?? (snapshot.intent == "CLOSE" ? "GTC" : "DAY")]
+            let body: [String: Any] = ["quantity": quantity, "premium": limit, "tif": timing, "expected": expected]
+            Task {
+                let success = await store.trading.write("api/options/order/\(id)/amend", method: "PUT", body: body, store: store)
+                await store.refresh()
+                if success { editingSnapshot = current }
+            }
+            return
+        }
         guard action == "Cancel order" ? TradeRules.cancelable(order) : TradeRules.editable(order) else { return }
         guard action != "Save quantity" || order.intent != "CLOSE" else { return }
         if action == "Execute" {

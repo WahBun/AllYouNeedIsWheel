@@ -626,3 +626,9 @@ def get_option_expirations():
         logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
        
+
+
+@bp.route('/order/<int:order_id>/amend', methods=['PUT'])
+def amend_working_order(order_id):
+    response, status = options_service.amend_order(order_id, request.get_json(silent=True))
+    return jsonify(response), status

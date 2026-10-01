@@ -4,6 +4,7 @@ Handles options data retrieval and processing
 """
 
 import logging
+from core import order_amendments as amendments
 from core.order_timing import order_tif, routed_contract
 import math
 import re
@@ -1380,6 +1381,15 @@ class OptionsService:
                 }
                 if should_check:
                     try:
+                        if order.get('amendment_pending'):
+                            try:
+                                desired = json.loads(order['amendment_pending'])
+                                record = amendments.snapshot(conn, order)
+                                if amendments.same_terms(amendments.terms(record), desired):
+                                    if db.finish_order_amendment(order_id, order['amendment_pending'], desired):
+                                        order = db.get_order(order_id)
+                            except Exception:
+                                pass  # Never infer success or resend from a missing acknowledgement.
                         # Check status in TWS
                         check_kwargs = {
                             'perm_id': order.get('perm_id'),
@@ -1495,6 +1505,101 @@ class OptionsService:
                 "success": False,
                 "error": str(e)
             }
+
+    def amend_order(self, order_id, data):
+        """Change an owned working limit order after fresh broker/position checks."""
+        if self.config.get('readonly', True) is not False:
+            return {'error': 'Read-only mode: order modification is disabled'}, 403
+        local = self.db.get_order(order_id)
+        if not local:
+            return {'error': 'Order not found'}, 404
+        if local['status'] != 'processing' or local.get('amendment_pending'):
+            return {'error': 'Order is not ready for modification; verify its broker state'}, 409
+        claimed = False
+        try:
+            if not isinstance(data, dict) or set(data) != {'quantity', 'premium', 'tif', 'expected'}:
+                raise ValueError('Quantity, limit price, time in force and original terms are required')
+            old = dict(quantity=float(local['quantity']), premium=float(local['premium']),
+                       tif=local.get('tif') or ('GTC' if local.get('intent') == 'CLOSE' else 'DAY'))
+            if not amendments.same_terms(old, data['expected']):
+                raise ValueError('Order changed; refresh and review before modifying')
+            quantity, premium = float(data['quantity']), float(data['premium'])
+            if isinstance(data['quantity'], bool) or not math.isfinite(quantity) or not quantity.is_integer() or quantity < 1:
+                raise ValueError('Quantity must be a positive whole number')
+            if not math.isfinite(premium) or premium <= 0 or isinstance(data['premium'], bool):
+                raise ValueError('Limit price must be positive and finite')
+            if quantity > max(old['quantity'], int(self.config.get('max_order_quantity', 100))):
+                raise ValueError('Quantity exceeds the configured order limit')
+            tif = data['tif']
+            if tif not in {'DAY', 'GTC', 'OVERNIGHT'}:
+                raise ValueError('Invalid time in force')
+            if (old['tif'] == 'OVERNIGHT') != (tif == 'OVERNIGHT'):
+                raise ValueError('Changing the overnight route requires canceling and recreating the order')
+            if local.get('isRollover') and quantity != old['quantity']:
+                raise ValueError('Rollover quantity is locked to its paired leg')
+            if local['option_type'] == 'CALL' and local['action'] == 'SELL' and local.get('intent') != 'CLOSE' and quantity != old['quantity']:
+                raise ValueError('Covered-call quantity is locked; price and time in force may change')
+            desired = dict(quantity=int(quantity), premium=premium, tif=tif)
+            conn = self._ensure_connection()
+            if not conn or conn.readonly is not False:
+                raise ValueError('A writable IB connection is required')
+            record = amendments.snapshot(conn, local)
+            if not amendments.same_terms(amendments.terms(record), old):
+                raise ValueError('Broker order terms changed; verify in IB before modifying')
+            status = conn.check_order_status(local['ib_order_id'], perm_id=local.get('perm_id'), order_details=local)
+            if not status or status.get('status') not in {'Submitted', 'PreSubmitted'}:
+                raise ValueError('Broker order is not in a modifiable state')
+            filled = max(float(status.get('filled') or 0), float(local.get('filled') or 0))
+            if not math.isfinite(filled) or filled < 0:
+                raise ValueError('Broker order is not in a modifiable state')
+            if quantity <= filled:
+                raise ValueError('Total quantity must exceed already filled quantity; use Cancel for the remainder')
+            if local.get('intent') == 'CLOSE':
+                position = conn.get_option_position_by_con_id(record[1].conId, local['account_id'])
+                held = float((position or {}).get('position') or 0)
+                if not math.isfinite(held) or not held or local['action'] != ('BUY' if held < 0 else 'SELL'):
+                    raise ValueError('Held position no longer matches the closing direction')
+                other = conn.get_open_option_order_quantity(record[1].conId, local['action'], local['account_id'], exclude_order_id=local['ib_order_id'])
+                capacity = abs(held) - other
+                if local['option_type'] == 'STOCK':
+                    capacity = min(capacity, conn.get_unreserved_stock_shares(local['ticker'], local['account_id'], exclude_order_id=local['ib_order_id']))
+                if not math.isfinite(capacity) or quantity - filled > capacity:
+                    raise ValueError('Remaining close quantity exceeds available holdings or covered-call reserves')
+            # An increase in opening risk is checked by IB before the real modification.
+            if local.get('intent') != 'CLOSE' and quantity > old['quantity']:
+                import copy
+                probe = copy.deepcopy(record[2])
+                probe.orderId = 0
+                probe.permId = 0
+                probe.totalQuantity = quantity
+                probe.lmtPrice = premium
+                probe.tif = tif
+                result = conn.what_if_order(record[1], probe)
+                if not result or not result.get('success'):
+                    raise ValueError('IB preflight did not approve the quantity increase')
+            # Refresh again after reads/preflight; never write against a changed order.
+            latest = amendments.snapshot(conn, local)
+            if not amendments.same_terms(amendments.terms(latest), old):
+                raise ValueError('Broker order changed during review')
+            final_status = conn.check_order_status(local['ib_order_id'], perm_id=local.get('perm_id'), order_details=local)
+            if not final_status or final_status.get('status') not in {'Submitted', 'PreSubmitted'} or not math.isfinite(float(final_status.get('filled') or 0)) or quantity <= float(final_status.get('filled') or 0):
+                raise ValueError('Order filled or changed during review; refresh before modifying')
+            payload = json.dumps(desired, sort_keys=True)
+            if not self.db.claim_order_amendment(order_id, payload):
+                raise ValueError('Another modification is pending')
+            claimed = True
+            confirmed = amendments.send(conn, local, latest, desired)
+            if confirmed and self.db.finish_order_amendment(order_id, payload, desired):
+                return {'success': True, 'message': 'Order modification confirmed', 'order_id': order_id}, 200
+            return {'success': False, 'status': 'unknown', 'message': 'Order modification unconfirmed. Verify in IB; do not retry.'}, 202
+        except (ValueError, TypeError, KeyError) as error:
+            if not claimed:
+                return {'error': str(error)}, 409
+        except Exception:
+            logger.exception('Order amendment failed')
+            if not claimed:
+                return {'error': 'Could not verify broker order; no modification sent'}, 503
+        return {'success': False, 'status': 'unknown', 'message': 'Order modification unconfirmed. Verify in IB; do not retry.'}, 202
 
     def cancel_order(self, order_id):
         """Cancel locally pending orders or request cancellation from IB."""

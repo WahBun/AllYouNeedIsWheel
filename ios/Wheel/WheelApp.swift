@@ -104,6 +104,7 @@ struct Order: Decodable, Identifiable {
     var executed: Bool? = nil
     var ib_order_id: Int? = nil
     var perm_id: Int? = nil
+    var amendment_pending: String? = nil
     var error_message: String? = nil
     var isRollover: Bool? = nil
     var filled: Double? = nil
@@ -491,6 +492,11 @@ struct PortfolioView: View {
         var id: String { rawValue }
     }
     @State private var summaryDestination: SummaryDestination?
+    private struct PositionDestination: Hashable {
+        let conID: Int
+        let rollover: Bool
+    }
+    @State private var positionDestination: PositionDestination?
     var body: some View {
         List {
             Section {
@@ -586,6 +592,19 @@ struct PortfolioView: View {
                             }.padding(.vertical, 6)
                             }
                         }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if let conID = position.con_id, conID > 0, position.position != 0,
+                               position.security_type == "OPT" || position.position > 0 {
+                                Button("Close", systemImage: "xmark.circle") {
+                                    positionDestination = PositionDestination(conID: conID, rollover: false)
+                                }.tint(.orange).disabled(stockHasCall(position))
+                                if position.security_type == "OPT" && position.position < 0 {
+                                    Button("Rollover", systemImage: "arrow.triangle.2.circlepath") {
+                                        positionDestination = PositionDestination(conID: conID, rollover: true)
+                                    }.tint(.blue)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -598,6 +617,15 @@ struct PortfolioView: View {
             }
             if store.portfolio == nil && !store.busy { ContentUnavailableView("No portfolio", systemImage: "chart.pie", description: Text("Connect your backend in Settings.")) }
         }.navigationTitle(localizedLabel("Portfolio", locale: locale)).refreshable { await store.refresh() }
+            .navigationDestination(item: $positionDestination) { destination in
+                if let position = store.portfolio?.positions.first(where: { $0.con_id == destination.conID && $0.position != 0 }) {
+                    if destination.rollover && position.security_type == "OPT" && position.position < 0 {
+                        RolloverTicket(position: position)
+                    } else if !destination.rollover && !stockHasCall(position) {
+                        CloseTicket(position: position)
+                    } else { Text("Position changed. Return to Portfolio and review.") }
+                } else { Text("Position changed. Return to Portfolio and review.") }
+            }
             .navigationDestination(item: $summaryDestination) { destination in
                 switch destination {
                 case .performance: PerformanceView()
@@ -605,6 +633,12 @@ struct PortfolioView: View {
                 case .allocation: AllocationView()
                 }
             }
+    }
+    private func stockHasCall(_ position: Position) -> Bool {
+        guard position.security_type == "STK" else { return false }
+        return store.portfolio?.positions.contains { $0.symbol == position.symbol && $0.security_type == "OPT" && $0.option_type == "CALL" && $0.position < 0 } == true || store.orders.contains {
+            $0.name == position.symbol && $0.option_type == "CALL" && $0.action == "SELL" && $0.intent != "CLOSE" && !["canceled", "cancelled", "rejected", "executed", "filled"].contains($0.status)
+        }
     }
     func metric(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) { Text(LocalizedStringKey(title)).font(.caption).foregroundStyle(.secondary); Text(value).font(.subheadline.weight(.medium)).monospacedDigit() }

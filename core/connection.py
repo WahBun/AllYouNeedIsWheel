@@ -1060,7 +1060,7 @@ class IBConnection:
 
         return None
 
-    def get_open_option_order_quantity(self, con_id, action=None, account_id=None):
+    def get_open_option_order_quantity(self, con_id, action=None, account_id=None, exclude_order_id=None):
         """Return remaining quantity of matching active option or stock orders."""
         if not self.is_connected():
             return float('inf')
@@ -1095,6 +1095,11 @@ class IBConnection:
             if selected_account and order_account and order_account != str(selected_account):
                 continue
             if normalized_action and str(getattr(order, 'action', '') or '').upper() != normalized_action:
+                continue
+
+            if (exclude_order_id is not None
+                    and str(getattr(order, 'orderId', '')) == str(exclude_order_id)
+                    and getattr(order, 'clientId', None) == self.client_id):
                 continue
 
             status = str(getattr(order_status, 'status', '') or '').lower()
@@ -1175,7 +1180,7 @@ class IBConnection:
         """Return standard CALL contracts still covered by uncommitted shares."""
         return int(self.get_unreserved_stock_shares(symbol, account_id) // 100)
 
-    def get_unreserved_stock_shares(self, symbol, account_id=None):
+    def get_unreserved_stock_shares(self, symbol, account_id=None, exclude_order_id=None):
         """Shares remaining after held short calls and active broker sell calls."""
         selected_account = account_id or self._order_account()
         if not selected_account:
@@ -1233,6 +1238,11 @@ class IBConnection:
                 continue
             order_account = str(getattr(order, 'account', '') or '')
             if order_account and order_account != str(selected_account):
+                continue
+
+            if (exclude_order_id is not None
+                    and str(getattr(order, 'orderId', '')) == str(exclude_order_id)
+                    and getattr(order, 'clientId', None) == self.client_id):
                 continue
 
             status = str(getattr(order_status, 'status', '') or '').lower()

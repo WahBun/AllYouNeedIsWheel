@@ -76,3 +76,18 @@ orders retain GTC. The app blocks new timing choices when backend support is
 missing. Broker preflight and covered-call share reservations still apply.
 Future exchange schedule changes require a separate review; no calendar-triggered
 order-rule change is built in.
+
+### Working-order edits and Portfolio shortcuts
+
+Orders placed by Wheel can be amended after IB confirms Submitted/PreSubmitted:
+total quantity (including fills), limit price, and DAY/GTC. CC opening quantity
+and paired rollover quantity remain locked. Overnight route changes require a
+separate cancellation and new ticket; an existing OVT order retains its route.
+The backend rechecks account/client/order identity, fills, close capacity and
+stock reserves, then modifies the existing IB order ID. An unconfirmed amendment
+persists across restarts and blocks repeat amendments; broker confirmation is
+required before local terms change. No automatic cancel/recreate or write retry.
+
+Portfolio trailing swipe actions open Close for supported stock/option holdings
+and Rollover for short options. Full-swipe execution is disabled. Existing
+covered-call protections and ticket confirmation flows still apply.

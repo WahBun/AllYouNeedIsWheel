@@ -24,6 +24,23 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testWorkingAmendmentsRespectLocksAndDecodePendingAcknowledgement() throws {
+        var order = Order(id: OrderID(7), ticker: "TEST", action: "SELL", option_type: "CALL", quantity: 3, status: "processing", intent: "OPEN")
+        XCTAssertTrue(TradeRules.amendable(order))
+        XCTAssertTrue(TradeRules.amendmentQuantityLocked(order))
+        order.intent = "CLOSE"
+        XCTAssertFalse(TradeRules.amendmentQuantityLocked(order))
+        order.amendment_pending = "{}"
+        XCTAssertFalse(TradeRules.amendable(order))
+        let decoded = try JSONDecoder().decode(Order.self, from: Data(#"{"id":7,"status":"processing","amendment_pending":"{}"}"#.utf8))
+        XCTAssertFalse(TradeRules.amendable(decoded))
+        for status in ["submitting", "unknown", "canceling", "executed"] {
+            order.amendment_pending = nil
+            order.status = status
+            XCTAssertFalse(TradeRules.amendable(order))
+        }
+    }
+
     func testDynamicNoticesLocalizeWithoutLosingDiagnostics() {
         let tls = connectionMessage(NSError(domain: NSURLErrorDomain, code: -1200))
         let message = "Order refresh failed; displayed data may be outdated. " + tls +

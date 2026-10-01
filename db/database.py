@@ -207,6 +207,7 @@ class OptionsDatabase:
 
             close_order_columns = {
                 'tif': 'TEXT',
+                'amendment_pending': 'TEXT',
                 'intent': "TEXT NOT NULL DEFAULT 'OPEN'",
                 'con_id': 'INTEGER',
                 'account_id': 'TEXT',
@@ -451,6 +452,24 @@ class OptionsDatabase:
             if conn:
                 conn.close()
     
+    def claim_order_amendment(self, order_id, payload):
+        with sqlite3.connect(self.db_path, timeout=5) as conn:
+            result = conn.execute(
+                "UPDATE orders SET amendment_pending = ? WHERE id = ? "
+                "AND status = 'processing' AND amendment_pending IS NULL",
+                (payload, order_id))
+            return result.rowcount == 1
+
+    def finish_order_amendment(self, order_id, payload, desired):
+        with sqlite3.connect(self.db_path, timeout=5) as conn:
+            result = conn.execute(
+                "UPDATE orders SET quantity = ?, premium = ?, tif = ?, "
+                "remaining = MAX(0, ? - COALESCE(filled, 0)), amendment_pending = NULL "
+                "WHERE id = ? AND amendment_pending = ?",
+                (desired['quantity'], desired['premium'], desired['tif'],
+                 desired['quantity'], order_id, payload))
+            return result.rowcount == 1
+
     def update_order_status(
         self,
         order_id,
