@@ -321,6 +321,13 @@ class IBConnection:
                 pass
 
         ticker = self.ib.reqMktData(contract, generic_tick_list, False, False)
+        # ib_async can reuse an old Ticker after idle/LRU cancellation as well.
+        # A newly requested stream has no current quote until its first callback.
+        for field in ('bid', 'ask', 'last', 'close', 'impliedVolatility'):
+            setattr(ticker, field, math.nan)
+        ticker.modelGreeks = None
+        ticker.lastRTHTrade = None
+        ticker.time = None
         self._market_ticker_cache[key] = {
             'used_at': time.time(),
             'ticker': ticker,

@@ -154,3 +154,23 @@ class MarketSubscriptionLifecycleTests(unittest.TestCase):
         conn.get_option_chain.side_effect = quote
         result = service._process_ticker_for_otm(conn, 'TEST', 10, '20261016', True, 'PUT')
         self.assertEqual(result['previous_close'], 95)
+
+    def test_idle_resubscription_does_not_publish_retained_quote(self):
+        conn = self.connection()
+        contract = Stock('TEST', 'SMART', 'USD', conId=123)
+        old = Ticker(contract=contract)
+        old.bid, old.ask, old.last, old.close = 10, 11, 10.5, 9
+        old.time = datetime.now(timezone.utc) - timedelta(hours=1)
+        conn._market_ticker_cache[conn._market_ticker_key(contract)] = {
+            'contract': contract, 'ticker': old, 'used_at': time.time()-3600,
+            'requested_data_type': 2
+        }
+        conn.ib.reqMktData.return_value = old
+        renewed = conn.get_market_ticker(contract)
+        conn.ib.cancelMktData.assert_called_once_with(contract)
+        self.assertIsNone(conn._ticker_price(renewed))
+        self.assertIsNone(renewed.time)
+        renewed.last = 12
+        renewed.time = datetime.now(timezone.utc)
+        self.assertEqual(conn._ticker_price(conn.get_market_ticker(contract)), 12)
+        conn.ib.reqMktData.assert_called_once()
