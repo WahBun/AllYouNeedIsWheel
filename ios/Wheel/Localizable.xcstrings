@@ -1,6 +1,29 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+  "Awaiting the first daily report for this period" : {
+    "extractionState" : "manual",
+    "localizations" : {
+      "en" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "Awaiting the first daily report for this period"
+        }
+      },
+      "zh-Hans" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "等待本周期首份日报；当前显示基准点"
+        }
+      },
+      "zh-Hant" : {
+        "stringUnit" : {
+          "state" : "translated",
+          "value" : "等待本週期首份日報；目前顯示基準點"
+        }
+      }
+    }
+  },
     "DAY" : {},
     "GTC" : {},
     "OVT" : {},

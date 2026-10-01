@@ -122,12 +122,13 @@ def period_view(points, period, today=None):
     selected = [p for p in points if start <= day(p['date']) <= today]
     if prior:
         selected.insert(0, prior[-1])
-    if len(selected) < 2:
+    if not selected:
         raise PerformanceError('Not enough reported data for this period.')
     base = selected[0]
     return {'points': [{'date': p['date'], **{k: (p[k] / base[k] - 1) * 100 for k in ('portfolio', 'spx', 'nq100')}} for p in selected],
             'start': base['date'], 'end': selected[-1]['date'],
-            'limited_history': period != 'ALL' and day(base['date']) >= start}
+            'limited_history': period != 'ALL' and day(base['date']) >= start,
+            'awaiting_report': len(selected) == 1}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -193,6 +194,8 @@ class PerformanceService:
                 if self.pending:
                     return {'status': 'loading'}, 202
                 self.context, self.points, self.updated, self.error, self.retry_at = context, None, None, None, 0
+                self.latest = None
+                self.restore(config)
             now = time.time()
             stale = self.updated is None or now - self.updated >= 21600
             if stale and not self.pending and now >= self.retry_at:
@@ -208,6 +211,27 @@ class PerformanceService:
                            fetched_at=datetime.fromtimestamp(self.updated, timezone.utc).isoformat(),
                            source='IBKR daily TWR / FRED SP500, NASDAQ100 (price indices)', latest=self.latest)
             return payload, 200
+
+    def restore(self, config):
+        """Serve the account-scoped archive immediately, then refresh in background."""
+        import sqlite3
+        from pathlib import Path
+        path = config.get('history_path')
+        if not path:
+            return
+        try:
+            uri = Path(os.path.expanduser(path)).resolve().as_uri() + '?mode=ro'
+            with sqlite3.connect(uri, uri=True, timeout=1) as db:
+                daily = [dict(zip(('date', 'twr', 'nav'), row)) for row in db.execute(
+                    'SELECT day,twr,nav FROM daily_performance WHERE account=? ORDER BY day', (config['account_id'],))]
+                spx = dict(db.execute("SELECT day,close FROM benchmark_close WHERE series='SP500'"))
+                ndx = dict(db.execute("SELECT day,close FROM benchmark_close WHERE series='NASDAQ100'"))
+            self.points = curves(daily, spx, ndx)
+            self.latest = daily[-1]
+            # Archive age is unknown: never claim this is freshly downloaded.
+            self.updated = 0
+        except (sqlite3.Error, PerformanceError, OSError, IndexError):
+            pass
 
     def refresh(self, config):
         try:

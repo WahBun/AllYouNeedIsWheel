@@ -112,3 +112,29 @@ class PerformanceTests(unittest.TestCase):
         service=PerformanceService()
         self.assertEqual(service.read({},'1W')[1],400)
         self.assertFalse(service.pending)
+
+    def test_month_start_keeps_previous_close_as_baseline(self):
+        points = [dict(date=d, portfolio=v, spx=v, nq100=v) for d,v in [('2026-09-29',100),('2026-09-30',102)]]
+        result = period_view(points, 'MTD', date(2026,10,1))
+        self.assertTrue(result['awaiting_report'])
+        self.assertEqual(result['points'], [dict(date='2026-09-30',portfolio=0,spx=0,nq100=0)])
+
+    def test_restart_restores_archive_without_network_and_is_account_scoped(self):
+        import tempfile, sqlite3
+        from api.services.performance_service import PerformanceService
+        with tempfile.TemporaryDirectory() as folder:
+            path = folder + '/history.sqlite3'
+            with sqlite3.connect(path) as db:
+                db.execute('CREATE TABLE daily_performance (account TEXT, day TEXT, twr REAL, nav REAL)')
+                db.execute('CREATE TABLE benchmark_close (series TEXT, day TEXT, close REAL)')
+                for day in ('2026-09-29','2026-09-30'):
+                    db.execute('INSERT INTO daily_performance VALUES (?,?,?,?)', ('TEST',day,1,100))
+                    for series in ('SP500','NASDAQ100'):
+                        db.execute('INSERT INTO benchmark_close VALUES (?,?,?)',(series,day,100))
+            service=PerformanceService()
+            service.restore({'history_path':path,'account_id':'TEST'})
+            self.assertEqual(len(service.points),2)
+            self.assertEqual(service.updated,0)
+            other=PerformanceService()
+            other.restore({'history_path':path,'account_id':'OTHER'})
+            self.assertIsNone(other.points)

@@ -35,6 +35,8 @@ private struct PerformanceHistory: Decodable {
     let points: [PerformancePoint]
     let start: String
     let end: String
+    let refreshing: Bool?
+    let awaiting_report: Bool?
     let limited_history: Bool
     let stale: Bool
     let warning: String?
@@ -73,6 +75,7 @@ struct PerformanceView: View {
     @State private var period = "YTD"
     @State private var benchmarks: BenchmarkSelection = .both
     @State private var history: PerformanceHistory?
+    @State private var cachedHistory: [String: PerformanceHistory] = [:]
     @State private var live: PerformanceLive?
     @State private var error: String?
     @State private var liveError: String?
@@ -144,6 +147,10 @@ struct PerformanceView: View {
                     Text(LocalizedStringKey(estimate == nil ? "Reported return" : "Intraday estimate")).font(.caption).foregroundStyle(.secondary)
                     Chart {
                         RuleMark(y: .value("Zero", 0)).foregroundStyle(.secondary.opacity(0.4)).lineStyle(StrokeStyle(lineWidth: 1))
+                        if history.points.count == 1, let point = history.points.first {
+                            PointMark(x: .value("Date", point.day), y: .value("Return", point.portfolio))
+                                .foregroundStyle(gain)
+                        }
                         ForEach(accountSegments) { segment in
                             LineMark(x: .value("Date", segment.start), y: .value("Return", segment.first), series: .value("Series", segment.id))
                                 .foregroundStyle(segment.positive ? gain : loss).lineStyle(StrokeStyle(lineWidth: 2.5))
@@ -172,7 +179,7 @@ struct PerformanceView: View {
                     }
                     .chartXAxis {
                         if let first = history.points.first, let last = history.points.last {
-                            AxisMarks(values: [first.day, last.day]) { value in
+                            AxisMarks(values: first.day == last.day ? [first.day] : [first.day, last.day]) { value in
                                 AxisValueLabel(anchor: value.as(Date.self) == first.day ? .topLeading : .topTrailing) {
                                     if let date = value.as(Date.self) {
                                         let parts = (date == first.day ? first.date : last.date).split(separator: "-")
@@ -201,6 +208,7 @@ struct PerformanceView: View {
                     }
                     .frame(height: 240)
                     performanceLegend.font(.caption)
+                    if history.awaiting_report == true { Text("Awaiting the first daily report for this period").font(.caption).foregroundStyle(.secondary) }
                     if history.limited_history { Text("Limited history for this period").font(.caption).foregroundStyle(.orange) }
                     if history.stale { Text("Cached history · refresh pending").font(.caption).foregroundStyle(.orange) }
                     if let warning = history.warning { NoticeText(warning).font(.caption).foregroundStyle(.orange) }
@@ -226,7 +234,9 @@ struct PerformanceView: View {
             .onAppear { visible = true }.onDisappear { visible = false }
             .task(id: context) {
                 guard active else { return }
-                history = nil; live = nil; error = nil; liveError = nil
+                let cacheKey = store.address + "|" + period
+                history = store.demo ? nil : cachedHistory[cacheKey]
+                error = nil
                 guard !store.demo else { error = "Performance requires a live backend with Flex history."; return }
                 loading = true
                 defer { loading = false }
@@ -235,7 +245,9 @@ struct PerformanceView: View {
                         let (data, status) = try await read("history", query: [URLQueryItem(name: "period", value: period)])
                         if status == 202 { try await Task.sleep(for: .seconds(2)); continue }
                         let value = try JSONDecoder().decode(PerformanceHistory.self, from: data)
-                        try Task.checkCancellation(); history = value; return
+                        try Task.checkCancellation(); cachedHistory[cacheKey] = value; history = value
+                        if value.refreshing == true { try await Task.sleep(for: .seconds(2)); continue }
+                        return
                     } catch { if !Task.isCancelled { self.error = connectionMessage(error) }; return }
                 }
                 error = "History is still generating. Try Refresh shortly."
