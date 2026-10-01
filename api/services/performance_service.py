@@ -241,6 +241,11 @@ class PerformanceService:
             else:
                 text = fetch_flex(config)
             daily = parse_flex(text, config['account_id'])
+            from api.services.stock_cost_service import archive_costs
+            try:
+                archive_costs(text, config)
+            except Exception:
+                pass  # Optional stock snapshots must not prevent performance refresh.
             # Upsert each daily record, preserving history outside the current Flex window.
             import sqlite3
             if not config.get('history_path'):
@@ -283,3 +288,14 @@ class PerformanceService:
         finally:
             with self.lock:
                 self.pending = False
+
+
+def configuration():
+    path = os.environ.get('WHEEL_PERFORMANCE_CONFIG', os.path.expanduser('~/Library/Application Support/Wheel/performance/config.json'))
+    if not os.path.isfile(path):
+        return {}
+    with open(os.path.expanduser(path)) as source:
+        return json.load(source)
+
+
+service = PerformanceService()

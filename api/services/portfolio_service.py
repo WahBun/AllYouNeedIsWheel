@@ -86,6 +86,8 @@ class PortfolioService:
         positions = portfolio.get('positions', {})
         account_id = portfolio.get('account_id', '')
         positions_list = []
+        from api.services.stock_cost_service import reported_costs
+        costs = reported_costs(account_id)
 
         for pos in positions.values():
             contract = pos.get('contract')
@@ -106,6 +108,11 @@ class PortfolioService:
                 'security_type': pos_type
             }
             position_data['con_id'] = int(getattr(contract, 'conId', 0) or 0)
+            if pos_type == 'STK':
+                cost = costs.get((position_data['con_id'], str(getattr(contract, 'currency', ''))))
+                # A report is a dated snapshot, never an automatic replacement for live cost/P&L.
+                if cost:
+                    position_data['reported_cost'] = cost
 
             if (
                 pos_type == 'OPT'

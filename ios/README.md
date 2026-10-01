@@ -91,3 +91,16 @@ required before local terms change. No automatic cancel/recreate or write retry.
 Portfolio trailing swipe actions open Close for supported stock/option holdings
 and Rollover for short options. Full-swipe execution is disabled. Existing
 covered-call protections and ticket confirmation flows still apply.
+
+### Stock report cost
+
+Stock details show an optional **IBKR reported cost** snapshot from the configured
+Flex query’s Open Positions summary (CSV POST or XML OpenPosition). Cost basis
+divided by reported shares matches the official report; no historical premium or
+dividend is subtracted again. Account, contract ID and currency must match the
+live position. The report date and reported quantity remain visible because this
+is not an intraday cost calculation. Live Gateway average cost, unrealized P&L
+and close-ticket calculations retain their existing broker basis. Report loading
+uses the performance background worker and private archive, without blocking on
+a report download during portfolio requests. If the query omits Open Positions,
+the optional section is unavailable.

@@ -11,15 +11,7 @@ from api.services.connection_manager import get_shared_connection
 from config import Config
 
 bp = Blueprint('performance', __name__, url_prefix='/api/performance')
-service = PerformanceService()
-
-
-def configuration():
-    path = os.environ.get('WHEEL_PERFORMANCE_CONFIG', os.path.expanduser('~/Library/Application Support/Wheel/performance/config.json'))
-    if not os.path.isfile(path):
-        return {}
-    with open(os.path.expanduser(path)) as source:
-        return json.load(source)
+from api.services.performance_service import configuration, service
 
 
 @bp.get('/history')
