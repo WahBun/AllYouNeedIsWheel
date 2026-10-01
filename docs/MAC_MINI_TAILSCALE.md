@@ -166,3 +166,43 @@ Docker Desktop/Tailscale 自启动及 Gateway 登录仍需分别保证。Mini �
 
 单进程、八个 HTTP 线程依赖项目内的专用 API 执行线程。不要通过增加 Gunicorn
 进程数或删除调度器来加速，否则会破坏 IB 连接身份与订单状态一致性。
+
+## Docker 故障自动恢复（可选）
+
+`ops/docker_watchdog.py` 是 Mini 本地 LaunchAgent，不依赖 Codex 对话保持打开。
+每 60 秒通过 Docker Unix socket 检查一次 `_ping`，连续 3 次失败才尝试恢复。
+正常 Docker 不会定时重启；行情为空、休市、IB 登录等待或 Wheel HTTP 503 本身
+都不会触发 Docker 重启。每次恢复间隔至少 30 分钟，滚动 24 小时最多 2 次。
+
+恢复前只读检查本地订单数据库。有 submitting、unknown、canceling 或未确认改单，
+或者数据库不可读时，暂停自动恢复并在 Mini 通知。已在券商挂单的 processing
+订单不会由看护程序修改或撤销；本地检查不能证明券商端没有未同步的交易。
+
+先尝试 Docker 官方 restart；45 秒不能退出时，终止 Docker.app 包内的进程，
+再打开 Docker。此操作会中断所有 Docker 容器，不能用于还承担其他关键容器的机器，
+除非已经接受这个范围。不会删除镜像、容器、卷、Gateway 配置或订单数据库。
+Gateway 登录可能需要 IB Key；不要假设通知一定会自动到手机。
+
+恢复后验证 Wheel bootstrap 的账户数据读取，必要时仅重启一次 Wheel 后端。
+若 Gateway 尚未登录，记录等待状态，不循环重启。系统通知仅在 Mini 上显示；
+不提供 iPhone 故障推送。账户数据恢复也不代表已验证所有行情订阅。
+
+安装前先将 Pro 修改提交推送 GitHub，再在 Mini 拉取。以下仅在 Mini 项目目录运行：
+
+```sh
+.venv/bin/python ops/docker_watchdog.py --project "$PWD" \
+  --state-dir "$HOME/Library/Application Support/Wheel/DockerWatchdog" --check-only
+.venv/bin/python ops/install_docker_watchdog.py --project "$PWD"
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.wahbun.wheel.docker-watchdog.plist"
+launchctl print "gui/$(id -u)/com.wahbun.wheel.docker-watchdog"
+```
+
+用户登录后自动运行；关机、断电、休眠或尚未登录时无法工作。状态计数保存在
+`~/Library/Application Support/Wheel/DockerWatchdog/state.json`，重启看护不会清空
+冷却计数。日志在 `logs/docker-watchdog*.log`。手动维护 Docker 前暂停看护：
+
+```sh
+launchctl bootout "gui/$(id -u)/com.wahbun.wheel.docker-watchdog"
+```
+
+再次启用使用上面的 bootstrap。故障测试应使用 mocks，不要为验收故意中断实盘 Gateway。
