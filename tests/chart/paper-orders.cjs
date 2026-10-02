@@ -24,11 +24,14 @@ const markers=await page.evaluate(()=>{
  configure(c);configure(c);const visible=executionMarkers.markers();
  configure({...c,con_id:8});const switched=executionMarkers.markers();
  configure({...c,display:{executionLabels:false}});const unlabeled=executionMarkers.markers();
- showExecutionDetails({hoveredObjectId:'sell',point:{x:200,y:160}});
+ executionTap={x:chart.timeScale().timeToCoordinate(1300),y:series.priceToCoordinate(12)-15,at:performance.now()};
+ showExecutionDetails({hoveredObjectId:'sell',point:executionTap});
  if(executionPopup.hidden||!executionPopup.textContent.includes('Sell')||!executionPopup.textContent.includes('1 @ 11.00'))throw Error('Hidden label marker did not open fill details');
- showExecutionDetails({point:{x:20,y:200}});
+ executionTap={x:20,y:200,at:performance.now()};
+ showExecutionDetails({hoveredObjectId:'sell',point:{x:200,y:160}});
  if(!executionPopup.hidden)throw Error('Blank chart tap did not dismiss fill');
- showExecutionDetails({hoveredObjectId:'buy',point:{x:200,y:160}});
+ executionTap={x:chart.timeScale().timeToCoordinate(1000),y:series.priceToCoordinate(9)+15,at:performance.now()};
+ showExecutionDetails({hoveredObjectId:'buy',point:executionTap});
 
  configure({...c,display:{executions:false}});const hidden=executionMarkers.markers();if(!executionPopup.hidden)throw Error('Hidden markers left popup visible');
  configure({...c,entry:10,paper:{active:true,entry:10,tp:11,sl:9.5,side:1,position:1},display:{profit:false}});const noProfit=document.getElementById('tp').textContent;
