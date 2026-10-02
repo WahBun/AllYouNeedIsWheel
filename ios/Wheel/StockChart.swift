@@ -90,7 +90,7 @@ struct StockChartView: View {
                         Button { join("ask") } label: { Text("Join Ask").frame(maxWidth: .infinity, minHeight: 30) }.tint(.red).disabled(joinPrice("ask") == nil)
                     }
                     HStack(spacing: 8) {
-                        Button { if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").frame(maxWidth: .infinity, minHeight: 30) }.tint(.orange)
+                        Button { if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").frame(maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(validEntry <= 0)
                         Button { beRevision += 1 } label: { Text("BE").frame(maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
                     }
                 }.font(.system(size: 13, weight: .semibold))
