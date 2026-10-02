@@ -117,7 +117,7 @@ class PaperChart:
             if not t and role in terminal and terminal[role]['order_id'] == oid:
                 rows.append(terminal[role]); continue
             rows.append(dict(role=role, order_id=oid, status=t.orderStatus.status if t else 'Unknown',
-                price=(t.order.auxPrice if role=='sl' or (role=='entry' and t.order.orderType=='STP') else t.order.lmtPrice) if t and role!='close' else 0,
+                price=(t.order.auxPrice if role.split('_')[0]=='sl' or (role.split('_')[0]=='entry' and t.order.orderType=='STP') else t.order.lmtPrice) if t and role!='close' else 0,
                 quantity=max(float(t.order.totalQuantity),float(t.orderStatus.filled),sum(float(f.execution.shares) for f in trade_fills(t))) if t else 0,
                 filled=max(float(t.orderStatus.filled),sum(float(f.execution.shares) for f in trade_fills(t))) if t else 0))
         confirmed = {r['role']:r for r in rows if r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive')}
@@ -130,6 +130,12 @@ class PaperChart:
         result['status']='working' if result['active'] else 'done'
         for row in rows:
             if row['role'] in ('entry','tp','sl'): result[row['role']]=row['price']
+        if group.get('lots'):
+            for role in ('tp','sl'):
+                live_rows=[r for r in rows if r['role'].split('_')[0]==role and r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive')]
+                if live_rows: result[role]=live_rows[-1]['price']
+            result['scalable']=True
+            result['quantity']=sum(max(0,r['quantity']-r['filled']) for r in rows if r['role'].split('_')[0]=='entry' and r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive'))
         parent=trades.get(group['ids']['entry'])
         if parent and parent.orderStatus.avgFillPrice>0: result['entry']=parent.orderStatus.avgFillPrice
         elif parent and trade_fills(parent):
@@ -180,6 +186,43 @@ class PaperChart:
             db.execute('UPDATE chart_paper_requests SET result=? WHERE id=?',(json.dumps(result),request_id))
         return result
 
+    def save_group(self, account, cid, group):
+        with self.database() as db:
+            db.execute('INSERT OR REPLACE INTO chart_paper_groups VALUES(?,?,?)',(account,cid,json.dumps(group)))
+
+    def add_lots(self, conn, account, cid, contract, group, qty, kind, entry, tp, sl):
+        for _ in range(qty):
+            index = len(group['lots'])
+            ids = {role:conn.ib.client.getReqId() for role in ('entry','tp','sl')}
+            for role, oid in ids.items(): group['ids'][role if index==0 else f'{role}_{index}'] = oid
+            group['lots'].append(ids); self.save_group(account,cid,group)
+            buy = 'BUY' if group['side']==1 else 'SELL'; sell = 'SELL' if group['side']==1 else 'BUY'
+            parent = MarketOrder(buy,1) if kind=='MKT' else (LimitOrder if kind=='LMT' else StopOrder)(buy,1,entry)
+            parent.orderId=ids['entry']; parent.transmit=False
+            oca = group['ref'] + ':' + str(ids['entry'])
+            take=LimitOrder(sell,1,tp,orderId=ids['tp'],parentId=ids['entry'],transmit=False,ocaGroup=oca,ocaType=1)
+            stop=StopOrder(sell,1,sl,orderId=ids['sl'],parentId=ids['entry'],transmit=True,ocaGroup=oca,ocaType=1)
+            for order in (parent,take,stop):
+                order.account=account;order.tif='DAY';order.orderRef=group['ref']
+                conn.ib.placeOrder(contract,order)
+
+    def exit_lots(self, conn, account, cid, group, lots, trades, price):
+        import copy
+        state=stock_chart.active
+        if not state or state['con_id']!=cid: raise ValueError('Wait for a current quote')
+        # Use the chart's quote freshness rules, independently of its interval.
+        packet=stock_chart.packet(state,5,'rth')
+        if not packet: raise ValueError('Fresh exit quote unavailable')
+        quote=packet.get('bid' if group['side']==1 else 'ask')
+        if packet.get('status')!='live' or not quote: raise ValueError('Wait for a live bid/ask')
+        target=price(quote)
+        for lot in lots:
+            take=trades[lot['tp']];stop=trades[lot['sl']]
+            if take.isDone() or stop.isDone(): raise ValueError('Exit changed before adjustment')
+            lot['closing']=True;self.save_group(account,cid,group)
+            order=copy.copy(take.order);order.lmtPrice=target;order.transmit=True
+            conn.ib.placeOrder(take.contract,order)
+
     def perform(self, conn, account, cid, body, request_id):
         contract=contracts.resolve(conn,cid)
         current=self.state(conn,cid)
@@ -204,6 +247,10 @@ class PaperChart:
             entry=price(body.get('entry')); tp=price(body.get('tp')); sl=price(body.get('sl'))
             if side*(tp-entry)<=0 or side*(sl-entry)>=0: raise ValueError('TP and SL must be on opposite sides of entry')
             if body.get('entry_type') not in ('LMT','STP'): raise ValueError('Unsupported entry type')
+            if contract.secType=='FUT':
+                group=dict(ids={},lots=[],side=side,ref='WheelPaper:'+request_id)
+                self.add_lots(conn,account,cid,contract,group,int(qty),body['entry_type'],entry,tp,sl)
+                return
             buy='BUY' if side==1 else 'SELL'; sell='SELL' if side==1 else 'BUY'
             ids={role:conn.ib.client.getReqId() for role in ('entry','tp','sl')}
             parent=(LimitOrder if body['entry_type']=='LMT' else StopOrder)(buy,qty,entry,orderId=ids['entry'],transmit=False)
@@ -220,92 +267,38 @@ class PaperChart:
         if not group: raise ValueError('No chart bracket for this contract')
         trades={t.order.orderId:t for t in conn.ib.trades() if t.order.account==account and t.contract.conId==cid}
         if action in ('add','trim'):
+            if not group.get('lots'):
+                raise ValueError('This older bracket cannot be scaled without replacing protection; start a new protected futures bracket')
             qty = body.get('quantity')
-            limit = 10 if contract.secType == 'FUT' else 1000
-            size = abs(current['position'])
-            if isinstance(qty, bool) or not isinstance(qty, (int,float)) or not math.isfinite(qty) or qty != int(qty) or qty < 1:
+            if isinstance(qty,bool) or not isinstance(qty,(int,float)) or not math.isfinite(qty) or qty != int(qty) or qty < 1:
                 raise ValueError('Invalid adjustment quantity')
-            if not size or current['position'] * group['side'] <= 0:
-                raise ValueError('Adjustment requires a filled chart position')
-            if action == 'trim' and qty >= size:
-                raise ValueError('Trim must leave a position; use Close Position for all contracts')
-            if action == 'add' and size + qty > limit:
-                raise ValueError('Resulting position exceeds the chart quantity limit')
-            parent = trades.get(group['ids']['entry'])
-            if not parent or parent.orderStatus.status != 'Filled':
-                raise ValueError('Wait for the entire entry to fill before adjusting')
-            if any(t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades()
-                   if t.contract.conId == cid and t.order.account == account):
+            size = abs(current['position'])
+            if not size or current['position'] * group['side'] <= 0: raise ValueError('No filled chart position')
+            if action == 'trim' and qty >= size: raise ValueError('Trim must leave a position; use Close Position')
+            if action == 'add' and size + qty > 10: raise ValueError('Resulting position exceeds the chart quantity limit')
+            owned = sum((1 if t.order.action == 'BUY' else -1) * max(float(t.orderStatus.filled),sum(float(f.execution.shares) for f in t.fills))
+                        for t in trades.values() if t.order.orderId in group['ids'].values())
+            if abs(owned-current['position']) > .000001: raise ValueError('Position differs from chart fills; reconcile Gateway')
+            if any(t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades() if t.contract.conId==cid and t.order.account==account):
                 raise ValueError('Other working orders exist; review Gateway')
-            owned = sum((1 if t.order.action == 'BUY' else -1) * max(float(t.orderStatus.filled),
-                        sum(float(f.execution.shares) for f in t.fills)) for t in trades.values()
-                        if t.order.orderId in group['ids'].values())
-            if abs(owned - current['position']) > .000001:
-                raise ValueError('Position differs from chart fills; reconcile Gateway')
-            exits = [trades.get(group['ids'][role]) for role in ('tp','sl')]
-            if any(not t or t.isDone() for t in exits):
-                raise ValueError('Both protective orders must be working before adjusting')
-            tp, sl = price(current['tp']), price(current['sl'])
-            import time
-            for t in exits: conn.ib.cancelOrder(t.order)
-            deadline = time.monotonic() + 4
-            while any(not t.isDone() for t in exits) and time.monotonic() < deadline: conn.ib.sleep(.05)
-            if any(not t.isDone() for t in exits): raise RuntimeError('Protective cancellation uncertain; inspect Gateway')
-            # Re-read after cancellation: an exit may have filled in the meantime.
-            positions = conn._bounded_order_read(conn.ib.reqPositions, timeout_seconds=3)
-            pos = next((p for p in positions if p.account == account and p.contract.conId == cid), None)
-            actual = float(pos.position) if pos else 0
-            def save():
-                with self.database() as db:
-                    db.execute('UPDATE chart_paper_groups SET orders=? WHERE account=? AND con_id=?', (json.dumps(group),account,cid))
-            def protect(position):
-                if not position: return
-                if position * group['side'] <= 0: raise RuntimeError('Unexpected position direction; inspect Gateway')
-                oca = 'WheelPaper:' + request_id
-                for role, level in [('tp',tp),('sl',sl)]:
-                    old = group['ids'][role]
-                    group['ids'][role + '_' + str(old)] = old
-                    if role in group.get('perms',{}):
-                        group['perms'][role + '_' + str(old)] = group['perms'].pop(role)
-                    oid = conn.ib.client.getReqId(); group['ids'][role] = oid
-                    save()
-                    order = (LimitOrder if role == 'tp' else StopOrder)(
-                        'SELL' if position > 0 else 'BUY', abs(position), level,
-                        orderId=oid,account=account,tif='DAY',transmit=True,ocaGroup=oca,ocaType=2,orderRef=group['ref'])
-                    conn.ib.placeOrder(contract,order)
-            if actual != current['position']:
-                protect(actual)
-                raise ValueError('Position changed while canceling exits; adjustment skipped, protection restored')
-            order = MarketOrder(('BUY' if actual > 0 else 'SELL') if action == 'add' else ('SELL' if actual > 0 else 'BUY'),
-                                qty,account=account,tif='DAY',orderRef=group['ref'])
-            order.orderId = conn.ib.client.getReqId()
-            group['ids'][action + '_' + str(order.orderId)] = order.orderId; save()
-            trade = conn.ib.placeOrder(contract,order)
-            deadline = time.monotonic() + 5
-            while not trade.isDone() and time.monotonic() < deadline: conn.ib.sleep(.05)
-            if not trade.isDone():
-                conn.ib.cancelOrder(order)
-                deadline = time.monotonic() + 4
-                while not trade.isDone() and time.monotonic() < deadline: conn.ib.sleep(.05)
-                if not trade.isDone(): raise RuntimeError('Adjustment unresolved; inspect Gateway before further trading')
-            conn.ib.sleep(.1)
-            filled = max(float(trade.orderStatus.filled), sum(float(f.execution.shares) for f in trade.fills),
-                         float(order.totalQuantity) if trade.orderStatus.status == 'Filled' else 0)
-            remaining = actual + filled * (1 if order.action == 'BUY' else -1)
-            # reqPositions can lag the execution callback; it must not size exits.
-            protect(remaining)
-            deadline = time.monotonic() + 3
-            while time.monotonic() < deadline:
-                conn.ib.sleep(.05)
-                live = {t.order.orderId:t for t in conn.ib.trades()}
-                protective = [live.get(group['ids'][role]) for role in ('tp','sl')]
-                if all(t and t.orderStatus.status in ('Submitted','PreSubmitted','Filled','Cancelled') for t in protective): break
-            else: raise RuntimeError('Protective orders not confirmed; inspect Gateway')
+            live = []
+            for lot in group['lots']:
+                parent, take, stop = [trades.get(lot[r]) for r in ('entry','tp','sl')]
+                if not all((parent,take,stop)): raise ValueError('Lot status needs reconciliation')
+                if parent.orderStatus.status != 'Filled': raise ValueError('Wait for all entry orders to finish')
+                if take.orderStatus.status == 'Filled' or stop.orderStatus.status == 'Filled': continue
+                if lot.get('closing') or take.isDone() or stop.isDone(): raise ValueError('An exit needs reconciliation before another adjustment')
+                live.append(lot)
+            if len(live) != size: raise ValueError('Protected lot count differs from position')
+            if action == 'add':
+                self.add_lots(conn,account,cid,contract,group,int(qty),'MKT',0,price(current['tp']),price(current['sl']))
+            else:
+                self.exit_lots(conn,account,cid,group,live[:int(qty)],trades,price)
             return
         if action in ('amend','be'):
             role='sl' if action=='be' else body.get('role')
             if role not in ('tp','sl'): raise ValueError('Only TP and SL can be amended')
-            trade=trades.get(group['ids'][role])
+            trade=next((trades.get(lot[role]) for lot in group.get('lots',[]) if trades.get(lot[role]) and not trades[lot[role]].isDone()),None) if group.get('lots') else trades.get(group['ids'][role])
             if not trade or trade.isDone(): raise ValueError('Exit order is no longer working')
             if action=='be':
                 if not current['position']: raise ValueError('BE requires a filled position')
@@ -317,16 +310,33 @@ class PaperChart:
                 rounded=(Decimal(str(base))/tick).to_integral_value(rounding=ROUND_CEILING if sign>0 else ROUND_FLOOR)*tick
                 new_price=price(float(rounded+sign*tick))
             else: new_price=price(body.get('price'))
-            if action=='be' and group['side']*(current['sl']-new_price)>=0: return
+            if action=='be' and not group.get('lots') and group['side']*(current['sl']-new_price)>=0: return
             other=current['tp'] if role=='sl' else current['sl']
             if other>0 and group['side']*((other-new_price) if role=='sl' else (new_price-other))<=0: raise ValueError('TP and SL cannot cross')
-            order=trade.order
-            if role=='sl': order.auxPrice=new_price
-            else: order.lmtPrice=new_price
             # Initial TP is held (transmit=False) until the last bracket leg.
             # A later amendment must be transmitted on its own.
-            order.transmit=True
-            conn.ib.placeOrder(contract,order)
+            targets=[trades.get(lot[role]) for lot in group['lots']] if group.get('lots') else [trade]
+            for target in targets:
+                if not target or target.isDone(): continue
+                if action=='be' and group['side']*(target.order.auxPrice-new_price)>=0: continue
+                import copy
+                amended=copy.copy(target.order)
+                if role=='sl': amended.auxPrice=new_price
+                else: amended.lmtPrice=new_price
+                amended.transmit=True;conn.ib.placeOrder(contract,amended)
+            return
+        if action=='close' and group.get('lots'):
+            live=[]
+            for lot in group['lots']:
+                parent,take,stop=[trades.get(lot[r]) for r in ('entry','tp','sl')]
+                if not all((parent,take,stop)): raise ValueError('Lot status needs reconciliation')
+                if take.orderStatus.status=='Filled' or stop.orderStatus.status=='Filled': continue
+                if parent.orderStatus.status=='Filled':
+                    if not lot.get('closing'): live.append(lot)
+                elif not parent.isDone():
+                    # Cancel only an unfilled unit; never remove filled-unit protection.
+                    conn.ib.cancelOrder(parent.order)
+            if live: self.exit_lots(conn,account,cid,group,live,trades,price)
             return
         if action=='close':
             working=[t for t in trades.values() if t.order.orderId in group['ids'].values() and not t.isDone()]

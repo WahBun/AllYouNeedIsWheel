@@ -376,7 +376,7 @@ struct StockChartView: View {
                         Menu {
                             Button("Add contracts") { adjustmentAction = "add"; adjustmentQuantity = 1; showAdjustment = true }.disabled(positionSize >= quantityLimit)
                             Button("Trim contracts") { adjustmentAction = "trim"; adjustmentQuantity = 1; showAdjustment = true }.disabled(positionSize < 2)
-                        } label: { Image(systemName: "plus.forwardslash.minus").frame(minHeight: 30) }.disabled(!paperEnabled || paperBusy || positionSize == 0 || paperState["known"] as? Bool != true)
+                        } label: { Image(systemName: "plus.forwardslash.minus").frame(minHeight: 30) }.disabled(!paperEnabled || paperBusy || positionSize == 0 || paperState["known"] as? Bool != true || paperState["scalable"] as? Bool != true)
                         Button { if paperEnabled { paperAction(["action": "close"]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").frame(maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || (paperEnabled ? !paperActive : validEntry <= 0))
                         Button { if paperEnabled { paperAction(["action": "be"]) } else { beRevision += 1 } } label: { Text("BE").frame(maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(paperBusy || (paperEnabled && (paperState["position"] as? Double ?? 0) == 0) || beApplied || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
                     }
@@ -455,7 +455,7 @@ struct StockChartView: View {
                 Form {
                     Text("Current position: \(positionSize)")
                     Stepper("Quantity: \(adjustmentQuantity)", value: $adjustmentQuantity, in: 1...max(1, adjustmentLimit))
-                    Text("Market order. Remaining TP / SL quantities are updated after execution.").font(.caption)
+                    Text("Futures use one protected bracket per contract. Add creates new brackets. Trim exits selected contracts at bid/ask while keeping every other bracket unchanged.").font(.caption)
                     Button(adjustmentAction == "trim" ? "Trim position" : "Add to position") {
                         showAdjustment = false
                         paperAction(["action": adjustmentAction, "quantity": adjustmentQuantity])

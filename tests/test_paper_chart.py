@@ -91,31 +91,6 @@ class PaperChartTests(unittest.TestCase):
             return t
         self.conn.ib.placeOrder.side_effect=fill
 
-    def test_add_trim_rebuild_exact_protection_and_no_duplicate_write(self):
-        self.filled_position()
-        for action,qty,expected in [('add',2,6),('trim',3,3),('add',1,4)]:
-            body=dict(request_id=str(uuid4()),action=action,quantity=qty)
-            r=self.service.execute(self.conn,7,body)
-            self.assertTrue(r['success'],r)
-            self.assertEqual(r['state']['position'],expected)
-            working=[t for t in self.trades if not t.isDone()]
-            self.assertEqual(len(working),2)
-            self.assertTrue(all(t.order.totalQuantity==expected for t in working))
-            self.assertEqual(working[0].order.ocaGroup,working[1].order.ocaGroup)
-            self.assertTrue(all(t.order.ocaType==2 and t.order.transmit for t in working))
-            self.assertTrue(all(t.order.orderRef==self.trades[0].order.orderRef for t in working))
-            writes=self.conn.ib.placeOrder.call_count
-            self.service.execute(self.conn,7,body)
-            self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
-
-    def test_adjustment_sizes_exits_from_fills_not_lagging_position_snapshot(self):
-        self.filled_position()
-        snapshot=S(account='DU_TEST',contract=self.contract,position=4)
-        self.conn._bounded_order_read.side_effect=lambda *a,**kw:[snapshot]
-        r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='add',quantity=2))
-        self.assertTrue(r['success'],r)
-        self.assertTrue(all(t.order.totalQuantity==6 for t in self.trades if not t.isDone()))
-
     def test_invalid_trim_and_external_position_cannot_cancel_protection(self):
         self.filled_position()
         for qty in [0,4,5,True,1.5]:
@@ -125,13 +100,6 @@ class PaperChartTests(unittest.TestCase):
         r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='add',quantity=1))
         self.assertFalse(r['success'])
         self.conn.ib.cancelOrder.assert_not_called()
-
-    def test_scale_cancellation_timeout_never_sends_market_order(self):
-        self.filled_position();self.conn.ib.cancelOrder.side_effect=None
-        with patch('time.monotonic',side_effect=[0,5]):
-            r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
-        self.assertEqual(r['status'],'unknown')
-        self.assertEqual(self.conn.ib.placeOrder.call_count,3)
 
     def test_close_rejects_stale_position_after_exit_fill(self):
         self.filled_position()
@@ -196,3 +164,52 @@ class PaperChartTests(unittest.TestCase):
         with patch('time.monotonic',side_effect=[0,5]):
             r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='close'))
         self.assertEqual(r['status'],'unknown');self.assertEqual(self.conn.ib.placeOrder.call_count,3)
+
+class ProtectedLotTests(unittest.TestCase):
+    submit = PaperChartTests.submit
+    def setUp(self):
+        PaperChartTests.setUp(self)
+        from ib_async import Future
+        self.contract=Future('MES','20261218','CME',currency='USD',conId=7,multiplier='5')
+        self.resolve.stop();self.resolve=patch('api.services.paper_chart.contracts.resolve',return_value=self.contract);self.resolve.start()
+        self.quote=patch('api.services.paper_chart.stock_chart.packet',return_value={'status':'live','bid':10,'ask':10.25});self.quote.start()
+    def tearDown(self):
+        self.quote.stop();PaperChartTests.tearDown(self)
+    def open_four(self):
+        self.submit(quantity=4)
+        for t in self.trades:
+            if not t.order.parentId:t.orderStatus.status='Filled';t.orderStatus.filled=1;t.orderStatus.avgFillPrice=10
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=4)]
+        self.conn.ib.placeOrder.reset_mock();self.conn.ib.cancelOrder.reset_mock()
+    def test_trim_preserves_all_stop_ids_and_other_lots(self):
+        self.open_four();before=[(t.order.orderId,t.order.totalQuantity,t.order.auxPrice) for t in self.trades if t.order.orderType=='STP']
+        body=dict(request_id=str(uuid4()),action='trim',quantity=1)
+        r=self.service.execute(self.conn,7,body);self.assertTrue(r['success'],r)
+        self.conn.ib.cancelOrder.assert_not_called()
+        self.assertEqual(self.conn.ib.placeOrder.call_count,1)
+        changed=self.conn.ib.placeOrder.call_args.args[1]
+        self.assertEqual(changed.orderId,101);self.assertEqual(changed.totalQuantity,1)
+        self.assertEqual(before,[(t.order.orderId,t.order.totalQuantity,t.order.auxPrice) for t in self.trades if t.order.orderType=='STP'])
+        self.service.execute(self.conn,7,body);self.assertEqual(self.conn.ib.placeOrder.call_count,1)
+    def test_add_creates_only_new_unit_brackets(self):
+        self.open_four();old=[t.order.orderId for t in self.trades]
+        r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='add',quantity=2));self.assertTrue(r['success'],r)
+        self.conn.ib.cancelOrder.assert_not_called()
+        sent=[c.args[1] for c in self.conn.ib.placeOrder.call_args_list]
+        self.assertEqual(len(sent),6);self.assertTrue(all(o.orderId not in old and o.totalQuantity==1 for o in sent))
+        self.assertEqual([o.transmit for o in sent],[False,False,True]*2)
+        self.assertEqual(sent[1].ocaGroup,sent[2].ocaGroup);self.assertNotEqual(sent[1].ocaGroup,sent[4].ocaGroup)
+    def test_unresolved_trim_cannot_repeat_or_add(self):
+        self.open_four()
+        self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
+        for action in ['trim','add']:
+            r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action=action,quantity=1));self.assertFalse(r['success'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count,1);self.conn.ib.cancelOrder.assert_not_called()
+    def test_all_unit_stops_amend_for_be(self):
+        self.open_four()
+        r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='be'));self.assertTrue(r['success'],r)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,4)
+        self.assertTrue(all(c.args[1].auxPrice==10.25 for c in self.conn.ib.placeOrder.call_args_list))
+    def test_full_close_of_filled_units_does_not_cancel_protection(self):
+        self.open_four();r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='close'));self.assertTrue(r['success'],r)
+        self.conn.ib.cancelOrder.assert_not_called();self.assertEqual(self.conn.ib.placeOrder.call_count,4)
