@@ -399,8 +399,14 @@ struct StockChartView: View {
                         distanceRow("TP", value: distanceBinding(templateType, tp: true))
                         distanceRow("SL", value: distanceBinding(templateType, tp: false))
                     }
-                    Text("Distances are saved for new previews. Apply replaces the current preview levels; no broker order is changed.")
-                    Button("Apply to preview") { templateRevision += 1; showTemplate = false }.disabled(!validTemplate || validEntry <= 0 || templateType != chartType || paperActive)
+                    if validEntry > 0 && templateType == chartType && !paperActive {
+                        Text("Apply updates the current preview and saves these distances for new orders.")
+                        Button("Apply to preview") { templateRevision += 1; showTemplate = false }.disabled(!validTemplate)
+                    } else {
+                        Text(paperActive ? "These distances apply to your next order. Existing orders stay unchanged." : "These distances will be used for new orders in this asset class.")
+                        Button("Save template") { showTemplate = false }.disabled(!validTemplate)
+                    }
+                    if !validTemplate { Text("Enter a positive TP and SL distance.").font(.caption).foregroundStyle(.orange) }
                 }.navigationTitle("TP / SL template").toolbar { Button("Done") { showTemplate = false } }
             }.presentationDetents([.medium, .large])
         }
