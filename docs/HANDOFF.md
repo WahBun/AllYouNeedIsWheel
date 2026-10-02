@@ -108,3 +108,12 @@ and Apple metadata. It adds no service worker or offline trading cache. Prefer
 private Tailscale HTTPS; remove the optional remote TCP 8000 forward only after
 validating HTTPS, while retaining the loopback server and unrelated forwards.
 See `WORKFLOW_NAVIGATION.md` for the single/batch action navigation checklist.
+
+## iOS completed order details (2026-10-02)
+
+Order details retain confirmed terminal records from the existing order history
+response and confirmed cancellation acknowledgements. Disappearing from Pending
+alone is never treated as a fill or cancellation; an unresolved result remains
+read-only and explicitly requires verification. Partial fills remain visible after
+cancellation. The in-memory cache clears on backend/demo context changes.
+Verification: 98 iOS tests passed using mocks; no live orders were changed.

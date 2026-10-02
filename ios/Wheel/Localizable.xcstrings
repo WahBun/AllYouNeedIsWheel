@@ -1,6 +1,23 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+  "Final result not yet verified. Absence from pending orders does not confirm a fill or cancellation.": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Final result not yet verified. Absence from pending orders does not confirm a fill or cancellation."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "最终结果尚待核实。订单移出待处理列表，不代表已成交或撤单成功。"
+        }
+      }
+    }
+  },
+
   "Estimate": {
     "localizations": {
       "zh-Hans": {

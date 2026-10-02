@@ -340,7 +340,12 @@ final class TradingSession {
                     nextDemoID += 1
                 } else { try simulate(path, body: body) }
                 store.orders = demoOrders
-                if let canceledOrder { store.opportunities.confirmCancellation(canceledOrder, remaining: store.orders) }
+                if var canceledOrder {
+                    canceledOrder.status = "cancelled"
+                    canceledOrder.ib_status = nil
+                    store.retainCompleted([canceledOrder])
+                    store.opportunities.confirmCancellation(canceledOrder, remaining: store.orders)
+                }
                 message = "Demo updated. No broker request was sent."
                 acknowledgedMessage = true
                 return true
@@ -373,6 +378,16 @@ final class TradingSession {
                 store.orders[index].executed = status == "executed"
             }
             if let canceledOrder, ["canceled", "cancelled"].contains((result["status"] as? String ?? "").lowercased()) {
+                var confirmed = canceledOrder
+                confirmed.status = "cancelled"
+                confirmed.ib_status = result["ib_status"] as? String
+                let details = result["execution_details"] as? [String: Any]
+                if let filled = details?["filled"] as? Double, filled.isFinite, filled >= (confirmed.filled ?? 0) {
+                    confirmed.filled = filled
+                    confirmed.avg_fill_price = details?["avg_fill_price"] as? Double ?? confirmed.avg_fill_price
+                }
+                confirmed.amendment_pending = nil
+                store.retainCompleted([confirmed])
                 store.opportunities.confirmCancellation(canceledOrder, remaining: store.orders)
                 store.orders.removeAll { $0.id == canceledOrder.id }
             }
@@ -430,7 +445,13 @@ struct OrderDetail: View {
     @State private var editingSnapshot: Order?
     @State private var pricePicker: PricePickerSnapshot?
     @AppStorage("confirmBeforeOrderExecution") private var confirmExecution = true
-    private var current: Order? { store.orders.first { $0.id == initial.id } }
+    @State private var sourceContext: String?
+    private var context: String { "\(store.demo)-\(store.address)" }
+    private var completed: Order? { sourceContext == context ? store.completedOrders[initial.id] : nil }
+    private var current: Order? {
+        guard sourceContext == nil || sourceContext == context else { return nil }
+        return store.orders.first { $0.id == initial.id }
+    }
     var body: some View {
         Form {
             if let order = current {
@@ -498,7 +519,28 @@ struct OrderDetail: View {
                 if TradeRules.cancelable(order) { Section { Button("Cancel order", role: .destructive) {
                     if confirmExecution { action = "Cancel order" } else { perform("Cancel order") }
                 } } }
-            } else { ContentUnavailableView("Order no longer pending", systemImage: "checkmark.circle") }
+            } else {
+                let record = completed ?? initial
+                Section {
+                    LabeledContent("Contract", value: "\(record.name) · \(record.expiration ?? "") · \(money(record.strike)) · \(record.option_type ?? "")")
+                    LabeledContent("Quantity", value: record.quantity?.formatted() ?? "—")
+                    LabeledContent("Limit", value: money(record.premium))
+                    LabeledContent("Time in force", value: record.timingLabel)
+                    if completed != nil {
+                        LabeledContent("Status", value: record.ib_status ?? record.status)
+                        Text(LocalizedStringKey(record.statusExplanation)).font(.caption).foregroundStyle(.secondary)
+                        LabeledContent("Filled quantity", value: record.filledQuantity?.formatted() ?? "—")
+                        LabeledContent("Average fill price", value: money(record.fillPrice))
+                        LabeledContent("Last fill time", value: record.fillTimeLabel)
+                        LabeledContent("Commission", value: record.commissionLabel)
+                    } else {
+                        Text("Final result not yet verified. Absence from pending orders does not confirm a fill or cancellation.")
+                            .foregroundStyle(.orange)
+                    }
+                    if let id = record.ib_order_id { LabeledContent("IB order ID", value: String(id)) }
+                    if let id = record.perm_id { LabeledContent("Permanent ID", value: String(id)) }
+                }
+            }
             Section { TradingNotice() }
         }
         .modifier(KeyboardDismissal())
@@ -516,6 +558,7 @@ struct OrderDetail: View {
             }.presentationDetents([.medium, .large])
         }
         .onAppear {
+            if sourceContext == nil { sourceContext = context }
             editingSnapshot = current
             price = String(format: "%.2f", current?.premium ?? 0)
             quantity = max(1, Int(current?.quantity ?? 1))

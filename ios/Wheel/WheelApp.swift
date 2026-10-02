@@ -137,6 +137,9 @@ struct Order: Decodable, Identifiable {
         if ["submitted", "presubmitted"].contains(broker) { return "IB reports the order as working; this is not a fill confirmation." }
         return "Awaiting an updated broker status. Processing does not mean filled."
     }
+    var isTerminal: Bool {
+        ["filled", "executed", "cancelled", "canceled", "rejected"].contains(status.lowercased())
+    }
     var fillTimeLabel: String {
         guard let fill_time else { return "—" }
         let parser = ISO8601DateFormatter()
@@ -195,6 +198,10 @@ final class WheelStore {
     private var fillTracker = FillTracker()
     private var fillSnapshot: [Order] = []
     private var fillSnapshotAt: Date?
+    var completedOrders: [OrderID: Order] = [:]
+    func retainCompleted(_ records: [Order]) {
+        for order in records where order.isTerminal { completedOrders[order.id] = order }
+    }
     var trading = TradingSession()
     var opportunities = OpportunityBook()
     var selectedTab = "settings"
@@ -302,6 +309,7 @@ final class WheelStore {
                         query: [URLQueryItem(name: "executed", value: "true")])
                     let history = try JSONDecoder().decode(Orders.self, from: JSONSerialization.data(withJSONObject: payload))
                     guard token == revision, tradeVersion == trading.version, !trading.busy, !Task.isCancelled else { return }
+                    retainCompleted(history.orders)
                     fillSnapshot = history.orders
                     fillSnapshotAt = Date()
                 } catch {
@@ -346,7 +354,7 @@ final class WheelStore {
             if token == revision, version == trading.version, !Task.isCancelled { filledError = connectionMessage(error) }
         }
     }
-    func changeMode() { performanceHistoryCache = [:]; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
+    func changeMode() { completedOrders = [:]; performanceHistoryCache = [:]; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
 }
 
 func connectionMessage(_ error: Error) -> String {

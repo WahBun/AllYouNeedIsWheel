@@ -846,6 +846,22 @@ final class TradingTests: XCTestCase {
         XCTAssertFalse(value(false).matches(ticker: "TEST", expiration: "20261016", strike: 75, quantity: 1, price: 1.15))
         XCTAssertFalse(value(amount: 1.7976931348623157e308).matches(ticker: "TEST", expiration: "20261016", strike: 75, quantity: 1, price: 1.15))
     }
+    func testCompletedOrderCachePreservesFillsAndClearsOnContextChange() {
+        let store = WheelStore()
+        var order = Order(id: 812, ticker: "TEST", quantity: 3, status: "processing", filled: 1, avg_fill_price: 0.42)
+        store.retainCompleted([order])
+        XCTAssertNil(store.completedOrders[order.id])
+        order.status = "canceled"
+        store.retainCompleted([order])
+        XCTAssertEqual(store.completedOrders[order.id]?.filledQuantity, 1)
+        XCTAssertEqual(store.completedOrders[order.id]?.fillPrice, 0.42)
+        XCTAssertFalse(TradeRules.cancelable(store.completedOrders[order.id]!))
+        order.status = "unknown"
+        store.retainCompleted([order])
+        XCTAssertEqual(store.completedOrders[order.id]?.status, "canceled")
+        store.changeMode()
+        XCTAssertTrue(store.completedOrders.isEmpty)
+    }
     func testClosedSessionMissingGreeksDoNotCauseFastPolling() {
         XCTAssertEqual(RefreshLoop.optionMetricsDelay(frozen: true, marketClosed: true, missing: true, failed: false, failures: 0), 30)
         XCTAssertEqual(RefreshLoop.optionMetricsDelay(frozen: true, marketClosed: false, missing: true, failed: false, failures: 1), 1)
