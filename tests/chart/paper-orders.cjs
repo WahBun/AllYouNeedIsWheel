@@ -43,6 +43,15 @@ await page.evaluate(()=>{
  configure({...c,paper:{enabled:true,active:true,entry:100,tp:102,sl:99,side:1}});
  if(document.getElementById('preview-order-quantity'))throw Error('Working order offered preview quantity edit');
 });
+await page.evaluate(()=>{
+ updatePriceCursor({point:{x:200,y:200}});
+ if(priceAdd.hidden)throw Error('Crosshair did not show price control');
+ updatePriceCursor({});
+ if(!priceAdd.hidden)throw Error('Dismissed crosshair left price control behind');
+ cursorOrderPrice=105;priceAdd.hidden=false;priceAdd.click();
+ document.getElementById('chart').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));
+ if(!priceMenu.hidden||!priceAdd.hidden)throw Error('Outside tap did not dismiss price controls');
+});
 const markers=await page.evaluate(()=>{
  receive({con_id:7,generation:'marks',interval:5,session:'all',bars:[{time:1000,open:10,high:11,low:9,close:10},{time:1300,open:10,high:12,low:9,close:11}]});
  const c={entry:0,quantity:1,con_id:7,priceRules:[{low:0,increment:.25}],paper:{executions:[{id:'buy',time:1010,price:10,quantity:1,side:'BUY'},{id:'sell',time:1310,price:11,quantity:1,side:'SELL'}]}};

@@ -134,10 +134,10 @@ chart.subscribeCrosshairMove(handleReadoutMove);
 // Price-axis order entry: explicit side and type at the selected tick price.
 const priceAdd=document.createElement('button'),priceMenu=document.createElement('div');
 priceAdd.id='price-order-add';priceAdd.textContent='⊕';priceAdd.setAttribute('aria-label','Orders at selected price');priceAdd.hidden=true;
-priceAdd.style.cssText='position:absolute;right:62px;width:30px;height:30px;padding:0;border:0;border-radius:4px;background:#20242d;color:white;font:22px -apple-system;z-index:6;touch-action:manipulation';
+priceAdd.style.cssText='position:absolute;right:62px;width:20px;height:20px;padding:0;border:0;border-radius:3px;background:#20242d;color:white;font:16px -apple-system;z-index:6;touch-action:manipulation';
 priceMenu.id='price-order-menu';priceMenu.hidden=true;priceMenu.style.cssText='position:absolute;right:8px;z-index:16;background:#20242d;color:#eee;border-radius:6px;padding:4px;box-shadow:0 3px 10px #0005;max-width:calc(100% - 16px)';
 document.body.append(priceAdd,priceMenu);
-let cursorOrderPrice=null,menuOrderPrice=null,menuOrderCID=null;
+let cursorOrderPrice=null,menuOrderPrice=null,menuOrderCID=null,priceControlTouchUntil=0;
 function closePriceMenu(){priceMenu.hidden=true;menuOrderPrice=null;}
 function priceOrderChoices(price,reference){
  if(!(price>0&&reference>0)||price===reference)return [];
@@ -151,7 +151,7 @@ function sendPriceOrder(choice){
  if(!(template.tp>0&&template.sl>0&&tp>0&&sl>0&&(tp-price)*choice.side>0&&(price-sl)*choice.side>0)){validation('Set valid TP / SL distances first');return;}
  paperAction({action:'submit',entry:price,quantity:qty,side:choice.side,entry_type:choice.type,tp,sl});
 }
-priceAdd.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();});
+priceAdd.addEventListener('pointerdown',e=>{priceControlTouchUntil=performance.now()+600;e.preventDefault();e.stopPropagation();});
 priceAdd.onclick=e=>{
  e.stopPropagation();hideExecutionPopup();
  if(!priceMenu.hidden){closePriceMenu();return;}
@@ -169,15 +169,25 @@ priceAdd.onclick=e=>{
   button.onclick=e=>{e.stopPropagation();sendPriceOrder(choice);};priceMenu.append(button);
  }
  if(!choices.length){priceMenu.textContent='Choose a price above or below the market';}
- priceMenu.hidden=false;priceMenu.style.top=Math.max(35,Math.min(parseFloat(priceAdd.style.top)+32,innerHeight-priceMenu.offsetHeight-32))+'px';
+ priceMenu.hidden=false;priceMenu.style.top=Math.max(35,Math.min(parseFloat(priceAdd.style.top)+24,innerHeight-priceMenu.offsetHeight-32))+'px';
 };
-chart.subscribeCrosshairMove(p=>{
- if(!priceMenu.hidden||!p.point)return;
- cursorOrderPrice=p.point?snapPrice(series.coordinateToPrice(p.point.y)):null;
- priceAdd.hidden=cursorOrderPrice===null||!p.point||p.point.y<35||p.point.y>innerHeight-32;
- if(!priceAdd.hidden)priceAdd.style.top=(p.point.y-15)+'px';
-});
-chartSurface.addEventListener('pointerdown',closePriceMenu,true);
+function updatePriceCursor(p){
+ if(!priceMenu.hidden)return;
+ if(!p.point){
+  if(performance.now()<priceControlTouchUntil||(matchMedia('(hover: hover)').matches&&priceAdd.matches(':hover')))return;
+  priceAdd.hidden=true;cursorOrderPrice=null;return;
+ }
+ cursorOrderPrice=snapPrice(series.coordinateToPrice(p.point.y));
+ priceAdd.hidden=cursorOrderPrice===null||p.point.y<35||p.point.y>innerHeight-32;
+ if(!priceAdd.hidden)priceAdd.style.top=(p.point.y-10)+'px';
+}
+chart.subscribeCrosshairMove(updatePriceCursor);
+function dismissPriceControls(e){
+ if(priceAdd.contains(e.target)||priceMenu.contains(e.target))return;
+ closePriceMenu();priceAdd.hidden=true;priceControlTouchUntil=0;
+}
+document.addEventListener('pointerdown',dismissPriceControls,true);
+document.addEventListener('touchstart',dismissPriceControls,{capture:true,passive:true});
 chart.timeScale().subscribeVisibleLogicalRangeChange(()=>{closePriceMenu();priceAdd.hidden=true;});
 window.addEventListener('chart-viewport-resized',()=>{closePriceMenu();priceAdd.hidden=true;});
 function move(k,y){const raw=series.coordinateToPrice(y),price=snapPrice(raw);if(price===null){validation('Waiting for valid contract price increments');return;}validation();if(k==='entry'){breakEven=false;entry=price;inferSide();clampLevels();if(!levels.tp)appliedTemplate=-1;updateLines();if(dragging!=='entry')window.webkit?.messageHandlers.entryChanged?.postMessage(entry);return;}if(k==='sl')breakEven=false;const edge=stepPrice(entry,side);levels[k]=k==='tp'&&edge!==null?(side>0?Math.max(edge,price):Math.min(edge,price)):price;updateLines();}
