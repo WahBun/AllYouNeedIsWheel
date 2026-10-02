@@ -34,6 +34,20 @@ import WebKit
 
 struct StockChartView: View {
     let position: Position
+    var resumeLast = false
+    @State private var initialized = false
+    private var recentChartKey: String { "lastViewedChartV1-\(store.demo)-\(store.address)" }
+    private func rememberChart() {
+        guard initialized, let id = chartID, id > 0 else { return }
+        var contract = selectedContract
+        contract["con_id"] = id
+        contract["local_symbol"] = chartSymbol
+        contract["security_type"] = chartType
+        let record: [String: Any] = ["contract": contract, "interval": interval, "session": session]
+        if let data = try? JSONSerialization.data(withJSONObject: record) {
+            UserDefaults.standard.set(data, forKey: recentChartKey)
+        }
+    }
     @State private var paperState: [String: Any] = [:]
     @State private var completedPaperOrders: Set<String> = []
     @State private var paperBusy = false
@@ -374,10 +388,26 @@ struct StockChartView: View {
             }.presentationDetents([.medium, .large])
         }
         .onAppear {
+            if !initialized {
+                if resumeLast {
+                    if let data = UserDefaults.standard.data(forKey: recentChartKey),
+                       let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let contract = record["contract"] as? [String: Any],
+                       let id = contract["con_id"] as? Int, id > 0 {
+                        selectedContract = contract
+                        if let saved = record["interval"] as? Int, intervals.contains(saved) { interval = saved }
+                        if let saved = record["session"] as? String, ["rth", "all"].contains(saved) { session = saved }
+                    } else if position.con_id == nil { showSymbols = true }
+                }
+                if chartType == "FUT" { session = "all" }
+                initialized = true
+                rememberChart()
+            }
             visible = true
-            if entry.isEmpty { entry = String(position.market_price ?? 0) }
+            if entry.isEmpty { entry = selectedContract.isEmpty ? String(position.market_price ?? 0) : "0" }
         }
-        .onDisappear { visible = false }
+        .onChange(of: cacheKey) { rememberChart() }
+        .onDisappear { rememberChart(); visible = false }
         .task(id: "paper-" + context) {
             paperState = [:]
             guard visible, phase == .active, !store.demo, let cid = chartID else { return }
