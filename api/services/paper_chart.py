@@ -100,13 +100,29 @@ class PaperChart:
                 fills += [f for f in conn.ib.fills() if f.execution.acctNumber == account
                           and f.contract.conId == cid and f.execution.permId == perm]
             return list({f.execution.execId:f for f in fills}.values())
+        terminal = group.get('terminal', {})
+        if missing:
+            # A locally held, subsequently canceled order has no broker permId
+            # and disappears on reconnect. Recover only its confirmed journal state.
+            with self.database() as db:
+                snapshots = db.execute('SELECT result FROM chart_paper_requests WHERE account=? AND result IS NOT NULL', (account,)).fetchall()
+            for (encoded,) in snapshots:
+                snapshot = json.loads(encoded).get('state', {}).get('orders', [])
+                if {r['order_id'] for r in snapshot} != set(group['ids'].values()): continue
+                for row in snapshot:
+                    if row['status'] in ('Filled','Cancelled','ApiCancelled','Inactive'): terminal[row['role']] = row
         rows=[]
         for role, oid in group['ids'].items():
             t=trades.get(oid)
+            if not t and role in terminal and terminal[role]['order_id'] == oid:
+                rows.append(terminal[role]); continue
             rows.append(dict(role=role, order_id=oid, status=t.orderStatus.status if t else 'Unknown',
                 price=(t.order.auxPrice if role=='sl' or (role=='entry' and t.order.orderType=='STP') else t.order.lmtPrice) if t and role!='close' else 0,
-                quantity=float(t.order.totalQuantity) if t else 0,
+                quantity=max(float(t.order.totalQuantity),float(t.orderStatus.filled),sum(float(f.execution.shares) for f in trade_fills(t))) if t else 0,
                 filled=max(float(t.orderStatus.filled),sum(float(f.execution.shares) for f in trade_fills(t))) if t else 0))
+        group['terminal'] = {r['role']:r for r in rows if r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive')}
+        with self.database() as db:
+            db.execute('UPDATE chart_paper_groups SET orders=? WHERE account=? AND con_id=?',(json.dumps(group),account,cid))
         result.update(orders=rows, side=group['side'], known=all(r['status']!='Unknown' for r in rows))
         result['active']=any(r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive') for r in rows) or result['position']!=0
         result['status']='working' if result['active'] else 'done'
@@ -317,6 +333,12 @@ class PaperChart:
             if any(not t.isDone() for t in working): raise RuntimeError('Cancellation not confirmed')
             positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
             position=next((p for p in positions if p.account==account and p.contract.conId==cid),None)
+            expected = sum((1 if t.order.action == 'BUY' else -1) * max(float(t.orderStatus.filled),
+                           sum(float(f.execution.shares) for f in t.fills)) for t in trades.values()
+                           if t.order.orderId in group['ids'].values())
+            actual = float(position.position) if position else 0
+            if abs(expected - actual) > .000001:
+                raise ValueError('Position and executions are not synchronized; review before closing')
             if position and position.position:
                 if any(t.contract.conId==cid and t.order.account==account for t in conn.ib.openTrades()): raise ValueError('Other working orders exist; review Gateway')
                 order=MarketOrder('SELL' if position.position>0 else 'BUY',abs(position.position),account=account,orderRef=group.get('ref','WheelPaper:'+request_id))

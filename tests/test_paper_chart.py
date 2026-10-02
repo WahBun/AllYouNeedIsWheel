@@ -59,6 +59,15 @@ class PaperChartTests(unittest.TestCase):
         self.assertEqual(state['status'],'done')
         self.assertEqual(state['orders'][1]['filled'],1)
         self.assertEqual(self.service.group('DU_TEST',7)['perms']['sl'],1002)
+    def test_confirmed_local_cancellation_survives_reconnect_without_perm_id(self):
+        self.submit()
+        r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='close'))
+        self.assertFalse(r['state']['active'])
+        self.trades.clear();self.conn._bounded_order_read.return_value=[]
+        state=self.service.state(self.conn,7)
+        self.assertTrue(state['known']);self.assertFalse(state['active'])
+        self.assertTrue(all(r['status']=='Cancelled' for r in state['orders']))
+
     def test_reconnect_ambiguous_reference_stays_unknown(self):
         import copy
         self.submit();completed=copy.deepcopy(self.trades)
@@ -121,6 +130,13 @@ class PaperChartTests(unittest.TestCase):
         with patch('time.monotonic',side_effect=[0,5]):
             r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
         self.assertEqual(r['status'],'unknown')
+        self.assertEqual(self.conn.ib.placeOrder.call_count,3)
+
+    def test_close_rejects_stale_position_after_exit_fill(self):
+        self.filled_position()
+        self.trades[1].orderStatus.status='Filled';self.trades[1].orderStatus.filled=4
+        r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='close'))
+        self.assertFalse(r['success'])
         self.assertEqual(self.conn.ib.placeOrder.call_count,3)
 
     def test_scale_exit_fill_race_does_not_open_new_position(self):
