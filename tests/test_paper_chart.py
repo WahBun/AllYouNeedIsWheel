@@ -85,6 +85,7 @@ class PaperChartTests(unittest.TestCase):
         def fill(c,o):
             t=original(c,o)
             if o.orderType=='MKT':
+                self.assertEqual(o.tif, 'DAY')
                 t.orderStatus.status='Filled';t.orderStatus.filled=o.totalQuantity
                 self.pos.position += o.totalQuantity*(1 if o.action=='BUY' else -1)
             return t

@@ -277,7 +277,7 @@ class PaperChart:
                 protect(actual)
                 raise ValueError('Position changed while canceling exits; adjustment skipped, protection restored')
             order = MarketOrder(('BUY' if actual > 0 else 'SELL') if action == 'add' else ('SELL' if actual > 0 else 'BUY'),
-                                qty,account=account,orderRef=group['ref'])
+                                qty,account=account,tif='DAY',orderRef=group['ref'])
             order.orderId = conn.ib.client.getReqId()
             group['ids'][action + '_' + str(order.orderId)] = order.orderId; save()
             trade = conn.ib.placeOrder(contract,order)
@@ -345,7 +345,7 @@ class PaperChart:
                 raise ValueError('Position and executions are not synchronized; review before closing')
             if position and position.position:
                 if any(t.contract.conId==cid and t.order.account==account for t in conn.ib.openTrades()): raise ValueError('Other working orders exist; review Gateway')
-                order=MarketOrder('SELL' if position.position>0 else 'BUY',abs(position.position),account=account,orderRef=group.get('ref','WheelPaper:'+request_id))
+                order=MarketOrder('SELL' if position.position>0 else 'BUY',abs(position.position),account=account,tif='DAY',orderRef=group.get('ref','WheelPaper:'+request_id))
                 order.orderId=conn.ib.client.getReqId();group['ids']['close']=order.orderId
                 with self.database() as db: db.execute('UPDATE chart_paper_groups SET orders=? WHERE account=? AND con_id=?',(json.dumps(group),account,cid))
                 conn.ib.placeOrder(contract,order)
