@@ -46,7 +46,9 @@ struct StockChartView: View {
             StockChartWeb(packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, onEntry: { entry = String(format: "%.2f", $0) })
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
-                Text("Preview").font(.caption).foregroundStyle(.secondary)
+                if validEntry == 0 {
+                    Button { entry = String(format: "%.2f", ((packet["bars"] as? [[String: Any]])?.last?["close"] as? Double) ?? position.market_price ?? 0) } label: { Image(systemName: "plus.circle") }.accessibilityLabel("Entry reference")
+                } else { Text("Preview").font(.caption).foregroundStyle(.secondary) }
                 Picker("Entry type", selection: $entryType) {
                     Text("LMT").tag("LMT"); Text("STP").tag("STP")
                 }.pickerStyle(.segmented).frame(maxWidth: 125)
@@ -150,7 +152,7 @@ private struct StockChartWeb: UIViewRepresentable {
         var config: [String: Any] = [:]
         var onEntry: ((Double) -> Void)?
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            if message.name == "entryChanged", let price = message.body as? Double, price.isFinite, price > 0 {
+            if message.name == "entryChanged", let price = message.body as? Double, price.isFinite, price >= 0 {
                 onEntry?(price)
             } else if message.name == "chartReady" { ready = true; update() }
         }
