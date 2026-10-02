@@ -270,6 +270,7 @@ final class TradingSession {
         }
         var sequence = 0
         var bars: [Int: [String: Any]] = [:]
+        var orderedTimes: [Int] = []
         var generation: String?
         for try await line in bytes.lines {
             try Task.checkCancellation()
@@ -279,14 +280,24 @@ final class TradingSession {
                   packet["con_id"] as? Int == conID,
                   let updates = packet["bars"] as? [[String: Any]] else { continue }
             if packet["mode"] as? String == "snapshot" {
-                bars = [:]; generation = packet["generation"] as? String
+                bars = [:]; orderedTimes = []; generation = packet["generation"] as? String
             } else if sequence == 0 || next != sequence + 1 || generation != packet["generation"] as? String {
                 throw AppError.message("Chart stream resynchronizing")
             }
             sequence = next
-            for bar in updates { if let stamp = bar["time"] as? Int { bars[stamp] = bar } }
+            var reorder = false
+            for bar in updates {
+                if let stamp = bar["time"] as? Int {
+                    if bars[stamp] == nil {
+                        if let last = orderedTimes.last, stamp < last { reorder = true }
+                        orderedTimes.append(stamp)
+                    }
+                    bars[stamp] = bar
+                }
+            }
+            if reorder { orderedTimes.sort() }
             packet["changed_bars"] = updates
-            packet["bars"] = bars.keys.sorted().compactMap { bars[$0] }
+            packet["bars"] = orderedTimes.compactMap { bars[$0] }
             receive(packet)
         }
         try Task.checkCancellation()

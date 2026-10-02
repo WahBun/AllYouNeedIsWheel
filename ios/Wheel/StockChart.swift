@@ -339,6 +339,8 @@ private struct StockChartWeb: UIViewRepresentable {
         var ready = false
         var drawingKey = ""
         var loadedDrawingKey = ""
+        var bridgeBusy = false
+        var bridgePending = false
         var lastStreamSequence = 0
         var lastStreamKey = ""
         var packet: [String: Any] = [:]
@@ -364,6 +366,7 @@ private struct StockChartWeb: UIViewRepresentable {
         }
         func update() {
             guard ready else { return }
+            if bridgeBusy { bridgePending = true; return }
             if drawingKey != loadedDrawingKey {
                 var value: [String: Any] = [:]
                 if let data = UserDefaults.standard.data(forKey: "chartDrawings-" + drawingKey),
@@ -396,7 +399,13 @@ private struct StockChartWeb: UIViewRepresentable {
                                         "width": web.bounds.width, "height": web.bounds.height]
             guard let data = try? JSONSerialization.data(withJSONObject: state),
                   let json = String(data: data, encoding: .utf8) else { return }
-            web.evaluateJavaScript("window.applyChartState(\(json))", completionHandler: nil)
+            bridgeBusy = true
+            web.evaluateJavaScript("window.applyChartState(\(json))") { [weak self] _, error in
+                guard let self else { return }
+                self.bridgeBusy = false
+                if error != nil { self.lastStreamSequence = 0; self.lastStreamKey = "" }
+                if self.bridgePending { self.bridgePending = false; self.update() }
+            }
         }
     }
 }

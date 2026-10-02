@@ -34,7 +34,7 @@ class Subscriber:
             reset = True
         changed = bars if reset else [b for b in bars if previous_bars.get(b['time']) != b]
         self.sequence += 1
-        payload = dict(packet, bars=changed, mode='snapshot' if reset else 'delta',
+        payload = dict(packet, bars=[dict(b) for b in changed], pushed_at=time.time(), mode='snapshot' if reset else 'delta',
                        sequence=self.sequence, transport='SSE push')
         self.queue.put_nowait(payload)
         # OHLC dictionaries mutate in place on the owner thread.
@@ -61,7 +61,20 @@ class ChartStreams:
         sub.publish(packet)
         key = uuid4().hex
         self.clients[key] = sub
+        stock_chart.listeners.add(self.publish_changed)
         return key, sub
+
+    def publish_changed(self, state):
+        # Called on the IB owner directly from the ticker callback, including
+        # while synchronous IB reads are yielding to that same event loop.
+        now = time.monotonic()
+        marker = (state['ticks'], tuple(sorted(state['quotes'].items())))
+        for sub in tuple(self.clients.values()):
+            if sub.closed or sub.con_id != state['con_id']:
+                continue
+            if marker != getattr(sub, 'marker', None) or now-sub.sent >= 1:
+                sub.marker = marker
+                sub.publish(stock_chart.packet(state, sub.minutes, sub.session))
 
     def pulse(self):
         if not self.clients:
@@ -80,15 +93,7 @@ class ChartStreams:
             return
         state['used'] = now
         state['conn'].ib.sleep(.005)
-        for sub in self.clients.values():
-            if sub.con_id != state['con_id']:
-                sub.closed = True
-                continue
-            # Publish on source changes, with a heartbeat for freshness/countdown.
-            marker = (state['ticks'], tuple(sorted(state['quotes'].items())))
-            if marker != getattr(sub, 'marker', None) or now-sub.sent >= 1:
-                sub.marker = marker
-                sub.publish(stock_chart.packet(state, sub.minutes, sub.session))
+        self.publish_changed(state)
         # Defer slow history/metadata until the first snapshot has been delivered.
         if (now-min(s.created for s in self.clients.values()) > 2
                 and (self.prepared_generation != state['generation']

@@ -217,3 +217,26 @@ class StockChartTests(unittest.TestCase):
             self.assertEqual((result['bid'],result['ask']),(10,10.01))
             self.assertGreater(result['quote_expires_at'],result['server_time'])
         finally:feed.stop();asyncio.get_event_loop().close()
+
+    def test_incremental_aggregation_matches_full_history_after_rollover_and_backfill(self):
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection(); feed=StockChart()
+        try:
+            feed.snapshot(conn,7,5,'all'); state=feed.active
+            start=int(datetime.now(timezone.utc).timestamp())//60*60
+            state['bars']=[dict(time=start-(200-i)*60,open=10,high=11,low=9,close=10) for i in range(200)]
+            for index in range(100):
+                stamp=start+index*30
+                apply_tick(state['bars'],stamp,8+index%7)
+                for minutes in (1,5,15,60,480):
+                    for session in ('all','rth'):
+                        result=feed.packet(state,minutes,session)['bars']
+                        sessions=regular_sessions(datetime.now(timezone.utc).date().isoformat()) if session=='rth' else None
+                        self.assertEqual(result,aggregate(state['bars'],minutes,sessions))
+            # A historical correction replaces the source and must invalidate caches.
+            state['bars']=[dict(b) for b in state['bars']]
+            state['bars'][3]['high']=99
+            self.assertEqual(feed.packet(state,5,'all')['bars'],aggregate(state['bars'],5))
+            del state['bars'][:40]
+            self.assertEqual(feed.packet(state,5,'all')['bars'],aggregate(state['bars'],5))
+        finally:feed.stop();asyncio.get_event_loop().close()

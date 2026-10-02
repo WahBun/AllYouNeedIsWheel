@@ -49,7 +49,7 @@ def install_api_dispatcher(app):
     def chart_loop():
         from api.services.chart_stream import streams
         outstanding = None
-        while not stop_background.wait(.02):
+        while not stop_background.wait(.005):
             if not streams.clients or (outstanding is not None and not outstanding.done()):
                 continue
             def pulse():

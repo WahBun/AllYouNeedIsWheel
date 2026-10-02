@@ -5,6 +5,7 @@ bars at the caller cadence; source ticks are preserved in OHLC, not snapshots.
 """
 import asyncio
 import math
+from bisect import bisect_left
 import time
 from datetime import date, datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
@@ -101,6 +102,7 @@ class StockChart:
     def __init__(self):
         self.active = None
         self.next_request = {}
+        self.listeners = set()
 
     def stop(self):
         state, self.active = self.active, None
@@ -205,6 +207,8 @@ class StockChart:
                             del state['live_bars'][min(state['live_bars'])]
                         live.update(high=max(live['high'], tick.price),
                                     low=min(live['low'], tick.price), close=tick.price)
+                for listener in tuple(self.listeners):
+                    listener(state)
             state['handler'] = on_tick
             self.active = state
             ticker.updateEvent += on_tick
@@ -306,7 +310,24 @@ class StockChart:
         quote_time = min(valid_times) if valid_times else None
         if bid is not None and ask is not None and bid > ask:
             bid = ask = None
-        output_bars = higher_bars if higher_bars is not None else aggregate(state['bars'], minutes, sessions)
+        output_bars = higher_bars
+        if output_bars is None:
+            bars = state['bars']
+            cache = state.setdefault('aggregates', {})
+            cache_key = (minutes, session, sessions)
+            previous = cache.get(cache_key)
+            if (previous and previous[0] is bars and bars and previous[1] == bars[0]['time']
+                    and previous[2]):
+                # Live events only mutate/append the tail. History replacement and
+                # trimming invalidate this path; recompute the last aggregate bucket.
+                old = previous[2]
+                start = bisect_left(bars, old[-1]['time'], key=lambda bar: bar['time'])
+                output_bars = old[:-1] + aggregate(bars[start:], minutes, sessions)
+            else:
+                output_bars = aggregate(bars, minutes, sessions)
+            cache[cache_key] = (bars, bars[0]['time'] if bars else None, output_bars)
+            if len(cache) > 16:
+                cache.pop(next(iter(cache)))
         server_time = time.time()
         live = in_session and age is not None and age < 10
         closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time) if live else None

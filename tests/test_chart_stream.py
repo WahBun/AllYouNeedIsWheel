@@ -50,7 +50,8 @@ class ChartPushTests(unittest.TestCase):
                 _, sub=hub.open(conn,7,1,'all');sub.queue.get_nowait()
                 ticker.tickByTicks=[S(time=datetime.now(timezone.utc),price=p) for p in [12,8,11]]
                 ticker.updateEvent.emit(ticker)
-                hub.pulse()
+                # No scheduler pulse: a ticker event itself must publish.
+                self.assertFalse(sub.queue.empty())
                 result=sub.queue.get_nowait()
                 self.assertEqual(result['tick_count'],3)
                 self.assertEqual((result['bars'][-1]['high'],result['bars'][-1]['low'],result['bars'][-1]['close']),(12,8,11))
@@ -58,3 +59,9 @@ class ChartPushTests(unittest.TestCase):
                 conn.ib.placeOrder.assert_not_called()
                 sub.closed=True;hub.pulse();self.assertFalse(hub.clients)
         finally:feed.stop();asyncio.get_event_loop().close()
+
+    def test_queued_payload_owns_its_bars(self):
+        sub=Subscriber(1,1,'all'); packet=self.packet()
+        sub.publish(packet)
+        packet['bars'][0]['close']=100
+        self.assertEqual(sub.queue.get_nowait()['bars'][0]['close'],10)
