@@ -7,6 +7,21 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
  const c=await page.locator('[data-placement-cursor=vertical]').getAttribute('x1'),cy=await page.locator('[data-placement-cursor=horizontal]').getAttribute('y1');
  x=200;y=200;await send('touchStart');x+=nx-Number(c);y+=ny-Number(cy);await send('touchMove');await send('touchEnd');await page.waitForTimeout(25);
  }x=nx;y=ny;await send('touchStart');await send('touchEnd');}};})():page.mouse;
+ // Long-pressing the collapsed control must move it, never select chart text.
+ await page.evaluate(()=>configureDrawings({key:'long-press',value:{collapsed:true,drawings:[]}}));
+ await page.waitForTimeout(40);
+ const toggle=page.getByRole('button',{name:'Expand drawing tools',exact:true});
+ const beforeDrag=await toggle.boundingBox();
+ await pointer.move(beforeDrag.x+20,beforeDrag.y+20);await pointer.down();
+ await page.waitForTimeout(800);await pointer.move(beforeDrag.x+90,beforeDrag.y+110);await pointer.up();
+ const afterDrag=await toggle.boundingBox();
+ assert.ok(afterDrag.x>beforeDrag.x+50&&afterDrag.y>beforeDrag.y+60,'long press still drags collapsed toolbar');
+ assert.equal(await page.evaluate(()=>getSelection().toString()),'','no text selection after long press');
+ assert.equal(await toggle.evaluate(el=>getComputedStyle(el).userSelect),'none');
+ assert.equal(await toggle.evaluate(el=>el.dispatchEvent(new Event('contextmenu',{bubbles:true,cancelable:true}))),false);
+ await pointer.click(afterDrag.x+20,afterDrag.y+20);
+ assert.equal(await page.getByRole('button',{name:'Collapse drawing tools',exact:true}).count(),1,'tap still expands');
+ console.log('PASS long press drag without text selection or callout');
  const tools=[['trend','Trendline',2],['info','Info line',2],['hray','Horizontal ray',1],['channel','Parallel channel',3],['fib','Fib retracement',2],['fibext','Trend-based fib extension',3],['long','Long position',1],['short','Short position',1],['range','Price range',2],['highlight','Highlighter',0],['arrow','Arrow',2],['up','Arrow mark up',1],['down','Arrow mark down',1],['rect','Rectangle',2],['path','Path',0],['triangle','Triangle',3],['curve','Curve',3],['text','Text',1],['note','Note',1],['price','Price note',2]];
  async function hit(){return page.evaluate(()=>{const g=document.querySelector('#draw-svg g');const b=g.getBoundingClientRect();const cx=(b.left+b.right)/2,cy=(b.top+b.bottom)/2;let best=null;for(let y=Math.ceil(Math.max(100,b.top));y<Math.min(620,b.bottom+1);y+=3)for(let x=Math.ceil(Math.max(30,b.left));x<Math.min(390,b.right+1);x+=3){const el=document.elementFromPoint(x,y);if(el&&g.contains(el)){const score=Math.hypot(x-cx,y-cy);if(!best||score<best.score)best={x,y,score};}}if(best){best.x=Math.round(best.x);best.y=Math.round(best.y);}return best;});}
  for(const [id,name,count] of tools){
