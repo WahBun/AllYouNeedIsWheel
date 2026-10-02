@@ -151,3 +151,10 @@ Entry/TP/SL drag handles, and RTH/ETH session selection. Prices appear in the
 handles without duplicate custom axis labels. LMT/STP and Join Bid/Ask change
 only the preview; Join copies a recent live quote once. Explanations and required
 attribution remain in Chart details. No chart control submits broker orders.
+
+Preview direction is inferred when Entry is edited or LMT/STP is changed:
+LMT below/above the last chart close selects buy/sell; STP reverses this.
+At equality the prior direction is retained. Subsequent quote updates do not
+flip direction. TP/SL constraints and preview P&L follow that direction.
+The chart close may be historical outside market hours; this is not execution
+validation. Actual broker orders remain outside this chart prototype.

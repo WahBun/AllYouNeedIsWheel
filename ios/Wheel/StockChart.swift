@@ -55,8 +55,8 @@ struct StockChartView: View {
                 Stepper("Shares", value: Binding(get: { max(1, Int(validQuantity)) }, set: { quantity = String($0) }), in: 1...1_000_000).labelsHidden()
             }
             HStack {
-                Button("Join Bid") { join("bid") }.disabled(joinPrice("bid") == nil)
-                Button("Join Ask") { join("ask") }.disabled(joinPrice("ask") == nil)
+                Button("Join Bid") { join("bid") }.tint(.green).disabled(joinPrice("bid") == nil)
+                Button("Join Ask") { join("ask") }.tint(.red).disabled(joinPrice("ask") == nil)
                 Spacer()
                 Button { showInfo = true } label: { Image(systemName: "info.circle") }.accessibilityLabel("Chart details")
             }.buttonStyle(.bordered)
