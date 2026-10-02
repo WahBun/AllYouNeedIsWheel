@@ -42,6 +42,9 @@ class PaperChart:
 
     def state(self, conn, cid):
         account = paper_account(conn)
+        # Read broker events even when no chart SSE subscriber is pumping the loop.
+        # Runs only on the serialized IB owner, never an HTTP thread.
+        conn.ib.sleep(.005)
         group = self.group(account,cid)
         trades = {t.order.orderId:t for t in conn.ib.trades() if t.order.account==account and t.contract.conId==cid}
         position = next((p for p in conn.ib.positions() if p.account==account and p.contract.conId==cid),None)

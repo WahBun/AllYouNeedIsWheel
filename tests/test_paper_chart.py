@@ -24,6 +24,16 @@ class PaperChartTests(unittest.TestCase):
         self.conn.ib.cancelOrder.side_effect=lambda o:setattr(next(t for t in self.trades if t.order.orderId==o.orderId).orderStatus,'status','Cancelled')
         self.resolve=patch('api.services.paper_chart.contracts.resolve',return_value=self.contract);self.resolve.start()
         self.feed=patch('api.services.paper_chart.stock_chart.active',{'con_id':7,'price_rules':[{'low':0,'increment':.25}]});self.feed.start()
+    def test_state_drains_broker_events_without_chart_subscriber(self):
+        self.submit()
+        for trade in self.trades: trade.orderStatus.status='PendingSubmit'
+        def drain(_):
+            for trade in self.trades: trade.orderStatus.status='Submitted'
+        self.conn.ib.sleep.side_effect=drain
+        state=self.service.state(self.conn,7)
+        self.assertTrue(all(r['status']=='Submitted' for r in state['orders']))
+        self.assertEqual(self.conn.ib.placeOrder.call_count,3)
+
     def test_reconnect_recovers_completed_bracket_by_unique_reference(self):
         import copy
         self.submit()
