@@ -1245,3 +1245,52 @@ extension TradingTests {
         XCTAssertNil(loaded?["sequence"]); XCTAssertNil(loaded?["mode"])
     }
 }
+
+
+// Leaves an SSE response open without sending another byte, like a suspended link.
+private final class SuspendedChartProtocol: URLProtocol, @unchecked Sendable {
+    static let lock = NSLock()
+    nonisolated(unsafe) static var onStop: (() -> Void)?
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                       headerFields: ["Content-Type": "text/event-stream"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        let packet = #"data: {"con_id":7,"sequence":1,"mode":"snapshot","generation":"same","bars":[]}"# + "\n\n"
+        client?.urlProtocol(self, didLoad: Data(packet.utf8))
+    }
+    override func stopLoading() {
+        Self.lock.lock(); let callback = Self.onStop; Self.onStop = nil; Self.lock.unlock()
+        callback?()
+    }
+}
+
+extension TradingTests {
+    func testChartStreamCancellationInterruptsIdleReadAndReconnectHasNewIdentity() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [SuspendedChartProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let trading = TradingSession(session: session)
+        var identities: [String] = []
+        for _ in 0..<2 {
+            let received = expectation(description: "First snapshot")
+            let stopped = expectation(description: "Idle stream canceled immediately")
+            SuspendedChartProtocol.lock.withLock { SuspendedChartProtocol.onStop = { stopped.fulfill() } }
+            let task = Task {
+                try await trading.chartStream(base: "https://example.test", conID: 7, interval: 5, marketSession: "all") { packet in
+                    identities.append(packet["stream_id"] as? String ?? "")
+                    received.fulfill()
+                }
+            }
+            await fulfillment(of: [received], timeout: 2)
+            task.cancel()
+            await fulfillment(of: [stopped], timeout: 1)
+            _ = await task.result
+        }
+        XCTAssertEqual(identities.count, 2)
+        XCTAssertFalse(identities.contains(""))
+        XCTAssertEqual(Set(identities).count, 2)
+    }
+}

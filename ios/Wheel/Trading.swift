@@ -287,33 +287,40 @@ final class TradingSession {
         var bars: [Int: [String: Any]] = [:]
         var orderedTimes: [Int] = []
         var generation: String?
-        for try await line in bytes.lines {
-            try Task.checkCancellation()
-            guard line.hasPrefix("data: "), let data = line.dropFirst(6).data(using: .utf8),
-                  var packet = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let next = packet["sequence"] as? Int,
-                  packet["con_id"] as? Int == conID,
-                  let updates = packet["bars"] as? [[String: Any]] else { continue }
-            if packet["mode"] as? String == "snapshot" {
-                bars = [:]; orderedTimes = []; generation = packet["generation"] as? String
-            } else if sequence == 0 || next != sequence + 1 || generation != packet["generation"] as? String {
-                throw AppError.message("Chart stream resynchronizing")
-            }
-            sequence = next
-            var reorder = false
-            for bar in updates {
-                if let stamp = bar["time"] as? Int {
-                    if bars[stamp] == nil {
-                        if let last = orderedTimes.last, stamp < last { reorder = true }
-                        orderedTimes.append(stamp)
-                    }
-                    bars[stamp] = bar
+        let streamID = UUID().uuidString
+        try await withTaskCancellationHandler {
+            for try await line in bytes.lines {
+                try Task.checkCancellation()
+                guard line.hasPrefix("data: "), let data = line.dropFirst(6).data(using: .utf8),
+                      var packet = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let next = packet["sequence"] as? Int,
+                      packet["con_id"] as? Int == conID,
+                      let updates = packet["bars"] as? [[String: Any]] else { continue }
+                if packet["mode"] as? String == "snapshot" {
+                    bars = [:]; orderedTimes = []; generation = packet["generation"] as? String
+                } else if sequence == 0 || next != sequence + 1 || generation != packet["generation"] as? String {
+                    throw AppError.message("Chart stream resynchronizing")
                 }
+                sequence = next
+                var reorder = false
+                for bar in updates {
+                    if let stamp = bar["time"] as? Int {
+                        if bars[stamp] == nil {
+                            if let last = orderedTimes.last, stamp < last { reorder = true }
+                            orderedTimes.append(stamp)
+                        }
+                        bars[stamp] = bar
+                    }
+                }
+                if reorder { orderedTimes.sort() }
+                packet["stream_id"] = streamID
+                packet["changed_bars"] = updates
+                packet["bars"] = orderedTimes.compactMap { bars[$0] }
+                receive(packet)
             }
-            if reorder { orderedTimes.sort() }
-            packet["changed_bars"] = updates
-            packet["bars"] = orderedTimes.compactMap { bars[$0] }
-            receive(packet)
+        } onCancel: {
+            // Interrupt a suspended read immediately instead of waiting for the next byte.
+            bytes.task.cancel()
         }
         try Task.checkCancellation()
         throw AppError.message("Chart stream reconnecting")

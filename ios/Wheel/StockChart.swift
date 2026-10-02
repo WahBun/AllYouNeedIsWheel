@@ -187,12 +187,13 @@ struct StockChartView: View {
     @State private var notice = "Loading chart…"
     @State private var visible = false
     @State private var received: Date?
+    @State private var loadedChartKey = ""
     private var cacheKey: String { "\(store.address)-\(chartID ?? 0)-\(interval)-\(session)" }
     private var context: String { "\(store.demo)-\(store.address)-\(chartID ?? 0)-\(interval)-\(session)-\(phase == .active)-\(visible)" }
     private var validEntry: Double { Double(entry).flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 0 }
     private var validQuantity: Double { Double(quantity).flatMap { $0.isFinite && $0 > 0 && $0 <= 1_000_000 ? $0 : nil } ?? 0 }
     private func joinPrice(_ side: String) -> Double? {
-        guard let received, Date().timeIntervalSince(received) < 3,
+        guard visible, phase == .active, let received, Date().timeIntervalSince(received) < 3,
               let expires = packet["quote_expires_at"] as? Double,
               let serverTime = packet["server_time"] as? Double,
               serverTime + Date().timeIntervalSince(received) < expires,
@@ -483,13 +484,20 @@ struct StockChartView: View {
             }
         }
         .task(id: context) {
-            packet = [:]; received = nil; notice = "Loading chart…"
+            // Scene transitions cancel transport, not the chart or its viewport.
+            // A fresh stream must validate quotes again before Join is enabled.
+            received = nil
             guard visible, phase == .active else { return }
+            if loadedChartKey != cacheKey {
+                packet = [:]
+                loadedChartKey = cacheKey
+            }
+            notice = "Reconnecting chart…"
             guard !store.demo else { notice = "Chart pilot requires a connected held stock"; return }
             guard let conID = chartID, conID > 0 else { return }
             let requestContext = context
             let requestCacheKey = cacheKey
-            if let cached = RecentStockCharts.load(requestCacheKey) {
+            if packet.isEmpty, let cached = RecentStockCharts.load(requestCacheKey) {
                 packet = cached.1
                 packet["bid"] = NSNull(); packet["ask"] = NSNull(); packet["bar_closes_at"] = NSNull()
                 notice = "Saved chart · connecting to live data"
@@ -500,7 +508,7 @@ struct StockChartView: View {
                     if interval < 1440 && !(interval == 480 && session == "rth") {
                         try await store.trading.chartStream(base: store.address, conID: conID, interval: interval, marketSession: session) { result in
                             guard !Task.isCancelled, context == requestContext, result["con_id"] as? Int == conID else { return }
-                            packet = result; received = .now; failures = 0
+                            packet = result; received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
                             RecentStockCharts.save(result, key: requestCacheKey)
                             notice = result["status"] as? String == "live" ? "IB Last ticks · live push" : "Historical bars · waiting for IB Last ticks"
                         }
@@ -510,7 +518,7 @@ struct StockChartView: View {
                     try Task.checkCancellation()
                     guard context == requestContext else { return }
                     guard result["con_id"] as? Int == conID, result["bars"] is [[String: Any]] else { throw AppError.message("Invalid chart response") }
-                    packet = result; received = .now; failures = 0
+                    packet = result; received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
                     RecentStockCharts.save(result, key: requestCacheKey)
                     notice = (interval >= 1440 || (interval == 480 && session == "rth")) ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks"
                 } catch {
@@ -654,7 +662,7 @@ private struct StockChartWeb: UIViewRepresentable {
             }
             var outgoing = packet
             if let sequence = packet["sequence"] as? Int {
-                let key = "\(packet["con_id"] ?? "")-\(packet["generation"] ?? "")-\(packet["interval"] ?? "")-\(packet["session"] ?? "")"
+                let key = "\(packet["stream_id"] ?? "")-\(packet["con_id"] ?? "")-\(packet["generation"] ?? "")-\(packet["interval"] ?? "")-\(packet["session"] ?? "")"
                 if sequence == lastStreamSequence && key == lastStreamKey { outgoing = [:] }
                 else {
                     if lastStreamKey == key && sequence == lastStreamSequence + 1 && packet["mode"] as? String == "delta" {
