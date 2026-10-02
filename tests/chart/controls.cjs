@@ -9,6 +9,13 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  const root=path.resolve(__dirname,'../../ios/Wheel/ChartAssets');
  await page.setContent(fs.readFileSync(path.join(root,'stock-chart.html'),'utf8').replace('/*LIBRARY*/',fs.readFileSync(path.join(root,'lightweight-charts.standalone.production.js'),'utf8')));
  const result=await page.evaluate(()=>{
+  configure({entry:0,quantity:1,priceRules:[{low:0,increment:.25}]});
+  for(const [raw,expected] of [[7783.98,'7784.00'],[7784.24,'7784.25'],[7784.49,'7784.50'],[7784.76,'7784.75']]){
+   if(series.priceFormatter().format(raw)!==expected)throw Error('Price axis did not use contract ticks');
+   if(axisPriceText(raw)!==priceText(snapPrice(raw)))throw Error('Axis and order price disagree');
+  }
+  configure({entry:0,quantity:1,priceRules:[{low:0,increment:.01}]});
+  if(series.priceFormatter().format(123.456)!=='123.46')throw Error('Stock price tick regression');
   const config={entry:9,quantity:1,entryType:'LMT',joinSide:1,joinRevision:1,tpDistance:.5,slDistance:.25,templateRevision:1,priceRules:[{low:0,increment:.25}]};
   window.configure(config);
   window.receive({generation:'test',interval:1,session:'all',bars:[{time:1000,open:9,high:11,low:7,close:9.5}]});
