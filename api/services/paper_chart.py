@@ -87,6 +87,7 @@ class PaperChart:
                                 role == 'sl' and t.order.action != entry_action and t.order.orderType == 'STP')
                         if matches: candidates.append(t)
                 if len(candidates) == 1: trades[group['ids'][role]] = candidates[0]
+        self._resolved_trades = trades
         perms = {role:int(trades[oid].order.permId or trades[oid].orderStatus.permId)
                  for role,oid in group['ids'].items() if oid in trades and (trades[oid].order.permId or trades[oid].orderStatus.permId)}
         if perms and perms != group.get('perms'):
@@ -265,7 +266,7 @@ class PaperChart:
         if not current['known']: raise ValueError('Orders need Gateway reconciliation before another action')
         group=self.group(account,cid)
         if not group: raise ValueError('No chart bracket for this contract')
-        trades={t.order.orderId:t for t in conn.ib.trades() if t.order.account==account and t.contract.conId==cid}
+        trades=getattr(self,'_resolved_trades',{})
         if action in ('add','trim'):
             if not group.get('lots'):
                 raise ValueError('This older bracket cannot be scaled without replacing protection; start a new protected futures bracket')

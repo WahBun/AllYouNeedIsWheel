@@ -214,3 +214,16 @@ class ProtectedLotTests(unittest.TestCase):
     def test_full_close_of_filled_units_does_not_cancel_protection(self):
         self.open_four();r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='close'));self.assertTrue(r['success'],r)
         self.conn.ib.cancelOrder.assert_not_called();self.assertEqual(self.conn.ib.placeOrder.call_count,4)
+
+    def test_trim_timeout_keeps_every_stop_and_does_not_replay(self):
+        self.open_four();stops=[t.order.orderId for t in self.trades if t.order.orderType=='STP']
+        self.conn.ib.placeOrder.side_effect=TimeoutError()
+        body=dict(request_id=str(uuid4()),action='trim',quantity=1)
+        result=self.service.execute(self.conn,7,body);self.assertEqual(result['status'],'unknown')
+        self.service.execute(self.conn,7,body)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,1);self.conn.ib.cancelOrder.assert_not_called()
+        self.assertEqual(stops,[t.order.orderId for t in self.trades if t.order.orderType=='STP' and not t.isDone()])
+    def test_exit_fill_during_trim_validation_never_places_extra_exit(self):
+        self.open_four();self.trades[2].orderStatus.status='Filled';self.trades[2].orderStatus.filled=1
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
+        self.assertFalse(result['success']);self.conn.ib.placeOrder.assert_not_called();self.conn.ib.cancelOrder.assert_not_called()
