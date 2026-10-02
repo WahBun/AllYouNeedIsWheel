@@ -102,11 +102,30 @@ struct StockChartView: View {
     @State private var showClosePreview = false
     @State private var beRevision = 0
     @State private var beApplied = false
-    @AppStorage("chartTPDistance") private var tpDistance = "0.20"
-    @AppStorage("chartSLDistance") private var slDistance = "0.10"
+    // Existing distances remain the stock profile; other asset classes are independent.
+    @AppStorage("chartTPDistance") private var stockTPDistance = "0.20"
+    @AppStorage("chartSLDistance") private var stockSLDistance = "0.10"
+    @AppStorage("optionChartTPDistance") private var optionTPDistance = "0.20"
+    @AppStorage("optionChartSLDistance") private var optionSLDistance = "0.10"
+    @AppStorage("futureChartTPDistance") private var futureTPDistance = "2.00"
+    @AppStorage("futureChartSLDistance") private var futureSLDistance = "1.00"
+    @State private var templateType = "STK"
     @State private var showTemplate = false
     @State private var templateRevision = 1
-    private var validTemplate: Bool { [tpDistance, slDistance].allSatisfy { Double($0).map { $0.isFinite && $0 > 0 } ?? false } }
+    private func distanceBinding(_ type: String, tp: Bool) -> Binding<String> {
+        switch type {
+        case "FUT": return tp ? $futureTPDistance : $futureSLDistance
+        case "OPT": return tp ? $optionTPDistance : $optionSLDistance
+        default: return tp ? $stockTPDistance : $stockSLDistance
+        }
+    }
+    private var tpDistance: String { distanceBinding(chartType, tp: true).wrappedValue }
+    private var slDistance: String { distanceBinding(chartType, tp: false).wrappedValue }
+    private var validTemplate: Bool {
+        [true, false].allSatisfy { tp in
+            Double(distanceBinding(templateType, tp: tp).wrappedValue).map { $0.isFinite && $0 > 0 } ?? false
+        }
+    }
     @State private var packet: [String: Any] = [:]
     @State private var notice = "Loading chart…"
     @State private var visible = false
@@ -203,7 +222,7 @@ struct StockChartView: View {
             HStack(spacing: 10) {
                 VStack(spacing: 6) {
                     Button { showInfo = true } label: { Image(systemName: "info.circle").frame(width: 28, height: 30) }.accessibilityLabel("Chart details")
-                    Button { showTemplate = true } label: { Image(systemName: "slider.horizontal.3").frame(width: 28, height: 30) }.accessibilityLabel("TP / SL template")
+                    Button { templateType = chartType; showTemplate = true } label: { Image(systemName: "slider.horizontal.3").frame(width: 28, height: 30) }.accessibilityLabel("TP / SL template")
                 }
                 VStack(spacing: 6) {
                     HStack(spacing: 8) {
@@ -236,7 +255,7 @@ struct StockChartView: View {
                         let result = symbolResults[index]
                         Button {
                             selectedContract = result; entry = "0"; beApplied = false; paperState = [:]; paperMessage = nil
-                            if chartType == "FUT" { session = "all"; if (Double(slDistance) ?? 0) < 0.25 { slDistance = "1.00"; tpDistance = "2.00" } }
+                            if chartType == "FUT" { session = "all" }
                             showSymbols = false
                         } label: {
                             VStack(alignment: .leading) {
@@ -256,12 +275,17 @@ struct StockChartView: View {
         .sheet(isPresented: $showTemplate) {
             NavigationStack {
                 Form {
+                    Picker("Asset class", selection: $templateType) {
+                        Text("Stocks").tag("STK")
+                        Text("Options").tag("OPT")
+                        Text("Futures").tag("FUT")
+                    }.pickerStyle(.segmented)
                     Section("Price distance") {
-                        distanceRow("TP", value: $tpDistance)
-                        distanceRow("SL", value: $slDistance)
+                        distanceRow("TP", value: distanceBinding(templateType, tp: true))
+                        distanceRow("SL", value: distanceBinding(templateType, tp: false))
                     }
                     Text("Distances are saved for new previews. Apply replaces the current preview levels; no broker order is changed.")
-                    Button("Apply to preview") { templateRevision += 1; showTemplate = false }.disabled(!validTemplate || validEntry <= 0)
+                    Button("Apply to preview") { templateRevision += 1; showTemplate = false }.disabled(!validTemplate || validEntry <= 0 || templateType != chartType || paperActive)
                 }.navigationTitle("TP / SL template").toolbar { Button("Done") { showTemplate = false } }
             }.presentationDetents([.medium, .large])
         }
