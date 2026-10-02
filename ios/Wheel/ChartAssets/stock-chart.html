@@ -90,6 +90,14 @@ function updateLines(){
  if(!paperConfig.active&&(templateVersion>appliedTemplate||(!levels.tp&&appliedTemplate!==templateVersion)))applyTemplate();
  for(const k of ['tp','sl']){if(!levels[k]){document.getElementById(k).hidden=true;if(lines[k]){series.removePriceLine(lines[k]);delete lines[k];}continue;}const options={price:levels[k],color:k==='tp'?'#72aaa1':'#c8986c',lineWidth:1,lineStyle:2,axisLabelVisible:false,title:k.toUpperCase()};if(lines[k])lines[k].applyOptions(options);else lines[k]=series.createPriceLine(options);const h=document.getElementById(k);h.hidden=false;h.replaceChildren(Object.assign(document.createElement('span'),{textContent:label(k)}));h.setAttribute('aria-label',label(k));}
  syncBE();const eh=document.getElementById('entry');eh.hidden=false;const color=side>0?'#315fc4':'#c6384d';eh.style.color=color;document.getElementById('cancel').style.color=color;eh.replaceChildren(Object.assign(document.createElement('span'),{textContent:(paperConfig.position?(paperConfig.position>0?'Long ':'Short '):(side>0?'Buy ':'Sell ')+entryType+' ')+ ' $'+priceText(entry)+'  × '+(paperConfig.position?Math.abs(paperConfig.position):qty)}));
+ if(!paperConfig.active){
+  const quantityControl=document.createElement('b');quantityControl.id='preview-order-quantity';quantityControl.textContent=' × '+qty+' ▾';quantityControl.setAttribute('role','button');quantityControl.setAttribute('aria-label','Edit order quantity');quantityControl.tabIndex=0;
+  eh.firstChild.textContent=eh.firstChild.textContent.replace(/  × .*/, '');
+  quantityControl.style.cssText='display:inline-block;padding:0 5px;pointer-events:auto;cursor:pointer;border-left:1px solid currentColor;margin-left:4px';
+  quantityControl.onpointerdown=e=>{e.preventDefault();e.stopPropagation();};
+  const edit=e=>{e.preventDefault();e.stopPropagation();paperAction({action:'editQuantity'});};
+  quantityControl.onclick=edit;quantityControl.onkeydown=e=>{if(e.key==='Enter'||e.key===' ')edit(e);};eh.firstChild.append(quantityControl);
+ }
  if(paperConfig.position&&displayOptions.profit!==false&&displayOptions.positions===true&&previous.length)eh.firstChild.textContent+='  '+profitText(previous.at(-1).close,displayOptions.positionUnit,Math.abs(paperConfig.position));
  if(entryLine)entryLine.applyOptions({price:entry,title:entryType,color});else entryLine=series.createPriceLine({price:entry,color,lineWidth:1,lineStyle:2,axisLabelVisible:false,title:entryType});
 }
@@ -148,10 +156,14 @@ priceAdd.onclick=e=>{
  e.stopPropagation();hideExecutionPopup();
  if(!priceMenu.hidden){closePriceMenu();return;}
  menuOrderPrice=cursorOrderPrice;menuOrderCID=paperCID;priceMenu.replaceChildren();
+ const quantityButton=document.createElement('button');quantityButton.textContent='Quantity · '+qty+' ▾';quantityButton.setAttribute('aria-label','Edit order quantity');
+ quantityButton.style.cssText='display:block;width:100%;background:transparent;color:#aaa;border:0;border-bottom:1px solid #555;padding:10px;text-align:left;font:13px -apple-system';
+ quantityButton.disabled=paperConfig.active||paperConfig.busy;
+ quantityButton.onclick=e=>{e.stopPropagation();closePriceMenu();paperAction({action:'editQuantity'});};priceMenu.append(quantityButton);
  const choices=priceOrderChoices(menuOrderPrice,previous.at(-1)?.close);
  for(const choice of choices){
   const button=document.createElement('button');
-  button.textContent=choice.label+' '+qty+' '+(countdownPacket?.local_symbol||countdownPacket?.symbol||'')+' @ '+priceText(menuOrderPrice);
+  button.dataset.orderChoice='true';button.textContent=choice.label+' '+qty+' '+(countdownPacket?.local_symbol||countdownPacket?.symbol||'')+' @ '+priceText(menuOrderPrice);
   button.style.cssText='display:block;background:transparent;color:inherit;border:0;text-align:left;padding:12px;font:13px -apple-system;min-height:44px;width:100%;touch-action:manipulation';
   button.disabled=!paperConfig.enabled||paperConfig.active||paperConfig.busy;
   button.onclick=e=>{e.stopPropagation();sendPriceOrder(choice);};priceMenu.append(button);

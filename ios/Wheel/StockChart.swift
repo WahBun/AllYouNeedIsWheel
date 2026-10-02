@@ -50,6 +50,13 @@ struct StockChartView: View {
     }
     @State private var paperState: [String: Any] = [:]
     @State private var completedPaperOrders: Set<String> = []
+    @State private var showQuantityEditor = false
+    @State private var quantityDraft = "1"
+    private var quantityLimit: Int { chartType == "FUT" ? 10 : 1000 }
+    private var validQuantityDraft: Int? {
+        guard let value = Int(quantityDraft), (1...quantityLimit).contains(value) else { return nil }
+        return value
+    }
     @State private var paperBusy = false
     @State private var paperMessage: String?
     private var paperEnabled: Bool { paperState["enabled"] as? Bool == true }
@@ -63,6 +70,10 @@ struct StockChartView: View {
            completedPaperOrders.insert("\(store.address)-\(chartID ?? 0)-\(id)").inserted { entry = "0"; beApplied = false }
     }
     private func paperAction(_ body: [String: Any]) {
+        if body["action"] as? String == "editQuantity" {
+            guard !paperActive, !paperBusy, body["con_id"] as? Int == chartID else { return }
+            quantityDraft = quantity; showQuantityEditor = true; return
+        }
         guard !paperBusy, paperEnabled, let cid = chartID else { return }
         if let source = body["con_id"] as? Int, source != cid { return }
         if body["action"] as? String == "submit" {
@@ -323,6 +334,37 @@ struct StockChartView: View {
             Button("Done", role: .cancel) { }
         } message: {
             Text("This will close the current symbol when live chart trading is enabled. No order has been sent; your position is unchanged.")
+        }
+        .sheet(isPresented: $showQuantityEditor) {
+            NavigationStack {
+                Form {
+                    Section("Quantity") {
+                        TextField("Quantity", text: $quantityDraft).keyboardType(.numberPad)
+                            .font(.title2).multilineTextAlignment(.center)
+                        HStack {
+                            Button { quantityDraft = String(max(1, (Int(quantityDraft) ?? 1) - 1)) } label: { Image(systemName: "minus").frame(maxWidth: .infinity) }
+                            Button { quantityDraft = String(min(quantityLimit, (Int(quantityDraft) ?? 0) + 1)) } label: { Image(systemName: "plus").frame(maxWidth: .infinity) }
+                        }.buttonStyle(.bordered)
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())]) {
+                            ForEach([1, 2, 3, 5, 10, 25], id: \.self) { value in
+                                Button { quantityDraft = String(value) } label: { Text(value.formatted()).frame(maxWidth: .infinity) }.buttonStyle(.bordered).disabled(value > quantityLimit)
+                            }
+                        }
+                        HStack {
+                            Button("Clear") { quantityDraft = "" }
+                            Spacer()
+                            Button("Reset") { quantityDraft = quantity }
+                        }
+                        Text("1–\(quantityLimit)").font(.caption).foregroundStyle(.secondary)
+                    }
+                }.navigationTitle("Order quantity").navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showQuantityEditor = false } }
+                        ToolbarItem(placement: .confirmationAction) { Button("Apply") {
+                            if let value = validQuantityDraft, !paperActive, !paperBusy { quantity = String(value); showQuantityEditor = false }
+                        }.disabled(validQuantityDraft == nil || paperActive || paperBusy) }
+                    }
+            }.presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showDisplaySettings) {
             NavigationStack {
