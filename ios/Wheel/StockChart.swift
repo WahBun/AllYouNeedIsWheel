@@ -47,6 +47,27 @@ struct StockChartView: View {
         entryType = "LMT"; entry = String(format: "%.2f", price)
         joinSide = side == "bid" ? 1 : -1; joinRevision += 1
     }
+    private func distanceRow(_ title: String, value: Binding<String>) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            TextField(title, text: value).keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing).frame(width: 80)
+            Menu {
+                ForEach(["0.01", "0.05", "0.10", "0.15", "0.20", "0.25", "0.50", "1.00", "2.00", "5.00", "10.00"], id: \.self) { distance in
+                    Button {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        value.wrappedValue = distance
+                    } label: {
+                        if Double(value.wrappedValue) == Double(distance) {
+                            Label(distance, systemImage: "checkmark")
+                        } else { Text(distance) }
+                    }
+                }
+            } label: { Image(systemName: "chevron.up.chevron.down").frame(width: 36, height: 44) }
+                .accessibilityLabel(title + " price distance")
+        }
+    }
     var body: some View {
         VStack(spacing: 8) {
             HStack {
@@ -116,8 +137,8 @@ struct StockChartView: View {
             NavigationStack {
                 Form {
                     Section("Price distance") {
-                        HStack { Text("TP"); TextField("TP", text: $tpDistance).keyboardType(.decimalPad).multilineTextAlignment(.trailing) }
-                        HStack { Text("SL"); TextField("SL", text: $slDistance).keyboardType(.decimalPad).multilineTextAlignment(.trailing) }
+                        distanceRow("TP", value: $tpDistance)
+                        distanceRow("SL", value: $slDistance)
                     }
                     Text("Distances are saved for new previews. Apply replaces the current preview levels; no broker order is changed.")
                     Button("Apply to preview") { templateRevision += 1; showTemplate = false }.disabled(!validTemplate || validEntry <= 0)
