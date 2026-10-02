@@ -81,3 +81,33 @@ class StockChartTests(unittest.TestCase):
             conn.ib.placeOrder.assert_not_called()
         finally:
             feed.stop();asyncio.get_event_loop().close()
+
+    def test_favorite_intervals_preserve_ohlc_and_rth_boundaries(self):
+        bars=[]
+        for minute in range(390):apply_tick(bars,34200+minute*60,10+minute/100)
+        for minutes in (1,3,5,10,15,60,480):
+            result=aggregate(bars,minutes,((34200,57600),))
+            self.assertEqual(result[0]['time'],34200)
+            self.assertEqual(result[0]['open'],10)
+            self.assertEqual(result[-1]['close'],13.89)
+            self.assertEqual(len(result),(390+minutes-1)//minutes)
+
+    def test_calendar_history_cached_and_canceled(self):
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection();feed=StockChart()
+        try:
+            feed.snapshot(conn,7,5)
+            history=[S(date=datetime(2026,9,1).date(),open=10,high=12,low=9,close=11)]
+            conn.ib.reqHistoricalData.return_value=history
+            for minutes,size in [(1440,'1 day'),(10080,'1 week'),(43200,'1 month')]:
+                result=feed.snapshot(conn,7,minutes)
+                self.assertEqual(result['bars'][0]['close'],11)
+                self.assertEqual(conn.ib.reqHistoricalData.call_args.args[3],size)
+                self.assertTrue(conn.ib.reqHistoricalData.call_args.kwargs['keepUpToDate'])
+                calls=conn.ib.reqHistoricalData.call_count
+                feed.snapshot(conn,7,minutes)
+                self.assertEqual(conn.ib.reqHistoricalData.call_count,calls)
+            feed.stop()
+            self.assertEqual(conn.ib.cancelHistoricalData.call_count,3)
+            conn.ib.placeOrder.assert_not_called()
+        finally:asyncio.get_event_loop().close()

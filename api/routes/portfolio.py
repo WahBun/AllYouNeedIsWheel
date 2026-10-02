@@ -162,7 +162,7 @@ def get_stock_chart(con_id):
     from api.services.stock_chart import stock_chart
     try:
         minutes = int(request.args.get('interval', '5'))
-        if con_id <= 0 or minutes not in (1, 5, 15, 60):
+        if con_id <= 0 or minutes not in (1, 3, 5, 10, 15, 60, 480, 1440, 10080, 43200):
             return _no_store_json({'error': 'Invalid stock chart parameters'}, 400)
         result = stock_chart.snapshot(portfolio_service._ensure_connection(), con_id, minutes, request.args.get("session", "rth"))
         return _no_store_json(result)

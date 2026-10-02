@@ -158,3 +158,9 @@ At equality the prior direction is retained. Subsequent quote updates do not
 flip direction. TP/SL constraints and preview P&L follow that direction.
 The chart close may be historical outside market hours; this is not execution
 validation. Actual broker orders remain outside this chart prototype.
+
+Chart favorite intervals persist on-device; the period selector supports
+1/3/5/10/15 minutes, 1/8 hours and D/W/M. Calendar periods request native IB
+1-year daily, 5-year weekly and 10-year monthly bars on demand, cached for the
+active chart lease and canceled with it. Intraday history remains one day;
+8h RTH is a partial session bar. History availability depends on the instrument.

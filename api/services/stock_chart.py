@@ -6,7 +6,8 @@ bars at the caller cadence; source ticks are preserved in OHLC, not snapshots.
 import asyncio
 import math
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from functools import lru_cache
 import pandas_market_calendars as calendars
 
@@ -68,6 +69,8 @@ class StockChart:
     def stop(self):
         state, self.active = self.active, None
         if state:
+            for historical in state.get('higher', {}).values():
+                state['conn'].ib.cancelHistoricalData(historical)
             state['ticker'].updateEvent -= state['handler']
             try:
                 state['conn'].ib.cancelTickByTickData(state['contract'], 'Last')
@@ -83,7 +86,7 @@ class StockChart:
             asyncio.get_event_loop().call_later(30, self.expire, state)
 
     def snapshot(self, conn, con_id, minutes, session="rth"):
-        if minutes not in (1, 5, 15, 60) or session not in ("rth", "all"):
+        if minutes not in (1, 3, 5, 10, 15, 60, 480, 1440, 10080, 43200) or session not in ("rth", "all"):
             raise ValueError('Unsupported chart interval')
         if not conn or not conn.is_connected():
             self.stop()
@@ -147,6 +150,40 @@ class StockChart:
             asyncio.get_event_loop().call_later(30, self.expire, state)
         state['used'] = time.monotonic()
         conn.ib.sleep(0.01)  # Drain IB events on the owner thread, not an HTTP thread.
+        higher_bars = None
+        if minutes >= 1440:
+            cache = state.setdefault('higher', {})
+            cache_key = (minutes, session)
+            if cache_key not in cache:
+                retry = state.setdefault('higher_retry', {})
+                if time.monotonic() < retry.get(cache_key, 0):
+                    raise ValueError('Historical chart request cooling down')
+                retry[cache_key] = time.monotonic() + 15
+                duration, size = {1440: ('1 Y', '1 day'), 10080: ('5 Y', '1 week'), 43200: ('10 Y', '1 month')}[minutes]
+                history = conn.ib.reqHistoricalData(contract, '', duration, size, 'TRADES',
+                    useRTH=session == 'rth', formatDate=2, keepUpToDate=True, timeout=5)
+                if not history:
+                    conn.ib.cancelHistoricalData(history)
+                    raise ValueError('Historical stock bars unavailable; retry shortly')
+                cache[cache_key] = history
+            higher_bars = []
+            for bar in cache[cache_key]:
+                day = bar.date
+                if isinstance(day, str):
+                    day = datetime.strptime(day, '%Y%m%d').date()
+                if isinstance(day, datetime):
+                    stamp = int(day.timestamp())
+                elif isinstance(day, date):
+                    stamp = int(datetime.combine(day, datetime.min.time(), ZoneInfo('America/New_York')).timestamp())
+                else:
+                    continue
+                values = [positive(getattr(bar, field)) for field in ('open', 'high', 'low', 'close')]
+                if any(value is None for value in values):
+                    continue
+                o, h, l, c = values
+                if l <= min(o, c) <= max(o, c) <= h:
+                    higher_bars.append(dict(time=stamp, open=o, high=h, low=l, close=c))
+            higher_bars = sorted({bar['time']: bar for bar in higher_bars}.values(), key=lambda bar: bar['time'])
         last = state['last_tick']
         age = time.time() - last if last is not None else None
         sessions = regular_sessions(datetime.now(timezone.utc).date().isoformat()) if session == 'rth' else None
@@ -161,7 +198,7 @@ class StockChart:
         if bid is not None and ask is not None and bid > ask:
             bid = ask = None
         return dict(con_id=con_id, symbol=contract.symbol, interval=minutes,
-            bars=aggregate(state['bars'], minutes, sessions), session=session, generation=str(state['generation']),
+            bars=higher_bars if higher_bars is not None else aggregate(state['bars'], minutes, sessions), session=session, generation=str(state['generation']),
             bid=bid, ask=ask, quote_time=quote_time if quote_valid else None,
             source='IB Last tick-by-tick', status='live' if in_session and age is not None and age < 10 else 'waiting',
             last_tick=last, received_at=state['received'], tick_count=state['ticks'],

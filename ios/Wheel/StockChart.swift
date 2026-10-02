@@ -7,6 +7,13 @@ struct StockChartView: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.colorScheme) private var colors
     @State private var interval = 5
+    @AppStorage("chartFavoriteIntervals") private var favoriteIntervals = "1,3,5,10,15,60,480,1440,10080,43200"
+    @State private var showIntervals = false
+    private let intervals = [1, 3, 5, 10, 15, 60, 480, 1440, 10080, 43200]
+    private var favorites: Set<Int> { Set(favoriteIntervals.split(separator: ",").compactMap { Int($0) }) }
+    private func intervalLabel(_ value: Int) -> String {
+        switch value { case 1440: return "D"; case 10080: return "W"; case 43200: return "M"; default: return value < 60 ? "\(value)m" : "\(value / 60)h" }
+    }
     @AppStorage("stockChartSession") private var session = "rth"
     @State private var quantity = "1"
     @State private var entry = ""
@@ -32,9 +39,22 @@ struct StockChartView: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack {
-                Picker("Interval", selection: $interval) {
-                    Text("1m").tag(1); Text("5m").tag(5); Text("15m").tag(15); Text("1h").tag(60)
-                }.pickerStyle(.segmented)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 2) {
+                        ForEach(intervals.filter { favorites.contains($0) }, id: \.self) { value in
+                            Button { interval = value } label: {
+                                Text(intervalLabel(value))
+                                    .font(.system(size: 13, weight: interval == value ? .semibold : .regular))
+                                    .fixedSize().padding(.horizontal, 9).frame(height: 40)
+                                    .background(interval == value ? Color.secondary.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                            }.buttonStyle(.plain)
+                                .accessibilityAddTraits(interval == value ? .isSelected : [])
+                        }
+                    }
+                }
+                Button { showIntervals = true } label: {
+                    HStack(spacing: 3) { Text(intervalLabel(interval)); Image(systemName: "chevron.down") }.font(.caption)
+                }.buttonStyle(.plain).frame(minHeight: 40)
                 Picker("Session", selection: $session) {
                     Text("RTH").tag("rth"); Text("ETH").tag("all")
                 }.fixedSize()
@@ -65,6 +85,22 @@ struct StockChartView: View {
         }.padding(.horizontal, 12).padding(.bottom, 8)
         .navigationTitle(position.symbol).navigationBarTitleDisplayMode(.inline)
         .modifier(KeyboardDismissal())
+        .sheet(isPresented: $showIntervals) {
+            NavigationStack {
+                List(intervals, id: \.self) { value in
+                    HStack {
+                        Button { interval = value; showIntervals = false } label: {
+                            HStack { Text(intervalLabel(value)); Spacer(); if interval == value { Image(systemName: "checkmark") } }.contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                        Button {
+                            var selected = favorites
+                            if selected.contains(value) { selected.remove(value) } else { selected.insert(value) }
+                            favoriteIntervals = intervals.filter { selected.contains($0) }.map(String.init).joined(separator: ",")
+                        } label: { Image(systemName: favorites.contains(value) ? "star.fill" : "star").foregroundStyle(favorites.contains(value) ? Color.yellow : Color.secondary).frame(width: 44, height: 44) }.buttonStyle(.plain).accessibilityLabel("Favorite " + intervalLabel(value))
+                    }
+                }.navigationTitle("Interval").toolbar { Button("Done") { showIntervals = false } }
+            }.presentationDetents([.medium, .large])
+        }
         .sheet(isPresented: $showInfo) {
             NavigationStack {
                 Form {
@@ -96,7 +132,7 @@ struct StockChartView: View {
                     try Task.checkCancellation()
                     guard result["con_id"] as? Int == conID, result["bars"] is [[String: Any]] else { throw AppError.message("Invalid chart response") }
                     packet = result; received = .now; failures = 0
-                    notice = result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks"
+                    notice = interval >= 1440 ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks"
                 } catch {
                     guard !Task.isCancelled else { return }
                     failures = min(failures + 1, 5)
