@@ -23,9 +23,9 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
  for(const mode of ['weak','strong','off'])for(const [name,price] of [['O',10],['H',11],['L',9],['C',10.25]]){
   await page.evaluate(mode=>{configureDrawings({key:'snap-'+Math.random(),value:{magnet:mode,collapsed:false,favorites:['trend'],drawings:[]}});document.getElementById('draw-toolbar').style.top='700px';},mode);
   await page.getByRole('button',{name:'Trendline',exact:true}).click();const point=await page.evaluate(price=>({x:chart.timeScale().logicalToCoordinate(30),y:series.priceToCoordinate(price)}),price);
-  await pointer.click(point.x,point.y+(process.env.TOUCH?22:12));await page.waitForTimeout(40);
+  await pointer.move(point.x,point.y+(process.env.TOUCH?22:12));await pointer.down();await page.waitForTimeout(40);
   if(mode!=='off'){assert.match(await page.locator('[data-snap-label]').textContent(),new RegExp('^'+name+' '));}
-  await pointer.click(point.x+30,point.y+45);await page.waitForTimeout(40);const anchor=await page.evaluate(()=>saved.at(-1).drawings[0].p[0]);if(mode==='off')assert.notEqual(anchor.price,price);else assert.equal(anchor.price,price,mode+' '+name);
+  await pointer.up();await pointer.click(point.x+30,point.y+45);await page.waitForTimeout(40);const anchor=await page.evaluate(()=>saved.at(-1).drawings[0].p[0]);if(mode==='off')assert.notEqual(anchor.price,price);else assert.equal(anchor.price,price,mode+' '+name);
  }
  console.log('PASS all OHLC magnets, including touch-radius feedback');
  assert.deepEqual(errors,[]);
