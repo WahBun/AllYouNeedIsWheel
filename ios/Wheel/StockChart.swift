@@ -311,7 +311,9 @@ struct StockChartView: View {
             guard visible, phase == .active else { return }
             guard !store.demo else { notice = "Chart pilot requires a connected held stock"; return }
             guard let conID = chartID, conID > 0 else { return }
-            if let cached = RecentStockCharts.load(cacheKey) {
+            let requestContext = context
+            let requestCacheKey = cacheKey
+            if let cached = RecentStockCharts.load(requestCacheKey) {
                 packet = cached.1
                 packet["bid"] = NSNull(); packet["ask"] = NSNull(); packet["bar_closes_at"] = NSNull()
                 notice = "Saved chart · connecting to live data"
@@ -321,17 +323,19 @@ struct StockChartView: View {
                 do {
                     if interval < 1440 && !(interval == 480 && session == "rth") {
                         try await store.trading.chartStream(base: store.address, conID: conID, interval: interval, marketSession: session) { result in
+                            guard !Task.isCancelled, context == requestContext, result["con_id"] as? Int == conID else { return }
                             packet = result; received = .now; failures = 0
-                            RecentStockCharts.save(result, key: cacheKey)
+                            RecentStockCharts.save(result, key: requestCacheKey)
                             notice = result["status"] as? String == "live" ? "IB Last ticks · live push" : "Historical bars · waiting for IB Last ticks"
                         }
                     }
                     let result = try await store.trading.get("api/portfolio/stock-chart/\(conID)", base: store.address,
                         query: [URLQueryItem(name: "interval", value: String(interval)), URLQueryItem(name: "session", value: session)])
                     try Task.checkCancellation()
+                    guard context == requestContext else { return }
                     guard result["con_id"] as? Int == conID, result["bars"] is [[String: Any]] else { throw AppError.message("Invalid chart response") }
                     packet = result; received = .now; failures = 0
-                    RecentStockCharts.save(result, key: cacheKey)
+                    RecentStockCharts.save(result, key: requestCacheKey)
                     notice = (interval >= 1440 || (interval == 480 && session == "rth")) ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks"
                 } catch {
                     guard !Task.isCancelled else { return }
@@ -473,7 +477,7 @@ private struct StockChartWeb: UIViewRepresentable {
             }
             var outgoing = packet
             if let sequence = packet["sequence"] as? Int {
-                let key = "\(packet["generation"] ?? "")-\(packet["interval"] ?? "")-\(packet["session"] ?? "")"
+                let key = "\(packet["con_id"] ?? "")-\(packet["generation"] ?? "")-\(packet["interval"] ?? "")-\(packet["session"] ?? "")"
                 if sequence == lastStreamSequence && key == lastStreamKey { outgoing = [:] }
                 else {
                     if lastStreamKey == key && sequence == lastStreamSequence + 1 && packet["mode"] as? String == "delta" {

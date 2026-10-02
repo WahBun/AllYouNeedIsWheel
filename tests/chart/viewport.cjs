@@ -33,5 +33,17 @@ for(let frame=0;frame<5;frame++){
 // Native resize must work immediately without a CSS resize event or a new quote.
 await page.evaluate(()=>setNativeViewport(393,820));assert.ok(Math.abs(await page.evaluate(()=>document.querySelector('#chart table').getBoundingClientRect().width)-393)<=1);
 await page.evaluate(()=>setNativeViewport(320,360));assert.equal(await page.evaluate(()=>document.querySelector('#chart table').getBoundingClientRect().width),320);
+// Switching a manually scaled ES chart to NQ must reset the price domain.
+for(const [conID,price] of [[1,7700],[2,31000],[3,100],[1,7700]]){
+ await page.evaluate(({conID,price})=>{
+  configure({entry:0,quantity:1,priceRules:[{low:0,increment:.01}]});
+  chart.priceScale('right').applyOptions({autoScale:false});
+  receive({con_id:conID,generation:'same-generation',interval:5,session:'all',mode:'delta',bars:Array.from({length:30},(_,i)=>({time:5000+i*300,open:price,high:price+1,low:price-1,close:price+.5}))});
+ },{conID,price});
+ await page.waitForTimeout(50);
+ const switched=await page.evaluate(price=>({auto:chart.priceScale('right').options().autoScale,y:series.priceToCoordinate(price),height:innerHeight,prices:series.data().map(b=>b.close)}),price);
+ assert.equal(switched.auto,true);assert.ok(switched.y>0&&switched.y<switched.height);
+ assert.equal(switched.prices.length,30);assert.ok(switched.prices.every(p=>p===price+.5));
+}
 assert.deepEqual(errors,[]);console.log('Repeated fullscreen, portrait/landscape, price autoscale, compact badge, floating panels and drawing anchors passed');
 }finally{await browser.close();}})();
