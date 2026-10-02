@@ -91,7 +91,7 @@ struct StockChartView: View {
                     }
                     HStack(spacing: 8) {
                         Button { showClosePreview = true } label: { Text("Close Position").frame(maxWidth: .infinity, minHeight: 30) }.tint(.orange)
-                        Button { beRevision += 1 } label: { Text("BE +1 tick").frame(maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
+                        Button { beRevision += 1 } label: { Text("BE").frame(maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
                     }
                 }.font(.system(size: 13, weight: .semibold))
             }.buttonStyle(.bordered)
