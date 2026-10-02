@@ -8,7 +8,7 @@ await page.getByRole('button',{name:'Trendline',exact:true}).click();await page.
 await page.waitForTimeout(100);assert.equal(await page.locator('#draw-svg g').count(),1);
 await page.getByRole('button',{name:'Drawing tools and favorites',exact:true}).click();await page.getByRole('button',{name:'Favorite Trendline',exact:true}).click();
 assert.equal(await page.locator('#draw-favorites').getByRole('button',{name:'Trendline',exact:true}).count(),0);
-await page.getByRole('button',{name:'Rectangle',exact:true}).last().click();await page.mouse.click(110,270);await page.mouse.click(210,450);await page.waitForTimeout(100);assert.equal(await page.locator('#draw-svg rect').count(),1);
+await page.getByRole('button',{name:'Rectangle',exact:true}).last().click();await page.mouse.click(110,270);await page.mouse.click(210,450);await page.waitForTimeout(100);assert.equal(await page.locator('#draw-svg rect:not([stroke=transparent])').count(),1);
 await page.locator('#draw-svg g').last().dispatchEvent('click');await page.locator('#draw-toolbar').getByRole('button',{name:'Delete selected drawing',exact:true}).click();await page.waitForTimeout(50);assert.equal(await page.locator('#draw-svg g').count(),1);
 await page.getByRole('button',{name:'Drawing tools and favorites',exact:true}).click();await page.getByRole('button',{name:'Undo drawing edit',exact:true}).click();await page.getByRole('button',{name:'Drawing tools and favorites',exact:true}).click();await page.waitForTimeout(50);assert.equal(await page.locator('#draw-svg g').count(),2);
 const saved=await page.evaluate(()=>window.saved.at(-1));assert.equal(saved.drawings.length,2);assert.equal(saved.favorites.includes('trend'),false);
@@ -18,10 +18,22 @@ await page.screenshot({path:'/tmp/wheel-drawings.png'});
 const kinds=['trend','info','hray','channel','fib','fibext','long','short','range','highlight','arrow','up','down','rect','path','triangle','curve','text','note','price'];
 await page.evaluate(kinds=>configureDrawings({key:'all-tools',value:{drawings:kinds.map((type,i)=>({id:String(i),type,text:'Test',p:[{time:10000,price:10},{time:12000,price:9.5},{time:15000,price:10.5}]}))}}),kinds);
 await page.waitForTimeout(100);assert.equal(await page.locator('#draw-svg g').count(),20);
+await page.evaluate(()=>{configureDrawings({key:'gesture',value:{collapsed:false,favorites:['trend'],drawings:[]}});document.getElementById('draw-toolbar').style.top='650px';});
+await page.getByRole('button',{name:'Trendline',exact:true}).click();await page.mouse.move(100,250);await page.mouse.down();await page.mouse.move(200,350,{steps:8});await page.waitForTimeout(50);assert.equal(await page.locator('#draw-svg g').count(),1);await page.mouse.up();await page.waitForTimeout(50);const original=await page.evaluate(()=>JSON.parse(JSON.stringify(saved.at(-1).drawings[0])));assert.equal(original.p.length,2);
+await page.mouse.move(150,300);await page.mouse.down();await page.mouse.move(175,320,{steps:8});await page.mouse.up();await page.waitForTimeout(50);const moved=await page.evaluate(()=>saved.at(-1).drawings[0]);assert.notEqual(moved.p[0].price,original.p[0].price);assert.equal(await page.locator('#draw-svg circle').count(),0);
 for(const [mode,price,expected] of [['strong',10.7,11],['weak',10.7,10.7],['weak',10.99,11],['off',10.99,10.99]]){
  await page.evaluate(mode=>configureDrawings({key:'magnet-'+mode+Math.random(),value:{magnet:mode,collapsed:false,favorites:['hray'],drawings:[]}}),mode);
  await page.evaluate(()=>{document.getElementById('draw-toolbar').style.top='650px';document.getElementById('draw-toolbar').style.left='5px';});await page.getByRole('button',{name:'Horizontal ray',exact:true}).click();const point=await page.evaluate(price=>({x:chart.timeScale().logicalToCoordinate(30),y:series.priceToCoordinate(price)}),price);await page.mouse.click(point.x,point.y);await page.waitForTimeout(50);
  const actual=await page.evaluate(()=>saved.at(-1).drawings[0].p[0].price);assert.ok(Math.abs(actual-expected)<.005,`${mode}: ${actual} != ${expected}`);assert.equal(await page.locator('#draw-svg circle').count(),0);
 }
-await page.getByRole('button',{name:'Drawing tools and favorites',exact:true}).click();await page.getByRole('button',{name:'Move earlier Arrow mark up',exact:true}).click();const order=await page.evaluate(()=>saved.at(-1).order);assert.equal(order[0],'up');assert.equal(order[1],'long');
+await page.getByRole('button',{name:'Drawing tools and favorites',exact:true}).click();await page.locator('#draw-menu').evaluate(el=>el.scrollTop=0);const grip=await page.getByRole('button',{name:'Reorder Arrow mark up',exact:true}).boundingBox();const target=await page.getByRole('button',{name:'Reorder Long position',exact:true}).boundingBox();await page.mouse.move(grip.x+10,grip.y+18);await page.mouse.down();await page.mouse.move(target.x+10,target.y+4,{steps:8});await page.mouse.up();const order=await page.evaluate(()=>saved.at(-1).order);assert.equal(order[0],'up');assert.equal(order[1],'long');
+const cdp=await page.context().newCDPSession(page);await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:true});
+const touchGrip=await page.getByRole('button',{name:'Reorder Long position',exact:true}).boundingBox();const touchTarget=await page.getByRole('button',{name:'Reorder Arrow mark up',exact:true}).boundingBox();
+await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:touchGrip.x+18,y:touchGrip.y+18}]});
+for(let i=1;i<=8;i++)await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:touchGrip.x+18,y:touchGrip.y+18+(touchTarget.y+4-touchGrip.y-18)*i/8}]});
+await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+assert.deepEqual(await page.evaluate(()=>saved.at(-1).order.slice(0,2)),['long','up']);
+await page.evaluate(()=>{const value=JSON.parse(JSON.stringify(saved.at(-1)));value.favorites=['long','up'];configureDrawings({key:'restore-order',value});});
+assert.deepEqual(await page.locator('#draw-favorites button').evaluateAll(nodes=>nodes.map(n=>n.title)),['Long position','Arrow mark up']);
+
 assert.deepEqual(errors,[]);console.log('Drawings create, favorites, restore, delete/undo and collapsed dragging passed');}finally{await browser.close();}})();
