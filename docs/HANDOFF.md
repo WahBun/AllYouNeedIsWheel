@@ -168,3 +168,9 @@ active chart lease and canceled with it. Intraday history requests five days of 
 Join Bid explicitly chooses Buy LMT; Join Ask explicitly chooses Sell LMT.
 Each tap carries a one-shot revision so polling cannot reapply it after a manual
 Entry drag. Quote position relative to the last trade does not override Join.
+
+Chart controls remain preview-only: orange Close Position opens a no-order
+explanation, purple BE moves the simulated stop to Entry plus one tick for buys,
+minus one tick for sells. Tick increments come from the contract's exchange
+market rule and price tier; unknown rules disable BE. This does not manage real
+position stops. Overnight data investigation was explicitly deferred by user.

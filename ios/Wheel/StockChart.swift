@@ -21,6 +21,8 @@ struct StockChartView: View {
     @State private var joinSide = 0
     @State private var joinRevision = 0
     @State private var showInfo = false
+    @State private var showClosePreview = false
+    @State private var beRevision = 0
     @State private var packet: [String: Any] = [:]
     @State private var notice = "Loading chart…"
     @State private var visible = false
@@ -66,7 +68,7 @@ struct StockChartView: View {
                 Text(received.map { time.date.timeIntervalSince($0) > 3 } == true ? "Chart updates paused · verify connection" : LocalizedStringKey(notice))
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
-            StockChartWeb(packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, onEntry: { entry = String(format: "%.2f", $0) })
+            StockChartWeb(packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, onEntry: { entry = String(format: "%.2f", $0) })
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
                 TextField("Shares", text: $quantity).keyboardType(.decimalPad)
@@ -80,15 +82,27 @@ struct StockChartView: View {
                     Text("LMT").tag("LMT"); Text("STP").tag("STP")
                 }.pickerStyle(.segmented).frame(maxWidth: 140)
             }
-            HStack(spacing: 12) {
-                Button { showInfo = true } label: { Image(systemName: "info.circle").frame(minHeight: 44) }.accessibilityLabel("Chart details")
-                Spacer(minLength: 0)
-                Button { join("bid") } label: { Text("Join Bid").frame(maxWidth: .infinity, minHeight: 44) }.tint(.green).disabled(joinPrice("bid") == nil)
-                Button { join("ask") } label: { Text("Join Ask").frame(maxWidth: .infinity, minHeight: 44) }.tint(.red).disabled(joinPrice("ask") == nil)
+            HStack(spacing: 10) {
+                Button { showInfo = true } label: { Image(systemName: "info.circle").frame(width: 28, height: 36) }.accessibilityLabel("Chart details")
+                VStack(spacing: 6) {
+                    HStack(spacing: 8) {
+                        Button { join("bid") } label: { Text("Join Bid").frame(maxWidth: .infinity, minHeight: 30) }.tint(.green).disabled(joinPrice("bid") == nil)
+                        Button { join("ask") } label: { Text("Join Ask").frame(maxWidth: .infinity, minHeight: 30) }.tint(.red).disabled(joinPrice("ask") == nil)
+                    }
+                    HStack(spacing: 8) {
+                        Button { showClosePreview = true } label: { Text("Close Position").frame(maxWidth: .infinity, minHeight: 30) }.tint(.orange)
+                        Button { beRevision += 1 } label: { Text("BE +1 tick").frame(maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
+                    }
+                }.font(.system(size: 13, weight: .semibold))
             }.buttonStyle(.bordered)
         }.padding(.horizontal, 12).padding(.bottom, 8)
         .navigationTitle(position.symbol).navigationBarTitleDisplayMode(.inline)
         .modifier(KeyboardDismissal())
+        .alert("Close Position · Preview", isPresented: $showClosePreview) {
+            Button("Done", role: .cancel) { }
+        } message: {
+            Text("This will close the current symbol when live chart trading is enabled. No order has been sent; your position is unchanged.")
+        }
         .sheet(isPresented: $showIntervals) {
             NavigationStack {
                 List(intervals, id: \.self) { value in
@@ -156,6 +170,7 @@ private struct StockChartWeb: UIViewRepresentable {
     var entryType: String
     var joinSide: Int
     var joinRevision: Int
+    var beRevision: Int
     var onEntry: (Double) -> Void
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIView(context: Context) -> WKWebView {
@@ -179,7 +194,7 @@ private struct StockChartWeb: UIViewRepresentable {
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.packet = packet.isEmpty ? ["bars": [], "generation": "clear", "interval": 0, "session": ""] : packet
         context.coordinator.onEntry = onEntry
-        context.coordinator.config = ["entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision]
+        context.coordinator.config = ["entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "beRevision": beRevision]
         context.coordinator.update()
     }
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {

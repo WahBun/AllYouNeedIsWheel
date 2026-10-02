@@ -221,6 +221,19 @@ class StockChart:
                 if l <= min(o, c) <= max(o, c) <= h:
                     higher_bars.append(dict(time=stamp, open=o, high=h, low=l, close=c))
             higher_bars = sorted({bar['time']: bar for bar in higher_bars}.values(), key=lambda bar: bar['time'])
+        if 'price_rules' not in state:
+            state['price_rules'] = []
+            try:
+                details = conn.ib.reqContractDetails(contract)
+                detail = next(d for d in details if d.contract.conId == con_id)
+                exchanges = detail.validExchanges.split(',')
+                rule_ids = detail.marketRuleIds.split(',')
+                exchange = contract.exchange or 'SMART'
+                rule_id = int(rule_ids[exchanges.index(exchange)])
+                rules = conn.ib.reqMarketRule(rule_id)
+                state['price_rules'] = [dict(low=float(r.lowEdge), increment=float(r.increment)) for r in rules if r.lowEdge >= 0 and positive(r.increment)]
+            except Exception:
+                pass  # Unknown tick size disables BE; never guess a cent.
         last = state['last_tick']
         age = time.time() - last if last is not None else None
         sessions = regular_sessions(datetime.now(timezone.utc).date().isoformat()) if session == 'rth' else None
@@ -239,7 +252,7 @@ class StockChart:
         live = in_session and age is not None and age < 10
         closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time) if live else None
         return dict(con_id=con_id, symbol=contract.symbol, interval=minutes,
-            server_time=server_time, bar_closes_at=closes_at,
+            server_time=server_time, bar_closes_at=closes_at, price_rules=state['price_rules'],
             bars=output_bars, session=session, generation=str(state['generation']),
             bid=bid, ask=ask, quote_time=quote_time if quote_valid else None,
             source='IB Last tick-by-tick', status='live' if in_session and age is not None and age < 10 else 'waiting',

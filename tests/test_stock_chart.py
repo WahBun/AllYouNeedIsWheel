@@ -127,3 +127,18 @@ class StockChartTests(unittest.TestCase):
         self.assertEqual(bar_close_time(daily,480,'rth',ts('2026-10-02T15:00:00+00:00')),ts('2026-10-02T20:00:00+00:00'))
         weekly={'time':ts('2026-11-23T05:00:00+00:00')}
         self.assertEqual(bar_close_time(weekly,10080,'rth',ts('2026-11-23T16:00:00+00:00')),ts('2026-11-27T18:00:00+00:00'))
+
+    def test_price_rules_match_contract_exchange_and_cache(self):
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection();feed=StockChart()
+        contract=conn.get_option_position_by_con_id.return_value['contract']
+        contract.exchange='SMART'
+        conn.ib.reqContractDetails.return_value=[S(contract=contract,validExchanges='NYSE,SMART',marketRuleIds='1,2')]
+        conn.ib.reqMarketRule.return_value=[S(lowEdge=0,increment=.0001),S(lowEdge=1,increment=.01)]
+        try:
+            result=feed.snapshot(conn,7,5)
+            self.assertEqual(result['price_rules'][1],dict(low=1,increment=.01))
+            conn.ib.reqMarketRule.assert_called_once_with(2)
+            feed.snapshot(conn,7,5)
+            conn.ib.reqContractDetails.assert_called_once()
+        finally:feed.stop();asyncio.get_event_loop().close()
