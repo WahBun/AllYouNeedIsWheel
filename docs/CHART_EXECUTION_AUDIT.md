@@ -19,11 +19,15 @@ This supersedes the cancellation/replacement scaling path in the historical audi
 - The earlier four-unit test group was closed after correcting OCA field preservation, without canceling its stops in advance.
 - Final read-only reconciliation: paper account, known state, MES position 0, chart inactive, MES pending orders 0. Unrelated holdings were not part of the tests.
 
+## Final repeat with order-based arrows — 2026-10-03 00:45–00:47 CST
+
+Both long and short completed 4 → Add 1 → Add 1 → Trim 2 → BE → flat. Each side's execution payload exposed three distinct opening request groups with total quantities 4, 1 and 1, rather than grouping by candle. After Trim, the surviving stop IDs, quantities and prices matched the pre-trim snapshot. BE closed the remaining positions in both directions. Final MES reconciliation was flat with zero working orders. This repeat used the app's paper execution endpoints, not automated taps on the physical phone.
+
 ## Display and checks
 
 Execution markers aggregate by logical order request, recovered from the existing write journal. A four-contract request renders one arrow, including partial fills across candles; four separate one-contract requests render four arrows even on the same candle. Entry, TP/SL, Add and Trim requests remain distinct. Tapping each arrow shows its own symbol, quantity, weighted average and fills. Broker executions without a known local batch are grouped only by their broker order identity. Marker placement uses the first fill of the order. The details panel scrolls when necessary. Add/Trim, Close Position and BE use equal flexible widths and matching heights.
 
-296 Python tests passed, including broker OCA preservation, rejected-amendment reporting, reconnect recovery, no-replay and protection-preservation regressions. Chart execution-touch and paper-order browser checks passed, including four-fill aggregation and blank-tap dismissal. The device build succeeded and was installed. These checks are not real-money certification and do not cover every broker, exchange or network failure. Individual unit brackets also mean more broker orders than a single aggregate bracket.
+299 Python tests passed, including broker OCA preservation, rejected-amendment reporting, reconnect recovery, no-replay and protection-preservation regressions. Chart execution-touch and paper-order browser checks passed, including four-fill aggregation and blank-tap dismissal. OHLC is aligned to the right of the symbol/exchange header; narrow and wide viewport checks showed no OHLC overflow, and price-scale tick labels moved three CSS pixels toward the right edge. The device build succeeded and was installed. These checks are not real-money certification and do not cover every broker, exchange or network failure. Individual unit brackets also mean more broker orders than a single aggregate bracket.
 
 ---
 
