@@ -55,5 +55,21 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
   await pointer.up();if(process.env.TOUCH)(await pointer.move(200,200),await pointer.down(),await pointer.up());await pointer.click(point.x+30,point.y+45);await page.waitForTimeout(40);const anchor=await page.evaluate(()=>saved.at(-1).drawings[0].p[0]);if(mode==='off')assert.notEqual(anchor.price,price);else assert.equal(anchor.price,price,mode+' '+name);
  }
  console.log('PASS all OHLC magnets, including touch-radius feedback');
+ const drawingsBeforeHide=await page.locator('#draw-svg g').count();
+ const logo=page.locator('#tv-attr-logo');await logo.click();
+ assert.equal(await page.locator('#draw-toolbar').isVisible(),false);
+ assert.equal(await page.locator('#draw-properties').isVisible(),false);
+ assert.equal(await page.locator('#draw-magnet').isVisible(),false);
+ assert.equal(await page.locator('#draw-svg g').count(),drawingsBeforeHide,'hiding tools preserves drawings');
+ assert.equal(await page.evaluate(()=>saved.at(-1).toolsVisible),false);
+ await page.evaluate(()=>configureDrawings({key:'restored-hidden',value:saved.at(-1)}));
+ assert.equal(await page.locator('#draw-toolbar').isVisible(),false,'hidden preference restores');
+ await logo.click();assert.equal(await page.locator('#draw-toolbar').isVisible(),true);
+ await page.getByRole('button',{name:'Trendline',exact:true}).click();
+ await logo.click();assert.equal(await page.locator('#draw-touch').isVisible(),false,'logo remains reachable while placing drawing');
+ await page.waitForFunction(()=>!document.querySelector('[data-placement-cursor]'));
+ assert.equal(await page.locator('[data-placement-cursor]').count(),0);
+ await logo.click();assert.equal(await page.locator('#draw-toolbar').isVisible(),true);
+ console.log('PASS logo hides/restores tools and preserves drawings');
  assert.deepEqual(errors,[]);
 }finally{await browser.close();}})();
