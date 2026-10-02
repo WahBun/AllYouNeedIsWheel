@@ -261,6 +261,24 @@ struct StockChartView: View {
     }
 }
 
+// WebKit's CSS viewport can lag SwiftUI's first layout/full-screen transition.
+// Forward actual native bounds, independently of market-data updates.
+final class ChartViewportWebView: WKWebView {
+    var viewportReady = false
+    private var sentSize: CGSize = .zero
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        synchronizeViewport()
+    }
+    func synchronizeViewport(force: Bool = false) {
+        let size = bounds.size
+        guard viewportReady, size.width > 0, size.height > 0,
+              force || size != sentSize else { return }
+        sentSize = size
+        evaluateJavaScript("window.setNativeViewport?.(\(size.width),\(size.height))", completionHandler: nil)
+    }
+}
+
 private struct StockChartWeb: UIViewRepresentable {
     var drawingKey: String
     var packet: [String: Any]
@@ -284,8 +302,9 @@ private struct StockChartWeb: UIViewRepresentable {
         config.userContentController.add(context.coordinator, name: "chartReady")
         config.userContentController.add(context.coordinator, name: "entryChanged")
         config.userContentController.add(context.coordinator, name: "beState")
-        let web = WKWebView(frame: .zero, configuration: config)
+        let web = ChartViewportWebView(frame: .zero, configuration: config)
         web.scrollView.isScrollEnabled = false
+        web.scrollView.contentInsetAdjustmentBehavior = .never
         web.isOpaque = false
         context.coordinator.web = web
         func resource(_ name: String, _ ext: String) -> URL? {
@@ -337,7 +356,11 @@ private struct StockChartWeb: UIViewRepresentable {
             } else if message.name == "beState", let applied = message.body as? Bool { onBE?(applied)
             } else if message.name == "entryChanged", let price = message.body as? Double, price.isFinite, price >= 0 {
                 onEntry?(price)
-            } else if message.name == "chartReady" { ready = true; update() }
+            } else if message.name == "chartReady" {
+                ready = true
+                (web as? ChartViewportWebView)?.viewportReady = true
+                update()
+            }
         }
         func update() {
             guard ready else { return }
@@ -366,10 +389,14 @@ private struct StockChartWeb: UIViewRepresentable {
                 }
                 outgoing.removeValue(forKey: "changed_bars")
             } else { lastStreamSequence = 0; lastStreamKey = "" }
-            for (function, value) in [("configure", config), ("receive", outgoing)] {
-                guard !value.isEmpty, let data = try? JSONSerialization.data(withJSONObject: value), let json = String(data: data, encoding: .utf8) else { continue }
-                web?.evaluateJavaScript("window.\(function)(\(json))", completionHandler: nil)
-            }
+            guard let web else { return }
+            // Initial settings, cached bars and native dimensions enter JS together.
+            // Do not display bars using a previous frame's formatter or canvas size.
+            let state: [String: Any] = ["config": config, "packet": outgoing,
+                                        "width": web.bounds.width, "height": web.bounds.height]
+            guard let data = try? JSONSerialization.data(withJSONObject: state),
+                  let json = String(data: data, encoding: .utf8) else { return }
+            web.evaluateJavaScript("window.applyChartState(\(json))", completionHandler: nil)
         }
     }
 }

@@ -18,7 +18,7 @@ await page.screenshot({path:'/tmp/wheel-drawings.png'});
 const kinds=['trend','info','hray','channel','fib','fibext','long','short','range','highlight','arrow','up','down','rect','path','triangle','curve','text','note','price'];
 await page.evaluate(kinds=>configureDrawings({key:'all-tools',value:{drawings:kinds.map((type,i)=>({id:String(i),type,text:'Test',p:[{time:10000,price:10},{time:12000,price:9.5},{time:15000,price:10.5}]}))}}),kinds);
 await page.waitForTimeout(100);assert.equal(await page.locator('#draw-svg g').count(),20);
-await page.evaluate(()=>{configureDrawings({key:'gesture',value:{collapsed:false,favorites:['trend'],drawings:[]}});document.getElementById('draw-toolbar').style.top='650px';});
+await page.evaluate(()=>{configureDrawings({key:'gesture',value:{magnet:'off',collapsed:false,favorites:['trend'],drawings:[]}});document.getElementById('draw-toolbar').style.top='650px';});
 await page.getByRole('button',{name:'Trendline',exact:true}).click();await page.mouse.move(100,250);await page.mouse.down();await page.mouse.move(200,350,{steps:8});await page.waitForTimeout(50);assert.equal(await page.locator('#draw-svg g').count(),1);await page.mouse.up();await page.waitForTimeout(50);const original=await page.evaluate(()=>JSON.parse(JSON.stringify(saved.at(-1).drawings[0])));assert.equal(original.p.length,2);
 await page.mouse.move(150,300);await page.mouse.down();await page.mouse.move(175,320,{steps:8});await page.mouse.up();await page.waitForTimeout(50);const moved=await page.evaluate(()=>saved.at(-1).drawings[0]);assert.notEqual(moved.p[0].price,original.p[0].price);assert.equal(await page.locator('#draw-svg circle').count(),0);
 for(const [mode,price,expected] of [['strong',10.7,11],['weak',10.7,10.7],['weak',10.99,11],['off',10.99,10.99]]){
@@ -26,7 +26,7 @@ for(const [mode,price,expected] of [['strong',10.7,11],['weak',10.7,10.7],['weak
  await page.evaluate(()=>{document.getElementById('draw-toolbar').style.top='650px';document.getElementById('draw-toolbar').style.left='5px';});await page.getByRole('button',{name:'Horizontal ray',exact:true}).click();const point=await page.evaluate(price=>({x:chart.timeScale().logicalToCoordinate(30),y:series.priceToCoordinate(price)}),price);await page.mouse.click(point.x,point.y);await page.waitForTimeout(50);
  const actual=await page.evaluate(()=>saved.at(-1).drawings[0].p[0].price);assert.ok(Math.abs(actual-expected)<.005,`${mode}: ${actual} != ${expected}`);assert.equal(await page.locator('#draw-svg circle').count(),0);
 }
-await page.getByRole('button',{name:'Drawing tools and favorites',exact:true}).click();await page.locator('#draw-menu').evaluate(el=>el.scrollTop=0);const grip=await page.getByRole('button',{name:'Reorder Arrow mark up',exact:true}).boundingBox();const target=await page.getByRole('button',{name:'Reorder Long position',exact:true}).boundingBox();await page.mouse.move(grip.x+10,grip.y+18);await page.mouse.down();await page.mouse.move(target.x+10,target.y+4,{steps:8});await page.mouse.up();const order=await page.evaluate(()=>saved.at(-1).order);assert.equal(order[0],'up');assert.equal(order[1],'long');
+await page.getByRole('button',{name:'Drawing tools and favorites',exact:true}).click();await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));await page.locator('#draw-menu').evaluate(el=>el.scrollTop=0);const grip=await page.getByRole('button',{name:'Reorder Arrow mark up',exact:true}).boundingBox();const target=await page.getByRole('button',{name:'Reorder Long position',exact:true}).boundingBox();await page.mouse.move(grip.x+10,grip.y+18);await page.mouse.down();await page.mouse.move(target.x+10,target.y+4,{steps:8});await page.mouse.up();const order=await page.evaluate(()=>saved.at(-1).order);assert.equal(order[0],'up');assert.equal(order[1],'long');
 const cdp=await page.context().newCDPSession(page);await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:true});
 const touchGrip=await page.getByRole('button',{name:'Reorder Long position',exact:true}).boundingBox();const touchTarget=await page.getByRole('button',{name:'Reorder Arrow mark up',exact:true}).boundingBox();
 await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:touchGrip.x+18,y:touchGrip.y+18}]});
@@ -37,7 +37,7 @@ await page.evaluate(()=>{const value=JSON.parse(JSON.stringify(saved.at(-1)));va
 assert.deepEqual(await page.locator('#draw-favorites button').evaluateAll(nodes=>nodes.map(n=>n.title)),['Long position','Arrow mark up']);
 
 await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:false});
-await page.evaluate(()=>{configureDrawings({key:'video-tools',value:{collapsed:false,favorites:['long','short','rect','path'],drawings:[]}});document.getElementById('draw-toolbar').style.top='650px';});
+await page.evaluate(()=>{configureDrawings({key:'video-tools',value:{magnet:'off',collapsed:false,favorites:['long','short','rect','path'],drawings:[]}});document.getElementById('draw-toolbar').style.top='650px';});
 await page.getByRole('button',{name:'Long position',exact:true}).click();await page.mouse.click(110,330);await page.waitForTimeout(80);
 const position=await page.evaluate(()=>saved.at(-1).drawings[0]);assert.equal(position.p.length,3);assert.ok(position.endTime>position.p[0].time);assert.ok(position.p[1].price<position.p[0].price&&position.p[2].price>position.p[0].price);assert.equal(await page.locator('#draw-svg circle').count(),0);
 await page.mouse.click(150,310);await page.waitForTimeout(80);assert.equal(await page.locator('#draw-properties').isVisible(),true);
@@ -51,7 +51,7 @@ const corner=await page.locator('[data-handle="0,1"]').boundingBox();await page.
 await page.getByRole('button',{name:'Deselect drawing',exact:true}).click();await page.waitForTimeout(50);await page.screenshot({path:'/tmp/wheel-video-mobile.png'});
 await page.getByRole('button',{name:'Path',exact:true}).click();await page.mouse.click(90,470);await page.mouse.click(160,510);await page.mouse.dblclick(230,460);await page.waitForTimeout(60);assert.equal(await page.evaluate(()=>saved.at(-1).drawings.at(-1).type),'path');assert.equal(await page.evaluate(()=>saved.at(-1).drawings.at(-1).p.length),3);
 await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:true});
-await page.evaluate(()=>{configureDrawings({key:'touch-position',value:{collapsed:false,favorites:['long'],drawings:[]}});document.getElementById('draw-toolbar').style.top='650px';});
+await page.evaluate(()=>{configureDrawings({key:'touch-position',value:{magnet:'off',collapsed:false,favorites:['long'],drawings:[]}});document.getElementById('draw-toolbar').style.top='650px';});
 const longButton=await page.getByRole('button',{name:'Long position',exact:true}).boundingBox();
 const tap=async(x,y)=>{await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});};
 await tap(longButton.x+18,longButton.y+18);await tap(120,330);await page.waitForTimeout(70);assert.equal(await page.evaluate(()=>saved.at(-1).drawings[0].type),'long');

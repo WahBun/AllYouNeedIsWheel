@@ -35,22 +35,38 @@ for(const k of ['tp','sl','entry']){const h=document.getElementById(k);h.addEven
 document.getElementById('cancel').addEventListener('click',()=>{canceled=true;dragging=null;levels={tp:0,sl:0};updateLines();window.webkit?.messageHandlers.entryChanged?.postMessage(0);});
 function updateCountdown(){const el=document.getElementById('countdown'),bar=previous.at(-1);el.hidden=!bar;if(!bar)return;const y=series.priceToCoordinate(bar.close);el.hidden=y===null||y<9||y>innerHeight-50;if(el.hidden)return;el.style.top=(y-9)+'px';el.style.width='max-content';el.style.minWidth='42px';el.style.maxWidth=Math.max(42,innerWidth*.3)+'px';document.getElementById('countdown-price').textContent=priceText(bar.close);const p=countdownPacket,elapsed=(performance.now()-countdownReceived)/1000,left=p?.bar_closes_at-(p?.server_time+elapsed),timer=document.getElementById('countdown-time');timer.hidden=!(elapsed<3&&Number.isFinite(left)&&left>0);timer.textContent=timer.hidden?'':formatCountdown(Math.ceil(left));}
 function formatCountdown(s){const days=Math.floor(s/86400);const hours=Math.floor(s%86400/3600);const mins=Math.floor(s%3600/60);const secs=s%60;return days?days+'d '+hours+'h':hours?hours+':'+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0'):String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0');}
-function position(){updateCountdown();for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}requestAnimationFrame(position);}position();
+function position(){const axisRight=Math.ceil(chart.priceScale('right').width())+7;for(const id of ['tp','sl','cancel'])document.getElementById(id).style.right=axisRight+'px';document.getElementById('entry').style.right=(axisRight+35)+'px';updateCountdown();for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}requestAnimationFrame(position);}position();
 // A WKWebView changes size in place when native full-screen controls appear.
 // Resize the canvas and restore the time window together; stale manual Y scaling
 // must not carry the full-screen pixel range into the shorter chart.
-let viewportFrame=0,lastViewportWidth=0,lastViewportHeight=0;
+let viewportFrame=0,lastViewportWidth=0,lastViewportHeight=0,nativeViewport=null,pendingNativeState=null;
+function applyViewport(width,height){
+ width=Math.floor(width);height=Math.floor(height);
+ if(width<1||height<1||width===lastViewportWidth&&height===lastViewportHeight)return;
+ const range=chart.timeScale().getVisibleLogicalRange();
+ lastViewportWidth=width;lastViewportHeight=height;
+ chart.resize(width,height,true);chart.priceScale('right').applyOptions({autoScale:true});
+ if(range)chart.timeScale().setVisibleLogicalRange(range);
+ chart.clearCrosshairPosition();document.getElementById('readout').textContent='';
+ window.dispatchEvent(new Event('chart-viewport-resized'));
+}
+window.setNativeViewport=(width,height)=>{
+ if(!(width>0&&height>0))return;
+ nativeViewport={width,height};
+ const host=document.getElementById('chart');host.style.width=width+'px';host.style.height=height+'px';
+ applyViewport(width,height);
+ if(pendingNativeState){const state=pendingNativeState;pendingNativeState=null;window.applyChartState({...state,width,height});}
+};
+window.applyChartState=state=>{
+ if(!(state.width>0&&state.height>0)){pendingNativeState=state;return;}
+ window.setNativeViewport(state.width,state.height);
+ if(state.config&&Object.keys(state.config).length)window.configure(state.config);
+ if(state.packet&&Object.keys(state.packet).length)window.receive(state.packet);
+};
 function resizeViewport(){
  cancelAnimationFrame(viewportFrame);viewportFrame=requestAnimationFrame(()=>{
-  const bounds=document.getElementById('chart').getBoundingClientRect();
-  const width=Math.floor(bounds.width),height=Math.floor(bounds.height);
-  if(width<1||height<1||width===lastViewportWidth&&height===lastViewportHeight)return;
-  const range=chart.timeScale().getVisibleLogicalRange();
-  lastViewportWidth=width;lastViewportHeight=height;
-  chart.resize(width,height,true);chart.priceScale('right').applyOptions({autoScale:true});
-  if(range)chart.timeScale().setVisibleLogicalRange(range);
-  chart.clearCrosshairPosition();document.getElementById('readout').textContent='';
-  window.dispatchEvent(new Event('chart-viewport-resized'));
+  const bounds=nativeViewport||document.getElementById('chart').getBoundingClientRect();
+  applyViewport(bounds.width,bounds.height);
  });
 }
 new ResizeObserver(resizeViewport).observe(document.getElementById('chart'));
