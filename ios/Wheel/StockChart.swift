@@ -331,6 +331,8 @@ private struct StockChartWeb: UIViewRepresentable {
                let data = try? JSONSerialization.data(withJSONObject: value), data.count < 2_000_000 {
                 UserDefaults.standard.set(data, forKey: "chartDrawings-" + drawingKey)
                 if let favorites = value["favorites"] as? [String] { UserDefaults.standard.set(favorites, forKey: "chartDrawingFavorites") }
+                if let order = value["order"] as? [String] { UserDefaults.standard.set(order, forKey: "chartDrawingOrder") }
+                if let magnet = value["magnet"] as? String { UserDefaults.standard.set(magnet, forKey: "chartDrawingMagnet") }
                 if let collapsed = value["collapsed"] as? Bool { UserDefaults.standard.set(collapsed, forKey: "chartDrawingCollapsed") }
             } else if message.name == "beState", let applied = message.body as? Bool { onBE?(applied)
             } else if message.name == "entryChanged", let price = message.body as? Double, price.isFinite, price >= 0 {
@@ -344,6 +346,8 @@ private struct StockChartWeb: UIViewRepresentable {
                 if let data = UserDefaults.standard.data(forKey: "chartDrawings-" + drawingKey),
                    let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { value = saved }
                 if let favorites = UserDefaults.standard.stringArray(forKey: "chartDrawingFavorites") { value["favorites"] = favorites }
+                if let order = UserDefaults.standard.stringArray(forKey: "chartDrawingOrder") { value["order"] = order }
+                if let magnet = UserDefaults.standard.string(forKey: "chartDrawingMagnet") { value["magnet"] = magnet }
                 if let collapsed = UserDefaults.standard.object(forKey: "chartDrawingCollapsed") as? Bool { value["collapsed"] = collapsed }
                 if let data = try? JSONSerialization.data(withJSONObject: ["key": drawingKey, "value": value]), let json = String(data: data, encoding: .utf8) {
                     web?.evaluateJavaScript("window.configureDrawings?.(\(json))", completionHandler: nil)
