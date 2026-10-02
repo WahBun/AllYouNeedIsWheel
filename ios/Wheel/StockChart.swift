@@ -10,6 +10,8 @@ struct StockChartView: View {
     @AppStorage("stockChartSession") private var session = "rth"
     @State private var quantity = "1"
     @State private var entry = ""
+    @State private var entryType = "LMT"
+    @State private var showInfo = false
     @State private var packet: [String: Any] = [:]
     @State private var notice = "Loading chart…"
     @State private var visible = false
@@ -17,6 +19,16 @@ struct StockChartView: View {
     private var context: String { "\(store.demo)-\(store.address)-\(position.con_id ?? 0)-\(interval)-\(session)-\(phase == .active)-\(visible)" }
     private var validEntry: Double { Double(entry).flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 0 }
     private var validQuantity: Double { Double(quantity).flatMap { $0.isFinite && $0 > 0 && $0 <= 1_000_000 ? $0 : nil } ?? 0 }
+    private func joinPrice(_ side: String) -> Double? {
+        guard let received, Date().timeIntervalSince(received) < 3,
+              let stamp = packet["quote_time"] as? Double, Date().timeIntervalSince1970 - stamp < 3,
+              let price = packet[side] as? Double, price.isFinite, price > 0 else { return nil }
+        return price
+    }
+    private func join(_ side: String) {
+        guard let price = joinPrice(side) else { return }
+        entryType = "LMT"; entry = String(format: "%.2f", price)
+    }
     var body: some View {
         VStack(spacing: 8) {
             HStack {
@@ -24,36 +36,46 @@ struct StockChartView: View {
                     Text("1m").tag(1); Text("5m").tag(5); Text("15m").tag(15); Text("1h").tag(60)
                 }.pickerStyle(.segmented)
                 Picker("Session", selection: $session) {
-                    Text("RTH").tag("rth"); Text("All hours").tag("all")
+                    Text("RTH").tag("rth"); Text("ETH").tag("all")
                 }.fixedSize()
             }
             TimelineView(.periodic(from: .now, by: 1)) { time in
                 Text(received.map { time.date.timeIntervalSince($0) > 3 } == true ? "Chart updates paused · verify connection" : LocalizedStringKey(notice))
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
-            StockChartWeb(packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark)
+            StockChartWeb(packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, onEntry: { entry = String(format: "%.2f", $0) })
                 .clipShape(RoundedRectangle(cornerRadius: 12))
-            HStack {
-                VStack(alignment: .leading) {
-                    Text("Entry reference").font(.caption).foregroundStyle(.secondary)
-                    TextField("Price", text: $entry).keyboardType(.decimalPad)
-                }
-                VStack(alignment: .leading) {
-                    Text("Preview shares").font(.caption).foregroundStyle(.secondary)
-                    TextField("Quantity", text: $quantity).keyboardType(.decimalPad)
-                }
-            }.textFieldStyle(.roundedBorder)
-            if validEntry == 0 || validQuantity == 0 { Text("Enter a valid price and quantity.").font(.caption).foregroundStyle(.orange) }
-            Text("TP / SL preview only · drag the labels. Estimated P&L excludes fees and slippage. No orders are sent.")
-                .font(.caption).foregroundStyle(.secondary)
-            HStack {
-                Text("New York · © 2025 TradingView, Inc.").font(.caption2)
-                Spacer()
-                Link("TradingView Lightweight Charts™", destination: URL(string: "https://www.tradingview.com/")!).font(.caption2)
+            HStack(spacing: 8) {
+                Text("Preview").font(.caption).foregroundStyle(.secondary)
+                Picker("Entry type", selection: $entryType) {
+                    Text("LMT").tag("LMT"); Text("STP").tag("STP")
+                }.pickerStyle(.segmented).frame(maxWidth: 125)
+                TextField("Shares", text: $quantity).keyboardType(.decimalPad)
+                    .multilineTextAlignment(.center).textFieldStyle(.roundedBorder).frame(maxWidth: 65)
+                Stepper("Shares", value: Binding(get: { max(1, Int(validQuantity)) }, set: { quantity = String($0) }), in: 1...1_000_000).labelsHidden()
             }
+            HStack {
+                Button("Join Bid") { join("bid") }.disabled(joinPrice("bid") == nil)
+                Button("Join Ask") { join("ask") }.disabled(joinPrice("ask") == nil)
+                Spacer()
+                Button { showInfo = true } label: { Image(systemName: "info.circle") }.accessibilityLabel("Chart details")
+            }.buttonStyle(.bordered)
         }.padding(.horizontal, 12).padding(.bottom, 8)
         .navigationTitle(position.symbol).navigationBarTitleDisplayMode(.inline)
         .modifier(KeyboardDismissal())
+        .sheet(isPresented: $showInfo) {
+            NavigationStack {
+                Form {
+                    Section("Entry reference") { TextField("Price", text: $entry).keyboardType(.decimalPad) }
+                    Text("TP / SL preview only · drag the labels. Estimated P&L excludes fees and slippage. No orders are sent.")
+                    Text("LMT and STP select the preview entry type. Join Bid / Ask copies an available recent live quote once; it does not follow future quotes or submit an order.")
+                    Text("ETH includes available extended-hours data. Time: New York.")
+                    Text("TradingView Lightweight Charts™ · Copyright © 2025 TradingView, Inc.")
+                    Link("TradingView", destination: URL(string: "https://www.tradingview.com/")!)
+                }.navigationTitle("Chart details")
+                    .toolbar { Button("Done") { showInfo = false } }
+            }.presentationDetents([.medium, .large])
+        }
         .onAppear {
             visible = true
             if entry.isEmpty { entry = String(format: "%.2f", position.market_price ?? 0) }
@@ -89,11 +111,14 @@ private struct StockChartWeb: UIViewRepresentable {
     var entry: Double
     var quantity: Double
     var dark: Bool
+    var entryType: String
+    var onEntry: (Double) -> Void
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
         config.userContentController.add(context.coordinator, name: "chartReady")
+        config.userContentController.add(context.coordinator, name: "entryChanged")
         let web = WKWebView(frame: .zero, configuration: config)
         web.scrollView.isScrollEnabled = false
         web.isOpaque = false
@@ -109,11 +134,13 @@ private struct StockChartWeb: UIViewRepresentable {
     }
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.packet = packet.isEmpty ? ["bars": [], "generation": "clear", "interval": 0, "session": ""] : packet
-        context.coordinator.config = ["entry": entry, "quantity": quantity, "dark": dark]
+        context.coordinator.onEntry = onEntry
+        context.coordinator.config = ["entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType]
         context.coordinator.update()
     }
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {
         web.configuration.userContentController.removeScriptMessageHandler(forName: "chartReady")
+        web.configuration.userContentController.removeScriptMessageHandler(forName: "entryChanged")
         web.stopLoading(); web.loadHTMLString("", baseURL: nil)
     }
     class Coordinator: NSObject, WKScriptMessageHandler {
@@ -121,7 +148,12 @@ private struct StockChartWeb: UIViewRepresentable {
         var ready = false
         var packet: [String: Any] = [:]
         var config: [String: Any] = [:]
-        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) { ready = true; update() }
+        var onEntry: ((Double) -> Void)?
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            if message.name == "entryChanged", let price = message.body as? Double, price.isFinite, price > 0 {
+                onEntry?(price)
+            } else if message.name == "chartReady" { ready = true; update() }
+        }
         func update() {
             guard ready else { return }
             for (function, value) in [("configure", config), ("receive", packet)] {

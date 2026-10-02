@@ -151,8 +151,18 @@ class StockChart:
         age = time.time() - last if last is not None else None
         sessions = regular_sessions(datetime.now(timezone.utc).date().isoformat()) if session == 'rth' else None
         in_session = last is not None and (sessions is None or any(start <= last < end for start, end in sessions))
+        ticker = state['ticker']
+        quote_time = getattr(ticker, 'time', None)
+        quote_time = quote_time.timestamp() if isinstance(quote_time, datetime) else None
+        quote_valid = (quote_time is not None and 0 <= time.time() - quote_time < 3
+                       and getattr(ticker, 'marketDataType', None) == 1)
+        bid = positive(getattr(ticker, 'bid', None)) if quote_valid else None
+        ask = positive(getattr(ticker, 'ask', None)) if quote_valid else None
+        if bid is not None and ask is not None and bid > ask:
+            bid = ask = None
         return dict(con_id=con_id, symbol=contract.symbol, interval=minutes,
             bars=aggregate(state['bars'], minutes, sessions), session=session, generation=str(state['generation']),
+            bid=bid, ask=ask, quote_time=quote_time if quote_valid else None,
             source='IB Last tick-by-tick', status='live' if in_session and age is not None and age < 10 else 'waiting',
             last_tick=last, received_at=state['received'], tick_count=state['ticks'],
             historical=True, transport='HTTP batches, about 250ms plus request time', currency='USD')

@@ -1,6 +1,135 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+  "Preview": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "预览"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "預覽"
+        }
+      }
+    }
+  },
+  "Entry type": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "入场类型"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "進場類型"
+        }
+      }
+    }
+  },
+  "Shares": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "股数"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "股數"
+        }
+      }
+    }
+  },
+  "Join Bid": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "取买价"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "取買價"
+        }
+      }
+    }
+  },
+  "Join Ask": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "取卖价"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "取賣價"
+        }
+      }
+    }
+  },
+  "Chart details": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "图表说明"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "圖表說明"
+        }
+      }
+    }
+  },
+  "ETH includes available extended-hours data. Time: New York.": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ETH 包含可用的延长时段行情。时间：纽约。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ETH 包含可用的延長時段行情。時間：紐約。"
+        }
+      }
+    }
+  },
+  "LMT and STP select the preview entry type. Join Bid / Ask copies an available recent live quote once; it does not follow future quotes or submit an order.": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "LMT、STP 仅选择预览入场类型。取买价／卖价只复制一次可用的近期实时报价，不跟随后续报价，也不发送订单。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "LMT、STP 僅選擇預覽進場類型。取買價／賣價只複製一次可用的近期即時報價，不跟隨後續報價，也不傳送訂單。"
+        }
+      }
+    }
+  },
+
   "Trading chart · Preview": {
     "localizations": {
       "zh-Hans": {

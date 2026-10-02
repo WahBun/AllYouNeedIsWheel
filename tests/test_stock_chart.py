@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace as S
 import unittest
 from unittest.mock import Mock
@@ -62,3 +62,22 @@ class StockChartTests(unittest.TestCase):
         conn,_=self.connection();conn.ib.reqHistoricalData.return_value=[]
         with self.assertRaises(ValueError):feed.snapshot(conn,7,5)
         conn.ib.reqTickByTickData.assert_not_called()
+
+    def test_join_quotes_require_recent_live_uncrossed_market(self):
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection();feed=StockChart()
+        try:
+            ticker.time=datetime.now(timezone.utc)
+            ticker.marketDataType=1;ticker.bid=10;ticker.ask=10.01
+            result=feed.snapshot(conn,7,5)
+            self.assertEqual((result['bid'],result['ask']),(10,10.01))
+            ticker.marketDataType=2
+            self.assertIsNone(feed.snapshot(conn,7,5)['bid'])
+            ticker.marketDataType=1;ticker.time=datetime.now(timezone.utc)-timedelta(seconds=5)
+            self.assertIsNone(feed.snapshot(conn,7,5)['ask'])
+            ticker.time=datetime.now(timezone.utc);ticker.bid=11
+            result=feed.snapshot(conn,7,5)
+            self.assertIsNone(result['bid']);self.assertIsNone(result['ask'])
+            conn.ib.placeOrder.assert_not_called()
+        finally:
+            feed.stop();asyncio.get_event_loop().close()

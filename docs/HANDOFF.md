@@ -143,3 +143,11 @@ share quantity, rounded to cents and excluding fees/slippage. They never write
 orders. There is no bracket-order execution in this pilot. No options/futures
 support or Pine Script runtime is implied. Missing tick permissions/closed
 markets show waiting; no snapshot fallback is labeled as tick data.
+
+## Stock chart preview controls
+
+The held-stock chart uses a fixed gray palette in both themes, compact right-side
+Entry/TP/SL drag handles, and RTH/ETH session selection. Prices appear in the
+handles without duplicate custom axis labels. LMT/STP and Join Bid/Ask change
+only the preview; Join copies a recent live quote once. Explanations and required
+attribution remain in Chart details. No chart control submits broker orders.
