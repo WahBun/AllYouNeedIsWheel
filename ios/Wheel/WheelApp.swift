@@ -645,9 +645,12 @@ struct PortfolioView: View {
                 }.font(.subheadline).padding(.vertical, 4)
             }
             if let error = store.error { Section { Label { NoticeText(error) } icon: { Image(systemName: "wifi.exclamationmark") }.foregroundStyle(.orange) } }
-            ForEach(["OPT", "STK"], id: \.self) { type in
+            let heldPositions = (store.portfolio?.positions ?? []).filter { $0.position != 0 }
+            ForEach(["OPT", "STK"].filter { type in
+                heldPositions.contains { $0.security_type == type }
+            }, id: \.self) { type in
                 Section(LocalizedStringKey(type == "STK" ? "Stocks" : "Options")) {
-                    ForEach((store.portfolio?.positions ?? []).filter { $0.security_type == type }) { position in
+                    ForEach(heldPositions.filter { $0.security_type == type }) { position in
                         ArrowlessNavigationLink { PositionDetail(position: position) } label: {
                             if position.security_type == "OPT" {
                                 PortfolioOptionRow(position: position)
