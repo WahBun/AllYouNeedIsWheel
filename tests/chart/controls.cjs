@@ -28,6 +28,16 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
   window.receive({generation:'test',interval:1,session:'all',mode:'delta',bars:[]});
   const heartbeatCount=series.data().length;
   if(deltaCount!==2||heartbeatCount!==2)throw Error('Incremental data lost history');
+  handleReadoutMove({point:{x:300,y:100},logical:5,seriesData:new Map()});
+  if(!document.getElementById('readout').textContent.includes('C 10.00'))throw Error('Right whitespace lost latest OHLC');
+  window.receive({generation:'test',interval:1,session:'all',mode:'delta',bars:[{time:1060,open:10,high:12,low:9,close:12}]});
+  if(!document.getElementById('readout').textContent.includes('C 12.00'))throw Error('Latest OHLC did not refresh');
+  handleReadoutMove({point:{x:30,y:100},logical:0,seriesData:new Map([[series,previous[0]]])});
+  if(!document.getElementById('readout').textContent.includes('C 9.50'))throw Error('Historical selection lost');
+  handleReadoutMove({seriesData:new Map()});
+  if(document.getElementById('readout').textContent)throw Error('Leaving chart did not clear selection');
+  receive({generation:'test',interval:1,session:'all',mode:'delta',bars:[{time:1060,open:10,high:11,low:9,close:10}]});
+
   return {profitableSL,snappedEntry,before,invalid,message,noDelayedApply,corrected,be,sell,sellProfit,fine,unknown};
  });
  assert.equal(result.profitableSL,9.25);assert.equal(result.snappedEntry,9.25);
