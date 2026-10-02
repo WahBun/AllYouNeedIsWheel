@@ -162,5 +162,5 @@ validation. Actual broker orders remain outside this chart prototype.
 Chart favorite intervals persist on-device; the period selector supports
 1/3/5/10/15 minutes, 1/8 hours and D/W/M. Calendar periods request native IB
 1-year daily, 5-year weekly and 10-year monthly bars on demand, cached for the
-active chart lease and canceled with it. Intraday history remains one day;
-8h RTH is a partial session bar. History availability depends on the instrument.
+active chart lease and canceled with it. Intraday history requests five days of minute bars.
+8h RTH shares the native daily history/cache with D; ETH retains 8-hour aggregation. History availability depends on the instrument.

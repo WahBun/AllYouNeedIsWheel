@@ -29,7 +29,7 @@ def apply_tick(bars, timestamp, price):
         return False
     if not bars or minute > bars[-1]['time']:
         bars.append(dict(time=minute, open=price, high=price, low=price, close=price))
-        del bars[:-1800]
+        del bars[:-12000]
     else:
         bar = bars[-1]
         bar.update(high=max(bar['high'], price), low=min(bar['low'], price), close=price)
@@ -39,7 +39,7 @@ def apply_tick(bars, timestamp, price):
 @lru_cache(maxsize=16)
 def regular_sessions(day):
     date = datetime.fromisoformat(day).date()
-    schedule = calendars.get_calendar('NYSE').schedule(start_date=date - timedelta(days=7), end_date=date + timedelta(days=1))
+    schedule = calendars.get_calendar('NYSE').schedule(start_date=date - timedelta(days=14), end_date=date + timedelta(days=1))
     return tuple((int(row.market_open.timestamp()), int(row.market_close.timestamp())) for row in schedule.itertuples())
 
 
@@ -109,7 +109,7 @@ class StockChart:
                 raise ValueError('Chart subscription cooling down; retry shortly')
             self.next_request = {key: value for key, value in self.next_request.items() if value > now}
             self.next_request[con_id] = now + 15
-            historical = conn.ib.reqHistoricalData(contract, '', '1 D', '1 min', 'TRADES',
+            historical = conn.ib.reqHistoricalData(contract, '', '5 D', '1 min', 'TRADES',
                 useRTH=False, formatDate=2, keepUpToDate=False, timeout=5)
             bars = []
             for bar in historical:
@@ -129,7 +129,7 @@ class StockChart:
             self.next_request[con_id] = time.monotonic() + 15
             ticker = conn.ib.reqTickByTickData(contract, 'Last', 0, False)
             state = dict(conn=conn, client=conn.ib.client, contract=contract, ticker=ticker,
-                con_id=con_id, bars=bars[-1800:], used=now, last_tick=None, received=None,
+                con_id=con_id, bars=bars[-12000:], used=now, last_tick=None, received=None,
                 generation=time.time_ns(), ticks=0)
             def on_tick(updated):
                 if self.active is not state:
@@ -151,15 +151,16 @@ class StockChart:
         state['used'] = time.monotonic()
         conn.ib.sleep(0.01)  # Drain IB events on the owner thread, not an HTTP thread.
         higher_bars = None
-        if minutes >= 1440:
+        history_minutes = 1440 if minutes == 480 and session == 'rth' else minutes
+        if history_minutes >= 1440:
             cache = state.setdefault('higher', {})
-            cache_key = (minutes, session)
+            cache_key = (history_minutes, session)
             if cache_key not in cache:
                 retry = state.setdefault('higher_retry', {})
                 if time.monotonic() < retry.get(cache_key, 0):
                     raise ValueError('Historical chart request cooling down')
                 retry[cache_key] = time.monotonic() + 15
-                duration, size = {1440: ('1 Y', '1 day'), 10080: ('5 Y', '1 week'), 43200: ('10 Y', '1 month')}[minutes]
+                duration, size = {1440: ('1 Y', '1 day'), 10080: ('5 Y', '1 week'), 43200: ('10 Y', '1 month')}[history_minutes]
                 history = conn.ib.reqHistoricalData(contract, '', duration, size, 'TRADES',
                     useRTH=session == 'rth', formatDate=2, keepUpToDate=True, timeout=5)
                 if not history:

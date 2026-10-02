@@ -107,6 +107,10 @@ class StockChartTests(unittest.TestCase):
                 calls=conn.ib.reqHistoricalData.call_count
                 feed.snapshot(conn,7,minutes)
                 self.assertEqual(conn.ib.reqHistoricalData.call_count,calls)
+            calls=conn.ib.reqHistoricalData.call_count
+            daily=feed.snapshot(conn,7,1440)['bars']
+            self.assertEqual(feed.snapshot(conn,7,480)['bars'],daily)
+            self.assertEqual(conn.ib.reqHistoricalData.call_count,calls)
             feed.stop()
             self.assertEqual(conn.ib.cancelHistoricalData.call_count,3)
             conn.ib.placeOrder.assert_not_called()

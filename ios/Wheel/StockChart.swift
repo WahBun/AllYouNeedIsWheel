@@ -66,21 +66,22 @@ struct StockChartView: View {
             StockChartWeb(packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, onEntry: { entry = String(format: "%.2f", $0) })
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
+                TextField("Shares", text: $quantity).keyboardType(.decimalPad)
+                    .multilineTextAlignment(.center).textFieldStyle(.roundedBorder).frame(width: 48)
+                Stepper("Shares", value: Binding(get: { max(1, Int(validQuantity)) }, set: { quantity = String($0) }), in: 1...1_000_000).labelsHidden()
+                Spacer(minLength: 0)
                 if validEntry == 0 {
-                    Button { entry = String(format: "%.2f", ((packet["bars"] as? [[String: Any]])?.last?["close"] as? Double) ?? position.market_price ?? 0) } label: { Image(systemName: "plus.circle") }.accessibilityLabel("Entry reference")
-                } else { Text("Preview").font(.caption).foregroundStyle(.secondary) }
+                    Button { entry = String(format: "%.2f", ((packet["bars"] as? [[String: Any]])?.last?["close"] as? Double) ?? position.market_price ?? 0) } label: { Image(systemName: "plus.circle").frame(minWidth: 32, minHeight: 44) }.accessibilityLabel("Entry reference")
+                }
                 Picker("Entry type", selection: $entryType) {
                     Text("LMT").tag("LMT"); Text("STP").tag("STP")
-                }.pickerStyle(.segmented).frame(maxWidth: 125)
-                TextField("Shares", text: $quantity).keyboardType(.decimalPad)
-                    .multilineTextAlignment(.center).textFieldStyle(.roundedBorder).frame(maxWidth: 65)
-                Stepper("Shares", value: Binding(get: { max(1, Int(validQuantity)) }, set: { quantity = String($0) }), in: 1...1_000_000).labelsHidden()
+                }.pickerStyle(.segmented).frame(maxWidth: 140)
             }
-            HStack {
-                Button("Join Bid") { join("bid") }.tint(.green).disabled(joinPrice("bid") == nil)
-                Button("Join Ask") { join("ask") }.tint(.red).disabled(joinPrice("ask") == nil)
-                Spacer()
-                Button { showInfo = true } label: { Image(systemName: "info.circle") }.accessibilityLabel("Chart details")
+            HStack(spacing: 12) {
+                Button { showInfo = true } label: { Image(systemName: "info.circle").frame(minHeight: 44) }.accessibilityLabel("Chart details")
+                Spacer(minLength: 0)
+                Button { join("bid") } label: { Text("Join Bid").frame(maxWidth: .infinity, minHeight: 44) }.tint(.green).disabled(joinPrice("bid") == nil)
+                Button { join("ask") } label: { Text("Join Ask").frame(maxWidth: .infinity, minHeight: 44) }.tint(.red).disabled(joinPrice("ask") == nil)
             }.buttonStyle(.bordered)
         }.padding(.horizontal, 12).padding(.bottom, 8)
         .navigationTitle(position.symbol).navigationBarTitleDisplayMode(.inline)
@@ -132,7 +133,7 @@ struct StockChartView: View {
                     try Task.checkCancellation()
                     guard result["con_id"] as? Int == conID, result["bars"] is [[String: Any]] else { throw AppError.message("Invalid chart response") }
                     packet = result; received = .now; failures = 0
-                    notice = interval >= 1440 ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks"
+                    notice = (interval >= 1440 || (interval == 480 && session == "rth")) ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks"
                 } catch {
                     guard !Task.isCancelled else { return }
                     failures = min(failures + 1, 5)
