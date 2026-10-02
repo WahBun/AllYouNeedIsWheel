@@ -119,9 +119,22 @@ class PaperChart:
             total = sum(float(f.execution.shares) for f in fills)
             if total > 0: result['entry'] = sum(float(f.execution.shares)*float(f.execution.price) for f in fills)/total
         if not result['known']: result['status']='unknown'
-        if position and position.position and getattr(position, 'avgCost', 0):
-            multiplier = float(getattr(position.contract, 'multiplier', '') or 1)
-            result['entry'] = float(position.avgCost) / multiplier
+        if result['position']:
+            # Broker avgCost includes commission for futures. Use actual fills for
+            # the chart's price basis, retaining average cost through trims.
+            events = {}
+            for oid in group['ids'].values():
+                trade = trades.get(oid)
+                if not trade: continue
+                for f in trade_fills(trade):
+                    events[f.execution.execId] = (f.time, f.execution.execId, trade.order.action, float(f.execution.shares), float(f.execution.price))
+            size = cost = 0.0
+            for _, _, action, quantity, fill_price in sorted(events.values()):
+                if action == ('BUY' if group['side'] == 1 else 'SELL'):
+                    size += quantity; cost += quantity * fill_price
+                elif size and quantity <= size:
+                    cost -= cost * quantity / size; size -= quantity
+            if size and abs(size - abs(result['position'])) < .000001: result['entry'] = cost / size
         result['be_applied']=bool(result['position'] and result['sl']>0 and result['side']*(result['sl']-result['entry'])>0)
         result['rejected']=any(r['status']=='Inactive' for r in rows)
         return result
@@ -240,7 +253,7 @@ class PaperChart:
                     save()
                     order = (LimitOrder if role == 'tp' else StopOrder)(
                         'SELL' if position > 0 else 'BUY', abs(position), level,
-                        orderId=oid,account=account,tif='DAY',transmit=role=='sl',ocaGroup=oca,ocaType=2,orderRef=group['ref'])
+                        orderId=oid,account=account,tif='DAY',transmit=True,ocaGroup=oca,ocaType=2,orderRef=group['ref'])
                     conn.ib.placeOrder(contract,order)
             if actual != current['position']:
                 protect(actual)
@@ -257,9 +270,17 @@ class PaperChart:
                 deadline = time.monotonic() + 4
                 while not trade.isDone() and time.monotonic() < deadline: conn.ib.sleep(.05)
                 if not trade.isDone(): raise RuntimeError('Adjustment unresolved; inspect Gateway before further trading')
-            positions = conn._bounded_order_read(conn.ib.reqPositions, timeout_seconds=3)
-            pos = next((p for p in positions if p.account == account and p.contract.conId == cid), None)
-            protect(float(pos.position) if pos else 0)
+            filled = max(float(trade.orderStatus.filled), sum(float(f.execution.shares) for f in trade.fills))
+            remaining = actual + filled * (1 if order.action == 'BUY' else -1)
+            # reqPositions can lag the execution callback; it must not size exits.
+            protect(remaining)
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                conn.ib.sleep(.05)
+                live = {t.order.orderId:t for t in conn.ib.trades()}
+                protective = [live.get(group['ids'][role]) for role in ('tp','sl')]
+                if all(t and t.orderStatus.status in ('Submitted','PreSubmitted','Filled','Cancelled') for t in protective): break
+            else: raise RuntimeError('Protective orders not confirmed; inspect Gateway')
             return
         if action in ('amend','be'):
             role='sl' if action=='be' else body.get('role')

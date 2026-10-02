@@ -92,11 +92,19 @@ class PaperChartTests(unittest.TestCase):
             self.assertEqual(len(working),2)
             self.assertTrue(all(t.order.totalQuantity==expected for t in working))
             self.assertEqual(working[0].order.ocaGroup,working[1].order.ocaGroup)
-            self.assertTrue(all(t.order.ocaType==2 for t in working))
+            self.assertTrue(all(t.order.ocaType==2 and t.order.transmit for t in working))
             self.assertTrue(all(t.order.orderRef==self.trades[0].order.orderRef for t in working))
             writes=self.conn.ib.placeOrder.call_count
             self.service.execute(self.conn,7,body)
             self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+
+    def test_adjustment_sizes_exits_from_fills_not_lagging_position_snapshot(self):
+        self.filled_position()
+        snapshot=S(account='DU_TEST',contract=self.contract,position=4)
+        self.conn._bounded_order_read.side_effect=lambda *a,**kw:[snapshot]
+        r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='add',quantity=2))
+        self.assertTrue(r['success'],r)
+        self.assertTrue(all(t.order.totalQuantity==6 for t in self.trades if not t.isDone()))
 
     def test_invalid_trim_and_external_position_cannot_cancel_protection(self):
         self.filled_position()
