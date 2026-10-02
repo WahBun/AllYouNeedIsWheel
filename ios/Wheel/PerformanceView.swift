@@ -75,7 +75,6 @@ struct PerformanceView: View {
     @State private var period = "YTD"
     @State private var benchmarks: BenchmarkSelection = .both
     @State private var history: PerformanceHistory?
-    @State private var cachedHistory: [String: PerformanceHistory] = [:]
     @State private var live: PerformanceLive?
     @State private var error: String?
     @State private var liveError: String?
@@ -210,7 +209,7 @@ struct PerformanceView: View {
                     performanceLegend.font(.caption)
                     if history.awaiting_report == true { Text("Awaiting the first daily report for this period").font(.caption).foregroundStyle(.secondary) }
                     if history.limited_history { Text("Limited history for this period").font(.caption).foregroundStyle(.orange) }
-                    if history.stale { Text("Cached history · refresh pending").font(.caption).foregroundStyle(.orange) }
+                    if history.stale || loading { Text("Cached history · refresh pending").font(.caption).foregroundStyle(.orange) }
                     if let warning = history.warning { NoticeText(warning).font(.caption).foregroundStyle(.orange) }
                 }
                 if loading { ProgressView() }
@@ -234,32 +233,39 @@ struct PerformanceView: View {
             .onAppear { visible = true }.onDisappear { visible = false }
             .task(id: context) {
                 guard active else { return }
+                let requestedContext = context
                 let cacheKey = store.address + "|" + period
-                history = store.demo ? nil : cachedHistory[cacheKey]
+                history = store.demo ? nil : store.performanceHistoryCache[cacheKey].flatMap { try? JSONDecoder().decode(PerformanceHistory.self, from: $0) }
                 error = nil
                 guard !store.demo else { error = "Performance requires a live backend with Flex history."; return }
                 loading = true
-                defer { loading = false }
+                defer { if context == requestedContext { loading = false } }
                 for _ in 0..<45 {
                     do {
                         let (data, status) = try await read("history", query: [URLQueryItem(name: "period", value: period)])
                         if status == 202 { try await Task.sleep(for: .seconds(2)); continue }
                         let value = try JSONDecoder().decode(PerformanceHistory.self, from: data)
-                        try Task.checkCancellation(); cachedHistory[cacheKey] = value; history = value
+                        try Task.checkCancellation()
+                        guard context == requestedContext else { return }
+                        store.performanceHistoryCache[cacheKey] = data; history = value
                         if value.refreshing == true { try await Task.sleep(for: .seconds(2)); continue }
                         return
-                    } catch { if !Task.isCancelled { self.error = connectionMessage(error) }; return }
+                    } catch { if !Task.isCancelled, context == requestedContext { self.error = connectionMessage(error) }; return }
                 }
-                error = "History is still generating. Try Refresh shortly."
+                if context == requestedContext { error = "History is still generating. Try Refresh shortly." }
             }
             .task(id: "live-\(active)-\(store.demo)-\(store.address)") {
+                live = nil; liveError = nil
                 guard active, !store.demo else { return }
+                let requestedAddress = store.address
                 while !Task.isCancelled {
                     do {
                         let (data, _) = try await read("live")
                         let next = try JSONDecoder().decode(PerformanceLive.self, from: data)
-                        try Task.checkCancellation(); live = next; liveError = nil
-                    } catch { if Task.isCancelled { return }; live = nil; liveError = connectionMessage(error) }
+                        try Task.checkCancellation()
+                        guard active, !store.demo, store.address == requestedAddress else { return }
+                        live = next; liveError = nil
+                    } catch { if Task.isCancelled || !active || store.address != requestedAddress { return }; live = nil; liveError = connectionMessage(error) }
                     do { try await Task.sleep(for: .seconds(5)) } catch { return }
                 }
             }

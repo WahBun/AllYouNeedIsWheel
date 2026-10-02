@@ -139,3 +139,111 @@ struct PositionMarginView: View {
         }
     }
 }
+
+struct EntryMarginEstimate: Decodable {
+    let ticker: String
+    let expiration: String
+    let strike: Double
+    let quantity: Int
+    let limit_price: Double
+    let estimated: Bool
+    let initial_change: Double
+    let currency: String
+    let retrieved_at: String
+    let warning: String?
+    func matches(ticker: String, expiration: String, strike: Double, quantity: Int, price: Double) -> Bool {
+        self.ticker == ticker && self.expiration == expiration && self.strike == strike && self.quantity == quantity && self.limit_price == price && estimated && initial_change.isFinite && abs(initial_change) < 1e100 && currency == "USD"
+    }
+}
+
+struct EntryMarginRow: View {
+    let ticker: String
+    let expiration: String
+    let strike: Double
+    let quantity: Int
+    let price: String
+    @Environment(WheelStore.self) private var store
+    @Environment(\.scenePhase) private var phase
+    @State private var estimate: EntryMarginEstimate?
+    @State private var error: String?
+    @State private var loading = false
+    @State private var request: Task<Void, Never>?
+    @State private var requestID = UUID()
+    private var context: String { "\(store.address)|\(store.demo)|\(ticker)|\(expiration)|\(strike)|\(quantity)|\(price)|\(store.trading.version)|\(phase)|\(store.selectedTab)" }
+    @State private var showsExplanation = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Initial margin")
+                    Spacer(minLength: 16)
+                    marginValue.fixedSize(horizontal: true, vertical: false)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Initial margin")
+                    marginValue
+                }
+            }
+            HStack {
+                Button { showsExplanation = true } label: {
+                    Label("Estimated change", systemImage: "info.circle")
+                        .font(.caption.weight(.medium)).foregroundStyle(.primary).underline(false)
+                        .frame(minHeight: 36, alignment: .leading)
+                }.buttonStyle(.plain).underline(false)
+                Spacer(minLength: 12)
+                Button { fetch() } label: {
+                    Label(LocalizedStringKey(estimate == nil ? "Estimate" : "Refresh"), systemImage: "arrow.clockwise")
+                        .font(.caption.weight(.medium)).foregroundStyle(.primary).underline(false).frame(minHeight: 36)
+                }.buttonStyle(.plain).underline(false)
+                    .disabled(loading || store.demo || store.trading.busy || TradeRules.price(price) == nil || quantity < 1)
+            }
+            if let error { NoticeText(error).font(.caption).foregroundStyle(.orange) }
+            if let warning = estimate?.warning { NoticeText(warning).font(.caption).foregroundStyle(.orange) }
+        }.padding(.vertical, 4)
+        .sheet(isPresented: $showsExplanation) {
+            NavigationStack {
+                Form {
+                    Section {
+                        Text("IB what-if estimate in USD, not cash collateral. Positive adds required margin; negative reduces it. Changes with account positions and market conditions; no order is submitted.")
+                        if let estimate {
+                            LabeledContent("Retrieved", value: MarginImpact.displayTime(estimate.retrieved_at))
+                        }
+                    }
+                }.navigationTitle("Initial margin")
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showsExplanation = false } } }
+            }.presentationDetents([.medium, .large])
+        }
+        .onDisappear { requestID = UUID(); request?.cancel(); request = nil; loading = false }
+        .onChange(of: context) { requestID = UUID(); request?.cancel(); request = nil; loading = false; estimate = nil; error = nil }
+    }
+    @ViewBuilder private var marginValue: some View {
+        if loading { ProgressView() }
+        else if let estimate { Text(money(estimate.initial_change)).monospacedDigit().foregroundStyle(.secondary) }
+        else { Text("—").foregroundStyle(.secondary) }
+    }
+    private func fetch() {
+        guard !loading, !store.demo, !store.trading.busy, let limit = TradeRules.price(price), quantity > 0 else { return }
+        let token = context
+        let identity = UUID()
+        requestID = identity
+        loading = true; estimate = nil; error = nil
+        request = Task {
+            defer { if token == context, requestID == identity { loading = false } }
+            do {
+                let data = try await store.trading.get("api/options/entry-margin", base: store.address, query: [
+                    URLQueryItem(name: "ticker", value: ticker), URLQueryItem(name: "expiration", value: expiration),
+                    URLQueryItem(name: "strike", value: String(strike)), URLQueryItem(name: "quantity", value: String(quantity)),
+                    URLQueryItem(name: "price", value: String(limit))])
+                let value = try JSONDecoder().decode(EntryMarginEstimate.self, from: JSONSerialization.data(withJSONObject: data))
+                guard !Task.isCancelled, token == context, requestID == identity else { return }
+                guard value.matches(ticker: ticker, expiration: expiration, strike: strike, quantity: quantity, price: limit) else {
+                    throw AppError.message("Margin estimate does not match the selected order.")
+                }
+                estimate = value
+            } catch {
+                guard !Task.isCancelled, token == context, requestID == identity else { return }
+                self.error = error.localizedDescription.contains("HTTP 404") ? "Update the backend to enable entry margin estimates." : connectionMessage(error)
+            }
+        }
+    }
+}

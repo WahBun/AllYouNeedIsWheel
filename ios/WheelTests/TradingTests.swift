@@ -806,11 +806,60 @@ final class TradingTests: XCTestCase {
     private func closeQuote(_ mid: Double = 0.6, held: Double = -3) -> [String: Any] {
         ["position": held, "close_action": held < 0 ? "BUY" : "SELL", "bid": mid - 0.01, "mid": mid, "ask": mid + 0.01, "quote_time": "Frozen snapshot", "is_frozen": true]
     }
+    func testDataHealthAgesWithoutAnotherResponse() {
+        let date = Date(timeIntervalSince1970: 100)
+        XCTAssertEqual(DataHealth.status(demo: false, failed: false, updated: date, frozen: false, now: date), "Backend responding")
+        XCTAssertEqual(DataHealth.status(demo: false, failed: false, updated: date, frozen: false, now: date.addingTimeInterval(15)), "STALE")
+        XCTAssertEqual(DataHealth.status(demo: false, failed: true, updated: date, frozen: false, now: date), "STALE")
+        XCTAssertEqual(DataHealth.status(demo: false, failed: false, updated: date, frozen: true, now: date), "FROZEN")
+        XCTAssertEqual(DataHealth.status(demo: true, failed: true, updated: nil, frozen: true, now: date), "DEMO")
+        XCTAssertTrue(DataHealth.guidance("IB requests are busy [HTTP 503]").contains("does not by itself"))
+    }
+    func testOrderExplanationNeverConfusesProcessingWithFillOrAmendmentConfirmation() {
+        var order = Order(id: 1, status: "processing")
+        XCTAssertTrue(order.statusExplanation.contains("does not mean filled"))
+        order.ib_status = "Submitted"
+        XCTAssertTrue(order.statusExplanation.contains("not a fill confirmation"))
+        order.amendment_pending = "{}"
+        XCTAssertTrue(order.statusExplanation.contains("previous terms"))
+        order.status = "unknown"
+        XCTAssertTrue(order.statusExplanation.contains("Result unconfirmed"))
+    }
+    func testPerformanceCacheSurvivesNavigationButClearsWithConnectionContext() {
+        let store = WheelStore()
+        let key = "https://example.invalid|MTD"
+        store.performanceHistoryCache[key] = Data("snapshot".utf8)
+        store.selectedTab = "trade"
+        store.selectedTab = "portfolio"
+        XCTAssertEqual(store.performanceHistoryCache[key], Data("snapshot".utf8))
+        store.changeMode()
+        XCTAssertTrue(store.performanceHistoryCache.isEmpty)
+    }
+    func testEntryMarginRejectsChangedTermsAndNonEstimatePayloads() throws {
+        func value(_ estimated: Bool = true, amount: Double = 500) -> EntryMarginEstimate {
+            EntryMarginEstimate(ticker: "TEST", expiration: "20261016", strike: 75, quantity: 1, limit_price: 1.15, estimated: estimated, initial_change: amount, currency: "USD", retrieved_at: "2026-10-02T01:00:00Z", warning: nil)
+        }
+        XCTAssertTrue(value().matches(ticker: "TEST", expiration: "20261016", strike: 75, quantity: 1, price: 1.15))
+        XCTAssertFalse(value().matches(ticker: "TEST", expiration: "20261016", strike: 75, quantity: 2, price: 1.15))
+        XCTAssertFalse(value().matches(ticker: "TEST", expiration: "20261016", strike: 75, quantity: 1, price: 1.16))
+        XCTAssertFalse(value().matches(ticker: "TEST", expiration: "20261023", strike: 75, quantity: 1, price: 1.15))
+        XCTAssertFalse(value(false).matches(ticker: "TEST", expiration: "20261016", strike: 75, quantity: 1, price: 1.15))
+        XCTAssertFalse(value(amount: 1.7976931348623157e308).matches(ticker: "TEST", expiration: "20261016", strike: 75, quantity: 1, price: 1.15))
+    }
     func testRefreshCadenceAccountsForRequestTimeAndBackoff() {
         XCTAssertEqual(RefreshLoop.delay(elapsed: 0.4, failed: false), 1.6, accuracy: 0.001)
         XCTAssertEqual(RefreshLoop.delay(elapsed: 8, failed: false), 0.25)
-        XCTAssertEqual(RefreshLoop.delay(elapsed: 1, failed: true), 10)
-        XCTAssertEqual(RefreshLoop.delay(elapsed: 30, failed: true), 10)
+        XCTAssertEqual(RefreshLoop.delay(elapsed: 1, failed: true), 1)
+        XCTAssertEqual(RefreshLoop.delay(elapsed: 30, failed: true), 1)
+    }
+    func testReconnectBackoffStartsFastAndCapsDuringPersistentFailure() {
+        XCTAssertEqual((1...7).map { RefreshLoop.delay(elapsed: 0, failed: true, consecutiveFailures: $0) }, [1, 2, 4, 8, 10, 10, 10])
+        XCTAssertEqual(RefreshLoop.delay(elapsed: 0.2, failed: false, consecutiveFailures: 5), 1.8, accuracy: 0.001)
+    }
+    func testOneSecondQuoteCadenceRetainsSlowRequestFloorAndFailureBackoff() {
+        XCTAssertEqual(RefreshLoop.delay(elapsed: 0.4, failed: false, interval: 1), 0.6, accuracy: 0.001)
+        XCTAssertEqual(RefreshLoop.delay(elapsed: 3, failed: false, interval: 1), 0.25)
+        XCTAssertEqual(RefreshLoop.delay(elapsed: 0.1, failed: true, interval: 1), 1)
     }
     func testQuoteRefreshPreservesManualPriceQuantityAndBlankInput() async {
         let state = CloseQuoteState()

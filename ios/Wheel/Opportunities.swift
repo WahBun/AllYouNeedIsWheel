@@ -175,11 +175,13 @@ final class OpportunityBook {
     var batchRunning = false
     private var generation = 0
     private var retryAfter: [String: Date] = [:]
+    private var retryFailures: [String: Int] = [:]
+    private var stockRecoveryRetried: Set<String> = []
     private var preferenceKey = ""
     struct Saved: Codable { var preferences: [String: OpportunityPreference]; var custom: [String]; var excluded: [String]; var removedPuts: [String]? }
     func configure(context: String) {
         generation += 1; rows = [:]; strikeLists = [:]; loading = false
-        retryAfter = [:]
+        retryAfter = [:]; retryFailures = [:]; stockRecoveryRetried = []
         pricesLoading = false; priceError = nil
         marketOpen = nil; sessionExpires = .distantPast
         preferenceKey = "opportunities-v1-" + context
@@ -332,6 +334,12 @@ final class OpportunityBook {
                 row.stockPrice = price
                 row.previousClose = item["previous_close"] as? Double
                 row.stockUpdated = sampledAt
+                // Wake a missing-underlying failure once per error streak. Repeated
+                // stock responses must not disable backoff for a persistent failure.
+                if row.error == "Unable to obtain valid stock price",
+                   stockRecoveryRetried.insert(rowKey).inserted {
+                    retryAfter[rowKey] = nil
+                }
                 rows[rowKey] = row
             }
             priceError = nil
@@ -352,7 +360,15 @@ final class OpportunityBook {
             if background, let retry = retryAfter[rowKey], retry > Date() { continue }
             await load(symbol, type: type, store: store, background: background)
             guard token == generation, !Task.isCancelled else { return }
-            retryAfter[rowKey] = rows[rowKey]?.error == nil ? nil : Date().addingTimeInterval(10)
+            if rows[rowKey]?.error == nil {
+                retryAfter[rowKey] = nil
+                retryFailures[rowKey] = nil
+                stockRecoveryRetried.remove(rowKey)
+            } else {
+                let failures = min(5, (retryFailures[rowKey] ?? 0) + 1)
+                retryFailures[rowKey] = failures
+                retryAfter[rowKey] = Date().addingTimeInterval(RefreshLoop.delay(elapsed: 0, failed: true, consecutiveFailures: failures))
+            }
         }
     }
     func stage(_ row: OpportunityRow, store: WheelStore) async -> Bool {
@@ -724,7 +740,10 @@ struct OpportunityDetail: View {
                         }
                     }
                     LabeledContent("Premium") { PremiumValue(amount: row.total, perSymbol: true) }
-                    if type == "PUT" { LabeledContent("Cash required", value: money(quote.strike * 100 * Double(row.quantity))) }
+                    if type == "PUT" {
+                        LabeledContent("Cash required", value: money(quote.strike * 100 * Double(row.quantity)))
+                        EntryMarginRow(ticker: ticker, expiration: quote.expiration, strike: quote.strike, quantity: row.quantity, price: row.price)
+                    }
                     LabeledContent("Annualized premium estimate", value: money(row.total.flatMap { TradingMath.annualized(premium: $0, expiration: quote.expiration) }))
                     LabeledContent("Time in force", value: "DAY")
                     Button {
@@ -746,7 +765,7 @@ struct OpportunityDetail: View {
         .onDisappear { visible = false }
         .task(id: "prices-\(autoRefresh)-\(store.demo)-\(store.address)-\(key)") {
             guard autoRefresh, !store.demo else { return }
-            await RefreshLoop.run {
+            await RefreshLoop.run(interval: 1) {
                 guard await book.allowsAutomaticRefresh(store) else { return false }
                 return await book.refreshPrices([ticker], type: type, store: store)
             }
@@ -754,7 +773,7 @@ struct OpportunityDetail: View {
         .task(id: "\(autoRefresh)-\(store.demo)-\(store.address)-\(key)-\(preference.otm)-\(preference.expiration)-\(preference.strike ?? 0)") {
             guard autoRefresh else { return }
             book.invalidateMarketSession()
-            await RefreshLoop.run {
+            await RefreshLoop.run(interval: 1) {
                 guard await book.allowsAutomaticRefresh(store) else { return false }
                 await book.load(ticker, type: type, store: store, background: true)
                 return row.error != nil

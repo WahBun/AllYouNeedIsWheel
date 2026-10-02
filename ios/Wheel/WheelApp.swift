@@ -123,6 +123,20 @@ struct Order: Decodable, Identifiable {
     var commission: Double? = nil
     var commission_currency: String? = nil
     var realized_pnl: Double? = nil
+    var statusExplanation: String {
+        let state = status.lowercased()
+        let broker = (ib_status ?? "").lowercased()
+        if state == "unknown" { return "Result unconfirmed. Verify in IB before another action." }
+        if amendment_pending != nil { return "Modification awaiting confirmation; displayed terms may still be the previous terms." }
+        if state == "rejected" || broker == "inactive" { return "Order rejected or inactive. Check the broker details." }
+        if state == "pendingcancel" || broker == "pendingcancel" { return "Cancellation requested; fills remain possible until IB confirms cancellation." }
+        if ["filled", "executed"].contains(state) || broker == "filled" { return "Filled. Review the recorded fill quantity and price." }
+        if ["cancelled", "canceled"].contains(state) { return "Canceled. Any earlier fills remain valid." }
+        if (filled ?? 0) > 0 { return "Partially filled; the remaining quantity is not yet confirmed filled." }
+        if TradeRules.editable(self) { return "Local draft. Not yet sent to IB." }
+        if ["submitted", "presubmitted"].contains(broker) { return "IB reports the order as working; this is not a fill confirmation." }
+        return "Awaiting an updated broker status. Processing does not mean filled."
+    }
     var fillTimeLabel: String {
         guard let fill_time else { return "—" }
         let parser = ISO8601DateFormatter()
@@ -160,6 +174,7 @@ struct Orders: Decodable { var orders: [Order] }
 
 @MainActor @Observable
 final class WheelStore {
+    var performanceHistoryCache: [String: Data] = [:]
     var demo = true
     var address = UserDefaults.standard.string(forKey: "backendURL") ?? ""
     var portfolio: Bootstrap?
@@ -331,7 +346,7 @@ final class WheelStore {
             if token == revision, version == trading.version, !Task.isCancelled { filledError = connectionMessage(error) }
         }
     }
-    func changeMode() { fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
+    func changeMode() { performanceHistoryCache = [:]; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
 }
 
 func connectionMessage(_ error: Error) -> String {
@@ -474,19 +489,44 @@ struct StatusView: View {
     var orders = false
     @Environment(WheelStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var showHealth = false
     private var error: String? { orders ? store.orderError : store.error }
     private var busy: Bool { orders ? store.ordersBusy : store.busy }
     private var updated: Date? { orders ? store.ordersUpdated : store.updated }
     var body: some View {
-        HStack(spacing: 6) {
-            Circle().fill(error == nil ? Color.teal : .orange).frame(width: 6, height: 6)
-                .opacity(busy && !reduceMotion ? 0.35 : 1)
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: busy)
-                .accessibilityHidden(true)
-            Text(LocalizedStringKey(store.demo ? "DEMO" : error != nil || updated == nil ? "STALE" : !orders && store.portfolio?.summary.is_frozen == true ? "FROZEN" : "CONNECTED"))
-            Spacer()
-            if !orders, let date = updated { Text(date.formatted(.dateTime.hour().minute().second())).monospacedDigit() }
-        }.font(.caption).foregroundStyle(.secondary)
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let status = DataHealth.status(demo: store.demo, failed: error != nil, updated: updated,
+                frozen: !orders && store.portfolio?.summary.is_frozen == true, now: context.date)
+            Button { showHealth = true } label: {
+                HStack(spacing: 6) {
+                    Circle().fill(status == "STALE" || status == "FROZEN" ? Color.orange : .teal).frame(width: 6, height: 6)
+                        .opacity(busy && !reduceMotion ? 0.35 : 1)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: busy)
+                        .accessibilityHidden(true)
+                    Text(LocalizedStringKey(status))
+                    Spacer()
+                    if let date = updated { Text(date.formatted(.dateTime.hour().minute().second())).monospacedDigit() }
+                    Image(systemName: "info.circle").accessibilityHidden(true)
+                }.font(.caption).foregroundStyle(.secondary).contentShape(Rectangle())
+            }.buttonStyle(.plain)
+        }
+        .sheet(isPresented: $showHealth) {
+            NavigationStack {
+                Form {
+                    Section("Data status") {
+                        if let date = updated { LabeledContent("Last backend response", value: date.formatted(.dateTime.hour().minute().second())) }
+                        Text("The time shown is the last successful backend refresh, not the exchange quote time.")
+                        if store.demo { Text("Demo quote") }
+                        else if !orders && store.portfolio?.summary.is_frozen == true { Text("Frozen portfolio · verify quote") }
+                    }
+                    Section("Troubleshooting") {
+                        if let error { NoticeText(error).foregroundStyle(.orange) }
+                        Text(LocalizedStringKey(DataHealth.guidance(error)))
+                    }
+                }.navigationTitle("Data status")
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showHealth = false } } }
+            }
+        }
     }
 }
 
@@ -604,11 +644,11 @@ struct PortfolioView: View {
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if let conID = position.con_id, conID > 0, position.position != 0,
                                position.security_type == "OPT" || position.position > 0 {
-                                Button("Close", systemImage: "xmark.circle") {
+                                Button("Close") {
                                     positionDestination = PositionDestination(conID: conID, rollover: false)
                                 }.tint(.orange).disabled(stockHasCall(position))
                                 if position.security_type == "OPT" && position.position < 0 {
-                                    Button("Rollover", systemImage: "arrow.triangle.2.circlepath") {
+                                    Button("Rollover") {
                                         positionDestination = PositionDestination(conID: conID, rollover: true)
                                     }.tint(.blue)
                                 }
@@ -1079,6 +1119,10 @@ struct PositionDetail: View {
                     LabeledContent("Cost basis", value: cost.basis.formatted(.currency(code: cost.currency)))
                     LabeledContent("Report date", value: cost.date)
                     LabeledContent("Reported shares", value: cost.quantity.formatted())
+                    if abs(cost.quantity - latest.position) > 0.000001 {
+                        Text("Reported shares differ from current holdings. This cost snapshot does not describe the current position.")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
                 } header: {
                     Text("IBKR reported cost")
                 } footer: {
@@ -1143,7 +1187,8 @@ struct OrdersView: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack { SymbolText(symbol: order.name).font(.headline); Spacer(); Text(money(history ? order.fillPrice : order.premium)).monospacedDigit() }
-                        HStack { Text("\(order.action ?? "") · \(order.option_type ?? "")"); Spacer(); Text(order.status).foregroundStyle(.teal) }.font(.caption)
+                        HStack { Text("\(order.action ?? "") · \(order.option_type ?? "")"); Spacer(); Text(order.status).foregroundStyle(order.amendment_pending != nil || order.status.lowercased() == "unknown" ? .orange : .secondary) }.font(.caption)
+                        Text(LocalizedStringKey(order.statusExplanation)).font(.caption).foregroundStyle(.secondary)
                         if !history, let filled = order.filledQuantity {
                             Text("Filled \(filled.formatted()) / \(order.quantity?.formatted() ?? "—") · \(money(order.fillPrice))")
                                 .font(.caption).foregroundStyle(.secondary)
@@ -1254,6 +1299,9 @@ struct SettingsView: View {
         return !value.isEmpty && value != "https://"
     }
     @FocusState private var addressFocused: Bool
+    private var accessLabel: String {
+        localizedLabel(store.demo ? "Simulated" : "Live", locale: locale)
+    }
     var body: some View {
         @Bindable var store = store
         Form {
@@ -1370,11 +1418,11 @@ struct SettingsView: View {
                 }
             }
             Section {
-                LabeledContent("Minimum iOS") { Text("18.0").padding(.trailing, 20) }
-                NavigationLink { TradingAccessView() } label: {
-                    LabeledContent("Access & Feedback") { Text(verbatim: store.demo ? localizedLabel("Simulated", locale: locale) : localizedLabel("Live", locale: locale)) }
+                LabeledContent("Minimum iOS") { Text(verbatim: "18.0") }
+                ArrowlessNavigationLink { TradingAccessView() } label: {
+                    LabeledContent("Access & Feedback") { Text(verbatim: accessLabel) }
                 }
-                LabeledContent("Version") { Text(verbatim: Self.appVersion).padding(.trailing, 20) }
+                LabeledContent("Version") { Text(verbatim: Self.appVersion) }
             } header: {
                 Text("App")
             } footer: {

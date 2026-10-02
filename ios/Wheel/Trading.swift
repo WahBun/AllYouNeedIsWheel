@@ -468,6 +468,7 @@ struct OrderDetail: View {
                     if let error = order.error_message, !error.isEmpty { NoticeText(error).foregroundStyle(.orange) }
                 }
                 header: { SymbolText(symbol: order.name) }
+                Text(LocalizedStringKey(order.statusExplanation)).font(.caption).foregroundStyle(.secondary)
                 if order.external_ib == true { Text("IB-managed order. Modify or cancel in IB.").foregroundStyle(.secondary) }
                 if TradeRules.editable(order) {
                     if order.intent != "CLOSE" {
@@ -603,7 +604,7 @@ struct CloseTicket: View {
                         .frame(width: 6, height: 6)
                         .opacity(loading ? 0.35 : 1)
                         .accessibilityHidden(true)
-                    Text(LocalizedStringKey(active ? "Auto refresh · about 2 seconds" : "Auto refresh paused"))
+                    Text(LocalizedStringKey(active ? "Auto refresh · about 1 second" : "Auto refresh paused"))
                 }.font(.caption).foregroundStyle(.secondary)
                 HStack { ForEach(["bid", "mid", "ask"], id: \.self) { field in
                     Button { if let value = quote?[field] as? Double, value > 0 { state.markPriceEdited(String(format: "%.2f", value)) } } label: {
@@ -674,7 +675,7 @@ struct CloseTicket: View {
         .onChange(of: context) { state.invalidate(clear: true); staged = false }
         .task(id: "\(active)-\(context)") {
             guard active else { state.invalidate(); return }
-            await RefreshLoop.run { await load(); return state.error != nil }
+            await RefreshLoop.run(interval: 1) { await load(); return state.error != nil }
         }
         .confirmationDialog("Stage \(quantity) \(position.symbol) at \(money(TradeRules.price(price))) · \(isStock ? timingLabel : "GTC")?", isPresented: $confirm, titleVisibility: .visible) {
             Button("Stage · Execute separately in Orders") {

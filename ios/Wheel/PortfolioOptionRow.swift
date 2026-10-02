@@ -56,19 +56,27 @@ struct PortfolioOptionRow: View {
                 return
             }
             guard let id = position.con_id, id > 0 else { return }
+            var failures = 0
             while !Task.isCancelled {
+                var missing = true
                 do {
                     let result = try await store.trading.get("api/portfolio/option-position/\(id)/quote", base: store.address)
                     try Task.checkCancellation()
                     guard result["con_id"] as? Int == id else { throw AppError.message("Contract mismatch") }
                     quote = ContractQuote(strike: position.strike ?? 0, expiration: position.expiration ?? "", bid: result["bid"] as? Double, ask: result["ask"] as? Double, delta: result["delta"] as? Double, implied_volatility: result["implied_volatility"] as? Double)
                     frozen = result["is_frozen"] as? Bool ?? false
+                    missing = ["bid", "ask", "delta", "implied_volatility"].contains {
+                        guard let value = result[$0] as? Double else { return true }
+                        return !value.isFinite
+                    }
                 } catch {
                     guard !Task.isCancelled else { return }
                     quote = nil
                     frozen = false
                 }
-                do { try await Task.sleep(for: .seconds(frozen ? 30 : 15)) } catch { return }
+                failures = missing ? min(5, failures + 1) : 0
+                let delay = missing ? RefreshLoop.delay(elapsed: 0, failed: true, consecutiveFailures: failures) : (frozen ? 30.0 : 15.0)
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
             }
         }
     }

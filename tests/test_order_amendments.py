@@ -181,3 +181,18 @@ class AmendmentsTests(unittest.TestCase):
         self.assertTrue(self.db.finish_order_amendment(self.oid, row['amendment_pending'], desired))
         self.assertEqual(len(self.writes), 1)
         self.assertIsNone(self.db.get_order(self.oid)['amendment_pending'])
+
+    def test_cancel_arriving_during_review_blocks_modification(self):
+        states = iter([{'status': 'Submitted', 'filled': 0}, {'status': 'PendingCancel', 'filled': 0}])
+        self.conn.check_order_status = lambda *a, **k: next(states)
+        self.assertEqual(self.request()[1], 409)
+        self.assertEqual(self.writes, [])
+
+    def test_missing_ack_after_partial_fill_never_retries_modification(self):
+        self.filled = 1
+        self.held = -2
+        self.ack = False
+        self.assertEqual(self.request(quantity=2)[1], 202)
+        self.assertEqual(self.request(quantity=2)[1], 409)
+        self.assertEqual(len(self.writes), 1)
+        self.assertEqual(self.db.get_order(self.oid)['quantity'], 3)

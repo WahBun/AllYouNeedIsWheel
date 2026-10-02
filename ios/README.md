@@ -104,3 +104,38 @@ and close-ticket calculations retain their existing broker basis. Report loading
 uses the performance background worker and private archive, without blocking on
 a report download during portfolio requests. If the query omits Open Positions,
 the optional section is unavailable.
+
+### Refresh and recovery behavior
+
+Portfolio and the Trade list keep their two-second cadence. Single-symbol Trade
+and close-ticket quotes target one second, without overlapping a loop's requests.
+Read failures retry after 1, 2, 4, 8, then 10 seconds; successful reads reset the
+backoff. Trade rows have their own bounded backoff, and a valid stock quote can
+wake a missing-underlying failure once per error streak. Missing portfolio option
+metrics retry sooner; complete metrics retain their 15-second cadence (30 seconds
+for frozen data). This never retries order submission, modification or cancellation.
+
+Performance history is cached in memory for the current app session, by backend
+and period, and cleared when connection context changes. Cached curves remain
+visible during refresh. Canceled or superseded history tasks cannot publish into
+a new period's state. Live P&L is cleared when its refresh context changes.
+
+The portfolio/order status time represents a successful backend read, not an
+exchange tick. The status explanation distinguishes backend access from quote
+freshness, and order explanations distinguish drafts, working orders, uncertain
+modifications, pending cancellations and fills. These descriptions do not change
+broker execution rules or establish a fill independently of returned order data.
+
+CSP details provide an on-demand initial-margin-change estimate through IB
+what-if, for the exact standard USD put, quantity and limit price. The estimate
+is separate from cash collateral, can be negative, and is invalidated when the
+request context changes. The client requires an explicit estimated response,
+matching terms, USD currency and a finite non-sentinel amount. Each request has
+an independent identity so an old canceled request cannot clear a newer request's
+loading state. No quote poll requests a what-if calculation automatically.
+
+Daytime regression verification (2026-10-02): 96 iOS tests, 232 Python tests and
+39 JavaScript tests passed. Added coverage for cancellation arriving during
+amendment review, missing amendment acknowledgement after a partial fill, and
+entry-margin response mismatches. Broker execution was mocked; this does not
+constitute live-order validation or a long-duration phone battery measurement.
