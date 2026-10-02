@@ -231,9 +231,10 @@ struct StockChartView: View {
             StockChartWeb(display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["busy": paperBusy]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
+                Color.clear.frame(width: 36, height: 32).accessibilityHidden(true)
                 Text(paperStatusText.isEmpty ? (paperEnabled ? "IB Paper trading" : "Preview only") : paperStatusText)
-                    .font(.caption).foregroundStyle(paperEnabled ? .orange : .secondary).lineLimit(2)
-                Spacer(minLength: 0)
+                    .font(.caption).foregroundStyle(paperEnabled ? .orange : .secondary)
+                    .multilineTextAlignment(.center).lineLimit(2).frame(maxWidth: .infinity)
                 Button { showDisplaySettings = true } label: {
                     Image(systemName: "gearshape").frame(width: 36, height: 32)
                 }.buttonStyle(.plain).accessibilityLabel("Chart display")

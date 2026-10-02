@@ -1205,7 +1205,6 @@ struct OrdersView: View {
     @Environment(WheelStore.self) private var store
     @AppStorage("confirmBeforeOrderExecution") private var confirmExecution = true
     @State private var history = false
-    @State private var preferences = false
     @State private var cancelAll = false
     @State private var cancelling = false
     @State private var quickOrder: Order?
@@ -1224,7 +1223,7 @@ struct OrdersView: View {
             if history, let error = store.filledError {
                 NoticeText(error).font(.caption).foregroundStyle(.orange)
             }
-            if preferences { Toggle("Confirm execution and cancellation", isOn: $confirmExecution) }
+            if !history { Toggle("Confirm execution and cancellation", isOn: $confirmExecution) }
             if store.ordersRetrying {
                 Text("Connection interrupted. Retrying…").font(.caption).foregroundStyle(.orange)
             } else if let error = store.orderError {
@@ -1241,8 +1240,10 @@ struct OrdersView: View {
                         .listRowBackground(Color.secondary.opacity(0.12))
                 }
                 ArrowlessNavigationLink {
+                    Group {
                     if history { Form { SymbolText(symbol: order.name); Text(order.option_type == "FUTURE" ? "\(order.expiration ?? "") · FUTURE" : "\(order.expiration ?? "") · \(money(order.strike)) · \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Action", value: order.fill_action ?? order.action ?? "—"); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: order.commissionLabel); if order.option_type == "FUTURE" { FuturesProfit(order: order) } else if order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: order) } }; LabeledContent("Average fill price", value: money(order.fillPrice)); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
                     else { OrderDetail(initial: order) }
+                    }.toolbar(.visible, for: .navigationBar)
                 } label: {
                     CompactOrderRow(order: order, history: history)
                 }
@@ -1267,8 +1268,7 @@ struct OrdersView: View {
                 if confirmExecution { cancelAll = true } else { performCancelAll() }
             }.disabled(cancelable.isEmpty) }
             TradingNotice()
-        }.navigationTitle("").navigationBarTitleDisplayMode(.inline).refreshable { if history { await store.loadFilled() } else { await store.refresh() } }
-        .toolbar { Button("Order preferences", systemImage: "gearshape") { preferences.toggle() } }
+        }.navigationTitle("").navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .navigationBar).refreshable { if history { await store.loadFilled() } else { await store.refresh() } }
         .task(id: "history-\(refreshHistory)-\(store.demo)-\(store.address)") {
             if refreshHistory { await store.loadFilled() }
         }
