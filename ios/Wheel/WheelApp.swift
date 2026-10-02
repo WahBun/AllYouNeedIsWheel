@@ -200,6 +200,7 @@ final class WheelStore {
     var priceDirections: [String: Int] = [:]
     var orders: [Order] = []
     var filledOrders: [Order] = []
+    var filledUpdated: Date?
     var filledError: String?
     private var filledBusy = false
     var weekly: WeeklyIncome?
@@ -358,19 +359,19 @@ final class WheelStore {
         defer { filledBusy = false }
         let token = revision
         let version = trading.version
-        if demo { filledOrders = Order.latestFillsFirst(trading.demoOrders.filter { $0.hasFill }); filledError = nil; return }
+        if demo { filledOrders = Order.latestFillsFirst(trading.demoOrders.filter { $0.hasFill }); filledError = nil; filledUpdated = .now; return }
         do {
             let result = try await trading.get("api/options/pending-orders", base: address, query: [URLQueryItem(name: "executed", value: "true")])
             let decoded = try JSONDecoder().decode(Orders.self, from: JSONSerialization.data(withJSONObject: result))
             guard token == revision, version == trading.version, !Task.isCancelled else { return }
             let completedIDs = Set(decoded.orders.map(\.id))
             filledOrders = Order.latestFillsFirst((decoded.orders + orders.filter { !completedIDs.contains($0.id) }).filter { $0.hasFill })
-            filledError = nil
+            filledError = nil; filledUpdated = .now
         } catch {
             if token == revision, version == trading.version, !Task.isCancelled { filledError = connectionMessage(error) }
         }
     }
-    func changeMode() { completedOrders = [:]; performanceHistoryCache = [:]; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
+    func changeMode() { completedOrders = [:]; performanceHistoryCache = [:]; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; filledUpdated = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
 }
 
 func connectionMessage(_ error: Error) -> String {
@@ -1209,10 +1210,15 @@ struct OrdersView: View {
     @State private var cancelling = false
     @State private var quickOrder: Order?
     @State private var quickCancel = false
-    private var refreshHistory: Bool { RefreshLoop.shouldRefreshHistory(tab: store.selectedTab, showingHistory: history, active: phase == .active) }
+    private var refreshHistory: Bool { RefreshLoop.shouldRefreshHistory(tab: store.selectedTab, showingHistory: true, active: phase == .active) }
     private var cancelable: [Order] { store.orders.filter { TradeRules.cancelable($0) } }
     var body: some View {
         List {
+            HStack(alignment: .lastTextBaseline) {
+                Text(localizedLabel("Orders", locale: locale)).font(.largeTitle.bold())
+                Spacer(minLength: 12)
+                OrdersDailyProfit()
+            }.listRowBackground(Color.clear).listRowSeparator(.hidden)
             StatusView(orders: true)
             Picker("Orders", selection: $history) { Text("Pending").tag(false); Text("Executed records").tag(true) }.pickerStyle(.segmented)
             if history, let error = store.filledError {
@@ -1230,33 +1236,15 @@ struct OrdersView: View {
                 ContentUnavailableView("No orders", systemImage: "checkmark.circle")
             }
             ForEach(history ? store.filledOrders : store.orders) { order in
+                if history, store.filledOrders.first(where: { $0.fillDayLabel == order.fillDayLabel })?.id == order.id {
+                    Text(order.fillDayLabel).font(.subheadline.weight(.semibold))
+                        .listRowBackground(Color.secondary.opacity(0.12))
+                }
                 ArrowlessNavigationLink {
                     if history { Form { SymbolText(symbol: order.name); Text(order.option_type == "FUTURE" ? "\(order.expiration ?? "") · FUTURE" : "\(order.expiration ?? "") · \(money(order.strike)) · \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Action", value: order.fill_action ?? order.action ?? "—"); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: order.commissionLabel); if order.option_type == "FUTURE" { FuturesProfit(order: order) } else if order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: order) } }; LabeledContent("Average fill price", value: money(order.fillPrice)); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
                     else { OrderDetail(initial: order) }
                 } label: {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack { SymbolText(symbol: order.name).font(.headline); Spacer(); Text(money(history ? order.fillPrice : order.premium)).monospacedDigit() }
-                        HStack { Text("\(order.action ?? "") · \(order.option_type ?? "")\(order.order_type.map { " · " + $0 } ?? "")"); Spacer(); Text(order.status).foregroundStyle(order.amendment_pending != nil || order.status.lowercased() == "unknown" ? .orange : .secondary) }.font(.caption)
-                        Text(LocalizedStringKey(order.statusExplanation)).font(.caption).foregroundStyle(.secondary)
-                        if !history, let filled = order.filledQuantity {
-                            Text("Filled \(filled.formatted()) / \(order.quantity?.formatted() ?? "—") · \(money(order.fillPrice))")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        if order.option_type == "FUTURE" {
-                            Text("\(order.expiration ?? "") · Qty \((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—") · \(order.timingLabel)").font(.caption).foregroundStyle(.secondary)
-                        } else if order.option_type == "STOCK" {
-                            Text("\((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—") shares").font(.caption).foregroundStyle(.secondary)
-                        } else {
-                            Text("\(order.expiration ?? "") · \(money(order.strike)) · Qty \((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—") · \(order.timingLabel)").font(.caption).foregroundStyle(.secondary)
-                        }
-                        if history && order.option_type == "FUTURE" && order.hasFill {
-                            FuturesProfit(order: order)
-                        } else if history && order.intent == "CLOSE" && order.hasFill {
-                            HStack { Text("Realized P&L"); Spacer(); RealizedProfit(order: order) }.font(.subheadline)
-                        }
-                        if order.external_ib == true { Text("IB managed").font(.caption).foregroundStyle(.secondary) }
-                        if order.isRollover == true { Text("Rollover leg · independent order").font(.caption).foregroundStyle(.orange) }
-                    }.padding(.vertical, 6)
+                    CompactOrderRow(order: order, history: history)
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     if !history && TradeRules.editable(order) {
@@ -1279,7 +1267,7 @@ struct OrdersView: View {
                 if confirmExecution { cancelAll = true } else { performCancelAll() }
             }.disabled(cancelable.isEmpty) }
             TradingNotice()
-        }.navigationTitle(localizedLabel("Orders", locale: locale)).refreshable { if history { await store.loadFilled() } else { await store.refresh() } }
+        }.navigationTitle("").navigationBarTitleDisplayMode(.inline).refreshable { if history { await store.loadFilled() } else { await store.refresh() } }
         .toolbar { Button("Order preferences", systemImage: "gearshape") { preferences.toggle() } }
         .task(id: "history-\(refreshHistory)-\(store.demo)-\(store.address)") {
             if refreshHistory { await store.loadFilled() }

@@ -17,6 +17,24 @@ final class RealizedProfitTests: XCTestCase {
         order.commission_currency = "USD"; order.intent = "OPEN"
         XCTAssertNil(order.realizedProfit)
     }
+    func testDailyClosedNetUsesNewYorkDayAndExcludesOpenGrossAndDuplicates() throws {
+        let payload = """
+        [{"id":1,"status":"filled","intent":"CLOSE","filled":1,"fill_time":"2026-10-02T12:36:14Z","net_pnl":8.78},
+         {"id":2,"status":"filled","intent":"CLOSE","filled":1,"fill_time":"2026-10-02T13:00:00Z","net_pnl":-2.5},
+         {"id":3,"status":"filled","intent":"OPEN","filled":1,"fill_time":"2026-10-02T13:00:00Z","net_pnl":100},
+         {"id":4,"status":"filled","intent":"CLOSE","filled":1,"fill_time":"2026-10-02T03:59:59Z","net_pnl":200},
+         {"id":5,"status":"filled","intent":"CLOSE","filled":1,"fill_time":"2026-10-02T14:00:00Z","gross_pnl":10}]
+        """
+        let orders = try JSONDecoder().decode([Order].self, from: Data(payload.utf8))
+        let now = ISO8601DateFormatter().date(from: "2026-10-02T15:00:00Z")!
+        let total = DailyClosedProfit.calculate(orders + [orders[0]], now: now)
+        XCTAssertEqual(total.amount, 6.28, accuracy: 0.00001)
+        XCTAssertEqual(total.pending, 1)
+        XCTAssertEqual(orders[3].fillDayLabel, "Oct 1, 2026")
+        XCTAssertEqual(orders[0].fillClockLabel, "08:36:14")
+        XCTAssertEqual(DailyClosedProfit.calculate([], now: now).amount, 0)
+    }
+
     func testLatePnlUpdatesSameBannerWithoutNewNotification() {
         let preview = FillPreview()
         var order = Order(id: 1, quantity: 2, status: "executed", intent: "CLOSE", filled: 2)
