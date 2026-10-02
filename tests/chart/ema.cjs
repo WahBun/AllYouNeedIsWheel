@@ -1,0 +1,40 @@
+const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),assert=require('node:assert/strict');
+(async()=>{const browser=await chromium.launch();try{
+ const page=await browser.newPage({viewport:{width:393,height:740}}),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ const root=path.resolve(__dirname,'../../ios/Wheel/ChartAssets');
+ await page.setContent(fs.readFileSync(path.join(root,'stock-chart.html'),'utf8').replace('/*LIBRARY*/',()=>fs.readFileSync(path.join(root,'lightweight-charts.standalone.production.js'),'utf8')));
+ const result=await page.evaluate(()=>{
+  const bars=[10,12,14].map((close,i)=>({time:1000+i*300,open:close-1,high:close+1,low:close-2,close}));
+  const config={entry:0,quantity:1,display:{ema:true,emaLength:3,emaSource:'close'}};
+  configure(config);receive({con_id:7,generation:'ema',interval:5,session:'all',bars});
+  const seed=emaCache.states.map(s=>s.ema);
+  const next={...bars[2],close:16,high:17};
+  receive({con_id:7,generation:'ema',interval:5,session:'all',mode:'delta',bars:[next]});
+  const replacement=emaCache.states.at(-1).ema;
+  receive({con_id:7,generation:'ema',interval:5,session:'all',mode:'delta',bars:[next]});
+  const repeated=emaCache.states.at(-1).ema;
+  configure({...config,display:{...config.display,emaOffset:2}});
+  receive({con_id:7,generation:'ema',interval:5,session:'all',mode:'delta',bars:[{...next,time:100000}]});
+  const sorted=emaSeries.data().every((b,i,a)=>!i||b.time>a[i-1].time);
+  configure({...config,display:{...config.display,ema:false}});const hidden=!emaSeries.options().visible;
+  configure(config);receive({con_id:8,generation:'ema',interval:5,session:'all',bars:[bars[0]]});
+  const switched=emaCache.states.at(-1).ema;
+  window.webkit={messageHandlers:{paperAction:{postMessage:b=>window.action=b.action}}};
+  indicatorSettings.click();const action=window.action;
+  return {seed,replacement,repeated,sorted,hidden,switched,action};
+ });
+ assert.deepEqual(result,{seed:[10,11,12.5],replacement:13.5,repeated:13.5,sorted:true,hidden:true,switched:10,action:'indicatorSettings'});
+ const timing=await page.evaluate(()=>{
+  const bars=Array.from({length:12000},(_,i)=>({time:1700000000+i*300,open:100+i*.01,high:102+i*.01,low:99+i*.01,close:101+i*.01}));
+  configure({display:{ema:true,emaLength:20}});
+  receive({con_id:9,generation:'load',interval:5,session:'all',bars});
+  let resets=0;const original=emaSeries.setData.bind(emaSeries);emaSeries.setData=p=>{resets++;original(p);};
+  const started=performance.now();for(let i=0;i<100;i++)receive({con_id:9,generation:'load',interval:5,session:'all',mode:'delta',bars:[{...bars.at(-1),close:221+i*.001}]});
+  return {ms:performance.now()-started,resets};
+ });
+ assert.equal(timing.resets,0);console.log('EMA 12000 bars / 100 updates:',timing);
+ await page.screenshot({path:'/tmp/wheel-ema-preview.png'});
+ assert.deepEqual(errors,[]);
+ console.log('EMA: seed, live replacement, idempotence, offset gap, visibility, symbol reset and settings bridge passed');
+}finally{await browser.close();}})();

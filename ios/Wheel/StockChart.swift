@@ -72,6 +72,8 @@ struct StockChartView: View {
            completedPaperOrders.insert("\(store.address)-\(chartID ?? 0)-\(id)").inserted { entry = "0"; beApplied = false }
     }
     private func paperAction(_ body: [String: Any]) {
+        if body["action"] as? String == "indicatorSettings" { showIndicatorSettings = true; return }
+        if body["action"] as? String == "indicatorToggle" { showEMA.toggle(); return }
         if body["action"] as? String == "editQuantity" {
             guard !paperActive, !paperBusy, body["con_id"] as? Int == chartID else { return }
             quantityDraft = quantity; showQuantityEditor = true; return
@@ -149,9 +151,74 @@ struct StockChartView: View {
     @AppStorage("chartBracketProfitUnit") private var bracketProfitUnit = "money"
     @AppStorage("chartShowATR") private var showATR = true
     @AppStorage("chartATRLength") private var atrLength = 4
+    @AppStorage("chartShowEMA") private var showEMA = true
+    @AppStorage("chartEMALength") private var emaLength = 20
+    @AppStorage("chartEMASource") private var emaSource = "close"
+    @AppStorage("chartEMAOffset") private var emaOffset = 0
+    @AppStorage("chartEMADynamic") private var emaDynamic = true
+    @AppStorage("chartEMAColor") private var emaColor = "#f9f1db"
+    @AppStorage("chartEMAWidth") private var emaWidth = 1
+    @AppStorage("chartEMAStyle") private var emaStyle = 0
+    @State private var showIndicatorSettings = false
+    @State private var indicatorTab = "Inputs"
+    private var emaColorBinding: Binding<Color> {
+        Binding(get: {
+            let rgb = Int(emaColor.dropFirst(), radix: 16) ?? 0xf9f1db
+            return Color(red: Double((rgb >> 16) & 255) / 255, green: Double((rgb >> 8) & 255) / 255, blue: Double(rgb & 255) / 255)
+        }, set: { color in
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+            emaColor = String(format: "#%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
+        })
+    }
+    private var indicatorSettings: some View {
+        NavigationStack {
+            Form {
+                Picker("Settings", selection: $indicatorTab) {
+                    Text("Inputs").tag("Inputs"); Text("Style").tag("Style"); Text("Visibility").tag("Visibility")
+                }.pickerStyle(.segmented)
+                if indicatorTab == "Inputs" {
+                    Section("EMA") {
+                        Stepper("Length: \(emaLength)", value: $emaLength, in: 1...500)
+                        Picker("Source", selection: $emaSource) {
+                            ForEach(["close", "open", "high", "low", "hl2", "hlc3", "ohlc4"], id: \.self) { Text($0.uppercased()).tag($0) }
+                        }
+                        Stepper("Offset: \(emaOffset)", value: $emaOffset, in: -100...100)
+                        Text("Timeframe follows the chart").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Section("ATR") { Stepper("Length: \(atrLength)", value: $atrLength, in: 1...200) }
+                } else if indicatorTab == "Style" {
+                    Section("EMA") {
+                        Toggle("Dynamic colors", isOn: $emaDynamic)
+                        ColorPicker("Line color", selection: emaColorBinding, supportsOpacity: false).disabled(emaDynamic)
+                        Stepper("Line width: \(emaWidth)", value: $emaWidth, in: 1...4)
+                        Picker("Line style", selection: $emaStyle) {
+                            Text("Solid").tag(0); Text("Dotted").tag(1); Text("Dashed").tag(2)
+                        }
+                    }
+                } else {
+                    Section("Indicators") {
+                        Toggle("EMA", isOn: $showEMA)
+                        Toggle("ATR", isOn: $showATR)
+                    }
+                }
+                Section {
+                    Text("Changes apply immediately and are saved.").font(.caption).foregroundStyle(.secondary)
+                    Button("Restore defaults") {
+                        showEMA = true; emaLength = 20; emaSource = "close"; emaOffset = 0
+                        emaDynamic = true; emaColor = "#f9f1db"; emaWidth = 1; emaStyle = 0
+                        showATR = true; atrLength = 4
+                    }
+                }
+            }.navigationTitle("Indicators").navigationBarTitleDisplayMode(.inline)
+                .toolbar { Button("Done") { showIndicatorSettings = false } }
+        }
+    }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["atr": showATR, "atrLength": atrLength, "profit": showProfit, "positions": showPositionProfit, "brackets": showBracketProfit,
+        ["ema": showEMA, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
+         "emaDynamic": emaDynamic, "emaColor": emaColor + "ab", "emaWidth": emaWidth, "emaStyle": emaStyle,
+         "atr": showATR, "atrLength": atrLength, "profit": showProfit, "positions": showPositionProfit, "brackets": showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
          "positionUnit": positionProfitUnit, "bracketUnit": bracketProfitUnit]
     }
@@ -371,6 +438,7 @@ struct StockChartView: View {
                     }
             }.presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $showIndicatorSettings) { indicatorSettings }
         .sheet(isPresented: $showDisplaySettings) {
             NavigationStack {
                 Form {
