@@ -72,4 +72,9 @@ const markers=await page.evaluate(()=>{
  configure({...c,entry:10,paper:{active:true,entry:10,tp:11,sl:9.5,side:1,position:1},display:{bracketUnit:'ticks',positions:true,positionUnit:'ticks'}});const ticks=document.getElementById('tp').textContent,position=document.getElementById('entry').textContent;
  return {visible,switched,unlabeled,hidden,noProfit,ticks,position};
 });assert.equal(markers.visible.length,2);assert.equal(markers.visible[0].shape,'arrowUp');assert.equal(markers.visible[1].shape,'arrowDown');assert.equal(markers.visible[1].text,'1 @ 11.00');assert.equal(markers.switched.length,0);assert.equal(markers.unlabeled.length,2);assert.equal(markers.unlabeled[0].text,'');assert.equal(markers.hidden.length,0);assert.doesNotMatch(markers.noProfit,/ticks|\+/);assert.match(markers.ticks,/\+4.0 ticks/);assert.match(markers.position,/ticks/);
+await page.evaluate(()=>{
+ const c={entry:100,quantity:1,multiplier:5,con_id:7,paper:{enabled:true,active:true,entry:100,tp:102,sl:99,side:1,position:6}};
+ configure(c);if(qty!==6||!document.getElementById('tp').textContent.includes('+$60.00'))throw Error('Scaled position did not update bracket PnL');
+ configure({...c,paper:{...c.paper,position:3}});if(qty!==3||!document.getElementById('tp').textContent.includes('+$30.00'))throw Error('Trimmed position did not update bracket PnL');
+});
 console.log('Paper submit once, drag amendment once, broker-confirmed close and symbol header passed');}finally{await browser.close()}})();
