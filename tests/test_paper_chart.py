@@ -291,3 +291,11 @@ class ProtectedLotTests(unittest.TestCase):
         self.open_four();self.trades[2].orderStatus.status='Filled';self.trades[2].orderStatus.filled=1
         result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
         self.assertFalse(result['success']);self.conn.ib.placeOrder.assert_not_called();self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_option_chart_cannot_submit_broker_orders(self):
+        self.contract.secType='OPT'
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='submit',side=1,quantity=1,entry=10,tp=11,sl=9,entry_type='LMT'))
+        self.assertFalse(result['success'])
+        self.assertIn('viewing only',result['message'])
+        self.conn.ib.placeOrder.assert_not_called()
+        self.conn.ib.cancelOrder.assert_not_called()

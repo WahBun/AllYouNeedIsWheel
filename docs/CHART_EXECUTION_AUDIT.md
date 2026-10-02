@@ -1,3 +1,13 @@
+# App regression check and option chart entry — 2026-10-03
+
+- Option holdings (long or short) now expose Supercharts using their exact conId, expiry, strike and right. Stock/futures lookup never substitutes an underlying for an option. Recent-chart navigation retains the same contract.
+- Option charts are view-only. Native order controls and the price-axis order button are hidden, and the paper execution service rejects option requests before broker writes.
+- Options use IB historical-bar updates and the existing shared quote subscription rather than unsupported option tick-by-tick subscriptions. Frozen/delayed quotes cannot declare a live chart or fabricate a current candle. Chart cleanup cancels its history stream without canceling the shared quote subscription.
+- Verification: 303 Python tests, 39 JavaScript tests, 106 native iOS tests and all 12 chart browser suites passed. The signed iPhone build and installation succeeded. Tests include exact long/short option identity, reconnect lookup, update freshness, shared-subscription cleanup and rejection of option chart order writes.
+- Paper account currently has no option holdings: real option holding navigation/data-entitlement checks remain pending. No option trade was made for this entry change. User deferred Gateway live login until after these checks; switching accounts and verifying the connected live account remain separate steps.
+
+---
+
 # Supercharts protected-lot verification — 2026-10-03
 
 This supersedes the cancellation/replacement scaling path in the historical audit below. Verification used the paper-only backend endpoints and the exact MES December contract. No real-account execution is enabled by these changes.

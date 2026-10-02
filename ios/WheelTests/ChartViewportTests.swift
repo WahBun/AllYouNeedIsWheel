@@ -4,6 +4,17 @@ import WebKit
 
 @MainActor
 final class ChartViewportTests: XCTestCase {
+    func testOptionHoldingsOpenExactContractChartsForBothSides() throws {
+        for quantity in [-2, 2] {
+            let data = Data("{\"symbol\":\"TSLA\",\"position\":\(quantity),\"security_type\":\"OPT\",\"strike\":250,\"expiration\":\"20261218\",\"option_type\":\"C\",\"con_id\":70}".utf8)
+            var position = try JSONDecoder().decode(Position.self, from: data)
+            XCTAssertTrue(position.hasChart)
+            XCTAssertEqual(position.chartLabel, "TSLA 20261218 250 C")
+            position.con_id = nil
+            XCTAssertFalse(position.hasChart)
+        }
+    }
+
     final class ReadyBridge: NSObject, WKScriptMessageHandler {
         let ready: XCTestExpectation
         init(_ ready: XCTestExpectation) { self.ready = ready }

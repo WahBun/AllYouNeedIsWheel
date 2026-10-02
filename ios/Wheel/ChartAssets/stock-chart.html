@@ -299,7 +299,7 @@ function updatePriceCursor(p){
   priceAdd.hidden=true;cursorOrderPrice=null;return;
  }
  cursorOrderPrice=snapPrice(series.coordinateToPrice(p.point.y));
- priceAdd.hidden=cursorOrderPrice===null||p.point.y<35||p.point.y>innerHeight-32;
+ priceAdd.hidden=paperConfig.chart_only===true||cursorOrderPrice===null||p.point.y<35||p.point.y>innerHeight-32;
  if(!priceAdd.hidden)priceAdd.style.top=(p.point.y-10)+'px';
 }
 chart.subscribeCrosshairMove(updatePriceCursor);

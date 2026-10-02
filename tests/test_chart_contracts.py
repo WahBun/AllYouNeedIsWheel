@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock
 from types import SimpleNamespace as S
-from ib_async import Stock,Future
+from ib_async import Stock,Future,Option
 from api.services.chart_contracts import ChartContracts
 
 class ChartContractsTests(unittest.TestCase):
@@ -63,3 +63,20 @@ class ChartContractsTests(unittest.TestCase):
             conn=Mock();conn.get_option_position_by_con_id.return_value=None
             conn._bounded_order_read.return_value=details
             with self.assertRaises(ValueError):ChartContracts().resolve(conn,7)
+
+    def test_held_option_keeps_exact_identity_and_does_not_mutate_position(self):
+        for quantity in (-2, 2):
+            conn=Mock()
+            contract=Option('TSLA','20261218',250,'C','',currency='USD',conId=70)
+            conn.get_option_position_by_con_id.return_value=dict(contract=contract,position=quantity)
+            result=ChartContracts().resolve(conn,70)
+            self.assertEqual((result.conId,result.lastTradeDateOrContractMonth,result.strike,result.right,result.exchange),(70,'20261218',250,'C','SMART'))
+            self.assertEqual(contract.exchange,'')
+            conn.get_qualified_stock_contract.assert_not_called()
+
+    def test_restart_resolves_exact_option(self):
+        conn=Mock();conn.get_option_position_by_con_id.return_value=None
+        option=Option('TSLA','20261218',250,'P','SMART',currency='USD',conId=70)
+        conn._bounded_order_read.return_value=[S(contract=option)]
+        self.assertIs(ChartContracts().resolve(conn,70),option)
+        conn.get_qualified_stock_contract.assert_not_called()

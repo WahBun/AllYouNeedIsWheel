@@ -276,6 +276,7 @@ class PaperChart:
 
     def perform(self, conn, account, cid, body, request_id):
         contract=contracts.resolve(conn,cid)
+        if contract.secType not in ('STK','FUT'): raise ValueError('This contract supports chart viewing only')
         if body.get('action')!='submit':
             # Refresh canonical broker fields before copying an active order.
             conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)

@@ -103,7 +103,7 @@ class StockChartTests(unittest.TestCase):
 
     def test_wrong_asset_and_missing_history_never_subscribe(self):
         conn,_=self.connection();feed=StockChart()
-        conn.get_option_position_by_con_id.return_value['contract'].secType='OPT'
+        conn.get_option_position_by_con_id.return_value['contract'].secType='BAG'
         with self.assertRaises(ValueError):feed.snapshot(conn,7,5)
         conn.ib.reqHistoricalData.assert_not_called()
         conn,_=self.connection();conn.ib.reqHistoricalData.return_value=[]
@@ -286,3 +286,35 @@ class StockChartTests(unittest.TestCase):
             del state['bars'][:40]
             self.assertEqual(feed.packet(state,5,'all')['bars'],aggregate(state['bars'],5))
         finally:feed.stop();asyncio.get_event_loop().close()
+
+    def test_option_updates_use_history_and_never_cached_last_or_tick_by_tick(self):
+        from unittest.mock import patch
+        from ib_async import Option
+        class History(list): pass
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection();feed=StockChart()
+        history=History(conn.ib.reqHistoricalData.return_value);history.updateEvent=Event()
+        conn.ib.reqHistoricalData.return_value=history
+        ticker.marketDataType=1;conn.get_market_ticker.return_value=ticker
+        option=Option('TEST','20261218',10,'C','SMART',currency='USD',conId=7)
+        try:
+            with patch('api.services.chart_contracts.contracts.resolve',return_value=option):
+                feed.snapshot(conn,7,1,'all')
+            self.assertTrue(conn.ib.reqHistoricalData.call_args.kwargs['keepUpToDate'])
+            conn.ib.reqTickByTickData.assert_not_called()
+            ticker.tickByTicks=[S(time=datetime.now(timezone.utc),price=999)]
+            ticker.updateEvent.emit(ticker)
+            self.assertEqual(feed.packet(feed.active,1,'all')['bars'][-1]['close'],10)
+            history[-1].high=12;history[-1].close=12
+            history.updateEvent.emit(history,False)
+            packet=feed.packet(feed.active,1,'all')
+            self.assertEqual(packet['bars'][-1]['close'],12)
+            self.assertEqual(packet['status'],'live')
+            ticker.marketDataType=3
+            self.assertEqual(feed.packet(feed.active,1,'all')['status'],'waiting')
+            conn.ib.placeOrder.assert_not_called()
+        finally:
+            feed.stop();asyncio.get_event_loop().close()
+        conn.ib.cancelHistoricalData.assert_called_once_with(history)
+        conn.ib.cancelMktData.assert_not_called()
+        conn.ib.cancelTickByTickData.assert_not_called()

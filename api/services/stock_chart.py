@@ -107,10 +107,14 @@ class StockChart:
     def stop(self):
         state, self.active = self.active, None
         if state:
+            if state.get('minute_history') is not None:
+                state['minute_history'].updateEvent -= state['history_handler']
+                state['conn'].ib.cancelHistoricalData(state['minute_history'])
             for historical in state.get('higher', {}).values():
                 state['conn'].ib.cancelHistoricalData(historical)
             state['ticker'].updateEvent -= state['handler']
             try:
+                if state.get('option_bars'): return  # Shared quote subscription belongs to the connection cache.
                 state['conn'].ib.cancelTickByTickData(state['contract'], 'Last')
                 state['conn'].ib.cancelTickByTickData(state['contract'], 'BidAsk')
             except Exception:
@@ -147,8 +151,9 @@ class StockChart:
                 raise ValueError('Chart subscription cooling down; retry shortly')
             self.next_request = {key: value for key, value in self.next_request.items() if value > now}
             self.next_request[con_id] = now + 15
+            option_bars=contract.secType=='OPT'
             historical = conn.ib.reqHistoricalData(contract, '', '2 D', '1 min', 'TRADES',
-                useRTH=False, formatDate=2, keepUpToDate=False, timeout=5)
+                useRTH=False, formatDate=2, keepUpToDate=option_bars, timeout=5)
             bars = []
             for bar in historical:
                 if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
@@ -163,17 +168,24 @@ class StockChart:
             bars = list({b['time']: b for b in bars}.values())
             bars.sort(key=lambda b: b['time'])
             if not bars:
-                raise ValueError('Historical stock bars unavailable; check IB data permissions')
+                if option_bars: conn.ib.cancelHistoricalData(historical)
+                raise ValueError('Historical contract bars unavailable; check IB data permissions')
             self.next_request[con_id] = time.monotonic() + 15
-            ticker = conn.ib.reqTickByTickData(contract, 'Last', 0, False)
-            try:
-                conn.ib.reqTickByTickData(contract, 'BidAsk', 0, False)
-            except Exception:
-                conn.ib.cancelTickByTickData(contract, 'Last')
-                raise
+            if option_bars:
+                try: ticker=conn.get_market_ticker(contract)
+                except Exception:
+                    conn.ib.cancelHistoricalData(historical)
+                    raise
+            else:
+                ticker = conn.ib.reqTickByTickData(contract, 'Last', 0, False)
+                try:
+                    conn.ib.reqTickByTickData(contract, 'BidAsk', 0, False)
+                except Exception:
+                    conn.ib.cancelTickByTickData(contract, 'Last')
+                    raise
             state = dict(conn=conn, client=conn.ib.client, contract=contract, ticker=ticker,
                 con_id=con_id, bars=bars[-12000:], used=now, last_tick=None, received=None,
-                generation=time.time_ns(), ticks=0, live_bars={}, quotes={})
+                generation=time.time_ns(), ticks=0, live_bars={}, quotes={},option_bars=option_bars)
             def on_tick(updated):
                 if self.active is not state:
                     return
@@ -183,7 +195,7 @@ class StockChart:
                     if side:
                         state['quotes'][side] = (quote.time.timestamp(),
                             positive(quote.price) if quote.tickType in (1, 2) else None)
-                for tick in updated.tickByTicks:
+                for tick in ([] if option_bars else updated.tickByTicks):
                     if hasattr(tick, 'bidPrice'):
                         for side, value in [('bid', tick.bidPrice), ('ask', tick.askPrice)]:
                             state['quotes'][side] = (tick.time.timestamp(), positive(value))
@@ -210,6 +222,27 @@ class StockChart:
             state['handler'] = on_tick
             self.active = state
             ticker.updateEvent += on_tick
+            if option_bars:
+                def on_history(updated, has_new_bar):
+                    if self.active is not state or not updated: return
+                    bar=updated[-1]
+                    if not isinstance(bar.date,datetime) or bar.date.tzinfo is None: return
+                    stamp=int(bar.date.timestamp())
+                    values=[positive(getattr(bar,k)) for k in ('open','high','low','close')]
+                    if any(v is None for v in values): return
+                    o,h,l,c=values
+                    if not l<=min(o,c)<=max(o,c)<=h or stamp>time.time()+5: return
+                    point=dict(time=stamp,open=o,high=h,low=l,close=c)
+                    merged={b['time']:b for b in state['bars']};merged[stamp]=point
+                    state['bars']=sorted(merged.values(),key=lambda b:b['time'])[-12000:]
+                    state['live_bars'][stamp]=point
+                    if len(state['live_bars'])>12000: del state['live_bars'][min(state['live_bars'])]
+                    state['received']=time.time();state['ticks']+=1
+                    # Do not turn a cached last price into a fabricated current candle.
+                    if 0<=time.time()-stamp<60 and ticker.marketDataType==1: state['last_tick']=time.time()
+                    for listener in tuple(self.listeners): listener(state)
+                state['minute_history']=historical;state['history_handler']=on_history
+                historical.updateEvent += on_history
             asyncio.get_event_loop().call_later(30, self.expire, state)
         if not initial and not state.get('backfilled') and time.monotonic() >= state.get('backfill_retry', 0):
             state['backfill_retry'] = time.monotonic() + 30
@@ -337,7 +370,7 @@ class StockChart:
             bars=output_bars, session=session, generation=str(state['generation']),
             bid=bid, ask=ask, quote_time=quote_time,
             quote_expires_at=min(quote_time + 30, activity + 10) if quote_time is not None else None,
-            source='IB Last tick-by-tick', status='live' if in_session and age is not None and age < 10 else 'waiting',
+            source='IB option historical updates' if state.get('option_bars') else 'IB Last tick-by-tick', status='live' if in_session and age is not None and age < 10 and (not state.get('option_bars') or ticker.marketDataType==1) else 'waiting',
             last_tick=last, received_at=state['received'], tick_count=state['ticks'],
             historical=True, transport='HTTP batches, about 250ms plus request time', currency='USD')
 

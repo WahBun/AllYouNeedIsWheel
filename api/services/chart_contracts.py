@@ -1,5 +1,6 @@
 """Exact chart contract discovery on the existing IB owner thread."""
 import re
+import copy
 from datetime import datetime, timezone
 from ib_async import Contract, Future
 
@@ -35,16 +36,21 @@ class ChartContracts:
     def resolve(self, conn, con_id):
         if con_id in self.contracts: return self.contracts[con_id]
         held = conn.get_option_position_by_con_id(con_id)
-        if held and held['contract'].conId == con_id and held['contract'].secType in ('STK','FUT') and held['contract'].currency == 'USD':
-            return held['contract']
+        if held and held['contract'].conId == con_id and held['contract'].secType in ('STK','FUT','OPT') and held['contract'].currency == 'USD':
+            contract=held['contract']
+            if contract.secType=='OPT':
+                contract=copy.copy(contract)
+                if not contract.exchange: contract.exchange='SMART'
+                self.contracts[con_id]=contract
+            return contract
         if held:
-            raise ValueError('Select an exact stock or futures contract using search')
+            raise ValueError('Unsupported chart contract')
         # The phone persists a conId across backend restarts; the search cache does not.
         # Resolve that exact ID with IB instead of substituting a symbol/front month.
         details = conn._bounded_order_read(conn.ib.reqContractDetails,
             Contract(conId=con_id), timeout_seconds=3)
         matches = [d.contract for d in details if d.contract.conId == con_id
-                   and d.contract.secType in ('STK', 'FUT') and d.contract.currency == 'USD']
+                   and d.contract.secType in ('STK', 'FUT', 'OPT') and d.contract.currency == 'USD']
         if len(matches) != 1:
             raise ValueError('Exact chart contract unavailable; select it using search')
         contract = matches[0]

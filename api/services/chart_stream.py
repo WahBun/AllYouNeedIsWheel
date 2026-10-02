@@ -93,6 +93,9 @@ class ChartStreams:
             for sub in self.clients.values(): sub.closed = True
             return
         state['used'] = now
+        if state.get('option_bars') and now-state.get('quote_keepalive',0)>60:
+            state['quote_keepalive']=now
+            state['conn'].get_market_ticker(state['contract'])
         state['conn'].ib.sleep(.005)
         self.publish_changed(state)
         # Defer slow history/metadata until the first snapshot has been delivered.

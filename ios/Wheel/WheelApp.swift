@@ -75,6 +75,8 @@ struct Position: Decodable, Identifiable {
     var avg_cost: Double?
     var multiplier: Double?
     var id: String { "\(symbol)-\(security_type)-\(con_id ?? 0)-\(expiration ?? "")-\(strike ?? 0)" }
+    var hasChart: Bool { ["STK", "OPT", "FUT"].contains(security_type) && position != 0 && (con_id ?? 0) > 0 }
+    var chartLabel: String { security_type == "OPT" ? "\(symbol) \(expiration ?? "") \((strike ?? 0).formatted()) \(option_type ?? "")" : symbol }
     var detail: String {
         security_type == "OPT" ? "\(expiration ?? "") · \((strike ?? 0).formatted()) · \(option_type ?? "")" : "\(Int(position)) shares"
     }
@@ -1160,7 +1162,7 @@ struct PositionDetail: View {
     }
     var body: some View {
         Form {
-            if latest.security_type == "STK", latest.position > 0 {
+            if latest.hasChart {
                 Section { ArrowlessNavigationLink("𝑺𝒖𝒑𝒆𝒓𝒄𝒉𝒂𝒓𝒕𝒔") { StockChartView(position: latest) } }
             }
             if latest.security_type == "STK", let cost = latest.reported_cost {
