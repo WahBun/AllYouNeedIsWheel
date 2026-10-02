@@ -145,9 +145,11 @@ struct StockChartView: View {
     @AppStorage("chartShowExecutionLabels") private var showExecutionLabels = true
     @AppStorage("chartPositionProfitUnit") private var positionProfitUnit = "money"
     @AppStorage("chartBracketProfitUnit") private var bracketProfitUnit = "money"
+    @AppStorage("chartShowATR") private var showATR = true
+    @AppStorage("chartATRLength") private var atrLength = 4
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["profit": showProfit, "positions": showPositionProfit, "brackets": showBracketProfit,
+        ["atr": showATR, "atrLength": atrLength, "profit": showProfit, "positions": showPositionProfit, "brackets": showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
          "positionUnit": positionProfitUnit, "bracketUnit": bracketProfitUnit]
     }
@@ -379,6 +381,10 @@ struct StockChartView: View {
                         Picker("Bracket P&L unit", selection: $bracketProfitUnit) {
                             Text("Money").tag("money"); Text("Ticks").tag("ticks")
                         }.disabled(!showProfit || !showBracketProfit)
+                    }
+                    Section("ATR") {
+                        Toggle("Show ATR", isOn: $showATR)
+                        Stepper("ATR Length: \(atrLength)", value: $atrLength, in: 1...200).disabled(!showATR)
                     }
                     Section("Executions") {
                         Toggle("Execution marks", isOn: $showExecutions)
