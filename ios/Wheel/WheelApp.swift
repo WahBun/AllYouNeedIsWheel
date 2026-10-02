@@ -1140,6 +1140,9 @@ struct PositionDetail: View {
     }
     var body: some View {
         Form {
+            if latest.security_type == "STK", latest.position > 0 {
+                Section { ArrowlessNavigationLink("Trading chart · Preview") { StockChartView(position: latest) } }
+            }
             if latest.security_type == "STK", let cost = latest.reported_cost {
                 Section {
                     LabeledContent("Average cost", value: cost.average.formatted(.currency(code: cost.currency)))

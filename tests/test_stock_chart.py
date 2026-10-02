@@ -1,0 +1,64 @@
+import asyncio
+from datetime import datetime, timezone
+from types import SimpleNamespace as S
+import unittest
+from unittest.mock import Mock
+from eventkit import Event
+from api.services.stock_chart import StockChart, aggregate, apply_tick, regular_sessions
+
+class StockChartTests(unittest.TestCase):
+    def test_ticks_preserve_intrabar_extremes_and_new_minutes(self):
+        bars = []
+        for t,p in [(120,10),(121,12),(122,8),(123,11),(180,13)]:
+            self.assertTrue(apply_tick(bars,t,p))
+        self.assertEqual(bars[0],dict(time=120,open=10,high=12,low=8,close=11))
+        self.assertEqual(bars[1]['open'],13)
+        self.assertFalse(apply_tick(bars,60,100))
+        self.assertFalse(apply_tick(bars,181,float('nan')))
+        self.assertEqual(bars[-1]['close'],13)
+    def test_aggregation_uses_session_open_and_excludes_extended_hours(self):
+        bars=[]
+        for t,p in [(9*3600,8),(9*3600+1800,10),(10*3600,12),(16*3600,30)]:apply_tick(bars,t,p)
+        result=aggregate(bars,60,((34200,57600),))
+        self.assertEqual(len(result),1)
+        self.assertEqual(result[0],dict(time=34200,open=10,high=12,low=10,close=12))
+        self.assertEqual(len(aggregate(bars,60)),3)
+    def test_rth_calendar_early_close_holiday_and_dst(self):
+        sessions=regular_sessions('2026-11-27')
+        stamp=lambda value:int(datetime.fromisoformat(value).timestamp())
+        self.assertIn((stamp('2026-11-27T14:30:00+00:00'),stamp('2026-11-27T18:00:00+00:00')),sessions)
+        self.assertFalse(any(datetime.fromtimestamp(a,timezone.utc).day==26 for a,b in sessions))
+        self.assertIn((stamp('2026-10-02T13:30:00+00:00'),stamp('2026-10-02T20:00:00+00:00')),regular_sessions('2026-10-02'))
+    def connection(self):
+        conn=Mock()
+        conn.is_connected.return_value=True
+        contract=S(conId=7,secType='STK',currency='USD',symbol='TEST')
+        conn.get_option_position_by_con_id.return_value=dict(position=3,contract=contract)
+        conn.ib.reqHistoricalData.return_value=[S(date=datetime.now(timezone.utc).replace(second=0,microsecond=0),open=10,high=11,low=9,close=10)]
+        ticker=S(updateEvent=Event(),tickByTicks=[])
+        conn.ib.reqTickByTickData.return_value=ticker
+        conn.ib.ticker.return_value=ticker
+        return conn,ticker
+    def test_reuses_subscription_for_period_and_session_switches(self):
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection(); feed=StockChart()
+        try:
+            feed.snapshot(conn,7,1)
+            ticker.tickByTicks=[S(time=datetime.now(timezone.utc),price=12)]
+            ticker.updateEvent.emit(ticker)
+            result=feed.snapshot(conn,7,5,'all')
+            self.assertEqual(result['tick_count'],1)
+            self.assertEqual(result['bars'][-1]['high'],12)
+            conn.ib.reqHistoricalData.assert_called_once()
+            conn.ib.reqTickByTickData.assert_called_once()
+            conn.ib.placeOrder.assert_not_called()
+            feed.stop();conn.ib.cancelTickByTickData.assert_called_once()
+        finally:asyncio.get_event_loop().close()
+    def test_wrong_asset_and_missing_history_never_subscribe(self):
+        conn,_=self.connection();feed=StockChart()
+        conn.get_option_position_by_con_id.return_value['contract'].secType='OPT'
+        with self.assertRaises(ValueError):feed.snapshot(conn,7,5)
+        conn.ib.reqHistoricalData.assert_not_called()
+        conn,_=self.connection();conn.ib.reqHistoricalData.return_value=[]
+        with self.assertRaises(ValueError):feed.snapshot(conn,7,5)
+        conn.ib.reqTickByTickData.assert_not_called()

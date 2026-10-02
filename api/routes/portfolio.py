@@ -154,3 +154,19 @@ def get_margin_impact(con_id):
         return _no_store_json({'error': str(exc)}, 503)
     except Exception:
         return _no_store_json({'error': 'Margin estimate unavailable; no order was submitted'}, 503)
+
+
+@bp.route('/stock-chart/<int:con_id>', methods=['GET'])
+def get_stock_chart(con_id):
+    """Read-only, held-stock chart pilot; no order route or data source fallback."""
+    from api.services.stock_chart import stock_chart
+    try:
+        minutes = int(request.args.get('interval', '5'))
+        if con_id <= 0 or minutes not in (1, 5, 15, 60):
+            return _no_store_json({'error': 'Invalid stock chart parameters'}, 400)
+        result = stock_chart.snapshot(portfolio_service._ensure_connection(), con_id, minutes, request.args.get("session", "rth"))
+        return _no_store_json(result)
+    except ValueError as error:
+        return _no_store_json({'error': str(error)}, 503)
+    except Exception:
+        return _no_store_json({'error': 'Stock chart unavailable; retry shortly'}, 503)

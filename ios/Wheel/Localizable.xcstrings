@@ -1,6 +1,215 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+  "Trading chart · Preview": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "交易图表 · 预览"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "交易圖表 · 預覽"
+        }
+      }
+    }
+  },
+  "Interval": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "周期"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "週期"
+        }
+      }
+    }
+  },
+  "Session": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "交易时段"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "交易時段"
+        }
+      }
+    }
+  },
+  "All hours": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "全部时段"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "全部時段"
+        }
+      }
+    }
+  },
+  "Entry reference": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "参考入场价"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "參考進場價"
+        }
+      }
+    }
+  },
+  "Preview shares": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "预览股数"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "預覽股數"
+        }
+      }
+    }
+  },
+  "Loading chart…": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "正在加载图表…"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "正在載入圖表…"
+        }
+      }
+    }
+  },
+  "Chart updates paused · verify connection": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "图表更新暂停 · 请检查连接"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "圖表更新暫停 · 請檢查連線"
+        }
+      }
+    }
+  },
+  "IB Last ticks · display batches ≈250ms": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "IB 逐笔成交 · 约 250ms 批量显示"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "IB 逐筆成交 · 約 250ms 批次顯示"
+        }
+      }
+    }
+  },
+  "Historical bars · waiting for IB Last ticks": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "历史 K 线 · 等待 IB 逐笔成交"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "歷史 K 線 · 等待 IB 逐筆成交"
+        }
+      }
+    }
+  },
+  "Chart pilot requires a connected held stock": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "图表试点需要连接后端并持有正股"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "圖表試用需要連接後端並持有股票"
+        }
+      }
+    }
+  },
+  "Enter a valid price and quantity.": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "请输入有效价格和数量。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "請輸入有效價格和數量。"
+        }
+      }
+    }
+  },
+  "TP / SL preview only · drag the labels. Estimated P&L excludes fees and slippage. No orders are sent.": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "TP／SL 仅供预览，可拖动标签；预计盈亏不含费用及滑点，不会发送订单。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "TP／SL 僅供預覽，可拖動標籤；預計盈虧不含費用及滑價，不會傳送訂單。"
+        }
+      }
+    }
+  },
+
   "Diagnostics": {
     "localizations": {
       "zh-Hans": {

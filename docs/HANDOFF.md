@@ -125,3 +125,21 @@ Only fixed status fields, numeric versions, response age, HTTP code and the
 app-generated request reference are exported. Raw errors, URLs, account and
 position data are excluded. Copy is local-only and expires after five minutes.
 99 iOS tests passed, including adversarial sensitive-error redaction checks.
+
+## Held-stock chart pilot (2026-10-02)
+
+Long USD stock details now link to a bundled Lightweight Charts 5.2.0 preview.
+RTH is the default; all-hours and 1/5/15/60-minute periods reuse one IB Last
+subscription and one day of historical 1-minute TRADES bars. RTH filtering uses
+the NYSE calendar (including holidays, early close, DST), and hourly RTH bars
+anchor at session open. The iPhone polls accumulated OHLC at about 250ms plus
+request latency when recent Last ticks are available (one second while waiting).
+This is batched transport of tick data, not a guaranteed per-tick frame or SLA.
+The existing serialized IB executor owns subscription/event processing; no second
+IB client is created. An unused chart lease expires after 30 seconds once the
+IB event loop is pumped. Simultaneous different-stock viewers share one slot.
+TP/SL lines and P&L are long-stock previews with an editable entry reference and
+share quantity, rounded to cents and excluding fees/slippage. They never write
+orders. There is no bracket-order execution in this pilot. No options/futures
+support or Pine Script runtime is implied. Missing tick permissions/closed
+markets show waiting; no snapshot fallback is labeled as tick data.
