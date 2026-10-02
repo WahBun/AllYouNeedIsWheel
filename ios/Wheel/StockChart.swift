@@ -49,7 +49,7 @@ struct StockChartView: View {
                 let result = try await store.trading.paperChartWrite(base: store.address, conID: cid, body: body)
                 guard chartID == cid else { return }
                 paperMessage = result["message"] as? String
-                if let state = result["state"] as? [String: Any] { paperState = state }
+                if let state = result["state"] as? [String: Any] { paperState = state; if state["status"] as? String == "done" { entry = "0" } }
             } catch { paperMessage = connectionMessage(error) + " · Check Gateway before retrying" }
         }
     }
@@ -174,7 +174,7 @@ struct StockChartView: View {
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
             }
-            StockChartWeb(drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState, conID: chartID ?? 0, onPaper: paperAction)
+            StockChartWeb(drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["busy": paperBusy]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             if !fullScreen {
             if let paperMessage { Text(paperMessage).font(.caption).foregroundStyle(.secondary) }
@@ -298,9 +298,10 @@ struct StockChartView: View {
                     let state = try await store.trading.get("api/portfolio/paper-chart/\(cid)", base: store.address)
                     try Task.checkCancellation()
                     guard chartID == cid else { return }
+                    let wasActive = paperActive
                     paperState = state
                     if state["active"] as? Bool == true, let price = state["entry"] as? Double, price > 0 { entry = String(price) }
-                    if state["status"] as? String == "done" { entry = "0" }
+                    if wasActive && state["status"] as? String == "done" { entry = "0" }
                 } catch { if Task.isCancelled { return } }
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }

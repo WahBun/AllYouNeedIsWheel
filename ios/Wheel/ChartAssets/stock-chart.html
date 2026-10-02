@@ -34,6 +34,7 @@ window.configure=(config)=>{contractMultiplier=config.multiplier||1;paperConfig=
  if(paperConfig.active&&paperConfig.entry>0){entry=paperConfig.entry;side=paperConfig.side;breakEven=paperConfig.be_applied===true;if(!dragging){levels={tp:paperConfig.tp,sl:paperConfig.sl};}canceled=false;}
  updateLines();
  document.getElementById('entry').style.pointerEvents=paperConfig.active?'none':'auto';
+ for(const role of ['tp','sl','cancel'])document.getElementById(role).style.pointerEvents=paperConfig.busy?'none':'auto';
  if(submitPaper)paperAction({action:'submit',entry,quantity:qty,side,entry_type:entryType,tp:levels.tp,sl:levels.sl});
 };
 window.receive=(packet)=>{if(countdownPacket?.server_time!==packet.server_time){countdownReceived=performance.now();}countdownPacket=packet;document.getElementById('chart-title').textContent=[packet.local_symbol||packet.symbol,packet.interval<60?String(packet.interval):packet.interval<1440?(packet.interval/60)+'h':packet.interval===1440?'D':packet.interval===10080?'W':'M',packet.exchange].filter(Boolean).join(' · ');let bars=packet.bars||[];
