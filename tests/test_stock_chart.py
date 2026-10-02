@@ -55,6 +55,29 @@ class StockChartTests(unittest.TestCase):
             conn.ib.placeOrder.assert_not_called()
             feed.stop();self.assertEqual(conn.ib.cancelTickByTickData.call_count,2)
         finally:asyncio.get_event_loop().close()
+    def test_futures_rth_can_load_and_backfill_previous_session(self):
+        from unittest.mock import patch
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn, ticker = self.connection()
+        contract = S(conId=7, secType='FUT', symbol='MES', localSymbol='MESZ6', exchange='CME', multiplier='5')
+        def bar(stamp, price):
+            return S(date=datetime.fromisoformat(stamp), open=price, high=price, low=price, close=price)
+        history = [bar('2026-10-01T19:55:00+00:00', 7700), bar('2026-10-02T12:00:00+00:00', 7750), bar('2026-10-02T13:30:00+00:00', 7790)]
+        conn.ib.reqHistoricalData.return_value = history
+        feed = StockChart()
+        try:
+            with patch('api.services.chart_contracts.contracts.resolve', return_value=contract), patch('api.services.stock_chart.regular_sessions', return_value=((int(history[0].date.timestamp())-300, int(history[0].date.timestamp())+300), (int(history[2].date.timestamp()), int(history[2].date.timestamp())+23400))):
+                eth = feed.snapshot(conn, 7, 5, 'all')
+                self.assertEqual(len(eth['bars']), 3)
+                rth = feed.snapshot(conn, 7, 5, 'rth')
+                self.assertEqual([b['close'] for b in rth['bars']], [7700, 7790])
+                self.assertTrue(feed.active['backfilled'])
+                self.assertEqual(conn.ib.reqHistoricalData.call_args_list[0].args[2], '2 D')
+                conn.ib.placeOrder.assert_not_called()
+        finally:
+            feed.stop()
+            asyncio.get_event_loop().close()
+
     def test_wrong_asset_and_missing_history_never_subscribe(self):
         conn,_=self.connection();feed=StockChart()
         conn.get_option_position_by_con_id.return_value['contract'].secType='OPT'

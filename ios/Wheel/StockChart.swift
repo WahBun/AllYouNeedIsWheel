@@ -229,7 +229,7 @@ struct StockChartView: View {
                     HStack(spacing: 3) { Text(intervalLabel(interval)); Image(systemName: "chevron.down") }.font(.caption)
                 }.buttonStyle(.plain).frame(minHeight: 40)
                 Picker("Session", selection: $session) {
-                    Text("RTH").tag("rth").disabled(chartType == "FUT"); Text("ETH").tag("all")
+                    Text("RTH").tag("rth"); Text("ETH").tag("all")
                 }.fixedSize()
                 Button { fullScreen.toggle() } label: {
                     Image(systemName: fullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
@@ -399,7 +399,7 @@ struct StockChartView: View {
                         if let saved = record["session"] as? String, ["rth", "all"].contains(saved) { session = saved }
                     } else if position.con_id == nil { showSymbols = true }
                 }
-                if chartType == "FUT" { session = "all" }
+                if chartType == "FUT" && !resumeLast { session = "all" }
                 initialized = true
                 rememberChart()
             }

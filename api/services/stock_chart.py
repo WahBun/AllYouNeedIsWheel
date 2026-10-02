@@ -132,8 +132,6 @@ class StockChart:
             raise ValueError('Chart connection unavailable')
         from api.services.chart_contracts import contracts
         contract = contracts.resolve(conn, con_id)
-        if contract.secType == 'FUT' and session != 'all':
-            raise ValueError('Use ETH for futures charts')
         state = self.active
         if state and (state['conn'] is not conn or state['con_id'] != con_id or state['client'] is not conn.ib.client):
             self.stop()
@@ -149,7 +147,7 @@ class StockChart:
                 raise ValueError('Chart subscription cooling down; retry shortly')
             self.next_request = {key: value for key, value in self.next_request.items() if value > now}
             self.next_request[con_id] = now + 15
-            historical = conn.ib.reqHistoricalData(contract, '', '2 D' if session == 'rth' else '1 D', '1 min', 'TRADES',
+            historical = conn.ib.reqHistoricalData(contract, '', '2 D', '1 min', 'TRADES',
                 useRTH=False, formatDate=2, keepUpToDate=False, timeout=5)
             bars = []
             for bar in historical:
