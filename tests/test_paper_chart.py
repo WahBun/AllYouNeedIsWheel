@@ -24,6 +24,16 @@ class PaperChartTests(unittest.TestCase):
         self.conn.ib.cancelOrder.side_effect=lambda o:setattr(next(t for t in self.trades if t.order.orderId==o.orderId).orderStatus,'status','Cancelled')
         self.resolve=patch('api.services.paper_chart.contracts.resolve',return_value=self.contract);self.resolve.start()
         self.feed=patch('api.services.paper_chart.stock_chart.active',{'con_id':7,'price_rules':[{'low':0,'increment':.25}]});self.feed.start()
+    def test_tp_amendment_transmits_held_bracket_child(self):
+        self.submit()
+        take=self.trades[1]
+        self.assertFalse(take.order.transmit)
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='amend',role='tp',price=12))
+        self.assertTrue(result['success'])
+        self.assertTrue(self.conn.ib.placeOrder.call_args.args[1].transmit)
+        self.assertEqual(take.order.parentId,100)
+        self.assertEqual(take.order.totalQuantity,1)
+
     def test_state_drains_broker_events_without_chart_subscriber(self):
         self.submit()
         for trade in self.trades: trade.orderStatus.status='PendingSubmit'

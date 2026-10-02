@@ -205,6 +205,9 @@ class PaperChart:
             order=trade.order
             if role=='sl': order.auxPrice=new_price
             else: order.lmtPrice=new_price
+            # Initial TP is held (transmit=False) until the last bracket leg.
+            # A later amendment must be transmitted on its own.
+            order.transmit=True
             conn.ib.placeOrder(contract,order)
             return
         if action=='close':
