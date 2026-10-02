@@ -144,13 +144,25 @@ struct Order: Decodable, Identifiable {
     var isTerminal: Bool {
         ["filled", "executed", "cancelled", "canceled", "rejected"].contains(status.lowercased())
     }
-    var fillTimeLabel: String {
-        guard let fill_time else { return "—" }
+    var fillDate: Date? {
+        guard let fill_time else { return nil }
         let parser = ISO8601DateFormatter()
         parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let fractional = parser.date(from: fill_time)
         parser.formatOptions = [.withInternetDateTime]
-        guard let date = fractional ?? parser.date(from: fill_time) else { return "—" }
+        return fractional ?? parser.date(from: fill_time)
+    }
+    static func latestFillsFirst(_ orders: [Order]) -> [Order] {
+        orders.map { ($0, $0.fillDate ?? .distantPast) }.sorted { lhs, rhs in
+            if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
+            let leftID = lhs.0.perm_id ?? lhs.0.ib_order_id ?? lhs.0.id.local ?? 0
+            let rightID = rhs.0.perm_id ?? rhs.0.ib_order_id ?? rhs.0.id.local ?? 0
+            if leftID != rightID { return leftID > rightID }
+            return lhs.0.id.description > rhs.0.id.description
+        }.map { $0.0 }
+    }
+    var fillTimeLabel: String {
+        guard let date = fillDate else { return "—" }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "America/New_York")
@@ -346,13 +358,13 @@ final class WheelStore {
         defer { filledBusy = false }
         let token = revision
         let version = trading.version
-        if demo { filledOrders = trading.demoOrders.filter { $0.hasFill }; filledError = nil; return }
+        if demo { filledOrders = Order.latestFillsFirst(trading.demoOrders.filter { $0.hasFill }); filledError = nil; return }
         do {
             let result = try await trading.get("api/options/pending-orders", base: address, query: [URLQueryItem(name: "executed", value: "true")])
             let decoded = try JSONDecoder().decode(Orders.self, from: JSONSerialization.data(withJSONObject: result))
             guard token == revision, version == trading.version, !Task.isCancelled else { return }
             let completedIDs = Set(decoded.orders.map(\.id))
-            filledOrders = (decoded.orders + orders.filter { !completedIDs.contains($0.id) }).filter { $0.hasFill }
+            filledOrders = Order.latestFillsFirst((decoded.orders + orders.filter { !completedIDs.contains($0.id) }).filter { $0.hasFill })
             filledError = nil
         } catch {
             if token == revision, version == trading.version, !Task.isCancelled { filledError = connectionMessage(error) }
