@@ -137,7 +137,7 @@ struct CompactOrderRow: View {
                 VStack(alignment: .trailing, spacing: 4) {
                     Text(money(history ? order.fillPrice : order.premium)).font(.headline)
                     if history {
-                        Text("Fee \(order.commissionLabel)").font(.caption2).foregroundStyle(.secondary)
+                        Text(verbatim: order.commissionLabel).font(.caption2).foregroundStyle(.secondary)
                     }
                 }.monospacedDigit()
                 VStack(alignment: .trailing, spacing: 6) {
