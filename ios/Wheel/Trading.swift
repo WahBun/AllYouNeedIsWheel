@@ -109,6 +109,7 @@ struct PriceInput: View {
 
 extension Order {
     private enum CodingKeys: String, CodingKey {
+        case gross_pnl, net_pnl, round_trip_commission
         case id, ticker, symbol, action, order_type, option_type, strike, expiration, premium, quantity, status
         case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, amendment_pending, error_message, isRollover, filled, avg_fill_price, fill_time, fill_action, commission, commission_currency, realized_pnl
     }
@@ -153,6 +154,9 @@ extension Order {
         error_message = try values.decodeIfPresent(String.self, forKey: .error_message)
         isRollover = try flag(.isRollover)
         filled = try values.decodeIfPresent(Double.self, forKey: .filled)
+        gross_pnl = try values.decodeIfPresent(Double.self, forKey: .gross_pnl)
+        net_pnl = try values.decodeIfPresent(Double.self, forKey: .net_pnl)
+        round_trip_commission = try values.decodeIfPresent(Double.self, forKey: .round_trip_commission)
         order_type = try values.decodeIfPresent(String.self, forKey: .order_type)
         avg_fill_price = try values.decodeIfPresent(Double.self, forKey: .avg_fill_price)
         fill_time = try values.decodeIfPresent(String.self, forKey: .fill_time)

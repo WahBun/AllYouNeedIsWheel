@@ -98,7 +98,7 @@ class OptionsService:
                             order.update(metadata)
                     except Exception as error:
                         logger.warning('Could not enrich broker fill metadata: %s', type(error).__name__)
-            return local_orders + (futures_orders(conn, completed=True) if is_rollover is None else [])
+            return local_orders + (futures_orders(conn, completed=True, db_path=self.db.db_path) if is_rollover is None else [])
         if is_rollover is not None:
             return local_orders
 
@@ -139,7 +139,7 @@ class OptionsService:
                 continue
             external_orders.append(order)
 
-        return local_orders + external_orders + futures_orders(conn)
+        return local_orders + external_orders + futures_orders(conn, db_path=self.db.db_path)
 
     def validate_order_data(self, order_data):
         """Normalize an option order and reject values that are unsafe to persist."""

@@ -24,6 +24,27 @@ class PaperChartTests(unittest.TestCase):
         self.conn.ib.cancelOrder.side_effect=lambda o:setattr(next(t for t in self.trades if t.order.orderId==o.orderId).orderStatus,'status','Cancelled')
         self.resolve=patch('api.services.paper_chart.contracts.resolve',return_value=self.contract);self.resolve.start()
         self.feed=patch('api.services.paper_chart.stock_chart.active',{'con_id':7,'price_rules':[{'low':0,'increment':.25}]});self.feed.start()
+    def test_reconnect_recovers_completed_bracket_by_unique_reference(self):
+        import copy
+        self.submit()
+        completed=copy.deepcopy(self.trades)
+        for i,t in enumerate(completed):
+            t.order.orderId=0;t.order.permId=1000+i
+            t.orderStatus.status='Filled' if i<2 else 'Cancelled'
+            t.orderStatus.filled=1 if i<2 else 0
+        self.trades.clear();self.conn._bounded_order_read.return_value=completed
+        state=self.service.state(self.conn,7)
+        self.assertTrue(state['known']);self.assertFalse(state['active'])
+        self.assertEqual(state['status'],'done')
+        self.assertEqual(state['orders'][1]['filled'],1)
+        self.assertEqual(self.service.group('DU_TEST',7)['perms']['sl'],1002)
+    def test_reconnect_ambiguous_reference_stays_unknown(self):
+        import copy
+        self.submit();completed=copy.deepcopy(self.trades)
+        for t in completed:t.order.orderId=0;t.orderStatus.status='Filled'
+        completed.append(copy.deepcopy(completed[0]))
+        self.trades.clear();self.conn._bounded_order_read.return_value=completed
+        self.assertFalse(self.service.state(self.conn,7)['known'])
     def tearDown(self):self.resolve.stop();self.feed.stop();self.tmp.cleanup()
     def submit(self,**changes):
         b=dict(request_id=str(uuid4()),action='submit',side=1,quantity=1,entry_type='LMT',entry=10,tp=11,sl=9);b.update(changes)

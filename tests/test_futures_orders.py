@@ -14,7 +14,7 @@ class FuturesOrdersTests(unittest.TestCase):
         self.conn._order_account.return_value='DU_TEST'
         self.conn.ib.managedAccounts.return_value=['DU_TEST']
         self.conn.ib.positions.return_value=[]
-        self.contract=Future('MES','20261218','CME',conId=7,localSymbol='MESZ6',multiplier='5')
+        self.contract=Future('MES','20261218','CME',currency='USD',conId=7,localSymbol='MESZ6',multiplier='5')
     def trade(self,account='DU_TEST',status='Submitted',filled=0):
         return Trade(self.contract,LimitOrder('BUY',1,7790,account=account,orderId=50,permId=123),OrderStatus(status=status,filled=filled,avgFillPrice=7790 if filled else 0))
     def test_pending_account_isolation_and_dedup(self):
@@ -31,6 +31,31 @@ class FuturesOrdersTests(unittest.TestCase):
         self.assertEqual(len(rows),1);self.assertEqual(rows[0]['filled'],1)
         self.assertEqual(rows[0]['avg_fill_price'],7790)
         futures_orders(self.conn,True);self.conn._bounded_order_read.assert_called_once()
+    def test_bracket_profit_uses_multiplier_and_both_fees(self):
+        import json,sqlite3
+        for side,entry_price,exit_price,expected in [(1,7790.75,7792.75,10),(-1,7792.75,7790.75,10),(1,7792.75,7790.75,-10)]:
+            with self.subTest(side=side,profit=expected),TemporaryDirectory() as tmp:
+                self.conn._futures_completed_cache=None
+                now=datetime.now(timezone.utc);trades=[]
+                for i,price in enumerate([entry_price,exit_price]):
+                    action=('BUY' if side==1 else 'SELL') if i==0 else ('SELL' if side==1 else 'BUY')
+                    order=LimitOrder(action,1,price,account='DU_TEST',orderId=i+1,permId=i+101,orderRef='WheelPaper:test')
+                    e=Execution(execId=str(i),acctNumber='DU_TEST',side='BOT' if action=='BUY' else 'SLD',shares=1,price=price,time=now)
+                    report=CommissionReport(execId=str(i),commission=.62,currency='USD')
+                    trades.append(Trade(self.contract,order,OrderStatus(status='Filled',filled=1,avgFillPrice=price),fills=[Fill(self.contract,e,report,now)]))
+                self.conn._bounded_order_read.return_value=trades;self.conn.ib.trades.return_value=[]
+                dbpath=str(Path(tmp)/'journal.db')
+                with sqlite3.connect(dbpath) as db:
+                    db.execute('CREATE TABLE chart_paper_requests(id,account,body)')
+                    db.execute('INSERT INTO chart_paper_requests VALUES(?,?,?)',('test','DU_TEST',json.dumps(dict(action='submit',side=side,con_id=7))))
+                rows=futures_orders(self.conn,True,dbpath)
+                self.assertEqual(rows[0]['intent'],'OPEN');self.assertNotIn('gross_pnl',rows[0])
+                self.assertEqual(rows[1]['gross_pnl'],expected)
+                self.assertAlmostEqual(rows[1]['net_pnl'],expected-1.24)
+                trades[0].fills[0].commissionReport.execId=''
+                rows=futures_orders(self.conn,True,dbpath)
+                self.assertEqual(rows[1]['gross_pnl'],expected);self.assertNotIn('net_pnl',rows[1])
+                self.assertNotIn('gross_pnl',futures_orders(self.conn,True)[1])
     def test_chart_executions_deduplicate_and_filter_account_contract(self):
         now=datetime.now(timezone.utc)
         def fill(id,account='DU_TEST',contract=None):

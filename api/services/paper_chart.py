@@ -11,6 +11,7 @@ from uuid import UUID
 from ib_async import LimitOrder, StopOrder, MarketOrder
 from api.services.chart_contracts import contracts
 from api.services.stock_chart import stock_chart
+from api.services.futures_orders import completed_trades
 
 
 def paper_account(conn, write=False):
@@ -55,6 +56,40 @@ class PaperChart:
                 quantity=float(e.shares),side='BUY' if e.side=='BOT' else 'SELL')
         result['executions'] = sorted(executions.values(), key=lambda e:e['time'])
         if not group: return result
+        # Completed IB orders can lose their temporary orderId after reconnect.
+        # Recover only by exact recorded permId or a unique bracket reference/role.
+        missing = [role for role, oid in group['ids'].items() if oid not in trades]
+        if missing:
+            ref = group.get('ref')
+            if not ref:
+                refs = {f.execution.orderRef for f in conn.ib.fills()
+                        if f.execution.acctNumber == account and f.contract.conId == cid
+                        and f.execution.clientId == conn.ib.client.clientId
+                        and f.execution.orderId == group['ids']['entry']
+                        and f.execution.orderRef.startswith('WheelPaper:')}
+                if len(refs) == 1: ref = next(iter(refs))
+            for role in missing:
+                perm = group.get('perms', {}).get(role)
+                candidates = []
+                if perm or ref:
+                    for t in completed_trades(conn, account):
+                        if t.order.account != account or t.contract.conId != cid: continue
+                        if perm:
+                            matches = (t.order.permId or t.orderStatus.permId) == perm
+                        else:
+                            entry_action = 'BUY' if group['side'] == 1 else 'SELL'
+                            matches = t.order.orderRef == ref and (
+                                role == 'entry' and t.order.action == entry_action or
+                                role == 'tp' and t.order.action != entry_action and t.order.orderType == 'LMT' or
+                                role == 'sl' and t.order.action != entry_action and t.order.orderType == 'STP')
+                        if matches: candidates.append(t)
+                if len(candidates) == 1: trades[group['ids'][role]] = candidates[0]
+        perms = {role:int(trades[oid].order.permId or trades[oid].orderStatus.permId)
+                 for role,oid in group['ids'].items() if oid in trades and (trades[oid].order.permId or trades[oid].orderStatus.permId)}
+        if perms and perms != group.get('perms'):
+            group['perms'] = {**group.get('perms', {}), **perms}
+            with self.database() as db:
+                db.execute('UPDATE chart_paper_groups SET orders=? WHERE account=? AND con_id=?',(json.dumps(group),account,cid))
         rows=[]
         for role, oid in group['ids'].items():
             t=trades.get(oid)
@@ -126,7 +161,7 @@ class PaperChart:
             take=LimitOrder(sell,qty,tp,orderId=ids['tp'],parentId=ids['entry'],transmit=False)
             stop=StopOrder(sell,qty,sl,orderId=ids['sl'],parentId=ids['entry'],transmit=True)
             with self.database() as db:
-                db.execute('INSERT OR REPLACE INTO chart_paper_groups VALUES(?,?,?)',(account,cid,json.dumps(dict(ids=ids,side=side))))
+                db.execute('INSERT OR REPLACE INTO chart_paper_groups VALUES(?,?,?)',(account,cid,json.dumps(dict(ids=ids,side=side,ref='WheelPaper:'+request_id))))
             for order in (parent,take,stop):
                 order.account=account;order.tif='DAY';order.orderRef='WheelPaper:'+request_id
                 conn.ib.placeOrder(contract,order)
