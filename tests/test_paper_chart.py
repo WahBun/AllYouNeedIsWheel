@@ -31,7 +31,8 @@ class PaperChartTests(unittest.TestCase):
         for i,t in enumerate(completed):
             t.order.orderId=0;t.order.permId=1000+i
             t.orderStatus.status='Filled' if i<2 else 'Cancelled'
-            t.orderStatus.filled=1 if i<2 else 0
+            t.orderStatus.filled=0
+            if i<2: t.fills=[S(execution=S(execId=str(i),shares=1,price=t.order.lmtPrice))]
         self.trades.clear();self.conn._bounded_order_read.return_value=completed
         state=self.service.state(self.conn,7)
         self.assertTrue(state['known']);self.assertFalse(state['active'])

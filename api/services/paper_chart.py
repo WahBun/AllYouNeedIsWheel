@@ -95,7 +95,7 @@ class PaperChart:
             t=trades.get(oid)
             rows.append(dict(role=role, order_id=oid, status=t.orderStatus.status if t else 'Unknown',
                 price=(t.order.auxPrice if role=='sl' or (role=='entry' and t.order.orderType=='STP') else t.order.lmtPrice) if t and role!='close' else 0,
-                filled=float(t.orderStatus.filled) if t else 0))
+                filled=max(float(t.orderStatus.filled),sum(float(f.execution.shares) for f in {f.execution.execId:f for f in t.fills}.values())) if t else 0))
         result.update(orders=rows, side=group['side'], known=all(r['status']!='Unknown' for r in rows))
         result['active']=any(r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive') for r in rows) or result['position']!=0
         result['status']='working' if result['active'] else 'done'
@@ -103,6 +103,10 @@ class PaperChart:
             if row['role'] in ('entry','tp','sl'): result[row['role']]=row['price']
         parent=trades.get(group['ids']['entry'])
         if parent and parent.orderStatus.avgFillPrice>0: result['entry']=parent.orderStatus.avgFillPrice
+        elif parent and parent.fills:
+            fills = list({f.execution.execId:f for f in parent.fills}.values())
+            total = sum(float(f.execution.shares) for f in fills)
+            if total > 0: result['entry'] = sum(float(f.execution.shares)*float(f.execution.price) for f in fills)/total
         if not result['known']: result['status']='unknown'
         result['be_applied']=bool(result['position'] and result['sl']>0 and result['side']*(result['sl']-result['entry'])>0)
         result['rejected']=any(r['status']=='Inactive' for r in rows)
