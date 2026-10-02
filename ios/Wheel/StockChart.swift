@@ -220,7 +220,7 @@ struct StockChartView: View {
                             .onSubmit { Task { await searchSymbols() } }
                         Button("Search") { Task { await searchSymbols() } }.disabled(searching)
                     }
-                    HStack { ForEach(["TSLA", "ES", "NQ"], id: \.self) { symbol in Button(symbol) { symbolQuery = symbol; Task { await searchSymbols() } }.buttonStyle(.bordered) } }
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3)) { ForEach(["TSLA", "ES", "NQ", "TSLL", "MES", "MNQ"], id: \.self) { symbol in Button(symbol) { symbolQuery = symbol; Task { await searchSymbols() } }.buttonStyle(.bordered) } }
                     if searching { ProgressView() }
                     if let symbolError { Text(symbolError).foregroundStyle(.red) }
                     ForEach(symbolResults.indices, id: \.self) { index in

@@ -10,8 +10,8 @@ class ChartContracts:
     def search(self, conn, query):
         symbol = str(query).strip().upper()
         if not re.fullmatch(r'[A-Z][A-Z0-9.]{0,11}', symbol):
-            raise ValueError('Enter a stock symbol, ES or NQ')
-        if symbol in ('ES', 'NQ'):
+            raise ValueError('Enter a stock symbol, ES, NQ, MES or MNQ')
+        if symbol in ('ES', 'NQ', 'MES', 'MNQ'):
             details = conn._bounded_order_read(conn.ib.reqContractDetails,
                 Future(symbol=symbol, exchange='CME', currency='USD'), timeout_seconds=6)
             today = datetime.now(timezone.utc).strftime('%Y%m%d')

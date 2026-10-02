@@ -17,6 +17,25 @@ class ChartContractsTests(unittest.TestCase):
         conn._bounded_order_read.return_value=[S(contract=Future('ES',month,'CME',currency='USD',conId=i,localSymbol='ES'+month)) for i,month in [(1,'20000101'),(2,'20990301'),(3,'20990601')]]
         result=service.search(conn,'ES');self.assertEqual([r['con_id'] for r in result],[2,3])
         self.assertEqual(result[0]['expiration'],'20990301')
+    def test_micro_futures_use_exact_cme_contracts_and_broker_multiplier(self):
+        for symbol,multiplier in [('MES','5'),('MNQ','2')]:
+            with self.subTest(symbol=symbol):
+                service=ChartContracts();conn=Mock()
+                contract=Future(symbol,'20990301','CME',currency='USD',conId=8,multiplier=multiplier,localSymbol=symbol+'H9')
+                conn._bounded_order_read.return_value=[S(contract=contract),S(contract=Future('ES','20990301','CME',currency='USD',conId=9))]
+                result=service.search(conn,symbol.lower())
+                requested=conn._bounded_order_read.call_args.args[1]
+                self.assertEqual((requested.symbol,requested.secType,requested.exchange),(symbol,'FUT','CME'))
+                self.assertEqual(len(result),1)
+                self.assertEqual(result[0]['multiplier'],multiplier)
+                self.assertIs(service.resolve(conn,8),contract)
+                conn.get_qualified_stock_contract.assert_not_called()
+    def test_tsll_uses_stock_qualification(self):
+        service=ChartContracts();conn=Mock()
+        conn.get_qualified_stock_contract.return_value=Stock('TSLL','SMART','USD',conId=12)
+        self.assertEqual(service.search(conn,'TSLL')[0]['security_type'],'STK')
+        conn.get_qualified_stock_contract.assert_called_once_with('TSLL')
+        conn._bounded_order_read.assert_not_called()
     def test_invalid_symbol_never_calls_ib(self):
         conn=Mock()
         with self.assertRaises(ValueError):ChartContracts().search(conn,'TSLA; anything')
