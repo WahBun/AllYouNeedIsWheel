@@ -1,6 +1,57 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+  "Diagnostics": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "诊断信息"
+        }
+      }
+    }
+  },
+  "Preview diagnostics": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "预览诊断信息"
+        }
+      }
+    }
+  },
+  "Diagnostics copied": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已复制诊断信息"
+        }
+      }
+    }
+  },
+  "Copy diagnostics": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "复制诊断信息"
+        }
+      }
+    }
+  },
+  "Includes app version, refresh status and request reference only. No account, positions, private address or credentials.": {
+    "localizations": {
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "仅包含应用版本、刷新状态和请求编号，不含账户、持仓、私人地址或凭据。"
+        }
+      }
+    }
+  },
+
   "Final result not yet verified. Absence from pending orders does not confirm a fill or cancellation.": {
     "localizations": {
       "en": {

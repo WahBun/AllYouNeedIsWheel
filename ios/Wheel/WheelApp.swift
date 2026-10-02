@@ -498,6 +498,7 @@ struct StatusView: View {
     @Environment(WheelStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showHealth = false
+    @State private var copiedDiagnostics = false
     private var error: String? { orders ? store.orderError : store.error }
     private var busy: Bool { orders ? store.ordersBusy : store.busy }
     private var updated: Date? { orders ? store.ordersUpdated : store.updated }
@@ -505,7 +506,7 @@ struct StatusView: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let status = DataHealth.status(demo: store.demo, failed: error != nil, updated: updated,
                 frozen: !orders && store.portfolio?.summary.is_frozen == true, now: context.date)
-            Button { showHealth = true } label: {
+            Button { copiedDiagnostics = false; showHealth = true } label: {
                 HStack(spacing: 6) {
                     Circle().fill(status == "STALE" || status == "FROZEN" ? Color.orange : .teal).frame(width: 6, height: 6)
                         .opacity(busy && !reduceMotion ? 0.35 : 1)
@@ -530,6 +531,24 @@ struct StatusView: View {
                     Section("Troubleshooting") {
                         if let error { NoticeText(error).foregroundStyle(.orange) }
                         Text(LocalizedStringKey(DataHealth.guidance(error)))
+                    }
+                    Section("Diagnostics") {
+                        let report = SafeDiagnostics.report(demo: store.demo, orders: orders,
+                            frozen: store.portfolio?.summary.is_frozen == true,
+                            marketOpen: store.opportunities.marketOpen, updated: updated, error: error,
+                            uncertain: store.trading.uncertain, now: .now,
+                            version: "\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""))",
+                            systemVersion: UIDevice.current.systemVersion)
+                        Text("Includes app version, refresh status and request reference only. No account, positions, private address or credentials.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        DisclosureGroup("Preview diagnostics") {
+                            Text(report).font(.caption.monospaced()).textSelection(.enabled)
+                        }
+                        Button(copiedDiagnostics ? "Diagnostics copied" : "Copy diagnostics", systemImage: "doc.on.doc") {
+                            UIPasteboard.general.setItems([["public.utf8-plain-text": report]],
+                                options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(300)])
+                            copiedDiagnostics = true
+                        }
                     }
                 }.navigationTitle("Data status")
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showHealth = false } } }

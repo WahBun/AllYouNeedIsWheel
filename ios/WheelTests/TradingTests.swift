@@ -846,6 +846,30 @@ final class TradingTests: XCTestCase {
         XCTAssertFalse(value(false).matches(ticker: "TEST", expiration: "20261016", strike: 75, quantity: 1, price: 1.15))
         XCTAssertFalse(value(amount: 1.7976931348623157e308).matches(ticker: "TEST", expiration: "20261016", strike: 75, quantity: 1, price: 1.15))
     }
+    func testDiagnosticsExportsOnlyAllowlistedFields() {
+        let now = Date(timeIntervalSince1970: 1790913600)
+        let secret = "Account U12345678, https://private-host.ts.net token=secret TSLL $23000"
+        let report = SafeDiagnostics.report(demo: false, orders: true, frozen: true, marketOpen: nil,
+            updated: now.addingTimeInterval(-2), error: secret + " [HTTP 503 · application · GET expirations · ref 0123456789abcdef0123456789abcdef]",
+            uncertain: true, now: now, version: "0.2 (1)", systemVersion: "18.0")
+        for value in ["U12345678", "private-host", "secret", "TSLL", "$23000", "expirations"] {
+            XCTAssertFalse(report.contains(value))
+        }
+        XCTAssertTrue(report.contains("HTTP: 503"))
+        XCTAssertTrue(report.contains("Request reference: 0123456789abcdef0123456789abcdef"))
+        XCTAssertTrue(report.contains("Market session: unknown"))
+        XCTAssertTrue(report.contains("Unresolved trading write: true"))
+        XCTAssertTrue(report.contains("Backend response age seconds: 2"))
+        let malformed = SafeDiagnostics.report(demo: true, orders: false, frozen: false, marketOpen: false,
+            updated: nil, error: secret + " ref token", uncertain: false, now: now,
+            version: secret, systemVersion: secret)
+        XCTAssertFalse(malformed.contains("Request reference:"))
+        XCTAssertFalse(malformed.contains("secret"))
+        XCTAssertTrue(malformed.contains("Backend response age seconds: unknown"))
+        XCTAssertTrue(malformed.contains("Data status: DEMO"))
+        XCTAssertEqual(SafeDiagnostics.errorCategory("IB requests are busy"), "ib_busy")
+        XCTAssertEqual(SafeDiagnostics.errorCategory(nil), "none")
+    }
     func testCompletedOrderCachePreservesFillsAndClearsOnContextChange() {
         let store = WheelStore()
         var order = Order(id: 812, ticker: "TEST", quantity: 3, status: "processing", filled: 1, avg_fill_price: 0.42)

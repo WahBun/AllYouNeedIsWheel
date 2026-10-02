@@ -117,3 +117,11 @@ alone is never treated as a fill or cancellation; an unresolved result remains
 read-only and explicitly requires verification. Partial fills remain visible after
 cancellation. The in-memory cache clears on backend/demo context changes.
 Verification: 98 iOS tests passed using mocks; no live orders were changed.
+
+## iOS safe diagnostic copy (2026-10-02)
+
+The Portfolio/Orders data-status sheet includes a preview and Copy diagnostics.
+Only fixed status fields, numeric versions, response age, HTTP code and the
+app-generated request reference are exported. Raw errors, URLs, account and
+position data are excluded. Copy is local-only and expires after five minutes.
+99 iOS tests passed, including adversarial sensitive-error redaction checks.
