@@ -20,8 +20,12 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
   now+=60000;updateCountdown();const expired=timer.hidden;
   receive({...packet,mode:'delta',server_time:1065,bar_closes_at:1120,chart_received_at:now/1000,bars:[]});updateCountdown();const reconnected=timer.textContent;
   receive({...packet,con_id:8,generation:'other',bar_closes_at:null});updateCountdown();const historical=timer.hidden;
-  Date.now=realNow;return {initial,resumed,visible,delayed,range,retained,expired,reconnected,historical,bars:previous.length};
+  // Simulate a new WebView loading a disk cache: no prior in-memory timer.
+  countdownPacket=null;countdownReceived=0;
+  receive({...packet,status:'waiting',chart_received_at:(now-20000)/1000});updateCountdown();
+  const coldCached=timer.textContent;
+  Date.now=realNow;return {coldCached,initial,resumed,visible,delayed,range,retained,expired,reconnected,historical,bars:previous.length};
  });
- assert.equal(result.initial,'01:00');assert.equal(result.resumed,'00:55');assert.equal(result.visible,true);assert.equal(result.delayed,'00:55');assert.deepEqual(result.retained,result.range);assert.equal(result.expired,true);assert.equal(result.reconnected,'00:55');assert.equal(result.historical,true);assert.equal(result.bars,80);assert.deepEqual(errors,[]);
+ assert.equal(result.coldCached,'00:40');assert.equal(result.initial,'01:00');assert.equal(result.resumed,'00:55');assert.equal(result.visible,true);assert.equal(result.delayed,'00:55');assert.deepEqual(result.retained,result.range);assert.equal(result.expired,true);assert.equal(result.reconnected,'00:55');assert.equal(result.historical,true);assert.equal(result.bars,80);assert.deepEqual(errors,[]);
  console.log('Resume: immediate wall-clock catch-up, delayed bridge, viewport retention, expiry and reconnection passed');
 }finally{await browser.close()}})();

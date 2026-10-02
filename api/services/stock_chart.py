@@ -327,8 +327,9 @@ class StockChart:
             if len(cache) > 16:
                 cache.pop(next(iter(cache)))
         server_time = time.time()
-        live = in_session and age is not None and age < 10
-        closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time) if live else None
+        # A known current bar has a scheduled close before the first Last tick.
+        # Countdown eligibility is independent of quote freshness/trading eligibility.
+        closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time)
         return dict(con_id=con_id, symbol=contract.symbol, security_type=contract.secType, local_symbol=getattr(contract, "localSymbol", "") or contract.symbol,
             exchange=getattr(contract, "primaryExchange", "") or getattr(contract, "exchange", ""),
             multiplier=positive(getattr(contract, "multiplier", 1)) or 1, interval=minutes,

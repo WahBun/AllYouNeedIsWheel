@@ -20,9 +20,11 @@ import WebKit
         guard let bars = packet["bars"] as? [[String: Any]], !bars.isEmpty else { return }
         packets = packets.filter { Date().timeIntervalSince($0.value.0) < 86400 }
         if packets.count >= 12 && packets[key] == nil, let oldest = packets.min(by: { $0.value.0 < $1.value.0 }) { packets.removeValue(forKey: oldest.key) }
-        // Cache history only: never persist quote eligibility or transient stream state.
+        // Keep the known bar deadline and clock anchor, never quote eligibility or stream state.
         var history = packet
-        for field in ["bid", "ask", "quote_time", "quote_expires_at", "bar_closes_at", "sequence", "mode", "changed_bars"] { history.removeValue(forKey: field) }
+        for field in ["bid", "ask", "quote_time", "quote_expires_at", "sequence", "mode", "changed_bars", "stream_id"] { history.removeValue(forKey: field) }
+        history["chart_received_at"] = packet["chart_received_at"] ?? Date().timeIntervalSince1970
+        history["status"] = "waiting"
         history["bars"] = Array(bars.suffix(2500))
         packets[key] = (.now, history)
         guard lastSaved[key].map({ Date().timeIntervalSince($0) >= 15 }) ?? true else { return }
@@ -499,7 +501,9 @@ struct StockChartView: View {
             let requestCacheKey = cacheKey
             if packet.isEmpty, let cached = RecentStockCharts.load(requestCacheKey) {
                 packet = cached.1
-                packet["bid"] = NSNull(); packet["ask"] = NSNull(); packet["bar_closes_at"] = NSNull()
+                packet["bid"] = NSNull(); packet["ask"] = NSNull()
+                // Legacy caches lack a local clock anchor; never restart an old timer.
+                if packet["chart_received_at"] == nil { packet["bar_closes_at"] = NSNull() }
                 notice = "Saved chart · connecting to live data"
             }
             var failures = 0
@@ -509,7 +513,7 @@ struct StockChartView: View {
                         try await store.trading.chartStream(base: store.address, conID: conID, interval: interval, marketSession: session) { result in
                             guard !Task.isCancelled, context == requestContext, result["con_id"] as? Int == conID else { return }
                             packet = result; received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
-                            RecentStockCharts.save(result, key: requestCacheKey)
+                            RecentStockCharts.save(packet, key: requestCacheKey)
                             notice = result["status"] as? String == "live" ? "IB Last ticks · live push" : "Historical bars · waiting for IB Last ticks"
                         }
                     }
@@ -519,7 +523,7 @@ struct StockChartView: View {
                     guard context == requestContext else { return }
                     guard result["con_id"] as? Int == conID, result["bars"] is [[String: Any]] else { throw AppError.message("Invalid chart response") }
                     packet = result; received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
-                    RecentStockCharts.save(result, key: requestCacheKey)
+                    RecentStockCharts.save(packet, key: requestCacheKey)
                     notice = (interval >= 1440 || (interval == 480 && session == "rth")) ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks"
                 } catch {
                     guard !Task.isCancelled else { return }

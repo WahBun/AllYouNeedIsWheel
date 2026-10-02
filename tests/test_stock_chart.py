@@ -40,6 +40,29 @@ class StockChartTests(unittest.TestCase):
         conn.ib.reqTickByTickData.return_value=ticker
         conn.ib.ticker.return_value=ticker
         return conn,ticker
+    def test_cold_snapshot_countdown_does_not_wait_for_first_trade(self):
+        from unittest.mock import patch
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn, ticker = self.connection(); feed = StockChart()
+        start = datetime.fromisoformat('2026-10-02T14:00:00+00:00').timestamp()
+        conn.ib.reqHistoricalData.return_value = [S(date=datetime.fromtimestamp(start, timezone.utc), open=10, high=11, low=9, close=10)]
+        try:
+            with patch('api.services.stock_chart.time.time', return_value=start+30):
+                for session in ('all', 'rth'):
+                    packet = feed.snapshot(conn, 7, 5, session)
+                    self.assertEqual(packet['bar_closes_at'], start+300)
+                    self.assertEqual(packet['status'], 'waiting')
+                    self.assertEqual(packet['tick_count'], 0)
+                    self.assertIsNone(packet['last_tick'])
+                    self.assertIsNone(packet['bid'])
+                    self.assertIsNone(packet['ask'])
+                    self.assertIsNone(packet['quote_expires_at'])
+            with patch('api.services.stock_chart.time.time', return_value=start+301):
+                self.assertIsNone(feed.packet(feed.active, 5, 'all')['bar_closes_at'])
+            conn.ib.placeOrder.assert_not_called()
+        finally:
+            feed.stop(); asyncio.get_event_loop().close()
+
     def test_reuses_subscription_for_period_and_session_switches(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
         conn,ticker=self.connection(); feed=StockChart()
