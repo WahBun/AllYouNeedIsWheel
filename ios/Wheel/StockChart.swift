@@ -23,6 +23,12 @@ struct StockChartView: View {
     @State private var showInfo = false
     @State private var showClosePreview = false
     @State private var beRevision = 0
+    @State private var beApplied = false
+    @AppStorage("chartTPDistance") private var tpDistance = "0.20"
+    @AppStorage("chartSLDistance") private var slDistance = "0.10"
+    @State private var showTemplate = false
+    @State private var templateRevision = 1
+    private var validTemplate: Bool { [tpDistance, slDistance].allSatisfy { Double($0).map { $0.isFinite && $0 > 0 } ?? false } }
     @State private var packet: [String: Any] = [:]
     @State private var notice = "Loading chart…"
     @State private var visible = false
@@ -68,7 +74,7 @@ struct StockChartView: View {
                 Text(received.map { time.date.timeIntervalSince($0) > 3 } == true ? "Chart updates paused · verify connection" : LocalizedStringKey(notice))
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
-            StockChartWeb(packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, onEntry: { entry = String(format: "%.2f", $0) })
+            StockChartWeb(packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String(format: "%.2f", $0) })
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
                 TextField("Shares", text: $quantity).keyboardType(.decimalPad)
@@ -83,7 +89,10 @@ struct StockChartView: View {
                 }.pickerStyle(.segmented).frame(maxWidth: 140)
             }
             HStack(spacing: 10) {
-                Button { showInfo = true } label: { Image(systemName: "info.circle").frame(width: 28, height: 36) }.accessibilityLabel("Chart details")
+                VStack(spacing: 6) {
+                    Button { showInfo = true } label: { Image(systemName: "info.circle").frame(width: 28, height: 30) }.accessibilityLabel("Chart details")
+                    Button { showTemplate = true } label: { Image(systemName: "slider.horizontal.3").frame(width: 28, height: 30) }.accessibilityLabel("TP / SL template")
+                }
                 VStack(spacing: 6) {
                     HStack(spacing: 8) {
                         Button { join("bid") } label: { Text("Join Bid").frame(maxWidth: .infinity, minHeight: 30) }.tint(.green).disabled(joinPrice("bid") == nil)
@@ -91,7 +100,7 @@ struct StockChartView: View {
                     }
                     HStack(spacing: 8) {
                         Button { if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").frame(maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(validEntry <= 0)
-                        Button { beRevision += 1 } label: { Text("BE").frame(maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
+                        Button { beRevision += 1 } label: { Text("BE").frame(maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(beApplied || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
                     }
                 }.font(.system(size: 13, weight: .semibold))
             }.buttonStyle(.bordered)
@@ -102,6 +111,18 @@ struct StockChartView: View {
             Button("Done", role: .cancel) { }
         } message: {
             Text("This will close the current symbol when live chart trading is enabled. No order has been sent; your position is unchanged.")
+        }
+        .sheet(isPresented: $showTemplate) {
+            NavigationStack {
+                Form {
+                    Section("Price distance") {
+                        HStack { Text("TP"); TextField("TP", text: $tpDistance).keyboardType(.decimalPad).multilineTextAlignment(.trailing) }
+                        HStack { Text("SL"); TextField("SL", text: $slDistance).keyboardType(.decimalPad).multilineTextAlignment(.trailing) }
+                    }
+                    Text("Distances are saved for new previews. Apply replaces the current preview levels; no broker order is changed.")
+                    Button("Apply to preview") { templateRevision += 1; showTemplate = false }.disabled(!validTemplate || validEntry <= 0)
+                }.navigationTitle("TP / SL template").toolbar { Button("Done") { showTemplate = false } }
+            }.presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showIntervals) {
             NavigationStack {
@@ -171,6 +192,10 @@ private struct StockChartWeb: UIViewRepresentable {
     var joinSide: Int
     var joinRevision: Int
     var beRevision: Int
+    var tpDistance: Double
+    var slDistance: Double
+    var templateRevision: Int
+    var onBE: (Bool) -> Void
     var onEntry: (Double) -> Void
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIView(context: Context) -> WKWebView {
@@ -178,6 +203,7 @@ private struct StockChartWeb: UIViewRepresentable {
         config.websiteDataStore = .nonPersistent()
         config.userContentController.add(context.coordinator, name: "chartReady")
         config.userContentController.add(context.coordinator, name: "entryChanged")
+        config.userContentController.add(context.coordinator, name: "beState")
         let web = WKWebView(frame: .zero, configuration: config)
         web.scrollView.isScrollEnabled = false
         web.isOpaque = false
@@ -194,12 +220,14 @@ private struct StockChartWeb: UIViewRepresentable {
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.packet = packet.isEmpty ? ["bars": [], "generation": "clear", "interval": 0, "session": ""] : packet
         context.coordinator.onEntry = onEntry
-        context.coordinator.config = ["entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "beRevision": beRevision]
+        context.coordinator.onBE = onBE
+        context.coordinator.config = ["entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "beRevision": beRevision, "tpDistance": tpDistance.isFinite ? tpDistance : 0, "slDistance": slDistance.isFinite ? slDistance : 0, "templateRevision": templateRevision]
         context.coordinator.update()
     }
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {
         web.configuration.userContentController.removeScriptMessageHandler(forName: "chartReady")
         web.configuration.userContentController.removeScriptMessageHandler(forName: "entryChanged")
+        web.configuration.userContentController.removeScriptMessageHandler(forName: "beState")
         web.stopLoading(); web.loadHTMLString("", baseURL: nil)
     }
     class Coordinator: NSObject, WKScriptMessageHandler {
@@ -208,8 +236,10 @@ private struct StockChartWeb: UIViewRepresentable {
         var packet: [String: Any] = [:]
         var config: [String: Any] = [:]
         var onEntry: ((Double) -> Void)?
+        var onBE: ((Bool) -> Void)?
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            if message.name == "entryChanged", let price = message.body as? Double, price.isFinite, price >= 0 {
+            if message.name == "beState", let applied = message.body as? Bool { onBE?(applied)
+            } else if message.name == "entryChanged", let price = message.body as? Double, price.isFinite, price >= 0 {
                 onEntry?(price)
             } else if message.name == "chartReady" { ready = true; update() }
         }

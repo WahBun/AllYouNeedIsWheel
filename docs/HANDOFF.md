@@ -174,3 +174,11 @@ explanation, purple BE moves the simulated stop to Entry plus one tick for buys,
 minus one tick for sells. Tick increments come from the contract's exchange
 market rule and price tier; unknown rules disable BE. This does not manage real
 position stops. Overnight data investigation was explicitly deferred by user.
+
+TP/SL distance template is stored on-device in price units. Defaults 0.20/0.10
+are editable examples, not instrument-specific risk recommendations. New previews
+use it; applying explicitly replaces current preview levels. BE reports applied
+state to SwiftUI and disables until the preview no longer has that BE adjustment.
+Live chart entry/bracket integration remains unimplemented. User selected Join
+Bid/Ask as the eventual direct bracket submission actions in explicit live mode;
+existing buttons are still preview-only. Do not test by placing real orders.
