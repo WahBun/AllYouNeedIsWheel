@@ -198,7 +198,8 @@ class ProtectedLotTests(unittest.TestCase):
         sent=[c.args[1] for c in self.conn.ib.placeOrder.call_args_list]
         self.assertEqual(len(sent),6);self.assertTrue(all(o.orderId not in old and o.totalQuantity==1 for o in sent))
         self.assertEqual([o.transmit for o in sent],[False,False,True]*2)
-        self.assertEqual(sent[1].ocaGroup,sent[2].ocaGroup);self.assertNotEqual(sent[1].ocaGroup,sent[4].ocaGroup)
+        self.assertEqual(sent[1].parentId,sent[2].parentId);self.assertNotEqual(sent[1].parentId,sent[4].parentId)
+        self.assertTrue(all(not o.ocaGroup for o in sent))
     def test_unresolved_trim_cannot_repeat_or_add(self):
         self.open_four()
         self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))

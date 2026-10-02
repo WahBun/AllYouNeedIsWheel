@@ -199,9 +199,8 @@ class PaperChart:
             buy = 'BUY' if group['side']==1 else 'SELL'; sell = 'SELL' if group['side']==1 else 'BUY'
             parent = MarketOrder(buy,1) if kind=='MKT' else (LimitOrder if kind=='LMT' else StopOrder)(buy,1,entry)
             parent.orderId=ids['entry']; parent.transmit=False
-            oca = group['ref'] + ':' + str(ids['entry'])
-            take=LimitOrder(sell,1,tp,orderId=ids['tp'],parentId=ids['entry'],transmit=False,ocaGroup=oca,ocaType=1)
-            stop=StopOrder(sell,1,sl,orderId=ids['sl'],parentId=ids['entry'],transmit=True,ocaGroup=oca,ocaType=1)
+            take=LimitOrder(sell,1,tp,orderId=ids['tp'],parentId=ids['entry'],transmit=False)
+            stop=StopOrder(sell,1,sl,orderId=ids['sl'],parentId=ids['entry'],transmit=True)
             for order in (parent,take,stop):
                 order.account=account;order.tif='DAY';order.orderRef=group['ref']
                 conn.ib.placeOrder(contract,order)
@@ -221,6 +220,7 @@ class PaperChart:
             if take.isDone() or stop.isDone(): raise ValueError('Exit changed before adjustment')
             lot['closing']=True;self.save_group(account,cid,group)
             order=copy.copy(take.order);order.lmtPrice=target;order.transmit=True
+            if order.parentId: order.ocaGroup='';order.ocaType=0
             conn.ib.placeOrder(take.contract,order)
 
     def perform(self, conn, account, cid, body, request_id):
@@ -321,6 +321,7 @@ class PaperChart:
                 if action=='be' and group['side']*(target.order.auxPrice-new_price)>=0: continue
                 import copy
                 amended=copy.copy(target.order)
+                if amended.parentId: amended.ocaGroup='';amended.ocaType=0
                 if role=='sl': amended.auxPrice=new_price
                 else: amended.lmtPrice=new_price
                 amended.transmit=True;conn.ib.placeOrder(contract,amended)
@@ -332,7 +333,7 @@ class PaperChart:
                 if not all((parent,take,stop)): raise ValueError('Lot status needs reconciliation')
                 if take.orderStatus.status=='Filled' or stop.orderStatus.status=='Filled': continue
                 if parent.orderStatus.status=='Filled':
-                    if not lot.get('closing'): live.append(lot)
+                    live.append(lot)
                 elif not parent.isDone():
                     # Cancel only an unfilled unit; never remove filled-unit protection.
                     conn.ib.cancelOrder(parent.order)
