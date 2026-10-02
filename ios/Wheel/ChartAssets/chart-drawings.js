@@ -2,6 +2,7 @@
 (()=>{
 const tools=[['trend','Trendline','╱',2],['info','Info line','↗',2],['hray','Horizontal ray','⊢',1],['channel','Parallel channel','∥',3],['fib','Fib retracement','☰',2],['fibext','Trend-based fib extension','≋',3],['long','Long position','L',1],['short','Short position','S',1],['range','Price range','↕',2],['highlight','Highlighter','▰',0],['arrow','Arrow','➚',2],['up','Arrow mark up','⇧',1],['down','Arrow mark down','⇩',1],['rect','Rectangle','□',2],['path','Path','⌁',0],['triangle','Triangle','△',3],['curve','Curve','∿',3],['text','Text','T',1],['note','Note','▣',1],['price','Price note','$',2]];
 const referenceOrder=['long','up','price','arrow','triangle','trend','text','info','fib','channel','rect','fibext','path','range','curve','hray','highlight','note','down','short'];
+let toolStyles={};
 let order=[...referenceOrder],magnet='weak',snapFeedback=null,ghost=null,gesture=null,cursor=null;
 const iconPaths={trend:'M4 20L20 4',info:'M4 20L20 4M14 4h6v6M14 17h7v5h-7z',hray:'M4 12h18M4 10v4',channel:'M3 15L17 3M7 21L21 9',fib:'M3 4h18M3 9h18M3 15h18M3 21h18',fibext:'M3 10L10 4L16 8M3 13h18M3 17h18M3 21h18',long:'M3 5h18M3 12h18M3 20h18M7 5v7M16 12v8',short:'M3 5h18M3 12h18M3 20h18M16 5v7M7 12v8',range:'M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4M3 3h18M3 21h18',highlight:'M4 18L15 3l6 5L10 22zM2 22h12',arrow:'M4 20L20 4M12 4h8v8',up:'M12 3l9 10h-6v8H9v-8H3z',down:'M12 21L3 11h6V3h6v8h6z',rect:'M4 4h16v16H4z',path:'M2 18l6-8 6 5 8-12M16 3h6v6',triangle:'M4 3l16 17H4z',curve:'M3 21Q3 3 21 3',text:'M3 4h18M12 4v17M8 21h8',note:'M3 3h18v14h-7l-5 5v-5H3zM7 7h10M12 7v7',price:'M3 3h18v14H3zM12 17v5M15 6H9v4h6v4H9M12 4v12'};
 function toolButton(t,fn){const b=button('',t[1],fn);const icon=element('svg',{viewBox:'0 0 24 24',width:22,height:22,fill:'none',stroke:'currentColor','stroke-width':1.2,'stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true'},b);element('path',{d:iconPaths[t[0]]},icon);return b;}
@@ -17,7 +18,8 @@ const editor=document.createElement('div');editor.id='draw-editor';editor.innerH
 const properties=document.createElement('div');properties.id='draw-properties';document.body.append(properties);
 const hint=document.createElement('div');hint.id='draw-hint';document.body.append(hint);
 function button(text,title,fn){const b=document.createElement('button');b.textContent=text;b.title=title;b.setAttribute('aria-label',title);b.onclick=e=>{e.stopPropagation();if(b.dataset.dragged==='1'){b.dataset.dragged='0';return;}fn()};return b;}
-function save(){revision++;window.webkit?.messageHandlers.drawingsChanged?.postMessage({drawings,favorites,collapsed,order,magnet,toolsVisible});}
+function save(){revision++;window.webkit?.messageHandlers.drawingsChanged?.postMessage({drawings,favorites,collapsed,order,magnet,toolsVisible,toolStyles});}
+function rememberStyle(d){toolStyles[d.type]=JSON.parse(JSON.stringify({color:d.color,width:d.width,dash:d.dash}));save();}
 function syncToolVisibility(){
  document.body.classList.toggle('draw-tools-hidden',!toolsVisible);
  const logo=document.getElementById('tv-attr-logo');
@@ -72,9 +74,9 @@ function renderFloatingMagnet(){
 }
 function renderProperties(){
  properties.replaceChildren();const d=drawings.find(d=>d.id===selected);properties.style.display=d&&!active?'flex':'none';if(!d||active)return;
- const color=document.createElement('input');color.type='color';color.value=d.color||'#315fc4';color.setAttribute('aria-label','Drawing color');color.disabled=locked||d.locked;color.onchange=()=>{remember();d.color=color.value;save();};properties.append(color);
- const width=button((d.width||1)+'px','Drawing line width',()=>{if(locked||d.locked)return;remember();d.width=(d.width||1)%4+1;save();renderProperties();});properties.append(width);
- properties.append(button(d.dash?'┄':'—','Drawing line style',()=>{if(locked||d.locked)return;remember();d.dash=!d.dash;save();renderProperties();}));
+ const color=document.createElement('input');color.type='color';color.value=d.color||'#315fc4';color.setAttribute('aria-label','Drawing color');color.disabled=locked||d.locked;color.onchange=()=>{remember();d.color=color.value;rememberStyle(d);};properties.append(color);
+ const width=button((d.width||1)+'px','Drawing line width',()=>{if(locked||d.locked)return;remember();d.width=(d.width||1)%4+1;rememberStyle(d);renderProperties();});properties.append(width);
+ properties.append(button(d.dash?'┄':'—','Drawing line style',()=>{if(locked||d.locked)return;remember();d.dash=!d.dash;rememberStyle(d);renderProperties();}));
  if(['text','note'].includes(d.type))properties.append(button('T','Edit drawing text',()=>{editor.dataset.drawing=d.id;editor.querySelector('input').value=d.text||'';editor.style.display='block';editor.querySelector('input').focus();}));
  properties.append(button(d.locked?'🔒':'♧','Lock selected drawing',()=>{if(locked)return;remember();d.locked=!d.locked;save();renderProperties();}));
  const remove=button('⌫','Delete drawing',deleteSelected);remove.disabled=locked||d.locked;properties.append(remove);
@@ -164,14 +166,14 @@ touch.onpointerdown=e=>{
   touch.setPointerCapture(e.pointerId);return;
  }
  const p=capture(e);if(!p)return;cursor=p;ghost=null;
- if(!draft)draft={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),type:active,p:[]};
+ if(!draft)draft={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),type:active,p:[],...(toolStyles[active]||{})};
  gesture={x:e.clientX,y:e.clientY,drag:false,two:count===2&&draft.p.length===0};
  touch.setPointerCapture(e.pointerId);
  if(active==='highlight')draft.p=[p];else {draft.p.push(p);if(count&&draft.p.length===count)completeDraft();}
 };
 function placeCursor(){
  if(!active||!cursor)return;
- if(!draft)draft={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),type:active,p:[]};
+ if(!draft)draft={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),type:active,p:[],...(toolStyles[active]||{})};
  draft.p.push({...cursor});ghost=null;
  const count=tools.find(t=>t[0]===active)[3];
  if(count&&draft.p.length===count)completeDraft();
@@ -193,7 +195,7 @@ touch.onpointermove=e=>{
  }else {const i=drag.role==='stop'?1:2;if((p.price-d.p[0].price)*sign*(i===1?-1:1)>0)d.p[i].price=p.price;}}else if(drag.axis){const [x,y]=drag.axis;if(x!==null)drag.d.p[x].time=p.time;if(y!==null)drag.d.p[y].price=p.price;}else drag.d.p[drag.index]=p;drag.moved=true;revision++;const bar=previous[Math.max(0,Math.min(previous.length-1,Math.round(chart.timeScale().coordinateToLogical(e.clientX))))];if(bar)chart.setCrosshairPosition(p.price,bar.time,series);return;}if(!active)return;cursor=p;if(!draft){revision++;return;}if(active==='highlight'){if(draft.p.length<400)draft.p.push(p);return;}if(gesture?.touchPlacement){draft.p[gesture.index]=p;ghost=null;}else ghost=p;if(gesture&&Math.hypot(e.clientX-gesture.x,e.clientY-gesture.y)>5)gesture.drag=true;const bar=previous[Math.round(chart.timeScale().coordinateToLogical(e.clientX))];if(bar)chart.setCrosshairPosition(p.price,bar.time,series);};
 touch.onpointerup=()=>{if(gesture?.cursorPlacement){if(!gesture.drag)placeCursor();gesture=null;return;}if(drag){snapFeedback=null;const moved=drag.moved;drag=null;chart.clearCrosshairPosition();touch.style.display='none';if(moved){save();}renderToolbar();}else if(active==='highlight')commit();else if(gesture?.touchPlacement&&draft){const count=tools.find(t=>t[0]===active)?.[3];ghost=null;snapFeedback=null;chart.clearCrosshairPosition();if(count&&draft.p.length===count)completeDraft();}else if(gesture?.two&&gesture.drag&&draft&&ghost){draft.p.push(ghost);ghost=null;completeDraft();}gesture=null;};touch.onpointercancel=()=>{snapFeedback=null;if(drag?.points){drag.d.p=drag.points;if(drag.endTime!==undefined)drag.d.endTime=drag.endTime;revision++;}drag=null;choose(null);};
 editor.querySelector('#draw-save').onclick=()=>{const existing=drawings.find(d=>d.id===editor.dataset.drawing);if(existing&&!existing.locked&&!locked){remember();existing.text=editor.querySelector('input').value.trim()||'Text';save();}delete editor.dataset.drawing;if(draft){draft.text=editor.querySelector('input').value.trim()||'Text';commit();}editor.style.display='none';};editor.querySelector('#draw-cancel').onclick=()=>{editor.style.display='none';delete editor.dataset.drawing;choose(null);};
-window.configureDrawings=(config)=>{if(config.key===loadedKey)return;loadedKey=config.key;revision++;const value=config.value||{};order=Array.isArray(value.order)?[...new Set([...value.order.filter(id=>referenceOrder.includes(id)),...referenceOrder])]:[...referenceOrder];magnet=['off','weak','strong'].includes(value.magnet)?value.magnet:'weak';drawings=Array.isArray(value.drawings)?value.drawings.filter(d=>tools.some(t=>t[0]===d.type)&&Array.isArray(d.p)&&d.p.length<=400&&d.p.every(p=>Number.isFinite(p.time)&&Number.isFinite(p.price)&&p.price>0)).slice(0,200):[];favorites=Array.isArray(value.favorites)?value.favorites.filter(id=>tools.some(t=>t[0]===id)):tools.map(t=>t[0]);collapsed=value.collapsed!==false;toolsVisible=value.toolsVisible!==false;syncToolVisibility();selected=null;undo=[];choose(null);renderToolbar();};
+window.configureDrawings=(config)=>{if(config.key===loadedKey)return;loadedKey=config.key;revision++;const value=config.value||{};toolStyles={};for(const t of tools){const v=value.toolStyles?.[t[0]];if(!v)continue;const clean={};if(/^#[0-9a-f]{6}$/i.test(v.color))clean.color=v.color;if([1,2,3,4].includes(v.width))clean.width=v.width;if(typeof v.dash==='boolean')clean.dash=v.dash;toolStyles[t[0]]=clean;}order=Array.isArray(value.order)?[...new Set([...value.order.filter(id=>referenceOrder.includes(id)),...referenceOrder])]:[...referenceOrder];magnet=['off','weak','strong'].includes(value.magnet)?value.magnet:'weak';drawings=Array.isArray(value.drawings)?value.drawings.filter(d=>tools.some(t=>t[0]===d.type)&&Array.isArray(d.p)&&d.p.length<=400&&d.p.every(p=>Number.isFinite(p.time)&&Number.isFinite(p.price)&&p.price>0)).slice(0,200):[];for(const d of drawings){if(!value.toolStyles?.[d.type]&&(d.color||d.width||d.dash!==undefined))toolStyles[d.type]=JSON.parse(JSON.stringify({color:d.color,width:d.width,dash:d.dash}));}favorites=Array.isArray(value.favorites)?value.favorites.filter(id=>tools.some(t=>t[0]===id)):tools.map(t=>t[0]);collapsed=value.collapsed!==false;toolsVisible=value.toolsVisible!==false;syncToolVisibility();selected=null;undo=[];choose(null);renderToolbar();};
 touch.addEventListener('dblclick',e=>{if(active==='path'){e.preventDefault();if(draft?.p.length>2){const last=draft.p.at(-1),prev=draft.p.at(-2);const a=xy(last),b=xy(prev);if(a&&b&&Math.hypot(a.x-b.x,a.y-b.y)<10)draft.p.pop();}finish();}});
  document.addEventListener('keydown',e=>{if(e.target instanceof HTMLInputElement)return;if(e.key==='Escape'){selected=null;choose(null);revision++;}else if(['Delete','Backspace'].includes(e.key)&&selected){e.preventDefault();deleteSelected();}else if(e.key==='Enter'&&active==='path')finish();});
 // Capture the gesture before the chart library consumes touch events. A chart

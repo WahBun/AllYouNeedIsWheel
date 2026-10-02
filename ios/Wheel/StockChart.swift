@@ -634,6 +634,7 @@ private struct StockChartWeb: UIViewRepresentable {
             if message.name == "drawingsChanged", let value = message.body as? [String: Any],
                let data = try? JSONSerialization.data(withJSONObject: value), data.count < 2_000_000 {
                 UserDefaults.standard.set(data, forKey: "chartDrawings-" + drawingKey)
+                if let styles = value["toolStyles"] as? [String: Any], let stylesData = try? JSONSerialization.data(withJSONObject: styles) { UserDefaults.standard.set(stylesData, forKey: "chartToolStylesV1") }
                 if let favorites = value["favorites"] as? [String] { UserDefaults.standard.set(favorites, forKey: "chartDrawingFavorites") }
                 if let order = value["order"] as? [String] { UserDefaults.standard.set(order, forKey: "chartDrawingOrder") }
                 if let magnet = value["magnet"] as? String { UserDefaults.standard.set(magnet, forKey: "chartDrawingMagnet") }
@@ -655,6 +656,7 @@ private struct StockChartWeb: UIViewRepresentable {
                 var value: [String: Any] = [:]
                 if let data = UserDefaults.standard.data(forKey: "chartDrawings-" + drawingKey),
                    let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { value = saved }
+                if let stylesData = UserDefaults.standard.data(forKey: "chartToolStylesV1"), let styles = try? JSONSerialization.jsonObject(with: stylesData) as? [String: Any] { value["toolStyles"] = styles }
                 if let favorites = UserDefaults.standard.stringArray(forKey: "chartDrawingFavorites") { value["favorites"] = favorites }
                 if let order = UserDefaults.standard.stringArray(forKey: "chartDrawingOrder") { value["order"] = order }
                 if let magnet = UserDefaults.standard.string(forKey: "chartDrawingMagnet") { value["magnet"] = magnet }

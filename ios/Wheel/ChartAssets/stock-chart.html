@@ -15,35 +15,53 @@ executionPopup.style.cssText='position:absolute;z-index:15;background:#151923;co
 executionPopup.setAttribute('role','status');document.body.append(executionPopup);
 function hideExecutionPopup(){selectedExecution=null;executionPopup.hidden=true;}
 let executionTap=null,executionPress=null;
+const executionPointers=new Set();
 const chartSurface=document.getElementById('chart');
-chartSurface.addEventListener('pointerdown',e=>{executionTap=null;executionPress={x:e.clientX,y:e.clientY};hideExecutionPopup();},true);
+chartSurface.addEventListener('pointerdown',e=>{executionPointers.add(e.pointerId);executionTap=null;if(executionPointers.size>1){executionPress=null;hideExecutionPopup();return;}executionPress={x:e.clientX,y:e.clientY,pointer:e.pointerId,at:performance.now()};hideExecutionPopup();},true);
+chartSurface.addEventListener('pointermove',e=>{if(executionPress&&Math.hypot(e.clientX-executionPress.x,e.clientY-executionPress.y)>=12)executionPress=null;},true);
 chartSurface.addEventListener('pointerup',e=>{
+ executionPointers.delete(e.pointerId);
  const bounds=chartSurface.getBoundingClientRect();
- executionTap=executionPress&&Math.hypot(e.clientX-executionPress.x,e.clientY-executionPress.y)<8?{x:e.clientX-bounds.left,y:e.clientY-bounds.top,at:performance.now()}:null;
+ executionTap=executionPress&&executionPress.pointer===e.pointerId&&performance.now()-executionPress.at<600&&Math.hypot(e.clientX-executionPress.x,e.clientY-executionPress.y)<12?{x:e.clientX-bounds.left,y:e.clientY-bounds.top,at:performance.now()}:null;
  executionPress=null;
+ // Touch charts need not report hoveredObjectId, and may consume their click event.
+ if(executionTap)showExecutionDetails({point:executionTap});
 },true);
-chartSurface.addEventListener('pointercancel',()=>{executionTap=null;executionPress=null;hideExecutionPopup();},true);
+chartSurface.addEventListener('pointercancel',e=>{executionPointers.delete(e.pointerId);executionTap=null;executionPress=null;hideExecutionPopup();},true);
 function showExecutionDetails(p){
  const tap=executionTap;executionTap=null;
- const fill=executionDetails.get(String(p.hoveredObjectId));
- if(!fill||!p.point||!tap||performance.now()-tap.at>700){hideExecutionPopup();return;}
- const mark=executionMarkers.markers().find(m=>String(m.id)===String(fill.id));
- const bar=mark&&previous.find(b=>b.time===mark.time);
- const x=mark?chart.timeScale().timeToCoordinate(mark.time):null;
- const y=bar?series.priceToCoordinate(fill.side==='BUY'?bar.low:bar.high):null;
- // Mobile crosshair events can report a stale hovered marker after a tap elsewhere.
- // Confirm the physical tap is beside the arrow, not just its remembered hover ID.
- const distance=y===null?Infinity:(tap.y-y)*(fill.side==='BUY'?1:-1);
- if(x===null||Math.abs(tap.x-x)>18||distance<0||distance>38){hideExecutionPopup();return;}
+ if(!tap||performance.now()-tap.at>700){hideExecutionPopup();return;}
+ // Match the physical tap, never a remembered hover ID. A 44px-wide target
+ // makes small arrows usable on touch without turning the whole candle into a button.
+ const groups=new Map();
+ for(const mark of executionMarkers.markers()){
+  const fill=executionDetails.get(String(mark.id));if(!fill)continue;
+  const id=mark.time+'-'+fill.side;
+  if(!groups.has(id))groups.set(id,{time:mark.time,side:fill.side,fills:[]});
+  groups.get(id).fills.push(fill);
+ }
+ let chosen=null,best=Infinity;
+ for(const group of groups.values()){
+  const bar=previous.find(b=>b.time===group.time),x=chart.timeScale().timeToCoordinate(group.time);
+  const y=bar?series.priceToCoordinate(group.side==='BUY'?bar.low:bar.high):null;
+  if(x===null||y===null)continue;
+  const outward=(tap.y-y)*(group.side==='BUY'?1:-1),dx=Math.abs(tap.x-x);
+  const extent=14+(group.fills.length-1)*24;
+  if(dx>22||outward<0||outward>extent+22)continue;
+  const distance=dx*dx+Math.pow(Math.max(0,14-outward,outward-extent),2);
+  if(distance<best){best=distance;chosen=group;}
+ }
+ if(!chosen){hideExecutionPopup();return;}
+ const fill=chosen.fills[0];
  p={...p,point:tap};
  selectedExecution=String(fill.id);
  const buy=fill.side==='BUY';
- executionPopup.textContent=(buy?'↑ Buy':'↓ Sell')+'\n'+fill.quantity+' @ '+priceText(fill.price)+'\n'+new Date(fill.time*1000).toLocaleString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})+' NY';
+ executionPopup.textContent=(buy?'↑ Buy':'↓ Sell')+'\n'+chosen.fills.map(f=>f.quantity+' @ '+priceText(f.price)+'\n'+new Date(f.time*1000).toLocaleString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})+' NY').join('\n');
  executionPopup.style.borderLeft='3px solid '+(buy?'#315fc4':'#d63950');executionPopup.hidden=false;
  executionPopup.style.left=Math.max(10,Math.min(p.point.x+12,innerWidth-executionPopup.offsetWidth-10))+'px';
  executionPopup.style.top=Math.max(38,Math.min(p.point.y-executionPopup.offsetHeight-12,innerHeight-executionPopup.offsetHeight-32))+'px';
 }
-chart.subscribeClick(showExecutionDetails);
+// Pointer-up owns execution selection; chart clicks can carry stale hover data.
 chart.timeScale().subscribeVisibleLogicalRangeChange(hideExecutionPopup);
 window.addEventListener('chart-viewport-resized',hideExecutionPopup);
 
@@ -221,7 +239,7 @@ window.addEventListener('chart-viewport-resized',()=>{closePriceMenu();priceAdd.
 function move(k,y){const raw=series.coordinateToPrice(y),price=snapPrice(raw);if(price===null){validation('Waiting for valid contract price increments');return;}validation();if(k==='entry'){breakEven=false;entry=price;inferSide();clampLevels();if(!levels.tp)appliedTemplate=-1;updateLines();if(dragging!=='entry')window.webkit?.messageHandlers.entryChanged?.postMessage(entry);return;}if(k==='sl')breakEven=false;const edge=stepPrice(entry,side);levels[k]=k==='tp'&&edge!==null?(side>0?Math.max(edge,price):Math.min(edge,price)):price;updateLines();}
 for(const k of ['tp','sl','entry']){const h=document.getElementById(k);h.addEventListener('pointerdown',e=>{dragging=k;h.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();});h.addEventListener('pointermove',e=>{if(dragging===k){move(k,e.clientY);e.preventDefault();}});for(const type of ['pointerup','pointercancel','lostpointercapture'])h.addEventListener(type,()=>{const role=dragging;const wasEntry=role==='entry';dragging=null;if(type==='pointerup'&&paperConfig.active&&['tp','sl'].includes(role))paperAction({action:'amend',role,price:levels[role]});if(wasEntry)window.webkit?.messageHandlers.entryChanged?.postMessage(entry);});h.addEventListener('keydown',e=>{if(e.key==='ArrowUp'||e.key==='ArrowDown'){move(k,series.priceToCoordinate(stepPrice(k==='entry'?entry:levels[k],e.key==='ArrowUp'?1:-1)));e.preventDefault();}});}
 document.getElementById('cancel').addEventListener('click',()=>{if(paperConfig.active){paperAction({action:'close'});return;}canceled=true;dragging=null;levels={tp:0,sl:0};updateLines();window.webkit?.messageHandlers.entryChanged?.postMessage(0);});
-function updateCountdown(){const el=document.getElementById('countdown'),bar=previous.at(-1);el.hidden=!bar;if(!bar)return;const y=series.priceToCoordinate(bar.close);el.hidden=y===null||y<9||y>innerHeight-50;if(el.hidden)return;el.style.top=(y-9)+'px';el.style.width='max-content';el.style.minWidth='42px';el.style.maxWidth=Math.max(42,innerWidth*.3)+'px';document.getElementById('countdown-price').textContent=priceText(bar.close);const p=countdownPacket,elapsed=Math.max(0,(Date.now()-countdownReceived)/1000),left=p?.bar_closes_at-(p?.server_time+elapsed),timer=document.getElementById('countdown-time');timer.hidden=!(Number.isFinite(left)&&left>0);timer.textContent=timer.hidden?'':formatCountdown(Math.ceil(left));}
+function updateCountdown(){const el=document.getElementById('countdown'),bar=previous.at(-1);el.hidden=!bar;if(!bar)return;const down=bar.close<bar.open;el.style.background=down?series.options().downColor:'#e0e0e0';el.style.color=down?'#f4f5f3':'#242424';const y=series.priceToCoordinate(bar.close);el.hidden=y===null||y<9||y>innerHeight-50;if(el.hidden)return;el.style.top=(y-9)+'px';el.style.width='max-content';el.style.minWidth='42px';el.style.maxWidth=Math.max(42,innerWidth*.3)+'px';document.getElementById('countdown-price').textContent=priceText(bar.close);const p=countdownPacket,elapsed=Math.max(0,(Date.now()-countdownReceived)/1000),left=p?.bar_closes_at-(p?.server_time+elapsed),timer=document.getElementById('countdown-time');timer.hidden=!(Number.isFinite(left)&&left>0);timer.textContent=timer.hidden?'':formatCountdown(Math.ceil(left));}
 function formatCountdown(s){const days=Math.floor(s/86400);const hours=Math.floor(s%86400/3600);const mins=Math.floor(s%3600/60);const secs=s%60;return days?days+'d '+hours+'h':hours?hours+':'+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0'):String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0');}
 // WebKit suspends animation frames in the background. Reconcile immediately on
 // return using wall time, without waiting for transport or inventing another bar.
