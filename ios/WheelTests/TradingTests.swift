@@ -846,6 +846,13 @@ final class TradingTests: XCTestCase {
         XCTAssertFalse(value(false).matches(ticker: "TEST", expiration: "20261016", strike: 75, quantity: 1, price: 1.15))
         XCTAssertFalse(value(amount: 1.7976931348623157e308).matches(ticker: "TEST", expiration: "20261016", strike: 75, quantity: 1, price: 1.15))
     }
+    func testClosedSessionMissingGreeksDoNotCauseFastPolling() {
+        XCTAssertEqual(RefreshLoop.optionMetricsDelay(frozen: true, marketClosed: true, missing: true, failed: false, failures: 0), 30)
+        XCTAssertEqual(RefreshLoop.optionMetricsDelay(frozen: true, marketClosed: false, missing: true, failed: false, failures: 1), 1)
+        XCTAssertEqual(RefreshLoop.optionMetricsDelay(frozen: false, marketClosed: false, missing: false, failed: false, failures: 0), 15)
+        XCTAssertEqual(RefreshLoop.optionMetricsDelay(frozen: true, marketClosed: true, missing: true, failed: true, failures: 2), 2)
+        XCTAssertEqual(RefreshLoop.optionMetricsDelay(frozen: false, marketClosed: false, missing: true, failed: false, failures: 1), 1)
+    }
     func testRefreshCadenceAccountsForRequestTimeAndBackoff() {
         XCTAssertEqual(RefreshLoop.delay(elapsed: 0.4, failed: false), 1.6, accuracy: 0.001)
         XCTAssertEqual(RefreshLoop.delay(elapsed: 8, failed: false), 0.25)

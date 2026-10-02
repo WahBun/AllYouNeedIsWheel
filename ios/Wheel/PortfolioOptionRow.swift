@@ -8,7 +8,7 @@ struct PortfolioOptionRow: View {
     @State private var quote: ContractQuote?
     @State private var frozen = false
     @State private var visible = false
-    private var context: String { "\(visible)-\(store.demo)-\(store.address)-\(position.id)-\(store.selectedTab)-\(phase == .active)" }
+    private var context: String { "\(visible)-\(store.demo)-\(store.address)-\(position.id)-\(store.selectedTab)-\(phase == .active)-\(store.portfolio?.summary.is_frozen == true)" }
     private var emptyQuote: ContractQuote { ContractQuote(strike: position.strike ?? 0, expiration: position.expiration ?? "") }
     private var contractSummary: String {
         let code = ["PUT": "P", "CALL": "C", "P": "P", "C": "C"][position.option_type?.uppercased() ?? ""] ?? "—"
@@ -59,6 +59,10 @@ struct PortfolioOptionRow: View {
             var failures = 0
             while !Task.isCancelled {
                 var missing = true
+                var failed = false
+                _ = await store.opportunities.allowsAutomaticRefresh(store)
+                guard !Task.isCancelled else { return }
+                let marketClosed = store.opportunities.marketOpen == false
                 do {
                     let result = try await store.trading.get("api/portfolio/option-position/\(id)/quote", base: store.address)
                     try Task.checkCancellation()
@@ -71,11 +75,13 @@ struct PortfolioOptionRow: View {
                     }
                 } catch {
                     guard !Task.isCancelled else { return }
+                    failed = true
                     quote = nil
                     frozen = false
                 }
-                failures = missing ? min(5, failures + 1) : 0
-                let delay = missing ? RefreshLoop.delay(elapsed: 0, failed: true, consecutiveFailures: failures) : (frozen ? 30.0 : 15.0)
+                let retrying = failed || (missing && !(frozen && marketClosed))
+                failures = retrying ? min(5, failures + 1) : 0
+                let delay = RefreshLoop.optionMetricsDelay(frozen: frozen, marketClosed: marketClosed, missing: missing, failed: failed, failures: failures)
                 do { try await Task.sleep(for: .seconds(delay)) } catch { return }
             }
         }

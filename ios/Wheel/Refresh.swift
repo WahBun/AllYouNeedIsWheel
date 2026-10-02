@@ -15,6 +15,13 @@ enum RefreshLoop {
     static func delay(elapsed: TimeInterval, failed: Bool, interval: TimeInterval = 2, consecutiveFailures: Int = 1) -> TimeInterval {
         failed ? min(10, pow(2, Double(min(4, max(0, consecutiveFailures - 1))))) : max(0.25, interval - elapsed)
     }
+    static func optionMetricsDelay(frozen: Bool, marketClosed: Bool, missing: Bool, failed: Bool, failures: Int) -> TimeInterval {
+        // Frozen alone can mean delayed data during an open session. Only a
+        // confirmed closed session makes missing Greeks normal, not a failure.
+        if !failed && frozen && marketClosed { return 30 }
+        if failed || missing { return delay(elapsed: 0, failed: true, consecutiveFailures: failures) }
+        return 15
+    }
     @MainActor static func run(interval: TimeInterval = 2, _ operation: () async -> Bool) async {
         let clock = ContinuousClock()
         var consecutiveFailures = 0
