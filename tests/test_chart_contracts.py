@@ -42,4 +42,24 @@ class ChartContractsTests(unittest.TestCase):
         conn.get_qualified_stock_contract.assert_not_called()
     def test_unselected_unheld_contract_rejected(self):
         conn=Mock();conn.get_option_position_by_con_id.return_value=None
+        conn._bounded_order_read.return_value=[]
         with self.assertRaises(ValueError):ChartContracts().resolve(conn,888)
+
+    def test_restart_resolves_exact_unheld_future_without_search_or_rollover(self):
+        conn=Mock();conn.get_option_position_by_con_id.return_value=None
+        contract=Future('MES','20261218','CME',currency='USD',conId=7,multiplier='5')
+        conn._bounded_order_read.return_value=[S(contract=contract)]
+        service=ChartContracts()
+        self.assertIs(service.resolve(conn,7),contract)
+        self.assertEqual(conn._bounded_order_read.call_args.args[1].conId,7)
+        self.assertIs(service.resolve(conn,7),contract)
+        conn._bounded_order_read.assert_called_once()
+        conn.ib.placeOrder.assert_not_called()
+
+    def test_restart_rejects_wrong_id_wrong_asset_and_ambiguous_results(self):
+        good=Future('MES','20261218','CME',currency='USD',conId=7)
+        wrong=Future('MES','20270319','CME',currency='USD',conId=8)
+        for details in ([S(contract=wrong)], [S(contract=good),S(contract=good)], []):
+            conn=Mock();conn.get_option_position_by_con_id.return_value=None
+            conn._bounded_order_read.return_value=details
+            with self.assertRaises(ValueError):ChartContracts().resolve(conn,7)
