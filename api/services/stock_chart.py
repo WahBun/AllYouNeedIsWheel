@@ -167,10 +167,16 @@ class StockChart:
             ticker = conn.ib.reqTickByTickData(contract, 'Last', 0, False)
             state = dict(conn=conn, client=conn.ib.client, contract=contract, ticker=ticker,
                 con_id=con_id, bars=bars[-12000:], used=now, last_tick=None, received=None,
-                generation=time.time_ns(), ticks=0)
+                generation=time.time_ns(), ticks=0, live_bars={}, quotes={})
             def on_tick(updated):
                 if self.active is not state:
                     return
+                # Only actual bid/ask price events establish quote freshness.
+                for quote in getattr(updated, 'ticks', []):
+                    side = {1: 'bid', 2: 'ask', 66: 'bid', 67: 'ask'}.get(quote.tickType)
+                    if side:
+                        state['quotes'][side] = (quote.time.timestamp(),
+                            positive(quote.price) if quote.tickType in (1, 2) else None)
                 for tick in updated.tickByTicks:
                     if not hasattr(tick, 'price'):
                         continue
@@ -181,6 +187,14 @@ class StockChart:
                         state['last_tick'] = timestamp
                         state['received'] = time.time()
                         state['ticks'] += 1
+                        # Keep tick-only extrema separately from the historical baseline.
+                        minute = int(timestamp) // 60 * 60
+                        live = state['live_bars'].setdefault(minute, dict(
+                            time=minute, open=tick.price, high=tick.price, low=tick.price, close=tick.price))
+                        if len(state['live_bars']) > 12000:
+                            del state['live_bars'][min(state['live_bars'])]
+                        live.update(high=max(live['high'], tick.price),
+                                    low=min(live['low'], tick.price), close=tick.price)
             state['handler'] = on_tick
             self.active = state
             ticker.updateEvent += on_tick
@@ -200,9 +214,13 @@ class StockChart:
                 if l <= min(o,c) <= max(o,c) <= h:
                     older.append(dict(time=int(bar.date.timestamp()),open=o,high=h,low=l,close=c))
             if older:
-                # Recent live bars win over history arriving after the first render.
-                merged = {b['time']: b for b in older}
-                merged.update({b['time']: b for b in state['bars']})
+                # Refresh historical baselines; retain extrema from received live ticks.
+                merged = {b['time']: b for b in state['bars']}
+                merged.update({b['time']: b for b in older})
+                for stamp, live_bar in state['live_bars'].items():
+                    baseline = merged.get(stamp, live_bar)
+                    merged[stamp] = dict(baseline, high=max(baseline['high'], live_bar['high']),
+                        low=min(baseline['low'], live_bar['low']), close=live_bar['close'])
                 state['bars'] = sorted(merged.values(), key=lambda b:b['time'])[-12000:]
                 state['backfilled'] = True
         state['used'] = time.monotonic()
@@ -242,10 +260,11 @@ class StockChart:
                 if l <= min(o, c) <= max(o, c) <= h:
                     higher_bars.append(dict(time=stamp, open=o, high=h, low=l, close=c))
             higher_bars = sorted({bar['time']: bar for bar in higher_bars}.values(), key=lambda bar: bar['time'])
-        if not initial and 'price_rules' not in state:
+        if not initial and not state.get('price_rules') and time.monotonic() >= state.get('rules_retry', 0):
             state['price_rules'] = []
+            state['rules_retry'] = time.monotonic() + 30
             try:
-                details = conn.ib.reqContractDetails(contract)
+                details = conn._bounded_order_read(conn.ib.reqContractDetails, contract, timeout_seconds=3)
                 detail = next(d for d in details if d.contract.conId == con_id)
                 exchanges = detail.validExchanges.split(',')
                 rule_ids = detail.marketRuleIds.split(',')
@@ -260,12 +279,15 @@ class StockChart:
         sessions = regular_sessions(datetime.now(timezone.utc).date().isoformat()) if session == 'rth' else None
         in_session = last is not None and (sessions is None or any(start <= last < end for start, end in sessions))
         ticker = state['ticker']
-        quote_time = getattr(ticker, 'time', None)
-        quote_time = quote_time.timestamp() if isinstance(quote_time, datetime) else None
-        quote_valid = (quote_time is not None and 0 <= time.time() - quote_time < 3
-                       and getattr(ticker, 'marketDataType', None) == 1)
-        bid = positive(getattr(ticker, 'bid', None)) if quote_valid else None
-        ask = positive(getattr(ticker, 'ask', None)) if quote_valid else None
+        now = time.time()
+        quotes = state['quotes']
+        def fresh_quote(side):
+            stamp, price = quotes.get(side, (None, None))
+            return price if (stamp is not None and 0 <= now - stamp < 3
+                            and getattr(ticker, 'marketDataType', None) == 1) else None
+        bid, ask = fresh_quote('bid'), fresh_quote('ask')
+        valid_times = [quotes[side][0] for side, value in [('bid', bid), ('ask', ask)] if value is not None]
+        quote_time = min(valid_times) if valid_times else None
         if bid is not None and ask is not None and bid > ask:
             bid = ask = None
         output_bars = higher_bars if higher_bars is not None else aggregate(state['bars'], minutes, sessions)
@@ -275,7 +297,7 @@ class StockChart:
         return dict(con_id=con_id, symbol=contract.symbol, interval=minutes,
             server_time=server_time, bar_closes_at=closes_at, price_rules=state.get('price_rules', []),
             bars=output_bars, session=session, generation=str(state['generation']),
-            bid=bid, ask=ask, quote_time=quote_time if quote_valid else None,
+            bid=bid, ask=ask, quote_time=quote_time,
             source='IB Last tick-by-tick', status='live' if in_session and age is not None and age < 10 else 'waiting',
             last_tick=last, received_at=state['received'], tick_count=state['ticks'],
             historical=True, transport='HTTP batches, about 250ms plus request time', currency='USD')

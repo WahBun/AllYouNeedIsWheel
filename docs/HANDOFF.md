@@ -182,3 +182,12 @@ state to SwiftUI and disables until the preview no longer has that BE adjustment
 Live chart entry/bracket integration remains unimplemented. User selected Join
 Bid/Ask as the eventual direct bracket submission actions in explicit live mode;
 existing buttons are still preview-only. Do not test by placing real orders.
+
+## Chart data audit fixes (2026-10-02)
+
+Contract detail reads have a three-second bound; missing rules retry after a
+30-second cooldown. Historical backfill replaces stale historical baselines,
+merging received live extrema, and the chart accepts older-bar revisions without
+resetting its viewport. Bid and ask freshness now requires their own price events;
+a Last tick cannot refresh an old quote. Unknown/stale sides disable Join through
+the existing nullable quote fields. This remains HTTP polling and preview-only.

@@ -35,7 +35,8 @@ class StockChartTests(unittest.TestCase):
         contract=S(conId=7,secType='STK',currency='USD',symbol='TEST')
         conn.get_option_position_by_con_id.return_value=dict(position=3,contract=contract)
         conn.ib.reqHistoricalData.return_value=[S(date=datetime.now(timezone.utc).replace(second=0,microsecond=0),open=10,high=11,low=9,close=10)]
-        ticker=S(updateEvent=Event(),tickByTicks=[])
+        ticker=S(updateEvent=Event(),tickByTicks=[],ticks=[])
+        conn._bounded_order_read.side_effect=lambda request,*args,**kwargs:request(*args)
         conn.ib.reqTickByTickData.return_value=ticker
         conn.ib.ticker.return_value=ticker
         return conn,ticker
@@ -69,13 +70,20 @@ class StockChartTests(unittest.TestCase):
         try:
             ticker.time=datetime.now(timezone.utc)
             ticker.marketDataType=1;ticker.bid=10;ticker.ask=10.01
+            feed.snapshot(conn,7,5)
+            ticker.ticks=[S(tickType=k,time=ticker.time,price=p) for k,p in [(1,10),(2,10.01)]]
+            ticker.updateEvent.emit(ticker)
             result=feed.snapshot(conn,7,5)
             self.assertEqual((result['bid'],result['ask']),(10,10.01))
             ticker.marketDataType=2
             self.assertIsNone(feed.snapshot(conn,7,5)['bid'])
             ticker.marketDataType=1;ticker.time=datetime.now(timezone.utc)-timedelta(seconds=5)
+            ticker.ticks=[S(tickType=2,time=ticker.time,price=10.01)]
+            ticker.updateEvent.emit(ticker)
             self.assertIsNone(feed.snapshot(conn,7,5)['ask'])
             ticker.time=datetime.now(timezone.utc);ticker.bid=11
+            ticker.ticks=[S(tickType=k,time=ticker.time,price=p) for k,p in [(1,11),(2,10.01)]]
+            ticker.updateEvent.emit(ticker)
             result=feed.snapshot(conn,7,5)
             self.assertIsNone(result['bid']);self.assertIsNone(result['ask'])
             conn.ib.placeOrder.assert_not_called()
@@ -143,4 +151,54 @@ class StockChartTests(unittest.TestCase):
             conn.ib.reqMarketRule.assert_called_once_with(2)
             feed.snapshot(conn,7,5)
             conn.ib.reqContractDetails.assert_called_once()
+        finally:feed.stop();asyncio.get_event_loop().close()
+
+    def test_backfill_corrects_stale_history_and_preserves_live_extremes(self):
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection();feed=StockChart()
+        try:
+            first=feed.snapshot(conn,7,1,'all')
+            stamp=first['bars'][-1]['time']
+            conn.ib.reqHistoricalData.return_value=[S(date=datetime.fromtimestamp(stamp,timezone.utc),open=10,high=13,low=8,close=12)]
+            result=feed.snapshot(conn,7,1,'all')
+            self.assertEqual((result['bars'][-1]['high'],result['bars'][-1]['close']),(13,12))
+            ticker.tickByTicks=[S(time=datetime.now(timezone.utc),price=14)]
+            ticker.updateEvent.emit(ticker)
+            feed.active['backfilled']=False;feed.active['backfill_retry']=0
+            result=feed.snapshot(conn,7,1,'all')
+            self.assertEqual((result['bars'][-1]['high'],result['bars'][-1]['low'],result['bars'][-1]['close']),(14,8,14))
+        finally:feed.stop();asyncio.get_event_loop().close()
+
+    def test_last_tick_cannot_refresh_old_bid_ask(self):
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection();feed=StockChart()
+        try:
+            ticker.marketDataType=1
+            feed.snapshot(conn,7,1,'all')
+            old=datetime.now(timezone.utc)-timedelta(seconds=5)
+            ticker.ticks=[S(tickType=k,time=old,price=10) for k in (1,2)]
+            ticker.updateEvent.emit(ticker)
+            ticker.time=datetime.now(timezone.utc)
+            ticker.ticks=[S(tickType=4,time=ticker.time,price=10)]
+            ticker.tickByTicks=[S(time=ticker.time,price=10)]
+            ticker.updateEvent.emit(ticker)
+            result=feed.snapshot(conn,7,1,'all')
+            self.assertIsNone(result['bid']);self.assertIsNone(result['ask'])
+        finally:feed.stop();asyncio.get_event_loop().close()
+
+    def test_contract_timeout_cools_down_then_retries(self):
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection();feed=StockChart()
+        try:
+            conn._bounded_order_read.side_effect=TimeoutError
+            feed.snapshot(conn,7,1,'all')
+            self.assertEqual(feed.snapshot(conn,7,1,'all')['price_rules'],[])
+            conn._bounded_order_read.assert_called_once_with(conn.ib.reqContractDetails,
+                conn.get_option_position_by_con_id.return_value['contract'],timeout_seconds=3)
+            feed.snapshot(conn,7,1,'all')
+            self.assertEqual(conn._bounded_order_read.call_count,1)
+            feed.active['rules_retry']=0
+            feed.snapshot(conn,7,1,'all')
+            self.assertEqual(conn._bounded_order_read.call_count,2)
+            conn.ib.placeOrder.assert_not_called()
         finally:feed.stop();asyncio.get_event_loop().close()
