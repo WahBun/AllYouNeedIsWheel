@@ -206,3 +206,27 @@ launchctl bootout "gui/$(id -u)/com.wahbun.wheel.docker-watchdog"
 ```
 
 再次启用使用上面的 bootstrap。故障测试应使用 mocks，不要为验收故意中断实盘 Gateway。
+
+
+## Online backups and access-log rotation
+
+`ops/maintenance.py` runs hourly through `com.wahbun.wheel.maintenance`.
+It uses SQLite online backup for the order database and configured performance
+history, validates integrity, and retains 14 UTC daily copies in the private
+`~/Library/Application Support/Wheel/Maintenance` directory. These are same-disk
+recovery copies, not protection against loss of the Mini or its disk.
+Gunicorn access/error logs rotate at 20 MiB, retaining seven archives. A verified
+Gunicorn master receives USR1 to reopen logs without restarting workers. Launchd
+stdout/stderr and other application logs are not truncated by this task.
+Status is recorded in status.json; sanitized failures in last_failure.json.
+Only newer success timestamps indicate recovery from a recorded failure.
+Install after pushing code and updating Mini:
+
+```sh
+.venv/bin/python ops/install_maintenance.py --project "$PWD"
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.wahbun.wheel.maintenance.plist"
+```
+
+To restore, stop Wheel deliberately during a maintenance window, retain the live
+DB and WAL files, and restore a selected verified copy. Never overwrite a live
+order database; reconcile broker orders before enabling execution afterward.
