@@ -109,6 +109,32 @@ struct StockChartView: View {
     @AppStorage("optionChartSLDistance") private var optionSLDistance = "0.10"
     @AppStorage("futureChartTPDistance") private var futureTPDistance = "2.00"
     @AppStorage("futureChartSLDistance") private var futureSLDistance = "1.00"
+    @AppStorage("chartShowProfit") private var showProfit = true
+    @AppStorage("chartShowPositionProfit") private var showPositionProfit = false
+    @AppStorage("chartShowBracketProfit") private var showBracketProfit = true
+    @AppStorage("chartShowExecutions") private var showExecutions = true
+    @AppStorage("chartShowExecutionLabels") private var showExecutionLabels = true
+    @AppStorage("chartPositionProfitUnit") private var positionProfitUnit = "money"
+    @AppStorage("chartBracketProfitUnit") private var bracketProfitUnit = "money"
+    @State private var showDisplaySettings = false
+    private var chartDisplay: [String: Any] {
+        ["profit": showProfit, "positions": showPositionProfit, "brackets": showBracketProfit,
+         "executions": showExecutions, "executionLabels": showExecutionLabels,
+         "positionUnit": positionProfitUnit, "bracketUnit": bracketProfitUnit]
+    }
+    private var paperStatusText: String {
+        let rows = paperState["orders"] as? [[String: Any]] ?? []
+        if paperState["sync_error"] as? Bool == true { return "Order updates paused · verify Gateway" }
+        if paperState["known"] as? Bool == false { return "Order status unknown · verify Gateway" }
+        if paperState["rejected"] as? Bool == true { return "Order rejected · verify Gateway" }
+        if let size = paperState["position"] as? Double, size != 0 { return "IB Paper · \(size > 0 ? "Long" : "Short") \(abs(size).formatted()) filled" }
+        if paperState["status"] as? String == "done" {
+            let exit = rows.first { ["tp", "sl", "close"].contains($0["role"] as? String ?? "") && ($0["filled"] as? Double ?? 0) > 0 }
+            return exit.map { "IB Paper · \(($0["role"] as? String ?? "").uppercased()) filled · Flat" } ?? "IB Paper · Orders finished · Flat"
+        }
+        if let row = rows.first(where: { $0["role"] as? String == "entry" }) { return "IB Paper · \(row["status"] as? String ?? "Unknown") · Filled \((row["filled"] as? Double ?? 0).formatted())" }
+        return ""
+    }
     @State private var templateType = "STK"
     @State private var showTemplate = false
     @State private var templateRevision = 1
@@ -202,7 +228,14 @@ struct StockChartView: View {
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
             }
-            StockChartWeb(drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["busy": paperBusy]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
+            HStack(spacing: 8) {
+                Text(paperStatusText).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                Spacer(minLength: 0)
+                Button { showDisplaySettings = true } label: {
+                    Image(systemName: "gearshape").frame(width: 36, height: 32)
+                }.buttonStyle(.plain).accessibilityLabel("Chart display")
+            }
+            StockChartWeb(display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["busy": paperBusy]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             if !fullScreen {
             if let paperMessage { Text(paperMessage).font(.caption).foregroundStyle(.secondary) }
@@ -271,6 +304,27 @@ struct StockChartView: View {
             Button("Done", role: .cancel) { }
         } message: {
             Text("This will close the current symbol when live chart trading is enabled. No order has been sent; your position is unchanged.")
+        }
+        .sheet(isPresented: $showDisplaySettings) {
+            NavigationStack {
+                Form {
+                    Section("Profit and loss value") {
+                        Toggle("Show P&L", isOn: $showProfit)
+                        Toggle("Positions", isOn: $showPositionProfit).disabled(!showProfit)
+                        Picker("Position P&L unit", selection: $positionProfitUnit) {
+                            Text("Money").tag("money"); Text("Ticks").tag("ticks")
+                        }.disabled(!showProfit || !showPositionProfit)
+                        Toggle("Brackets", isOn: $showBracketProfit).disabled(!showProfit)
+                        Picker("Bracket P&L unit", selection: $bracketProfitUnit) {
+                            Text("Money").tag("money"); Text("Ticks").tag("ticks")
+                        }.disabled(!showProfit || !showBracketProfit)
+                    }
+                    Section("Executions") {
+                        Toggle("Execution marks", isOn: $showExecutions)
+                        Toggle("Execution labels", isOn: $showExecutionLabels).disabled(!showExecutions)
+                    }
+                }.navigationTitle("Chart display").toolbar { Button("Done") { showDisplaySettings = false } }
+            }.presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showTemplate) {
             NavigationStack {
@@ -400,6 +454,7 @@ final class ChartViewportWebView: WKWebView {
 }
 
 private struct StockChartWeb: UIViewRepresentable {
+    var display: [String: Any]
     var drawingKey: String
     var packet: [String: Any]
     var entry: Double
@@ -449,7 +504,7 @@ private struct StockChartWeb: UIViewRepresentable {
         context.coordinator.onEntry = onEntry
         context.coordinator.onBE = onBE
         context.coordinator.onPaper = onPaper
-        context.coordinator.config = ["entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "beRevision": beRevision, "tpDistance": tpDistance.isFinite ? tpDistance : 0, "slDistance": slDistance.isFinite ? slDistance : 0, "templateRevision": templateRevision, "priceRules": packet["price_rules"] ?? [], "paper": paperState, "con_id": conID, "multiplier": packet["multiplier"] ?? 1]
+        context.coordinator.config = ["display": display, "entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "beRevision": beRevision, "tpDistance": tpDistance.isFinite ? tpDistance : 0, "slDistance": slDistance.isFinite ? slDistance : 0, "templateRevision": templateRevision, "priceRules": packet["price_rules"] ?? [], "paper": paperState, "con_id": conID, "multiplier": packet["multiplier"] ?? 1]
         context.coordinator.update()
     }
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {

@@ -14,15 +14,19 @@ const result=await page.evaluate(()=>{
  configure({...base,paper:{enabled:true,active:true,position:1,entry:10,tp:11,sl:9.5,side:1,orders:[{role:'entry',status:'Filled',filled:1}]}});
  const held=document.getElementById('entry').textContent;
  configure({...base,entry:0,paper:{enabled:true,active:false,position:0,status:'done',orders:[{role:'entry',status:'Filled',filled:1},{role:'tp',status:'Filled',filled:1}]}});
- const done={hidden:document.getElementById('entry').hidden,status:document.getElementById('paper-status').textContent};
+ const done={hidden:document.getElementById('entry').hidden,statusOverlay:!!document.getElementById('paper-status')};
  configure({...base,paper:{enabled:true,sync_error:true}});
- return {held,done,error:document.getElementById('paper-status').textContent};
-});assert.match(fills.held,/Long/);assert.doesNotMatch(fills.held,/LMT/);assert.equal(fills.done.hidden,true);assert.match(fills.done.status,/TP filled.*Flat/);assert.match(fills.error,/updates paused/);
+ return {held,done,errorOverlay:!!document.getElementById('paper-status')};
+});assert.match(fills.held,/Long/);assert.doesNotMatch(fills.held,/LMT/);assert.equal(fills.done.hidden,true);assert.equal(fills.done.statusOverlay,false);assert.equal(fills.errorOverlay,false);
 const markers=await page.evaluate(()=>{
  receive({con_id:7,generation:'marks',interval:5,session:'all',bars:[{time:1000,open:10,high:11,low:9,close:10},{time:1300,open:10,high:12,low:9,close:11}]});
  const c={entry:0,quantity:1,con_id:7,priceRules:[{low:0,increment:.25}],paper:{executions:[{id:'buy',time:1010,price:10,quantity:1,side:'BUY'},{id:'sell',time:1310,price:11,quantity:1,side:'SELL'}]}};
  configure(c);configure(c);const visible=executionMarkers.markers();
  configure({...c,con_id:8});const switched=executionMarkers.markers();
- return {visible,switched};
-});assert.equal(markers.visible.length,2);assert.equal(markers.visible[0].shape,'arrowUp');assert.equal(markers.visible[1].shape,'arrowDown');assert.equal(markers.visible[1].text,'1 @ 11.00');assert.equal(markers.switched.length,0);
+ configure({...c,display:{executionLabels:false}});const unlabeled=executionMarkers.markers();
+ configure({...c,display:{executions:false}});const hidden=executionMarkers.markers();
+ configure({...c,entry:10,paper:{active:true,entry:10,tp:11,sl:9.5,side:1,position:1},display:{profit:false}});const noProfit=document.getElementById('tp').textContent;
+ configure({...c,entry:10,paper:{active:true,entry:10,tp:11,sl:9.5,side:1,position:1},display:{bracketUnit:'ticks',positions:true,positionUnit:'ticks'}});const ticks=document.getElementById('tp').textContent,position=document.getElementById('entry').textContent;
+ return {visible,switched,unlabeled,hidden,noProfit,ticks,position};
+});assert.equal(markers.visible.length,2);assert.equal(markers.visible[0].shape,'arrowUp');assert.equal(markers.visible[1].shape,'arrowDown');assert.equal(markers.visible[1].text,'1 @ 11.00');assert.equal(markers.switched.length,0);assert.equal(markers.unlabeled.length,2);assert.equal(markers.unlabeled[0].text,'');assert.equal(markers.hidden.length,0);assert.doesNotMatch(markers.noProfit,/ticks|\+/);assert.match(markers.ticks,/\+4.0 ticks/);assert.match(markers.position,/ticks/);
 console.log('Paper submit once, drag amendment once, broker-confirmed close and symbol header passed');}finally{await browser.close()}})();
