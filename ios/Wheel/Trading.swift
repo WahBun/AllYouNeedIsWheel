@@ -262,7 +262,7 @@ final class TradingSession {
     }
 
     func paperChartWrite(base: String, conID: Int, body: [String: Any]) async throws -> [String: Any] {
-        var request = URLRequest(url: try endpoint(base, "api/portfolio/paper-chart/\(conID)"), timeoutInterval: 15)
+        var request = URLRequest(url: try endpoint(base, "api/portfolio/paper-chart/\(conID)"), timeoutInterval: 35)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("1", forHTTPHeaderField: "X-All-You-Need-Is-Wheel")

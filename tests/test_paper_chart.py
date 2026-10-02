@@ -66,6 +66,65 @@ class PaperChartTests(unittest.TestCase):
         completed.append(copy.deepcopy(completed[0]))
         self.trades.clear();self.conn._bounded_order_read.return_value=completed
         self.assertFalse(self.service.state(self.conn,7)['known'])
+    def filled_position(self, size=4):
+        self.submit(quantity=size)
+        parent=self.trades[0];parent.orderStatus.status='Filled';parent.orderStatus.filled=size;parent.orderStatus.avgFillPrice=10
+        self.pos=S(account='DU_TEST',contract=self.contract,position=size,avgCost=10)
+        self.conn.ib.positions.side_effect=lambda:[self.pos] if self.pos.position else []
+        self.conn._bounded_order_read.side_effect=lambda *a,**kw:[self.pos] if self.pos.position else []
+        original=self.conn.ib.placeOrder.side_effect
+        def fill(c,o):
+            t=original(c,o)
+            if o.orderType=='MKT':
+                t.orderStatus.status='Filled';t.orderStatus.filled=o.totalQuantity
+                self.pos.position += o.totalQuantity*(1 if o.action=='BUY' else -1)
+            return t
+        self.conn.ib.placeOrder.side_effect=fill
+
+    def test_add_trim_rebuild_exact_protection_and_no_duplicate_write(self):
+        self.filled_position()
+        for action,qty,expected in [('add',2,6),('trim',3,3),('add',1,4)]:
+            body=dict(request_id=str(uuid4()),action=action,quantity=qty)
+            r=self.service.execute(self.conn,7,body)
+            self.assertTrue(r['success'],r)
+            self.assertEqual(r['state']['position'],expected)
+            working=[t for t in self.trades if not t.isDone()]
+            self.assertEqual(len(working),2)
+            self.assertTrue(all(t.order.totalQuantity==expected for t in working))
+            self.assertEqual(working[0].order.ocaGroup,working[1].order.ocaGroup)
+            self.assertTrue(all(t.order.ocaType==2 for t in working))
+            self.assertTrue(all(t.order.orderRef==self.trades[0].order.orderRef for t in working))
+            writes=self.conn.ib.placeOrder.call_count
+            self.service.execute(self.conn,7,body)
+            self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+
+    def test_invalid_trim_and_external_position_cannot_cancel_protection(self):
+        self.filled_position()
+        for qty in [0,4,5,True,1.5]:
+            r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=qty))
+            self.assertFalse(r['success'])
+        self.pos.position=5
+        r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='add',quantity=1))
+        self.assertFalse(r['success'])
+        self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_scale_cancellation_timeout_never_sends_market_order(self):
+        self.filled_position();self.conn.ib.cancelOrder.side_effect=None
+        with patch('time.monotonic',side_effect=[0,5]):
+            r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
+        self.assertEqual(r['status'],'unknown')
+        self.assertEqual(self.conn.ib.placeOrder.call_count,3)
+
+    def test_scale_exit_fill_race_does_not_open_new_position(self):
+        self.filled_position()
+        cancel=self.conn.ib.cancelOrder.side_effect
+        def raced(o):
+            cancel(o)
+            if o.orderId==101:self.pos.position=0
+        self.conn.ib.cancelOrder.side_effect=raced
+        r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='add',quantity=2))
+        self.assertFalse(r['success']);self.assertEqual(self.conn.ib.placeOrder.call_count,3)
+
     def tearDown(self):self.resolve.stop();self.feed.stop();self.tmp.cleanup()
     def submit(self,**changes):
         b=dict(request_id=str(uuid4()),action='submit',side=1,quantity=1,entry_type='LMT',entry=10,tp=11,sl=9);b.update(changes)

@@ -214,6 +214,11 @@ struct StockChartView: View {
                 .toolbar { Button("Done") { showIndicatorSettings = false } }
         }
     }
+    @State private var adjustmentAction = ""
+    @State private var adjustmentQuantity = 1
+    @State private var showAdjustment = false
+    private var positionSize: Int { Int(abs(paperState["position"] as? Double ?? 0)) }
+    private var adjustmentLimit: Int { adjustmentAction == "trim" ? max(0, positionSize - 1) : max(0, quantityLimit - positionSize) }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
         ["ema": showEMA, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
@@ -365,6 +370,10 @@ struct StockChartView: View {
                         Button { join("ask") } label: { Text("Join Ask").frame(maxWidth: .infinity, minHeight: 30) }.tint(.red).disabled(joinPrice("ask") == nil || paperBusy || paperActive)
                     }
                     HStack(spacing: 8) {
+                        Menu {
+                            Button("Add contracts") { adjustmentAction = "add"; adjustmentQuantity = 1; showAdjustment = true }.disabled(positionSize >= quantityLimit)
+                            Button("Trim contracts") { adjustmentAction = "trim"; adjustmentQuantity = 1; showAdjustment = true }.disabled(positionSize < 2)
+                        } label: { Image(systemName: "plus.forwardslash.minus").frame(minHeight: 30) }.disabled(!paperEnabled || paperBusy || positionSize == 0 || paperState["known"] as? Bool != true)
                         Button { if paperEnabled { paperAction(["action": "close"]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").frame(maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || (paperEnabled ? !paperActive : validEntry <= 0))
                         Button { if paperEnabled { paperAction(["action": "be"]) } else { beRevision += 1 } } label: { Text("BE").frame(maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(paperBusy || (paperEnabled && (paperState["position"] as? Double ?? 0) == 0) || beApplied || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
                     }
@@ -437,6 +446,20 @@ struct StockChartView: View {
                         }.disabled(validQuantityDraft == nil || paperActive || paperBusy) }
                     }
             }.presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showAdjustment) {
+            NavigationStack {
+                Form {
+                    Text("Current position: \(positionSize)")
+                    Stepper("Quantity: \(adjustmentQuantity)", value: $adjustmentQuantity, in: 1...max(1, adjustmentLimit))
+                    Text("Market order. Remaining TP / SL quantities are updated after execution.").font(.caption)
+                    Button(adjustmentAction == "trim" ? "Trim position" : "Add to position") {
+                        showAdjustment = false
+                        paperAction(["action": adjustmentAction, "quantity": adjustmentQuantity])
+                    }.disabled(paperBusy || adjustmentLimit < adjustmentQuantity)
+                }.navigationTitle(adjustmentAction == "trim" ? "Trim" : "Add")
+                    .toolbar { Button("Cancel") { showAdjustment = false } }
+            }.presentationDetents([.medium])
         }
         .sheet(isPresented: $showIndicatorSettings) { indicatorSettings }
         .sheet(isPresented: $showDisplaySettings) {

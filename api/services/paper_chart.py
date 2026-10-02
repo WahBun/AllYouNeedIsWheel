@@ -105,6 +105,7 @@ class PaperChart:
             t=trades.get(oid)
             rows.append(dict(role=role, order_id=oid, status=t.orderStatus.status if t else 'Unknown',
                 price=(t.order.auxPrice if role=='sl' or (role=='entry' and t.order.orderType=='STP') else t.order.lmtPrice) if t and role!='close' else 0,
+                quantity=float(t.order.totalQuantity) if t else 0,
                 filled=max(float(t.orderStatus.filled),sum(float(f.execution.shares) for f in trade_fills(t))) if t else 0))
         result.update(orders=rows, side=group['side'], known=all(r['status']!='Unknown' for r in rows))
         result['active']=any(r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive') for r in rows) or result['position']!=0
@@ -118,6 +119,9 @@ class PaperChart:
             total = sum(float(f.execution.shares) for f in fills)
             if total > 0: result['entry'] = sum(float(f.execution.shares)*float(f.execution.price) for f in fills)/total
         if not result['known']: result['status']='unknown'
+        if position and position.position and getattr(position, 'avgCost', 0):
+            multiplier = float(getattr(position.contract, 'multiplier', '') or 1)
+            result['entry'] = float(position.avgCost) / multiplier
         result['be_applied']=bool(result['position'] and result['sl']>0 and result['side']*(result['sl']-result['entry'])>0)
         result['rejected']=any(r['status']=='Inactive' for r in rows)
         return result
@@ -184,6 +188,79 @@ class PaperChart:
         group=self.group(account,cid)
         if not group: raise ValueError('No chart bracket for this contract')
         trades={t.order.orderId:t for t in conn.ib.trades() if t.order.account==account and t.contract.conId==cid}
+        if action in ('add','trim'):
+            qty = body.get('quantity')
+            limit = 10 if contract.secType == 'FUT' else 1000
+            size = abs(current['position'])
+            if isinstance(qty, bool) or not isinstance(qty, (int,float)) or not math.isfinite(qty) or qty != int(qty) or qty < 1:
+                raise ValueError('Invalid adjustment quantity')
+            if not size or current['position'] * group['side'] <= 0:
+                raise ValueError('Adjustment requires a filled chart position')
+            if action == 'trim' and qty >= size:
+                raise ValueError('Trim must leave a position; use Close Position for all contracts')
+            if action == 'add' and size + qty > limit:
+                raise ValueError('Resulting position exceeds the chart quantity limit')
+            parent = trades.get(group['ids']['entry'])
+            if not parent or parent.orderStatus.status != 'Filled':
+                raise ValueError('Wait for the entire entry to fill before adjusting')
+            if any(t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades()
+                   if t.contract.conId == cid and t.order.account == account):
+                raise ValueError('Other working orders exist; review Gateway')
+            owned = sum((1 if t.order.action == 'BUY' else -1) * max(float(t.orderStatus.filled),
+                        sum(float(f.execution.shares) for f in t.fills)) for t in trades.values()
+                        if t.order.orderId in group['ids'].values())
+            if abs(owned - current['position']) > .000001:
+                raise ValueError('Position differs from chart fills; reconcile Gateway')
+            exits = [trades.get(group['ids'][role]) for role in ('tp','sl')]
+            if any(not t or t.isDone() for t in exits):
+                raise ValueError('Both protective orders must be working before adjusting')
+            tp, sl = price(current['tp']), price(current['sl'])
+            import time
+            for t in exits: conn.ib.cancelOrder(t.order)
+            deadline = time.monotonic() + 4
+            while any(not t.isDone() for t in exits) and time.monotonic() < deadline: conn.ib.sleep(.05)
+            if any(not t.isDone() for t in exits): raise RuntimeError('Protective cancellation uncertain; inspect Gateway')
+            # Re-read after cancellation: an exit may have filled in the meantime.
+            positions = conn._bounded_order_read(conn.ib.reqPositions, timeout_seconds=3)
+            pos = next((p for p in positions if p.account == account and p.contract.conId == cid), None)
+            actual = float(pos.position) if pos else 0
+            def save():
+                with self.database() as db:
+                    db.execute('UPDATE chart_paper_groups SET orders=? WHERE account=? AND con_id=?', (json.dumps(group),account,cid))
+            def protect(position):
+                if not position: return
+                if position * group['side'] <= 0: raise RuntimeError('Unexpected position direction; inspect Gateway')
+                oca = 'WheelPaper:' + request_id
+                for role, level in [('tp',tp),('sl',sl)]:
+                    old = group['ids'][role]
+                    group['ids'][role + '_' + str(old)] = old
+                    if role in group.get('perms',{}):
+                        group['perms'][role + '_' + str(old)] = group['perms'].pop(role)
+                    oid = conn.ib.client.getReqId(); group['ids'][role] = oid
+                    save()
+                    order = (LimitOrder if role == 'tp' else StopOrder)(
+                        'SELL' if position > 0 else 'BUY', abs(position), level,
+                        orderId=oid,account=account,tif='DAY',transmit=role=='sl',ocaGroup=oca,ocaType=2,orderRef=group['ref'])
+                    conn.ib.placeOrder(contract,order)
+            if actual != current['position']:
+                protect(actual)
+                raise ValueError('Position changed while canceling exits; adjustment skipped, protection restored')
+            order = MarketOrder(('BUY' if actual > 0 else 'SELL') if action == 'add' else ('SELL' if actual > 0 else 'BUY'),
+                                qty,account=account,orderRef=group['ref'])
+            order.orderId = conn.ib.client.getReqId()
+            group['ids'][action + '_' + str(order.orderId)] = order.orderId; save()
+            trade = conn.ib.placeOrder(contract,order)
+            deadline = time.monotonic() + 5
+            while not trade.isDone() and time.monotonic() < deadline: conn.ib.sleep(.05)
+            if not trade.isDone():
+                conn.ib.cancelOrder(order)
+                deadline = time.monotonic() + 4
+                while not trade.isDone() and time.monotonic() < deadline: conn.ib.sleep(.05)
+                if not trade.isDone(): raise RuntimeError('Adjustment unresolved; inspect Gateway before further trading')
+            positions = conn._bounded_order_read(conn.ib.reqPositions, timeout_seconds=3)
+            pos = next((p for p in positions if p.account == account and p.contract.conId == cid), None)
+            protect(float(pos.position) if pos else 0)
+            return
         if action in ('amend','be'):
             role='sl' if action=='be' else body.get('role')
             if role not in ('tp','sl'): raise ValueError('Only TP and SL can be amended')
@@ -221,7 +298,7 @@ class PaperChart:
             position=next((p for p in positions if p.account==account and p.contract.conId==cid),None)
             if position and position.position:
                 if any(t.contract.conId==cid and t.order.account==account for t in conn.ib.openTrades()): raise ValueError('Other working orders exist; review Gateway')
-                order=MarketOrder('SELL' if position.position>0 else 'BUY',abs(position.position),account=account,orderRef='WheelPaper:'+request_id)
+                order=MarketOrder('SELL' if position.position>0 else 'BUY',abs(position.position),account=account,orderRef=group.get('ref','WheelPaper:'+request_id))
                 order.orderId=conn.ib.client.getReqId();group['ids']['close']=order.orderId
                 with self.database() as db: db.execute('UPDATE chart_paper_groups SET orders=? WHERE account=? AND con_id=?',(json.dumps(group),account,cid))
                 conn.ib.placeOrder(contract,order)

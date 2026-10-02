@@ -39,6 +39,7 @@ def futures_orders(conn, completed=False, db_path=None):
     from core.connection import IBConnection
     result = {}
     brackets = {}
+    events = {}
 
     for trade in trades:
         c,o,s = trade.contract,trade.order,trade.orderStatus
@@ -74,19 +75,40 @@ def futures_orders(conn, completed=False, db_path=None):
             entry_action = 'BUY' if request.get('side') == 1 else 'SELL'
             result[identity]['intent'] = 'OPEN' if o.action == entry_action else 'CLOSE'
             brackets.setdefault(ref, {})[identity] = result[identity]
-    for group in brackets.values():
-        entries = [row for row in group.values() if row.get('intent') == 'OPEN' and row['filled'] > 0 and row['avg_fill_price']]
-        exits = [row for row in group.values() if row.get('intent') == 'CLOSE' and row['filled'] > 0 and row['avg_fill_price']]
-        if len(entries) != 1: continue
-        entry = entries[0]
-        if sum(row['filled'] for row in exits) > entry['filled']: continue
-        for row in exits:
+            events.setdefault(ref, {})[identity] = fills
+    for ref, group in brackets.items():
+        # Match individual execution times, including interleaved partial fills.
+        ledger = []
+        for identity, row in group.items():
+            fills = events[ref].get(identity, [])
+            for fill in fills:
+                ledger.append((fill.time, fill.execution.execId, identity, float(fill.execution.shares), float(fill.execution.price)))
+        size = cost = fees = 0.0
+        fees_known = True
+        totals = {}
+        for _, _, identity, qty, price in sorted(ledger):
+            row = group[identity]
+            fee_known = row.get('commission_currency') == 'USD' and row.get('commission') is not None
+            fee = row['commission'] * qty / row['filled'] if fee_known and row['filled'] else 0
+            if row.get('intent') == 'OPEN':
+                size += qty; cost += qty * price; fees += fee; fees_known = fees_known and fee_known
+                continue
+            if qty > size or not size:
+                totals[identity] = None
+                continue
             multiplier = float(row['contract_multiplier'] or 0)
             if multiplier <= 0: continue
-            sign = 1 if entry['action'] == 'BUY' else -1
-            row['gross_pnl'] = (row['avg_fill_price']-entry['avg_fill_price'])*sign*row['filled']*multiplier
-            if entry.get('commission_currency') == row.get('commission_currency') == 'USD' and entry.get('commission') is not None and row.get('commission') is not None:
-                fee = entry['commission']*row['filled']/entry['filled'] + row['commission']
-                row['round_trip_commission'] = fee
-                row['net_pnl'] = row['gross_pnl']-fee
+            sign = 1 if row['action'] == 'SELL' else -1
+            gross = (price - cost / size) * sign * qty * multiplier
+            allocated = fees * qty / size
+            total = totals.setdefault(identity, [0., 0., True])
+            if total is not None:
+                total[0] += gross; total[1] += allocated + fee; total[2] = total[2] and fees_known and fee_known
+            cost -= cost * qty / size; fees -= allocated; size -= qty
+            if size == 0: fees_known = True
+        for identity, total in totals.items():
+            if total is None: continue
+            row = group[identity]; row['gross_pnl'] = total[0]
+            if total[2]:
+                row['round_trip_commission'] = total[1]; row['net_pnl'] = total[0] - total[1]
     return list(result.values())

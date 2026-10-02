@@ -67,3 +67,27 @@ class FuturesOrdersTests(unittest.TestCase):
         self.assertEqual(len(result['executions']),1)
         self.assertEqual(result['executions'][0]['price'],7790)
         self.assertEqual(result['executions'][0]['side'],'BUY')
+
+    def test_scaled_position_profit_allocates_entry_fees_once(self):
+        import json,sqlite3
+        from datetime import timedelta
+        with TemporaryDirectory() as tmp:
+            now=datetime.now(timezone.utc);trades=[]
+            # Buy 4, add 2, trim 3, then exit the remaining 3.
+            for i,(action,qty,price) in enumerate([('BUY',4,100),('BUY',2,103),('SELL',3,104),('SELL',3,99)]):
+                when=now+timedelta(seconds=i)
+                order=LimitOrder(action,qty,price,account='DU_TEST',orderId=i+1,permId=i+101,orderRef='WheelPaper:test')
+                e=Execution(execId=str(i),acctNumber='DU_TEST',side='BOT' if action=='BUY' else 'SLD',shares=qty,price=price,time=when)
+                report=CommissionReport(execId=str(i),commission=qty*.6,currency='USD')
+                trades.append(Trade(self.contract,order,OrderStatus(status='Filled',filled=qty,avgFillPrice=price),fills=[Fill(self.contract,e,report,when)]))
+            self.conn._bounded_order_read.return_value=trades;self.conn.ib.trades.return_value=[]
+            dbpath=str(Path(tmp)/'journal.db')
+            with sqlite3.connect(dbpath) as db:
+                db.execute('CREATE TABLE chart_paper_requests(id,account,body)')
+                db.execute('INSERT INTO chart_paper_requests VALUES(?,?,?)',('test','DU_TEST',json.dumps(dict(action='submit',side=1,con_id=7))))
+            rows=futures_orders(self.conn,True,dbpath)
+            self.assertAlmostEqual(rows[2]['gross_pnl'],45)
+            self.assertAlmostEqual(rows[2]['net_pnl'],41.4)
+            self.assertAlmostEqual(rows[3]['gross_pnl'],-30)
+            self.assertAlmostEqual(rows[3]['net_pnl'],-33.6)
+            self.assertAlmostEqual(sum(r.get('round_trip_commission',0) for r in rows),7.2)
