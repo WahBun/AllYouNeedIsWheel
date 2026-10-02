@@ -1,0 +1,34 @@
+// Run with NODE_PATH pointing to a Playwright installation with Chromium.
+const {chromium}=require('playwright');
+const fs=require('fs'),path=require('path'),assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({headless:true});
+ try {
+ const page=await browser.newPage({viewport:{width:393,height:640}}),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ const root=path.resolve(__dirname,'../../ios/Wheel/ChartAssets');
+ await page.setContent(fs.readFileSync(path.join(root,'stock-chart.html'),'utf8').replace('/*LIBRARY*/',fs.readFileSync(path.join(root,'lightweight-charts.standalone.production.js'),'utf8')));
+ const result=await page.evaluate(()=>{
+  const config={entry:9,quantity:1,entryType:'LMT',joinSide:1,joinRevision:1,tpDistance:.5,slDistance:.25,templateRevision:1,priceRules:[{low:0,increment:.25}]};
+  window.configure(config);
+  window.receive({generation:'test',interval:1,session:'all',bars:[{time:1000,open:9,high:11,low:7,close:9.5}]});
+  move('sl',series.priceToCoordinate(9.25));const profitableSL=levels.sl;
+  move('entry',series.priceToCoordinate(9.13));const snappedEntry=entry;
+  window.configure({...config,entry,joinRevision:2});const before={...levels};
+  window.configure({...config,entry,joinRevision:2,slDistance:20,templateRevision:2});const invalid={...levels},message=document.getElementById('validation').textContent;
+  window.configure({...config,entry,joinRevision:2,slDistance:.75,templateRevision:2});const noDelayedApply={...levels};
+  window.configure({...config,entry,joinRevision:2,slDistance:.75,templateRevision:3});const corrected={...levels};
+  window.configure({...config,entry,joinRevision:2,beRevision:1,slDistance:.75,templateRevision:3});const be=levels.sl;
+  window.configure({...config,entry,joinSide:-1,joinRevision:3,beRevision:1,slDistance:.75,templateRevision:3});const sell={...levels};
+  move('sl',series.priceToCoordinate(entry-.25));const sellProfit=levels.sl;
+  priceRules=[{low:0,increment:.0001},{low:1,increment:.01}];const fine={price:snapPrice(.12346),text:priceText(.1235),up:stepPrice(.9999,1),down:stepPrice(1,-1)};
+  priceRules=[];const unknown=snapPrice(9.13);
+  return {profitableSL,snappedEntry,before,invalid,message,noDelayedApply,corrected,be,sell,sellProfit,fine,unknown};
+ });
+ assert.equal(result.profitableSL,9.25);assert.equal(result.snappedEntry,9.25);
+ assert.deepEqual(result.before,result.invalid);assert.match(result.message,/Invalid/);assert.deepEqual(result.invalid,result.noDelayedApply);
+ assert.equal(result.corrected.sl,8.5);assert.equal(result.be,9.5);assert.equal(result.sell.sl,10);assert.equal(result.sellProfit,9);
+ assert.deepEqual(result.fine,{price:.1235,text:'0.1235',up:1,down:.9999});assert.equal(result.unknown,null);assert.deepEqual(errors,[]);
+ console.log('Chart controls: profit stops, tick tiers, BE/Join reset and invalid-template recovery passed');
+ } finally {await browser.close();}
+})();

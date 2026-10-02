@@ -44,7 +44,7 @@ struct StockChartView: View {
     }
     private func join(_ side: String) {
         guard let price = joinPrice(side) else { return }
-        entryType = "LMT"; entry = String(format: "%.2f", price)
+        entryType = "LMT"; entry = String(price)
         joinSide = side == "bid" ? 1 : -1; joinRevision += 1
     }
     private func distanceRow(_ title: String, value: Binding<String>) -> some View {
@@ -95,7 +95,7 @@ struct StockChartView: View {
                 Text(received.map { time.date.timeIntervalSince($0) > 3 } == true ? "Chart updates paused · verify connection" : LocalizedStringKey(notice))
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
-            StockChartWeb(packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String(format: "%.2f", $0) })
+            StockChartWeb(packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) })
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
                 TextField("Shares", text: $quantity).keyboardType(.decimalPad)
@@ -103,7 +103,7 @@ struct StockChartView: View {
                 Stepper("Shares", value: Binding(get: { max(1, Int(validQuantity)) }, set: { quantity = String($0) }), in: 1...1_000_000).labelsHidden()
                 Spacer(minLength: 0)
                 if validEntry == 0 {
-                    Button { entry = String(format: "%.2f", ((packet["bars"] as? [[String: Any]])?.last?["close"] as? Double) ?? position.market_price ?? 0) } label: { Image(systemName: "plus.circle").frame(minWidth: 32, minHeight: 44) }.accessibilityLabel("Entry reference")
+                    Button { entry = String(((packet["bars"] as? [[String: Any]])?.last?["close"] as? Double) ?? position.market_price ?? 0) } label: { Image(systemName: "plus.circle").frame(minWidth: 32, minHeight: 44) }.accessibilityLabel("Entry reference")
                 }
                 Picker("Entry type", selection: $entryType) {
                     Text("LMT").tag("LMT"); Text("STP").tag("STP")
@@ -176,7 +176,7 @@ struct StockChartView: View {
         }
         .onAppear {
             visible = true
-            if entry.isEmpty { entry = String(format: "%.2f", position.market_price ?? 0) }
+            if entry.isEmpty { entry = String(position.market_price ?? 0) }
         }
         .onDisappear { visible = false }
         .task(id: context) {
@@ -242,7 +242,7 @@ private struct StockChartWeb: UIViewRepresentable {
         context.coordinator.packet = packet.isEmpty ? ["bars": [], "generation": "clear", "interval": 0, "session": ""] : packet
         context.coordinator.onEntry = onEntry
         context.coordinator.onBE = onBE
-        context.coordinator.config = ["entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "beRevision": beRevision, "tpDistance": tpDistance.isFinite ? tpDistance : 0, "slDistance": slDistance.isFinite ? slDistance : 0, "templateRevision": templateRevision]
+        context.coordinator.config = ["entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "beRevision": beRevision, "tpDistance": tpDistance.isFinite ? tpDistance : 0, "slDistance": slDistance.isFinite ? slDistance : 0, "templateRevision": templateRevision, "priceRules": packet["price_rules"] ?? []]
         context.coordinator.update()
     }
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {

@@ -191,3 +191,15 @@ merging received live extrema, and the chart accepts older-bar revisions without
 resetting its viewport. Bid and ask freshness now requires their own price events;
 a Last tick cannot refresh an old quote. Unknown/stale sides disable Join through
 the existing nullable quote fields. This remains HTTP polling and preview-only.
+
+## Chart control audit fixes (2026-10-02)
+
+Preview SL dragging permits profit-locking on both sides. Entry edits, dragging,
+keyboard stepping, template targets and BE use contract price tiers instead of
+hard-coded cents; missing rules defer price edits. Native bridge formatting
+preserves sub-cent prices. Invalid template applications show an inline message,
+retain existing levels and consume that revision, requiring another Apply after
+correction. No broker write integration was added.
+Regression: `NODE_PATH=<playwright node_modules> node tests/chart/controls.cjs`
+checks long/short profit stops, quarter-point and sub-cent tiers, BE/Join reset,
+and invalid-template recovery in Chromium. Device build verified separately.
