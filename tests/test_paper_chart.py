@@ -215,6 +215,36 @@ class ProtectedLotTests(unittest.TestCase):
         self.open_four();r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='close'));self.assertTrue(r['success'],r)
         self.conn.ib.cancelOrder.assert_not_called();self.assertEqual(self.conn.ib.placeOrder.call_count,4)
 
+    def test_trim_preserves_broker_assigned_oca_fields(self):
+        self.open_four();take=self.trades[1]
+        take.order.ocaGroup='broker-group';take.order.ocaType=1
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
+        self.assertTrue(result['success'],result)
+        sent=self.conn.ib.placeOrder.call_args.args[1]
+        self.assertEqual((sent.ocaGroup,sent.ocaType,sent.parentId),('broker-group',1,100))
+
+    def test_rejected_amendment_cannot_report_success_after_status_recovers(self):
+        self.open_four();take=self.trades[1]
+        def rejected(c,o):
+            take.log.append(S(errorCode=10327))
+            take.orderStatus.status='Submitted'
+            return take
+        self.conn.ib.placeOrder.side_effect=rejected
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
+        self.assertEqual(result['status'],'rejected');self.assertIn('10327',result['message'])
+        self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_trim_recovers_completed_parents_after_reconnect(self):
+        self.open_four()
+        for index,t in enumerate(self.trades): t.order.permId=1000+index
+        self.service.state(self.conn,7)
+        parents=[t for t in self.trades if not t.order.parentId]
+        for t in parents: t.order.orderId=0
+        self.trades[:]=[t for t in self.trades if t not in parents]
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw: parents if fn==self.conn.ib.reqCompletedOrders else self.trades
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
+        self.assertTrue(result['success'],result);self.conn.ib.cancelOrder.assert_not_called()
+
     def test_trim_timeout_keeps_every_stop_and_does_not_replay(self):
         self.open_four();stops=[t.order.orderId for t in self.trades if t.order.orderType=='STP']
         self.conn.ib.placeOrder.side_effect=TimeoutError()

@@ -221,11 +221,28 @@ class PaperChart:
             if take.isDone() or stop.isDone(): raise ValueError('Exit changed before adjustment')
             lot['closing']=True;self.save_group(account,cid,group)
             order=copy.copy(take.order);order.lmtPrice=target;order.transmit=True
-            if order.parentId: order.ocaGroup='';order.ocaType=0
-            conn.ib.placeOrder(take.contract,order)
+            self.modify_exit(conn,take,order,'lmtPrice')
+
+    def modify_exit(self, conn, trade, order, field):
+        # Keep the broker's parent/OCA fields verbatim. Clearing or rebuilding
+        # them during a price amendment causes IB 10326/10327 rejections.
+        import time
+        start=len(trade.log)
+        conn.ib.placeOrder(trade.contract,order)
+        deadline=time.monotonic()+3
+        while True:
+            conn.ib.sleep(.05)
+            errors=[e.errorCode for e in trade.log[start:] if e.errorCode]
+            if errors: raise ValueError(f'IB rejected the exit amendment ({errors[-1]}); original protection needs review')
+            if trade.orderStatus.status=='Filled': return
+            if trade.orderStatus.status in ('Submitted','PreSubmitted') and getattr(trade.order,field)==getattr(order,field): return
+            if time.monotonic()>=deadline: raise RuntimeError('Exit amendment not confirmed')
 
     def perform(self, conn, account, cid, body, request_id):
         contract=contracts.resolve(conn,cid)
+        if body.get('action')!='submit':
+            # Refresh canonical broker fields before copying an active order.
+            conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
         current=self.state(conn,cid)
         action=body.get('action')
         def price(value):
@@ -278,7 +295,7 @@ class PaperChart:
             if action == 'trim' and qty >= size: raise ValueError('Trim must leave a position; use Close Position')
             if action == 'add' and size + qty > 10: raise ValueError('Resulting position exceeds the chart quantity limit')
             owned = sum((1 if t.order.action == 'BUY' else -1) * max(float(t.orderStatus.filled),sum(float(f.execution.shares) for f in t.fills))
-                        for t in trades.values() if t.order.orderId in group['ids'].values())
+                        for oid,t in trades.items() if oid in group['ids'].values())
             if abs(owned-current['position']) > .000001: raise ValueError('Position differs from chart fills; reconcile Gateway')
             if any(t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades() if t.contract.conId==cid and t.order.account==account):
                 raise ValueError('Other working orders exist; review Gateway')
@@ -322,10 +339,9 @@ class PaperChart:
                 if action=='be' and group['side']*(target.order.auxPrice-new_price)>=0: continue
                 import copy
                 amended=copy.copy(target.order)
-                if amended.parentId: amended.ocaGroup='';amended.ocaType=0
                 if role=='sl': amended.auxPrice=new_price
                 else: amended.lmtPrice=new_price
-                amended.transmit=True;conn.ib.placeOrder(contract,amended)
+                amended.transmit=True;self.modify_exit(conn,target,amended,'auxPrice' if role=='sl' else 'lmtPrice')
             return
         if action=='close' and group.get('lots'):
             live=[]

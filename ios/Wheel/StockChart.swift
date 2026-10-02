@@ -376,9 +376,9 @@ struct StockChartView: View {
                         Menu {
                             Button("Add contracts") { adjustmentAction = "add"; adjustmentQuantity = 1; showAdjustment = true }.disabled(positionSize >= quantityLimit)
                             Button("Trim contracts") { adjustmentAction = "trim"; adjustmentQuantity = 1; showAdjustment = true }.disabled(positionSize < 2)
-                        } label: { Image(systemName: "plus.forwardslash.minus").frame(minHeight: 30) }.disabled(!paperEnabled || paperBusy || positionSize == 0 || paperState["known"] as? Bool != true || paperState["scalable"] as? Bool != true)
-                        Button { if paperEnabled { paperAction(["action": "close"]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").frame(maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || (paperEnabled ? !paperActive : validEntry <= 0))
-                        Button { if paperEnabled { paperAction(["action": "be"]) } else { beRevision += 1 } } label: { Text("BE").frame(maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(paperBusy || (paperEnabled && (paperState["position"] as? Double ?? 0) == 0) || beApplied || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
+                        } label: { Image(systemName: "plus.forwardslash.minus").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.accessibilityLabel("Add or trim contracts").disabled(!paperEnabled || paperBusy || positionSize == 0 || paperState["known"] as? Bool != true || paperState["scalable"] as? Bool != true)
+                        Button { if paperEnabled { paperAction(["action": "close"]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").lineLimit(1).minimumScaleFactor(0.65).frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || (paperEnabled ? !paperActive : validEntry <= 0))
+                        Button { if paperEnabled { paperAction(["action": "be"]) } else { beRevision += 1 } } label: { Text("BE").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(paperBusy || (paperEnabled && (paperState["position"] as? Double ?? 0) == 0) || beApplied || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
                     }
                 }.font(.system(size: 13, weight: .semibold))
             }.buttonStyle(.bordered)
