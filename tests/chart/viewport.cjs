@@ -12,7 +12,15 @@ for(const [width,height] of [[393,450],[393,820],[393,450],[820,393],[393,820],[
  assert.equal(state.chart.width,width);assert.equal(state.chart.height,height);assert.ok(state.toolbar.bottom<=height-30);assert.ok(state.toolbar.right<=width);assert.ok(state.toolbar.x>=0);assert.equal(state.autoScale,true);assert.ok(state.price.width<70);assert.equal(state.bodyWidth,width);assert.equal(state.bodyHeight,height);assert.ok(state.plotHeight>height*.3);assert.ok(Math.abs(state.range.from-initial.from)<.05);assert.ok(Math.abs(state.range.to-initial.to)<.05);assert.ok(Math.abs(Number(state.line)-state.anchorY)<1);
 }
 await page.getByRole('button',{name:'Drawing tools and favorites',exact:true}).click();await page.waitForTimeout(50);await page.setViewportSize({width:320,height:360});await page.waitForTimeout(100);const menu=await page.locator('#draw-menu').boundingBox();assert.ok(menu.y>=0&&menu.y+menu.height<=360);await page.screenshot({path:'/tmp/wheel-viewport-menu.png'});
-await page.getByRole('button',{name:'Drawing tools and favorites',exact:true}).click();await page.screenshot({path:'/tmp/wheel-viewport-chart.png'});// Reproduce the native bridge arriving before layout, then the first valid frame.
+await page.getByRole('button',{name:'Drawing tools and favorites',exact:true}).click();await page.screenshot({path:'/tmp/wheel-viewport-chart.png'});// The library probes fractional prices (e.g. 9.111111...) when measuring the
+// crosshair axis. Cached bars may arrive seconds before contract price rules.
+await page.evaluate(()=>configure({entry:0,quantity:1,priceRules:[]}));await page.waitForTimeout(50);
+const coldAxis=await page.evaluate(()=>({width:chart.priceScale('right').width(),probe:priceText(9.11111111111111),snap:snapPrice(9.13)}));
+assert.equal(coldAxis.probe,'9.11');assert.equal(coldAxis.snap,null);
+await page.evaluate(()=>configure({entry:0,quantity:1,priceRules:[{low:0,increment:.0001},{low:1,increment:.01}]}));await page.waitForTimeout(50);
+assert.equal(await page.evaluate(()=>chart.priceScale('right').width()),coldAxis.width);
+assert.ok(coldAxis.width<55);
+// Reproduce the native bridge arriving before layout, then the first valid frame.
 await page.reload();await page.setContent(html);
 await page.evaluate(()=>{window.testState={width:0,height:0,config:{entry:9.14,quantity:1,entryType:'LMT',joinSide:-1,joinRevision:1,tpDistance:.25,slDistance:.25,templateRevision:1,priceRules:[{low:0,increment:.0001},{low:1,increment:.01}]},packet:{generation:'cold',interval:5,session:'rth',bars:Array.from({length:70},(_,i)=>({time:1000+i*300,open:9.1,high:9.2,low:8.97,close:8.97}))}};applyChartState(testState);});
 assert.equal(await page.evaluate(()=>series.data().length),0);

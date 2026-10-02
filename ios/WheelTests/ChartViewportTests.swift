@@ -30,8 +30,9 @@ final class ChartViewportTests: XCTestCase {
         await fulfillment(of: [ready], timeout: 10)
         web.viewportReady = true
         _ = try await web.evaluateJavaScript("""
-        applyChartState({width:0,height:0,config:{entry:9.14,quantity:1,entryType:'LMT',joinSide:-1,joinRevision:1,tpDistance:.25,slDistance:.25,templateRevision:1,priceRules:[{low:0,increment:.0001},{low:1,increment:.01}]},packet:{generation:'native',interval:5,session:'rth',bars:Array.from({length:70},(_,i)=>({time:1000+i*300,open:9.1,high:9.2,low:8.97,close:8.97}))}});true
+        applyChartState({width:0,height:0,config:{entry:9.14,quantity:1,entryType:'LMT',joinSide:-1,joinRevision:1,tpDistance:.25,slDistance:.25,templateRevision:1,priceRules:[]},packet:{generation:'native',interval:5,session:'rth',bars:Array.from({length:70},(_,i)=>({time:1000+i*300,open:9.1,high:9.2,low:8.97,close:8.97}))}});true
         """)
+        var coldAxis: Double?
         for height in [680, 420, 680, 420] {
             web.frame = CGRect(x: 0, y: 0, width: 393, height: height)
             web.setNeedsLayout(); web.layoutIfNeeded(); web.synchronizeViewport(force: true)
@@ -47,6 +48,10 @@ final class ChartViewportTests: XCTestCase {
             XCTAssertEqual(result["bars"] as? Int, 70)
             XCTAssertTrue((result["entryRight"] as? Double ?? 0) >= (result["axis"] as? Double ?? 0) + 35)
             XCTAssertTrue((result["label"] as? String ?? "").contains("Sell LMT"))
+            let axis = try XCTUnwrap(result["axis"] as? Double)
+            XCTAssertLessThan(axis, 55)
+            if let coldAxis { XCTAssertEqual(axis, coldAxis) } else { coldAxis = axis }
+            _ = try await web.evaluateJavaScript("configure({entry:9.14,quantity:1,entryType:'LMT',priceRules:[{low:0,increment:.0001},{low:1,increment:.01}],tpDistance:.25,slDistance:.25,templateRevision:1});true")
         }
     }
 }

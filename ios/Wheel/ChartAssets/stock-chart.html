@@ -9,7 +9,7 @@ let priceRules=[];
 function tickAt(p){return priceRules.filter(r=>Number.isFinite(r.low)&&r.low<=p&&r.increment>0).sort((a,b)=>b.low-a.low)[0]?.increment;}
 function snapPrice(p,direction=0){if(!Number.isFinite(p)||p<=0)return null;for(let i=0;i<8;i++){const tick=tickAt(p);if(!tick)return null;const units=p/tick;const next=Number(((direction>0?Math.ceil(units-1e-8):direction<0?Math.floor(units+1e-8):Math.round(units))*tick).toFixed(8));if(next<=0)return null;if(tickAt(next)===tick)return next;p=next;}return null;}
 function stepPrice(p,direction){const tick=tickAt(direction<0?p-1e-8:p);return tick?snapPrice(p+direction*tick,direction):null;}
-function priceText(p){const tick=tickAt(p);const digits=tick?Math.max(2,Math.min(8,((tick.toFixed(8).replace(/0+$/,'').split('.')[1])||'').length)):8;if(tick)return p.toFixed(digits);const compact=p.toFixed(8).replace(/0+$/,'').replace(/\.$/,'');const [whole,fraction='']=compact.split('.');return whole+'.'+fraction.padEnd(2,'0');}
+function priceText(p){const tick=tickAt(p);const digits=tick?Math.max(2,Math.min(8,((tick.toFixed(8).replace(/0+$/,'').split('.')[1])||'').length)):8;return p.toFixed(tick?digits:2);/* Display fallback only: unknown increments still cannot snap orders. */}
 function validation(message=''){const el=document.getElementById('validation');el.textContent=message;el.style.display=message?'block':'none';}
 function setSide(next){if(next!==side){side=next;levels={tp:0,sl:0};appliedTemplate=-1;breakEven=false;}sideReady=true;}
 function inferSide(){const ref=previous.at(-1)?.close;if(!ref||entry===ref)return;setSide((entryType==='LMT'?entry<ref:entry>ref)?1:-1);}
