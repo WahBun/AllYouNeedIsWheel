@@ -46,6 +46,14 @@ class PaperChart:
         position = next((p for p in conn.ib.positions() if p.account==account and p.contract.conId==cid),None)
         result = dict(paper=True, enabled=conn.readonly is False, position=float(position.position) if position else 0,
                       active=False, known=True, orders=[], entry=0, tp=0, sl=0, side=1, status='idle')
+        executions = {}
+        for fill in conn.ib.fills():
+            e = fill.execution
+            if e.acctNumber != account or fill.contract.conId != cid: continue
+            if e.side not in ('BOT','SLD') or not e.execId or e.shares <= 0: continue
+            executions[e.execId] = dict(id=e.execId,time=fill.time.timestamp(),price=float(e.price),
+                quantity=float(e.shares),side='BUY' if e.side=='BOT' else 'SELL')
+        result['executions'] = sorted(executions.values(), key=lambda e:e['time'])
         if not group: return result
         rows=[]
         for role, oid in group['ids'].items():

@@ -1,3 +1,4 @@
+from unittest.mock import patch
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,10 @@ from test_fill_metadata import fill
 
 
 class RealizedPnlTests(unittest.TestCase):
+    def setUp(self):
+        futures = patch('api.services.options_service.futures_orders', return_value=[])
+        futures.start(); self.addCleanup(futures.stop)
+
     def test_real_wrapper_preserves_unavailable_vs_true_zero(self):
         ib = NS()
         ib.wrapper = Wrapper(ib)

@@ -35,10 +35,19 @@ import WebKit
 struct StockChartView: View {
     let position: Position
     @State private var paperState: [String: Any] = [:]
+    @State private var completedPaperOrders: Set<String> = []
     @State private var paperBusy = false
     @State private var paperMessage: String?
     private var paperEnabled: Bool { paperState["enabled"] as? Bool == true }
     private var paperActive: Bool { paperState["active"] as? Bool == true }
+    private func applyPaperState(_ state: [String: Any]) {
+        paperState = state
+        if state["active"] as? Bool == true, let price = state["entry"] as? Double, price > 0 { entry = String(price) }
+        let rows = state["orders"] as? [[String: Any]] ?? []
+        if state["status"] as? String == "done",
+           let id = rows.first(where: { $0["role"] as? String == "entry" })?["order_id"] as? Int,
+           completedPaperOrders.insert("\(store.address)-\(chartID ?? 0)-\(id)").inserted { entry = "0"; beApplied = false }
+    }
     private func paperAction(_ body: [String: Any]) {
         guard !paperBusy, paperEnabled, let cid = chartID else { return }
         if let source = body["con_id"] as? Int, source != cid { return }
@@ -49,7 +58,7 @@ struct StockChartView: View {
                 let result = try await store.trading.paperChartWrite(base: store.address, conID: cid, body: body)
                 guard chartID == cid else { return }
                 paperMessage = result["message"] as? String
-                if let state = result["state"] as? [String: Any] { paperState = state; if state["status"] as? String == "done" { entry = "0" } }
+                if let state = result["state"] as? [String: Any] { applyPaperState(state) }
             } catch { paperMessage = connectionMessage(error) + " · Check Gateway before retrying" }
         }
     }
@@ -298,11 +307,11 @@ struct StockChartView: View {
                     let state = try await store.trading.get("api/portfolio/paper-chart/\(cid)", base: store.address)
                     try Task.checkCancellation()
                     guard chartID == cid else { return }
-                    let wasActive = paperActive
-                    paperState = state
-                    if state["active"] as? Bool == true, let price = state["entry"] as? Double, price > 0 { entry = String(price) }
-                    if wasActive && state["status"] as? String == "done" { entry = "0" }
-                } catch { if Task.isCancelled { return } }
+                    if !paperBusy { applyPaperState(state) }
+                } catch {
+                    if Task.isCancelled { return }
+                    paperState["sync_error"] = true
+                }
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
         }

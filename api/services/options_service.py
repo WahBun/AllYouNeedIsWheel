@@ -3,6 +3,7 @@ Options Service module
 Handles options data retrieval and processing
 """
 
+from api.services.futures_orders import futures_orders
 import logging
 from core import order_amendments as amendments
 from core.order_timing import order_tif, routed_contract
@@ -97,7 +98,7 @@ class OptionsService:
                             order.update(metadata)
                     except Exception as error:
                         logger.warning('Could not enrich broker fill metadata: %s', type(error).__name__)
-            return local_orders
+            return local_orders + (futures_orders(conn, completed=True) if is_rollover is None else [])
         if is_rollover is not None:
             return local_orders
 
@@ -138,7 +139,7 @@ class OptionsService:
                 continue
             external_orders.append(order)
 
-        return local_orders + external_orders
+        return local_orders + external_orders + futures_orders(conn)
 
     def validate_order_data(self, order_data):
         """Normalize an option order and reject values that are unsafe to persist."""

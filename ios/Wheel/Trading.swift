@@ -109,7 +109,7 @@ struct PriceInput: View {
 
 extension Order {
     private enum CodingKeys: String, CodingKey {
-        case id, ticker, symbol, action, option_type, strike, expiration, premium, quantity, status
+        case id, ticker, symbol, action, order_type, option_type, strike, expiration, premium, quantity, status
         case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, amendment_pending, error_message, isRollover, filled, avg_fill_price, fill_time, fill_action, commission, commission_currency, realized_pnl
     }
 
@@ -153,6 +153,7 @@ extension Order {
         error_message = try values.decodeIfPresent(String.self, forKey: .error_message)
         isRollover = try flag(.isRollover)
         filled = try values.decodeIfPresent(Double.self, forKey: .filled)
+        order_type = try values.decodeIfPresent(String.self, forKey: .order_type)
         avg_fill_price = try values.decodeIfPresent(Double.self, forKey: .avg_fill_price)
         fill_time = try values.decodeIfPresent(String.self, forKey: .fill_time)
         fill_action = try values.decodeIfPresent(String.self, forKey: .fill_action)
@@ -515,7 +516,8 @@ struct OrderDetail: View {
             if let order = current {
                 Section {
                     LabeledContent("Contract") {
-                        if order.option_type == "STOCK" { SymbolText(symbol: order.name) }
+                        if order.option_type == "FUTURE" { Text("\(order.name) · \(order.expiration ?? "") · FUTURE") }
+                        else if order.option_type == "STOCK" { SymbolText(symbol: order.name) }
                         else { Text("\(order.expiration ?? "") · \(money(order.strike)) · \(order.option_type ?? "")") }
                     }
                     LabeledContent("Action", value: "\(order.action ?? "") TO \(order.intent ?? "OPEN")")

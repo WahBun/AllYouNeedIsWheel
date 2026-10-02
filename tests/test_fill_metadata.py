@@ -17,6 +17,10 @@ def fill(key='synthetic-exec', fee=0.771867, currency='USD', side='SLD', report=
 
 
 class FillMetadataTests(unittest.TestCase):
+    def setUp(self):
+        futures = patch('api.services.options_service.futures_orders', return_value=[])
+        futures.start(); self.addCleanup(futures.stop)
+
     def test_execution_refresh_is_account_scoped_bounded_and_throttled(self):
         calls = []
         conn = IBConnection.__new__(IBConnection)

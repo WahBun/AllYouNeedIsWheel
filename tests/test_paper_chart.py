@@ -14,7 +14,7 @@ class PaperChartTests(unittest.TestCase):
         self.conn.is_connected.return_value=True;self.conn.ib.managedAccounts.return_value=['DU_TEST']
         self.trades=[];self.conn.ib.trades.side_effect=lambda:self.trades
         self.conn.ib.openTrades.side_effect=lambda:[t for t in self.trades if not t.isDone()]
-        self.conn.ib.positions.return_value=[];self.conn._bounded_order_read.return_value=[]
+        self.conn.ib.fills.return_value=[];self.conn.ib.positions.return_value=[];self.conn._bounded_order_read.return_value=[]
         self.conn.ib.client.getReqId.side_effect=iter(range(100,200))
         def place(c,o):
             old=next((t for t in self.trades if t.order.orderId==o.orderId),None)

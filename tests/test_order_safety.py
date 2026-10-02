@@ -1,3 +1,4 @@
+from unittest.mock import patch
 import tempfile
 import unittest
 from pathlib import Path
@@ -121,6 +122,8 @@ def valid_order(**overrides):
 
 class OrderSafetyTests(unittest.TestCase):
     def setUp(self):
+        futures = patch('api.services.options_service.futures_orders', return_value=[])
+        futures.start(); self.addCleanup(futures.stop)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db = OptionsDatabase(str(Path(self.temp_dir.name) / 'orders.db'))
 

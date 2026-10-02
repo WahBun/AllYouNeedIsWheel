@@ -117,6 +117,7 @@ struct Order: Decodable, Identifiable {
     var error_message: String? = nil
     var isRollover: Bool? = nil
     var filled: Double? = nil
+    var order_type: String? = nil
     var avg_fill_price: Double? = nil
     var fill_time: String? = nil
     var fill_action: String? = nil
@@ -1215,18 +1216,20 @@ struct OrdersView: View {
             }
             ForEach(history ? store.filledOrders : store.orders) { order in
                 ArrowlessNavigationLink {
-                    if history { Form { SymbolText(symbol: order.name); Text("\(order.expiration ?? "") · \(money(order.strike)) · \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Action", value: order.fill_action ?? order.action ?? "—"); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: order.commissionLabel); if order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: order) } }; LabeledContent("Average fill price", value: money(order.fillPrice)); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
+                    if history { Form { SymbolText(symbol: order.name); Text(order.option_type == "FUTURE" ? "\(order.expiration ?? "") · FUTURE" : "\(order.expiration ?? "") · \(money(order.strike)) · \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Action", value: order.fill_action ?? order.action ?? "—"); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: order.commissionLabel); if order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: order) } }; LabeledContent("Average fill price", value: money(order.fillPrice)); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
                     else { OrderDetail(initial: order) }
                 } label: {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack { SymbolText(symbol: order.name).font(.headline); Spacer(); Text(money(history ? order.fillPrice : order.premium)).monospacedDigit() }
-                        HStack { Text("\(order.action ?? "") · \(order.option_type ?? "")"); Spacer(); Text(order.status).foregroundStyle(order.amendment_pending != nil || order.status.lowercased() == "unknown" ? .orange : .secondary) }.font(.caption)
+                        HStack { Text("\(order.action ?? "") · \(order.option_type ?? "")\(order.order_type.map { " · " + $0 } ?? "")"); Spacer(); Text(order.status).foregroundStyle(order.amendment_pending != nil || order.status.lowercased() == "unknown" ? .orange : .secondary) }.font(.caption)
                         Text(LocalizedStringKey(order.statusExplanation)).font(.caption).foregroundStyle(.secondary)
                         if !history, let filled = order.filledQuantity {
                             Text("Filled \(filled.formatted()) / \(order.quantity?.formatted() ?? "—") · \(money(order.fillPrice))")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                        if order.option_type == "STOCK" {
+                        if order.option_type == "FUTURE" {
+                            Text("\(order.expiration ?? "") · Qty \((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—") · \(order.timingLabel)").font(.caption).foregroundStyle(.secondary)
+                        } else if order.option_type == "STOCK" {
                             Text("\((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—") shares").font(.caption).foregroundStyle(.secondary)
                         } else {
                             Text("\(order.expiration ?? "") · \(money(order.strike)) · Qty \((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—") · \(order.timingLabel)").font(.caption).foregroundStyle(.secondary)
