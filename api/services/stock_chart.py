@@ -61,6 +61,42 @@ def aggregate(bars, minutes, sessions=None):
     return result
 
 
+@lru_cache(maxsize=128)
+def period_close(day, minutes, session):
+    start = date.fromisoformat(day)
+    if minutes == 10080:
+        end = start + timedelta(days=6-start.weekday())
+    elif minutes == 43200:
+        end = (start.replace(day=28)+timedelta(days=4)).replace(day=1)-timedelta(days=1)
+    else:
+        end = start
+    schedule = calendars.get_calendar('NYSE').schedule(start_date=start, end_date=end)
+    if schedule.empty:
+        return None
+    close = schedule.iloc[-1].market_close.to_pydatetime()
+    if session == 'all':
+        close = close.astimezone(ZoneInfo('America/New_York')).replace(hour=20,minute=0,second=0)
+    return close.timestamp()
+
+
+def bar_close_time(bar, minutes, session, now):
+    if not bar:
+        return None
+    start = bar['time']
+    nyday = datetime.fromtimestamp(start, ZoneInfo('America/New_York')).date()
+    daily = minutes >= 1440 or (minutes == 480 and session == 'rth')
+    if daily:
+        end = period_close(nyday.isoformat(), minutes, session)
+    else:
+        end = start + minutes*60
+        if session == 'rth':
+            window = next(((a,b) for a,b in regular_sessions(nyday.isoformat()) if a<=start<b),None)
+            if not window:
+                return None
+            end = min(end, window[1])
+    return end if end is not None and start <= now < end else None
+
+
 class StockChart:
     def __init__(self):
         self.active = None
@@ -198,8 +234,13 @@ class StockChart:
         ask = positive(getattr(ticker, 'ask', None)) if quote_valid else None
         if bid is not None and ask is not None and bid > ask:
             bid = ask = None
+        output_bars = higher_bars if higher_bars is not None else aggregate(state['bars'], minutes, sessions)
+        server_time = time.time()
+        live = in_session and age is not None and age < 10
+        closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time) if live else None
         return dict(con_id=con_id, symbol=contract.symbol, interval=minutes,
-            bars=higher_bars if higher_bars is not None else aggregate(state['bars'], minutes, sessions), session=session, generation=str(state['generation']),
+            server_time=server_time, bar_closes_at=closes_at,
+            bars=output_bars, session=session, generation=str(state['generation']),
             bid=bid, ask=ask, quote_time=quote_time if quote_valid else None,
             source='IB Last tick-by-tick', status='live' if in_session and age is not None and age < 10 else 'waiting',
             last_tick=last, received_at=state['received'], tick_count=state['ticks'],

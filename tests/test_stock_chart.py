@@ -4,7 +4,7 @@ from types import SimpleNamespace as S
 import unittest
 from unittest.mock import Mock
 from eventkit import Event
-from api.services.stock_chart import StockChart, aggregate, apply_tick, regular_sessions
+from api.services.stock_chart import StockChart, aggregate, apply_tick, regular_sessions, bar_close_time
 
 class StockChartTests(unittest.TestCase):
     def test_ticks_preserve_intrabar_extremes_and_new_minutes(self):
@@ -115,3 +115,15 @@ class StockChartTests(unittest.TestCase):
             self.assertEqual(conn.ib.cancelHistoricalData.call_count,3)
             conn.ib.placeOrder.assert_not_called()
         finally:asyncio.get_event_loop().close()
+
+    def test_countdown_session_close_early_close_and_calendar(self):
+        ts=lambda value:datetime.fromisoformat(value).timestamp()
+        bar={'time':ts('2026-10-02T19:30:00+00:00')}
+        self.assertEqual(bar_close_time(bar,60,'rth',ts('2026-10-02T19:45:00+00:00')),ts('2026-10-02T20:00:00+00:00'))
+        self.assertIsNone(bar_close_time(bar,60,'rth',ts('2026-10-02T20:00:00+00:00')))
+        early={'time':ts('2026-11-27T17:30:00+00:00')}
+        self.assertEqual(bar_close_time(early,60,'rth',ts('2026-11-27T17:45:00+00:00')),ts('2026-11-27T18:00:00+00:00'))
+        daily={'time':ts('2026-10-02T04:00:00+00:00')}
+        self.assertEqual(bar_close_time(daily,480,'rth',ts('2026-10-02T15:00:00+00:00')),ts('2026-10-02T20:00:00+00:00'))
+        weekly={'time':ts('2026-11-23T05:00:00+00:00')}
+        self.assertEqual(bar_close_time(weekly,10080,'rth',ts('2026-11-23T16:00:00+00:00')),ts('2026-11-27T18:00:00+00:00'))
