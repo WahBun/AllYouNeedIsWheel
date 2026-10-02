@@ -15,4 +15,16 @@ assert.equal(await page.evaluate(()=>saved.at(-1).drawings[0].p[0].price),11,'ta
 const handle=await page.locator('[data-handle]').boundingBox();await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:handle.x+14,y:handle.y+14}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:point.x,y:point.y+5}]});await page.waitForTimeout(30);assert.match(await page.locator('[data-snap-label]').textContent(),/^O /);await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await page.waitForTimeout(50);assert.equal(await page.evaluate(()=>saved.at(-1).drawings[0].p[0].price),10);assert.equal(await page.locator('[data-handle]').count(),1,'selection survives adjustment');
 await page.getByRole('button',{name:'Floating magnet: strong',exact:true}).click();assert.equal(await page.evaluate(()=>saved.at(-1).magnet),'off');
 const grip=await page.getByRole('button',{name:'Move floating magnet',exact:true}).boundingBox();await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:grip.x+18,y:grip.y+18}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:grip.x+100,y:grip.y-80}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});const moved=await page.locator('#draw-magnet').boundingBox();assert.ok(moved.x>50);
-await page.mouse.click(300,500);await page.waitForTimeout(50);assert.equal(await page.locator('#draw-magnet').isVisible(),false);assert.equal(await page.locator('[data-handle]').count(),0);assert.deepEqual(errors,[]);console.log('Touch preview, live OHLC feedback, retained selection, movable magnet and automatic hiding passed');}finally{await browser.close();}})();
+assert.equal(await page.getByRole('button',{name:'Deselect drawing',exact:true}).count(),0,'close X removed');
+// Native chart consumers can suppress compatibility clicks; dismissal must use touch.
+await page.evaluate(()=>document.getElementById('chart').addEventListener('touchend',e=>{e.preventDefault();e.stopPropagation();},{passive:false}));
+await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:300,y:500}]});
+await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:280,y:510}]});
+await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await page.waitForTimeout(50);
+assert.equal(await page.locator('#draw-properties').isVisible(),true,'panning retains selection');
+const beforeDismiss=await page.evaluate(()=>JSON.stringify(saved.at(-1).drawings));
+await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:300,y:500}]});
+await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await page.waitForTimeout(50);
+assert.equal(await page.evaluate(()=>JSON.stringify(saved.at(-1).drawings)),beforeDismiss,'deselect preserves drawing');
+assert.equal(await page.locator('#draw-properties').isVisible(),false);
+assert.equal(await page.locator('#draw-magnet').isVisible(),false);assert.equal(await page.locator('[data-handle]').count(),0);assert.deepEqual(errors,[]);console.log('Touch preview, live OHLC feedback, retained selection, movable magnet and automatic hiding passed');}finally{await browser.close();}})();
