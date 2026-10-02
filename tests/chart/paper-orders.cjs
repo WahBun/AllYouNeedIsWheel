@@ -18,6 +18,23 @@ const result=await page.evaluate(()=>{
  configure({...base,paper:{enabled:true,sync_error:true}});
  return {held,done,errorOverlay:!!document.getElementById('paper-status')};
 });assert.match(fills.held,/Long/);assert.doesNotMatch(fills.held,/LMT/);assert.equal(fills.done.hidden,true);assert.equal(fills.done.statusOverlay,false);assert.equal(fills.errorOverlay,false);
+const priceOrders=await page.evaluate(()=>{
+ receive({con_id:7,generation:'price-orders',symbol:'MES',local_symbol:'MESZ6',interval:5,session:'all',bars:[{time:1000,open:100,high:102,low:98,close:100}]});
+ configure({entry:0,quantity:2,con_id:7,tpDistance:2,slDistance:1,priceRules:[{low:0,increment:.25}],paper:{enabled:true,active:false}});
+ const output=[];
+ for(const [price,index] of [[105,0],[105,1],[95,0],[95,1]]){
+  cursorOrderPrice=price;priceAdd.style.top='100px';priceAdd.click();
+  const buttons=priceMenu.querySelectorAll('button');output.push([...buttons].map(b=>b.textContent));
+  const before=sent.length;buttons[index].click();buttons[index].click();
+  if(sent.length!==before+1)throw Error('Price order double submitted');
+ }
+ const orders=sent.slice(-4);
+ configure({entry:0,quantity:2,con_id:7,tpDistance:2,slDistance:1,priceRules:[{low:0,increment:.25}],paper:{enabled:true,active:true}});
+ cursorOrderPrice=105;priceAdd.click();if([...priceMenu.querySelectorAll('button')].some(b=>!b.disabled))throw Error('Active bracket did not disable price orders');
+ closePriceMenu();return {output,orders};
+});
+assert.deepEqual(priceOrders.orders.map(o=>[o.side,o.entry_type,o.entry,o.tp,o.sl]),[[-1,'LMT',105,103,106],[1,'STP',105,107,104],[1,'LMT',95,97,94],[-1,'STP',95,93,96]]);
+assert.match(priceOrders.output[0][1],/Buy Stop 2 MESZ6 @ 105.00/);
 const markers=await page.evaluate(()=>{
  receive({con_id:7,generation:'marks',interval:5,session:'all',bars:[{time:1000,open:10,high:11,low:9,close:10},{time:1300,open:10,high:12,low:9,close:11}]});
  const c={entry:0,quantity:1,con_id:7,priceRules:[{low:0,increment:.25}],paper:{executions:[{id:'buy',time:1010,price:10,quantity:1,side:'BUY'},{id:'sell',time:1310,price:11,quantity:1,side:'SELL'}]}};

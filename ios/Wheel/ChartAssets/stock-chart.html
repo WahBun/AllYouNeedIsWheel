@@ -109,7 +109,7 @@ window.receive=(packet)=>{if(countdownPacket?.server_time!==packet.server_time){
   for(const b of bars){series.update(b);if(b.time===previous.at(-1).time)previous[previous.length-1]=b;else previous.push(b);}
   updateReadout();if(!sideReady){inferSide();clampLevels();}updateLines();return;
  }
- if(packet.mode==='delta'&&key===incomingKey){const merged=new Map(previous.map(b=>[b.time,b]));for(const b of bars)merged.set(b.time,b);bars=[...merged.values()].sort((a,b)=>a.time-b.time);}chart.applyOptions({timeScale:{timeVisible:!(packet.interval>=1440||(packet.interval===480&&packet.session==='rth')),tickMarkFormatter:t=>new Date(t*1000).toLocaleString('en-US',(packet.interval>=1440||(packet.interval===480&&packet.session==='rth'))?{timeZone:'America/New_York',month:'short',day:'numeric',year:'2-digit'}:{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false})}});const newKey=(packet.con_id||'')+'-'+packet.generation+'-'+packet.interval+'-'+packet.session;if(key!==newKey||!previous.length){key=newKey;readoutTime=null;readoutLatest=false;chart.clearCrosshairPosition();document.getElementById('readout').textContent='';chart.priceScale('right').applyOptions({autoScale:true});series.setData(bars);chart.timeScale().setVisibleLogicalRange({from:Math.max(0,bars.length-70),to:bars.length+18});}else if(bars.length&&bars[0].time<previous[0].time){const range=chart.timeScale().getVisibleLogicalRange();const offset=bars.findIndex(b=>b.time===previous[0].time);series.setData(bars);if(range&&offset>=0)chart.timeScale().setVisibleLogicalRange({from:range.from+offset,to:range.to+offset});}else if(bars.length){const last=previous[previous.length-1].time;const old=new Map(previous.map(b=>[b.time,b]));const revised=bars.some(b=>b.time<last&&JSON.stringify(old.get(b.time))!==JSON.stringify(b));if(revised){const range=chart.timeScale().getVisibleLogicalRange();series.setData(bars);if(range)chart.timeScale().setVisibleLogicalRange(range);}else for(const b of bars)if(b.time>=last)series.update(b);}previous=bars;updateReadout();updateExecutionMarks();if(!sideReady){inferSide();clampLevels();}document.getElementById('empty').textContent=bars.length?'':'No bars for this session';updateLines();};
+ if(packet.mode==='delta'&&key===incomingKey){const merged=new Map(previous.map(b=>[b.time,b]));for(const b of bars)merged.set(b.time,b);bars=[...merged.values()].sort((a,b)=>a.time-b.time);}chart.applyOptions({timeScale:{timeVisible:!(packet.interval>=1440||(packet.interval===480&&packet.session==='rth')),tickMarkFormatter:t=>new Date(t*1000).toLocaleString('en-US',(packet.interval>=1440||(packet.interval===480&&packet.session==='rth'))?{timeZone:'America/New_York',month:'short',day:'numeric',year:'2-digit'}:{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false})}});const newKey=(packet.con_id||'')+'-'+packet.generation+'-'+packet.interval+'-'+packet.session;if(key!==newKey||!previous.length){key=newKey;closePriceMenu();priceAdd.hidden=true;readoutTime=null;readoutLatest=false;chart.clearCrosshairPosition();document.getElementById('readout').textContent='';chart.priceScale('right').applyOptions({autoScale:true});series.setData(bars);chart.timeScale().setVisibleLogicalRange({from:Math.max(0,bars.length-70),to:bars.length+18});}else if(bars.length&&bars[0].time<previous[0].time){const range=chart.timeScale().getVisibleLogicalRange();const offset=bars.findIndex(b=>b.time===previous[0].time);series.setData(bars);if(range&&offset>=0)chart.timeScale().setVisibleLogicalRange({from:range.from+offset,to:range.to+offset});}else if(bars.length){const last=previous[previous.length-1].time;const old=new Map(previous.map(b=>[b.time,b]));const revised=bars.some(b=>b.time<last&&JSON.stringify(old.get(b.time))!==JSON.stringify(b));if(revised){const range=chart.timeScale().getVisibleLogicalRange();series.setData(bars);if(range)chart.timeScale().setVisibleLogicalRange(range);}else for(const b of bars)if(b.time>=last)series.update(b);}previous=bars;updateReadout();updateExecutionMarks();if(!sideReady){inferSide();clampLevels();}document.getElementById('empty').textContent=bars.length?'':'No bars for this session';updateLines();};
 let readoutTime=null,readoutLatest=false;
 function updateReadout(){
  const b=readoutLatest?previous.at(-1):previous.find(b=>b.time===readoutTime);
@@ -123,6 +123,51 @@ function handleReadoutMove(p){
  updateReadout();
 }
 chart.subscribeCrosshairMove(handleReadoutMove);
+// Price-axis order entry: explicit side and type at the selected tick price.
+const priceAdd=document.createElement('button'),priceMenu=document.createElement('div');
+priceAdd.id='price-order-add';priceAdd.textContent='⊕';priceAdd.setAttribute('aria-label','Orders at selected price');priceAdd.hidden=true;
+priceAdd.style.cssText='position:absolute;right:62px;width:30px;height:30px;padding:0;border:0;border-radius:4px;background:#20242d;color:white;font:22px -apple-system;z-index:6;touch-action:manipulation';
+priceMenu.id='price-order-menu';priceMenu.hidden=true;priceMenu.style.cssText='position:absolute;right:8px;z-index:16;background:#20242d;color:#eee;border-radius:6px;padding:4px;box-shadow:0 3px 10px #0005;max-width:calc(100% - 16px)';
+document.body.append(priceAdd,priceMenu);
+let cursorOrderPrice=null,menuOrderPrice=null,menuOrderCID=null;
+function closePriceMenu(){priceMenu.hidden=true;menuOrderPrice=null;}
+function priceOrderChoices(price,reference){
+ if(!(price>0&&reference>0)||price===reference)return [];
+ return price>reference?[{side:-1,type:'LMT',label:'Sell Limit'},{side:1,type:'STP',label:'Buy Stop'}]:[{side:1,type:'LMT',label:'Buy Limit'},{side:-1,type:'STP',label:'Sell Stop'}];
+}
+function sendPriceOrder(choice){
+ const price=menuOrderPrice,cid=menuOrderCID;closePriceMenu();
+ if(cid!==paperCID||!paperConfig.enabled||paperConfig.active||paperConfig.busy||!(qty>0)||!Number.isFinite(qty))return;
+ if(!priceOrderChoices(price,previous.at(-1)?.close).some(c=>c.side===choice.side&&c.type===choice.type)){validation('Price crossed the market · select the order again');return;}
+ const tp=snapPrice(price+choice.side*template.tp),sl=snapPrice(price-choice.side*template.sl);
+ if(!(template.tp>0&&template.sl>0&&tp>0&&sl>0&&(tp-price)*choice.side>0&&(price-sl)*choice.side>0)){validation('Set valid TP / SL distances first');return;}
+ paperAction({action:'submit',entry:price,quantity:qty,side:choice.side,entry_type:choice.type,tp,sl});
+}
+priceAdd.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();});
+priceAdd.onclick=e=>{
+ e.stopPropagation();hideExecutionPopup();
+ if(!priceMenu.hidden){closePriceMenu();return;}
+ menuOrderPrice=cursorOrderPrice;menuOrderCID=paperCID;priceMenu.replaceChildren();
+ const choices=priceOrderChoices(menuOrderPrice,previous.at(-1)?.close);
+ for(const choice of choices){
+  const button=document.createElement('button');
+  button.textContent=choice.label+' '+qty+' '+(countdownPacket?.local_symbol||countdownPacket?.symbol||'')+' @ '+priceText(menuOrderPrice);
+  button.style.cssText='display:block;background:transparent;color:inherit;border:0;text-align:left;padding:12px;font:13px -apple-system;min-height:44px;width:100%;touch-action:manipulation';
+  button.disabled=!paperConfig.enabled||paperConfig.active||paperConfig.busy;
+  button.onclick=e=>{e.stopPropagation();sendPriceOrder(choice);};priceMenu.append(button);
+ }
+ if(!choices.length){priceMenu.textContent='Choose a price above or below the market';}
+ priceMenu.hidden=false;priceMenu.style.top=Math.max(35,Math.min(parseFloat(priceAdd.style.top)+32,innerHeight-priceMenu.offsetHeight-32))+'px';
+};
+chart.subscribeCrosshairMove(p=>{
+ if(!priceMenu.hidden||!p.point)return;
+ cursorOrderPrice=p.point?snapPrice(series.coordinateToPrice(p.point.y)):null;
+ priceAdd.hidden=cursorOrderPrice===null||!p.point||p.point.y<35||p.point.y>innerHeight-32;
+ if(!priceAdd.hidden)priceAdd.style.top=(p.point.y-15)+'px';
+});
+chartSurface.addEventListener('pointerdown',closePriceMenu,true);
+chart.timeScale().subscribeVisibleLogicalRangeChange(()=>{closePriceMenu();priceAdd.hidden=true;});
+window.addEventListener('chart-viewport-resized',()=>{closePriceMenu();priceAdd.hidden=true;});
 function move(k,y){const raw=series.coordinateToPrice(y),price=snapPrice(raw);if(price===null){validation('Waiting for valid contract price increments');return;}validation();if(k==='entry'){breakEven=false;entry=price;inferSide();clampLevels();if(!levels.tp)appliedTemplate=-1;updateLines();if(dragging!=='entry')window.webkit?.messageHandlers.entryChanged?.postMessage(entry);return;}if(k==='sl')breakEven=false;const edge=stepPrice(entry,side);levels[k]=k==='tp'&&edge!==null?(side>0?Math.max(edge,price):Math.min(edge,price)):price;updateLines();}
 for(const k of ['tp','sl','entry']){const h=document.getElementById(k);h.addEventListener('pointerdown',e=>{dragging=k;h.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();});h.addEventListener('pointermove',e=>{if(dragging===k){move(k,e.clientY);e.preventDefault();}});for(const type of ['pointerup','pointercancel','lostpointercapture'])h.addEventListener(type,()=>{const role=dragging;const wasEntry=role==='entry';dragging=null;if(type==='pointerup'&&paperConfig.active&&['tp','sl'].includes(role))paperAction({action:'amend',role,price:levels[role]});if(wasEntry)window.webkit?.messageHandlers.entryChanged?.postMessage(entry);});h.addEventListener('keydown',e=>{if(e.key==='ArrowUp'||e.key==='ArrowDown'){move(k,series.priceToCoordinate(stepPrice(k==='entry'?entry:levels[k],e.key==='ArrowUp'?1:-1)));e.preventDefault();}});}
 document.getElementById('cancel').addEventListener('click',()=>{if(paperConfig.active){paperAction({action:'close'});return;}canceled=true;dragging=null;levels={tp:0,sl:0};updateLines();window.webkit?.messageHandlers.entryChanged?.postMessage(0);});

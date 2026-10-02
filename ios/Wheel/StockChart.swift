@@ -65,6 +65,10 @@ struct StockChartView: View {
     private func paperAction(_ body: [String: Any]) {
         guard !paperBusy, paperEnabled, let cid = chartID else { return }
         if let source = body["con_id"] as? Int, source != cid { return }
+        if body["action"] as? String == "submit" {
+            if let type = body["entry_type"] as? String, ["LMT", "STP"].contains(type) { entryType = type }
+            if let price = body["entry"] as? Double { entry = String(price) }
+        }
         paperBusy = true
         Task {
             defer { paperBusy = false }
