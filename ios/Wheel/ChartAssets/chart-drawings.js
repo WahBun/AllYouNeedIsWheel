@@ -2,7 +2,7 @@
 (()=>{
 const tools=[['trend','Trendline','╱',2],['info','Info line','↗',2],['hray','Horizontal ray','⊢',1],['channel','Parallel channel','∥',3],['fib','Fib retracement','☰',2],['fibext','Trend-based fib extension','≋',3],['long','Long position','L',1],['short','Short position','S',1],['range','Price range','↕',2],['highlight','Highlighter','▰',0],['arrow','Arrow','➚',2],['up','Arrow mark up','⇧',1],['down','Arrow mark down','⇩',1],['rect','Rectangle','□',2],['path','Path','⌁',0],['triangle','Triangle','△',3],['curve','Curve','∿',3],['text','Text','T',1],['note','Note','▣',1],['price','Price note','$',2]];
 const referenceOrder=['long','up','price','arrow','triangle','trend','text','info','fib','channel','rect','fibext','path','range','curve','hray','highlight','note','down','short'];
-let order=[...referenceOrder],magnet='weak',snapFeedback=null,ghost=null,gesture=null;
+let order=[...referenceOrder],magnet='weak',snapFeedback=null,ghost=null,gesture=null,cursor=null,suppressChartClickUntil=0;
 const iconPaths={trend:'M4 20L20 4',info:'M4 20L20 4M14 4h6v6M14 17h7v5h-7z',hray:'M4 12h18M4 10v4',channel:'M3 15L17 3M7 21L21 9',fib:'M3 4h18M3 9h18M3 15h18M3 21h18',fibext:'M3 10L10 4L16 8M3 13h18M3 17h18M3 21h18',long:'M3 5h18M3 12h18M3 20h18M7 5v7M16 12v8',short:'M3 5h18M3 12h18M3 20h18M16 5v7M7 12v8',range:'M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4M3 3h18M3 21h18',highlight:'M4 18L15 3l6 5L10 22zM2 22h12',arrow:'M4 20L20 4M12 4h8v8',up:'M12 3l9 10h-6v8H9v-8H3z',down:'M12 21L3 11h6V3h6v8h6z',rect:'M4 4h16v16H4z',path:'M2 18l6-8 6 5 8-12M16 3h6v6',triangle:'M4 3l16 17H4z',curve:'M3 21Q3 3 21 3',text:'M3 4h18M12 4v17M8 21h8',note:'M3 3h18v14h-7l-5 5v-5H3zM7 7h10M12 7v7',price:'M3 3h18v14H3zM12 17v5M15 6H9v4h6v4H9M12 4v12'};
 function toolButton(t,fn){const b=button('',t[1],fn);const icon=element('svg',{viewBox:'0 0 24 24',width:22,height:22,fill:'none',stroke:'currentColor','stroke-width':1.2,'stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true'},b);element('path',{d:iconPaths[t[0]]},icon);return b;}
 const orderedTools=()=>order.map(id=>tools.find(t=>t[0]===id)).filter(Boolean);
@@ -20,7 +20,7 @@ function button(text,title,fn){const b=document.createElement('button');b.textCo
 function save(){revision++;window.webkit?.messageHandlers.drawingsChanged?.postMessage({drawings,favorites,collapsed,order,magnet});}
 function remember(){undo.push(JSON.stringify(drawings));if(undo.length>20)undo.shift();}
 function finish(){if(draft&&draft.p.length>=2){remember();drawings.push(draft);selected=draft.id;draft=null;save();}choose(null);}
-function choose(id){snapFeedback=null;if(id)selected=null;active=id;draft=null;ghost=null;gesture=null;chart.clearCrosshairPosition();touch.style.display=id?'block':'none';menu.style.display='none';hint.style.display=id?'block':'none';hint.textContent=['long','short'].includes(id)?'Tap to place · select to adjust target, stop and width':id==='path'?'Tap points · double-tap last point or ✓ to finish':id==='highlight'?'Drag to highlight':id?tools.find(t=>t[0]===id)[1]+' · drag to draw, or tap points':'';renderToolbar();}
+function choose(id){snapFeedback=null;if(id)selected=null;active=id;draft=null;ghost=null;gesture=null;cursor=id?anchor((innerWidth-50)/2,(innerHeight-30)/2):null;chart.clearCrosshairPosition();touch.style.display=id?'block':'none';menu.style.display='none';hint.style.display=id?'block':'none';hint.textContent=['long','short'].includes(id)?'Tap to place · select to adjust target, stop and width':id==='path'?'Tap points · double-tap last point or ✓ to finish':id==='highlight'?'Drag to highlight':id?tools.find(t=>t[0]===id)[1]+' · drag to draw, or tap points':'';if(id&&id!=='highlight')hint.textContent='Drag crosshair to position · tap to place point';renderToolbar();}
 function deleteSelected(){if(!selected||locked||drawings.find(d=>d.id===selected)?.locked)return;remember();drawings=drawings.filter(d=>d.id!==selected);selected=null;save();renderToolbar();}
 function draggable(control,panel=toolbar){let origin;control.style.touchAction='none';control.onpointerdown=e=>{e.stopPropagation();control.dataset.dragged='0';origin={x:e.clientX,y:e.clientY,left:panel.offsetLeft,top:panel.offsetTop};control.setPointerCapture(e.pointerId);};control.onpointermove=e=>{if(!origin)return;const dx=e.clientX-origin.x,dy=e.clientY-origin.y;if(Math.hypot(dx,dy)<5&&control.dataset.dragged!=='1')return;control.dataset.dragged='1';e.preventDefault();panel.style.left=Math.max(0,Math.min(innerWidth-panel.offsetWidth,origin.left+dx))+'px';panel.style.top=Math.max(0,Math.min(innerHeight-panel.offsetHeight-30,origin.top+dy))+'px';};control.onpointerup=control.onpointercancel=()=>{origin=null;};}
 function renderToolbar(){renderFloatingMagnet();requestAnimationFrame(clampPanels);renderProperties();toolbar.replaceChildren();const toggle=button(collapsed?'✎':'‹',collapsed?'Expand drawing tools':'Collapse drawing tools',()=>{collapsed=!collapsed;if(collapsed){toolbar.style.left='5px';choose(null);}renderToolbar();save();});toolbar.append(toggle);if(collapsed)draggable(toggle);
@@ -99,14 +99,14 @@ function paint(d,isDraft=false){const p=d.p.map(xy);if(p.some(v=>!v))return;cons
   let handles=p.map((point,index)=>({point,index}));
   if(d.type==='rect'&&p.length>=2)handles=[{point:a,index:0},{point:b,index:1},{point:{x:a.x,y:b.y},axis:[0,1]},{point:{x:b.x,y:a.y},axis:[1,0]},{point:{x:(a.x+b.x)/2,y:a.y},axis:[null,0]},{point:{x:(a.x+b.x)/2,y:b.y},axis:[null,1]},{point:{x:a.x,y:(a.y+b.y)/2},axis:[0,null]},{point:{x:b.x,y:(a.y+b.y)/2},axis:[1,null]}];
   if(['long','short'].includes(d.type)&&p.length===3){const right=xy({time:positionEnd(d),price:d.p[0].price});handles=[{point:a,role:'entry'},{point:{x:a.x,y:b.y},role:'stop'},{point:{x:a.x,y:c.y},role:'target'},{point:right,role:'width'}];}
-  for(const h of handles){if(!h.point)continue;const {x,y}=h.point;element('circle',{cx:x,cy:y,r:3,fill:'#eef4ee',stroke:'#315fc4','pointer-events':'none'},g);const hit=element('circle',{cx:x,cy:y,r:14,fill:'transparent',stroke:'none','pointer-events':'all','data-handle':h.role||String(h.index??h.axis),style:'touch-action:none'},g);hit.onpointerdown=e=>{e.preventDefault();e.stopPropagation();remember();drag={d,index:h.index,axis:h.axis,role:h.role,points:d.p.map(p=>({...p})),endTime:d.endTime};touch.style.display='block';touch.setPointerCapture(e.pointerId);};}
+  for(const h of handles){if(!h.point)continue;const {x,y}=h.point;element('circle',{cx:x,cy:y,r:3,fill:'#eef4ee',stroke:'#315fc4','pointer-events':'none'},g);const hit=element('circle',{cx:x,cy:y,r:14,fill:'transparent',stroke:'none','pointer-events':'all','data-handle':h.role||String(h.index??h.axis),style:'touch-action:none'},g);hit.onpointerdown=e=>{e.preventDefault();e.stopPropagation();remember();drag={d,index:h.index,axis:h.axis,role:h.role,origin:anchor(e.clientX,e.clientY),points:d.p.map(p=>({...p})),endTime:d.endTime};touch.style.display='block';touch.setPointerCapture(e.pointerId);};}
  }
 
 }
 function commit(){if(!draft)return;if(drawings.length>=200){hint.textContent='200 drawings maximum; delete drawings first';return;}remember();drawings.push(draft);selected=draft.id;draft=null;save();choose(null);}
 function capture(e){
  const raw=anchor(e.clientX,e.clientY);
- if(!raw||magnet==='off'||active==='highlight'||drag?.index===null){snapFeedback=null;return raw;}
+ if(!raw||magnet==='off'||active==='highlight'||(drag?.index===null||drag?.role==='entry')){snapFeedback=null;return raw;}
  const logical=chart.timeScale().coordinateToLogical(e.clientX);
  const index=Math.max(0,Math.min(previous.length-1,Math.round(logical))),bar=previous[index];
  if(!bar){snapFeedback=null;return raw;}
@@ -128,21 +128,64 @@ function paintSnap(){
  if(snapFeedback.name){const c=snapFeedback.candidates.find(c=>c.name===snapFeedback.name);const x=Math.max(4,Math.min(innerWidth-120,c.x+14)),y=Math.max(20,c.y-14);element('rect',{x:x-3,y:y-12,width:84,height:19,rx:3,fill:'#252726',stroke:'none','pointer-events':'none'});const t=element('text',{x,y,fill:'#fff','font-size':11,'pointer-events':'none','data-snap-label':'true'});t.textContent=c.name+' '+priceText(c.price);}
 }
 
+function paintCursor(){
+ if(!active||!cursor)return;const p=xy(cursor);if(!p)return;
+ const right=innerWidth-50,bottom=innerHeight-30,color='#2878dc';
+ element('line',{x1:0,y1:p.y,x2:right,y2:p.y,stroke:color,'stroke-width':1,'stroke-dasharray':'5 4','data-placement-cursor':'horizontal'});
+ element('line',{x1:p.x,y1:0,x2:p.x,y2:bottom,stroke:color,'stroke-width':1,'stroke-dasharray':'5 4','data-placement-cursor':'vertical'});
+ element('circle',{cx:p.x,cy:p.y,r:5,fill:'none',stroke:color,'stroke-width':1.5});
+ element('rect',{x:right,y:Math.max(0,p.y-10),width:50,height:20,fill:color,rx:2});
+ const label=element('text',{x:right+25,y:Math.max(0,p.y-10)+14,fill:'white','font-size':10,'text-anchor':'middle','data-cursor-price':'true'});label.textContent=priceText(cursor.price);
+ const time=new Date(cursor.time*1000).toLocaleTimeString('en-GB',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit'});
+ const x=Math.max(0,Math.min(right-48,p.x-24));element('rect',{x,y:bottom-20,width:48,height:20,fill:color,rx:2});
+ const t=element('text',{x:x+24,y:bottom-6,fill:'white','font-size':10,'text-anchor':'middle'});t.textContent=time;
+}
+
 function completeDraft(){if(!draft)return;if(['long','short'].includes(active)&&draft.p.length===1){const a=draft.p[0],screen=xy(a),sign=active==='long'?1:-1;const risk=Math.min(a.price*.25,Math.abs(series.coordinateToPrice(screen.y+55)-a.price));if(!(risk>0))return;draft.p.push({time:a.time,price:a.price-sign*risk},{time:a.time,price:a.price+sign*risk});draft.endTime=anchor(screen.x+85,screen.y)?.time??a.time;}if(['text','note'].includes(active)){editor.style.display='block';editor.querySelector('input').value='';editor.querySelector('input').focus();return;}if(active==='long'||active==='short'){const sign=active==='long'?1:-1,base=draft.p[0].price;if(sign*(draft.p[1].price-base)>=0||sign*(draft.p[2].price-base)<=0){draft=null;ghost=null;hint.textContent='Tap entry, then stop on risk side, then target on profit side';return;}}commit();}
+// Touch uses a persistent cursor: dragging positions it, a separate tap fixes it.
+// Finger deltas are applied to the unsnapped origin so a magnet cannot trap movement.
 touch.onpointerdown=e=>{
- e.preventDefault();const p=capture(e);if(!p||!active)return;ghost=null;
- if(!draft)draft={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),type:active,p:[]};
+ e.preventDefault();if(!active)return;
  const count=tools.find(t=>t[0]===active)[3];
- gesture={x:e.clientX,y:e.clientY,drag:false,two:e.pointerType!=='touch'&&count===2&&draft.p.length===0,touchPlacement:e.pointerType==='touch'&&active!=='highlight',index:draft.p.length};
+ if(e.pointerType==='touch'&&active!=='highlight'){
+  const origin=cursor&&xy(cursor);if(!origin)return;
+  gesture={x:e.clientX,y:e.clientY,cursorX:origin.x,cursorY:origin.y,drag:false,cursorPlacement:true};
+  touch.setPointerCapture(e.pointerId);return;
+ }
+ const p=capture(e);if(!p)return;cursor=p;ghost=null;
+ if(!draft)draft={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),type:active,p:[]};
+ gesture={x:e.clientX,y:e.clientY,drag:false,two:count===2&&draft.p.length===0};
  touch.setPointerCapture(e.pointerId);
- if(active==='highlight')draft.p=[p];else {draft.p.push(p);if(count&&draft.p.length===count&&!gesture.touchPlacement)completeDraft();}
+ if(active==='highlight')draft.p=[p];else {draft.p.push(p);if(count&&draft.p.length===count)completeDraft();}
 };
-touch.onpointermove=e=>{const p=capture(e);if(!p)return;if(drag){if(drag.index===null){if(!drag.origin)return;if(!drag.moved&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4)return;if(!drag.moved)remember();const dt=p.time-drag.origin.time,dp=p.price-drag.origin.price;if(drag.endTime!==undefined)drag.d.endTime=drag.endTime+dt;if(drag.points.some(point=>point.price+dp<=0))return;drag.d.p=drag.points.map(point=>({time:point.time+dt,price:point.price+dp}));}else if(drag.role){const d=drag.d,sign=d.type==='long'?1:-1;if(drag.role==='width'){if(p.time>d.p[0].time)d.endTime=p.time;}else if(drag.role==='entry'){d.p[0].price=p.price;d.p[1].price=Math.max(.00000001,p.price+(drag.points[1].price-drag.points[0].price));d.p[2].price=Math.max(.00000001,p.price+(drag.points[2].price-drag.points[0].price));}else {const i=drag.role==='stop'?1:2;if((p.price-d.p[0].price)*sign*(i===1?-1:1)>0)d.p[i].price=p.price;}}else if(drag.axis){const [x,y]=drag.axis;if(x!==null)drag.d.p[x].time=p.time;if(y!==null)drag.d.p[y].price=p.price;}else drag.d.p[drag.index]=p;drag.moved=true;revision++;const bar=previous[Math.max(0,Math.min(previous.length-1,Math.round(chart.timeScale().coordinateToLogical(e.clientX))))];if(bar)chart.setCrosshairPosition(p.price,bar.time,series);return;}if(!active||!draft)return;if(active==='highlight'){if(draft.p.length<400)draft.p.push(p);return;}if(gesture?.touchPlacement){draft.p[gesture.index]=p;ghost=null;}else ghost=p;if(gesture&&Math.hypot(e.clientX-gesture.x,e.clientY-gesture.y)>5)gesture.drag=true;const bar=previous[Math.round(chart.timeScale().coordinateToLogical(e.clientX))];if(bar)chart.setCrosshairPosition(p.price,bar.time,series);};
-touch.onpointerup=()=>{if(drag){snapFeedback=null;const moved=drag.moved;drag=null;chart.clearCrosshairPosition();touch.style.display='none';if(moved){save();}renderToolbar();}else if(active==='highlight')commit();else if(gesture?.touchPlacement&&draft){const count=tools.find(t=>t[0]===active)?.[3];ghost=null;snapFeedback=null;chart.clearCrosshairPosition();if(count&&draft.p.length===count)completeDraft();}else if(gesture?.two&&gesture.drag&&draft&&ghost){draft.p.push(ghost);ghost=null;completeDraft();}gesture=null;};touch.onpointercancel=()=>{snapFeedback=null;if(drag?.points){drag.d.p=drag.points;if(drag.endTime!==undefined)drag.d.endTime=drag.endTime;revision++;}drag=null;choose(null);};
+function placeCursor(){
+ if(!active||!cursor)return;
+ if(!draft)draft={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),type:active,p:[]};
+ draft.p.push({...cursor});ghost=null;
+ const count=tools.find(t=>t[0]===active)[3];
+ if(count&&draft.p.length===count)completeDraft();
+ else hint.textContent='Point '+draft.p.length+' placed · drag crosshair, tap for next'+(active==='path'?' · ✓ to finish':'');
+}
+touch.onpointermove=e=>{
+ if(gesture?.cursorPlacement){
+  const dx=e.clientX-gesture.x,dy=e.clientY-gesture.y;
+  if(!gesture.drag&&Math.hypot(dx,dy)<4)return;
+  gesture.drag=true;
+  cursor=capture({clientX:Math.max(1,Math.min(innerWidth-55,gesture.cursorX+dx)),clientY:Math.max(1,Math.min(innerHeight-35,gesture.cursorY+dy)),pointerType:'touch'});
+  ghost=cursor;revision++;return;
+ }
+ const p=capture(e);if(!p)return;if(drag){if(drag.index===null){if(!drag.origin)return;if(!drag.moved&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4)return;if(!drag.moved)remember();const dt=p.time-drag.origin.time,dp=p.price-drag.origin.price;if(drag.endTime!==undefined)drag.d.endTime=drag.endTime+dt;if(drag.points.some(point=>point.price+dp<=0))return;drag.d.p=drag.points.map(point=>({time:point.time+dt,price:point.price+dp}));}else if(drag.role){const d=drag.d,sign=d.type==='long'?1:-1;if(drag.role==='width'){if(p.time>d.p[0].time)d.endTime=p.time;}else if(drag.role==='entry'){
+ const dt=p.time-drag.origin.time,dp=p.price-drag.origin.price;
+ if(drag.points.some(point=>point.price+dp<=0))return;
+ d.p=drag.points.map(point=>({time:point.time+dt,price:point.price+dp}));
+ if(drag.endTime!==undefined)d.endTime=drag.endTime+dt;
+ }else {const i=drag.role==='stop'?1:2;if((p.price-d.p[0].price)*sign*(i===1?-1:1)>0)d.p[i].price=p.price;}}else if(drag.axis){const [x,y]=drag.axis;if(x!==null)drag.d.p[x].time=p.time;if(y!==null)drag.d.p[y].price=p.price;}else drag.d.p[drag.index]=p;drag.moved=true;revision++;const bar=previous[Math.max(0,Math.min(previous.length-1,Math.round(chart.timeScale().coordinateToLogical(e.clientX))))];if(bar)chart.setCrosshairPosition(p.price,bar.time,series);return;}if(!active)return;cursor=p;if(!draft){revision++;return;}if(active==='highlight'){if(draft.p.length<400)draft.p.push(p);return;}if(gesture?.touchPlacement){draft.p[gesture.index]=p;ghost=null;}else ghost=p;if(gesture&&Math.hypot(e.clientX-gesture.x,e.clientY-gesture.y)>5)gesture.drag=true;const bar=previous[Math.round(chart.timeScale().coordinateToLogical(e.clientX))];if(bar)chart.setCrosshairPosition(p.price,bar.time,series);};
+touch.onpointerup=()=>{if(gesture?.cursorPlacement){suppressChartClickUntil=performance.now()+350;if(!gesture.drag)placeCursor();gesture=null;return;}if(drag){snapFeedback=null;const moved=drag.moved;drag=null;chart.clearCrosshairPosition();touch.style.display='none';if(moved){save();}renderToolbar();}else if(active==='highlight')commit();else if(gesture?.touchPlacement&&draft){const count=tools.find(t=>t[0]===active)?.[3];ghost=null;snapFeedback=null;chart.clearCrosshairPosition();if(count&&draft.p.length===count)completeDraft();}else if(gesture?.two&&gesture.drag&&draft&&ghost){draft.p.push(ghost);ghost=null;completeDraft();}gesture=null;};touch.onpointercancel=()=>{snapFeedback=null;if(drag?.points){drag.d.p=drag.points;if(drag.endTime!==undefined)drag.d.endTime=drag.endTime;revision++;}drag=null;choose(null);};
 editor.querySelector('#draw-save').onclick=()=>{const existing=drawings.find(d=>d.id===editor.dataset.drawing);if(existing&&!existing.locked&&!locked){remember();existing.text=editor.querySelector('input').value.trim()||'Text';save();}delete editor.dataset.drawing;if(draft){draft.text=editor.querySelector('input').value.trim()||'Text';commit();}editor.style.display='none';};editor.querySelector('#draw-cancel').onclick=()=>{editor.style.display='none';delete editor.dataset.drawing;choose(null);};
 window.configureDrawings=(config)=>{if(config.key===loadedKey)return;loadedKey=config.key;revision++;const value=config.value||{};order=Array.isArray(value.order)?[...new Set([...value.order.filter(id=>referenceOrder.includes(id)),...referenceOrder])]:[...referenceOrder];magnet=['off','weak','strong'].includes(value.magnet)?value.magnet:'weak';drawings=Array.isArray(value.drawings)?value.drawings.filter(d=>tools.some(t=>t[0]===d.type)&&Array.isArray(d.p)&&d.p.length<=400&&d.p.every(p=>Number.isFinite(p.time)&&Number.isFinite(p.price)&&p.price>0)).slice(0,200):[];favorites=Array.isArray(value.favorites)?value.favorites.filter(id=>tools.some(t=>t[0]===id)):tools.map(t=>t[0]);collapsed=value.collapsed!==false;selected=null;undo=[];choose(null);renderToolbar();};
 touch.addEventListener('dblclick',e=>{if(active==='path'){e.preventDefault();if(draft?.p.length>2){const last=draft.p.at(-1),prev=draft.p.at(-2);const a=xy(last),b=xy(prev);if(a&&b&&Math.hypot(a.x-b.x,a.y-b.y)<10)draft.p.pop();}finish();}});
  document.addEventListener('keydown',e=>{if(e.target instanceof HTMLInputElement)return;if(e.key==='Escape'){selected=null;choose(null);revision++;}else if(['Delete','Backspace'].includes(e.key)&&selected){e.preventDefault();deleteSelected();}else if(e.key==='Enter'&&active==='path')finish();});
-document.getElementById('chart').addEventListener('click',()=>{if(!active&&!drag&&selected){selected=null;revision++;renderToolbar();}});
-let lastRender='';function render(){const range=chart.timeScale().getVisibleLogicalRange();const fingerprint=JSON.stringify([range,innerWidth,innerHeight,previous.at(-1),revision,draft,ghost,snapFeedback,selected,active,locked,hidden,series.priceToCoordinate(1),series.priceToCoordinate(2)]);if(fingerprint!==lastRender){lastRender=fingerprint;svg.setAttribute('width',innerWidth);svg.setAttribute('height',innerHeight-30);svg.replaceChildren();if(!hidden){drawings.forEach(d=>paint(d));if(draft){const count=tools.find(t=>t[0]===draft.type)[3];paint(ghost&&(draft.p.length<count||draft.type==='path')?{...draft,p:[...draft.p,ghost]}:draft,true);}paintSnap();}}requestAnimationFrame(render);}renderToolbar();render();
+document.addEventListener('pointerdown',()=>{suppressChartClickUntil=0;},true);
+document.getElementById('chart').addEventListener('click',()=>{if(performance.now()>=suppressChartClickUntil&&!active&&!drag&&selected){selected=null;revision++;renderToolbar();}});
+let lastRender='';function render(){const range=chart.timeScale().getVisibleLogicalRange();const fingerprint=JSON.stringify([range,innerWidth,innerHeight,previous.at(-1),revision,draft,ghost,cursor,snapFeedback,selected,active,locked,hidden,series.priceToCoordinate(1),series.priceToCoordinate(2)]);if(fingerprint!==lastRender){lastRender=fingerprint;svg.setAttribute('width',innerWidth);svg.setAttribute('height',innerHeight-30);svg.replaceChildren();if(!hidden){drawings.forEach(d=>paint(d));if(draft){const count=tools.find(t=>t[0]===draft.type)[3];paint(ghost&&(draft.p.length<count||draft.type==='path')?{...draft,p:[...draft.p,ghost]}:draft,true);}paintSnap();paintCursor();}}requestAnimationFrame(render);}renderToolbar();render();
 })();
