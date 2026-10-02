@@ -73,7 +73,8 @@ struct StockChartView: View {
     }
     private func paperAction(_ body: [String: Any]) {
         if body["action"] as? String == "indicatorSettings" { showIndicatorSettings = true; return }
-        if body["action"] as? String == "indicatorToggle" { showEMA.toggle(); return }
+        if body["action"] as? String == "indicatorToggle" { indicatorVisible.toggle(); return }
+        if body["action"] as? String == "indicatorCollapse", let collapsed = body["collapsed"] as? Bool { indicatorCollapsed = collapsed; return }
         if body["action"] as? String == "editQuantity" {
             guard !paperActive, !paperBusy, body["con_id"] as? Int == chartID else { return }
             quantityDraft = quantity; showQuantityEditor = true; return
@@ -151,6 +152,8 @@ struct StockChartView: View {
     @AppStorage("chartBracketProfitUnit") private var bracketProfitUnit = "money"
     @AppStorage("chartShowATR") private var showATR = true
     @AppStorage("chartATRLength") private var atrLength = 4
+    @AppStorage("chartIndicatorCollapsed") private var indicatorCollapsed = false
+    @AppStorage("chartIndicatorVisible") private var indicatorVisible = true
     @AppStorage("chartShowEMA") private var showEMA = true
     @AppStorage("chartEMALength") private var emaLength = 20
     @AppStorage("chartEMASource") private var emaSource = "close"
@@ -205,12 +208,12 @@ struct StockChartView: View {
                 Section {
                     Text("Changes apply immediately and are saved.").font(.caption).foregroundStyle(.secondary)
                     Button("Restore defaults") {
-                        showEMA = true; emaLength = 20; emaSource = "close"; emaOffset = 0
+                        indicatorVisible = true; showEMA = true; emaLength = 20; emaSource = "close"; emaOffset = 0
                         emaDynamic = true; emaColor = "#f9f1db"; emaWidth = 1; emaStyle = 0
                         showATR = true; atrLength = 4
                     }
                 }
-            }.navigationTitle("Indicators").navigationBarTitleDisplayMode(.inline)
+            }.navigationTitle("𝔹𝕖𝕟").navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("Done") { showIndicatorSettings = false } }
         }
     }
@@ -221,9 +224,9 @@ struct StockChartView: View {
     private var adjustmentLimit: Int { adjustmentAction == "trim" ? max(0, positionSize - 1) : max(0, quantityLimit - positionSize) }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["ema": showEMA, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
+        ["indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
          "emaDynamic": emaDynamic, "emaColor": emaColor + "ab", "emaWidth": emaWidth, "emaStyle": emaStyle,
-         "atr": showATR, "atrLength": atrLength, "profit": showProfit, "positions": showPositionProfit, "brackets": showBracketProfit,
+         "atr": showATR && indicatorVisible, "atrLength": atrLength, "profit": showProfit, "positions": showPositionProfit, "brackets": showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
          "positionUnit": positionProfitUnit, "bracketUnit": bracketProfitUnit]
     }

@@ -25,6 +25,14 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
   return {seed,replacement,repeated,sorted,hidden,switched,action};
  });
  assert.deepEqual(result,{seed:[10,11,12.5],replacement:13.5,repeated:13.5,sorted:true,hidden:true,switched:10,action:'indicatorSettings'});
+ await page.evaluate(()=>{
+  if(indicatorName.textContent!=='𝔹𝕖𝕟')throw Error('Wrong indicator name');
+  if(indicatorRow.offsetLeft!==document.getElementById('chart-title').offsetLeft)throw Error('Legend not aligned');
+  indicatorCollapse.click();if(indicatorContent.style.display!=='none'||window.action!=='indicatorCollapse')throw Error('Collapse bridge failed');
+  configure({display:{ema:true,indicatorCollapsed:true}});
+  if(indicatorContent.style.display!=='none')throw Error('Saved collapse lost');
+  indicatorCollapse.click();if(indicatorContent.style.display!=='flex')throw Error('Expand failed');
+ });
  const timing=await page.evaluate(()=>{
   const bars=Array.from({length:12000},(_,i)=>({time:1700000000+i*300,open:100+i*.01,high:102+i*.01,low:99+i*.01,close:101+i*.01}));
   configure({display:{ema:true,emaLength:20}});
