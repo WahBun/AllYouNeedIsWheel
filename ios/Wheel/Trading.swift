@@ -256,6 +256,43 @@ final class TradingSession {
         }
     }
 
+    func chartStream(base: String, conID: Int, interval: Int, marketSession: String,
+                     receive: @escaping ([String: Any]) -> Void) async throws {
+        var url = URLComponents(url: try endpoint(base, "api/portfolio/stock-chart-stream/\(conID)"), resolvingAgainstBaseURL: false)!
+        url.queryItems = [URLQueryItem(name: "interval", value: String(interval)), URLQueryItem(name: "session", value: marketSession)]
+        var request = URLRequest(url: url.url!, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+              http.value(forHTTPHeaderField: "Content-Type")?.contains("text/event-stream") == true else {
+            throw AppError.message("Chart stream unavailable")
+        }
+        var sequence = 0
+        var bars: [Int: [String: Any]] = [:]
+        var generation: String?
+        for try await line in bytes.lines {
+            try Task.checkCancellation()
+            guard line.hasPrefix("data: "), let data = line.dropFirst(6).data(using: .utf8),
+                  var packet = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let next = packet["sequence"] as? Int,
+                  packet["con_id"] as? Int == conID,
+                  let updates = packet["bars"] as? [[String: Any]] else { continue }
+            if packet["mode"] as? String == "snapshot" {
+                bars = [:]; generation = packet["generation"] as? String
+            } else if sequence == 0 || next != sequence + 1 || generation != packet["generation"] as? String {
+                throw AppError.message("Chart stream resynchronizing")
+            }
+            sequence = next
+            for bar in updates { if let stamp = bar["time"] as? Int { bars[stamp] = bar } }
+            packet["changed_bars"] = updates
+            packet["bars"] = bars.keys.sorted().compactMap { bars[$0] }
+            receive(packet)
+        }
+        try Task.checkCancellation()
+        throw AppError.message("Chart stream reconnecting")
+    }
+
     func synchronizedOrders(base: String) async throws -> Orders {
         // This endpoint reconciles status only; it does not submit or cancel orders.
         var request = URLRequest(url: try endpoint(base, "api/options/check-orders"), timeoutInterval: 30)

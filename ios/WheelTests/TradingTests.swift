@@ -1184,3 +1184,44 @@ final class TradingTests: XCTestCase {
         client.acknowledgeReview()
     }
 }
+
+final class ChartStreamProtocol: URLProtocol {
+    static var packets: [[String: Any]] = []
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/event-stream"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        for packet in Self.packets {
+            let json = String(data: try! JSONSerialization.data(withJSONObject: packet), encoding: .utf8)!
+            client?.urlProtocol(self, didLoad: Data("data: \(json)\n\n".utf8))
+        }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+extension TradingTests {
+    func testChartStreamMergesUpdatesAndRejectsGap() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ChartStreamProtocol.self]
+        let client = TradingSession(session: URLSession(configuration: config))
+        func packet(_ sequence: Int, _ mode: String, _ close: Double) -> [String: Any] {
+            ["con_id": 7, "sequence": sequence, "generation": "one", "mode": mode,
+             "bars": [["time": 60, "open": 10, "high": 12, "low": 9, "close": close]]]
+        }
+        ChartStreamProtocol.packets = [packet(1,"snapshot",10),packet(2,"delta",11),packet(4,"delta",12)]
+        var received: [[String: Any]] = []
+        do {
+            try await client.chartStream(base: "https://wheel.invalid", conID: 7, interval: 1, marketSession: "all") { received.append($0) }
+            XCTFail("Gap must reconnect")
+        } catch { }
+        XCTAssertEqual(received.count,2)
+        XCTAssertEqual((received.last?["bars"] as? [[String: Any]])?.last?["close"] as? Double,11)
+        ChartStreamProtocol.packets = [packet(1,"snapshot",10),packet(9,"snapshot",12)]
+        received = []
+        do { try await client.chartStream(base: "https://wheel.invalid", conID: 7, interval: 1, marketSession: "all") { received.append($0) } } catch { }
+        XCTAssertEqual(received.count,2)
+        XCTAssertEqual((received.last?["bars"] as? [[String: Any]])?.count,1)
+    }
+}

@@ -170,3 +170,9 @@ def get_stock_chart(con_id):
         return _no_store_json({'error': str(error)}, 503)
     except Exception:
         return _no_store_json({'error': 'Stock chart unavailable; retry shortly'}, 503)
+
+
+@bp.route('/stock-chart-stream/<int:con_id>', methods=['GET'])
+def get_stock_chart_stream(con_id):
+    from api.services.chart_stream import response
+    return response(portfolio_service._ensure_connection)

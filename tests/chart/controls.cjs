@@ -23,6 +23,11 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
   move('sl',series.priceToCoordinate(entry-.25));const sellProfit=levels.sl;
   priceRules=[{low:0,increment:.0001},{low:1,increment:.01}];const fine={price:snapPrice(.12346),text:priceText(.1235),up:stepPrice(.9999,1),down:stepPrice(1,-1)};
   priceRules=[];const unknown=snapPrice(9.13);
+  window.receive({generation:'test',interval:1,session:'all',mode:'delta',bars:[{time:1060,open:10,high:11,low:9,close:10}]});
+  const deltaCount=series.data().length;
+  window.receive({generation:'test',interval:1,session:'all',mode:'delta',bars:[]});
+  const heartbeatCount=series.data().length;
+  if(deltaCount!==2||heartbeatCount!==2)throw Error('Incremental data lost history');
   return {profitableSL,snappedEntry,before,invalid,message,noDelayedApply,corrected,be,sell,sellProfit,fine,unknown};
  });
  assert.equal(result.profitableSL,9.25);assert.equal(result.snappedEntry,9.25);

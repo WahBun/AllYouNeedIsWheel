@@ -46,7 +46,27 @@ def install_api_dispatcher(app):
         Thread(target=background_loop, name='fill-sync-scheduler', daemon=True).start()
 
 
+    def chart_loop():
+        from api.services.chart_stream import streams
+        outstanding = None
+        while not stop_background.wait(.02):
+            if not streams.clients or (outstanding is not None and not outstanding.done()):
+                continue
+            def pulse():
+                try:
+                    with app.app_context(): streams.pulse()
+                except Exception:
+                    logging.getLogger('autotrader.api').warning('Chart push paused')
+            try:
+                outstanding = executor.submit(pulse)
+            except RuntimeError:
+                return
+    if not app.testing:
+        Thread(target=chart_loop, name='chart-event-pump', daemon=True).start()
+
     def dispatch():
+        if request.endpoint == 'portfolio.get_stock_chart_stream':
+            return original_dispatch()
         if not request.path.startswith('/api/') or (request.method == 'GET' and request.path in {'/api/options/market-session', '/api/performance/history'}):
             return original_dispatch()
         key = None

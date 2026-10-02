@@ -110,6 +110,7 @@ class StockChart:
             state['ticker'].updateEvent -= state['handler']
             try:
                 state['conn'].ib.cancelTickByTickData(state['contract'], 'Last')
+                state['conn'].ib.cancelTickByTickData(state['contract'], 'BidAsk')
             except Exception:
                 pass
 
@@ -165,6 +166,11 @@ class StockChart:
                 raise ValueError('Historical stock bars unavailable; check IB data permissions')
             self.next_request[con_id] = time.monotonic() + 15
             ticker = conn.ib.reqTickByTickData(contract, 'Last', 0, False)
+            try:
+                conn.ib.reqTickByTickData(contract, 'BidAsk', 0, False)
+            except Exception:
+                conn.ib.cancelTickByTickData(contract, 'Last')
+                raise
             state = dict(conn=conn, client=conn.ib.client, contract=contract, ticker=ticker,
                 con_id=con_id, bars=bars[-12000:], used=now, last_tick=None, received=None,
                 generation=time.time_ns(), ticks=0, live_bars={}, quotes={})
@@ -178,6 +184,10 @@ class StockChart:
                         state['quotes'][side] = (quote.time.timestamp(),
                             positive(quote.price) if quote.tickType in (1, 2) else None)
                 for tick in updated.tickByTicks:
+                    if hasattr(tick, 'bidPrice'):
+                        for side, value in [('bid', tick.bidPrice), ('ask', tick.askPrice)]:
+                            state['quotes'][side] = (tick.time.timestamp(), positive(value))
+                        continue
                     if not hasattr(tick, 'price'):
                         continue
                     timestamp = tick.time.timestamp()
@@ -274,6 +284,11 @@ class StockChart:
                 state['price_rules'] = [dict(low=float(r.lowEdge), increment=float(r.increment)) for r in rules if r.lowEdge >= 0 and positive(r.increment)]
             except Exception:
                 pass  # Unknown tick size disables BE; never guess a cent.
+        return self.packet(state, minutes, session, higher_bars)
+
+    def packet(self, state, minutes, session, higher_bars=None):
+        contract = state['contract']
+        con_id = state['con_id']
         last = state['last_tick']
         age = time.time() - last if last is not None else None
         sessions = regular_sessions(datetime.now(timezone.utc).date().isoformat()) if session == 'rth' else None
@@ -281,9 +296,10 @@ class StockChart:
         ticker = state['ticker']
         now = time.time()
         quotes = state['quotes']
+        activity = max([stamp for stamp, _ in quotes.values()] + [last or 0])
         def fresh_quote(side):
             stamp, price = quotes.get(side, (None, None))
-            return price if (stamp is not None and 0 <= now - stamp < 3
+            return price if (stamp is not None and 0 <= now - stamp < 30 and 0 <= now - activity < 10
                             and getattr(ticker, 'marketDataType', None) == 1) else None
         bid, ask = fresh_quote('bid'), fresh_quote('ask')
         valid_times = [quotes[side][0] for side, value in [('bid', bid), ('ask', ask)] if value is not None]
@@ -298,6 +314,7 @@ class StockChart:
             server_time=server_time, bar_closes_at=closes_at, price_rules=state.get('price_rules', []),
             bars=output_bars, session=session, generation=str(state['generation']),
             bid=bid, ask=ask, quote_time=quote_time,
+            quote_expires_at=min(quote_time + 30, activity + 10) if quote_time is not None else None,
             source='IB Last tick-by-tick', status='live' if in_session and age is not None and age < 10 else 'waiting',
             last_tick=last, received_at=state['received'], tick_count=state['ticks'],
             historical=True, transport='HTTP batches, about 250ms plus request time', currency='USD')

@@ -203,3 +203,23 @@ correction. No broker write integration was added.
 Regression: `NODE_PATH=<playwright node_modules> node tests/chart/controls.cjs`
 checks long/short profit stops, quarter-point and sub-cent tiers, BE/Join reset,
 and invalid-template recovery in Chromium. Device build verified separately.
+
+## Stock chart SSE pilot (2026-10-02)
+
+Intraday charts now use a one-way SSE connection. The existing IB owner executor
+is pumped by at most one outstanding job scheduled every 20 ms while viewers are
+active; incoming Last ticks retain OHLC extrema, and only changed bars are pushed.
+This is bounded display coalescing, not one screen frame per trade or guaranteed
+latency. Other serialized IB work can delay delivery. D/W/M and RTH 8h retain the
+historical polling path. Two viewers maximum, one active stock; queues are bounded
+and overflow emits a complete snapshot. Connections renew after two minutes and
+clients reconnect on sequence gaps. No order writes use this transport.
+First snapshot precedes deferred history/metadata. iOS reuses an in-memory chart
+up to five minutes old while reconnecting, explicitly labeled and with Join disabled
+until fresh data arrives. No persistent/offline quote is presented as live.
+Dedicated BidAsk tick subscription supplies quotes. A side can persist for up to
+30 seconds while actual source activity remains within ten seconds; absent,
+frozen, crossed, disconnected or expired quotes disable Join. Client receipt must
+also be recent. This is not a promise that buttons always remain enabled.
+Full-screen toggle hides navigation, tabs and trade controls while retaining
+period/session selection and an exit button. Chart controls remain preview-only.

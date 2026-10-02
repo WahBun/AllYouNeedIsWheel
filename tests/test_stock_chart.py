@@ -51,9 +51,9 @@ class StockChartTests(unittest.TestCase):
             self.assertEqual(result['tick_count'],1)
             self.assertEqual(result['bars'][-1]['high'],12)
             self.assertEqual(conn.ib.reqHistoricalData.call_count,2)
-            conn.ib.reqTickByTickData.assert_called_once()
+            self.assertEqual(conn.ib.reqTickByTickData.call_count,2)
             conn.ib.placeOrder.assert_not_called()
-            feed.stop();conn.ib.cancelTickByTickData.assert_called_once()
+            feed.stop();self.assertEqual(conn.ib.cancelTickByTickData.call_count,2)
         finally:asyncio.get_event_loop().close()
     def test_wrong_asset_and_missing_history_never_subscribe(self):
         conn,_=self.connection();feed=StockChart()
@@ -77,7 +77,7 @@ class StockChartTests(unittest.TestCase):
             self.assertEqual((result['bid'],result['ask']),(10,10.01))
             ticker.marketDataType=2
             self.assertIsNone(feed.snapshot(conn,7,5)['bid'])
-            ticker.marketDataType=1;ticker.time=datetime.now(timezone.utc)-timedelta(seconds=5)
+            ticker.marketDataType=1;ticker.time=datetime.now(timezone.utc)-timedelta(seconds=35)
             ticker.ticks=[S(tickType=2,time=ticker.time,price=10.01)]
             ticker.updateEvent.emit(ticker)
             self.assertIsNone(feed.snapshot(conn,7,5)['ask'])
@@ -175,7 +175,7 @@ class StockChartTests(unittest.TestCase):
         try:
             ticker.marketDataType=1
             feed.snapshot(conn,7,1,'all')
-            old=datetime.now(timezone.utc)-timedelta(seconds=5)
+            old=datetime.now(timezone.utc)-timedelta(seconds=35)
             ticker.ticks=[S(tickType=k,time=old,price=10) for k in (1,2)]
             ticker.updateEvent.emit(ticker)
             ticker.time=datetime.now(timezone.utc)
@@ -201,4 +201,19 @@ class StockChartTests(unittest.TestCase):
             feed.snapshot(conn,7,1,'all')
             self.assertEqual(conn._bounded_order_read.call_count,2)
             conn.ib.placeOrder.assert_not_called()
+        finally:feed.stop();asyncio.get_event_loop().close()
+
+    def test_bidask_subscription_keeps_unchanged_quote_during_active_feed(self):
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection();feed=StockChart()
+        try:
+            ticker.marketDataType=1
+            feed.snapshot(conn,7,1,'all')
+            ticker.tickByTicks=[S(time=datetime.now(timezone.utc)-timedelta(seconds=5),bidPrice=10,askPrice=10.01)]
+            ticker.updateEvent.emit(ticker)
+            ticker.tickByTicks=[S(time=datetime.now(timezone.utc),price=10)]
+            ticker.updateEvent.emit(ticker)
+            result=feed.snapshot(conn,7,1,'all')
+            self.assertEqual((result['bid'],result['ask']),(10,10.01))
+            self.assertGreater(result['quote_expires_at'],result['server_time'])
         finally:feed.stop();asyncio.get_event_loop().close()

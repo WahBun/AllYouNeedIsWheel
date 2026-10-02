@@ -1,12 +1,22 @@
 import SwiftUI
 import WebKit
 
+@MainActor private enum RecentStockCharts {
+    static var packets: [String: (Date, [String: Any])] = [:]
+    static func save(_ packet: [String: Any], key: String) {
+        packets = packets.filter { Date().timeIntervalSince($0.value.0) < 300 }
+        if packets.count >= 12 { packets.removeAll() }
+        packets[key] = (.now, packet)
+    }
+}
+
 struct StockChartView: View {
     let position: Position
     @Environment(WheelStore.self) private var store
     @Environment(\.scenePhase) private var phase
     @Environment(\.colorScheme) private var colors
     @State private var interval = 5
+    @State private var fullScreen = false
     @AppStorage("chartFavoriteIntervals") private var favoriteIntervals = "1,3,5,10,15,60,480,1440,10080,43200"
     @State private var showIntervals = false
     private let intervals = [1, 3, 5, 10, 15, 60, 480, 1440, 10080, 43200]
@@ -33,12 +43,15 @@ struct StockChartView: View {
     @State private var notice = "Loading chart…"
     @State private var visible = false
     @State private var received: Date?
+    private var cacheKey: String { "\(store.address)-\(position.con_id ?? 0)-\(interval)-\(session)" }
     private var context: String { "\(store.demo)-\(store.address)-\(position.con_id ?? 0)-\(interval)-\(session)-\(phase == .active)-\(visible)" }
     private var validEntry: Double { Double(entry).flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 0 }
     private var validQuantity: Double { Double(quantity).flatMap { $0.isFinite && $0 > 0 && $0 <= 1_000_000 ? $0 : nil } ?? 0 }
     private func joinPrice(_ side: String) -> Double? {
         guard let received, Date().timeIntervalSince(received) < 3,
-              let stamp = packet["quote_time"] as? Double, Date().timeIntervalSince1970 - stamp < 3,
+              let expires = packet["quote_expires_at"] as? Double,
+              let serverTime = packet["server_time"] as? Double,
+              serverTime + Date().timeIntervalSince(received) < expires,
               let price = packet[side] as? Double, price.isFinite, price > 0 else { return nil }
         return price
     }
@@ -90,13 +103,20 @@ struct StockChartView: View {
                 Picker("Session", selection: $session) {
                     Text("RTH").tag("rth"); Text("ETH").tag("all")
                 }.fixedSize()
+                Button { fullScreen.toggle() } label: {
+                    Image(systemName: fullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                        .frame(width: 36, height: 44)
+                }.buttonStyle(.plain).accessibilityLabel(fullScreen ? "Exit full screen" : "Full screen")
             }
+            if !fullScreen {
             TimelineView(.periodic(from: .now, by: 1)) { time in
                 Text(received.map { time.date.timeIntervalSince($0) > 3 } == true ? "Chart updates paused · verify connection" : LocalizedStringKey(notice))
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
+            }
             StockChartWeb(packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) })
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+            if !fullScreen {
             HStack(spacing: 8) {
                 TextField("Shares", text: $quantity).keyboardType(.decimalPad)
                     .multilineTextAlignment(.center).textFieldStyle(.roundedBorder).frame(width: 48)
@@ -125,8 +145,10 @@ struct StockChartView: View {
                     }
                 }.font(.system(size: 13, weight: .semibold))
             }.buttonStyle(.bordered)
+            }
         }.padding(.horizontal, 12).padding(.bottom, 8)
         .navigationTitle(position.symbol).navigationBarTitleDisplayMode(.inline)
+        .toolbar(fullScreen ? .hidden : .visible, for: .navigationBar, .tabBar)
         .modifier(KeyboardDismissal())
         .alert("Close Position · Preview", isPresented: $showClosePreview) {
             Button("Done", role: .cancel) { }
@@ -184,14 +206,27 @@ struct StockChartView: View {
             guard visible, phase == .active else { return }
             guard !store.demo else { notice = "Chart pilot requires a connected held stock"; return }
             guard let conID = position.con_id, conID > 0 else { return }
+            if let cached = RecentStockCharts.packets[cacheKey], Date().timeIntervalSince(cached.0) < 300 {
+                packet = cached.1
+                packet["bid"] = NSNull(); packet["ask"] = NSNull(); packet["bar_closes_at"] = NSNull()
+                notice = "Recent chart · connecting to live data"
+            }
             var failures = 0
             while !Task.isCancelled {
                 do {
+                    if interval < 1440 && !(interval == 480 && session == "rth") {
+                        try await store.trading.chartStream(base: store.address, conID: conID, interval: interval, marketSession: session) { result in
+                            packet = result; received = .now; failures = 0
+                            RecentStockCharts.save(result, key: cacheKey)
+                            notice = result["status"] as? String == "live" ? "IB Last ticks · live push" : "Historical bars · waiting for IB Last ticks"
+                        }
+                    }
                     let result = try await store.trading.get("api/portfolio/stock-chart/\(conID)", base: store.address,
                         query: [URLQueryItem(name: "interval", value: String(interval)), URLQueryItem(name: "session", value: session)])
                     try Task.checkCancellation()
                     guard result["con_id"] as? Int == conID, result["bars"] is [[String: Any]] else { throw AppError.message("Invalid chart response") }
                     packet = result; received = .now; failures = 0
+                    RecentStockCharts.save(result, key: cacheKey)
                     notice = (interval >= 1440 || (interval == 480 && session == "rth")) ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks"
                 } catch {
                     guard !Task.isCancelled else { return }
@@ -254,6 +289,8 @@ private struct StockChartWeb: UIViewRepresentable {
     class Coordinator: NSObject, WKScriptMessageHandler {
         weak var web: WKWebView?
         var ready = false
+        var lastStreamSequence = 0
+        var lastStreamKey = ""
         var packet: [String: Any] = [:]
         var config: [String: Any] = [:]
         var onEntry: ((Double) -> Void)?
@@ -266,7 +303,19 @@ private struct StockChartWeb: UIViewRepresentable {
         }
         func update() {
             guard ready else { return }
-            for (function, value) in [("configure", config), ("receive", packet)] {
+            var outgoing = packet
+            if let sequence = packet["sequence"] as? Int {
+                let key = "\(packet["generation"] ?? "")-\(packet["interval"] ?? "")-\(packet["session"] ?? "")"
+                if sequence == lastStreamSequence && key == lastStreamKey { outgoing = [:] }
+                else {
+                    if lastStreamKey == key && sequence == lastStreamSequence + 1 && packet["mode"] as? String == "delta" {
+                        outgoing["bars"] = packet["changed_bars"] ?? []
+                    } else { outgoing["mode"] = "snapshot" }
+                    lastStreamKey = key; lastStreamSequence = sequence
+                }
+                outgoing.removeValue(forKey: "changed_bars")
+            } else { lastStreamSequence = 0; lastStreamKey = "" }
+            for (function, value) in [("configure", config), ("receive", outgoing)] {
                 guard !value.isEmpty, let data = try? JSONSerialization.data(withJSONObject: value), let json = String(data: data, encoding: .utf8) else { continue }
                 web?.evaluateJavaScript("window.\(function)(\(json))", completionHandler: nil)
             }
