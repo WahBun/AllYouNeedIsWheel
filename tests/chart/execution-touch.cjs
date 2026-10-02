@@ -5,14 +5,16 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
  await page.setContent(fs.readFileSync(path.join(root,'stock-chart.html'),'utf8').replace('/*LIBRARY*/',()=>fs.readFileSync(path.join(root,'lightweight-charts.standalone.production.js'),'utf8')));
  await page.evaluate(()=>{
   receive({con_id:7,generation:'touch',interval:5,session:'all',bars:Array.from({length:70},(_,i)=>({time:1000+300*i,open:10,high:12,low:9,close:11}))});
-  configure({con_id:7,entry:0,quantity:1,priceRules:[{low:0,increment:.25}],display:{executionLabels:false},paper:{executions:[{id:'buy',side:'BUY',time:16010,price:10,quantity:3},{id:'sell',side:'SELL',time:16020,price:11,quantity:3}]}});
+  configure({con_id:7,entry:0,quantity:1,priceRules:[{low:0,increment:.25}],display:{executionLabels:false},paper:{executions:[...Array.from({length:4},(_,i)=>({id:'buy-'+i,side:'BUY',time:16010+i,price:10+i*.25,quantity:1})),{id:'sell',side:'SELL',time:16020,price:11,quantity:3}]}});
  });
  await page.waitForTimeout(100);
+ assert.equal(await page.evaluate(()=>executionMarkers.markers().length),2,'four same-bar buy fills have one arrow, sell stays separate');
  const points=await page.evaluate(()=>({x:chart.timeScale().timeToCoordinate(16000),buy:series.priceToCoordinate(9)+14,sell:series.priceToCoordinate(12)-14}));
  for(const [side,y] of [['Buy',points.buy],['Sell',points.sell]]){
   await page.touchscreen.tap(points.x+16,y);await page.waitForTimeout(80);
   assert.equal(await page.locator('#execution-popup').isVisible(),true,side+' touch target');
   assert.match(await page.locator('#execution-popup').textContent(),new RegExp(side));
+  if(side==='Buy')assert.match(await page.locator('#execution-popup').textContent(),/4 @ 10\.38 · 4 fills/,'quantity and weighted average of all four fills');
   await page.touchscreen.tap(25,300);await page.waitForTimeout(80);
   assert.equal(await page.locator('#execution-popup').isVisible(),false,'blank tap');
  }

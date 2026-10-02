@@ -533,7 +533,7 @@ struct StockChartView: View {
             NavigationStack {
                 Form {
                     Section("Entry reference") { TextField("Price", text: $entry).keyboardType(.decimalPad) }
-                    Text(paperEnabled ? "IB Paper: Join Bid / Ask submits Entry, TP and SL. Dragging TP / SL sends an amendment on release. Close cancels the bracket then closes its remaining position." : "TP / SL preview only · drag the labels. No orders are sent.")
+                    Text(paperEnabled ? "IB Paper: Join Bid / Ask submits Entry, TP and SL. Dragging TP / SL sends an amendment on release. New futures brackets keep protection while Trim / Close sends a limit exit at bid / ask; a moving market may leave the exit working." : "TP / SL preview only · drag the labels. No orders are sent.")
                     Text("Prices and market-data permissions come from the connected IB account.")
                     Text("ETH includes available extended-hours data. Time: New York.")
                     Text("TradingView Lightweight Charts™ · Copyright © 2025 TradingView, Inc.")

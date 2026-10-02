@@ -1,4 +1,33 @@
-# Supercharts paper execution audit — 2026-10-02
+# Supercharts protected-lot verification — 2026-10-03
+
+This supersedes the cancellation/replacement scaling path in the historical audit below. Verification used the paper-only backend endpoints and the exact MES December contract. No real-account execution is enabled by these changes.
+
+## Current behavior
+
+- New futures positions use one native Entry / TP / SL bracket per contract. Add creates new unit brackets without changing existing exits.
+- Trim reprices selected units' existing TP limits to bid (long) or ask (short). Each selected unit retains its SL until its exit fills; the broker then cancels that unit's sibling. Other units' TP/SL remain unchanged. Close applies the same operation to all remaining filled units; unfilled parents are canceled separately.
+- These are limit exits, not guaranteed immediate fills. A moving market may leave some requested units working. Further Add/Trim is blocked while that adjustment is unresolved; Close can explicitly update remaining exit limits. No uncertain write is automatically replayed.
+- Older single-bracket and non-futures positions cannot use Add/Trim through this implementation. They are not silently converted.
+- Amendments refresh and preserve the broker's canonical OCA group/type and parent linkage. Previously, changing those fields caused IB errors 10326/10327. Amendment rejection is now reported even if the local order status later returns to Submitted.
+- Reconnected completed parents are recovered by permanent IDs and included in position reconciliation.
+
+## Broker-confirmed results
+
+- Long 4 → trim 1 → add 2 → trim 2 → BE → flat. Each trim preserved every surviving SL's original ID, quantity and price; Add retained old stops and added new units. The final three SLs filled after BE, and their three sibling TPs were canceled.
+- Short 4 → request trim 2 → first unit filled while the second limit remained working as the market moved. The filled unit's SL canceled; all three unclosed units still had SLs. A subsequent explicit Close filled the remaining exits and finished flat. This exercise intentionally records partial completion instead of claiming an immediate two-unit trim.
+- Buy and sell × LMT and STP, four units each: parked entry, TP amendment, SL amendment, cancel. All four combinations returned flat.
+- The earlier four-unit test group was closed after correcting OCA field preservation, without canceling its stops in advance.
+- Final read-only reconciliation: paper account, known state, MES position 0, chart inactive, MES pending orders 0. Unrelated holdings were not part of the tests.
+
+## Display and checks
+
+Execution markers now aggregate by candle and direction. Four same-candle buy fills render one arrow; tapping it shows total quantity, weighted average and original fills. Opposite directions remain separate. The details panel scrolls when necessary. Add/Trim, Close Position and BE use equal flexible widths and matching heights.
+
+296 Python tests passed, including broker OCA preservation, rejected-amendment reporting, reconnect recovery, no-replay and protection-preservation regressions. Chart execution-touch and paper-order browser checks passed, including four-fill aggregation and blank-tap dismissal. The device build succeeded and was installed. These checks are not real-money certification and do not cover every broker, exchange or network failure. Individual unit brackets also mean more broker orders than a single aggregate bracket.
+
+---
+
+# Historical audit — 2026-10-02 (superseded scaling implementation)
 
 Scope: existing chart controls plus newly requested Add / Trim. The user explicitly authorized paper-account broker writes, starting with at least four contracts. Options chart access is a subsequent task, not part of this audit. Tests used the exact MES December contract returned by the backend; existing unrelated holdings were preserved.
 

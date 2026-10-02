@@ -11,7 +11,7 @@ const executionMarkers=LightweightCharts.createSeriesMarkers(series,[],{autoScal
 let executionFingerprint='',selectedExecution=null;
 const executionDetails=new Map();
 const executionPopup=document.createElement('div');executionPopup.id='execution-popup';executionPopup.hidden=true;
-executionPopup.style.cssText='position:absolute;z-index:15;background:#151923;color:#eef0f5;border-radius:5px;padding:12px;max-width:calc(100% - 20px);box-shadow:0 3px 12px #0005;white-space:pre-line;font:12px -apple-system;pointer-events:none';
+executionPopup.style.cssText='position:absolute;z-index:15;background:#151923;color:#eef0f5;border-radius:5px;padding:12px;max-width:calc(100% - 20px);box-shadow:0 3px 12px #0005;white-space:pre-line;font:12px -apple-system;max-height:60%;overflow-y:auto;overscroll-behavior:contain;pointer-events:auto';
 executionPopup.setAttribute('role','status');document.body.append(executionPopup);
 function hideExecutionPopup(){selectedExecution=null;executionPopup.hidden=true;}
 let executionTap=null,executionPress=null;
