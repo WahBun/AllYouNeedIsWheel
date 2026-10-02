@@ -18,6 +18,8 @@ struct StockChartView: View {
     @State private var quantity = "1"
     @State private var entry = ""
     @State private var entryType = "LMT"
+    @State private var joinSide = 0
+    @State private var joinRevision = 0
     @State private var showInfo = false
     @State private var packet: [String: Any] = [:]
     @State private var notice = "Loading chart…"
@@ -35,6 +37,7 @@ struct StockChartView: View {
     private func join(_ side: String) {
         guard let price = joinPrice(side) else { return }
         entryType = "LMT"; entry = String(format: "%.2f", price)
+        joinSide = side == "bid" ? 1 : -1; joinRevision += 1
     }
     var body: some View {
         VStack(spacing: 8) {
@@ -63,7 +66,7 @@ struct StockChartView: View {
                 Text(received.map { time.date.timeIntervalSince($0) > 3 } == true ? "Chart updates paused · verify connection" : LocalizedStringKey(notice))
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
-            StockChartWeb(packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, onEntry: { entry = String(format: "%.2f", $0) })
+            StockChartWeb(packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, onEntry: { entry = String(format: "%.2f", $0) })
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
                 TextField("Shares", text: $quantity).keyboardType(.decimalPad)
@@ -151,6 +154,8 @@ private struct StockChartWeb: UIViewRepresentable {
     var quantity: Double
     var dark: Bool
     var entryType: String
+    var joinSide: Int
+    var joinRevision: Int
     var onEntry: (Double) -> Void
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIView(context: Context) -> WKWebView {
@@ -174,7 +179,7 @@ private struct StockChartWeb: UIViewRepresentable {
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.packet = packet.isEmpty ? ["bars": [], "generation": "clear", "interval": 0, "session": ""] : packet
         context.coordinator.onEntry = onEntry
-        context.coordinator.config = ["entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType]
+        context.coordinator.config = ["entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision]
         context.coordinator.update()
     }
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {

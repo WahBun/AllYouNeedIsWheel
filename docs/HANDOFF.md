@@ -164,3 +164,7 @@ Chart favorite intervals persist on-device; the period selector supports
 1-year daily, 5-year weekly and 10-year monthly bars on demand, cached for the
 active chart lease and canceled with it. Intraday history requests five days of minute bars.
 8h RTH shares the native daily history/cache with D; ETH retains 8-hour aggregation. History availability depends on the instrument.
+
+Join Bid explicitly chooses Buy LMT; Join Ask explicitly chooses Sell LMT.
+Each tap carries a one-shot revision so polling cannot reapply it after a manual
+Entry drag. Quote position relative to the last trade does not override Join.
