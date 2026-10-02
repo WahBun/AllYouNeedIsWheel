@@ -49,7 +49,7 @@ class StockChartTests(unittest.TestCase):
             result=feed.snapshot(conn,7,5,'all')
             self.assertEqual(result['tick_count'],1)
             self.assertEqual(result['bars'][-1]['high'],12)
-            conn.ib.reqHistoricalData.assert_called_once()
+            self.assertEqual(conn.ib.reqHistoricalData.call_count,2)
             conn.ib.reqTickByTickData.assert_called_once()
             conn.ib.placeOrder.assert_not_called()
             feed.stop();conn.ib.cancelTickByTickData.assert_called_once()
@@ -97,6 +97,7 @@ class StockChartTests(unittest.TestCase):
         conn,ticker=self.connection();feed=StockChart()
         try:
             feed.snapshot(conn,7,5)
+            feed.snapshot(conn,7,5)
             history=[S(date=datetime(2026,9,1).date(),open=10,high=12,low=9,close=11)]
             conn.ib.reqHistoricalData.return_value=history
             for minutes,size in [(1440,'1 day'),(10080,'1 week'),(43200,'1 month')]:
@@ -136,6 +137,7 @@ class StockChartTests(unittest.TestCase):
         conn.ib.reqContractDetails.return_value=[S(contract=contract,validExchanges='NYSE,SMART',marketRuleIds='1,2')]
         conn.ib.reqMarketRule.return_value=[S(lowEdge=0,increment=.0001),S(lowEdge=1,increment=.01)]
         try:
+            feed.snapshot(conn,7,5)
             result=feed.snapshot(conn,7,5)
             self.assertEqual(result['price_rules'][1],dict(low=1,increment=.01))
             conn.ib.reqMarketRule.assert_called_once_with(2)

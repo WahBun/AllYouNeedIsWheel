@@ -139,13 +139,14 @@ class StockChart:
         if state and conn.ib.ticker(state['contract']) is not state['ticker']:
             self.stop()
             state = None
+        initial = state is None
         if state is None:
             now = time.monotonic()
             if now < self.next_request.get(con_id, 0):
                 raise ValueError('Chart subscription cooling down; retry shortly')
             self.next_request = {key: value for key, value in self.next_request.items() if value > now}
             self.next_request[con_id] = now + 15
-            historical = conn.ib.reqHistoricalData(contract, '', '5 D', '1 min', 'TRADES',
+            historical = conn.ib.reqHistoricalData(contract, '', '1 D', '1 min', 'TRADES',
                 useRTH=False, formatDate=2, keepUpToDate=False, timeout=5)
             bars = []
             for bar in historical:
@@ -184,6 +185,26 @@ class StockChart:
             self.active = state
             ticker.updateEvent += on_tick
             asyncio.get_event_loop().call_later(30, self.expire, state)
+        if not initial and not state.get('backfilled') and time.monotonic() >= state.get('backfill_retry', 0):
+            state['backfill_retry'] = time.monotonic() + 30
+            history = conn.ib.reqHistoricalData(contract, '', '5 D', '1 min', 'TRADES',
+                useRTH=False, formatDate=2, keepUpToDate=False, timeout=5)
+            older = []
+            for bar in history:
+                if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
+                    continue
+                values = [positive(getattr(bar, field)) for field in ('open','high','low','close')]
+                if any(value is None for value in values):
+                    continue
+                o,h,l,c = values
+                if l <= min(o,c) <= max(o,c) <= h:
+                    older.append(dict(time=int(bar.date.timestamp()),open=o,high=h,low=l,close=c))
+            if older:
+                # Recent live bars win over history arriving after the first render.
+                merged = {b['time']: b for b in older}
+                merged.update({b['time']: b for b in state['bars']})
+                state['bars'] = sorted(merged.values(), key=lambda b:b['time'])[-12000:]
+                state['backfilled'] = True
         state['used'] = time.monotonic()
         conn.ib.sleep(0.01)  # Drain IB events on the owner thread, not an HTTP thread.
         higher_bars = None
@@ -221,7 +242,7 @@ class StockChart:
                 if l <= min(o, c) <= max(o, c) <= h:
                     higher_bars.append(dict(time=stamp, open=o, high=h, low=l, close=c))
             higher_bars = sorted({bar['time']: bar for bar in higher_bars}.values(), key=lambda bar: bar['time'])
-        if 'price_rules' not in state:
+        if not initial and 'price_rules' not in state:
             state['price_rules'] = []
             try:
                 details = conn.ib.reqContractDetails(contract)
@@ -252,7 +273,7 @@ class StockChart:
         live = in_session and age is not None and age < 10
         closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time) if live else None
         return dict(con_id=con_id, symbol=contract.symbol, interval=minutes,
-            server_time=server_time, bar_closes_at=closes_at, price_rules=state['price_rules'],
+            server_time=server_time, bar_closes_at=closes_at, price_rules=state.get('price_rules', []),
             bars=output_bars, session=session, generation=str(state['generation']),
             bid=bid, ask=ask, quote_time=quote_time if quote_valid else None,
             source='IB Last tick-by-tick', status='live' if in_session and age is not None and age < 10 else 'waiting',
