@@ -147,7 +147,7 @@ class StockChart:
                 raise ValueError('Chart subscription cooling down; retry shortly')
             self.next_request = {key: value for key, value in self.next_request.items() if value > now}
             self.next_request[con_id] = now + 15
-            historical = conn.ib.reqHistoricalData(contract, '', '1 D', '1 min', 'TRADES',
+            historical = conn.ib.reqHistoricalData(contract, '', '2 D' if session == 'rth' else '1 D', '1 min', 'TRADES',
                 useRTH=False, formatDate=2, keepUpToDate=False, timeout=5)
             bars = []
             for bar in historical:

@@ -46,6 +46,7 @@ class ChartStreams:
     def __init__(self):
         self.clients = {}
         self.prepared_generation = None
+        self.next_maintenance = 0
 
     def open(self, connection, con_id, minutes, session):
         if self.clients and any(s.con_id != con_id for s in self.clients.values()):
@@ -89,8 +90,11 @@ class ChartStreams:
                 sub.marker = marker
                 sub.publish(stock_chart.packet(state, sub.minutes, sub.session))
         # Defer slow history/metadata until the first snapshot has been delivered.
-        if self.prepared_generation != state['generation'] and now-min(s.created for s in self.clients.values()) > 2:
+        if (now-min(s.created for s in self.clients.values()) > 2
+                and (self.prepared_generation != state['generation']
+                     or (now >= self.next_maintenance and (not state.get('backfilled') or not state.get('price_rules'))))):
             self.prepared_generation = state['generation']
+            self.next_maintenance = now + 30
             first = next(iter(self.clients.values()))
             stock_chart.snapshot(state['conn'], first.con_id, first.minutes, first.session)
             for sub in self.clients.values():

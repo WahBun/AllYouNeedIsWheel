@@ -223,3 +223,24 @@ frozen, crossed, disconnected or expired quotes disable Join. Client receipt mus
 also be recent. This is not a promise that buttons always remain enabled.
 Full-screen toggle hides navigation, tabs and trade controls while retaining
 period/session selection and an exit button. Chart controls remain preview-only.
+
+## Persisted chart history and drawing tools (2026-10-02)
+
+Chart history now survives app process restarts in on-device preferences: up to
+12 contexts, 2,500 bars each, 24-hour validity, disk writes throttled to 15 seconds.
+Quote fields, countdown eligibility and stream sequence are stripped. Cached
+history is labeled until a fresh response arrives; a truly unseen chart still
+requires IB history. RTH initial history now requests two days to cover sessions
+where one day contains only extended-hours bars.
+
+Independent analysis drawings support the user's 20 starred tools: Trendline,
+Info line, Horizontal ray, Parallel channel, Fib retracement, Trend-based fib
+extension, Long/Short position, Price range, Highlighter, Arrow, up/down marks,
+Rectangle, Path, Triangle, Curve, Text, Note and Price note. This is an original
+implementation of basic equivalents, not TradingView's library or all settings.
+Tool picker stars determine a scrollable favorite strip; drag its grip to float,
+collapse to the left. Analysis drawings are saved per backend/contract; favorites
+are global. Select anchor handles to adjust, with delete/undo/lock/hide in picker.
+Long/Short takes entry, stop and target anchors and reports price R:R only; it
+never submits, amends or cancels broker orders. Free paths finish with checkmark.
+Drawing regression: `NODE_PATH=<playwright node_modules> node tests/chart/drawings.cjs`.

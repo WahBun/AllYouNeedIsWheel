@@ -1,12 +1,34 @@
 import SwiftUI
 import WebKit
 
-@MainActor private enum RecentStockCharts {
+@MainActor enum RecentStockCharts {
     static var packets: [String: (Date, [String: Any])] = [:]
+    static var lastSaved: [String: Date] = [:]
+    static let diskKey = "recentStockChartHistoryV1"
+    static func load(_ key: String) -> (Date, [String: Any])? {
+        if let cached = packets[key], Date().timeIntervalSince(cached.0) < 86400 { return cached }
+        guard let data = UserDefaults.standard.data(forKey: diskKey),
+              let all = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]],
+              let record = all[key], let stamp = record["saved"] as? Double,
+              Date().timeIntervalSince1970 - stamp < 86400,
+              let packet = record["packet"] as? [String: Any] else { return nil }
+        let cached = (Date(timeIntervalSince1970: stamp), packet)
+        packets[key] = cached
+        return cached
+    }
     static func save(_ packet: [String: Any], key: String) {
-        packets = packets.filter { Date().timeIntervalSince($0.value.0) < 300 }
-        if packets.count >= 12 { packets.removeAll() }
-        packets[key] = (.now, packet)
+        guard let bars = packet["bars"] as? [[String: Any]], !bars.isEmpty else { return }
+        packets = packets.filter { Date().timeIntervalSince($0.value.0) < 86400 }
+        if packets.count >= 12 && packets[key] == nil, let oldest = packets.min(by: { $0.value.0 < $1.value.0 }) { packets.removeValue(forKey: oldest.key) }
+        // Cache history only: never persist quote eligibility or transient stream state.
+        var history = packet
+        for field in ["bid", "ask", "quote_time", "quote_expires_at", "bar_closes_at", "sequence", "mode", "changed_bars"] { history.removeValue(forKey: field) }
+        history["bars"] = Array(bars.suffix(2500))
+        packets[key] = (.now, history)
+        guard lastSaved[key].map({ Date().timeIntervalSince($0) >= 15 }) ?? true else { return }
+        lastSaved[key] = .now
+        let records = packets.mapValues { ["saved": $0.0.timeIntervalSince1970, "packet": $0.1] as [String: Any] }
+        if let data = try? JSONSerialization.data(withJSONObject: records) { UserDefaults.standard.set(data, forKey: diskKey) }
     }
 }
 
@@ -114,7 +136,7 @@ struct StockChartView: View {
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
             }
-            StockChartWeb(packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) })
+            StockChartWeb(drawingKey: "\(store.address)-\(position.con_id ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) })
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             if !fullScreen {
             HStack(spacing: 8) {
@@ -206,10 +228,10 @@ struct StockChartView: View {
             guard visible, phase == .active else { return }
             guard !store.demo else { notice = "Chart pilot requires a connected held stock"; return }
             guard let conID = position.con_id, conID > 0 else { return }
-            if let cached = RecentStockCharts.packets[cacheKey], Date().timeIntervalSince(cached.0) < 300 {
+            if let cached = RecentStockCharts.load(cacheKey) {
                 packet = cached.1
                 packet["bid"] = NSNull(); packet["ask"] = NSNull(); packet["bar_closes_at"] = NSNull()
-                notice = "Recent chart · connecting to live data"
+                notice = "Saved chart · connecting to live data"
             }
             var failures = 0
             while !Task.isCancelled {
@@ -240,6 +262,7 @@ struct StockChartView: View {
 }
 
 private struct StockChartWeb: UIViewRepresentable {
+    var drawingKey: String
     var packet: [String: Any]
     var entry: Double
     var quantity: Double
@@ -257,6 +280,7 @@ private struct StockChartWeb: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
+        config.userContentController.add(context.coordinator, name: "drawingsChanged")
         config.userContentController.add(context.coordinator, name: "chartReady")
         config.userContentController.add(context.coordinator, name: "entryChanged")
         config.userContentController.add(context.coordinator, name: "beState")
@@ -269,18 +293,23 @@ private struct StockChartWeb: UIViewRepresentable {
         }
         if let html = resource("stock-chart", "html"), let library = resource("lightweight-charts.standalone.production", "js"),
            let template = try? String(contentsOf: html, encoding: .utf8), let js = try? String(contentsOf: library, encoding: .utf8) {
-            web.loadHTMLString(template.replacingOccurrences(of: "/*LIBRARY*/", with: js), baseURL: nil)
+            let drawingJS = resource("chart-drawings", "js").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+            let html = template.replacingOccurrences(of: "/*LIBRARY*/", with: js)
+                .replacingOccurrences(of: "</body>", with: "<script>" + drawingJS + "</script></body>")
+            web.loadHTMLString(html, baseURL: nil)
         } else { web.loadHTMLString("<p>Chart resources unavailable</p>", baseURL: nil) }
         return web
     }
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.packet = packet.isEmpty ? ["bars": [], "generation": "clear", "interval": 0, "session": ""] : packet
+        context.coordinator.drawingKey = drawingKey
         context.coordinator.onEntry = onEntry
         context.coordinator.onBE = onBE
         context.coordinator.config = ["entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "beRevision": beRevision, "tpDistance": tpDistance.isFinite ? tpDistance : 0, "slDistance": slDistance.isFinite ? slDistance : 0, "templateRevision": templateRevision, "priceRules": packet["price_rules"] ?? []]
         context.coordinator.update()
     }
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {
+        web.configuration.userContentController.removeScriptMessageHandler(forName: "drawingsChanged")
         web.configuration.userContentController.removeScriptMessageHandler(forName: "chartReady")
         web.configuration.userContentController.removeScriptMessageHandler(forName: "entryChanged")
         web.configuration.userContentController.removeScriptMessageHandler(forName: "beState")
@@ -289,6 +318,8 @@ private struct StockChartWeb: UIViewRepresentable {
     class Coordinator: NSObject, WKScriptMessageHandler {
         weak var web: WKWebView?
         var ready = false
+        var drawingKey = ""
+        var loadedDrawingKey = ""
         var lastStreamSequence = 0
         var lastStreamKey = ""
         var packet: [String: Any] = [:]
@@ -296,13 +327,29 @@ private struct StockChartWeb: UIViewRepresentable {
         var onEntry: ((Double) -> Void)?
         var onBE: ((Bool) -> Void)?
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            if message.name == "beState", let applied = message.body as? Bool { onBE?(applied)
+            if message.name == "drawingsChanged", let value = message.body as? [String: Any],
+               let data = try? JSONSerialization.data(withJSONObject: value), data.count < 2_000_000 {
+                UserDefaults.standard.set(data, forKey: "chartDrawings-" + drawingKey)
+                if let favorites = value["favorites"] as? [String] { UserDefaults.standard.set(favorites, forKey: "chartDrawingFavorites") }
+                if let collapsed = value["collapsed"] as? Bool { UserDefaults.standard.set(collapsed, forKey: "chartDrawingCollapsed") }
+            } else if message.name == "beState", let applied = message.body as? Bool { onBE?(applied)
             } else if message.name == "entryChanged", let price = message.body as? Double, price.isFinite, price >= 0 {
                 onEntry?(price)
             } else if message.name == "chartReady" { ready = true; update() }
         }
         func update() {
             guard ready else { return }
+            if drawingKey != loadedDrawingKey {
+                var value: [String: Any] = [:]
+                if let data = UserDefaults.standard.data(forKey: "chartDrawings-" + drawingKey),
+                   let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { value = saved }
+                if let favorites = UserDefaults.standard.stringArray(forKey: "chartDrawingFavorites") { value["favorites"] = favorites }
+                if let collapsed = UserDefaults.standard.object(forKey: "chartDrawingCollapsed") as? Bool { value["collapsed"] = collapsed }
+                if let data = try? JSONSerialization.data(withJSONObject: ["key": drawingKey, "value": value]), let json = String(data: data, encoding: .utf8) {
+                    web?.evaluateJavaScript("window.configureDrawings?.(\(json))", completionHandler: nil)
+                    loadedDrawingKey = drawingKey
+                }
+            }
             var outgoing = packet
             if let sequence = packet["sequence"] as? Int {
                 let key = "\(packet["generation"] ?? "")-\(packet["interval"] ?? "")-\(packet["session"] ?? "")"

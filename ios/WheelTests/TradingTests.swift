@@ -1225,3 +1225,23 @@ extension TradingTests {
         XCTAssertEqual((received.last?["bars"] as? [[String: Any]])?.count,1)
     }
 }
+
+extension TradingTests {
+    func testChartHistorySurvivesMemoryResetWithoutTradableQuotes() {
+        let defaults = UserDefaults.standard
+        let saved = defaults.data(forKey: RecentStockCharts.diskKey)
+        defer {
+            if let saved { defaults.set(saved, forKey: RecentStockCharts.diskKey) }
+            else { defaults.removeObject(forKey: RecentStockCharts.diskKey) }
+            RecentStockCharts.packets = [:]; RecentStockCharts.lastSaved = [:]
+        }
+        RecentStockCharts.packets = [:]; RecentStockCharts.lastSaved = [:]
+        RecentStockCharts.save(["bars": [["time": 60, "close": 10]], "bid": 10, "ask": 11,
+                                "quote_expires_at": 9999999999, "mode": "delta", "sequence": 10], key: "test")
+        RecentStockCharts.packets = [:]
+        let loaded = RecentStockCharts.load("test")?.1
+        XCTAssertEqual((loaded?["bars"] as? [[String: Any]])?.count, 1)
+        XCTAssertNil(loaded?["bid"]); XCTAssertNil(loaded?["ask"])
+        XCTAssertNil(loaded?["sequence"]); XCTAssertNil(loaded?["mode"])
+    }
+}
