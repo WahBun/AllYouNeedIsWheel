@@ -4,6 +4,7 @@
 - Option charts are view-only. Native order controls and the price-axis order button are hidden, and the paper execution service rejects option requests before broker writes.
 - Options use IB historical-bar updates and the existing shared quote subscription rather than unsupported option tick-by-tick subscriptions. Frozen/delayed quotes cannot declare a live chart or fabricate a current candle. Chart cleanup cancels its history stream without canceling the shared quote subscription.
 - Verification: 303 Python tests, 39 JavaScript tests, 106 native iOS tests and all 12 chart browser suites passed. The signed iPhone build and installation succeeded. Tests include exact long/short option identity, reconnect lookup, update freshness, shared-subscription cleanup and rejection of option chart order writes.
+- Post-deployment read-only smoke checks: health, portfolio bootstrap, live holdings, weekly income, market session, pending orders, executed records and MES RTH chart all returned HTTP 200 without application errors. MES was flat, pending orders were empty, and its 356-bar chart reported live data with countdown eligibility. The signed phone app was launched successfully.
 - Paper account currently has no option holdings: real option holding navigation/data-entitlement checks remain pending. No option trade was made for this entry change. User deferred Gateway live login until after these checks; switching accounts and verifying the connected live account remain separate steps.
 
 ---
