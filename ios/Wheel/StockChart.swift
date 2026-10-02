@@ -34,6 +34,43 @@ import WebKit
 
 struct StockChartView: View {
     let position: Position
+    @State private var paperState: [String: Any] = [:]
+    @State private var paperBusy = false
+    @State private var paperMessage: String?
+    private var paperEnabled: Bool { paperState["enabled"] as? Bool == true }
+    private var paperActive: Bool { paperState["active"] as? Bool == true }
+    private func paperAction(_ body: [String: Any]) {
+        guard !paperBusy, paperEnabled, let cid = chartID else { return }
+        if let source = body["con_id"] as? Int, source != cid { return }
+        paperBusy = true
+        Task {
+            defer { paperBusy = false }
+            do {
+                let result = try await store.trading.paperChartWrite(base: store.address, conID: cid, body: body)
+                guard chartID == cid else { return }
+                paperMessage = result["message"] as? String
+                if let state = result["state"] as? [String: Any] { paperState = state }
+            } catch { paperMessage = connectionMessage(error) + " · Check Gateway before retrying" }
+        }
+    }
+    @State private var selectedContract: [String: Any] = [:]
+    @State private var showSymbols = false
+    @State private var symbolQuery = "TSLA"
+    @State private var symbolResults: [[String: Any]] = []
+    @State private var symbolError: String?
+    @State private var searching = false
+    private var chartID: Int? { selectedContract["con_id"] as? Int ?? position.con_id }
+    private var chartSymbol: String { selectedContract["local_symbol"] as? String ?? position.symbol }
+    private var chartType: String { selectedContract["security_type"] as? String ?? position.security_type }
+    private func searchSymbols() async {
+        guard !searching else { return }; searching = true; symbolError = nil
+        defer { searching = false }
+        do {
+            let result = try await store.trading.get("api/portfolio/chart-contracts", base: store.address, query: [URLQueryItem(name: "q", value: symbolQuery)])
+            symbolResults = result["contracts"] as? [[String: Any]] ?? []
+            if symbolResults.isEmpty { symbolError = "No matching contract" }
+        } catch { symbolError = connectionMessage(error) }
+    }
     @Environment(WheelStore.self) private var store
     @Environment(\.scenePhase) private var phase
     @Environment(\.colorScheme) private var colors
@@ -65,8 +102,8 @@ struct StockChartView: View {
     @State private var notice = "Loading chart…"
     @State private var visible = false
     @State private var received: Date?
-    private var cacheKey: String { "\(store.address)-\(position.con_id ?? 0)-\(interval)-\(session)" }
-    private var context: String { "\(store.demo)-\(store.address)-\(position.con_id ?? 0)-\(interval)-\(session)-\(phase == .active)-\(visible)" }
+    private var cacheKey: String { "\(store.address)-\(chartID ?? 0)-\(interval)-\(session)" }
+    private var context: String { "\(store.demo)-\(store.address)-\(chartID ?? 0)-\(interval)-\(session)-\(phase == .active)-\(visible)" }
     private var validEntry: Double { Double(entry).flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 0 }
     private var validQuantity: Double { Double(quantity).flatMap { $0.isFinite && $0 > 0 && $0 <= 1_000_000 ? $0 : nil } ?? 0 }
     private func joinPrice(_ side: String) -> Double? {
@@ -106,6 +143,7 @@ struct StockChartView: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack {
+                Button { showSymbols = true } label: { Image(systemName: "magnifyingglass").frame(width: 30, height: 40) }.buttonStyle(.plain).accessibilityLabel("Search chart symbol")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 2) {
                         ForEach(intervals.filter { favorites.contains($0) }, id: \.self) { value in
@@ -123,7 +161,7 @@ struct StockChartView: View {
                     HStack(spacing: 3) { Text(intervalLabel(interval)); Image(systemName: "chevron.down") }.font(.caption)
                 }.buttonStyle(.plain).frame(minHeight: 40)
                 Picker("Session", selection: $session) {
-                    Text("RTH").tag("rth"); Text("ETH").tag("all")
+                    Text("RTH").tag("rth").disabled(chartType == "FUT"); Text("ETH").tag("all")
                 }.fixedSize()
                 Button { fullScreen.toggle() } label: {
                     Image(systemName: fullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
@@ -136,9 +174,11 @@ struct StockChartView: View {
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
             }
-            StockChartWeb(drawingKey: "\(store.address)-\(position.con_id ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) })
+            StockChartWeb(drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             if !fullScreen {
+            if let paperMessage { Text(paperMessage).font(.caption).foregroundStyle(.secondary) }
+            Text(paperEnabled ? "IB Paper trading" : "Preview only").font(.caption).foregroundStyle(paperEnabled ? .orange : .secondary)
             HStack(spacing: 8) {
                 TextField("Shares", text: $quantity).keyboardType(.decimalPad)
                     .multilineTextAlignment(.center).textFieldStyle(.roundedBorder).frame(width: 48)
@@ -158,20 +198,47 @@ struct StockChartView: View {
                 }
                 VStack(spacing: 6) {
                     HStack(spacing: 8) {
-                        Button { join("bid") } label: { Text("Join Bid").frame(maxWidth: .infinity, minHeight: 30) }.tint(.green).disabled(joinPrice("bid") == nil)
-                        Button { join("ask") } label: { Text("Join Ask").frame(maxWidth: .infinity, minHeight: 30) }.tint(.red).disabled(joinPrice("ask") == nil)
+                        Button { join("bid") } label: { Text("Join Bid").frame(maxWidth: .infinity, minHeight: 30) }.tint(.green).disabled(joinPrice("bid") == nil || paperBusy || paperActive)
+                        Button { join("ask") } label: { Text("Join Ask").frame(maxWidth: .infinity, minHeight: 30) }.tint(.red).disabled(joinPrice("ask") == nil || paperBusy || paperActive)
                     }
                     HStack(spacing: 8) {
-                        Button { if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").frame(maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(validEntry <= 0)
-                        Button { beRevision += 1 } label: { Text("BE").frame(maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(beApplied || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
+                        Button { if paperEnabled { paperAction(["action": "close"]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").frame(maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || (paperEnabled ? !paperActive : validEntry <= 0))
+                        Button { if paperEnabled { paperAction(["action": "be"]) } else { beRevision += 1 } } label: { Text("BE").frame(maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(paperBusy || (paperEnabled && (paperState["position"] as? Double ?? 0) == 0) || beApplied || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
                     }
                 }.font(.system(size: 13, weight: .semibold))
             }.buttonStyle(.bordered)
             }
         }.padding(.horizontal, 12).padding(.bottom, 8)
-        .navigationTitle(position.symbol).navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(chartSymbol).navigationBarTitleDisplayMode(.inline)
         .toolbar(fullScreen ? .hidden : .visible, for: .navigationBar, .tabBar)
         .modifier(KeyboardDismissal())
+        .sheet(isPresented: $showSymbols) {
+            NavigationStack {
+                List {
+                    HStack {
+                        TextField("Symbol", text: $symbolQuery).textInputAutocapitalization(.characters).autocorrectionDisabled()
+                            .onSubmit { Task { await searchSymbols() } }
+                        Button("Search") { Task { await searchSymbols() } }.disabled(searching)
+                    }
+                    HStack { ForEach(["TSLA", "ES", "NQ"], id: \.self) { symbol in Button(symbol) { symbolQuery = symbol; Task { await searchSymbols() } }.buttonStyle(.bordered) } }
+                    if searching { ProgressView() }
+                    if let symbolError { Text(symbolError).foregroundStyle(.red) }
+                    ForEach(symbolResults.indices, id: \.self) { index in
+                        let result = symbolResults[index]
+                        Button {
+                            selectedContract = result; entry = "0"; beApplied = false; paperState = [:]; paperMessage = nil
+                            if chartType == "FUT" { session = "all"; if (Double(slDistance) ?? 0) < 0.25 { slDistance = "1.00"; tpDistance = "2.00" } }
+                            showSymbols = false
+                        } label: {
+                            VStack(alignment: .leading) {
+                                Text(result["local_symbol"] as? String ?? "")
+                                Text("\(result["exchange"] as? String ?? "") · \(result["expiration"] as? String ?? "")").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }.navigationTitle("Chart symbol").toolbar { Button("Done") { showSymbols = false } }
+            }
+        }
         .alert("Close Position · Preview", isPresented: $showClosePreview) {
             Button("Done", role: .cancel) { }
         } message: {
@@ -209,8 +276,8 @@ struct StockChartView: View {
             NavigationStack {
                 Form {
                     Section("Entry reference") { TextField("Price", text: $entry).keyboardType(.decimalPad) }
-                    Text("TP / SL preview only · drag the labels. Estimated P&L excludes fees and slippage. No orders are sent.")
-                    Text("LMT and STP select the preview entry type. Join Bid / Ask copies an available recent live quote once; it does not follow future quotes or submit an order.")
+                    Text(paperEnabled ? "IB Paper: Join Bid / Ask submits Entry, TP and SL. Dragging TP / SL sends an amendment on release. Close cancels the bracket then closes its remaining position." : "TP / SL preview only · drag the labels. No orders are sent.")
+                    Text("Prices and market-data permissions come from the connected IB account.")
                     Text("ETH includes available extended-hours data. Time: New York.")
                     Text("TradingView Lightweight Charts™ · Copyright © 2025 TradingView, Inc.")
                     Link("TradingView", destination: URL(string: "https://www.tradingview.com/")!)
@@ -223,11 +290,26 @@ struct StockChartView: View {
             if entry.isEmpty { entry = String(position.market_price ?? 0) }
         }
         .onDisappear { visible = false }
+        .task(id: "paper-" + context) {
+            paperState = [:]
+            guard visible, phase == .active, !store.demo, let cid = chartID else { return }
+            while !Task.isCancelled {
+                do {
+                    let state = try await store.trading.get("api/portfolio/paper-chart/\(cid)", base: store.address)
+                    try Task.checkCancellation()
+                    guard chartID == cid else { return }
+                    paperState = state
+                    if state["active"] as? Bool == true, let price = state["entry"] as? Double, price > 0 { entry = String(price) }
+                    if state["status"] as? String == "done" { entry = "0" }
+                } catch { if Task.isCancelled { return } }
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
+        }
         .task(id: context) {
             packet = [:]; received = nil; notice = "Loading chart…"
             guard visible, phase == .active else { return }
             guard !store.demo else { notice = "Chart pilot requires a connected held stock"; return }
-            guard let conID = position.con_id, conID > 0 else { return }
+            guard let conID = chartID, conID > 0 else { return }
             if let cached = RecentStockCharts.load(cacheKey) {
                 packet = cached.1
                 packet["bid"] = NSNull(); packet["ask"] = NSNull(); packet["bar_closes_at"] = NSNull()
@@ -294,6 +376,9 @@ private struct StockChartWeb: UIViewRepresentable {
     var templateRevision: Int
     var onBE: (Bool) -> Void
     var onEntry: (Double) -> Void
+    var paperState: [String: Any]
+    var conID: Int
+    var onPaper: ([String: Any]) -> Void
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -302,6 +387,7 @@ private struct StockChartWeb: UIViewRepresentable {
         config.userContentController.add(context.coordinator, name: "chartReady")
         config.userContentController.add(context.coordinator, name: "entryChanged")
         config.userContentController.add(context.coordinator, name: "beState")
+        config.userContentController.add(context.coordinator, name: "paperAction")
         let web = ChartViewportWebView(frame: .zero, configuration: config)
         web.scrollView.isScrollEnabled = false
         web.scrollView.contentInsetAdjustmentBehavior = .never
@@ -324,7 +410,8 @@ private struct StockChartWeb: UIViewRepresentable {
         context.coordinator.drawingKey = drawingKey
         context.coordinator.onEntry = onEntry
         context.coordinator.onBE = onBE
-        context.coordinator.config = ["entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "beRevision": beRevision, "tpDistance": tpDistance.isFinite ? tpDistance : 0, "slDistance": slDistance.isFinite ? slDistance : 0, "templateRevision": templateRevision, "priceRules": packet["price_rules"] ?? []]
+        context.coordinator.onPaper = onPaper
+        context.coordinator.config = ["entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "beRevision": beRevision, "tpDistance": tpDistance.isFinite ? tpDistance : 0, "slDistance": slDistance.isFinite ? slDistance : 0, "templateRevision": templateRevision, "priceRules": packet["price_rules"] ?? [], "paper": paperState, "con_id": conID, "multiplier": packet["multiplier"] ?? 1]
         context.coordinator.update()
     }
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {
@@ -332,6 +419,7 @@ private struct StockChartWeb: UIViewRepresentable {
         web.configuration.userContentController.removeScriptMessageHandler(forName: "chartReady")
         web.configuration.userContentController.removeScriptMessageHandler(forName: "entryChanged")
         web.configuration.userContentController.removeScriptMessageHandler(forName: "beState")
+        web.configuration.userContentController.removeScriptMessageHandler(forName: "paperAction")
         web.stopLoading(); web.loadHTMLString("", baseURL: nil)
     }
     class Coordinator: NSObject, WKScriptMessageHandler {
@@ -347,6 +435,7 @@ private struct StockChartWeb: UIViewRepresentable {
         var config: [String: Any] = [:]
         var onEntry: ((Double) -> Void)?
         var onBE: ((Bool) -> Void)?
+        var onPaper: (([String: Any]) -> Void)?
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             if message.name == "drawingsChanged", let value = message.body as? [String: Any],
                let data = try? JSONSerialization.data(withJSONObject: value), data.count < 2_000_000 {
@@ -355,6 +444,7 @@ private struct StockChartWeb: UIViewRepresentable {
                 if let order = value["order"] as? [String] { UserDefaults.standard.set(order, forKey: "chartDrawingOrder") }
                 if let magnet = value["magnet"] as? String { UserDefaults.standard.set(magnet, forKey: "chartDrawingMagnet") }
                 if let collapsed = value["collapsed"] as? Bool { UserDefaults.standard.set(collapsed, forKey: "chartDrawingCollapsed") }
+            } else if message.name == "paperAction", let body = message.body as? [String: Any] { onPaper?(body)
             } else if message.name == "beState", let applied = message.body as? Bool { onBE?(applied)
             } else if message.name == "entryChanged", let price = message.body as? Double, price.isFinite, price >= 0 {
                 onEntry?(price)

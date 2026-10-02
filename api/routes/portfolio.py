@@ -176,3 +176,27 @@ def get_stock_chart(con_id):
 def get_stock_chart_stream(con_id):
     from api.services.chart_stream import response
     return response(portfolio_service._ensure_connection)
+
+
+@bp.route('/chart-contracts', methods=['GET'])
+def chart_contract_search():
+    from api.services.chart_contracts import contracts
+    try:
+        return _no_store_json({'contracts': contracts.search(portfolio_service._ensure_connection(), request.args.get('q',''))})
+    except Exception as error:
+        return _no_store_json({'error': str(error)}, 400)
+
+
+@bp.route('/paper-chart/<int:con_id>', methods=['GET','POST'])
+def paper_chart_order(con_id):
+    from api.services.paper_chart import PaperChart
+    try:
+        conn=portfolio_service._ensure_connection()
+        service=PaperChart(portfolio_service.config.get('db_path'))
+        if request.method=='GET': return _no_store_json(service.state(conn,con_id))
+        result=service.execute(conn,con_id,request.get_json(silent=True) or {})
+        return _no_store_json(result)
+    except (ValueError,TypeError) as error:
+        return _no_store_json({'success':False,'status':'rejected','error':str(error),'message':str(error)},400)
+    except Exception:
+        return _no_store_json({'success':False,'status':'unknown','error':'Paper chart status unavailable; check Gateway'},503)

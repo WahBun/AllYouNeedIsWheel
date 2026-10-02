@@ -50,7 +50,8 @@ class ChartStreams:
 
     def open(self, connection, con_id, minutes, session):
         if self.clients and any(s.con_id != con_id for s in self.clients.values()):
-            raise ValueError('Another stock chart is active')
+            for old in self.clients.values(): old.closed = True
+            self.clients.clear()
         state = stock_chart.active
         if (state and state['conn'] is connection and state['con_id'] == con_id
                 and connection.is_connected() and connection.ib.ticker(state['contract']) is state['ticker']):

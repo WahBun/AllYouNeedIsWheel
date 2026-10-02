@@ -130,10 +130,10 @@ class StockChart:
         if not conn or not conn.is_connected():
             self.stop()
             raise ValueError('Chart connection unavailable')
-        held = conn.get_option_position_by_con_id(con_id)
-        if not held or held['position'] <= 0 or held['contract'].conId != con_id or held['contract'].secType != 'STK' or held['contract'].currency != 'USD':
-            raise ValueError('Chart pilot requires an exact held long USD stock')
-        contract = held['contract']
+        from api.services.chart_contracts import contracts
+        contract = contracts.resolve(conn, con_id)
+        if contract.secType == 'FUT' and session != 'all':
+            raise ValueError('Use ETH for futures charts')
         state = self.active
         if state and (state['conn'] is not conn or state['con_id'] != con_id or state['client'] is not conn.ib.client):
             self.stop()
@@ -331,7 +331,9 @@ class StockChart:
         server_time = time.time()
         live = in_session and age is not None and age < 10
         closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time) if live else None
-        return dict(con_id=con_id, symbol=contract.symbol, interval=minutes,
+        return dict(con_id=con_id, symbol=contract.symbol, security_type=contract.secType, local_symbol=getattr(contract, "localSymbol", "") or contract.symbol,
+            exchange=getattr(contract, "primaryExchange", "") or getattr(contract, "exchange", ""),
+            multiplier=positive(getattr(contract, "multiplier", 1)) or 1, interval=minutes,
             server_time=server_time, bar_closes_at=closes_at, price_rules=state.get('price_rules', []),
             bars=output_bars, session=session, generation=str(state['generation']),
             bid=bid, ask=ask, quote_time=quote_time,
