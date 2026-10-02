@@ -245,6 +245,40 @@ class ProtectedLotTests(unittest.TestCase):
         result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
         self.assertTrue(result['success'],result);self.conn.ib.cancelOrder.assert_not_called()
 
+    def test_execution_groups_follow_requests_not_unit_orders(self):
+        body,result=self.submit(quantity=4)
+        groups=self.service.execution_groups('DU_TEST',7)
+        ref='WheelPaper:'+body['request_id']
+        entries=[r for r in result['state']['orders'] if r['role'].startswith('entry')]
+        self.assertEqual(len(entries),4)
+        self.assertEqual({groups[(ref,r['order_id'])] for r in entries},{body['request_id']+':entry'})
+        self.assertNotEqual(groups[(ref,101)],groups[(ref,100)],'TP must not be grouped with entry')
+
+    def test_independent_one_unit_adds_have_independent_execution_groups(self):
+        self.open_four();initial=self.service.group('DU_TEST',7);ref=initial['ref']
+        batches=[]
+        for i in range(3):
+            request_id=str(uuid4());batches.append(request_id+':entry')
+            result=self.service.execute(self.conn,7,dict(request_id=request_id,action='add',quantity=1))
+            self.assertTrue(result['success'],result)
+            for t in self.trades:
+                if not t.order.parentId:t.orderStatus.status='Filled';t.orderStatus.filled=1
+            self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=5+i)]
+        groups=self.service.execution_groups('DU_TEST',7)
+        self.assertEqual([groups[(ref,oid)] for oid in [112,115,118]],batches)
+        recovered=PaperChart(self.service.path).execution_groups('DU_TEST',7)
+        self.assertEqual(recovered,groups,'Grouping persists through the existing request journal')
+
+    def test_one_trim_request_groups_selected_units_separately_from_entry(self):
+        self.open_four();ref=self.service.group('DU_TEST',7)['ref']
+        request_id=str(uuid4())
+        result=self.service.execute(self.conn,7,dict(request_id=request_id,action='trim',quantity=2))
+        self.assertTrue(result['success'],result)
+        groups=self.service.execution_groups('DU_TEST',7)
+        self.assertEqual(groups[(ref,101)],request_id+':exit')
+        self.assertEqual(groups[(ref,104)],request_id+':exit')
+        self.assertNotEqual(groups[(ref,107)],request_id+':exit')
+
     def test_trim_timeout_keeps_every_stop_and_does_not_replay(self):
         self.open_four();stops=[t.order.orderId for t in self.trades if t.order.orderType=='STP']
         self.conn.ib.placeOrder.side_effect=TimeoutError()

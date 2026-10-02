@@ -27,7 +27,7 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
  assert.deepEqual(result,{seed:[10,11,12.5],replacement:13.5,repeated:13.5,sorted:true,hidden:true,switched:10,action:'indicatorSettings'});
  await page.evaluate(()=>{
   if(indicatorName.textContent!=='𝔹𝕖𝕟')throw Error('Wrong indicator name');
-  if(indicatorRow.offsetLeft!==document.getElementById('chart-title').offsetLeft)throw Error('Legend not aligned');
+  if(indicatorRow.getBoundingClientRect().left!==document.getElementById('chart-title').getBoundingClientRect().left)throw Error('Legend not aligned');
   indicatorCollapse.click();if(indicatorContent.style.display!=='none'||window.action!=='indicatorCollapse')throw Error('Collapse bridge failed');
   configure({display:{ema:true,indicatorCollapsed:true}});
   if(indicatorContent.style.display!=='none')throw Error('Saved collapse lost');

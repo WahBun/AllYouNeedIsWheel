@@ -40,6 +40,39 @@ class PaperChart:
             row = db.execute('SELECT orders FROM chart_paper_groups WHERE account=? AND con_id=?',(account,cid)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def execution_groups(self, account, cid):
+        """Recover logical user orders from the write journal, not candle time.
+
+        One futures request can own several unit brackets. Separate Add/Trim
+        requests must remain distinct, even on the same candle. No broker order
+        fields or protective linkage are changed for display grouping.
+        """
+        with self.database() as db:
+            signature=db.execute('SELECT rowid,result IS NOT NULL FROM chart_paper_requests WHERE account=? ORDER BY rowid DESC LIMIT 1',(account,)).fetchone()
+            cache=getattr(self,'_execution_group_cache',None)
+            if cache and cache[:3]==(account,cid,signature): return cache[3]
+            records=db.execute('SELECT id,body,result FROM chart_paper_requests WHERE account=? AND result IS NOT NULL ORDER BY rowid',(account,)).fetchall()
+        groups={};reference=None;previous={}
+        for request_id,body,encoded in records:
+            request=json.loads(body)
+            if request.get('con_id')!=cid: continue
+            result=json.loads(encoded);rows=result.get('state',{}).get('orders',[])
+            if not rows: continue
+            action=request.get('action')
+            if action=='submit': reference='WheelPaper:'+request_id;previous={}
+            if not reference: continue
+            for row in rows:
+                oid=row['order_id'];role=row['role'].split('_')[0];old=previous.get(oid)
+                key=(reference,oid)
+                if old is None and action in ('submit','add','close'):
+                    groups[key]=request_id+':'+role
+                elif action in ('trim','close') and result.get('success') and role=='tp' and old and (
+                    row['price']!=old['price'] or row.get('filled',0)>old.get('filled',0)):
+                    groups[key]=request_id+':exit'
+                previous[oid]=row
+        self._execution_group_cache=(account,cid,signature,groups)
+        return groups
+
     def state(self, conn, cid):
         account = paper_account(conn)
         # Read broker events even when no chart SSE subscriber is pumping the loop.
@@ -51,11 +84,14 @@ class PaperChart:
         result = dict(paper=True, enabled=conn.readonly is False, position=float(position.position) if position else 0,
                       active=False, known=True, orders=[], entry=0, tp=0, sl=0, side=1, status='idle')
         executions = {}
+        execution_groups=self.execution_groups(account,cid)
         for fill in conn.ib.fills():
             e = fill.execution
             if e.acctNumber != account or fill.contract.conId != cid: continue
             if e.side not in ('BOT','SLD') or not e.execId or e.shares <= 0: continue
-            executions[e.execId] = dict(id=e.execId,time=fill.time.timestamp(),price=float(e.price),
+            broker_id=getattr(e,'permId',0) or getattr(e,'orderId',0) or e.execId
+            batch=execution_groups.get((getattr(e,'orderRef',''),getattr(e,'orderId',0)))
+            executions[e.execId] = dict(id=e.execId,group=batch or f'broker:{getattr(e,"clientId",0)}:{broker_id}',time=fill.time.timestamp(),price=float(e.price),
                 quantity=float(e.shares),side='BUY' if e.side=='BOT' else 'SELL')
         result['executions'] = sorted(executions.values(), key=lambda e:e['time'])
         if not group: return result

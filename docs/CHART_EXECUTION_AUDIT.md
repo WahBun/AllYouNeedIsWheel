@@ -21,7 +21,7 @@ This supersedes the cancellation/replacement scaling path in the historical audi
 
 ## Display and checks
 
-Execution markers now aggregate by candle and direction. Four same-candle buy fills render one arrow; tapping it shows total quantity, weighted average and original fills. Opposite directions remain separate. The details panel scrolls when necessary. Add/Trim, Close Position and BE use equal flexible widths and matching heights.
+Execution markers aggregate by logical order request, recovered from the existing write journal. A four-contract request renders one arrow, including partial fills across candles; four separate one-contract requests render four arrows even on the same candle. Entry, TP/SL, Add and Trim requests remain distinct. Tapping each arrow shows its own symbol, quantity, weighted average and fills. Broker executions without a known local batch are grouped only by their broker order identity. Marker placement uses the first fill of the order. The details panel scrolls when necessary. Add/Trim, Close Position and BE use equal flexible widths and matching heights.
 
 296 Python tests passed, including broker OCA preservation, rejected-amendment reporting, reconnect recovery, no-replay and protection-preservation regressions. Chart execution-touch and paper-order browser checks passed, including four-fill aggregation and blank-tap dismissal. The device build succeeded and was installed. These checks are not real-money certification and do not cover every broker, exchange or network failure. Individual unit brackets also mean more broker orders than a single aggregate bracket.
 
