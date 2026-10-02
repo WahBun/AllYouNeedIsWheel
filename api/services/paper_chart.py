@@ -120,9 +120,11 @@ class PaperChart:
                 price=(t.order.auxPrice if role=='sl' or (role=='entry' and t.order.orderType=='STP') else t.order.lmtPrice) if t and role!='close' else 0,
                 quantity=max(float(t.order.totalQuantity),float(t.orderStatus.filled),sum(float(f.execution.shares) for f in trade_fills(t))) if t else 0,
                 filled=max(float(t.orderStatus.filled),sum(float(f.execution.shares) for f in trade_fills(t))) if t else 0))
-        group['terminal'] = {r['role']:r for r in rows if r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive')}
-        with self.database() as db:
-            db.execute('UPDATE chart_paper_groups SET orders=? WHERE account=? AND con_id=?',(json.dumps(group),account,cid))
+        confirmed = {r['role']:r for r in rows if r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive')}
+        if confirmed != group.get('terminal'):
+            group['terminal'] = confirmed
+            with self.database() as db:
+                db.execute('UPDATE chart_paper_groups SET orders=? WHERE account=? AND con_id=?',(json.dumps(group),account,cid))
         result.update(orders=rows, side=group['side'], known=all(r['status']!='Unknown' for r in rows))
         result['active']=any(r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive') for r in rows) or result['position']!=0
         result['status']='working' if result['active'] else 'done'
@@ -286,7 +288,9 @@ class PaperChart:
                 deadline = time.monotonic() + 4
                 while not trade.isDone() and time.monotonic() < deadline: conn.ib.sleep(.05)
                 if not trade.isDone(): raise RuntimeError('Adjustment unresolved; inspect Gateway before further trading')
-            filled = max(float(trade.orderStatus.filled), sum(float(f.execution.shares) for f in trade.fills))
+            conn.ib.sleep(.1)
+            filled = max(float(trade.orderStatus.filled), sum(float(f.execution.shares) for f in trade.fills),
+                         float(order.totalQuantity) if trade.orderStatus.status == 'Filled' else 0)
             remaining = actual + filled * (1 if order.action == 'BUY' else -1)
             # reqPositions can lag the execution callback; it must not size exits.
             protect(remaining)
