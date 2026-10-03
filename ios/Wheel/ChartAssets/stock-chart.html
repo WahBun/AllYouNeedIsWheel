@@ -399,7 +399,7 @@ function profitText(price,unit,quantity=qty){
  if(unit==='ticks'){const tick=tickAt(entry);return tick?((change>=0?'+':'−')+Math.abs(change/tick).toFixed(1)+' ticks'):'—';}
  const value=change*quantity*contractMultiplier;return (value>=0?'+':'−')+'$'+Math.abs(value).toFixed(2);
 }
-function label(k){return k.toUpperCase()+'  $'+priceText(levels[k])+(displayOptions.profit!==false&&displayOptions.brackets!==false?'  '+profitText(levels[k],displayOptions.bracketUnit):'');}
+function label(k){return k.toUpperCase()+(displayOptions.profit!==false&&displayOptions.brackets!==false?'  '+profitText(levels[k],displayOptions.bracketUnit):'');}
 function applyTemplate(){if(!tickAt(entry)){validation('Waiting for contract price increments');return false;}appliedTemplate=templateVersion;const tp=snapPrice(entry+side*template.tp),sl=snapPrice(entry-side*template.sl);if(!(template.tp>0&&template.sl>0)||tp===null||sl===null||side*(tp-entry)<=0||side*(sl-entry)>=0){validation('Invalid TP / SL distance. Previous levels unchanged; edit the template and apply again.');return false;}levels={tp,sl};breakEven=false;validation();return true;}
 function syncBE(){const applied=breakEven&&entry>0&&!canceled;if(applied!==lastBEState){lastBEState=applied;window.webkit?.messageHandlers.beState?.postMessage(applied);}}
 function updateLines(){
@@ -407,7 +407,7 @@ function updateLines(){
  document.getElementById('cancel').hidden=canceled||!entry||!qty||!previous.length;
  if(displayOptions.holdingsVisible===false||canceled||!entry||!qty||!previous.length){document.getElementById('cancel').hidden=true;document.getElementById('entry').hidden=true;for(const k of ['tp','sl']){document.getElementById(k).hidden=true;if(lines[k])series.removePriceLine(lines[k]);}lines={};if(entryLine)series.removePriceLine(entryLine);entryLine=null;return;}
  if(!paperConfig.active&&(templateVersion>appliedTemplate||(!levels.tp&&appliedTemplate!==templateVersion)))applyTemplate();
- for(const k of ['tp','sl']){if(!levels[k]){document.getElementById(k).hidden=true;if(lines[k]){series.removePriceLine(lines[k]);delete lines[k];}continue;}const options={price:levels[k],color:k==='tp'?'#72aaa1':'#c8986c',lineWidth:1,lineStyle:2,axisLabelVisible:false,title:k.toUpperCase()};if(lines[k])lines[k].applyOptions(options);else lines[k]=series.createPriceLine(options);const h=document.getElementById(k);h.hidden=false;h.replaceChildren(Object.assign(document.createElement('span'),{textContent:label(k)}));h.setAttribute('aria-label',label(k));}
+ for(const k of ['tp','sl']){if(!levels[k]){document.getElementById(k).hidden=true;if(lines[k]){series.removePriceLine(lines[k]);delete lines[k];}continue;}const options={price:levels[k],color:k==='tp'?'#72aaa1':'#c8986c',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:''};if(lines[k])lines[k].applyOptions(options);else lines[k]=series.createPriceLine(options);const h=document.getElementById(k);h.hidden=false;h.replaceChildren(Object.assign(document.createElement('span'),{textContent:label(k)}));h.setAttribute('aria-label',label(k));}
  syncBE();const eh=document.getElementById('entry');eh.hidden=false;const color=side>0?'#315fc4':'#c6384d';eh.style.color=color;document.getElementById('cancel').style.color=color;eh.replaceChildren(Object.assign(document.createElement('span'),{textContent:(paperConfig.position?(paperConfig.position>0?'Long ':'Short '):(side>0?'Buy ':'Sell ')+entryType+' ')+ ' $'+priceText(entry)+'  × '+(paperConfig.position?Math.abs(paperConfig.position):qty)}));
  if(!paperConfig.position){
   eh.replaceChildren();
@@ -418,7 +418,7 @@ function updateLines(){
   eh.setAttribute('aria-label',(side>0?'Buy':'Sell')+' '+qty+' '+entryType+' '+priceText(entry));
  }
  if(paperConfig.position&&displayOptions.profit!==false&&displayOptions.positions===true&&previous.length)eh.firstChild.textContent+='  '+profitText(previous.at(-1).close,displayOptions.positionUnit,Math.abs(paperConfig.position));
- if(entryLine)entryLine.applyOptions({price:entry,title:entryType,color});else entryLine=series.createPriceLine({price:entry,color,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:entryType});
+ if(entryLine)entryLine.applyOptions({price:entry,title:'',color});else entryLine=series.createPriceLine({price:entry,color,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:''});
  if(displayOptions.holdingsVisible===false&&paperConfig.position){eh.hidden=true;document.getElementById('cancel').hidden=true;if(entryLine){series.removePriceLine(entryLine);entryLine=null;}}
 }
 // Account holdings are read-only overlays, independent of order previews and paper brackets.
@@ -587,7 +587,7 @@ for(const k of ['tp','sl','entry']){
  });
  h.addEventListener('keydown',e=>{if(e.key==='ArrowUp'||e.key==='ArrowDown'){if(paperConfig.active)return;move(k,series.priceToCoordinate(stepPrice(k==='entry'?entry:levels[k],e.key==='ArrowUp'?1:-1)));e.preventDefault();}});
 }
-document.getElementById('cancel').addEventListener('click',()=>{if(paperConfig.active){paperAction({action:'close'});return;}canceled=true;dragging=null;levels={tp:0,sl:0};updateLines();window.webkit?.messageHandlers.entryChanged?.postMessage(0);});
+document.getElementById('cancel').addEventListener('click',()=>{if(paperConfig.active){if(!paperConfig.position){if(paperConfig.entry_editable&&paperConfig.enabled&&!paperConfig.busy)paperAction({action:'edit_entry',cancel:true,expected_ref:paperConfig.order_ref,expected_snapshot:paperConfig.edit_snapshot});}else paperAction({action:'close'});return;}canceled=true;dragging=null;levels={tp:0,sl:0};updateLines();window.webkit?.messageHandlers.entryChanged?.postMessage(0);});
 const latestPriceLine=document.createElement('div');latestPriceLine.id='latest-price-line';latestPriceLine.style.cssText='position:absolute;pointer-events:none;z-index:1;border-top:1px dashed #303332';latestPriceLine.hidden=true;document.body.append(latestPriceLine);
 function updateLatestPriceLine(){
  const bar=previous.at(-1),right=chart.timeScale().width();

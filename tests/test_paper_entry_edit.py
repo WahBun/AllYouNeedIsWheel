@@ -61,3 +61,10 @@ class EntryEditTests(unittest.TestCase):
             self.assertFalse(self.edit(**change)['success'], change)
         self.assertEqual(self.conn.ib.placeOrder.call_count, 3)
         self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_cancel_unfilled_never_submits_replacement_or_market_exit(self):
+        self.submit(quantity=100)
+        result = self.edit(cancel=True)
+        self.assertTrue(result['success'], result)
+        self.assertFalse(result['state']['active'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count, 3)

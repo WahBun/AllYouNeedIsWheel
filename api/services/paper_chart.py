@@ -424,7 +424,7 @@ class PaperChart:
         group['pending_edit'] = request_id
         self.save_group(account, cid, group)
         try:
-            structural = quantity != sum(t.order.totalQuantity for t in parents) or tif != current['tif']
+            structural = body.get('cancel') is True or quantity != sum(t.order.totalQuantity for t in parents) or tif != current['tif']
             if not structural:
                 for trade in parents:
                     if trade.isDone() or trade.orderStatus.filled or trade.fills:
@@ -458,6 +458,10 @@ class PaperChart:
                 fresh = self.state(conn, cid)
                 if any(t.orderStatus.status not in ('Cancelled', 'ApiCancelled') for t in owned) or fresh['position'] or any(r['filled'] for r in fresh['orders']):
                     raise RuntimeError('Original bracket not fully canceled; replacement blocked')
+                if body.get('cancel') is True:
+                    group.pop('pending_edit', None)
+                    self.save_group(account, cid, group)
+                    return
                 if overnight:
                     replacement = dict(action='submit', mode='overnight_entry', side=1,
                         entry_type='LMT', entry=float(amount), quantity=int(quantity))
