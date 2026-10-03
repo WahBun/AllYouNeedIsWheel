@@ -1237,7 +1237,7 @@ struct OrdersView: View {
     @Environment(WheelStore.self) private var store
     @AppStorage("confirmBeforeOrderExecution") private var confirmExecution = true
     @State private var history = false
-    @AppStorage("executionHistoryDays") private var historyDays = 30
+    @AppStorage("executionHistoryDays") private var historyDays = 0
     @State private var historySearch = ""
     @State private var historySearchExpanded = false
     @AppStorage("executionHistoryAsset") private var historyAsset = "ALL"
@@ -1246,7 +1246,9 @@ struct OrdersView: View {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "America/New_York")!
         let today = calendar.startOfDay(for: Date())
-        let start = calendar.date(byAdding: .day, value: -(historyDays - 1), to: today)!
+        let start = (historyDays == 0 || historyDays == 30)
+            ? calendar.date(from: calendar.dateComponents([.year, .month], from: today))!
+            : calendar.date(byAdding: .day, value: -(historyDays - 1), to: today)!
         let end = calendar.date(byAdding: .day, value: 1, to: today)!
         let query = historySearch.trimmingCharacters(in: .whitespacesAndNewlines)
         return store.filledOrders.filter { order in
@@ -1278,7 +1280,7 @@ struct OrdersView: View {
                     Picker("Date range", selection: $historyDays) {
                         Text("Today").tag(1)
                         Text("7 Days").tag(7)
-                        Text("30 Days").tag(30)
+                        Text("MTD").tag(0)
                     }.labelsHidden().pickerStyle(.menu).fixedSize()
                     Spacer(minLength: 4)
                     if historySearchExpanded {
@@ -1358,6 +1360,7 @@ struct OrdersView: View {
             }.disabled(cancelable.isEmpty) }
             TradingNotice()
         }.scrollDismissesKeyboard(.immediately)
+        .onAppear { if historyDays == 30 { historyDays = 0 } }
         .onChange(of: history) { historySearchFocused = false }
         .onChange(of: historyDays) { historySearchFocused = false }
         .onChange(of: historyAsset) { historySearchFocused = false }
