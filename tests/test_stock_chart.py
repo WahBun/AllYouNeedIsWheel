@@ -293,6 +293,7 @@ class StockChartTests(unittest.TestCase):
         class History(list): pass
         asyncio.set_event_loop(asyncio.new_event_loop())
         conn,ticker=self.connection();feed=StockChart()
+        conn.ib.errorEvent=Event()
         history=History(conn.ib.reqHistoricalData.return_value);history.updateEvent=Event()
         conn.ib.reqHistoricalData.return_value=history
         ticker.marketDataType=1;conn.get_market_ticker.return_value=ticker

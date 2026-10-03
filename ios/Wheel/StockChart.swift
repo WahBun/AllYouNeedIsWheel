@@ -62,6 +62,25 @@ private struct ChartPositionActionsLayout: Layout {
     }
 }
 
+struct ChartOrderProgressView: View {
+    var state: [String: Any]
+    @Environment(\.locale) private var locale
+    private func label(_ key: String) -> String { localizedLabel(key, locale: locale) }
+    private func number(_ data: [String: Any], _ key: String) -> String { (data[key] as? Double)?.formatted() ?? "—" }
+    var body: some View {
+        VStack(spacing: 3) {
+            if let progress = state["adjustment"] as? [String: Any] {
+                Text(verbatim: "\(label("Filled")) \(number(progress, "filled"))/\(number(progress, "requested")) · \(label("Awaiting fill")) \(number(progress, "pending")) · \(label("Remaining")) \(number(progress, "remaining"))")
+            }
+            if let protection = state["protection"] as? [String: Any], state["active"] as? Bool == true {
+                Text(verbatim: "\(label("Position")) \(number(protection, "remaining_position")) · TP \(number(protection, "tp")) · SL \(number(protection, "sl"))")
+                Text(verbatim: label(state["sync_error"] as? Bool == true ? "unknown" : protection["status"] as? String ?? "unknown"))
+            }
+        }.font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity)
+    }
+}
+
 struct StockChartView: View {
     let position: Position
     var resumeLast = false
@@ -87,12 +106,14 @@ struct StockChartView: View {
         guard let value = Int(quantityDraft), (1...quantityLimit).contains(value) else { return nil }
         return value
     }
+    @State private var paperReceived: Date?
     @State private var paperBusy = false
     @State private var paperMessage: String?
-    private var paperEnabled: Bool { chartType != "OPT" && paperState["enabled"] as? Bool == true }
+    private var paperEnabled: Bool { !store.trading.uncertain && !store.trading.busy && Date().timeIntervalSince(paperReceived ?? .distantPast) < 3 && store.chartTradingAvailable && chartType != "OPT" && paperState["sync_error"] as? Bool != true && paperState["known"] as? Bool != false && paperState["enabled"] as? Bool == true }
     private var paperActive: Bool { paperState["active"] as? Bool == true }
     private func applyPaperState(_ state: [String: Any]) {
         paperState = state
+        paperReceived = .now
         if state["active"] as? Bool == true, let price = state["entry"] as? Double, price > 0 { entry = String(price) }
         let rows = state["orders"] as? [[String: Any]] ?? []
         if state["status"] as? String == "done",
@@ -121,7 +142,7 @@ struct StockChartView: View {
                 guard chartID == cid else { return }
                 paperMessage = result["message"] as? String
                 if let state = result["state"] as? [String: Any] { applyPaperState(state) }
-            } catch { paperMessage = connectionMessage(error) + " · Check Gateway before retrying" }
+            } catch { paperMessage = connectionMessage(error) + " · Do not resubmit; verify Gateway" }
         }
     }
     @State private var selectedContract: [String: Any] = [:]
@@ -145,6 +166,7 @@ struct StockChartView: View {
     @Environment(WheelStore.self) private var store
     @Environment(\.scenePhase) private var phase
     @Environment(\.colorScheme) private var colors
+    @Environment(\.locale) private var locale
     @State private var interval = 5
     @State private var fullScreen = false
     @AppStorage("chartFavoriteIntervals") private var favoriteIntervals = "1,3,5,10,15,60,480,1440,10080,43200"
@@ -260,9 +282,13 @@ struct StockChartView: View {
     }
     private var paperStatusText: String {
         let rows = paperState["orders"] as? [[String: Any]] ?? []
+        if store.trading.uncertain { return "Order outcome unknown · verify Gateway before resubmitting" }
         if paperState["sync_error"] as? Bool == true { return "Order updates paused · verify Gateway" }
         if paperState["known"] as? Bool == false { return "Order status unknown · verify Gateway" }
         if paperState["rejected"] as? Bool == true { return "Order rejected · verify Gateway" }
+        if let progress = paperState["adjustment"] as? [String: Any] {
+            return "\(localizedLabel("IB Paper", locale: locale)) · \(localizedLabel(progress["action"] as? String ?? "close", locale: locale)) · \(localizedLabel(progress["status"] as? String ?? "unknown", locale: locale))"
+        }
         if let size = paperState["position"] as? Double, size != 0 { return "IB Paper · \(size > 0 ? "Long" : "Short") \(abs(size).formatted()) filled" }
         if paperState["status"] as? String == "done" {
             let exit = rows.first { ["tp", "sl", "close"].contains($0["role"] as? String ?? "") && ($0["filled"] as? Double ?? 0) > 0 }
@@ -361,21 +387,22 @@ struct StockChartView: View {
             }
             if !fullScreen {
             TimelineView(.periodic(from: .now, by: 1)) { time in
-                Text(received.map { time.date.timeIntervalSince($0) > 3 } == true ? "Chart updates paused · verify connection" : LocalizedStringKey(notice))
+                Text(verbatim: localizedNotice(received.map { time.date.timeIntervalSince($0) > 3 } == true ? "Chart updates paused · verify connection" : notice, locale: locale))
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
             }
-            StockChartWeb(display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: chartType == "OPT" ? 0 : validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["busy": paperBusy, "chart_only": chartType == "OPT"]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
+            StockChartWeb(display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: chartType == "OPT" ? 0 : validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": chartType == "OPT"]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
                 Color.clear.frame(width: 36, height: 32).accessibilityHidden(true)
-                Text(chartType == "OPT" ? "Option chart · View only" : paperStatusText.isEmpty ? (paperEnabled ? "IB Paper trading" : "Preview only") : paperStatusText)
+                Text(verbatim: chartType == "OPT" ? localizedLabel(store.accountModeLabel, locale: locale) + " · " + localizedLabel("Option chart · View only", locale: locale) : paperStatusText.isEmpty ? localizedLabel(store.accountModeLabel, locale: locale) + " · " + localizedLabel(paperEnabled ? "IB Paper trading" : "Preview only", locale: locale) : localizedNotice(paperStatusText, locale: locale))
                     .font(.caption).foregroundStyle(paperEnabled ? .orange : .secondary)
-                    .multilineTextAlignment(.center).lineLimit(2).frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity)
                 Button { showDisplaySettings = true } label: {
                     Image(systemName: "gearshape").frame(width: 36, height: 32)
                 }.buttonStyle(.plain).accessibilityLabel("Chart display")
             }
+            ChartOrderProgressView(state: paperState)
             if !fullScreen && chartType != "OPT" {
             if let paperMessage { Text(paperMessage).font(.caption).foregroundStyle(.secondary) }
             HStack(spacing: 8) {
@@ -591,9 +618,9 @@ struct StockChartView: View {
         }
         .onChange(of: cacheKey) { rememberChart() }
         .onDisappear { rememberChart(); visible = false }
-        .task(id: "paper-" + context) {
-            paperState = [:]
-            guard visible, phase == .active, !store.demo, chartType != "OPT", let cid = chartID else { return }
+        .task(id: "paper-" + context + String(store.chartTradingAvailable)) {
+            paperState = [:]; paperReceived = nil
+            guard visible, phase == .active, store.chartTradingAvailable, chartType != "OPT", let cid = chartID else { return }
             while !Task.isCancelled {
                 do {
                     let state = try await store.trading.get("api/portfolio/paper-chart/\(cid)", base: store.address)
@@ -636,7 +663,7 @@ struct StockChartView: View {
                             guard !Task.isCancelled, context == requestContext, result["con_id"] as? Int == conID else { return }
                             packet = result; received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
                             RecentStockCharts.save(packet, key: requestCacheKey)
-                            notice = chartType == "OPT" ? (result["status"] as? String == "live" ? "IB option bars · live updates" : "Historical option bars · waiting for updates") : (result["status"] as? String == "live" ? "IB Last ticks · live push" : "Historical bars · waiting for IB Last ticks")
+                            notice = chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (result["status"] as? String == "live" ? "IB Last ticks · live push" : "Historical bars · waiting for IB Last ticks")
                         }
                     }
                     let result = try await store.trading.get("api/portfolio/stock-chart/\(conID)", base: store.address,
@@ -646,7 +673,7 @@ struct StockChartView: View {
                     guard result["con_id"] as? Int == conID, result["bars"] is [[String: Any]] else { throw AppError.message("Invalid chart response") }
                     packet = result; received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
                     RecentStockCharts.save(packet, key: requestCacheKey)
-                    notice = chartType == "OPT" ? (result["status"] as? String == "live" ? "IB option bars · live updates" : "Historical option bars · waiting for updates") : (interval >= 1440 || (interval == 480 && session == "rth")) ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks"
+                    notice = chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (interval >= 1440 || (interval == 480 && session == "rth")) ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks"
                 } catch {
                     guard !Task.isCancelled else { return }
                     failures = min(failures + 1, 5)

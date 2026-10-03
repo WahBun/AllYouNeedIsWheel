@@ -262,13 +262,23 @@ final class TradingSession {
     }
 
     func paperChartWrite(base: String, conID: Int, body: [String: Any]) async throws -> [String: Any] {
+        guard !busy, !uncertain else { throw AppError.message("Verify the previous order in Gateway before submitting again") }
         var request = URLRequest(url: try endpoint(base, "api/portfolio/paper-chart/\(conID)"), timeoutInterval: 35)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("1", forHTTPHeaderField: "X-All-You-Need-Is-Wheel")
         var payload = body; payload["request_id"] = UUID().uuidString
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-        return try await send(request)
+        busy = true; version += 1
+        defer { busy = false }
+        uncertain = true
+        UserDefaults.standard.set(true, forKey: "unresolvedTradingWrite")
+        let result = try await send(request)
+        if ["acknowledged", "rejected"].contains(result["status"] as? String ?? "") {
+            uncertain = false
+            UserDefaults.standard.set(false, forKey: "unresolvedTradingWrite")
+        }
+        return result
     }
 
     func chartStream(base: String, conID: Int, interval: Int, marketSession: String,
@@ -281,8 +291,22 @@ final class TradingSession {
         defer { bytes.task.cancel() }
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,
               http.value(forHTTPHeaderField: "Content-Type")?.contains("text/event-stream") == true else {
-            throw AppError.message("Chart stream unavailable")
+            var body = Data()
+            for try await byte in bytes {
+                body.append(byte)
+                if body.count >= 8192 { break }
+            }
+            let details = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+            throw AppError.message(details?["error"] as? String ?? "Chart stream unavailable")
         }
+        var lastPacket = Date()
+        let watchdog = Task { @MainActor in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                if Date().timeIntervalSince(lastPacket) > 8 { bytes.task.cancel(); return }
+            }
+        }
+        defer { watchdog.cancel() }
         var sequence = 0
         var bars: [Int: [String: Any]] = [:]
         var orderedTimes: [Int] = []
@@ -302,6 +326,7 @@ final class TradingSession {
                     throw AppError.message("Chart stream resynchronizing")
                 }
                 sequence = next
+                lastPacket = Date()
                 var reorder = false
                 for bar in updates {
                     if let stamp = bar["time"] as? Int {

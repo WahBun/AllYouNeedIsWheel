@@ -132,13 +132,14 @@ def response(connection_factory):
     future = executor.submit(start)
     try:
         key, sub = future.result(timeout=12)
-    except Exception:
+    except Exception as error:
         def abandon(done):
             if not done.cancelled() and done.exception() is None:
                 done.result()[1].closed = True
         future.add_done_callback(abandon)
         future.cancel()
         slots.release()
+        if isinstance(error, ValueError): return {'error': str(error)}, 400
         return {'error': 'Chart stream unavailable'}, 503
     def generate():
         try:

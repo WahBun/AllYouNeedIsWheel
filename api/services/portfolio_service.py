@@ -178,6 +178,18 @@ class PortfolioService:
             logger.error(traceback.format_exc())
             return []
 
+    @staticmethod
+    def connection_status(conn):
+        """Identity comes from the selected managed account, never the TCP port."""
+        connected = conn.is_connected()
+        account = conn.account_id
+        verified = bool(connected and account and account in conn.ib.managedAccounts())
+        mode = ('paper' if account.startswith('DU') else 'live' if account.startswith('U') else 'unknown') if verified else 'unknown'
+        enabled = verified and mode != 'unknown' and conn.readonly is False
+        return dict(mode=mode, execution_enabled=enabled,
+                    chart_execution_enabled=enabled and mode == 'paper' and conn.port == 4002
+                    and conn.ib.managedAccounts() == [account])
+
     def get_portfolio_bootstrap(self):
         """Return summary and positions from one Gateway portfolio read."""
         try:
@@ -191,6 +203,7 @@ class PortfolioService:
 
             return {
                 'summary': self._summary_from_portfolio(portfolio),
+                'connection': self.connection_status(conn),
                 'positions': self._positions_from_portfolio(portfolio)
             }
         except Exception as e:
@@ -207,6 +220,7 @@ class PortfolioService:
         portfolio = conn.get_live_portfolio()
         return {
             'positions': self._positions_from_portfolio(portfolio),
+            'connection': self.connection_status(conn),
             'is_frozen': portfolio.get('is_frozen', False),
             'streaming': portfolio.get('streaming', False),
             'as_of': portfolio.get('as_of')

@@ -90,8 +90,14 @@ struct Summary: Decodable {
     var initial_margin: Double?
     var leverage_percentage: Double?
 }
-struct Bootstrap: Decodable { var summary: Summary; var positions: [Position] }
-struct LivePortfolio: Decodable { var positions: [Position]; var is_frozen: Bool; var streaming: Bool? }
+struct AccountConnection: Decodable {
+    var mode: String
+    var execution_enabled: Bool
+    var chart_execution_enabled: Bool
+    var label: String { mode == "paper" ? "IB Paper" : mode == "live" ? "Live" : "Unknown" }
+}
+struct Bootstrap: Decodable { var summary: Summary; var positions: [Position]; var connection: AccountConnection? = nil }
+struct LivePortfolio: Decodable { var positions: [Position]; var is_frozen: Bool; var streaming: Bool?; var connection: AccountConnection? = nil }
 struct WeeklyIncome: Decodable { var total_income: Double; var positions_count: Int; var total_put_notional: Double?; var this_friday: String? }
 struct Order: Decodable, Identifiable {
     var id: OrderID
@@ -199,6 +205,13 @@ final class WheelStore {
     var demo = true
     var address = UserDefaults.standard.string(forKey: "backendURL") ?? ""
     var portfolio: Bootstrap?
+    var accountModeLabel: String { demo ? "Demo" : portfolio?.connection?.label ?? "Unknown" }
+    var tradingAccessLabel: String {
+        if demo { return "Demo" }
+        guard isConnected(to: address) else { return "Disconnected" }
+        return portfolio?.connection?.execution_enabled == true ? "Trading enabled" : "Read only"
+    }
+    var chartTradingAvailable: Bool { !demo && isConnected(to: address) && portfolio?.connection?.chart_execution_enabled == true }
     var priceDirections: [String: Int] = [:]
     var orders: [Order] = []
     var filledOrders: [Order] = []
@@ -268,7 +281,7 @@ final class WheelStore {
                 let live: LivePortfolio = try await read(base.appendingPathComponent("api/portfolio/live"))
                 var summary = portfolio!.summary
                 summary.is_frozen = live.is_frozen
-                next = Bootstrap(summary: summary, positions: live.positions)
+                next = Bootstrap(summary: summary, positions: live.positions, connection: live.connection)
             }
             guard requestedRevision == revision, requestedTradeVersion == trading.version, !trading.busy, !Task.isCancelled else { return }
             let previousPrices = Dictionary((portfolio?.positions ?? []).compactMap { position in
@@ -531,6 +544,7 @@ struct StatusView: View {
                         .opacity(busy && !reduceMotion ? 0.35 : 1)
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: busy)
                         .accessibilityHidden(true)
+                    if !store.demo { Text(LocalizedStringKey(store.accountModeLabel)).fontWeight(.semibold) }
                     Text(LocalizedStringKey(status))
                     Spacer()
                     if let date = updated { Text(date.formatted(.dateTime.hour().minute().second())).monospacedDigit() }
@@ -542,6 +556,8 @@ struct StatusView: View {
             NavigationStack {
                 Form {
                     Section("Data status") {
+                        LabeledContent("Account mode") { Text(LocalizedStringKey(store.accountModeLabel)) }
+                        LabeledContent("Trading access") { Text(LocalizedStringKey(store.tradingAccessLabel)) }
                         if let date = updated { LabeledContent("Last backend response", value: date.formatted(.dateTime.hour().minute().second())) }
                         Text("The time shown is the last successful backend refresh, not the exchange quote time.")
                         if store.demo { Text("Demo quote") }
@@ -1343,7 +1359,7 @@ struct SettingsView: View {
     }
     @FocusState private var addressFocused: Bool
     private var accessLabel: String {
-        localizedLabel(store.demo ? "Simulated" : "Live", locale: locale)
+        localizedLabel(store.accountModeLabel, locale: locale)
     }
     var body: some View {
         @Bindable var store = store

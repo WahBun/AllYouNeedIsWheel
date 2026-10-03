@@ -299,3 +299,55 @@ class ProtectedLotTests(unittest.TestCase):
         self.assertIn('viewing only',result['message'])
         self.conn.ib.placeOrder.assert_not_called()
         self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_trim_progress_survives_partial_fill_and_cancel(self):
+        self.open_four()
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=2))
+        self.assertEqual(result['state']['adjustment']['status'],'working')
+        self.trades[1].orderStatus.status='Filled';self.trades[1].orderStatus.filled=1
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=3)]
+        progress=self.service.state(self.conn,7)['adjustment']
+        self.assertEqual((progress['requested'],progress['filled'],progress['remaining'],progress['position']),(2,1,1,3))
+        self.trades[4].orderStatus.status='Cancelled'
+        self.assertEqual(self.service.state(self.conn,7)['adjustment']['status'],'canceled')
+
+    def test_trim_stop_fill_counts_as_exit_without_another_write(self):
+        self.open_four()
+        self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
+        self.trades[2].orderStatus.status='Filled';self.trades[2].orderStatus.filled=1
+        self.trades[1].orderStatus.status='Cancelled'
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=3)]
+        self.conn.ib.placeOrder.reset_mock()
+        progress=self.service.state(self.conn,7)['adjustment']
+        self.assertEqual(progress['status'],'filled')
+        self.assertEqual(progress['remaining'],0)
+        self.conn.ib.placeOrder.assert_not_called()
+
+    def test_partial_trim_rejection_keeps_remaining_and_original_protection(self):
+        self.open_four()
+        original=self.service.modify_exit
+        calls=[]
+        def modify(conn,trade,order,field):
+            calls.append(order.orderId)
+            if len(calls)==2: raise ValueError('Rejected by fixture')
+            return original(conn,trade,order,field)
+        with patch.object(self.service,'modify_exit',side_effect=modify):
+            result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=2))
+        self.assertEqual(result['status'],'rejected')
+        state=self.service.state(self.conn,7)
+        self.assertEqual(state['adjustment']['requested'],2)
+        self.assertEqual(state['adjustment']['pending'],1)
+        self.assertEqual(state['adjustment']['status'],'rejected')
+        self.assertEqual(state['protection']['sl'],4)
+        self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_unknown_trim_is_persisted_and_same_request_never_replays(self):
+        self.open_four()
+        body=dict(request_id=str(uuid4()),action='trim',quantity=2)
+        with patch.object(self.service,'modify_exit',side_effect=RuntimeError('Disconnected')):
+            result=self.service.execute(self.conn,7,body)
+        self.assertEqual(result['status'],'unknown')
+        self.assertEqual(self.service.state(self.conn,7)['adjustment']['status'],'unknown')
+        self.conn.ib.placeOrder.reset_mock()
+        self.assertEqual(self.service.execute(self.conn,7,body)['status'],'unknown')
+        self.conn.ib.placeOrder.assert_not_called()

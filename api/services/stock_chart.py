@@ -13,6 +13,17 @@ from functools import lru_cache
 import pandas_market_calendars as calendars
 
 
+def option_data_notice(data_type, bars, now, live=False):
+    if data_type == 4: return 'Delayed frozen option data'
+    if data_type == 3: return 'Delayed option data'
+    if data_type == 2: return 'Frozen option data'
+    if not bars: return 'No option trades in the selected session; try ETH or a longer interval'
+    if len(bars) < 20: return 'Limited option history; indicators may need more bars'
+    if live: return 'IB option bars · live updates'
+    if now - bars[-1]['time'] >= 60: return 'No recent option trades · showing historical bars'
+    return 'Historical option bars · waiting for updates'
+
+
 def positive(value):
     try:
         number = float(value)
@@ -102,6 +113,7 @@ class StockChart:
     def __init__(self):
         self.active = None
         self.next_request = {}
+        self.request_errors = {}
         self.listeners = set()
 
     def stop(self):
@@ -148,12 +160,25 @@ class StockChart:
         if state is None:
             now = time.monotonic()
             if now < self.next_request.get(con_id, 0):
-                raise ValueError('Chart subscription cooling down; retry shortly')
+                raise ValueError(self.request_errors.get(con_id, 'Chart subscription cooling down; retry shortly'))
             self.next_request = {key: value for key, value in self.next_request.items() if value > now}
+            self.request_errors = {key:value for key,value in self.request_errors.items() if key in self.next_request}
+            self.request_errors.pop(con_id, None)
             self.next_request[con_id] = now + 15
             option_bars=contract.secType=='OPT'
-            historical = conn.ib.reqHistoricalData(contract, '', '2 D', '1 min', 'TRADES',
-                useRTH=False, formatDate=2, keepUpToDate=option_bars, timeout=5)
+            permission_errors = []
+            def history_error(req_id, code, message, error_contract=None):
+                if getattr(error_contract, 'conId', None) != con_id: return
+                lowered = str(message).lower()
+                if any(term in lowered for term in ('no market data permission', 'not subscribed', 'subscription required')):
+                    permission_errors.append(str(message))
+            event = getattr(conn.ib, 'errorEvent', None) if option_bars else None
+            if event is not None: event += history_error
+            try:
+                historical = conn.ib.reqHistoricalData(contract, '', '2 D', '1 min', 'TRADES',
+                    useRTH=False, formatDate=2, keepUpToDate=option_bars, timeout=5)
+            finally:
+                if event is not None: event -= history_error
             bars = []
             for bar in historical:
                 if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
@@ -169,7 +194,8 @@ class StockChart:
             bars.sort(key=lambda b: b['time'])
             if not bars:
                 if option_bars: conn.ib.cancelHistoricalData(historical)
-                raise ValueError('Historical contract bars unavailable; check IB data permissions')
+                self.request_errors[con_id] = 'Option market data permission unavailable; verify this contract entitlement in Gateway' if permission_errors else 'No historical trades returned for this contract; check history range and market data permissions'
+                raise ValueError(self.request_errors[con_id])
             self.next_request[con_id] = time.monotonic() + 15
             if option_bars:
                 try: ticker=conn.get_market_ticker(contract)
@@ -363,7 +389,8 @@ class StockChart:
         # A known current bar has a scheduled close before the first Last tick.
         # Countdown eligibility is independent of quote freshness/trading eligibility.
         closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time)
-        return dict(con_id=con_id, symbol=contract.symbol, security_type=contract.secType, local_symbol=getattr(contract, "localSymbol", "") or contract.symbol,
+        return dict(data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, age is not None and age < 10) if state.get('option_bars') else None,
+            con_id=con_id, symbol=contract.symbol, security_type=contract.secType, local_symbol=getattr(contract, "localSymbol", "") or contract.symbol,
             exchange=getattr(contract, "primaryExchange", "") or getattr(contract, "exchange", ""),
             multiplier=positive(getattr(contract, "multiplier", 1)) or 1, interval=minutes,
             server_time=server_time, bar_closes_at=closes_at, price_rules=state.get('price_rules', []),

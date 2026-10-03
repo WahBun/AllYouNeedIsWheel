@@ -8,9 +8,12 @@ struct TradingAccessView: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("Trading access") {
-                    Text(verbatim: store.demo ? localizedLabel("Simulated", locale: locale) : localizedLabel("Live", locale: locale))
+                LabeledContent("Account mode") {
+                    Text(verbatim: localizedLabel(store.accountModeLabel, locale: locale))
                 }
+            }
+            Section {
+                LabeledContent("Trading access") { Text(verbatim: localizedLabel(store.tradingAccessLabel, locale: locale)) }
             }
             Section("Remote maintenance") {
                 NavigationLink { RemoteMaintenanceView() } label: {

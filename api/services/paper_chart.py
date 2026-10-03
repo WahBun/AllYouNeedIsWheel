@@ -198,7 +198,28 @@ class PaperChart:
             if size and abs(size - abs(result['position'])) < .000001: result['entry'] = cost / size
         result['be_applied']=bool(result['position'] and result['sl']>0 and result['side']*(result['sl']-result['entry'])>0)
         result['rejected']=any(r['status']=='Inactive' for r in rows)
+        result['protection'] = self.protection_progress(rows, result['position'])
+        adjustment = group.get('adjustment')
+        if adjustment:
+            by_id = {r['order_id']: r for r in rows}
+            selected = [by_id.get(oid, dict(status='Unknown', filled=0)) for oid in adjustment['orders']]
+            filled = sum(min(1, r['filled'] + by_id.get(sl, {}).get('filled', 0)) for r, sl in zip(selected, adjustment.get('stops', [None]*len(selected))))
+            result['adjustment'] = dict(action=adjustment['action'], requested=len(selected), filled=filled,
+                remaining=max(0, len(selected)-filled), pending=sum(max(0, 1-r['filled']) for r in selected if r.get('order_id') in adjustment.get('acknowledged', []) and r['status'] in ('Submitted','PreSubmitted')), position=result['position'],
+                status='filled' if filled == len(selected) else 'unknown' if any(r['status']=='Unknown' for r in selected) or adjustment.get('outcome') == 'unknown'
+                else 'rejected' if adjustment.get('outcome') == 'rejected' or any(r['status']=='Inactive' for r in selected)
+                else 'canceled' if any(r['status'] in ('Cancelled','ApiCancelled') for r in selected)
+                else 'working')
         return result
+
+    @staticmethod
+    def protection_progress(rows, position):
+        quantities = {role: sum(max(0, r['quantity']-r['filled']) for r in rows
+            if r['role'].split('_')[0] == role and r['status'] in ('Submitted','PreSubmitted')) for role in ('tp','sl')}
+        size = abs(position)
+        return dict(**quantities, remaining_position=size,
+                    status='flat' if size == 0 else 'unknown' if any(r['status']=='Unknown' for r in rows)
+                    else 'covered' if quantities['tp'] == size and quantities['sl'] == size else 'needs_review')
 
     def execute(self, conn, cid, body):
         account=paper_account(conn,True)
@@ -213,12 +234,20 @@ class PaperChart:
         try:
             self.perform(conn,account,cid,body,request_id)
             conn.ib.sleep(.2)
+            group = self.group(account, cid)
+            if group and group.get('adjustment', {}).get('request_id') == request_id:
+                group['adjustment']['outcome'] = 'acknowledged'
+                self.save_group(account, cid, group)
             state=self.state(conn,cid)
             result=dict(success=not state.get('rejected',False),status='rejected' if state.get('rejected') else 'acknowledged',message='IB rejected a paper order; review Gateway' if state.get('rejected') else 'Paper request sent; broker status shown on chart',state=state)
         except ValueError as error:
             result=dict(success=False,status='rejected',message=str(error))
         except Exception:
             result=dict(success=False,status='unknown',message='Broker outcome uncertain. Check Gateway; do not resubmit.')
+        group = self.group(account, cid)
+        if group and group.get('adjustment', {}).get('request_id') == request_id:
+            group['adjustment']['outcome'] = result['status']
+            self.save_group(account, cid, group)
         with self.database() as db:
             db.execute('UPDATE chart_paper_requests SET result=? WHERE id=?',(json.dumps(result),request_id))
         return result
@@ -242,7 +271,7 @@ class PaperChart:
                 order.account=account;order.tif='DAY';order.orderRef=group['ref']
                 conn.ib.placeOrder(contract,order)
 
-    def exit_lots(self, conn, account, cid, group, lots, trades, price):
+    def exit_lots(self, conn, account, cid, group, lots, trades, price, action, request_id):
         import copy
         state=stock_chart.active
         if not state or state['con_id']!=cid: raise ValueError('Wait for a current quote')
@@ -252,12 +281,16 @@ class PaperChart:
         quote=packet.get('bid' if group['side']==1 else 'ask')
         if packet.get('status')!='live' or not quote: raise ValueError('Wait for a live bid/ask')
         target=price(quote)
+        group['adjustment'] = dict(action=action, request_id=request_id, orders=[lot['tp'] for lot in lots], stops=[lot['sl'] for lot in lots], acknowledged=[], outcome='unknown')
+        self.save_group(account, cid, group)
         for lot in lots:
             take=trades[lot['tp']];stop=trades[lot['sl']]
             if take.isDone() or stop.isDone(): raise ValueError('Exit changed before adjustment')
             lot['closing']=True;self.save_group(account,cid,group)
             order=copy.copy(take.order);order.lmtPrice=target;order.transmit=True
             self.modify_exit(conn,take,order,'lmtPrice')
+            group['adjustment']['acknowledged'].append(lot['tp'])
+            self.save_group(account, cid, group)
 
     def modify_exit(self, conn, trade, order, field):
         # Keep the broker's parent/OCA fields verbatim. Clearing or rebuilding
@@ -348,7 +381,7 @@ class PaperChart:
             if action == 'add':
                 self.add_lots(conn,account,cid,contract,group,int(qty),'MKT',0,price(current['tp']),price(current['sl']))
             else:
-                self.exit_lots(conn,account,cid,group,live[:int(qty)],trades,price)
+                self.exit_lots(conn,account,cid,group,live[:int(qty)],trades,price,action,request_id)
             return
         if action in ('amend','be'):
             role='sl' if action=='be' else body.get('role')
@@ -391,7 +424,7 @@ class PaperChart:
                 elif not parent.isDone():
                     # Cancel only an unfilled unit; never remove filled-unit protection.
                     conn.ib.cancelOrder(parent.order)
-            if live: self.exit_lots(conn,account,cid,group,live,trades,price)
+            if live: self.exit_lots(conn,account,cid,group,live,trades,price,action,request_id)
             return
         if action=='close':
             working=[t for t in trades.values() if t.order.orderId in group['ids'].values() and not t.isDone()]

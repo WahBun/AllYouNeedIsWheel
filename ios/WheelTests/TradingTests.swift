@@ -24,6 +24,49 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testPaperChartTimeoutLocksRepeatedWriteAcrossNewSession() async {
+        let original = UserDefaults.standard.bool(forKey: "unresolvedTradingWrite")
+        defer { UserDefaults.standard.set(original, forKey: "unresolvedTradingWrite"); MockProtocol.fail = false; MockProtocol.payload = nil }
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        let trading = TradingSession(session: URLSession(configuration: config)); trading.acknowledgeReview()
+        MockProtocol.requests = []; MockProtocol.fail = true
+        do { _ = try await trading.paperChartWrite(base: "https://mock.invalid", conID: 7, body: ["action": "trim", "quantity": 2]); XCTFail("Timeout should throw") } catch { }
+        XCTAssertTrue(trading.uncertain)
+        XCTAssertFalse(trading.busy)
+        let restarted = TradingSession(session: URLSession(configuration: config))
+        XCTAssertTrue(restarted.uncertain)
+        let count = MockProtocol.requests.count
+        do { _ = try await restarted.paperChartWrite(base: "https://mock.invalid", conID: 7, body: ["action": "trim", "quantity": 2]); XCTFail("Must block duplicate") } catch { }
+        XCTAssertEqual(MockProtocol.requests.count, count)
+    }
+
+    func testChartStreamPreservesPermissionDiagnostic() async {
+        defer { MockProtocol.statusCode = 200; MockProtocol.payload = nil }
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        let trading = TradingSession(session: URLSession(configuration: config))
+        MockProtocol.statusCode = 400
+        MockProtocol.payload = { _ in ["error": "Option market data permission unavailable"] }
+        do {
+            try await trading.chartStream(base: "https://mock.invalid", conID: 7, interval: 5, marketSession: "rth") { _ in XCTFail("Must not deliver an error as bars") }
+            XCTFail("Must report permission failure")
+        } catch { XCTAssertTrue(error.localizedDescription.contains("permission unavailable")) }
+    }
+
+    func testAccountModeAndTradingPermissionAreIndependent() throws {
+        let connection = try JSONDecoder().decode(AccountConnection.self, from: Data(#"{"mode":"paper","execution_enabled":false,"chart_execution_enabled":false}"#.utf8))
+        XCTAssertEqual(connection.label, "IB Paper")
+        XCTAssertFalse(connection.execution_enabled)
+        let store = WheelStore(); store.demo = false
+        XCTAssertEqual(store.accountModeLabel, "Unknown")
+        XCTAssertFalse(store.chartTradingAvailable)
+        store.portfolio = Bootstrap(summary: Summary(account_value: 1, cash_balance: 1), positions: [], connection: connection)
+        store.updated = .now
+        XCTAssertEqual(store.accountModeLabel, "IB Paper")
+        XCTAssertEqual(store.tradingAccessLabel, "Read only")
+        store.error = "Disconnected"
+        XCTAssertEqual(store.tradingAccessLabel, "Disconnected")
+    }
+
     func testWorkingAmendmentsRespectLocksAndDecodePendingAcknowledgement() throws {
         var order = Order(id: OrderID(7), ticker: "TEST", action: "SELL", option_type: "CALL", quantity: 3, status: "processing", intent: "OPEN")
         XCTAssertTrue(TradeRules.amendable(order))
