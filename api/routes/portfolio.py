@@ -214,3 +214,13 @@ def get_chart_executions(con_id):
         return _no_store_json({'con_id': con_id, 'executions': execution_rows(conn, contract, portfolio_service.config.get('db_path'))})
     except Exception:
         return _no_store_json({'error': 'Chart executions unavailable'}, 503)
+
+
+@bp.route('/chart-ema/<int:con_id>', methods=['GET'])
+def get_chart_ema(con_id):
+    from api.services.chart_ema import snapshot
+    try:
+        frames = list(dict.fromkeys(int(x) for x in request.args.get('frames','').split(',') if x))
+        return _no_store_json(snapshot(portfolio_service._ensure_connection(), con_id, frames, request.args.get('session','rth')))
+    except Exception:
+        return _no_store_json({'error':'EMA history unavailable'},503)

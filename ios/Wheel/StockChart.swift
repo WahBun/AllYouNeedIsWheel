@@ -81,6 +81,19 @@ struct ChartOrderProgressView: View {
     }
 }
 
+struct ExtraEMA: Codable {
+    var enabled = true
+    var timeframe: Int
+    var length = 20
+    var source = "close"
+    var offset = 0
+    var color: String
+    var width = 1
+    var style = 0
+    var stepped = false
+    static let defaults = [ExtraEMA(timeframe: 15, color: "#d1c4e9"), ExtraEMA(timeframe: 60, color: "#8d8da0", stepped: true)]
+}
+
 enum ChartHoldingOverlay {
     static func rows(positions: [Position], conID: Int?, symbol: String, type: String, chinese: Bool) -> [[String: Any]] {
         guard let conID, conID > 0 else { return [] }
@@ -241,6 +254,56 @@ struct StockChartView: View {
     @AppStorage("chartATRLength") private var atrLength = 4
     @AppStorage("chartIndicatorCollapsed") private var indicatorCollapsed = false
     @AppStorage("chartIndicatorVisible") private var indicatorVisible = true
+    @AppStorage("chartEMAFrame") private var emaFrame = 0
+    @AppStorage("chartExtraEMAsV1") private var extraEMAJSON = ""
+    @State private var emaFrames: [String: Any] = [:]
+    @State private var emaFrameContext = ""
+    @State private var emaHistoryNotice: String?
+    private let emaIntervals = [0, 1, 3, 5, 10, 15, 30, 60, 240, 1440, 10080, 43200]
+    private var extraEMAs: [ExtraEMA] {
+        guard let data = extraEMAJSON.data(using: .utf8), let values = try? JSONDecoder().decode([ExtraEMA].self, from: data), values.count == 2 else { return ExtraEMA.defaults }
+        return values
+    }
+    private func extraBinding<T>(_ index: Int, _ path: WritableKeyPath<ExtraEMA, T>) -> Binding<T> {
+        Binding(get: { extraEMAs[index][keyPath: path] }, set: { value in
+            var all = extraEMAs; all[index][keyPath: path] = value
+            if let data = try? JSONEncoder().encode(all), let text = String(data: data, encoding: .utf8) { extraEMAJSON = text }
+        })
+    }
+    private func extraColor(_ index: Int) -> Binding<Color> {
+        Binding(get: { CustomPalette.color(extraEMAs[index].color) ?? .gray }, set: { color in
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+            extraBinding(index, \.color).wrappedValue = String(format: "#%02X%02X%02X", Int(r*255), Int(g*255), Int(b*255))
+        })
+    }
+    @ViewBuilder private func frameChoices() -> some View {
+        ForEach(emaIntervals, id: \.self) { value in Text(value == 0 ? "Chart" : intervalLabel(value)).tag(value) }
+    }
+    @ViewBuilder private func extraEMASection(_ index: Int) -> some View {
+        Section("EMA \(index + 2)") {
+            if indicatorTab == "Inputs" {
+                Picker("Timeframe", selection: extraBinding(index, \.timeframe)) { frameChoices() }
+                Stepper("Length: \(extraEMAs[index].length)", value: extraBinding(index, \.length), in: 1...500)
+                Picker("Source", selection: extraBinding(index, \.source)) {
+                    ForEach(["close", "open", "high", "low", "hl2", "hlc3", "ohlc4"], id: \.self) { Text($0.uppercased()).tag($0) }
+                }
+                Stepper("Offset: \(extraEMAs[index].offset)", value: extraBinding(index, \.offset), in: -100...100)
+            } else if indicatorTab == "Style" {
+                ColorPicker("Line color", selection: extraColor(index), supportsOpacity: false)
+                Stepper("Line width: \(extraEMAs[index].width)", value: extraBinding(index, \.width), in: 1...4)
+                Picker("Line style", selection: extraBinding(index, \.style)) { Text("Solid").tag(0); Text("Dotted").tag(1); Text("Dashed").tag(2) }
+                Toggle("Stepped line", isOn: extraBinding(index, \.stepped))
+            } else { Toggle("Show EMA \(index + 2)", isOn: extraBinding(index, \.enabled)) }
+        }
+    }
+    private var requestedEMAFrames: [Int] {
+        guard indicatorVisible else { return [] }
+        var frames = extraEMAs.filter { $0.enabled }.map { $0.timeframe }
+        if showEMA { frames.append(emaFrame) }
+        return Array(Set(frames.filter { $0 > 0 && $0 != interval })).sorted()
+    }
+    private var emaRequestKey: String { context + requestedEMAFrames.map(String.init).joined(separator: ",") }
     @AppStorage("chartShowEMA") private var showEMA = true
     @AppStorage("chartEMALength") private var emaLength = 20
     @AppStorage("chartEMASource") private var emaSource = "close"
@@ -274,7 +337,7 @@ struct StockChartView: View {
                             ForEach(["close", "open", "high", "low", "hl2", "hlc3", "ohlc4"], id: \.self) { Text($0.uppercased()).tag($0) }
                         }
                         Stepper("Offset: \(emaOffset)", value: $emaOffset, in: -100...100)
-                        Text("Timeframe follows the chart").font(.caption).foregroundStyle(.secondary)
+                        Picker("Timeframe", selection: $emaFrame) { frameChoices() }
                     }
                     Section("ATR") { Stepper("Length: \(atrLength)", value: $atrLength, in: 1...200) }
                 } else if indicatorTab == "Style" {
@@ -292,9 +355,12 @@ struct StockChartView: View {
                         Toggle("ATR", isOn: $showATR)
                     }
                 }
+                extraEMASection(0)
+                extraEMASection(1)
                 Section {
                     Text("Changes apply immediately and are saved.").font(.caption).foregroundStyle(.secondary)
                     Button("Restore defaults") {
+                        emaFrame = 0; extraEMAJSON = ""
                         indicatorVisible = true; showEMA = true; emaLength = 20; emaSource = "close"; emaOffset = 0
                         emaDynamic = true; emaColor = "#f9f1db"; emaWidth = 1; emaStyle = 0
                         showATR = true; atrLength = 4
@@ -311,7 +377,7 @@ struct StockChartView: View {
     private var adjustmentLimit: Int { adjustmentAction == "trim" ? max(0, positionSize - 1) : max(0, quantityLimit - positionSize) }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
+        ["emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
          "emaDynamic": emaDynamic, "emaColor": emaColor + "ab", "emaWidth": emaWidth, "emaStyle": emaStyle,
          "atr": showATR && indicatorVisible, "atrLength": atrLength, "profit": showProfit, "positions": showPositionProfit, "brackets": showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
@@ -428,6 +494,7 @@ struct StockChartView: View {
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
             }
+            if let emaHistoryNotice { Text(verbatim: emaHistoryNotice).font(.caption2).foregroundStyle(.secondary) }
             StockChartWeb(executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: chartType == "OPT" ? 0 : validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": chartType == "OPT"]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
@@ -655,6 +722,24 @@ struct StockChartView: View {
         }
         .onChange(of: cacheKey) { rememberChart() }
         .onDisappear { rememberChart(); visible = false; store.chartVisible = false }
+        .task(id: "ema-" + emaRequestKey) {
+            emaFrames = [:]; emaFrameContext = ""; emaHistoryNotice = nil
+            guard visible, phase == .active, !store.demo, let cid = chartID else { return }
+            let requestKey = emaRequestKey
+            while !Task.isCancelled {
+                do {
+                    let result = try await store.trading.get("api/portfolio/chart-ema/\(cid)", base: store.address, query: [URLQueryItem(name: "frames", value: requestedEMAFrames.map(String.init).joined(separator: ",")), URLQueryItem(name: "session", value: session)])
+                    try Task.checkCancellation()
+                    guard requestKey == emaRequestKey, result["con_id"] as? Int == cid else { return }
+                    emaFrames = result["frames"] as? [String: Any] ?? [:]; emaFrameContext = requestKey
+                    emaHistoryNotice = requestedEMAFrames.contains { (emaFrames[String($0)] as? [[String: Any]])?.isEmpty != false } ? "EMA · Waiting for timeframe history" : nil
+                } catch {
+                    if Task.isCancelled { return }
+                    if !requestedEMAFrames.isEmpty { emaHistoryNotice = "EMA · Timeframe history unavailable; retrying" }
+                }
+                do { try await Task.sleep(for: .seconds(10)) } catch { return }
+            }
+        }
         .task(id: "executions-" + context) {
             accountExecutions = []; executionCID = nil
             guard visible, phase == .active, !store.demo, let cid = chartID else { return }

@@ -122,6 +122,8 @@ class StockChart:
             if state.get('minute_history') is not None:
                 state['minute_history'].updateEvent -= state['history_handler']
                 state['conn'].ib.cancelHistoricalData(state['minute_history'])
+            for historical in state.get('ema_history', {}).values():
+                state['conn'].ib.cancelHistoricalData(historical)
             for historical in state.get('higher', {}).values():
                 state['conn'].ib.cancelHistoricalData(historical)
             state['ticker'].updateEvent -= state['handler']

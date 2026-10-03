@@ -126,14 +126,14 @@ function updateATR(){
 // Port of the reference's first EMA and ATR-normalized dynamic color module.
 const emaDayFormatter=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'});
 function emaSource(b,source){return source==='hl2'?(b.high+b.low)/2:source==='hlc3'?(b.high+b.low+b.close)/3:source==='ohlc4'?(b.open+b.high+b.low+b.close)/4:b[source]??b.close;}
-function emaStep(b,prior,older,state,options,seconds){
- const value=emaSource(b,options.source),alpha=2/(options.length+1),ema=state?state.ema+alpha*(value-state.ema):value;
+function emaStep(b,prior,older,state,options,seconds,projected){
+ const value=emaSource(b,options.source),alpha=2/(options.length+1),ema=Number.isFinite(projected)?projected:state?state.ema+alpha*(value-state.ema):value;
  const slope=state?(state.slope===null?ema-state.ema:state.slope+(ema-state.ema-state.slope)/2):null;
  const tr=prior?Math.max(b.high-b.low,Math.abs(b.high-prior.close),Math.abs(b.low-prior.close)):b.high-b.low;
  const count=(state?.count||0)+1,sum=(state?.sum||0)+(count<=14?tr:0),atr=count<14?null:count===14?sum/14:(state.atr*13+tr)/14,dead=atr===null?NaN:atr*.015;
  const bull=b.low>ema&&b.close>ema,bear=b.high<ema&&b.close<ema,dir=bull?1:bear?-1:0,prevDir=state?.dir||0,run=dir?(dir===prevDir?state.run+1:1):0;
  const gap=bull?b.low-ema:bear?ema-b.high:0,strength=atr>0?gap/atr:0,extension=atr>0?Math.abs(b.close-ema)/atr:0;
- const impulse=!!prior&&((bull&&b.close>prior.close&&slope>state.slope)||(bear&&b.close<prior.close&&slope<state.slope));
+ const impulse=!!prior&&!!state&&((bull&&b.close>prior.close&&slope>state.slope)||(bear&&b.close<prior.close&&slope<state.slope));
  const day=t=>emaDayFormatter.format(new Date(t*1000));
  const continuous=!!older&&(seconds>=86400||(b.time-prior.time<=seconds*3&&prior.time-older.time<=seconds*3));
  const sameDay=!!older&&day(b.time)===day(prior.time)&&day(prior.time)===day(older.time);
@@ -165,13 +165,56 @@ function layoutIndicator(){
 }
 indicatorCollapse.onclick=()=>{indicatorCollapsed=!indicatorCollapsed;displayOptions.indicatorCollapsed=indicatorCollapsed;layoutIndicator();paperAction({action:'indicatorCollapse',collapsed:indicatorCollapsed});};
 indicatorName.onclick=indicatorSettings.onclick=()=>paperAction({action:'indicatorSettings'});indicatorEye.onclick=()=>paperAction({action:'indicatorToggle'});document.body.append(indicatorRow);
+const extraEMASeries=[0,1].map(()=>chart.addSeries(LightweightCharts.LineSeries,{priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false,lineWidth:1,autoscaleInfoProvider:()=>null}));
+const mtfCaches=new Map();
+function projectedEMA(chartBars,sourceBars,options,frame,seconds,now){
+ const alpha=2/(options.length+1),target=[];let prior=null;
+ for(const b of sourceBars){const v=emaSource(b,options.source);prior=prior===null?v:prior+alpha*(v-prior);target.push({...b,ema:prior});}
+ let j=-1;const values=[];
+ for(const b of chartBars){
+  const end=Math.min(b.time+seconds,now);let changed=false;
+  while(j+1<target.length&&(target[j+1].end??target[j+1].time+frame*60)<=end){j++;changed=true;}
+  // Pine gaps_on delivers a confirmed value on its closing chart bar. Other
+  // bars project from the last confirmed target EMA, not recursively from projections.
+  if(j<0){values.push(null);continue;}
+  const confirmed=target[j];
+  const inBar=(confirmed.end??confirmed.time+frame*60)>b.time;
+  const value=changed&&inBar?confirmed.ema:confirmed.ema+alpha*(emaSource(b,options.source)-confirmed.ema);
+  values.push(value);
+ }
+ return values;
+}
+function renderMTF(target,options,slot){
+ const frame=options.timeframe||countdownPacket?.interval||5,seconds=(countdownPacket?.interval||5)*60;
+ const source=frame===(countdownPacket?.interval||5)?previous:(displayOptions.emaFrames?.[String(frame)]||[]);
+ if(!options.enabled||!previous.length||!source.length){target.applyOptions({visible:false});mtfCaches.delete(slot);return;}
+ const signature=JSON.stringify([key,options,source===previous?null:source,previous.length,previous.at(-1),Math.floor((countdownPacket?.server_time||Date.now()/1000)/5)]);
+ const cached=mtfCaches.get(slot);if(cached?.signature===signature&&cached.bars===previous)return;
+ const mapped=source===previous?null:projectedEMA(previous,source,options,frame,seconds,countdownPacket?.server_time||Date.now()/1000);
+ const points=[];let state=null;
+ for(let i=0;i<previous.length;i++){
+  if(mapped&&mapped[i]===null)continue;
+  state=emaStep(previous[i],previous[i-1],previous[i-2],state,options,seconds,mapped?.[i]);
+  const j=i+options.offset;if(j<0)continue;
+  const time=previous[j]?.time??previous.at(-1).time+(j-previous.length+1)*seconds;
+  points.push({time,value:state.ema,color:options.dynamic?state.color:options.color});
+ }
+ target.applyOptions({visible:true,color:options.color,lineWidth:options.width,lineStyle:options.style,lineType:options.stepped?1:0});
+ target.setData(points);mtfCaches.set(slot,{signature,bars:previous});
+}
+function updateExtraEMAs(){
+ const all=displayOptions.extraEMAs||[];
+ extraEMASeries.forEach((series,i)=>{const o=all[i];if(!o){series.applyOptions({visible:false});return;}renderMTF(series,{...o,enabled:o.enabled&&displayOptions.indicatorVisible!==false,length:Math.max(1,Math.min(500,o.length||20)),offset:o.offset||0,source:o.source||'close',dynamic:false,width:o.width||1,style:o.style||0},'extra'+i);});
+}
 function updateEMA(){
+ updateExtraEMAs();
  const options={length:Math.max(1,Math.min(500,Math.round(displayOptions.emaLength||20))),source:displayOptions.emaSource||'close',offset:Math.max(-100,Math.min(100,Math.round(displayOptions.emaOffset||0))),dynamic:displayOptions.emaDynamic!==false,color:displayOptions.emaColor||'#f9f1dbab',width:Math.max(1,Math.min(4,displayOptions.emaWidth||1)),style:displayOptions.emaStyle||0};
  const visible=displayOptions.ema===true,settings=JSON.stringify(options),seconds=(countdownPacket?.interval||5)*60;
  indicatorRow.style.display=Object.hasOwn(displayOptions,'ema')?'block':'none';
  indicatorCollapsed=displayOptions.indicatorCollapsed===true;layoutIndicator();
  indicatorEye.innerHTML=indicatorIcon('<path d="M2 12s3-6 10-6 10 6 10 6-3 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/>'+(displayOptions.indicatorVisible===false?'<path d="m3 3 18 18"/>':''));
  if(!visible||!previous.length){emaSeries.applyOptions({visible:false});indicatorName.textContent='𝔹𝕖𝕟';return;}
+ if(displayOptions.emaFrame&&displayOptions.emaFrame!==countdownPacket?.interval){renderMTF(emaSeries,{...options,timeframe:displayOptions.emaFrame,enabled:visible},'first');emaCache=null;return;}
  const reset=options.offset!==0||!emaCache||emaCache.bars!==previous||emaCache.key!==key||emaCache.settings!==settings;
  if(!reset&&emaCache.last===previous.at(-1)&&emaCache.states.length===previous.length){emaSeries.applyOptions({visible:true});return;}
  if(reset)emaCache={bars:previous,key,settings,states:[],last:null};
