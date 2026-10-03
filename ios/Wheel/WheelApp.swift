@@ -1239,6 +1239,7 @@ struct OrdersView: View {
     @State private var history = false
     @AppStorage("executionHistoryDays") private var historyDays = 30
     @State private var historySearch = ""
+    @FocusState private var historySearchFocused: Bool
     private var filteredHistory: [Order] {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "America/New_York")!
@@ -1276,6 +1277,8 @@ struct OrdersView: View {
                     }.labelsHidden().pickerStyle(.menu).fixedSize()
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                     TextField("Search symbol or contract", text: $historySearch)
+                        .focused($historySearchFocused).submitLabel(.search)
+                        .onSubmit { historySearchFocused = false }
                         .textInputAutocapitalization(.characters).autocorrectionDisabled()
                     if !historySearch.isEmpty {
                         Button { historySearch = "" } label: { Image(systemName: "xmark.circle.fill") }
@@ -1331,7 +1334,12 @@ struct OrdersView: View {
                 if confirmExecution { cancelAll = true } else { performCancelAll() }
             }.disabled(cancelable.isEmpty) }
             TradingNotice()
-        }.navigationTitle("").navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .navigationBar).refreshable { if history { await store.loadFilled() } else { await store.refresh() } }
+        }.scrollDismissesKeyboard(.immediately)
+        .onChange(of: history) { historySearchFocused = false }
+        .onChange(of: historyDays) { historySearchFocused = false }
+        .onDisappear { historySearchFocused = false }
+        .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { historySearchFocused = false } } }
+        .navigationTitle("").navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .navigationBar).refreshable { if history { await store.loadFilled() } else { await store.refresh() } }
         .task(id: "history-\(refreshHistory)-\(store.demo)-\(store.address)") {
             if refreshHistory { await store.loadFilled() }
         }
