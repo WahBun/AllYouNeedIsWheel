@@ -215,6 +215,14 @@ class PaperChart:
                 if t.order.orderId in group['ids'].values() for entry in t.log if entry.message]
             result.update(mode='overnight_entry', scalable=False, tif='OVERNIGHT',
                           route='OVERNIGHT', protection=dict(status='not_requested'))
+            errors = [entry for t in trades.values() if t.order.orderId in group['ids'].values()
+                      for entry in t.log if entry.errorCode and
+                      (200 <= entry.errorCode < 2100 or entry.errorCode >= 10000)]
+            statuses = {r['status'] for r in rows}
+            result['rejected'] = result['rejected'] or bool(errors and statuses <= {'Cancelled', 'ApiCancelled', 'Inactive'})
+            result['status'] = ('rejected' if result['rejected'] else 'unknown' if not result['known']
+                else 'filled' if statuses == {'Filled'} else 'canceled' if statuses <= {'Cancelled', 'ApiCancelled'}
+                else 'working' if statuses <= {'Submitted', 'PreSubmitted'} else 'pending')
         return result
 
     @staticmethod
@@ -245,6 +253,12 @@ class PaperChart:
                 self.save_group(account, cid, group)
             state=self.state(conn,cid)
             result=dict(success=not state.get('rejected',False),status='rejected' if state.get('rejected') else 'acknowledged',message='IB rejected a paper order; review Gateway' if state.get('rejected') else 'Paper request sent; broker status shown on chart',state=state)
+            if state.get('mode') == 'overnight_entry':
+                status = state['status']
+                result.update(success=status in ('working', 'filled'), status=status,
+                    message=('Overnight Paper limit order is ' + status +
+                             ('. ' + '; '.join(state.get('broker_messages', [])) if status == 'rejected'
+                              else '; verify broker status before any further action')))
         except ValueError as error:
             result=dict(success=False,status='rejected',message=str(error))
         except Exception:

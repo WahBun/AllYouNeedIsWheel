@@ -72,3 +72,24 @@ class OvernightTests(unittest.TestCase):
             self.assertFalse(result['success'], action)
         self.assertEqual(self.conn.ib.placeOrder.call_count, 1)
         self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_async_broker_rejection_is_not_working(self):
+        self.overnight()
+        trade = self.trades[0]
+        trade.orderStatus.status = 'Cancelled'
+        trade.log.append(S(errorCode=10329, message='Direct routing blocked'))
+        state = self.service.state(self.conn, 7)
+        self.assertTrue(state['rejected'])
+        self.assertEqual(state['status'], 'rejected')
+        self.assertFalse(state['active'])
+
+    def test_validation_pending_is_not_acknowledged(self):
+        place = self.conn.ib.placeOrder.side_effect
+        def pending(c, o):
+            trade = place(c, o)
+            trade.orderStatus.status = 'ValidationError'
+            return trade
+        self.conn.ib.placeOrder.side_effect = pending
+        _, result = self.overnight()
+        self.assertFalse(result['success'])
+        self.assertEqual(result['status'], 'pending')
