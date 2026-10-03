@@ -1240,6 +1240,7 @@ struct OrdersView: View {
     @AppStorage("executionHistoryDays") private var historyDays = 30
     @State private var historySearch = ""
     @State private var historySearchExpanded = false
+    @AppStorage("executionHistoryAsset") private var historyAsset = "ALL"
     @FocusState private var historySearchFocused: Bool
     private var filteredHistory: [Order] {
         var calendar = Calendar(identifier: .gregorian)
@@ -1250,6 +1251,9 @@ struct OrdersView: View {
         let query = historySearch.trimmingCharacters(in: .whitespacesAndNewlines)
         return store.filledOrders.filter { order in
             guard let date = order.fillDate, date >= start, date < end else { return false }
+            let kind = (order.option_type ?? "").uppercased()
+            let asset = kind == "STOCK" ? "STOCK" : kind == "FUTURE" ? "FUTURE" : ["CALL", "PUT", "C", "P"].contains(kind) ? "OPTION" : "UNKNOWN"
+            guard historyAsset == "ALL" || historyAsset == asset else { return false }
             let text = [order.name, order.expiration ?? "", order.option_type ?? ""].joined(separator: " ")
             return query.isEmpty || text.localizedCaseInsensitiveContains(query)
         }
@@ -1291,6 +1295,18 @@ struct OrdersView: View {
                             Image(systemName: "magnifyingglass").frame(width: 40, height: 40)
                         }.buttonStyle(.plain).accessibilityLabel("Search executions")
                     }
+                    Menu {
+                        Picker("Asset type", selection: $historyAsset) {
+                            Text("All").tag("ALL")
+                            Text("Stock").tag("STOCK")
+                            Text("Future").tag("FUTURE")
+                            Text("Option").tag("OPTION")
+                        }
+                    } label: {
+                        Label(historyAsset == "ALL" ? "Filter" : historyAsset == "STOCK" ? "Stock" : historyAsset == "FUTURE" ? "Future" : "Option", systemImage: "line.3.horizontal.decrease")
+                            .font(.subheadline).fixedSize().frame(minHeight: 40)
+                    }.tint(.primary)
+
                 }
             }
             if history, let error = store.filledError {
@@ -1344,6 +1360,7 @@ struct OrdersView: View {
         }.scrollDismissesKeyboard(.immediately)
         .onChange(of: history) { historySearchFocused = false }
         .onChange(of: historyDays) { historySearchFocused = false }
+        .onChange(of: historyAsset) { historySearchFocused = false }
         .onDisappear { historySearchFocused = false }
         .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { historySearchFocused = false } } }
         .navigationTitle("").navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .navigationBar).refreshable { if history { await store.loadFilled() } else { await store.refresh() } }
