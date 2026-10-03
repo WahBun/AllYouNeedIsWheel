@@ -12,6 +12,7 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
  assert.deepEqual(await page.evaluate(()=>({count:holdingLines.size,price:holdingLines.get('holding-2').options().price,entry:document.getElementById('entry').hidden,tp:document.getElementById('tp').hidden})),{count:1,price:.78,entry:true,tp:true});
  await page.waitForTimeout(60);
  assert.equal(await page.locator('.holding-badge').evaluate(el=>getComputedStyle(el).fontSize),'12px');
+ assert.deepEqual(await page.evaluate(()=>{const a=getComputedStyle(document.querySelector('.holding-axis')),b=getComputedStyle(document.getElementById('countdown'));return [a.width===b.width,a.padding===b.padding,a.fontSize===b.fontSize,document.querySelector('.holding-axis').offsetHeight===18]}),[true,true,true,true]);
  await page.screenshot({path:'/tmp/wheel-holding-option.png'});
  await page.evaluate(()=>{window.original=holdingLines.get('holding-2');configure(cfg);});
  assert.equal(await page.evaluate(()=>original===holdingLines.get('holding-2')),true);
