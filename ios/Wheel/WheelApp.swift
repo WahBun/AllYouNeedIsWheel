@@ -1239,6 +1239,7 @@ struct OrdersView: View {
     @State private var history = false
     @AppStorage("executionHistoryDays") private var historyDays = 30
     @State private var historySearch = ""
+    @State private var historySearchExpanded = false
     @FocusState private var historySearchFocused: Bool
     private var filteredHistory: [Order] {
         var calendar = Calendar(identifier: .gregorian)
@@ -1275,14 +1276,20 @@ struct OrdersView: View {
                         Text("7 Days").tag(7)
                         Text("30 Days").tag(30)
                     }.labelsHidden().pickerStyle(.menu).fixedSize()
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("Search symbol or contract", text: $historySearch)
-                        .focused($historySearchFocused).submitLabel(.search)
-                        .onSubmit { historySearchFocused = false }
-                        .textInputAutocapitalization(.characters).autocorrectionDisabled()
-                    if !historySearch.isEmpty {
-                        Button { historySearch = "" } label: { Image(systemName: "xmark.circle.fill") }
-                            .buttonStyle(.plain).accessibilityLabel("Clear search")
+                    Spacer(minLength: 4)
+                    if historySearchExpanded {
+                        TextField("Search", text: $historySearch)
+                            .focused($historySearchFocused).submitLabel(.search)
+                            .onSubmit { historySearchFocused = false }
+                            .textInputAutocapitalization(.characters).autocorrectionDisabled()
+                            .frame(maxWidth: 150)
+                        Button { historySearch = ""; historySearchFocused = false; historySearchExpanded = false } label: {
+                            Image(systemName: "xmark").frame(width: 32, height: 40)
+                        }.buttonStyle(.plain).accessibilityLabel("Close search")
+                    } else {
+                        Button { historySearchExpanded = true; historySearchFocused = true } label: {
+                            Image(systemName: "magnifyingglass").frame(width: 40, height: 40)
+                        }.buttonStyle(.plain).accessibilityLabel("Search executions")
                     }
                 }
             }
