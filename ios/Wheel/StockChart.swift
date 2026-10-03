@@ -249,7 +249,7 @@ struct StockChartView: View {
     @AppStorage("chartBarCountFrame") private var barCountFrame = 1440
     @AppStorage("chartBarCountSize") private var barCountSize = "tiny"
     @AppStorage("chartBarCountColor") private var barCountColor = "#521c6e"
-    @AppStorage("chartBarCountOpacityV1") private var barCountOpacity = 99.0
+    @AppStorage("chartBarCountOpacityV1") private var barCountOpacity = 66.0
     @AppStorage("chartBarCountOpacityMigrationV1") private var barCountOpacityMigrated = false
     @AppStorage("chartBarCountLimit") private var barCountLimit = true
     @AppStorage("chartBarCountBars") private var barCountBars = 162
@@ -394,7 +394,7 @@ struct StockChartView: View {
                     Text("Changes apply immediately and are saved.").font(.caption).foregroundStyle(.secondary)
                     Button("Restore defaults") {
                         emaFrame = 0; extraEMAJSON = ""
-                        showBarCount = true; barCountFrame = 1440; barCountSize = "tiny"; barCountColor = "#521c6e"; barCountOpacity = 99; barCountLimit = true; barCountBars = 162
+                        showBarCount = true; barCountFrame = 1440; barCountSize = "tiny"; barCountColor = "#521c6e"; barCountOpacity = 66; barCountLimit = true; barCountBars = 162
                         indicatorVisible = true; showEMA = true; emaLength = 20; emaSource = "close"; emaOffset = 0
                         emaDynamic = true; emaColor = "#f9f1db"; emaWidth = 1; emaStyle = 0
                         showATR = true; atrLength = 4

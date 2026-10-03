@@ -43,7 +43,7 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
  assert.equal(await page.evaluate(()=>countCache.values.length),1);
  await page.evaluate(()=>configure({...cfg,display:{barCount:false}}));
  assert.equal(await page.evaluate(()=>countCache),null);
- assert.equal(await page.evaluate(()=>countAppearance(3,'#521c6e','tiny').color),'#521c6efc');
+ assert.equal(await page.evaluate(()=>countAppearance(3,'#521c6e','tiny').color),'#521c6ea8');
  assert.equal(await page.evaluate(()=>countAppearance(3,'#521c6e','tiny',0).color),'#521c6e00');
  assert.equal(await page.evaluate(()=>countAppearance(3,'#521c6e','tiny',50).color),'#521c6e80');
  assert.equal(await page.evaluate(()=>sent.length),0);
