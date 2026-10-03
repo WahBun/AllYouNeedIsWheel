@@ -16,6 +16,10 @@ struct CustomPalette {
     func color(_ key: String, scheme: ColorScheme, fallback: Color) -> Color {
         values[key + (scheme == .dark ? ".dark" : ".light")].flatMap(Self.color) ?? fallback
     }
+    static func metricFallback(_ name: String, band: Double, scheme: ColorScheme) -> Color {
+        if name == "spread" && band == 1 { return Self.color(scheme == .dark ? "#FF453A" : "#C62828")! }
+        return DemoMetricColors.color(band, scheme: scheme)
+    }
     func metric(_ name: String, value: Double, scheme: ColorScheme) -> Color {
         let band: Double
         if name == "spread" {
@@ -27,7 +31,7 @@ struct CustomPalette {
             }
         } else { band = DemoMetricColors.band(value) }
         let key = name + (band == 0 ? ".low" : band == 0.5 ? ".medium" : ".high")
-        return color(key, scheme: scheme, fallback: DemoMetricColors.color(band, scheme: scheme))
+        return color(key, scheme: scheme, fallback: Self.metricFallback(name, band: band, scheme: scheme))
     }
 }
 private struct CustomPaletteKey: EnvironmentKey { static let defaultValue = CustomPalette() }

@@ -469,6 +469,7 @@ struct NoticeText: View {
 }
 
 struct RootView: View {
+    @AppStorage("spreadWarningRedV1") private var spreadWarningRedApplied = false
     @AppStorage("demoCustomColors") private var customColorsJSON = "{}"
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("appLanguage") private var appLanguage = "system"
@@ -490,6 +491,16 @@ struct RootView: View {
             NavigationStack(path: $tradePath) { OpportunitiesView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Trade", locale: appLocale), systemImage: "arrow.left.arrow.right") }.tag("trade")
             NavigationStack(path: $ordersPath) { OrdersView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Orders", locale: appLocale), systemImage: "list.bullet.rectangle") }.tag("orders")
             NavigationStack { SettingsView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Settings", locale: appLocale), systemImage: "gearshape") }.tag("settings")
+        }
+        .onAppear {
+            if !spreadWarningRedApplied {
+                var palette = CustomPalette(json: customColorsJSON).values
+                palette["spread.high.dark"] = "#FF453A"
+                palette["spread.high.light"] = "#C62828"
+                if let data = try? JSONEncoder().encode(palette), let text = String(data: data, encoding: .utf8) {
+                    customColorsJSON = text; spreadWarningRedApplied = true
+                }
+            }
         }
         .modifier(FillBannerOverlay(preview: store.fillPreview))
         .environment(\.demoMetricPalette, true)

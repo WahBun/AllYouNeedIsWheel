@@ -8,7 +8,7 @@ final class MetricPaletteTests: XCTestCase {
             XCTAssertEqual(palette.metric("spread", value: value, scheme: .dark), palette.color("spread." + key, scheme: .dark, fallback: .clear))
         }
         for scheme: ColorScheme in [.light, .dark] {
-            XCTAssertEqual(CustomPalette().metric("spread", value: 20, scheme: scheme), DemoMetricColors.color(1, scheme: scheme))
+            XCTAssertEqual(CustomPalette().metric("spread", value: 20, scheme: scheme), CustomPalette.color(scheme == .dark ? "#FF453A" : "#C62828")!)
         }
     }
     func testThirtySeventyBands() {

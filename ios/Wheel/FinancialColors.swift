@@ -96,7 +96,7 @@ struct MetricPalettePreview: View {
             Spacer()
             ForEach(Array(["Delta", "Spread", "IV"].enumerated()), id: \.offset) { index, name in
                 let key = name.lowercased() + "." + band
-                let fallback = DemoMetricColors.color(progress, scheme: scheme)
+                let fallback = CustomPalette.metricFallback(name.lowercased(), band: progress, scheme: scheme)
                 Button { editing = PaletteEditTarget(id: key, title: name + " · " + title, fallback: fallback) } label: {
                     Text(values[index]).font(.caption).monospacedDigit()
                         .foregroundStyle(palette.color(key, scheme: scheme, fallback: fallback))
