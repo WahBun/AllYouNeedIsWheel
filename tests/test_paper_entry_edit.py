@@ -1,10 +1,13 @@
 """Entry amendment regressions: broker mocked; never sends real orders."""
 from uuid import uuid4
-from tests.test_paper_chart import PaperChartTests
+import unittest
+from tests import test_paper_chart as fixtures
 
-class EntryEditTests(PaperChartTests):
+class EntryEditTests(unittest.TestCase):
+    tearDown = fixtures.PaperChartTests.tearDown
+    submit = fixtures.PaperChartTests.submit
     def setUp(self):
-        super().setUp()
+        fixtures.PaperChartTests.setUp(self)
         self.conn._bounded_order_read.side_effect = lambda fn, *a, **k: self.trades if fn == self.conn.ib.reqOpenOrders else []
 
     def edit(self, **changes):
