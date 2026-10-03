@@ -1271,8 +1271,8 @@ struct OrdersView: View {
                 HStack {
                     Picker("Date range", selection: $historyDays) {
                         Text("Today").tag(1)
-                        Text("Past 7 Days").tag(7)
-                        Text("Past 30 Days").tag(30)
+                        Text("7 Days").tag(7)
+                        Text("30 Days").tag(30)
                     }.labelsHidden().pickerStyle(.menu).fixedSize()
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                     TextField("Search symbol or contract", text: $historySearch)
@@ -1281,10 +1281,6 @@ struct OrdersView: View {
                         Button { historySearch = "" } label: { Image(systemName: "xmark.circle.fill") }
                             .buttonStyle(.plain).accessibilityLabel("Clear search")
                     }
-                }
-                Text("New York dates · Available execution records only").font(.caption).foregroundStyle(.secondary)
-                if store.filledOrders.contains(where: { $0.fillDate == nil }) {
-                    Text("Records without a confirmed execution date are excluded from date filters.").font(.caption).foregroundStyle(.secondary)
                 }
             }
             if history, let error = store.filledError {
