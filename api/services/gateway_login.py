@@ -60,7 +60,9 @@ def start(mode):
             docker = os.environ.get('WHEEL_DOCKER_CLI', '/usr/local/bin/docker')
             directory = os.environ.get('WHEEL_GATEWAY_COMPOSE_DIR', str(Path.home() / 'Docker/ib-gateway'))
             # Compose recreates only this named service if its login/mode changed.
-            result = subprocess.run([docker, 'compose', 'up', '-d', '--no-deps', '--pull', 'never', 'ib-gateway'],
+            override = Path(__file__).resolve().parents[2] / 'ops/gateway-login.override.yml'
+            result = subprocess.run([docker, 'compose', '-f', str(Path(directory) / 'docker-compose.yml'),
+                                     '-f', str(override), 'up', '-d', '--no-deps', '--pull', 'never', 'ib-gateway'],
                                     cwd=directory, env={**os.environ, **values},
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
             if result.returncode: raise RuntimeError('Gateway restart failed')

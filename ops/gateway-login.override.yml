@@ -1,0 +1,5 @@
+# Keep the user's Gateway service, ports, volumes and API permissions unchanged.
+services:
+  ib-gateway:
+    environment:
+      TWOFA_DEVICE: "IB Key"

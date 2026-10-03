@@ -1470,7 +1470,13 @@ struct SettingsView: View {
                         throw AppError.message(error)
                     }
                     try await Task.sleep(for: .seconds(3))
-                    result = try await store.trading.get("api/account/profiles", base: store.address)
+                    do {
+                        result = try await store.trading.get("api/account/profiles", base: store.address)
+                    } catch let failure as BackendHTTPError where [502, 503, 504].contains(failure.status) {
+                        continue // Gateway login temporarily occupies the serialized IB connection.
+                    } catch let failure as URLError where failure.code == .timedOut {
+                        continue
+                    }
                     guard result["selected"] as? String == target else {
                         throw AppError.message("Another device changed the selected account. Select your account again.")
                     }

@@ -272,3 +272,6 @@ Default compose directory is `~/Docker/ib-gateway`; override with
 `WHEEL_GATEWAY_COMPOSE_DIR`. Optional path overrides: `WHEEL_GATEWAY_PROFILES` and
 `WHEEL_DOCKER_CLI`. With no credential directory, manual Gateway login still works.
 Demo hides connection controls without erasing the stored backend address.
+
+The checked-in Gateway compose override selects `IB Key` automatically when IB
+offers multiple authentication devices. Approval still happens on your phone.

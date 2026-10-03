@@ -37,6 +37,7 @@ class GatewayLoginTests(unittest.TestCase):
                 args,kwargs=run.call_args
                 self.assertEqual(args[0][-1],'ib-gateway')
                 self.assertNotIn('--force-recreate',args[0])
+                self.assertTrue(any(str(v).endswith('gateway-login.override.yml') for v in args[0]))
                 self.assertEqual(kwargs['env']['TRADING_MODE'],mode)
                 self.assertEqual(kwargs['stdout'],subprocess.DEVNULL)
                 self.assertEqual(kwargs['stderr'],subprocess.DEVNULL)
