@@ -242,6 +242,7 @@ final class TradingSession {
     init(session: URLSession? = nil) {
         self.session = session ?? URLSession(configuration: .ephemeral, delegate: NoRedirect(), delegateQueue: nil)
     }
+    var accountEpoch: String?
     private var nextDemoID = 2
     func resetContext() { message = nil; acknowledgedMessage = false; metadataCache.clear() }
     func acknowledgeReview() {
@@ -259,6 +260,22 @@ final class TradingSession {
         return try await metadataCache.load(components.url!) { [self] in
             try await send(metadataRequest)
         }
+    }
+
+    func selectAccount(base: String, mode: String) async throws -> [String: Any] {
+        guard !busy, !uncertain else { throw AppError.message("Verify outstanding order operations before switching accounts.") }
+        busy = true; version += 1
+        defer { busy = false }
+        let state = try await get("api/account/profiles", base: base)
+        accountEpoch = state["epoch"] as? String
+        var request = URLRequest(url: try endpoint(base, "api/account/select"), timeoutInterval: 35)
+        request.httpMethod = "POST"
+        request.setValue("1", forHTTPHeaderField: "X-All-You-Need-Is-Wheel")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["mode": mode])
+        let result = try await send(request)
+        accountEpoch = result["epoch"] as? String
+        return result
     }
 
     func paperChartWrite(base: String, conID: Int, body: [String: Any]) async throws -> [String: Any] {
@@ -370,6 +387,7 @@ final class TradingSession {
 
     private func send(_ request: URLRequest) async throws -> [String: Any] {
         var request = request
+        if let accountEpoch { request.setValue(accountEpoch, forHTTPHeaderField: "X-Wheel-Account-Epoch") }
         let reference = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         request.setValue(reference, forHTTPHeaderField: "X-Wheel-Request-ID")
         let operation = request.url?.lastPathComponent ?? "request"

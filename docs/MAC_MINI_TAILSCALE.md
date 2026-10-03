@@ -230,3 +230,28 @@ launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.wahbun.wheel.
 To restore, stop Wheel deliberately during a maintenance window, retain the live
 DB and WAL files, and restore a selected verified copy. Never overwrite a live
 order database; reconcile broker orders before enabling execution afterward.
+
+
+## iOS account selector
+
+Settings offers Demo, IB Paper and Live. Demo is local sample data. Paper/Live
+select a private Mini profile; the Gateway must already be logged into that mode.
+The app reports a pending connection until the configured account is verified.
+Switching does not log into Gateway, cancel orders or close positions.
+
+Provision `~/Library/Application Support/Wheel/account-profiles.json` (mode 600),
+or set `WHEEL_ACCOUNT_PROFILES`, with `paper` and `live` objects containing complete
+connection configurations. Paper uses port 4002 and its DU account; Live uses
+port 4001 and its U account. Give each profile a separate absolute `db_path`.
+Credentials do not belong in this file or Git. Preserve each profile's existing
+read-only/execution permissions. The selected configuration is atomically saved
+to `CONNECTION_CONFIG` (default `connection.json`) and survives restart.
+
+The shared backend has one selected account for all clients. Switching closes
+market subscriptions, rebuilds account services and rotates a write epoch.
+Clients must obtain `account_epoch` from a verified portfolio response and attach
+`X-Wheel-Account-Epoch` to writes. Stale or missing epochs are rejected, including
+requests queued before a switch. Legacy web clients without this header remain
+read-only when profiles are provisioned. The iOS app clears displayed account data
+and cached chart packets while switching; unresolved local order submissions
+block switching. Broker orders remain active at IB regardless of app mode.

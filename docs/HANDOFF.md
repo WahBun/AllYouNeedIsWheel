@@ -244,3 +244,13 @@ are global. Select anchor handles to adjust, with delete/undo/lock/hide in picke
 Long/Short takes entry, stop and target anchors and reports price R:R only; it
 never submits, amends or cancels broker orders. Free paths finish with checkmark.
 Drawing regression: `NODE_PATH=<playwright node_modules> node tests/chart/drawings.cjs`.
+
+
+## iOS Paper / Live selector (2026-10-03)
+
+Settings selects Demo / IB Paper / Live against private Mini profiles. Separate
+account databases and a serialized account epoch prevent stale iOS writes after
+a switch. Gateway login remains manual; no credentials are collected. Service
+preparation failure leaves the current account intact. See MAC_MINI_TAILSCALE.md
+for provisioning and legacy web-client limits. Regression: full Python suite
+324 tests passed; device build passed. No broker orders used for verification.

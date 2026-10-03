@@ -91,6 +91,7 @@ struct Summary: Decodable {
     var leverage_percentage: Double?
 }
 struct AccountConnection: Decodable {
+    var account_epoch: String? = nil
     var mode: String
     var execution_enabled: Bool
     var chart_execution_enabled: Bool
@@ -293,6 +294,11 @@ final class WheelStore {
                     previous: previousPrices[position.id],
                     current: position.market_price))
             }, uniquingKeysWith: { _, latest in latest })
+            if let expected = UserDefaults.standard.string(forKey: "selectedBrokerMode"),
+               next.connection?.mode != expected {
+                throw AppError.message("Gateway account does not match the selected mode. Log in to the selected account on Mini.")
+            }
+            trading.accountEpoch = next.connection?.account_epoch
             portfolio = next
             if reloadSummary { lastSummary = Date() }
             updated = Date()
@@ -1432,12 +1438,37 @@ struct SettingsView: View {
     @Environment(WheelStore.self) private var store
     @State private var draft = "https://"
     @State private var reviewed = false
+    @State private var requestedMode = "demo"
+    @State private var switchingAccount = false
+    @State private var accountSwitchMessage: String?
     @State private var connecting = false
     private var hasAddress: Bool {
         let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         return !value.isEmpty && value != "https://"
     }
     @FocusState private var addressFocused: Bool
+    private func selectMode(_ mode: String) {
+        guard !switchingAccount else { return }
+        requestedMode = mode
+        if requestedMode == (store.demo ? "demo" : store.portfolio?.connection?.mode) { return }
+        if requestedMode == "demo" { store.demo = true; store.changeMode(); accountSwitchMessage = nil; return }
+        let target = requestedMode
+        UserDefaults.standard.set(target, forKey: "selectedBrokerMode")
+        switchingAccount = true; addressFocused = false
+        store.address = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        store.demo = true; store.changeMode()
+        RecentStockCharts.packets.removeAll(); RecentStockCharts.lastSaved.removeAll()
+        UserDefaults.standard.removeObject(forKey: RecentStockCharts.diskKey)
+        Task {
+            defer { switchingAccount = false }
+            do {
+                let result = try await store.trading.selectAccount(base: store.address, mode: target)
+                store.demo = false; store.changeMode()
+                accountSwitchMessage = result["verified"] as? Bool == true ? nil : "Log in to \(target == "paper" ? "IB Paper" : "Live") in Gateway on Mini, then tap Connect."
+                await store.refreshPortfolio()
+            } catch { requestedMode = "demo"; accountSwitchMessage = "Account switch not confirmed. Check Gateway, then select the account again. " + connectionMessage(error) }
+        }
+    }
     private var accessLabel: String {
         localizedLabel(store.accountModeLabel, locale: locale)
     }
@@ -1445,7 +1476,11 @@ struct SettingsView: View {
         @Bindable var store = store
         Form {
             Section("Connection") {
-                Toggle("Demo mode", isOn: $store.demo).tint(.teal).onChange(of: store.demo) { store.changeMode() }
+                Picker("Account", selection: Binding(get: { requestedMode }, set: { selectMode($0) })) {
+                    Text("Demo").tag("demo"); Text("IB Paper").tag("paper"); Text("Live").tag("live")
+                }.pickerStyle(.segmented).disabled(switchingAccount || connecting || store.trading.busy || store.trading.uncertain)
+                if switchingAccount { ProgressView("Switching account…") }
+                if let accountSwitchMessage { Text(accountSwitchMessage).font(.footnote).foregroundStyle(.orange) }
                 TextField("https://your-mini.ts.net", text: $draft).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).focused($addressFocused).submitLabel(.done).onSubmit { addressFocused = false }
                 Button {
                     addressFocused = false; connecting = true
@@ -1515,7 +1550,7 @@ struct SettingsView: View {
                     .contentShape(RoundedRectangle(cornerRadius: 16))
                 }.buttonStyle(.plain)
                     .listRowSeparator(.hidden)
-                    .disabled(!hasAddress || connecting)
+                    .disabled(!hasAddress || connecting || switchingAccount)
                 if let error = store.error { NoticeText(error).font(.footnote).foregroundStyle(.orange) }
             }
             Section("Appearance") {
@@ -1574,7 +1609,7 @@ struct SettingsView: View {
             }
         }
         .listSectionSpacing(12)
-        .navigationTitle(localizedLabel("Settings", locale: locale)).onAppear { draft = store.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "https://" : store.address }
+        .navigationTitle(localizedLabel("Settings", locale: locale)).onAppear { requestedMode = store.demo ? "demo" : (store.portfolio?.connection?.mode ?? "live"); draft = store.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "https://" : store.address }
         .disabled(store.trading.busy || store.opportunities.batchRunning)
         .confirmationDialog("Have you verified the order in IB and the web app?", isPresented: $reviewed, titleVisibility: .visible) {
             Button("Verified · unlock trading") { store.trading.acknowledgeReview() }

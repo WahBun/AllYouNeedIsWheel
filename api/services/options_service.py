@@ -46,8 +46,8 @@ class OptionsService:
         elif previous > 0 and reported == previous and not details.get('avg_fill_price'):
             details['avg_fill_price'] = order.get('avg_fill_price', 0)
 
-    def __init__(self):
-        self.config = Config()
+    def __init__(self, config=None):
+        self.config = config if config is not None else Config()
         self.connection = None
         db_path = self.config.get('db_path')
         self.db = OptionsDatabase(db_path)

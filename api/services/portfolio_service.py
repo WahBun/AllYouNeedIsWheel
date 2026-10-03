@@ -15,8 +15,8 @@ class PortfolioService:
     """
     Service for handling portfolio operations
     """
-    def __init__(self):
-        self.config = Config()
+    def __init__(self, config=None):
+        self.config = config if config is not None else Config()
         logger.info(f"Portfolio service using port: {self.config.get('port')}")
         self.connection = None
         
@@ -191,7 +191,8 @@ class PortfolioService:
         verified = bool(connected and account and account in conn.ib.managedAccounts())
         mode = ('paper' if account.startswith('DU') else 'live' if account.startswith('U') else 'unknown') if verified else 'unknown'
         enabled = verified and mode != 'unknown' and conn.readonly is False
-        return dict(mode=mode, execution_enabled=enabled,
+        from api.routes.account import epoch
+        return dict(mode=mode, account_epoch=epoch(), execution_enabled=enabled,
                     chart_execution_enabled=enabled and mode == 'paper' and conn.port == 4002
                     and conn.ib.managedAccounts() == [account])
 

@@ -96,7 +96,9 @@ def install_api_dispatcher(app):
                 return response.get_data(), response.status_code, list(response.headers)
             logger.debug('ib_job_start id=%s queue_ms=%.1f', request_id, (started - queued_at) * 1000)
             try:
-                response = app.make_response(original_dispatch())
+                from api.routes.account import write_guard
+                rejected = write_guard()
+                response = app.make_response(rejected if rejected is not None else original_dispatch())
             except Exception as error:
                 logger.warning('ib_job_failed id=%s exception_type=%s', request_id, type(error).__name__)
                 raise

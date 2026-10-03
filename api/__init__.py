@@ -61,6 +61,9 @@ def create_app(config=None):
                 'error': 'Trading write request rejected: missing same-origin safety header'
             }), 403
     
+    from api.routes import account
+    app.register_blueprint(account.bp)
+
     from api.routes import performance
     app.register_blueprint(performance.bp)
 
