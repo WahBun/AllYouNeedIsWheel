@@ -216,7 +216,7 @@ class PaperChart:
             result.update(mode='overnight_entry', scalable=False, tif='OVERNIGHT',
                           route='OVERNIGHT', protection=dict(status='not_requested'))
             errors = [entry for t in trades.values() if t.order.orderId in group['ids'].values()
-                      for entry in t.log if entry.errorCode and
+                      for entry in t.log if entry.errorCode and entry.errorCode != 399 and
                       (200 <= entry.errorCode < 2100 or entry.errorCode >= 10000)]
             statuses = {r['status'] for r in rows}
             result['rejected'] = result['rejected'] or bool(errors and statuses <= {'Cancelled', 'ApiCancelled', 'Inactive'})

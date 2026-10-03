@@ -93,3 +93,12 @@ class OvernightTests(unittest.TestCase):
         _, result = self.overnight()
         self.assertFalse(result['success'])
         self.assertEqual(result['status'], 'pending')
+
+    def test_held_until_session_warning_does_not_make_cancel_a_rejection(self):
+        self.overnight()
+        trade = self.trades[0]
+        trade.orderStatus.status = 'Cancelled'
+        trade.log.append(S(errorCode=399, message='Order held until next session'))
+        state = self.service.state(self.conn, 7)
+        self.assertFalse(state['rejected'])
+        self.assertEqual(state['status'], 'canceled')
