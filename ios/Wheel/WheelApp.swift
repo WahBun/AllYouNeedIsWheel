@@ -236,6 +236,7 @@ final class WheelStore {
     }
     var trading = TradingSession()
     var opportunities = OpportunityBook()
+    var chartVisible = false
     var selectedTab = "settings"
     init() { opportunities.configure(context: "demo") }
     private var revision = 0
@@ -518,7 +519,7 @@ struct RootView: View {
         .task(id: "\(phase)-\(store.demo)-\(store.address)") {
             guard phase == .active else { return }
             await RefreshLoop.run {
-                if RefreshLoop.shouldRefreshPortfolio(tab: store.selectedTab, hasPortfolio: store.portfolio != nil,
+                if store.chartVisible || RefreshLoop.shouldRefreshPortfolio(tab: store.selectedTab, hasPortfolio: store.portfolio != nil,
                     age: Date().timeIntervalSince(store.updated ?? .distantPast),
                     quotesLoading: store.opportunities.loading || store.opportunities.rows.values.contains { $0.loading }) {
                     await store.refreshPortfolio()

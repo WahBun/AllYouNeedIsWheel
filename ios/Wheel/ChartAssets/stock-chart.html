@@ -219,10 +219,31 @@ function updateLines(){
  if(paperConfig.position&&displayOptions.profit!==false&&displayOptions.positions===true&&previous.length)eh.firstChild.textContent+='  '+profitText(previous.at(-1).close,displayOptions.positionUnit,Math.abs(paperConfig.position));
  if(entryLine)entryLine.applyOptions({price:entry,title:entryType,color});else entryLine=series.createPriceLine({price:entry,color,lineWidth:1,lineStyle:2,axisLabelVisible:false,title:entryType});
 }
+// Account holdings are read-only overlays, independent of order previews and paper brackets.
+const holdingLines = new Map();
+const holdingBadges = new Map();
+let holdingOverlayKey = '';
+function syncHoldingOverlays(config) {
+ const rows = (config.holdings || []).filter(row => Number.isFinite(row.price) && row.price > 0);
+ const visible = rows.filter(row => !(row.kind === 'holding' && config.paper?.active && config.paper?.position));
+ const signature = JSON.stringify([config.con_id, visible, !!config.dark]);
+ if(signature === holdingOverlayKey) return;
+ holdingOverlayKey = signature;
+ const ids = new Set(visible.map(row => row.id));
+ for(const [id,line] of holdingLines) if(!ids.has(id)){series.removePriceLine(line);holdingLines.delete(id);holdingBadges.get(id)?.remove();holdingBadges.delete(id);}
+ for(const row of visible){
+  const options = {price:row.price,title:'',color:row.kind==='strike'?(config.dark?'#a77838':'#88551f'):(row.side>0?'#315fc4':'#c6384d'),lineWidth:1,lineStyle:row.kind==='strike'?3:2,axisLabelVisible:true};
+  if(holdingLines.has(row.id)) holdingLines.get(row.id).applyOptions(options);
+  else holdingLines.set(row.id,series.createPriceLine(options));
+  let badge=holdingBadges.get(row.id);
+  if(!badge){badge=document.createElement('div');badge.className='holding-badge';badge.style.cssText='position:absolute;z-index:3;pointer-events:none;max-width:calc(100% - 75px);padding:3px 6px;border-radius:3px;font:600 12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:16px;color:white;overflow-wrap:anywhere;transform:translateY(-50%)';document.body.append(badge);holdingBadges.set(row.id,badge);}
+  badge.textContent=row.title;badge.style.background=options.color;badge.dataset.price=String(row.price);
+ }
+}
 let paperConfig={},paperCID=0,displayOptions={};
 function paperAction(body){window.webkit?.messageHandlers.paperAction?.postMessage({...body,con_id:paperCID});}
 let appliedPriceFormat=null;
-window.configure=(config)=>{displayOptions=config.display||{};contractMultiplier=config.multiplier||1;paperConfig=config.paper||{};paperCID=config.con_id||0;updateExecutionMarks();let submitPaper=false;if(dragging==='entry')config={...config,entry};priceRules=config.priceRules||priceRules;const formatKey=JSON.stringify(priceRules);if(appliedPriceFormat!==formatKey){appliedPriceFormat=formatKey;series.applyOptions({priceFormat:{type:'custom',minMove:priceRules.length?Math.min(...priceRules.map(r=>r.increment)):.01,formatter:axisPriceText}});}template={tp:config.tpDistance||0,sl:config.slDistance||0};templateVersion=config.templateRevision||0;if(config.entry===0){canceled=false;levels={tp:0,sl:0};appliedTemplate=-1;breakEven=false;dragging=null;validation();}const changed=entry!==config.entry||entryType!==(config.entryType||'LMT');const snapped=config.entry>0?snapPrice(config.entry):0;entry=snapped??config.entry;if(snapped!==null&&snapped!==config.entry)window.webkit?.messageHandlers.entryChanged?.postMessage(snapped);qty=config.quantity;entryType=config.entryType||'LMT';if(changed){breakEven=false;if(!levels.tp)appliedTemplate=-1;}if(config.beRevision>lastBERevision){lastBERevision=config.beRevision;const target=stepPrice(entry,side);if(target!==null){levels.sl=target;breakEven=true;}}if(config.joinRevision>lastJoinRevision&&(config.joinSide===1||config.joinSide===-1)){lastJoinRevision=config.joinRevision;submitPaper=paperConfig.enabled===true&&!paperConfig.active;breakEven=false;canceled=false;levels={tp:0,sl:0};appliedTemplate=-1;setSide(config.joinSide);}else if(changed){inferSide();clampLevels();}
+window.configure=(config)=>{syncHoldingOverlays(config);displayOptions=config.display||{};contractMultiplier=config.multiplier||1;paperConfig=config.paper||{};paperCID=config.con_id||0;updateExecutionMarks();let submitPaper=false;if(dragging==='entry')config={...config,entry};priceRules=config.priceRules||priceRules;const formatKey=JSON.stringify(priceRules);if(appliedPriceFormat!==formatKey){appliedPriceFormat=formatKey;series.applyOptions({priceFormat:{type:'custom',minMove:priceRules.length?Math.min(...priceRules.map(r=>r.increment)):.01,formatter:axisPriceText}});}template={tp:config.tpDistance||0,sl:config.slDistance||0};templateVersion=config.templateRevision||0;if(config.entry===0){canceled=false;levels={tp:0,sl:0};appliedTemplate=-1;breakEven=false;dragging=null;validation();}const changed=entry!==config.entry||entryType!==(config.entryType||'LMT');const snapped=config.entry>0?snapPrice(config.entry):0;entry=snapped??config.entry;if(snapped!==null&&snapped!==config.entry)window.webkit?.messageHandlers.entryChanged?.postMessage(snapped);qty=config.quantity;entryType=config.entryType||'LMT';if(changed){breakEven=false;if(!levels.tp)appliedTemplate=-1;}if(config.beRevision>lastBERevision){lastBERevision=config.beRevision;const target=stepPrice(entry,side);if(target!==null){levels.sl=target;breakEven=true;}}if(config.joinRevision>lastJoinRevision&&(config.joinSide===1||config.joinSide===-1)){lastJoinRevision=config.joinRevision;submitPaper=paperConfig.enabled===true&&!paperConfig.active;breakEven=false;canceled=false;levels={tp:0,sl:0};appliedTemplate=-1;setSide(config.joinSide);}else if(changed){inferSide();clampLevels();}
  if(paperConfig.active&&paperConfig.entry>0){entry=paperConfig.entry;qty=Math.abs(paperConfig.position)||paperConfig.quantity||paperConfig.orders?.find(o=>o.role==='entry')?.quantity||qty;side=paperConfig.side;breakEven=paperConfig.be_applied===true;if(!dragging){levels={tp:paperConfig.tp,sl:paperConfig.sl};}canceled=false;}
  updateLines();
  document.getElementById('entry').style.pointerEvents=paperConfig.active?'none':'auto';
@@ -321,7 +342,7 @@ function formatCountdown(s){const days=Math.floor(s/86400);const hours=Math.floo
 // return using wall time, without waiting for transport or inventing another bar.
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)updateCountdown();});
 window.addEventListener('pageshow',updateCountdown);
-function position(){const axisRight=Math.ceil(chart.priceScale('right').width())+7;for(const id of ['tp','sl','cancel'])document.getElementById(id).style.right=axisRight+'px';document.getElementById('entry').style.right=(axisRight+35)+'px';updateCountdown();for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}requestAnimationFrame(position);}position();
+function position(){const axisRight=Math.ceil(chart.priceScale('right').width())+7;for(const badge of holdingBadges.values()){const y=series.priceToCoordinate(Number(badge.dataset.price));badge.hidden=y===null||y<20||y>innerHeight-36;badge.style.right=axisRight+'px';if(y!==null)badge.style.top=y+'px';}for(const id of ['tp','sl','cancel'])document.getElementById(id).style.right=axisRight+'px';document.getElementById('entry').style.right=(axisRight+35)+'px';updateCountdown();for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}requestAnimationFrame(position);}position();
 // A WKWebView changes size in place when native full-screen controls appear.
 // Resize the canvas and restore the time window together; stale manual Y scaling
 // must not carry the full-screen pixel range into the shorter chart.
