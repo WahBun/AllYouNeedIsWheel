@@ -848,7 +848,7 @@ enum SpreadBand {
     case tight, medium, wide, unavailable
     static func classify(_ percentage: Double?) -> SpreadBand {
         guard let percentage, percentage.isFinite, percentage >= 0 else { return .unavailable }
-        return percentage <= 30 ? .tight : percentage <= 70 ? .medium : .wide
+        return percentage <= 10 ? .tight : percentage < 20 ? .medium : .wide
     }
 }
 

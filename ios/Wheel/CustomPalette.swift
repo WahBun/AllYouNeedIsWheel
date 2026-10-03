@@ -17,7 +17,15 @@ struct CustomPalette {
         values[key + (scheme == .dark ? ".dark" : ".light")].flatMap(Self.color) ?? fallback
     }
     func metric(_ name: String, value: Double, scheme: ColorScheme) -> Color {
-        let band = DemoMetricColors.band(value)
+        let band: Double
+        if name == "spread" {
+            switch SpreadBand.classify(value) {
+            case .tight: band = 0
+            case .medium: band = 0.5
+            case .wide: band = 1
+            case .unavailable: return .secondary
+            }
+        } else { band = DemoMetricColors.band(value) }
         let key = name + (band == 0 ? ".low" : band == 0.5 ? ".medium" : ".high")
         return color(key, scheme: scheme, fallback: DemoMetricColors.color(band, scheme: scheme))
     }

@@ -180,7 +180,7 @@ function renderQuote() {
     if (spreadElement) {
         if (rawSpread !== null && rawSpread !== undefined && Number.isFinite(spread)) {
             spreadElement.textContent = tr('close.spread', { value: `${spread.toFixed(1)}%` });
-            spreadElement.className = `small mb-4 ${spread <= 10 ? 'spread-tight' : spread <= 20 ? 'spread-medium' : 'spread-wide'}`;
+            spreadElement.className = `small mb-4 ${spread <= 10 ? 'spread-tight' : spread < 20 ? 'spread-medium' : 'spread-wide'}`;
         } else {
             spreadElement.textContent = tr('close.spreadUnavailable');
             spreadElement.className = 'small mb-4 spread-unavailable';

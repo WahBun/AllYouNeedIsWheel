@@ -23,3 +23,12 @@ test('invalid manual edit remains explicit for Add All until reset', () => {
     context.clearManualLimitPrice('TSLL', 'PUT');
     assert.equal(context.getManualLimitPrice('TSLL', 'PUT', option), null);
 });
+
+
+test('spread color boundaries are inclusive at 10 and high at 20', () => {
+    vm.runInContext(source.match(/function getSpreadClass\([^]*?\n}/)[0], context);
+    for (const [value, band] of [[0,'tight'],[10,'tight'],[10.01,'medium'],[19.99,'medium'],[20,'wide'],[50,'wide']]) {
+        assert.equal(context.getSpreadClass(value), 'spread-' + band);
+    }
+    assert.equal(context.getSpreadClass(null), 'spread-unavailable');
+});

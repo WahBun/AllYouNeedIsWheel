@@ -820,10 +820,10 @@ final class TradingTests: XCTestCase {
     }
     func testSpreadBandsMatchWebBoundaries() {
         XCTAssertEqual(SpreadBand.classify(0), .tight)
-        XCTAssertEqual(SpreadBand.classify(30), .tight)
-        XCTAssertEqual(SpreadBand.classify(30.01), .medium)
-        XCTAssertEqual(SpreadBand.classify(70), .medium)
-        XCTAssertEqual(SpreadBand.classify(70.01), .wide)
+        XCTAssertEqual(SpreadBand.classify(10), .tight)
+        XCTAssertEqual(SpreadBand.classify(10.01), .medium)
+        XCTAssertEqual(SpreadBand.classify(19.99), .medium)
+        XCTAssertEqual(SpreadBand.classify(20), .wide)
         for value: Double? in [nil, .nan, .infinity, -1] {
             XCTAssertEqual(SpreadBand.classify(value), .unavailable)
         }

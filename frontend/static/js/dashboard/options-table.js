@@ -212,7 +212,7 @@ function showPendingQuotes() {
 function getSpreadClass(spreadPercentage) {
     if (spreadPercentage === null) return 'spread-unavailable';
     if (spreadPercentage <= 10) return 'spread-tight';
-    if (spreadPercentage <= 20) return 'spread-medium';
+    if (spreadPercentage < 20) return 'spread-medium';
     return 'spread-wide';
 }
 

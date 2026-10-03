@@ -56,9 +56,9 @@ struct MetricPalettePreview: View {
                 }.buttonStyle(.plain)
             }
             Section("Delta / Spread / IV") {
-                metricRow("Low", band: "low", progress: 0, values: ["0.15", "2.0%", "20.0%"])
-                metricRow("Medium", band: "medium", progress: 0.5, values: ["0.50", "50.0%", "70.0%"])
-                metricRow("High", band: "high", progress: 1, values: ["1.00", "80.0%", "140.0%"])
+                metricRow("Low", band: "low", progress: 0, values: ["0.15", "10.0%", "20.0%"])
+                metricRow("Medium", band: "medium", progress: 0.5, values: ["0.50", "15.0%", "70.0%"])
+                metricRow("High", band: "high", progress: 1, values: ["1.00", "20.0%", "140.0%"])
 
             }
             Section {
