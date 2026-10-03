@@ -117,6 +117,8 @@ struct Order: Decodable, Identifiable {
         return value == "OVERNIGHT" ? "OVT" : value
     }
     var intent: String? = nil
+    var chart_con_id: Int? = nil
+    var chart_order_ref: String? = nil
     var external_ib: Bool? = nil
     var ib_status: String? = nil
     var executed: Bool? = nil
@@ -1405,8 +1407,8 @@ struct OrdersView: View {
             for order in snapshot {
                 guard context == "\(store.demo)-\(store.address)" else { break }
                 guard let current = store.orders.first(where: { $0.id == order.id }),
-                      TradeRules.cancelable(current), let id = current.id.local else { continue }
-                if !(await store.trading.write("api/options/cancel/\(id)", store: store)) { break }
+                      TradeRules.cancelable(current) else { continue }
+                if !(await store.trading.cancelFromOrders(current, store: store)) { break }
             }
             await store.refreshOrders()
         }
@@ -1415,10 +1417,11 @@ struct OrdersView: View {
         let context = "\(store.demo)-\(store.address)"
         Task {
             guard context == "\(store.demo)-\(store.address)", !history, !cancelling, !store.trading.busy, !store.opportunities.batchRunning,
-                  let current = store.orders.first(where: { $0.id == snapshot.id }), let id = current.id.local,
+                  let current = store.orders.first(where: { $0.id == snapshot.id }),
                   cancel ? TradeRules.cancelable(current) : TradeRules.editable(current),
                   TradeRules.unchanged(current, since: snapshot) else { return }
-            _ = await store.trading.write("api/options/\(cancel ? "cancel" : "execute")/\(id)", store: store)
+            if cancel { _ = await store.trading.cancelFromOrders(current, store: store) }
+            else if let id = current.id.local { _ = await store.trading.write("api/options/execute/\(id)", store: store) }
             await store.refreshOrders()
         }
     }
