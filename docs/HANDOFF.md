@@ -281,3 +281,18 @@ cancel_entry cancels the remaining entry only; generic close/BE/amend/add/trim
 are rejected for this standalone group, so holding it cannot trigger an implicit
 market exit. The existing iOS bracket buttons do not select this API mode.
 Verification: unittest tests.test_paper_overnight tests.test_paper_chart.
+
+
+## Orders management of standalone Paper entries (2026-10-03)
+
+Orders now exposes cancel and price amendment for journal-owned overnight stock
+entries, including Cancel all eligible. Foreign broker orders and protective
+bracket legs remain excluded. Management uses the existing Paper chart endpoint
+with action=manage_entry, expected_ref, operation=cancel/amend, and for amendments
+expected_price/price. The server revalidates account, exact contract, original
+reference, route, broker status and venue tick. Filled/partially filled entries
+cannot be repriced here. Cancellation remains pending until broker confirmation;
+no replacement entry is generated. The phone retains unknown-write blocking and
+account epoch checks. Physical phone cold-start/network and actual broker
+amend/cancel acceptance remain to be checked; current live Paper QQQ order is
+deliberately preserved during mocked acceptance.

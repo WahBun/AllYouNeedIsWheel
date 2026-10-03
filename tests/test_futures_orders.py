@@ -99,7 +99,7 @@ class FuturesOrdersTests(unittest.TestCase):
             with sqlite3.connect(dbpath) as db:
                 db.execute('CREATE TABLE chart_paper_requests(id,account,body)')
                 db.execute('INSERT INTO chart_paper_requests VALUES(?,?,?)',
-                    ('stock','DU_TEST',json.dumps(dict(action='submit',side=1,con_id=756733))))
+                    ('stock','DU_TEST',json.dumps(dict(action='submit',side=1,con_id=756733,mode='overnight_entry'))))
             self.contract=Stock('SPY','OVERNIGHT','USD',conId=756733)
             trade=self.trade(status='PreSubmitted')
             trade.order.orderRef='WheelPaper:stock'
@@ -113,6 +113,8 @@ class FuturesOrdersTests(unittest.TestCase):
             self.assertEqual((row['ticker'],row['option_type'],row['quantity'],row['premium'],row['tif']),
                              ('SPY','STOCK',100,768.88,'OVERNIGHT'))
             self.assertTrue(row['external_ib'])
+            self.assertEqual(row['chart_con_id'],756733)
+            self.assertEqual(row['chart_order_ref'],'WheelPaper:stock')
             self.assertIsInstance(row['id'],str)
             trade.orderStatus.status='Filled';trade.orderStatus.filled=100;trade.orderStatus.avgFillPrice=768.88
             self.conn._bounded_order_read.return_value=[trade]

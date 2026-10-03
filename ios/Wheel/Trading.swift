@@ -109,6 +109,7 @@ struct PriceInput: View {
 
 extension Order {
     private enum CodingKeys: String, CodingKey {
+        case chart_con_id, chart_order_ref
         case gross_pnl, net_pnl, round_trip_commission
         case id, ticker, symbol, action, order_type, option_type, strike, expiration, premium, quantity, status
         case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, amendment_pending, error_message, isRollover, filled, avg_fill_price, fill_time, fill_action, commission, commission_currency, realized_pnl
@@ -145,6 +146,8 @@ extension Order {
         quantity = try values.decodeIfPresent(Double.self, forKey: .quantity)
         tif = try values.decodeIfPresent(String.self, forKey: .tif)
         intent = try values.decodeIfPresent(String.self, forKey: .intent)
+        chart_con_id = try brokerID(.chart_con_id)
+        chart_order_ref = try values.decodeIfPresent(String.self, forKey: .chart_order_ref)
         external_ib = try flag(.external_ib)
         ib_status = try values.decodeIfPresent(String.self, forKey: .ib_status)
         executed = try flag(.executed)
@@ -211,7 +214,13 @@ enum TradeRules {
     static func amendmentQuantityLocked(_ order: Order) -> Bool {
         order.isRollover == true || (order.option_type == "CALL" && order.action == "SELL" && order.intent != "CLOSE")
     }
+    static func chartManageable(_ order: Order) -> Bool {
+        order.chart_con_id != nil && order.chart_order_ref?.hasPrefix("WheelPaper:") == true &&
+        order.executed != true && ["submitted", "presubmitted"].contains(order.status.lowercased())
+    }
     static func cancelable(_ order: Order) -> Bool {
+        if chartManageable(order) { return true }
+        return
         order.id.local != nil && order.external_ib != true && ["pending", "processing", "submitted", "presubmitted"].contains(order.status.lowercased())
     }
     static func hasUnsavedEdits(_ order: Order, price: String, quantity: Int) -> Bool {
@@ -291,11 +300,29 @@ final class TradingSession {
         uncertain = true
         UserDefaults.standard.set(true, forKey: "unresolvedTradingWrite")
         let result = try await send(request)
-        if ["acknowledged", "rejected"].contains(result["status"] as? String ?? "") {
+        if ["acknowledged", "rejected", "working", "filled", "canceled"].contains(result["status"] as? String ?? "") {
             uncertain = false
             UserDefaults.standard.set(false, forKey: "unresolvedTradingWrite")
         }
         return result
+    }
+
+    func manageChartEntry(_ order: Order, operation: String, price: Double? = nil, store: WheelStore) async -> Bool {
+        guard !store.demo, store.chartTradingAvailable, TradeRules.chartManageable(order),
+              let cid = order.chart_con_id, let ref = order.chart_order_ref else { return false }
+        var body: [String: Any] = ["action": "manage_entry", "operation": operation, "expected_ref": ref]
+        if let price { body["price"] = price; body["expected_price"] = order.premium }
+        do {
+            let result = try await paperChartWrite(base: store.address, conID: cid, body: body)
+            message = result["message"] as? String
+            return result["success"] as? Bool == true || result["status"] as? String == "canceled"
+        } catch { message = error.localizedDescription; return false }
+    }
+    func cancelFromOrders(_ order: Order, store: WheelStore) async -> Bool {
+        guard TradeRules.cancelable(order) else { return false }
+        if TradeRules.chartManageable(order) { return await manageChartEntry(order, operation: "cancel", store: store) }
+        guard let id = order.id.local else { return false }
+        return await write("api/options/cancel/\(id)", store: store)
     }
 
     func chartStream(base: String, conID: Int, interval: Int, marketSession: String,
@@ -579,7 +606,7 @@ struct OrderDetail: View {
                         Stepper("Total quantity: \(quantity)", value: $quantity, in: 1...max(100, Int(order.quantity ?? 1)))
                     } else { LabeledContent("Quantity", value: order.quantity?.formatted() ?? "—") }
                     LabeledContent("Limit") {
-                        if TradeRules.editable(order) || TradeRules.amendable(order) {
+                        if TradeRules.editable(order) || TradeRules.amendable(order) || (TradeRules.chartManageable(order) && (order.filled ?? 0) == 0) {
                             HStack(spacing: 8) {
                                 TextField("0.00", text: $price).keyboardType(.decimalPad)
                                     .multilineTextAlignment(.trailing).monospacedDigit()
@@ -604,7 +631,7 @@ struct OrderDetail: View {
                 }
                 header: { SymbolText(symbol: order.name) }
                 Text(LocalizedStringKey(order.statusExplanation)).font(.caption).foregroundStyle(.secondary)
-                if order.external_ib == true { Text("IB-managed order. Modify or cancel in IB.").foregroundStyle(.secondary) }
+                if order.external_ib == true && order.chart_order_ref == nil { Text("IB-managed order. Modify or cancel in IB.").foregroundStyle(.secondary) }
                 if TradeRules.editable(order) {
                     if order.intent != "CLOSE" {
                         Section("Quantity") {
@@ -628,6 +655,12 @@ struct OrderDetail: View {
                         }
                         Button("Save changes") { action = "Save changes" }
                             .disabled(TradeRules.price(price) == nil || Double(quantity) <= (order.filled ?? 0))
+                    }
+                }
+                if TradeRules.chartManageable(order) && (order.filled ?? 0) == 0 {
+                    Section {
+                        Button("Save price") { action = "Save price" }
+                            .disabled(TradeRules.price(price) == nil)
                     }
                 }
                 if TradeRules.cancelable(order) { Section { Button("Cancel order", role: .destructive) {
@@ -685,11 +718,22 @@ struct OrderDetail: View {
                 self.action = nil
             }
         } message: {
-            Text("\(current?.name ?? initial.name) · \(current?.action ?? "") \((action == "Save quantity" || action == "Save changes") ? String(quantity) : current?.quantity?.formatted() ?? "") · \(current?.option_type ?? "") · \(money(current?.strike)) · \(current?.expiration ?? "")\nLimit \(money((action == "Execute" || action == "Save changes") ? TradeRules.price(price) : current?.premium)) · \(action == "Save changes" ? (timing == "OVERNIGHT" ? "OVT" : timing) : (current ?? initial).timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
+            Text("\(current?.name ?? initial.name) · \(current?.action ?? "") \((action == "Save quantity" || action == "Save changes") ? String(quantity) : current?.quantity?.formatted() ?? "") · \(current?.option_type ?? "") · \(money(current?.strike)) · \(current?.expiration ?? "")\nLimit \(money((action == "Execute" || action == "Save changes" || action == "Save price") ? TradeRules.price(price) : current?.premium)) · \(action == "Save changes" ? (timing == "OVERNIGHT" ? "OVT" : timing) : (current ?? initial).timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
         }
     }
     private func perform(_ action: String) {
-        guard let order = current, let id = order.id.local else { return }
+        guard let order = current else { return }
+        if TradeRules.chartManageable(order) {
+            guard action == "Cancel order" || action == "Save price" else { return }
+            guard action != "Save price" || TradeRules.price(price) != nil else { return }
+            let requestedPrice = TradeRules.price(price)
+            Task {
+                _ = await store.trading.manageChartEntry(order, operation: action == "Cancel order" ? "cancel" : "amend", price: action == "Save price" ? requestedPrice : nil, store: store)
+                await store.refreshOrders()
+            }
+            return
+        }
+        guard let id = order.id.local else { return }
         if action == "Save changes" {
             guard TradeRules.amendable(order), let snapshot = editingSnapshot,
                   TradeRules.unchanged(order, since: snapshot), let limit = TradeRules.price(price),

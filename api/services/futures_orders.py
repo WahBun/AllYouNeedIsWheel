@@ -79,6 +79,11 @@ def futures_orders(conn, completed=False, db_path=None):
         result[identity].update(metadata)
         ref = o.orderRef
         request = journal.get(ref)
+        if (request and request.get('mode') == 'overnight_entry' and chart_owned
+                and account.startswith('DU') and conn.port == 4002 and conn.readonly is False
+                and o.action == 'BUY' and not o.parentId and c.exchange == 'OVERNIGHT'):
+            result[identity]['chart_con_id'] = c.conId
+            result[identity]['chart_order_ref'] = ref
         if request and request.get('con_id') == c.conId and c.currency == 'USD':
             entry_action = 'BUY' if request.get('side') == 1 else 'SELL'
             result[identity]['intent'] = 'OPEN' if o.action == entry_action else 'CLOSE'

@@ -347,6 +347,17 @@ class PaperChart:
         if any(t.contract.conId == cid and t.order.account == account for t in conn.ib.openTrades()):
             raise ValueError('A working order already exists for this contract')
         routed = routed_contract(contract, 'OVERNIGHT')
+        self.validate_overnight_price(conn, routed, cid, amount)
+        oid = conn.ib.client.getReqId()
+        ref = 'WheelPaper:' + request_id
+        # Persist ownership before sending. Unknown outcomes remain blocked, never replayed.
+        self.save_group(account, cid, dict(ids=dict(entry=oid), side=1, ref=ref,
+                                          mode='overnight_entry'))
+        order = LimitOrder('BUY', int(qty), float(amount), orderId=oid, account=account,
+                           tif='DAY', outsideRth=True, transmit=True, orderRef=ref)
+        conn.ib.placeOrder(routed, order)
+
+    def validate_overnight_price(self, conn, routed, cid, amount):
         details = conn._bounded_order_read(conn.ib.reqContractDetails, routed, timeout_seconds=3)
         matches = [d for d in details if d.contract.conId == cid and d.contract.secType == 'STK'
                    and d.contract.currency == 'USD']
@@ -362,14 +373,6 @@ class PaperChart:
         if not ticks: raise ValueError('Overnight price increment unavailable')
         tick = Decimal(str(max(ticks, key=lambda r:r.lowEdge).increment))
         if amount % tick: raise ValueError('Price does not match overnight tick size')
-        oid = conn.ib.client.getReqId()
-        ref = 'WheelPaper:' + request_id
-        # Persist ownership before sending. Unknown outcomes remain blocked, never replayed.
-        self.save_group(account, cid, dict(ids=dict(entry=oid), side=1, ref=ref,
-                                          mode='overnight_entry'))
-        order = LimitOrder('BUY', int(qty), float(amount), orderId=oid, account=account,
-                           tif='DAY', outsideRth=True, transmit=True, orderRef=ref)
-        conn.ib.placeOrder(routed, order)
 
     def perform(self, conn, account, cid, body, request_id):
         contract=contracts.resolve(conn,cid)
@@ -384,6 +387,36 @@ class PaperChart:
             return self.submit_overnight_entry(conn, account, cid, contract, current, body, request_id)
         group = self.group(account, cid)
         if group and group.get('mode') == 'overnight_entry':
+            if action == 'manage_entry':
+                import copy
+                if not current['known'] or body.get('expected_ref') != group.get('ref'):
+                    raise ValueError('Order identity changed; refresh Orders')
+                trade = getattr(self, '_resolved_trades', {}).get(group['ids']['entry'])
+                if not trade or trade.order.account != account or trade.contract.conId != cid or trade.order.orderRef != group['ref']:
+                    raise ValueError('Exact owned order unavailable')
+                if trade.orderStatus.status not in ('Submitted', 'PreSubmitted'):
+                    raise ValueError('Wait for a confirmed working order')
+                if trade.contract.exchange != 'OVERNIGHT' or trade.order.orderType != 'LMT':
+                    raise ValueError('Order route/type changed; verify Gateway')
+                if body.get('operation') == 'cancel':
+                    conn.ib.cancelOrder(trade.order)
+                    return
+                if body.get('operation') != 'amend': raise ValueError('Unsupported entry operation')
+                if trade.orderStatus.filled or trade.fills:
+                    raise ValueError('Entry has fills; refresh before changing it')
+                if body.get('expected_price') != trade.order.lmtPrice:
+                    raise ValueError('Order price changed; refresh Orders')
+                try: amount = Decimal(str(body.get('price')))
+                except Exception: raise ValueError('Invalid entry price')
+                if not amount.is_finite() or amount <= 0: raise ValueError('Invalid entry price')
+                self.validate_overnight_price(conn, trade.contract, cid, amount)
+                # Validation can pump broker events; recheck before the write.
+                if trade.isDone() or trade.orderStatus.filled or trade.fills or trade.orderStatus.status not in ('Submitted','PreSubmitted'):
+                    raise ValueError('Order changed while validating; refresh Orders')
+                amended = copy.copy(trade.order)
+                amended.lmtPrice = float(amount)
+                self.modify_exit(conn, trade, amended, 'lmtPrice')
+                return
             if action != 'cancel_entry':
                 raise ValueError('Standalone overnight entry has no TP/SL; only explicit entry cancellation is supported')
             trade = getattr(self, '_resolved_trades', {}).get(group['ids']['entry'])

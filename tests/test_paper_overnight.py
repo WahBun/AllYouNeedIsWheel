@@ -102,3 +102,52 @@ class OvernightTests(unittest.TestCase):
         state = self.service.state(self.conn, 7)
         self.assertFalse(state['rejected'])
         self.assertEqual(state['status'], 'canceled')
+
+    def manage(self, operation, **fields):
+        body=dict(request_id=str(uuid4()), action='manage_entry', operation=operation,
+                  expected_ref=self.service.group('DU_TEST',7)['ref'])
+        body.update(fields)
+        return self.service.execute(self.conn,7,body)
+
+    def test_manage_cancel_exact_owned_order_and_replay(self):
+        self.overnight()
+        ref=self.service.group('DU_TEST',7)['ref']
+        body=dict(request_id=str(uuid4()),action='manage_entry',operation='cancel',expected_ref=ref)
+        self.service.execute(self.conn,7,body)
+        self.service.execute(self.conn,7,body)
+        self.conn.ib.cancelOrder.assert_called_once()
+        self.assertEqual(self.conn.ib.placeOrder.call_count,1)
+
+    def test_stale_ref_and_price_are_rejected_without_writes(self):
+        self.overnight()
+        self.conn.ib.placeOrder.reset_mock()
+        self.assertFalse(self.manage('cancel',expected_ref='WheelPaper:stale')['success'])
+        self.assertFalse(self.manage('amend',expected_price=123,price=770)['success'])
+        self.conn.ib.placeOrder.assert_not_called()
+        self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_amend_preserves_route_quantity_and_identity(self):
+        self.overnight()
+        self.conn.ib.placeOrder.reset_mock()
+        result=self.manage('amend',expected_price=768.88,price=748.88)
+        self.assertTrue(result['success'],result)
+        self.conn.ib.placeOrder.assert_called_once()
+        contract,order=self.conn.ib.placeOrder.call_args.args
+        self.assertEqual((contract.exchange,order.orderId,order.totalQuantity,order.lmtPrice),
+                         ('OVERNIGHT',100,100,748.88))
+        self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_partial_fill_disables_amendment(self):
+        self.overnight()
+        self.trades[0].orderStatus.filled=1
+        self.conn.ib.placeOrder.reset_mock()
+        self.assertFalse(self.manage('amend',expected_price=768.88,price=748.88)['success'])
+        self.conn.ib.placeOrder.assert_not_called()
+
+    def test_new_service_recovers_working_order_without_resubmit(self):
+        self.overnight()
+        service=type(self.service)(self.service.path)
+        state=service.state(self.conn,7)
+        self.assertEqual(state['orders'][0]['status'],'Submitted')
+        self.assertEqual(state['orders'][0]['quantity'],100)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,1)
