@@ -518,7 +518,7 @@ struct StockChartView: View {
                     Text("RTH").tag("rth"); Text("ETH").tag("all")
                 }.fixedSize()
                 Button { fullScreen.toggle() } label: {
-                    Image(systemName: fullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                    Image(systemName: "viewfinder")
                         .frame(width: 36, height: 44)
                 }.buttonStyle(.plain).accessibilityLabel(fullScreen ? "Exit full screen" : "Full screen")
             }
