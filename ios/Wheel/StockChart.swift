@@ -17,7 +17,8 @@ import WebKit
         return cached
     }
     static func save(_ packet: [String: Any], key: String) {
-        guard let bars = packet["bars"] as? [[String: Any]], !bars.isEmpty else { return }
+        let bars = packet["bars"] as? [[String: Any]] ?? []
+        guard !bars.isEmpty || !(packet["frames"] as? [String: Any] ?? [:]).isEmpty else { return }
         packets = packets.filter { Date().timeIntervalSince($0.value.0) < 86400 }
         if packets.count >= 12 && packets[key] == nil, let oldest = packets.min(by: { $0.value.0 < $1.value.0 }) { packets.removeValue(forKey: oldest.key) }
         // Keep the known bar deadline and clock anchor, never quote eligibility or stream state.
@@ -97,10 +98,11 @@ struct ExtraEMA: Codable {
 enum ChartHoldingOverlay {
     static func rows(positions: [Position], conID: Int?, symbol: String, type: String, chinese: Bool) -> [[String: Any]] {
         guard let conID, conID > 0 else { return [] }
+        let underlyingSymbol = positions.first { $0.con_id == conID && $0.security_type == type }?.symbol ?? symbol
         return positions.compactMap { holding in
             guard holding.position.isFinite, holding.position != 0, let id = holding.con_id, id > 0 else { return nil }
             let exact = id == conID && holding.security_type == type
-            let strike = type == "STK" && holding.security_type == "OPT" && holding.symbol.uppercased() == symbol.uppercased()
+            let strike = type == "STK" && holding.security_type == "OPT" && holding.symbol.uppercased() == underlyingSymbol.uppercased()
             guard exact || strike else { return nil }
             let size = holding.position.formatted(.number.grouping(.never).precision(.fractionLength(0...8)))
             var price: Double?
@@ -319,6 +321,7 @@ struct StockChartView: View {
         if showEMA { frames.append(emaFrame) }
         return Array(Set(frames.filter { $0 > 0 && $0 != interval })).sorted()
     }
+    private var emaCacheKey: String { "ema-history-\(cacheKey)-" + requestedEMAFrames.map(String.init).joined(separator: ",") }
     private var emaRequestKey: String { context + requestedEMAFrames.map(String.init).joined(separator: ",") }
     @AppStorage("chartShowEMA") private var showEMA = true
     @AppStorage("chartEMALength") private var emaLength = 20
@@ -761,18 +764,32 @@ struct StockChartView: View {
             emaFrames = [:]; emaFrameContext = ""; emaHistoryNotice = nil
             guard visible, phase == .active, !store.demo, let cid = chartID else { return }
             let requestKey = emaRequestKey
+            let historyKey = emaCacheKey
+            if let cached = RecentStockCharts.load(historyKey)?.1["frames"] as? [String: Any] {
+                emaFrames = cached; emaFrameContext = requestKey
+                emaHistoryNotice = "EMA · Cached timeframe history; refreshing"
+            }
+            var retryDelay = 1.0
             while !Task.isCancelled {
                 do {
                     let result = try await store.trading.get("api/portfolio/chart-ema/\(cid)", base: store.address, query: [URLQueryItem(name: "frames", value: requestedEMAFrames.map(String.init).joined(separator: ",")), URLQueryItem(name: "session", value: session)])
                     try Task.checkCancellation()
                     guard requestKey == emaRequestKey, result["con_id"] as? Int == cid else { return }
-                    emaFrames = result["frames"] as? [String: Any] ?? [:]; emaFrameContext = requestKey
-                    emaHistoryNotice = requestedEMAFrames.contains { (emaFrames[String($0)] as? [[String: Any]])?.isEmpty != false } ? "EMA · Waiting for timeframe history" : nil
+                    let incoming = result["frames"] as? [String: Any] ?? [:]
+                    for (frame, value) in incoming {
+                        if let bars = value as? [[String: Any]], !bars.isEmpty { emaFrames[frame] = bars }
+                    }
+                    emaFrameContext = requestKey
+                    if incoming.values.contains(where: { ($0 as? [[String: Any]])?.isEmpty == false }) {
+                        RecentStockCharts.save(["frames": incoming], key: historyKey)
+                    }
+                    retryDelay = requestedEMAFrames.allSatisfy { (incoming[String($0)] as? [[String: Any]])?.isEmpty == false } ? 10 : min(5, retryDelay * 2)
+                    emaHistoryNotice = requestedEMAFrames.contains { (incoming[String($0)] as? [[String: Any]])?.isEmpty != false } ? "EMA · Waiting for fresh timeframe history" : nil
                 } catch {
                     if Task.isCancelled { return }
                     if !requestedEMAFrames.isEmpty { emaHistoryNotice = "EMA · Timeframe history unavailable; retrying" }
                 }
-                do { try await Task.sleep(for: .seconds(10)) } catch { return }
+                do { try await Task.sleep(for: .seconds(retryDelay)) } catch { return }
             }
         }
         .task(id: "executions-" + context) {
