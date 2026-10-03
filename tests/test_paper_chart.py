@@ -292,8 +292,8 @@ class ProtectedLotTests(unittest.TestCase):
         result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
         self.assertFalse(result['success']);self.conn.ib.placeOrder.assert_not_called();self.conn.ib.cancelOrder.assert_not_called()
 
-    def test_option_chart_cannot_submit_broker_orders(self):
-        self.contract.secType='OPT'
+    def test_unsupported_contract_cannot_submit_broker_orders(self):
+        self.contract.secType='CASH'
         result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='submit',side=1,quantity=1,entry=10,tp=11,sl=9,entry_type='LMT'))
         self.assertFalse(result['success'])
         self.assertIn('viewing only',result['message'])
@@ -350,4 +350,31 @@ class ProtectedLotTests(unittest.TestCase):
         self.assertEqual(self.service.state(self.conn,7)['adjustment']['status'],'unknown')
         self.conn.ib.placeOrder.reset_mock()
         self.assertEqual(self.service.execute(self.conn,7,body)['status'],'unknown')
+        self.conn.ib.placeOrder.assert_not_called()
+
+
+class OptionProtectedLotTests(ProtectedLotTests):
+    def setUp(self):
+        super().setUp()
+        from ib_async import Option
+        self.contract = Option('TEST', '20261218', 10, 'C', 'SMART',
+                               multiplier='100', currency='USD', conId=7)
+        self.resolve.stop()
+        self.resolve = patch('api.services.paper_chart.contracts.resolve', return_value=self.contract)
+        self.resolve.start()
+
+    def test_exact_option_and_contract_units(self):
+        self.submit(quantity=2)
+        self.assertEqual(len(self.trades), 6)
+        for call in self.conn.ib.placeOrder.call_args_list:
+            contract, order = call.args
+            self.assertIs(contract, self.contract)
+            self.assertEqual(order.account, 'DU_TEST')
+            self.assertEqual(order.totalQuantity, 1)
+
+    def test_option_rejects_live_account(self):
+        self.conn.account_id = 'U_TEST'
+        self.conn.ib.managedAccounts.return_value = ['U_TEST']
+        with self.assertRaises(ValueError):
+            self.submit()
         self.conn.ib.placeOrder.assert_not_called()

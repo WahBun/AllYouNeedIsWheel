@@ -309,7 +309,7 @@ class PaperChart:
 
     def perform(self, conn, account, cid, body, request_id):
         contract=contracts.resolve(conn,cid)
-        if contract.secType not in ('STK','FUT'): raise ValueError('This contract supports chart viewing only')
+        if contract.secType not in ('STK','FUT','OPT'): raise ValueError('This contract supports chart viewing only')
         if body.get('action')!='submit':
             # Refresh canonical broker fields before copying an active order.
             conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
@@ -331,11 +331,11 @@ class PaperChart:
             if current['position'] or any(t.contract.conId==cid and t.order.account==account for t in conn.ib.openTrades()):
                 raise ValueError('Close existing position/orders for this contract before starting a new bracket')
             side=body.get('side'); qty=body.get('quantity')
-            if side not in (-1,1) or not isinstance(qty,(int,float)) or not math.isfinite(qty) or qty!=int(qty) or not 1<=qty<=(10 if contract.secType=='FUT' else 1000): raise ValueError('Invalid paper order size or side')
+            if side not in (-1,1) or not isinstance(qty,(int,float)) or not math.isfinite(qty) or qty!=int(qty) or not 1<=qty<=(10 if contract.secType in ('FUT','OPT') else 1000): raise ValueError('Invalid paper order size or side')
             entry=price(body.get('entry')); tp=price(body.get('tp')); sl=price(body.get('sl'))
             if side*(tp-entry)<=0 or side*(sl-entry)>=0: raise ValueError('TP and SL must be on opposite sides of entry')
             if body.get('entry_type') not in ('LMT','STP'): raise ValueError('Unsupported entry type')
-            if contract.secType=='FUT':
+            if contract.secType in ('FUT','OPT'):
                 group=dict(ids={},lots=[],side=side,ref='WheelPaper:'+request_id)
                 self.add_lots(conn,account,cid,contract,group,int(qty),body['entry_type'],entry,tp,sl)
                 return
