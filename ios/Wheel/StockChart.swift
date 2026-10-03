@@ -244,6 +244,20 @@ struct StockChartView: View {
     @AppStorage("futureChartTPDistance") private var futureTPDistance = "2.00"
     @AppStorage("futureChartSLDistance") private var futureSLDistance = "1.00"
     @AppStorage("chartShowProfit") private var showProfit = true
+    @AppStorage("chartShowHoldings") private var showHoldings = true
+    @AppStorage("chartBarCount") private var showBarCount = true
+    @AppStorage("chartBarCountFrame") private var barCountFrame = 1440
+    @AppStorage("chartBarCountSize") private var barCountSize = "tiny"
+    @AppStorage("chartBarCountColor") private var barCountColor = "#521c6e"
+    @AppStorage("chartBarCountLimit") private var barCountLimit = true
+    @AppStorage("chartBarCountBars") private var barCountBars = 162
+    private var barCountColorBinding: Binding<Color> {
+        Binding(get: { CustomPalette.color(barCountColor) ?? .purple }, set: { color in
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+            barCountColor = String(format: "#%02X%02X%02X", Int(r*255), Int(g*255), Int(b*255))
+        })
+    }
     @AppStorage("chartShowPositionProfit") private var showPositionProfit = false
     @AppStorage("chartShowBracketProfit") private var showBracketProfit = true
     @AppStorage("chartShowExecutions") private var showExecutions = true
@@ -355,12 +369,28 @@ struct StockChartView: View {
                         Toggle("ATR", isOn: $showATR)
                     }
                 }
+                Section("Bar Count") {
+                    if indicatorTab == "Inputs" {
+                        Picker("Reset timeframe", selection: $barCountFrame) {
+                            Text("1 hour").tag(60); Text("1 day").tag(1440); Text("1 week").tag(10080); Text("1 month").tag(43200)
+                        }
+                        Toggle("Limit rendering range", isOn: $barCountLimit)
+                        Stepper("Bars to render: \(barCountBars)", value: $barCountBars, in: 50...2000).disabled(!barCountLimit)
+                        Text("Every third bar, plus the reference indicator’s highlighted counts.").font(.caption).foregroundStyle(.secondary)
+                    } else if indicatorTab == "Style" {
+                        Picker("Label size", selection: $barCountSize) {
+                            ForEach(["auto", "tiny", "small", "normal", "large", "huge"], id: \.self) { Text($0.capitalized).tag($0) }
+                        }
+                        ColorPicker("Label color", selection: barCountColorBinding, supportsOpacity: false)
+                    } else { Toggle("Bar Count", isOn: $showBarCount) }
+                }
                 extraEMASection(0)
                 extraEMASection(1)
                 Section {
                     Text("Changes apply immediately and are saved.").font(.caption).foregroundStyle(.secondary)
                     Button("Restore defaults") {
                         emaFrame = 0; extraEMAJSON = ""
+                        showBarCount = true; barCountFrame = 1440; barCountSize = "tiny"; barCountColor = "#521c6e"; barCountLimit = true; barCountBars = 162
                         indicatorVisible = true; showEMA = true; emaLength = 20; emaSource = "close"; emaOffset = 0
                         emaDynamic = true; emaColor = "#f9f1db"; emaWidth = 1; emaStyle = 0
                         showATR = true; atrLength = 4
@@ -377,7 +407,7 @@ struct StockChartView: View {
     private var adjustmentLimit: Int { adjustmentAction == "trim" ? max(0, positionSize - 1) : max(0, quantityLimit - positionSize) }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
+        ["holdingsVisible": showHoldings, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
          "emaDynamic": emaDynamic, "emaColor": emaColor + "ab", "emaWidth": emaWidth, "emaStyle": emaStyle,
          "atr": showATR && indicatorVisible, "atrLength": atrLength, "profit": showProfit, "positions": showPositionProfit, "brackets": showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
@@ -627,12 +657,13 @@ struct StockChartView: View {
         .sheet(isPresented: $showDisplaySettings) {
             NavigationStack {
                 Form {
+                    Section("Positions") { Toggle("Positions", isOn: $showHoldings) }
                     Section("Profit and loss value") {
                         Toggle("Show P&L", isOn: $showProfit)
-                        Toggle("Positions", isOn: $showPositionProfit).disabled(!showProfit)
+                        Toggle("Position P&L", isOn: $showPositionProfit).disabled(!showProfit || !showHoldings)
                         Picker("Position P&L unit", selection: $positionProfitUnit) {
                             Text("Money").tag("money"); Text("Ticks").tag("ticks")
-                        }.disabled(!showProfit || !showPositionProfit)
+                        }.disabled(!showProfit || !showHoldings || !showPositionProfit)
                         Toggle("Brackets", isOn: $showBracketProfit).disabled(!showProfit)
                         Picker("Bracket P&L unit", selection: $bracketProfitUnit) {
                             Text("Money").tag("money"); Text("Ticks").tag("ticks")

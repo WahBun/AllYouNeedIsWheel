@@ -31,6 +31,18 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
  assert.equal(await page.locator('.holding-badge').evaluate(el=>el.hidden),false);
  await page.evaluate(()=>configure({...cfg,executions:[{id:'a',group:'order-a',time:1010,price:.78,quantity:1,side:'SELL'},{id:'b',group:'order-b',time:1011,price:.78,quantity:1,side:'SELL'}]}));
  assert.equal(await page.evaluate(()=>executionMarkers.markers().length),2);
+ await page.evaluate(()=>configure({...cfg,display:{holdingsVisible:false}}));
+ assert.equal(await page.evaluate(()=>holdingLines.size),0);
+ assert.equal(await page.locator('.holding-badge').count(),0);
+ await page.evaluate(()=>configure({...cfg,display:{holdingsVisible:true,positions:false}}));
+ assert.equal(await page.evaluate(()=>holdingLines.size),1);
+ assert.equal(await page.locator('.holding-badge').count(),1);
+ assert.deepEqual(await page.evaluate(()=>[countAppearance(7,'purple','tiny').show,countAppearance(18,'purple','tiny').color,countAppearance(40,'purple','tiny').show]),[true,'#39ff14bf',false]);
+ assert.equal(await page.evaluate(()=>countBucket(Date.parse('2026-10-02T21:59:00Z')/1000,1440,true)===countBucket(Date.parse('2026-10-02T22:00:00Z')/1000,1440,true)),false);
+ await page.evaluate(()=>configure({...cfg,display:{barCount:true}}));
+ assert.equal(await page.evaluate(()=>countCache.values.length),1);
+ await page.evaluate(()=>configure({...cfg,display:{barCount:false}}));
+ assert.equal(await page.evaluate(()=>countCache),null);
  assert.equal(await page.evaluate(()=>sent.length),0);
  console.log('Read-only holding lines: exact cost, quantity update, reuse, switch, close, no trading writes PASS');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1)});
