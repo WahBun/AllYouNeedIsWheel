@@ -95,7 +95,7 @@ struct AccountConnection: Decodable {
     var mode: String
     var execution_enabled: Bool
     var chart_execution_enabled: Bool
-    var label: String { mode == "paper" ? "IB Paper" : mode == "live" ? "Live" : "Unknown" }
+    var label: String { mode == "paper" ? "Paper" : mode == "live" ? "Live" : "Unknown" }
 }
 struct Bootstrap: Decodable { var summary: Summary; var positions: [Position]; var connection: AccountConnection? = nil }
 struct LivePortfolio: Decodable { var positions: [Position]; var is_frozen: Bool; var streaming: Bool?; var connection: AccountConnection? = nil }
@@ -1501,7 +1501,7 @@ struct SettingsView: View {
         Form {
             Section("Connection") {
                 Picker("Account", selection: Binding(get: { requestedMode }, set: { selectMode($0) })) {
-                    Text("Demo").tag("demo"); Text("IB Paper").tag("paper"); Text("Live").tag("live")
+                    Text("Demo").tag("demo"); Text("Live").tag("live"); Text("Paper").tag("paper")
                 }.pickerStyle(.segmented).disabled(switchingAccount || connecting || store.trading.busy || store.trading.uncertain)
                 if switchingAccount { ProgressView("Switching account…") }
                 if let accountSwitchMessage { Text(accountSwitchMessage).font(.footnote).foregroundStyle(.orange) }

@@ -427,14 +427,14 @@ struct StockChartView: View {
         if paperState["known"] as? Bool == false { return "Order status unknown · verify Gateway" }
         if paperState["rejected"] as? Bool == true { return "Order rejected · verify Gateway" }
         if let progress = paperState["adjustment"] as? [String: Any] {
-            return "\(localizedLabel("IB Paper", locale: locale)) · \(localizedLabel(progress["action"] as? String ?? "close", locale: locale)) · \(localizedLabel(progress["status"] as? String ?? "unknown", locale: locale))"
+            return "\(localizedLabel("Paper", locale: locale)) · \(localizedLabel(progress["action"] as? String ?? "close", locale: locale)) · \(localizedLabel(progress["status"] as? String ?? "unknown", locale: locale))"
         }
-        if let size = paperState["position"] as? Double, size != 0 { return "IB Paper · \(size > 0 ? "Long" : "Short") \(abs(size).formatted()) filled" }
+        if let size = paperState["position"] as? Double, size != 0 { return "Paper · \(size > 0 ? "Long" : "Short") \(abs(size).formatted()) filled" }
         if paperState["status"] as? String == "done" {
             let exit = rows.first { ["tp", "sl", "close"].contains($0["role"] as? String ?? "") && ($0["filled"] as? Double ?? 0) > 0 }
-            return exit.map { "IB Paper · \(($0["role"] as? String ?? "").uppercased()) filled · Flat" } ?? "IB Paper · Orders finished · Flat"
+            return exit.map { "Paper · \(($0["role"] as? String ?? "").uppercased()) filled · Flat" } ?? "Paper · Orders finished · Flat"
         }
-        if let row = rows.first(where: { $0["role"] as? String == "entry" }) { return "IB Paper · \(row["status"] as? String ?? "Unknown") · Filled \((row["filled"] as? Double ?? 0).formatted())" }
+        if let row = rows.first(where: { $0["role"] as? String == "entry" }) { return "Paper · \(row["status"] as? String ?? "Unknown") · Filled \((row["filled"] as? Double ?? 0).formatted())" }
         return ""
     }
     @State private var templateType = "STK"
