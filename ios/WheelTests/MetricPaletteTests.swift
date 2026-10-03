@@ -8,6 +8,9 @@ final class MetricPaletteTests: XCTestCase {
             XCTAssertEqual(palette.metric("spread", value: value, scheme: .dark), palette.color("spread." + key, scheme: .dark, fallback: .clear))
         }
         for scheme: ColorScheme in [.light, .dark] {
+            for metric in ["delta", "iv"] {
+                XCTAssertEqual(CustomPalette().metric(metric, value: 80, scheme: scheme), CustomPalette.color(scheme == .dark ? "#FF453A" : "#C62828")!)
+            }
             XCTAssertEqual(CustomPalette().metric("spread", value: 20, scheme: scheme), CustomPalette.color(scheme == .dark ? "#FF453A" : "#C62828")!)
         }
     }

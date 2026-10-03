@@ -600,8 +600,9 @@ h1 {
     color: var(--spread-medium);
 }
 
-.spread-wide {
+.spread-wide, .metric-high {
     color: var(--spread-wide);
+    text-shadow: 0 0 3px color-mix(in srgb, var(--spread-wide) 65%, transparent), 0 0 7px color-mix(in srgb, var(--spread-wide) 40%, transparent);
 }
 
 .spread-unavailable {

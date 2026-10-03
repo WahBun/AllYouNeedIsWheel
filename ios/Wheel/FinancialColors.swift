@@ -100,6 +100,7 @@ struct MetricPalettePreview: View {
                 Button { editing = PaletteEditTarget(id: key, title: name + " · " + title, fallback: fallback) } label: {
                     Text(values[index]).font(.caption).monospacedDigit()
                         .foregroundStyle(palette.color(key, scheme: scheme, fallback: fallback))
+                        .modifier(MetricWarningGlow(active: band == "high", color: palette.color(key, scheme: scheme, fallback: fallback)))
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }.buttonStyle(.plain).accessibilityLabel(name + " " + title)
             }

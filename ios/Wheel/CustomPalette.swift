@@ -17,7 +17,7 @@ struct CustomPalette {
         values[key + (scheme == .dark ? ".dark" : ".light")].flatMap(Self.color) ?? fallback
     }
     static func metricFallback(_ name: String, band: Double, scheme: ColorScheme) -> Color {
-        if name == "spread" && band == 1 { return Self.color(scheme == .dark ? "#FF453A" : "#C62828")! }
+        if ["spread", "delta", "iv"].contains(name) && band == 1 { return Self.color(scheme == .dark ? "#FF453A" : "#C62828")! }
         return DemoMetricColors.color(band, scheme: scheme)
     }
     func metric(_ name: String, value: Double, scheme: ColorScheme) -> Color {
@@ -75,5 +75,16 @@ struct PaletteColorEditor: View {
                 Button("Apply") { save(draft) }.disabled(CustomPalette.normalized(draft) == nil)
             }
         }.onAppear { draft = hex }.onChange(of: hex) { draft = hex }
+    }
+}
+
+struct MetricWarningGlow: ViewModifier {
+    var active: Bool
+    var color: Color
+    @Environment(\.colorScheme) private var scheme
+    func body(content: Content) -> some View {
+        content
+            .shadow(color: active ? color.opacity(scheme == .dark ? 0.85 : 0.55) : .clear, radius: 3)
+            .shadow(color: active ? color.opacity(scheme == .dark ? 0.55 : 0.30) : .clear, radius: 7)
     }
 }

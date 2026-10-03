@@ -539,8 +539,8 @@ async function selectOptionToRoll(optionId) {
             <td>${quantity}</td>
             <td>${formatQuotePrice(buyAsk)} <small class="text-muted" title="Ask price per share">(ask)</small></td>
             <td>LIMIT</td>
-            <td>${formattedDelta}</td>
-            <td>${formattedIV}</td>
+            <td class="${Number.isFinite(delta) && Math.abs(delta) > 0.7 && Math.abs(delta) <= 1 ? 'metric-high' : ''}">${formattedDelta}</td>
+            <td class="${Number.isFinite(iv) && iv > 70 ? 'metric-high' : ''}">${formattedIV}</td>
             <td><span class="badge bg-info">Current Position</span></td>
         `;
         tableBody.appendChild(buyRow);
@@ -737,8 +737,8 @@ function populateRolloverSuggestionsTable(suggestions) {
         <td>${quantity}</td>
         <td>${formatQuotePrice(buyAsk)} <small class="text-muted" title="Ask price per share">(ask)</small></td>
         <td>LIMIT</td>
-        <td>${formattedDelta}</td>
-        <td>${formattedIV}</td>
+        <td class="${Number.isFinite(delta) && Math.abs(delta) > 0.7 && Math.abs(delta) <= 1 ? 'metric-high' : ''}">${formattedDelta}</td>
+        <td class="${Number.isFinite(iv) && iv > 70 ? 'metric-high' : ''}">${formattedIV}</td>
         <td><span class="badge bg-info">Current Position</span></td>
     `;
     tableBody.appendChild(buyRow);
@@ -777,8 +777,8 @@ function populateRolloverSuggestionsTable(suggestions) {
             <td>${quantity}</td>
             <td>${formatQuotePrice(midPrice)} <small class="text-muted" title="${bidAskTooltip}">(mid)</small></td>
             <td>LIMIT</td>
-            <td>${formattedDelta}</td>
-            <td>${formattedIV}</td>
+            <td class="${Number.isFinite(delta) && Math.abs(delta) > 0.7 && Math.abs(delta) <= 1 ? 'metric-high' : ''}">${formattedDelta}</td>
+            <td class="${Number.isFinite(iv) && iv > 70 ? 'metric-high' : ''}">${formattedIV}</td>
             <td>
                 <button class="btn btn-sm btn-success rollover-btn" data-suggestion-id="${index}" ${quoteAvailable ? '' : 'disabled'}>
                     Execute Rollover

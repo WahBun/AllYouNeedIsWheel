@@ -2476,8 +2476,8 @@ function addTickerRowToTable(tableId, optionType, ticker) {
                 </select>
             </td>
             <td class="align-middle" data-field="mid-price">${buildLimitPriceControl(ticker, 'CALL', option, midPrice, optionMidPrice)}</td>
-            <td class="align-middle">${option.delta ? option.delta.toFixed(2) : 'N/A'}</td>
-            <td class="align-middle">${ivPercent}%</td>
+            <td class="align-middle ${Number.isFinite(option.delta) && Math.abs(option.delta) > 0.7 && Math.abs(option.delta) <= 1 ? 'metric-high' : ''}">${option.delta ? option.delta.toFixed(2) : 'N/A'}</td>
+            <td class="align-middle ${Number.isFinite(option.implied_volatility) && option.implied_volatility > 70 ? 'metric-high' : ''}">${ivPercent}%</td>
             <td class="align-middle">
                 <input type="number" class="form-control form-control-sm call-qty-input"
                     data-ticker="${ticker}"
@@ -2565,8 +2565,8 @@ function addTickerRowToTable(tableId, optionType, ticker) {
                 </select>
             </td>
             <td class="align-middle" data-field="mid-price">${buildLimitPriceControl(ticker, 'PUT', option, midPrice, optionMidPrice)}</td>
-            <td class="align-middle">${option.delta ? option.delta.toFixed(2) : 'N/A'}</td>
-            <td class="align-middle">${ivPercent}%</td>
+            <td class="align-middle ${Number.isFinite(option.delta) && Math.abs(option.delta) > 0.7 && Math.abs(option.delta) <= 1 ? 'metric-high' : ''}">${option.delta ? option.delta.toFixed(2) : 'N/A'}</td>
+            <td class="align-middle ${Number.isFinite(option.implied_volatility) && option.implied_volatility > 70 ? 'metric-high' : ''}">${ivPercent}%</td>
             <td class="align-middle">
                 <input type="number" class="form-control form-control-sm put-qty-input" 
                     data-ticker="${ticker}" 

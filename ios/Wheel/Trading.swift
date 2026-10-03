@@ -883,6 +883,7 @@ struct QuoteMetricValue: View {
     }
     var body: some View {
         Text(metric.formatted(value)).monospacedDigit().foregroundStyle(color)
+            .modifier(MetricWarningGlow(active: metric.level(value) == .high, color: color))
     }
 }
 
@@ -897,5 +898,6 @@ struct SpreadValue: View {
     var body: some View {
         Text(SpreadBand.classify(percentage) == .unavailable ? "—" : String(format: "%.1f%%", percentage!))
             .monospacedDigit().foregroundStyle(Self.color(for: percentage, scheme: scheme, palette: customPalette))
+            .modifier(MetricWarningGlow(active: SpreadBand.classify(percentage) == .wide, color: Self.color(for: percentage, scheme: scheme, palette: customPalette)))
     }
 }
