@@ -24,7 +24,7 @@ final class ChartViewportTests: XCTestCase {
         let option = ChartHoldingOverlay.rows(positions: all, conID: 2, symbol: "TSLL", type: "OPT", chinese: false)
         XCTAssertEqual(option.count, 1)
         XCTAssertEqual(option[0]["price"] as? Double, 0.78)
-        XCTAssertEqual(option[0]["title"] as? String, "Short × 2 · Avg cost")
+        XCTAssertEqual(option[0]["title"] as? String, "Short × 2 · Avg")
         let underlying = ChartHoldingOverlay.rows(positions: all, conID: 1, symbol: "TSLL", type: "STK", chinese: false)
         XCTAssertEqual(underlying.count, 2)
         XCTAssertEqual(underlying[0]["price"] as? Double, 9.5)

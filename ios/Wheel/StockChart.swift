@@ -102,7 +102,7 @@ enum ChartHoldingOverlay {
                 if let average = holding.avg_cost, average.isFinite, let divisor, divisor.isFinite, divisor > 0 {
                     price = abs(average) / divisor
                 }
-                caption = "\(side) × \(size) · " + (chinese ? "持仓成本" : "Avg cost")
+                caption = "\(side) × \(size) · " + (chinese ? "持仓成本" : "Avg")
             }
             guard let price, price.isFinite, price > 0 else { return nil }
             return ["id": "\(strike ? "strike" : "holding")-\(id)", "price": price, "title": caption,
