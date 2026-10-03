@@ -122,6 +122,11 @@ class PortfolioService:
             ):
                 position_data.update(self._option_position_fields(contract, pos, account_id))
 
+            if pos_type in ('STK', 'FUT'):
+                position_data['entry_fill_price'] = recorded_entry_price(
+                    self.config.get('db_path'), account_id, position_data['con_id'],
+                    position_data['position'])
+
             positions_list.append(position_data)
 
         return positions_list

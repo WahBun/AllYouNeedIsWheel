@@ -82,27 +82,23 @@ struct ChartOrderProgressView: View {
 }
 
 enum ChartHoldingOverlay {
-    static func rows(positions: [Position], conID: Int?, symbol: String, type: String, chinese: Bool, chartMultiplier: Double? = nil) -> [[String: Any]] {
+    static func rows(positions: [Position], conID: Int?, symbol: String, type: String, chinese: Bool) -> [[String: Any]] {
         guard let conID, conID > 0 else { return [] }
         return positions.compactMap { holding in
             guard holding.position.isFinite, holding.position != 0, let id = holding.con_id, id > 0 else { return nil }
             let exact = id == conID && holding.security_type == type
             let strike = type == "STK" && holding.security_type == "OPT" && holding.symbol.uppercased() == symbol.uppercased()
             guard exact || strike else { return nil }
-            let side = holding.position > 0 ? (chinese ? "多仓" : "Long") : (chinese ? "空仓" : "Short")
-            let size = abs(holding.position).formatted(.number.grouping(.never))
+            let size = holding.position.formatted(.number.grouping(.never))
             var price: Double?
             var caption: String
             if strike {
                 price = holding.strike
-                caption = "\(holding.expiration ?? "—") \(holding.option_type ?? "OPT") · \(side) × \(size) · " + (chinese ? "行权价" : "Strike")
+                caption = "\(holding.expiration ?? "—") \(holding.option_type ?? "OPT") · \(size) · " + (chinese ? "行权价" : "Strike")
             } else {
-                // Gateway average cost includes the contract multiplier; it is not an execution price.
-                let divisor = holding.security_type == "STK" ? 1 : (holding.multiplier ?? chartMultiplier)
-                if let average = holding.avg_cost, average.isFinite, let divisor, divisor.isFinite, divisor > 0 {
-                    price = abs(average) / divisor
-                }
-                caption = "\(side) × \(size) · " + (chinese ? "持仓成本" : "Avg")
+                // Fill prices are already in quoted units and exclude commission.
+                price = holding.entry_fill_price
+                caption = "\(size) · " + (chinese ? "成交均价" : "Avg")
             }
             guard let price, price.isFinite, price > 0 else { return nil }
             return ["id": "\(strike ? "strike" : "holding")-\(id)", "price": price, "title": caption,
@@ -421,7 +417,7 @@ struct StockChartView: View {
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
             }
-            StockChartWeb(holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh", chartMultiplier: packet["con_id"] as? Int == chartID ? packet["multiplier"] as? Double : nil), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: chartType == "OPT" ? 0 : validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": chartType == "OPT"]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
+            StockChartWeb(holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: chartType == "OPT" ? 0 : validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": chartType == "OPT"]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
                 Color.clear.frame(width: 36, height: 32).accessibilityHidden(true)

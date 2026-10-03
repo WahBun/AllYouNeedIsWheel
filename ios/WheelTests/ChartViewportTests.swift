@@ -15,27 +15,25 @@ final class ChartViewportTests: XCTestCase {
         }
     }
 
-    func testHoldingOverlayUsesExactContractAndNormalizesCost() {
-        let stock = Position(symbol: "TSLL", position: 200, security_type: "STK", con_id: 1, avg_cost: 9.5)
-        let call = Position(symbol: "TSLL", position: -2, security_type: "OPT", strike: 11, expiration: "20261120", option_type: "CALL", con_id: 2, avg_cost: 78, multiplier: 100)
+    func testHoldingOverlayUsesExactContractAndFeeExclusiveFills() {
+        let stock = Position(symbol: "TSLL", position: 200, security_type: "STK", con_id: 1, entry_fill_price: 9.5, avg_cost: 9.51)
+        let call = Position(symbol: "TSLL", position: -2, security_type: "OPT", strike: 11, expiration: "20261120", option_type: "CALL", con_id: 2, entry_fill_price: 0.78, avg_cost: 77, multiplier: 100)
         let other = Position(symbol: "TSLA", position: -1, security_type: "OPT", strike: 11, expiration: "20261120", option_type: "CALL", con_id: 3, avg_cost: 50, multiplier: 100)
-        let future = Position(symbol: "MES", position: 4, security_type: "FUT", con_id: 4, avg_cost: 39000, multiplier: 5)
+        let future = Position(symbol: "MES", position: 4, security_type: "FUT", con_id: 4, entry_fill_price: 7800, avg_cost: 39001, multiplier: 5)
         let all = [stock, call, other, future]
         let option = ChartHoldingOverlay.rows(positions: all, conID: 2, symbol: "TSLL", type: "OPT", chinese: false)
         XCTAssertEqual(option.count, 1)
         XCTAssertEqual(option[0]["price"] as? Double, 0.78)
-        XCTAssertEqual(option[0]["title"] as? String, "Short × 2 · Avg")
+        XCTAssertEqual(option[0]["title"] as? String, "-2 · Avg")
         let underlying = ChartHoldingOverlay.rows(positions: all, conID: 1, symbol: "TSLL", type: "STK", chinese: false)
         XCTAssertEqual(underlying.count, 2)
         XCTAssertEqual(underlying[0]["price"] as? Double, 9.5)
         XCTAssertEqual(underlying[1]["price"] as? Double, 11)
         XCTAssertTrue((underlying[1]["title"] as? String)?.contains("20261120 CALL") == true)
         XCTAssertEqual(ChartHoldingOverlay.rows(positions: all, conID: 4, symbol: "MES", type: "FUT", chinese: false).first?["price"] as? Double, 7800)
-        var legacyFuture = future; legacyFuture.multiplier = nil
-        XCTAssertEqual(ChartHoldingOverlay.rows(positions: [legacyFuture], conID: 4, symbol: "MES", type: "FUT", chinese: false, chartMultiplier: 5).first?["price"] as? Double, 7800)
         var closed = call; closed.position = 0
         XCTAssertTrue(ChartHoldingOverlay.rows(positions: [closed], conID: 2, symbol: "TSLL", type: "OPT", chinese: false).isEmpty)
-        var unknown = call; unknown.multiplier = nil
+        var unknown = call; unknown.entry_fill_price = nil
         XCTAssertTrue(ChartHoldingOverlay.rows(positions: [unknown], conID: 2, symbol: "TSLL", type: "OPT", chinese: false).isEmpty)
     }
 
