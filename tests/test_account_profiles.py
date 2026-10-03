@@ -55,6 +55,7 @@ class AccountProfileTests(unittest.TestCase):
         from api.services.stock_chart import stock_chart
         from api.services.chart_stream import streams
         stack = ExitStack()
+        stack.enter_context(patch.object(account.gateway_login, "enabled", return_value=False))
         self.addCleanup(stack.close)
         self.connection_path = Path(self.temp.name) / 'connection.json'
         self.connection_path.write_text(json.dumps(self.config['live']))
