@@ -3,6 +3,10 @@ from uuid import uuid4
 from tests.test_paper_chart import PaperChartTests
 
 class EntryEditTests(PaperChartTests):
+    def setUp(self):
+        super().setUp()
+        self.conn._bounded_order_read.side_effect = lambda fn, *a, **k: self.trades if fn == self.conn.ib.reqOpenOrders else []
+
     def edit(self, **changes):
         state = self.service.state(self.conn, 7)
         body = dict(request_id=str(uuid4()), action='edit_entry', expected_ref=state['order_ref'], expected_snapshot=state['edit_snapshot'])
