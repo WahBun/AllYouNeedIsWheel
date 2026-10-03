@@ -77,6 +77,28 @@ class ConnectionManagerTests(unittest.TestCase):
         now[0] += 10
         self.assertIs(manager.get_connection(self.config), connection)
 
+    def test_account_switch_fast_reconnect_is_bounded(self):
+        from unittest.mock import patch
+        now = [100.0]
+        manager = IBConnectionManager(FakeConnection, clock=lambda: now[0])
+        connection = manager.get_connection(self.config)
+        connection.connected = False
+        manager.begin_account_switch()
+        with patch.object(connection, 'connect', return_value=False) as connect:
+            self.assertIsNone(manager.get_connection(self.config))
+            now[0] += 1
+            self.assertIsNone(manager.get_connection(self.config))
+            self.assertEqual(connect.call_count, 1)
+            now[0] += 1
+            self.assertIsNone(manager.get_connection(self.config))
+            self.assertEqual(connect.call_count, 2)
+            now[0] = 281
+            self.assertIsNone(manager.get_connection(self.config))
+            self.assertEqual(manager._retry_after, 291)
+        now[0] = 291
+        self.assertIs(manager.get_connection(self.config), connection)
+        self.assertEqual(manager._fast_reconnect_until, 0)
+
     def test_changed_config_bypasses_old_connection_backoff(self):
         from unittest.mock import patch
         manager = IBConnectionManager(FakeConnection, clock=lambda: 100)

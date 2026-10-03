@@ -20,6 +20,13 @@ class IBConnectionManager:
         self._lock = threading.RLock()
         self._clock = clock
         self._retry_after = 0.0
+        self._fast_reconnect_until = 0.0
+
+    def begin_account_switch(self):
+        """Bounded readiness polling; normal outage backoff resumes after 180s."""
+        with self._lock:
+            self._fast_reconnect_until = self._clock() + 180
+            self._retry_after = 0.0
 
     @staticmethod
     def _config_key(config):
@@ -60,17 +67,19 @@ class IBConnectionManager:
                     readonly=readonly, account_id=account_id,
                     order_preflight_timeout=preflight, execution_timezone=execution_timezone,
                     execution_diagnostic_order_ref=diagnostic_ref)
+            delay = 2 if self._clock() < self._fast_reconnect_until else 10
             # One attempt per request, including recovery of an existing session.
             try:
                 connected = self._connection.connect()
             except Exception:
-                self._retry_after = self._clock() + 10
+                self._retry_after = self._clock() + delay
                 raise
             if not connected:
-                self._retry_after = self._clock() + 10
-                logger.warning("IB Gateway unavailable; reconnect deferred for 10 seconds")
+                self._retry_after = self._clock() + delay
+                logger.warning("IB Gateway unavailable; reconnect deferred for %s seconds", delay)
                 return None
             self._retry_after = 0.0
+            self._fast_reconnect_until = 0.0
             return self._connection
 
 

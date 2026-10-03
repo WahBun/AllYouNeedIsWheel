@@ -1469,7 +1469,7 @@ struct SettingsView: View {
                     if let gateway = result["gateway"] as? [String: Any], let error = gateway["error"] as? String {
                         throw AppError.message(error)
                     }
-                    try await Task.sleep(for: .seconds(3))
+                    try await Task.sleep(for: .seconds(1))
                     do {
                         result = try await store.trading.get("api/account/profiles", base: store.address)
                     } catch let failure as BackendHTTPError where [502, 503, 504].contains(failure.status) {

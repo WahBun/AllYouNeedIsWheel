@@ -118,7 +118,7 @@ def select_profile():
         logging.getLogger(__name__).warning('Previous account disconnect cleanup failed')
     connection_manager._connection = None
     connection_manager._connection_key = None
-    connection_manager._retry_after = 0
+    connection_manager.begin_account_switch()
     _epoch = uuid4().hex
     portfolio.portfolio_service = next_portfolio
     options.options_service = next_options
