@@ -180,7 +180,7 @@ struct Order: Decodable, Identifiable {
     var commissionLabel: String {
         guard let commission, commission.isFinite, abs(commission) < 1e100,
               commission_currency == nil || commission_currency == "USD" else { return "—" }
-        return "$" + commission.formatted(.number.precision(.fractionLength(2...6)))
+        return "$" + commission.formatted(.number.precision(.fractionLength(2)).rounded(rule: .toNearestOrAwayFromZero))
     }
 
     var fillPrice: Double? {
