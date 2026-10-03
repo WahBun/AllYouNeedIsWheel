@@ -233,7 +233,7 @@ function updateBarCount(){
  for(let i=countCache.values.length;i<previous.length;i++){
   const bucket=countBucket(previous[i].time,frame,futures);
   countCache.count=bucket===countCache.bucket?countCache.count+1:1;countCache.bucket=bucket;
-  countCache.values.push({count:countCache.count,...countAppearance(countCache.count,displayOptions.barCountColor||'#521c6e',displayOptions.barCountSize||'tiny')});
+  countCache.values.push({count:countCache.count,...countAppearance(countCache.count,displayOptions.barCountColor||'#351044',displayOptions.barCountSize||'tiny')});
  }
 }
 function drawBarCount(){

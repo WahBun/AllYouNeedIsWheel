@@ -248,7 +248,8 @@ struct StockChartView: View {
     @AppStorage("chartBarCount") private var showBarCount = true
     @AppStorage("chartBarCountFrame") private var barCountFrame = 1440
     @AppStorage("chartBarCountSize") private var barCountSize = "tiny"
-    @AppStorage("chartBarCountColor") private var barCountColor = "#521c6e"
+    @AppStorage("chartBarCountColor") private var barCountColor = "#351044"
+    @AppStorage("chartBarCountDarkDefaultV1") private var barCountDarkDefaultApplied = false
     @AppStorage("chartBarCountLimit") private var barCountLimit = true
     @AppStorage("chartBarCountBars") private var barCountBars = 162
     private var barCountColorBinding: Binding<Color> {
@@ -390,7 +391,7 @@ struct StockChartView: View {
                     Text("Changes apply immediately and are saved.").font(.caption).foregroundStyle(.secondary)
                     Button("Restore defaults") {
                         emaFrame = 0; extraEMAJSON = ""
-                        showBarCount = true; barCountFrame = 1440; barCountSize = "tiny"; barCountColor = "#521c6e"; barCountLimit = true; barCountBars = 162
+                        showBarCount = true; barCountFrame = 1440; barCountSize = "tiny"; barCountColor = "#351044"; barCountLimit = true; barCountBars = 162
                         indicatorVisible = true; showEMA = true; emaLength = 20; emaSource = "close"; emaOffset = 0
                         emaDynamic = true; emaColor = "#f9f1db"; emaWidth = 1; emaStyle = 0
                         showATR = true; atrLength = 4
@@ -733,6 +734,10 @@ struct StockChartView: View {
             }.presentationDetents([.medium, .large])
         }
         .onAppear {
+            if !barCountDarkDefaultApplied {
+                if barCountColor.lowercased() == "#521c6e" { barCountColor = "#351044" }
+                barCountDarkDefaultApplied = true
+            }
             if !initialized {
                 if resumeLast {
                     if let data = UserDefaults.standard.data(forKey: recentChartKey),
