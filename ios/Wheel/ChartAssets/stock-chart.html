@@ -218,7 +218,7 @@ function countBucket(time,frame,futures){
  return day.toISOString().slice(0,10)+(frame<1440?'-'+Math.floor((+d.hour*60+(+d.minute))/frame):'');
 }
 function countAppearance(count,base,size){
- let color=base,font={auto:10,tiny:8,small:10,normal:12,large:16,huge:20}[size]||8,show=count%3===0;
+ let color=/^#[0-9a-f]{6}$/i.test(base)?base+'fc':base,font={auto:10,tiny:8,small:10,normal:12,large:16,huge:20}[size]||8,show=count%3===0;
  if([12,24,36,48,60,72].includes(count)){show=true;color='#f9f1dbe3';font=10;}
  if(count===18||count===39){show=true;color='#39ff14bf';}
  if(count===7){show=true;color='#00ffff';}
