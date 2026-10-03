@@ -220,8 +220,7 @@ enum TradeRules {
     }
     static func cancelable(_ order: Order) -> Bool {
         if chartManageable(order) { return true }
-        return
-        order.id.local != nil && order.external_ib != true && ["pending", "processing", "submitted", "presubmitted"].contains(order.status.lowercased())
+        return order.id.local != nil && order.external_ib != true && ["pending", "processing", "submitted", "presubmitted"].contains(order.status.lowercased())
     }
     static func hasUnsavedEdits(_ order: Order, price: String, quantity: Int) -> Bool {
         TradeRules.price(price) != order.premium || (order.intent != "CLOSE" && Double(quantity) != order.quantity)
