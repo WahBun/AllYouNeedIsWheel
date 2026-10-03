@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 from flask import Blueprint, jsonify, request, current_app
 from config import Config
+from api.services import gateway_login
 
 bp = Blueprint('account', __name__, url_prefix='/api/account')
 _epoch = uuid4().hex
@@ -47,11 +48,25 @@ def status():
     target = 'paper' if account.startswith('DU') else 'live' if account.startswith('U') else 'unknown'
     conn = portfolio_service.connection
     actual = portfolio_service.connection_status(conn) if conn and conn.is_connected() else {'mode':'unknown'}
-    return dict(selected=target, verified=actual.get('mode') == target, epoch=_epoch,
-                available=list(profiles()), message=None if actual.get('mode') == target else 'Log in to the selected IB Gateway mode on Mini, then tap Connect.')
+    verified = actual.get('mode') == target
+    gateway = gateway_login.state()
+    if verified:
+        message = None
+    elif gateway['error']:
+        message = gateway['error']
+    elif gateway['managed']:
+        message = 'Starting IB Paper Gateway…' if target == 'paper' else 'Starting Live Gateway. Confirm IB Key on your phone when prompted.'
+    else:
+        message = 'Log in to the selected IB Gateway mode on Mini, then tap Connect.'
+    return dict(selected=target, verified=verified, epoch=_epoch,
+                available=list(profiles()), gateway=gateway, message=message)
 
 @bp.get('/profiles')
 def get_profiles():
+    from api.routes.portfolio import portfolio_service
+    if not gateway_login.state()['starting']:
+        try: portfolio_service._ensure_connection()
+        except Exception: pass
     return jsonify(status())
 
 @bp.post('/select')
@@ -67,10 +82,12 @@ def select_profile():
         return jsonify(error='This account profile has not been configured on Mini.'), 400
     config = choices[mode]
     active = portfolio.portfolio_service.config
-    if all(active.get(k) == config.get(k) for k in ('account_id','port','db_path')):
-        try: portfolio.portfolio_service._ensure_connection()
-        except Exception: pass
+    if all(active.get(k) == config.get(k) for k in ('account_id','port','db_path')) and status()['verified']:
         return jsonify(status())
+    try:
+        gateway_login.preflight(mode)
+    except ValueError as error:
+        return jsonify(error=str(error)), 409
     pending = options.options_service.db.get_orders(status_filter=['submitting','unknown'], limit=100000)
     if any(row.get('account_id') in (None, '', active.get('account_id')) for row in pending):
         return jsonify(error='Verify unresolved order submissions before switching accounts.'), 409
@@ -107,6 +124,11 @@ def select_profile():
     options.options_service = next_options
     current_app.config['database'] = options.options_service.db
     current_app.extensions['ib_background_sync'] = lambda: options.options_service.synchronize_fills()
-    try: portfolio.portfolio_service._ensure_connection()
-    except Exception: pass
+    try:
+        managed = gateway_login.start(mode)
+    except ValueError:
+        managed = True
+    if not managed:
+        try: portfolio.portfolio_service._ensure_connection()
+        except Exception: pass
     return jsonify(status())

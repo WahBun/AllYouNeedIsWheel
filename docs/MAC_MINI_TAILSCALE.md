@@ -235,9 +235,10 @@ order database; reconcile broker orders before enabling execution afterward.
 ## iOS account selector
 
 Settings offers Demo, IB Paper and Live. Demo is local sample data. Paper/Live
-select a private Mini profile; the Gateway must already be logged into that mode.
-The app reports a pending connection until the configured account is verified.
-Switching does not log into Gateway, cancel orders or close positions.
+select a private Mini profile. With the optional local Gateway login profiles
+below, the backend recreates the existing Gateway service in the selected mode.
+Live authentication still requires IB Key approval on your phone. The app waits
+for account verification; switching never cancels orders or closes positions.
 
 Provision `~/Library/Application Support/Wheel/account-profiles.json` (mode 600),
 or set `WHEEL_ACCOUNT_PROFILES`, with `paper` and `live` objects containing complete
@@ -255,3 +256,19 @@ requests queued before a switch. Legacy web clients without this header remain
 read-only when profiles are provisioned. The iOS app clears displayed account data
 and cached chart packets while switching; unresolved local order submissions
 block switching. Broker orders remain active at IB regardless of app mode.
+
+
+### Optional automatic Gateway login
+
+Create private (600) `live.json` and `paper.json` files under
+`~/Library/Application Support/Wheel/gateway` (directory 700). Each contains the
+existing Docker environment values `TWS_USERID`, `TWS_PASSWORD`, `TRADING_MODE`,
+`VNC_SERVER_PASSWORD` and `READ_ONLY_API`; mode must match the file name. Preserve
+existing API permissions. These files are local secrets and must never enter Git.
+The controller passes them as process environment to `docker compose up -d
+--no-deps --pull never ib-gateway`, suppresses command output and uses one bounded
+job. It does not run a second Gateway or retry failed login jobs automatically.
+Default compose directory is `~/Docker/ib-gateway`; override with
+`WHEEL_GATEWAY_COMPOSE_DIR`. Optional path overrides: `WHEEL_GATEWAY_PROFILES` and
+`WHEEL_DOCKER_CLI`. With no credential directory, manual Gateway login still works.
+Demo hides connection controls without erasing the stored backend address.

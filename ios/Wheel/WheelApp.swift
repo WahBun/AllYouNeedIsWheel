@@ -1462,11 +1462,29 @@ struct SettingsView: View {
         Task {
             defer { switchingAccount = false }
             do {
-                let result = try await store.trading.selectAccount(base: store.address, mode: target)
+                var result = try await store.trading.selectAccount(base: store.address, mode: target)
+                let deadline = Date().addingTimeInterval(180)
+                while result["verified"] as? Bool != true && Date() < deadline {
+                    accountSwitchMessage = result["message"] as? String ?? "Waiting for Gateway login…"
+                    if let gateway = result["gateway"] as? [String: Any], let error = gateway["error"] as? String {
+                        throw AppError.message(error)
+                    }
+                    try await Task.sleep(for: .seconds(3))
+                    result = try await store.trading.get("api/account/profiles", base: store.address)
+                    guard result["selected"] as? String == target else {
+                        throw AppError.message("Another device changed the selected account. Select your account again.")
+                    }
+                }
+                guard result["verified"] as? Bool == true else {
+                    throw AppError.message("Gateway login is still pending. Complete IB Key if prompted, then tap Connect.")
+                }
+                store.trading.accountEpoch = result["epoch"] as? String
                 store.demo = false; store.changeMode()
-                accountSwitchMessage = result["verified"] as? Bool == true ? nil : "Log in to \(target == "paper" ? "IB Paper" : "Live") in Gateway on Mini, then tap Connect."
+                accountSwitchMessage = nil
                 await store.refreshPortfolio()
-            } catch { requestedMode = "demo"; accountSwitchMessage = "Account switch not confirmed. Check Gateway, then select the account again. " + connectionMessage(error) }
+            } catch {
+                accountSwitchMessage = connectionMessage(error)
+            }
         }
     }
     private var accessLabel: String {
@@ -1481,8 +1499,10 @@ struct SettingsView: View {
                 }.pickerStyle(.segmented).disabled(switchingAccount || connecting || store.trading.busy || store.trading.uncertain)
                 if switchingAccount { ProgressView("Switching account…") }
                 if let accountSwitchMessage { Text(accountSwitchMessage).font(.footnote).foregroundStyle(.orange) }
+                if requestedMode != "demo" {
                 TextField("https://your-mini.ts.net", text: $draft).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).focused($addressFocused).submitLabel(.done).onSubmit { addressFocused = false }
                 Button {
+                    if store.demo || accountSwitchMessage != nil { selectMode(requestedMode); return }
                     addressFocused = false; connecting = true
                     store.address = draft.trimmingCharacters(in: .whitespacesAndNewlines); store.demo = false; store.changeMode()
                     let requestedAddress = store.address
@@ -1551,7 +1571,8 @@ struct SettingsView: View {
                 }.buttonStyle(.plain)
                     .listRowSeparator(.hidden)
                     .disabled(!hasAddress || connecting || switchingAccount)
-                if let error = store.error { NoticeText(error).font(.footnote).foregroundStyle(.orange) }
+                if !switchingAccount, let error = store.error { NoticeText(error).font(.footnote).foregroundStyle(.orange) }
+                }
             }
             Section("Appearance") {
                 HStack {
@@ -1609,7 +1630,7 @@ struct SettingsView: View {
             }
         }
         .listSectionSpacing(12)
-        .navigationTitle(localizedLabel("Settings", locale: locale)).onAppear { requestedMode = store.demo ? "demo" : (store.portfolio?.connection?.mode ?? "live"); draft = store.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "https://" : store.address }
+        .navigationTitle(localizedLabel("Settings", locale: locale)).onAppear { if !switchingAccount && accountSwitchMessage == nil { requestedMode = store.demo ? "demo" : (store.portfolio?.connection?.mode ?? "live") }; draft = store.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "https://" : store.address }
         .disabled(store.trading.busy || store.opportunities.batchRunning)
         .confirmationDialog("Have you verified the order in IB and the web app?", isPresented: $reviewed, titleVisibility: .visible) {
             Button("Verified · unlock trading") { store.trading.acknowledgeReview() }

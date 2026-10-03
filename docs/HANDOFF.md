@@ -254,3 +254,12 @@ a switch. Gateway login remains manual; no credentials are collected. Service
 preparation failure leaves the current account intact. See MAC_MINI_TAILSCALE.md
 for provisioning and legacy web-client limits. Regression: full Python suite
 324 tests passed; device build passed. No broker orders used for verification.
+
+
+## Gateway login integration (2026-10-03)
+
+Opt-in local credential profiles now let account selection recreate the single
+Gateway service for Paper or Live, with bounded asynchronous startup. The iOS app
+polls actual account verification and shows IB Key guidance while waiting; Demo
+hides backend address/Connect while retaining the saved address. Credentials stay
+on Mini, outside Git. Validation: 328 Python tests and iPhone build passed.
