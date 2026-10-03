@@ -390,7 +390,9 @@ class StockChart:
         # Countdown eligibility is independent of quote freshness/trading eligibility.
         closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time)
         return dict(data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
-            con_id=con_id, symbol=contract.symbol, security_type=contract.secType, local_symbol=getattr(contract, "localSymbol", "") or contract.symbol,
+            con_id=con_id, symbol=contract.symbol,
+            display_symbol=(f"{contract.symbol} {contract.lastTradeDateOrContractMonth} {contract.strike:g} {'CALL' if contract.right == 'C' else 'PUT'}" if contract.secType == 'OPT' else getattr(contract, 'localSymbol', '') or contract.symbol),
+            security_type=contract.secType, local_symbol=getattr(contract, "localSymbol", "") or contract.symbol,
             exchange=getattr(contract, "primaryExchange", "") or getattr(contract, "exchange", ""),
             multiplier=positive(getattr(contract, "multiplier", 1)) or 1, interval=minutes,
             server_time=server_time, bar_closes_at=closes_at, price_rules=state.get('price_rules', []),

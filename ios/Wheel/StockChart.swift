@@ -178,7 +178,7 @@ struct StockChartView: View {
     }
     @AppStorage("stockChartSession") private var session = "rth"
     @State private var quantity = "1"
-    @State private var entry = ""
+    @State private var entry = "0"
     @State private var entryType = "LMT"
     @State private var joinSide = 0
     @State private var joinRevision = 0
@@ -614,7 +614,6 @@ struct StockChartView: View {
                 rememberChart()
             }
             visible = true
-            if entry.isEmpty { entry = selectedContract.isEmpty ? String(position.market_price ?? 0) : "0" }
         }
         .onChange(of: cacheKey) { rememberChart() }
         .onDisappear { rememberChart(); visible = false }
