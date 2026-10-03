@@ -1,4 +1,4 @@
-"""Account-scoped, broker-managed futures rows for the existing Orders feed."""
+"""Account-scoped futures and journal-owned chart stock/option Orders rows."""
 import math
 import time
 import json
@@ -43,7 +43,13 @@ def futures_orders(conn, completed=False, db_path=None):
 
     for trade in trades:
         c,o,s = trade.contract,trade.order,trade.orderStatus
-        if c.secType != 'FUT' or o.account != account:
+        request = journal.get(o.orderRef)
+        chart_owned = bool(request and request.get('con_id') == c.conId and c.currency == 'USD')
+        # Open option orders already come from get_open_option_orders. Include
+        # their chart-owned fills only in history, avoiding duplicate pending rows.
+        supported = c.secType == 'FUT' or (chart_owned and
+                    (c.secType == 'STK' or (completed and c.secType == 'OPT')))
+        if not supported or o.account != account:
             continue
         filled = float(s.filled or 0)
         fills = list({f.execution.execId:f for f in trade.fills if f.execution.acctNumber == account and f.contract.conId == c.conId}.values())
@@ -54,19 +60,21 @@ def futures_orders(conn, completed=False, db_path=None):
         if not completed and trade.isDone():
             continue
         perm = int(s.permId or o.permId or 0)
-        identity = f'ib-fut-{perm}' if perm else f'ib-fut-{o.clientId}-{o.orderId}'
+        prefix = {'FUT':'fut', 'STK':'stk', 'OPT':'opt'}[c.secType]
+        identity = f'ib-{prefix}-{perm}' if perm else f'ib-{prefix}-{o.clientId}-{o.orderId}'
         price = o.auxPrice if o.orderType.startswith('STP') else o.lmtPrice
         price = float(price) if math.isfinite(price) and 0 < price < 1e100 else None
         average = float(s.avgFillPrice or 0)
         if not average and fills:
             average = sum(float(f.execution.price)*float(f.execution.shares) for f in fills)/sum(float(f.execution.shares) for f in fills)
-        result[identity] = dict(id=identity,ticker=c.localSymbol or c.symbol,option_type='FUTURE',
+        result[identity] = dict(id=identity,ticker=c.localSymbol or c.symbol,option_type=('FUTURE' if c.secType == 'FUT' else 'STOCK' if c.secType == 'STK' else 'CALL' if c.right == 'C' else 'PUT'),
+            strike=c.strike,
             expiration=c.lastTradeDateOrContractMonth,action=o.action,quantity=max(float(o.totalQuantity),filled),
             premium=price,status=s.status.lower() or 'unknown',ib_status=s.status,external_ib=True,
-            executed=trade.isDone(),ib_order_id=o.orderId,perm_id=perm,con_id=c.conId,tif=o.tif,
+            executed=trade.isDone(),ib_order_id=o.orderId,perm_id=perm,con_id=c.conId,tif='OVERNIGHT' if c.exchange == 'OVERNIGHT' else o.tif,
             filled=filled,avg_fill_price=average or None,
             fill_time=max(f.time for f in fills).isoformat() if fills else None,fill_action=o.action,
-            order_type=o.orderType,contract_multiplier=c.multiplier)
+            order_type=o.orderType,contract_multiplier='1' if c.secType == 'STK' else c.multiplier)
         metadata = IBConnection._fill_metadata(fills, filled)
         result[identity].update(metadata)
         ref = o.orderRef

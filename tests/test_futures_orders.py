@@ -91,3 +91,35 @@ class FuturesOrdersTests(unittest.TestCase):
             self.assertAlmostEqual(rows[3]['gross_pnl'],-30)
             self.assertAlmostEqual(rows[3]['net_pnl'],-33.6)
             self.assertAlmostEqual(sum(r.get('round_trip_commission',0) for r in rows),7.2)
+
+    def test_chart_stock_pending_and_history_are_visible_without_duplicates(self):
+        import json, sqlite3
+        with TemporaryDirectory() as tmp:
+            dbpath=str(Path(tmp)/'orders.db')
+            with sqlite3.connect(dbpath) as db:
+                db.execute('CREATE TABLE chart_paper_requests(id,account,body)')
+                db.execute('INSERT INTO chart_paper_requests VALUES(?,?,?)',
+                    ('stock','DU_TEST',json.dumps(dict(action='submit',side=1,con_id=756733))))
+            self.contract=Stock('SPY','OVERNIGHT','USD',conId=756733)
+            trade=self.trade(status='PreSubmitted')
+            trade.order.orderRef='WheelPaper:stock'
+            trade.order.totalQuantity=100;trade.order.lmtPrice=768.88
+            unrelated=self.trade();unrelated.order.orderRef='unrelated'
+            foreign=self.trade(account='OTHER');foreign.order.orderRef='WheelPaper:stock'
+            self.conn.get_order_status_snapshot.return_value={'authoritative_open_trades':[trade,trade,unrelated,foreign]}
+            rows=futures_orders(self.conn,db_path=dbpath)
+            self.assertEqual(len(rows),1)
+            row=rows[0]
+            self.assertEqual((row['ticker'],row['option_type'],row['quantity'],row['premium'],row['tif']),
+                             ('SPY','STOCK',100,768.88,'OVERNIGHT'))
+            self.assertTrue(row['external_ib'])
+            self.assertIsInstance(row['id'],str)
+            trade.orderStatus.status='Filled';trade.orderStatus.filled=100;trade.orderStatus.avgFillPrice=768.88
+            self.conn._bounded_order_read.return_value=[trade]
+            self.conn.ib.trades.return_value=[trade]
+            rows=futures_orders(self.conn,True,dbpath)
+            self.assertEqual(len(rows),1)
+            self.assertEqual(rows[0]['filled'],100)
+            self.assertEqual(rows[0]['contract_multiplier'],'1')
+            self.conn.ib.placeOrder.assert_not_called()
+            self.conn.ib.cancelOrder.assert_not_called()
