@@ -300,19 +300,30 @@ class StockChart:
         conn.ib.sleep(0.01)  # Drain IB events on the owner thread, not an HTTP thread.
         higher_bars = None
         history_minutes = 1440 if minutes == 480 and session == 'rth' else minutes
+        def option_intraday_fallback():
+            packet = self.packet(state, minutes, session)
+            packet['data_notice'] = 'Limited history · aggregated from available intraday trades; daily history pending'
+            return packet
+        option_eight_hour = contract.secType == 'OPT' and minutes == 480 and session == 'rth'
         if history_minutes >= 1440:
             cache = state.setdefault('higher', {})
             cache_key = (history_minutes, session)
             if cache_key not in cache:
                 retry = state.setdefault('higher_retry', {})
                 if time.monotonic() < retry.get(cache_key, 0):
+                    if option_eight_hour and state['bars']:
+                        return option_intraday_fallback()
                     raise ValueError('Historical chart request cooling down')
                 retry[cache_key] = time.monotonic() + 15
                 duration, size = {1440: ('1 Y', '1 day'), 10080: ('5 Y', '1 week'), 43200: ('10 Y', '1 month')}[history_minutes]
+                if contract.secType == 'OPT' and history_minutes == 1440:
+                    duration = '1 M'
                 history = conn.ib.reqHistoricalData(contract, '', duration, size, 'TRADES',
                     useRTH=session == 'rth', formatDate=2, keepUpToDate=True, timeout=5)
                 if not history:
                     conn.ib.cancelHistoricalData(history)
+                    if option_eight_hour and state['bars']:
+                        return option_intraday_fallback()
                     raise ValueError('Historical stock bars unavailable; retry shortly')
                 cache[cache_key] = history
             higher_bars = []

@@ -44,6 +44,12 @@ class StockChartTests(unittest.TestCase):
         from unittest.mock import patch
         asyncio.set_event_loop(asyncio.new_event_loop())
         conn, ticker = self.connection(); feed = StockChart()
+        conn.ib.errorEvent = Event()
+        conn.get_market_ticker.return_value = ticker
+        class History(list): pass
+        history = History(conn.ib.reqHistoricalData.return_value)
+        history.updateEvent = Event()
+        conn.ib.reqHistoricalData.return_value = history
         start = datetime.fromisoformat('2026-10-02T14:00:00+00:00').timestamp()
         conn.ib.reqHistoricalData.return_value = [S(date=datetime.fromtimestamp(start, timezone.utc), open=10, high=11, low=9, close=10)]
         try:
@@ -170,6 +176,38 @@ class StockChartTests(unittest.TestCase):
             self.assertEqual(conn.ib.cancelHistoricalData.call_count,3)
             conn.ib.placeOrder.assert_not_called()
         finally:asyncio.get_event_loop().close()
+
+    def test_option_eight_hour_retains_recent_bars_during_daily_cooldown(self):
+        from ib_async import Option
+        from unittest.mock import patch
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn, ticker = self.connection(); feed = StockChart()
+        conn.ib.errorEvent = Event()
+        conn.get_market_ticker.return_value = ticker
+        class History(list): pass
+        history = History(conn.ib.reqHistoricalData.return_value)
+        history.updateEvent = Event()
+        conn.ib.reqHistoricalData.return_value = history
+        option = Option('TEST', '20261218', 10, 'C', 'SMART', currency='USD', conId=7)
+        resolver = patch('api.services.chart_contracts.contracts.resolve', return_value=option)
+        resolver.start(); self.addCleanup(resolver.stop)
+        try:
+            with patch('api.services.chart_contracts.contracts.resolve', return_value=option):
+                feed.snapshot(conn, 7, 5)
+            feed.active['backfilled'] = True
+            feed.active['bars'] = [dict(time=int(datetime(2026,10,2,14,tzinfo=timezone.utc).timestamp()), open=1, high=2, low=1, close=2)]
+            conn.ib.reqHistoricalData.return_value = []
+            result = feed.snapshot(conn, 7, 480)
+            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4], ('1 M', '1 day'))
+            self.assertTrue(result['bars'])
+            self.assertIn('Limited history', result['data_notice'])
+            count = conn.ib.reqHistoricalData.call_count
+            again = feed.snapshot(conn, 7, 480)
+            self.assertEqual(again['bars'], result['bars'])
+            self.assertEqual(conn.ib.reqHistoricalData.call_count, count)
+            conn.ib.placeOrder.assert_not_called()
+        finally:
+            asyncio.get_event_loop().close()
 
     def test_countdown_session_close_early_close_and_calendar(self):
         ts=lambda value:datetime.fromisoformat(value).timestamp()
