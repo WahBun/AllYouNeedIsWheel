@@ -13,3 +13,15 @@ Read `docs/HANDOFF.md` and `docs/MAC_MINI_TAILSCALE.md` before deployment change
 - Check mobile and desktop layouts, English/Chinese and light/dark themes for UI changes.
 - Run the relevant tests and record material limitations. Do not promise bug-free trading or guaranteed fills.
 - Conversation history is not a source of deployed state: inspect Git, local configuration and service status on the current host.
+
+## Order changes: physical-device Run gate
+
+Before installing a changed order workflow on the user's iPhone, finish relevant
+backend regression, simulator trading tests, and chart interaction checks.
+Cover price/quantity/TIF edits, replacement-order identity and Orders synchronization,
+confirmed rejection, unknown outcomes, recovery after restart, cancellation/fill races,
+and Paper/Live isolation. Compilation alone is not acceptance.
+Use broker Paper acceptance only with the user's authorization and verify the actual
+Paper session first. Keep test effects bounded and verify the final order state.
+Report mock/simulator evidence separately from broker evidence; market-open fills,
+partial fills, and TP/SL triggers remain unverified until actually observed.

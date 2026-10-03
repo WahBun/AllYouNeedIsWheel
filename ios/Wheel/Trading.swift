@@ -263,9 +263,19 @@ final class TradingSession {
     init(session: URLSession? = nil) {
         self.session = session ?? URLSession(configuration: .ephemeral, delegate: NoRedirect(), delegateQueue: nil)
     }
+    var chartReplacementRefs: [String: String] = [:]
+    func currentChartOrder(_ initial: Order, orders: [Order]) -> Order? {
+        if let exact = orders.first(where: { $0.id == initial.id }) { return exact }
+        guard var ref = initial.chart_order_ref, let cid = initial.chart_con_id else { return nil }
+        var seen = Set<String>()
+        while let next = chartReplacementRefs[ref], seen.insert(ref).inserted { ref = next }
+        guard ref != initial.chart_order_ref else { return nil }
+        let matches = orders.filter { $0.chart_order_ref == ref && $0.chart_con_id == cid }
+        return matches.count == 1 ? matches[0] : nil
+    }
     var accountEpoch: String?
     private var nextDemoID = 2
-    func resetContext() { message = nil; acknowledgedMessage = false; metadataCache.clear() }
+    func resetContext() { message = nil; acknowledgedMessage = false; metadataCache.clear(); chartReplacementRefs = [:] }
     func acknowledgeReview() {
         uncertain = false
         UserDefaults.standard.set(false, forKey: "unresolvedTradingWrite")
@@ -332,6 +342,10 @@ final class TradingSession {
         do {
             let result = try await paperChartWrite(base: store.address, conID: cid, body: body)
             message = result["message"] as? String
+            if result["success"] as? Bool == true,
+               let state = result["state"] as? [String: Any], let replacement = state["order_ref"] as? String, replacement != ref {
+                chartReplacementRefs[ref] = replacement
+            }
             return result["success"] as? Bool == true || result["status"] as? String == "canceled"
         } catch { message = error.localizedDescription; return false }
     }
@@ -607,7 +621,7 @@ struct OrderDetail: View {
     private var completed: Order? { sourceContext == context ? store.completedOrders[initial.id] : nil }
     private var current: Order? {
         guard sourceContext == nil || sourceContext == context else { return nil }
-        return store.orders.first { $0.id == initial.id }
+        return store.trading.currentChartOrder(initial, orders: store.orders)
     }
     var body: some View {
         Form {
@@ -713,7 +727,7 @@ struct OrderDetail: View {
         .sheet(item: $pricePicker) { snapshot in
             NavigationStack {
                 PriceChoiceList(values: snapshot.values, selected: snapshot.selected) { value in
-                        guard let current, (TradeRules.editable(current) || TradeRules.amendable(current)), !store.trading.busy,
+                        guard let current, (TradeRules.editable(current) || TradeRules.amendable(current) || TradeRules.chartManageable(current)), !store.trading.busy,
                               store.demo || !store.trading.uncertain || TradeRules.chartManageable(current) else { return }
                         price = String(format: "%.2f", value)
                         pricePicker = nil
@@ -727,6 +741,13 @@ struct OrderDetail: View {
             price = String(format: "%.2f", current?.premium ?? 0)
             quantity = max(1, Int(current?.quantity ?? 1))
             timing = current?.tif ?? (current?.intent == "CLOSE" ? "GTC" : "DAY")
+        }
+        .onChange(of: current?.id) {
+            guard let current else { return }
+            editingSnapshot = current
+            price = String(format: "%.2f", current.premium ?? 0)
+            quantity = max(1, Int(current.quantity ?? 1))
+            timing = current.tif ?? "DAY"
         }
         .confirmationDialog(LocalizedStringKey(action ?? "Confirm"), isPresented: Binding(get: { action != nil }, set: { if !$0 { action = nil } }), titleVisibility: .visible) {
             Button(store.demo ? LocalizedStringKey("Confirm demo action") : "Confirm \(localizedAction)") {

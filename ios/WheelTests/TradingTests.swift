@@ -68,6 +68,18 @@ final class TradingTests: XCTestCase {
         XCTAssertTrue(client.uncertain, "Live/legacy write guard is preserved")
     }
 
+    func testOrderDetailFollowsOnlyItsAcknowledgedReplacement() {
+        let client = TradingSession()
+        let original = Order(id: 1, ticker: "TQQQ", action: "BUY", option_type: "STOCK", premium: 78.71, quantity: 101, status: "presubmitted", chart_con_id: 7, chart_order_ref: "WheelPaper:a")
+        let replacement = Order(id: 2, ticker: "TQQQ", action: "BUY", option_type: "STOCK", premium: 78.70, quantity: 101, status: "presubmitted", chart_con_id: 7, chart_order_ref: "WheelPaper:b")
+        XCTAssertNil(client.currentChartOrder(original, orders: [replacement]))
+        client.chartReplacementRefs["WheelPaper:a"] = "WheelPaper:b"
+        XCTAssertEqual(client.currentChartOrder(original, orders: [replacement])?.id, replacement.id)
+        XCTAssertNil(client.currentChartOrder(original, orders: [replacement, replacement]))
+        client.resetContext()
+        XCTAssertNil(client.currentChartOrder(original, orders: [replacement]))
+    }
+
     func testChartStreamPreservesPermissionDiagnostic() async {
         defer { MockProtocol.statusCode = 200; MockProtocol.payload = nil }
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
