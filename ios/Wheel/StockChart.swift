@@ -89,19 +89,28 @@ enum ChartHoldingOverlay {
             let exact = id == conID && holding.security_type == type
             let strike = type == "STK" && holding.security_type == "OPT" && holding.symbol.uppercased() == symbol.uppercased()
             guard exact || strike else { return nil }
-            let size = holding.position.formatted(.number.grouping(.never))
+            let size = holding.position.formatted(.number.grouping(.never).precision(.fractionLength(0...8)))
             var price: Double?
             var caption: String
             if strike {
                 price = holding.strike
-                caption = "\(holding.expiration ?? "—") \(holding.option_type ?? "OPT") · \(size) · " + (chinese ? "行权价" : "Strike")
+                let option = ["CALL", "C"].contains(holding.option_type?.uppercased() ?? "") ? "C" : "P"
+                let strikeText = holding.strike?.formatted(.number.grouping(.never).precision(.fractionLength(0...4))) ?? "—"
+                let fill = holding.entry_fill_price.flatMap { $0.isFinite && $0 > 0 ? String(format: "%.2f", $0) : nil } ?? "—"
+                caption = "\(size) \(strikeText)\(option)@\(fill)"
+
             } else {
                 // Fill prices are already in quoted units and exclude commission.
-                price = holding.entry_fill_price
+                if holding.security_type == "STK", let report = holding.reported_cost,
+                   report.quantity.isFinite, abs(report.quantity - holding.position) < 0.000001 {
+                    price = report.average
+                } else { price = holding.entry_fill_price }
                 caption = "\(size) · " + (chinese ? "成交均价" : "Avg")
             }
-            guard let price, price.isFinite, price > 0 else { return nil }
-            return ["id": "\(strike ? "strike" : "holding")-\(id)", "price": price, "title": caption,
+            if let value = price, !value.isFinite || value <= 0 { price = nil }
+            if strike && price == nil { return nil }
+            if price == nil { caption += " —" }
+            return ["id": "\(strike ? "strike" : "holding")-\(id)", "price": price as Any? ?? NSNull(), "title": caption,
                     "kind": strike ? "strike" : "holding", "side": holding.position > 0 ? 1 : -1]
         }
     }
@@ -123,6 +132,8 @@ struct StockChartView: View {
             UserDefaults.standard.set(data, forKey: recentChartKey)
         }
     }
+    @State private var accountExecutions: [[String: Any]] = []
+    @State private var executionCID: Int?
     @State private var paperState: [String: Any] = [:]
     @State private var completedPaperOrders: Set<String> = []
     @State private var showQuantityEditor = false
@@ -417,7 +428,7 @@ struct StockChartView: View {
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
             }
-            StockChartWeb(holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: chartType == "OPT" ? 0 : validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": chartType == "OPT"]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
+            StockChartWeb(executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: chartType == "OPT" ? 0 : validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": chartType == "OPT"]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
                 Color.clear.frame(width: 36, height: 32).accessibilityHidden(true)
@@ -644,6 +655,20 @@ struct StockChartView: View {
         }
         .onChange(of: cacheKey) { rememberChart() }
         .onDisappear { rememberChart(); visible = false; store.chartVisible = false }
+        .task(id: "executions-" + context) {
+            accountExecutions = []; executionCID = nil
+            guard visible, phase == .active, !store.demo, let cid = chartID else { return }
+            while !Task.isCancelled {
+                do {
+                    let result = try await store.trading.get("api/portfolio/chart-executions/\(cid)", base: store.address)
+                    try Task.checkCancellation()
+                    guard chartID == cid, result["con_id"] as? Int == cid else { return }
+                    accountExecutions = result["executions"] as? [[String: Any]] ?? []
+                    executionCID = cid
+                } catch { if Task.isCancelled { return } }
+                do { try await Task.sleep(for: .seconds(15)) } catch { return }
+            }
+        }
         .task(id: "paper-" + context + String(store.chartTradingAvailable)) {
             paperState = [:]; paperReceived = nil
             guard visible, phase == .active, store.chartTradingAvailable, chartType != "OPT", let cid = chartID else { return }
@@ -730,6 +755,7 @@ final class ChartViewportWebView: WKWebView {
 }
 
 private struct StockChartWeb: UIViewRepresentable {
+    var executions: [[String: Any]]
     var holdings: [[String: Any]]
     var display: [String: Any]
     var drawingKey: String
@@ -781,7 +807,7 @@ private struct StockChartWeb: UIViewRepresentable {
         context.coordinator.onEntry = onEntry
         context.coordinator.onBE = onBE
         context.coordinator.onPaper = onPaper
-        context.coordinator.config = ["holdings": holdings, "display": display, "entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "beRevision": beRevision, "tpDistance": tpDistance.isFinite ? tpDistance : 0, "slDistance": slDistance.isFinite ? slDistance : 0, "templateRevision": templateRevision, "priceRules": packet["price_rules"] ?? [], "paper": paperState, "con_id": conID, "multiplier": packet["multiplier"] ?? 1]
+        context.coordinator.config = ["executions": executions, "holdings": holdings, "display": display, "entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "beRevision": beRevision, "tpDistance": tpDistance.isFinite ? tpDistance : 0, "slDistance": slDistance.isFinite ? slDistance : 0, "templateRevision": templateRevision, "priceRules": packet["price_rules"] ?? [], "paper": paperState, "con_id": conID, "multiplier": packet["multiplier"] ?? 1]
         context.coordinator.update()
     }
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {

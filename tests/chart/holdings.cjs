@@ -21,6 +21,16 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
  assert.deepEqual(await page.evaluate(()=>[...holdingLines.keys()]),['strike-2']);
  await page.evaluate(()=>configure({...cfg,holdings:[]}));
  assert.equal(await page.evaluate(()=>holdingLines.size),0);
+ await page.evaluate(()=>configure({...cfg,holdings:[{id:'holding-2',price:null,title:'2 · Avg —',kind:'holding',side:1}]}));
+ assert.equal(await page.evaluate(()=>holdingLines.size),0);
+ assert.equal(await page.locator('.holding-badge').count(),1);
+ await page.evaluate(()=>configure({...cfg,holdings:[{id:'holding-2',price:2,title:'2 · Avg',kind:'holding',side:1}],executions:[{id:'a',group:'same-order',time:1010,price:.78,quantity:1,side:'SELL'},{id:'b',group:'same-order',time:1011,price:.78,quantity:1,side:'SELL'}]}));
+ assert.equal(await page.evaluate(()=>executionMarkers.markers().length),1);
+ assert.equal(await page.evaluate(()=>[...executionDetails.values()][0].quantity),2);
+ await page.waitForTimeout(60);
+ assert.equal(await page.locator('.holding-badge').evaluate(el=>el.hidden),false);
+ await page.evaluate(()=>configure({...cfg,executions:[{id:'a',group:'order-a',time:1010,price:.78,quantity:1,side:'SELL'},{id:'b',group:'order-b',time:1011,price:.78,quantity:1,side:'SELL'}]}));
+ assert.equal(await page.evaluate(()=>executionMarkers.markers().length),2);
  assert.equal(await page.evaluate(()=>sent.length),0);
  console.log('Read-only holding lines: exact cost, quantity update, reuse, switch, close, no trading writes PASS');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1)});

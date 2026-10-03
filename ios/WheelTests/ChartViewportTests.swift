@@ -29,12 +29,22 @@ final class ChartViewportTests: XCTestCase {
         XCTAssertEqual(underlying.count, 2)
         XCTAssertEqual(underlying[0]["price"] as? Double, 9.5)
         XCTAssertEqual(underlying[1]["price"] as? Double, 11)
-        XCTAssertTrue((underlying[1]["title"] as? String)?.contains("20261120 CALL") == true)
+        XCTAssertEqual(underlying[1]["title"] as? String, "-2 11C@0.78")
         XCTAssertEqual(ChartHoldingOverlay.rows(positions: all, conID: 4, symbol: "MES", type: "FUT", chinese: false).first?["price"] as? Double, 7800)
         var closed = call; closed.position = 0
         XCTAssertTrue(ChartHoldingOverlay.rows(positions: [closed], conID: 2, symbol: "TSLL", type: "OPT", chinese: false).isEmpty)
         var unknown = call; unknown.entry_fill_price = nil
-        XCTAssertTrue(ChartHoldingOverlay.rows(positions: [unknown], conID: 2, symbol: "TSLL", type: "OPT", chinese: false).isEmpty)
+        XCTAssertTrue(ChartHoldingOverlay.rows(positions: [unknown], conID: 2, symbol: "TSLL", type: "OPT", chinese: false).first?["price"] is NSNull)
+    }
+
+    func testStockReportedAverageRetainsDividendFractions() {
+        var stock = Position(symbol: "TSLL", position: 302.1533, security_type: "STK", con_id: 1,
+            reported_cost: ReportedStockCost(date: "2026-10-01", quantity: 302.1533, basis: 3999.48, average: 13.2366, currency: "USD"), avg_cost: 13.934)
+        let rows = ChartHoldingOverlay.rows(positions: [stock], conID: 1, symbol: "TSLL", type: "STK", chinese: false)
+        XCTAssertEqual(rows.first?["price"] as? Double, 13.2366)
+        XCTAssertEqual(rows.first?["title"] as? String, "302.1533 · Avg")
+        stock.position = 400
+        XCTAssertTrue(ChartHoldingOverlay.rows(positions: [stock], conID: 1, symbol: "TSLL", type: "STK", chinese: false).first?["price"] is NSNull)
     }
 
     final class ReadyBridge: NSObject, WKScriptMessageHandler {

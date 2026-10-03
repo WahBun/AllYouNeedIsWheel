@@ -200,3 +200,17 @@ def paper_chart_order(con_id):
         return _no_store_json({'success':False,'status':'rejected','error':str(error),'message':str(error)},400)
     except Exception:
         return _no_store_json({'success':False,'status':'unknown','error':'Paper chart status unavailable; check Gateway'},503)
+
+
+@bp.route('/chart-executions/<int:con_id>', methods=['GET'])
+def get_chart_executions(con_id):
+    from api.services.chart_contracts import contracts
+    from api.services.chart_executions import execution_rows
+    try:
+        conn = portfolio_service._ensure_connection()
+        if not conn or con_id <= 0:
+            raise ValueError('Chart executions unavailable')
+        contract = contracts.resolve(conn, con_id)
+        return _no_store_json({'con_id': con_id, 'executions': execution_rows(conn, contract, portfolio_service.config.get('db_path'))})
+    except Exception:
+        return _no_store_json({'error': 'Chart executions unavailable'}, 503)
