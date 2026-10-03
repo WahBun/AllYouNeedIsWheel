@@ -248,8 +248,9 @@ struct StockChartView: View {
     @AppStorage("chartBarCount") private var showBarCount = true
     @AppStorage("chartBarCountFrame") private var barCountFrame = 1440
     @AppStorage("chartBarCountSize") private var barCountSize = "tiny"
-    @AppStorage("chartBarCountColor") private var barCountColor = "#351044"
-    @AppStorage("chartBarCountDarkDefaultV1") private var barCountDarkDefaultApplied = false
+    @AppStorage("chartBarCountColor") private var barCountColor = "#521c6e"
+    @AppStorage("chartBarCountOpacityV1") private var barCountOpacity = 99.0
+    @AppStorage("chartBarCountOpacityMigrationV1") private var barCountOpacityMigrated = false
     @AppStorage("chartBarCountLimit") private var barCountLimit = true
     @AppStorage("chartBarCountBars") private var barCountBars = 162
     private var barCountColorBinding: Binding<Color> {
@@ -383,6 +384,8 @@ struct StockChartView: View {
                             ForEach(["auto", "tiny", "small", "normal", "large", "huge"], id: \.self) { Text($0.capitalized).tag($0) }
                         }
                         ColorPicker("Label color", selection: barCountColorBinding, supportsOpacity: false)
+                        HStack { Text("Opacity"); Spacer(); Text("\(Int(barCountOpacity))%").monospacedDigit() }
+                        Slider(value: $barCountOpacity, in: 0...100, step: 1)
                     } else { Toggle("Bar Count", isOn: $showBarCount) }
                 }
                 extraEMASection(0)
@@ -391,7 +394,7 @@ struct StockChartView: View {
                     Text("Changes apply immediately and are saved.").font(.caption).foregroundStyle(.secondary)
                     Button("Restore defaults") {
                         emaFrame = 0; extraEMAJSON = ""
-                        showBarCount = true; barCountFrame = 1440; barCountSize = "tiny"; barCountColor = "#351044"; barCountLimit = true; barCountBars = 162
+                        showBarCount = true; barCountFrame = 1440; barCountSize = "tiny"; barCountColor = "#521c6e"; barCountOpacity = 99; barCountLimit = true; barCountBars = 162
                         indicatorVisible = true; showEMA = true; emaLength = 20; emaSource = "close"; emaOffset = 0
                         emaDynamic = true; emaColor = "#f9f1db"; emaWidth = 1; emaStyle = 0
                         showATR = true; atrLength = 4
@@ -408,7 +411,7 @@ struct StockChartView: View {
     private var adjustmentLimit: Int { adjustmentAction == "trim" ? max(0, positionSize - 1) : max(0, quantityLimit - positionSize) }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["holdingsVisible": showHoldings, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
+        ["holdingsVisible": showHoldings, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
          "emaDynamic": emaDynamic, "emaColor": emaColor + "ab", "emaWidth": emaWidth, "emaStyle": emaStyle,
          "atr": showATR && indicatorVisible, "atrLength": atrLength, "profit": showProfit, "positions": showPositionProfit, "brackets": showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
@@ -734,9 +737,9 @@ struct StockChartView: View {
             }.presentationDetents([.medium, .large])
         }
         .onAppear {
-            if !barCountDarkDefaultApplied {
-                if barCountColor.lowercased() == "#521c6e" { barCountColor = "#351044" }
-                barCountDarkDefaultApplied = true
+            if !barCountOpacityMigrated {
+                if barCountColor.lowercased() == "#351044" { barCountColor = "#521c6e" }
+                barCountOpacityMigrated = true
             }
             if !initialized {
                 if resumeLast {
