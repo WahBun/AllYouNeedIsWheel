@@ -673,10 +673,6 @@ struct StockChartView: View {
                             Text("Money").tag("money"); Text("Ticks").tag("ticks")
                         }.disabled(!showProfit || !showBracketProfit)
                     }
-                    Section("ATR") {
-                        Toggle("Show ATR", isOn: $showATR)
-                        Stepper("ATR Length: \(atrLength)", value: $atrLength, in: 1...200).disabled(!showATR)
-                    }
                     Section("Executions") {
                         Toggle("Execution marks", isOn: $showExecutions)
                         Toggle("Execution labels", isOn: $showExecutionLabels).disabled(!showExecutions)
