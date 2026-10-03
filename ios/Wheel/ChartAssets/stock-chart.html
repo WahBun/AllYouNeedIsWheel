@@ -219,7 +219,7 @@ function countBucket(time,frame,futures){
 }
 function countAppearance(count,base,size,opacity=99){
  let color=/^#[0-9a-f]{6}$/i.test(base)?base+Math.round(Math.max(0,Math.min(100,opacity))*255/100).toString(16).padStart(2,'0'):base,font={auto:10,tiny:8,small:10,normal:12,large:16,huge:20}[size]||8,show=count%3===0;
- if([12,24,36,48,60,72].includes(count)){show=true;color='#f9f1dbe3';font=10;}
+ if([12,24,36,48,60,72].includes(count)){show=true;color='#f9f1db80';font=10;}
  if(count===18||count===39){show=true;color='#39ff14bf';}
  if(count===7){show=true;color='#00ffff';}
  if(count===7||count===18||count===40)font=12;
