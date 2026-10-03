@@ -8,6 +8,14 @@ SwiftUI 构建，支持 iOS 18 及以上、英文／简体中文／繁体中文�
 
 > 本文对应当前 iOS 开发版本。源码构建安装不等于 App Store 发布；更新 GitHub、更新 Mini 后端和安装手机 App 是三个独立步骤。
 
+## 界面预览
+
+以下截图来自 Device Hub 中的 iPhone 18 Pro 模拟器，使用 App 内置 **Demo 合成数据**，不代表真实账户或成交。不同 iOS 版本的系统导航栏外观可能不同。
+
+| Portfolio · 持仓概览 | Trade · CSP / CC | Orders · 订单管理 |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/portfolio.png" width="250" alt="Wheel Portfolio Demo：资产、保证金和股票期权持仓"> | <img src="docs/screenshots/trade.png" width="250" alt="Wheel Trade Demo：CSP 和 CC 合约筛选及权利金估算"> | <img src="docs/screenshots/orders.png" width="250" alt="Wheel Orders Demo：待处理订单和成交记录入口"> |
+
 ## App 能做什么
 
 | 页面 | 主要功能 |
@@ -15,12 +23,28 @@ SwiftUI 构建，支持 iOS 18 及以上、英文／简体中文／繁体中文�
 | **Portfolio** | 净资产、可折叠现金与流动性、初始保证金及杠杆占比；股票与期权持仓、成交入场价、剩余天数和盈亏；资产分配、持仓分享、平仓与移仓入口。 |
 | **Performance** | MTD／YTD／ALL 收益曲线，SPX／NQ100 可选对比，拖动查看日期与收益，日内盈亏及临时收益估算。 |
 | **Trade** | CSP → CC 工作流，选择到期日与行权价、查看 bid／mid／ask、价差及 Greeks；合约数量和限价编辑、权利金估算、CSP 初始保证金变化预估、单笔或批量暂存订单。 |
-| **Orders** | 待处理订单、部分及全部成交记录；订单详情、允许范围内的编辑、执行与撤单；成交通知、已确认最终结果保留。 |
+| **Orders** | 待处理订单、部分及全部成交记录；Today／7 Days／MTD 日期筛选、标的搜索、Stock／Future／Option 分类；手续费保留两位小数；订单详情、编辑、执行、撤单与成交通知。 |
+| **Supercharts** | 股票、期货和期权图表入口；持仓均价、关联期权行权价、成交标记、多周期 EMA、ATR、Bar Count 与绘图工具。 |
 | **Settings** | Demo、私有 HTTPS 连接、语言、主题及自定义颜色。 |
 
 CC 可用数量依据持股数量、已有空头 CALL 和占用中的卖出订单计算，而不是简单地把全部股票除以 100。持仓的入场价来自可靠匹配的成交记录；无法确定时留空，不用委托价或扣费后持仓成本冒充。
 
 SGOV、VTI、QQQ、SPY、VOO 有专属名称与资产分配动效。VTI／QQQ／SPY／VOO 仍可用于 Trade；SGOV 排除在 Trade 候选之外。装饰动画支持减少动态效果，并在后台或对应视图离开时暂停。
+
+### Supercharts 与 𝔹𝕖𝕟 指标
+
+从持仓详情的 **𝑺𝒖𝒑𝒆𝒓𝒄𝒉𝒂𝒓𝒕𝒔** 或 Trade 的图表入口打开。进入图表以看走势为主，不自动铺设下单预览；需要时点击价格旁的 **+**。支持周期切换、RTH／ETH、全屏和可保存样式的绘图工具。
+
+- **持仓与成交**：正股显示股数，期权／期货显示合约数，空头用负号；正股图可同时显示相关期权的行权价。Positions 开关隐藏／显示这些持仓标记。成交箭头按订单归组，同一订单分批成交合并数量，独立订单分别显示；点击箭头查看详情。
+- **𝔹𝕖𝕟**：指标栏默认收起，设置按 Inputs／Style／Visibility 分组。包含三组可独立配置的 EMA（默认长度 20，支持多周期）、ATR 和 Bar Count。普通计数紫色默认不透明度 66%，浅金色计数为 50%；个人调整会保存。
+- **加载与状态**：历史 K 线和已获取的多周期 EMA 历史可在重启后先从缓存显示，再刷新。首次打开仍依赖 IB 历史数据；缓存、冻结、延迟和缺失状态不等于实时行情。Demo 不提供完整图表行情，图表需连接后端。
+- **交易边界**：期权图表目前用于查看行情、持仓和成交。图表 Join、TP／SL、加仓、Trim、BE 等操作以当前账户及后端返回的可用状态为准；模拟盘流程验证不等于实盘验收完成。
+
+### 成交记录筛选
+
+Executed records 默认 **Today**，可切换 **7 Days** 或 **MTD**（美东本月 1 日至今）。右侧 **🔍** 点击展开搜索，**Filter** 按 Stock／Future／Option 筛选，三个条件可以组合。搜索键、Done 或滑动列表可收起键盘。
+
+日期筛选作用于 App 已取得的成交记录，不承诺补全 IB 全部历史；没有可靠成交时间的记录不混入日期范围。手续费仅在显示时四舍五入为两位小数，原始计算精度保留。
 
 ### 数据与订单的含义
 
@@ -320,4 +344,4 @@ IB 连接与配置：core/、config.py
 
 ## License & Credits
 
-[Apache License 2.0](LICENSE)。项目基于 [xiao81/AllYouNeedIsWheel](https://github.com/xiao81/AllYouNeedIsWheel) 延续开发。感谢 [ib_async](https://github.com/ib-api-reloaded/ib_async)、SwiftUI／Charts、Flask，以及 [IB Gateway Docker](https://github.com/gnzsnz/ib-gateway-docker) 与 [Tailscale](https://tailscale.com/) 提供的基础工具。
+[Apache License 2.0](LICENSE)。项目基于 [xiao81/AllYouNeedIsWheel](https://github.com/xiao81/AllYouNeedIsWheel) 延续开发。感谢 [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts)、[ib_async](https://github.com/ib-api-reloaded/ib_async)、SwiftUI／Charts、Flask，以及 [IB Gateway Docker](https://github.com/gnzsnz/ib-gateway-docker) 与 [Tailscale](https://tailscale.com/) 提供的基础工具。
