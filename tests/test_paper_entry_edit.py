@@ -68,3 +68,45 @@ class EntryEditTests(unittest.TestCase):
         self.assertTrue(result['success'], result)
         self.assertFalse(result['state']['active'])
         self.assertEqual(self.conn.ib.placeOrder.call_count, 3)
+
+    def overnight_rules(self):
+        from types import SimpleNamespace as S
+        def read(fn, *args, **kwargs):
+            if fn == self.conn.ib.reqContractDetails:
+                return [S(contract=self.contract, validExchanges='SMART,OVERNIGHT', marketRuleIds='26,26')]
+            if fn == self.conn.ib.reqMarketRule: return [S(lowEdge=0, increment=.25)]
+            if fn == self.conn.ib.reqOpenOrders: return self.trades
+            return []
+        self.conn._bounded_order_read.side_effect = read
+
+    def test_ovt_requires_explicit_protection_removal_and_routes_after_cancel(self):
+        self.submit(quantity=100)
+        self.overnight_rules()
+        self.assertFalse(self.edit(tif='OVERNIGHT')['success'])
+        self.conn.ib.cancelOrder.assert_not_called()
+        result = self.edit(tif='OVERNIGHT', confirm_remove_protection=True)
+        self.assertTrue(result['success'], result)
+        self.assertEqual(len(self.trades), 4)
+        self.assertTrue(all(t.isDone() for t in self.trades[:3]))
+        self.assertEqual(self.trades[-1].contract.exchange, 'OVERNIGHT')
+        self.assertEqual(self.trades[-1].order.tif, 'DAY')
+        self.assertEqual(result['state']['tif'], 'OVERNIGHT')
+        self.assertEqual(result['state']['protection']['status'], 'not_requested')
+        result = self.edit(tif='GTC')
+        self.assertTrue(result['success'], result)
+        self.assertEqual(self.trades[-1].contract.exchange, 'SMART')
+        self.assertEqual(self.trades[-1].order.tif, 'GTC')
+        self.assertEqual(len(self.trades), 5)
+        self.assertEqual(result['state']['tif'], 'GTC')
+
+    def test_ovt_ineligible_contract_cannot_cancel_original(self):
+        self.submit()
+        self.contract.secType = 'OPT'
+        self.assertFalse(self.edit(tif='OVERNIGHT', confirm_remove_protection=True)['success'])
+        self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_ovt_venue_validation_fails_before_cancel(self):
+        self.submit()
+        result = self.edit(tif='OVERNIGHT', confirm_remove_protection=True)
+        self.assertFalse(result['success'])
+        self.conn.ib.cancelOrder.assert_not_called()

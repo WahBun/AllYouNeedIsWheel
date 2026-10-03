@@ -257,6 +257,8 @@ struct StockChartView: View {
     @State private var editSnapshot: [[String: Any]] = []
     @State private var editOrderRef = ""
     @State private var editTIF = "DAY"
+    @State private var confirmRemoveProtection = false
+    private var removingProtection: Bool { editTIF == "OVERNIGHT" && paperState["mode"] as? String != "overnight_entry" }
     @State private var editPrice = ""
     private var entryEditable: Bool { paperState["entry_editable"] as? Bool == true && paperEnabled }
     private func beginOrderEdit() {
@@ -264,6 +266,7 @@ struct StockChartView: View {
         editSnapshot = paperState["edit_snapshot"] as? [[String: Any]] ?? []
         editOrderRef = paperState["order_ref"] as? String ?? ""
         editTIF = paperState["tif"] as? String ?? "DAY"
+        confirmRemoveProtection = false
         editPrice = String(paperState["entry"] as? Double ?? validEntry)
     }
     private var quantityLimit: Int { chartType == "STK" ? 1000 : 10 }
@@ -999,8 +1002,8 @@ struct StockChartView: View {
                         TextField("Quantity", text: $quantityDraft).keyboardType(.numberPad)
                             .font(.title2).multilineTextAlignment(.center)
                         HStack {
-                            Button { quantityDraft = String(max(1, (Int(quantityDraft) ?? 1) - 1)) } label: { Image(systemName: "minus").frame(maxWidth: .infinity) }
-                            Button { quantityDraft = String(min(quantityLimit, (Int(quantityDraft) ?? 0) + 1)) } label: { Image(systemName: "plus").frame(maxWidth: .infinity) }
+                            Button { quantityDraft = String(max(1, (Int(quantityDraft) ?? 1) - 1)) } label: { Image(systemName: "minus").font(.system(size: 18, weight: .medium)).frame(width: 22, height: 22).frame(maxWidth: .infinity, minHeight: 36) }
+                            Button { quantityDraft = String(min(quantityLimit, (Int(quantityDraft) ?? 0) + 1)) } label: { Image(systemName: "plus").font(.system(size: 18, weight: .medium)).frame(width: 22, height: 22).frame(maxWidth: .infinity, minHeight: 36) }
                         }.buttonStyle(.bordered)
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())]) {
                             ForEach(chartType == "STK" ? [1, 5, 25, 100, 500, 1000] : [1, 2, 3, 5, 8, 10], id: \.self) { value in
@@ -1019,10 +1022,16 @@ struct StockChartView: View {
                         Section("Order settings") {
                             TextField("Price", text: $editPrice).keyboardType(.decimalPad)
                             Picker("Time in force", selection: $editTIF) {
-                                if paperState["mode"] as? String == "overnight_entry" { Text("OVT").tag("OVERNIGHT") }
-                                else { Text("DAY").tag("DAY"); Text("GTC").tag("GTC") }
+                                Text("DAY").tag("DAY")
+                                Text("GTC").tag("GTC")
+                                if (paperState["allowed_tifs"] as? [String] ?? []).contains("OVERNIGHT") { Text("OVT").tag("OVERNIGHT") }
                             }
-                            Text("Quantity or time-in-force changes cancel and replace the unfilled order with its TP/SL. Queue priority resets.").font(.caption).foregroundStyle(.secondary)
+                            if removingProtection {
+                                Text("OVT uses an overnight limit order without TP/SL. The existing entry and protection orders will be canceled before replacement.").font(.caption).foregroundStyle(.orange)
+                                Toggle("Confirm OVT without TP/SL", isOn: $confirmRemoveProtection)
+                            } else {
+                                Text("Quantity or time-in-force changes cancel and replace the unfilled order. Queue priority resets.").font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }.navigationTitle(paperActive ? "Edit order" : "Order quantity").navigationBarTitleDisplayMode(.inline)
@@ -1031,12 +1040,12 @@ struct StockChartView: View {
                         ToolbarItem(placement: .confirmationAction) { Button("Apply") {
                             if let value = validQuantityDraft, !paperBusy {
                                 if paperActive {
-                                    guard entryEditable, let price = Double(editPrice), price.isFinite, price > 0 else { return }
-                                    paperAction(["action": "edit_entry", "quantity": value, "price": price, "tif": editTIF, "expected_ref": editOrderRef, "expected_snapshot": editSnapshot])
+                                    guard entryEditable, !removingProtection || confirmRemoveProtection, let price = Double(editPrice), price.isFinite, price > 0 else { return }
+                                    paperAction(["action": "edit_entry", "quantity": value, "price": price, "tif": editTIF, "expected_ref": editOrderRef, "expected_snapshot": editSnapshot, "confirm_remove_protection": confirmRemoveProtection])
                                 } else { quantity = String(value) }
                                 showQuantityEditor = false
                             }
-                        }.disabled(validQuantityDraft == nil || (paperActive && !entryEditable) || paperBusy) }
+                        }.disabled(validQuantityDraft == nil || (paperActive && (!entryEditable || (removingProtection && !confirmRemoveProtection))) || paperBusy) }
                     }
             }.presentationDetents([.medium, .large])
         }

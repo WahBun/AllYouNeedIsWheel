@@ -213,8 +213,8 @@ class PaperChart:
         if group.get('mode') == 'overnight_entry':
             result['broker_messages'] = [entry.message for t in trades.values()
                 if t.order.orderId in group['ids'].values() for entry in t.log if entry.message]
-            result.update(mode='overnight_entry', scalable=False, tif='OVERNIGHT',
-                          route='OVERNIGHT', protection=dict(status='not_requested'))
+            result.update(mode='overnight_entry', scalable=False, tif='OVERNIGHT' if parent and parent.contract.exchange == 'OVERNIGHT' else parent.order.tif if parent else 'DAY',
+                          route=parent.contract.exchange if parent else '', protection=dict(status='not_requested'))
             errors = [entry for t in trades.values() if t.order.orderId in group['ids'].values()
                       for entry in t.log if entry.errorCode and entry.errorCode != 399 and
                       (200 <= entry.errorCode < 2100 or entry.errorCode >= 10000)]
@@ -227,6 +227,9 @@ class PaperChart:
         result['order_ref'] = group.get('ref')
         result['tif'] = result.get('tif') or (parent.order.tif if parent else 'DAY')
         result['entry_type'] = parent.order.orderType if parent else 'LMT'
+        result['allowed_tifs'] = ['DAY', 'GTC']
+        if parent and parent.contract.secType == 'STK' and parent.contract.currency == 'USD' and parent.order.action == 'BUY' and parent.order.orderType == 'LMT':
+            result['allowed_tifs'].append('OVERNIGHT')
         result['entry_editable'] = bool(parents and result['known'] and not result['position']
             and not group.get('pending_edit') and all(r['filled'] == 0 and
             r['status'] in ('Submitted', 'PreSubmitted') for r in rows))
@@ -265,7 +268,7 @@ class PaperChart:
             if state.get('mode') == 'overnight_entry':
                 status = state['status']
                 result.update(success=status in ('working', 'filled'), status=status,
-                    message=('Overnight Paper limit order is ' + status +
+                    message=('Paper limit order is ' + status +
                              ('. ' + '; '.join(state.get('broker_messages', [])) if status == 'rejected'
                               else '; verify broker status before any further action')))
         except ValueError as error:
@@ -337,7 +340,7 @@ class PaperChart:
 
     def submit_overnight_entry(self, conn, account, cid, contract, current, body, request_id):
         """Standalone Paper BUY; venue controls the overnight session, never SMART fallback."""
-        from core.order_timing import routed_contract
+        import copy
         if contract.secType != 'STK' or contract.currency != 'USD':
             raise ValueError('Overnight entry requires a USD stock')
         if body.get('side') != 1 or body.get('entry_type') != 'LMT':
@@ -355,15 +358,18 @@ class PaperChart:
             raise ValueError('Resolve existing chart orders/position before a standalone entry')
         if any(t.contract.conId == cid and t.order.account == account for t in conn.ib.openTrades()):
             raise ValueError('A working order already exists for this contract')
-        routed = routed_contract(contract, 'OVERNIGHT')
-        self.validate_overnight_price(conn, routed, cid, amount)
+        tif = body.get('tif', 'OVERNIGHT')
+        if tif not in ('DAY', 'GTC', 'OVERNIGHT'): raise ValueError('Unsupported stock TIF')
+        routed = copy.copy(contract)
+        routed.exchange = 'OVERNIGHT' if tif == 'OVERNIGHT' else 'SMART'
+        self.validate_entry_route_price(conn, routed, cid, amount)
         oid = conn.ib.client.getReqId()
         ref = 'WheelPaper:' + request_id
         # Persist ownership before sending. Unknown outcomes remain blocked, never replayed.
         self.save_group(account, cid, dict(ids=dict(entry=oid), side=1, ref=ref,
                                           mode='overnight_entry'))
         order = LimitOrder('BUY', int(qty), float(amount), orderId=oid, account=account,
-                           tif='DAY', outsideRth=True, transmit=True, orderRef=ref)
+                           tif='DAY' if tif == 'OVERNIGHT' else tif, outsideRth=tif == 'OVERNIGHT', transmit=True, orderRef=ref)
         conn.ib.placeOrder(routed, order)
 
     def validate_overnight_price(self, conn, routed, cid, amount):
@@ -382,6 +388,15 @@ class PaperChart:
         if not ticks: raise ValueError('Overnight price increment unavailable')
         tick = Decimal(str(max(ticks, key=lambda r:r.lowEdge).increment))
         if amount % tick: raise ValueError('Price does not match overnight tick size')
+
+    def validate_entry_route_price(self, conn, routed, cid, amount):
+        if routed.exchange == 'OVERNIGHT':
+            return self.validate_overnight_price(conn, routed, cid, amount)
+        active = stock_chart.active
+        rules = active.get('price_rules', []) if active and active['con_id'] == cid else []
+        ticks = [r['increment'] for r in rules if Decimal(str(r['low'])) <= amount]
+        if not ticks or amount % Decimal(str(ticks[-1])):
+            raise ValueError('Wait for a valid contract price increment')
 
     def edit_entry(self, conn, account, cid, contract, current, group, body, request_id):
         """Edit only a wholly unfilled, exactly identified Paper order group."""
@@ -403,19 +418,23 @@ class PaperChart:
             raise ValueError('Invalid order quantity')
         tif = body.get('tif', current['tif'])
         overnight = group.get('mode') == 'overnight_entry'
-        if tif not in (('OVERNIGHT',) if overnight else ('DAY', 'GTC')):
-            raise ValueError('This route supports ' + ('OVT only' if overnight else 'DAY or GTC'))
+        if tif not in current.get('allowed_tifs', ['DAY', 'GTC']):
+            raise ValueError('OVT requires a USD stock BUY limit entry')
+        to_overnight = tif == 'OVERNIGHT'
+        if to_overnight and not overnight and body.get('confirm_remove_protection') is not True:
+            raise ValueError('Confirm replacing the bracket with an OVT entry without TP/SL')
         try: amount = Decimal(str(body.get('price', current['entry'])))
         except Exception: raise ValueError('Invalid entry price')
         if not amount.is_finite() or amount <= 0: raise ValueError('Invalid entry price')
-        if overnight:
-            self.validate_overnight_price(conn, parents[0].contract, cid, amount)
+        if to_overnight:
+            routed = copy.copy(contract); routed.exchange = 'OVERNIGHT'
+            self.validate_overnight_price(conn, routed, cid, amount)
         else:
             active = stock_chart.active
             rules = active.get('price_rules', []) if active and active['con_id'] == cid else []
             ticks = [r['increment'] for r in rules if Decimal(str(r['low'])) <= amount]
             if not ticks or amount % Decimal(str(ticks[-1])): raise ValueError('Invalid contract tick size')
-            if group['side'] * (current['tp'] - float(amount)) <= 0 or group['side'] * (current['sl'] - float(amount)) >= 0:
+            if not overnight and (group['side'] * (current['tp'] - float(amount)) <= 0 or group['side'] * (current['sl'] - float(amount)) >= 0):
                 raise ValueError('Entry must stay between TP and SL; adjust protection first')
         # Contract validation pumps broker events. Recheck all fills before any write.
         fresh = self.state(conn, cid)
@@ -462,9 +481,9 @@ class PaperChart:
                     group.pop('pending_edit', None)
                     self.save_group(account, cid, group)
                     return
-                if overnight:
+                if overnight or to_overnight:
                     replacement = dict(action='submit', mode='overnight_entry', side=1,
-                        entry_type='LMT', entry=float(amount), quantity=int(quantity))
+                        entry_type='LMT', entry=float(amount), quantity=int(quantity), tif=tif)
                 else:
                     replacement = dict(action='submit', side=group['side'], entry_type=current['entry_type'],
                         entry=float(amount), quantity=int(quantity), tp=current['tp'], sl=current['sl'], tif=tif)
@@ -504,7 +523,7 @@ class PaperChart:
                     raise ValueError('Exact owned order unavailable')
                 if trade.orderStatus.status not in ('Submitted', 'PreSubmitted'):
                     raise ValueError('Wait for a confirmed working order')
-                if trade.contract.exchange != 'OVERNIGHT' or trade.order.orderType != 'LMT':
+                if trade.contract.exchange not in ('OVERNIGHT', 'SMART') or trade.order.orderType != 'LMT':
                     raise ValueError('Order route/type changed; verify Gateway')
                 if body.get('operation') == 'cancel':
                     conn.ib.cancelOrder(trade.order)
@@ -517,7 +536,7 @@ class PaperChart:
                 try: amount = Decimal(str(body.get('price')))
                 except Exception: raise ValueError('Invalid entry price')
                 if not amount.is_finite() or amount <= 0: raise ValueError('Invalid entry price')
-                self.validate_overnight_price(conn, trade.contract, cid, amount)
+                self.validate_entry_route_price(conn, trade.contract, cid, amount)
                 # Validation can pump broker events; recheck before the write.
                 if trade.isDone() or trade.orderStatus.filled or trade.fills or trade.orderStatus.status not in ('Submitted','PreSubmitted'):
                     raise ValueError('Order changed while validating; refresh Orders')
