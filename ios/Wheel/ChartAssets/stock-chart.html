@@ -325,7 +325,7 @@ function syncHoldingOverlays(config) {
  for(const [id,badge] of holdingBadges) if(!ids.has(id)){badge.remove();holdingBadges.delete(id);}
  for(const [id,line] of holdingLines) if(!ids.has(id)){series.removePriceLine(line);holdingLines.delete(id);holdingBadges.get(id)?.remove();holdingBadges.delete(id);}
  for(const row of visible){
-  const options = {price:row.price,title:'',color:row.kind==='strike'?(config.dark?'#a77838':'#88551f'):(row.side>0?'#315fc4':'#c6384d'),lineWidth:1,lineStyle:row.kind==='strike'?3:2,axisLabelVisible:true};
+  const options = {price:row.price,title:'',color:row.kind==='strike'?(config.dark?'#a77838':'#88551f'):(row.side>0?'#315fc4':'#c6384d'),lineWidth:1,lineStyle:2,axisLabelVisible:true};
   if(row.price===null){if(holdingLines.has(row.id)){series.removePriceLine(holdingLines.get(row.id));holdingLines.delete(row.id);}}
   else if(holdingLines.has(row.id)) holdingLines.get(row.id).applyOptions(options);
   else holdingLines.set(row.id,series.createPriceLine(options));
