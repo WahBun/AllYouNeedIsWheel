@@ -1237,7 +1237,7 @@ struct OrdersView: View {
     @Environment(WheelStore.self) private var store
     @AppStorage("confirmBeforeOrderExecution") private var confirmExecution = true
     @State private var history = false
-    @AppStorage("executionHistoryDays") private var historyDays = 0
+    @AppStorage("executionHistoryDaysV2") private var historyDays = 1
     @State private var historySearch = ""
     @State private var historySearchExpanded = false
     @AppStorage("executionHistoryAsset") private var historyAsset = "ALL"
