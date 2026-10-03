@@ -17,7 +17,7 @@ struct CustomPalette {
         values[key + (scheme == .dark ? ".dark" : ".light")].flatMap(Self.color) ?? fallback
     }
     static func metricFallback(_ name: String, band: Double, scheme: ColorScheme) -> Color {
-        if ["spread", "delta", "iv"].contains(name) && band == 1 { return Self.color(scheme == .dark ? "#FF453A" : "#C62828")! }
+        if ["spread", "delta", "iv"].contains(name) && band == 1 { return Self.color(scheme == .dark ? "#AD6417" : "#854A0F")! }
         return DemoMetricColors.color(band, scheme: scheme)
     }
     func metric(_ name: String, value: Double, scheme: ColorScheme) -> Color {
@@ -78,13 +78,26 @@ struct PaletteColorEditor: View {
     }
 }
 
-struct MetricWarningGlow: ViewModifier {
+struct MetricHighFinish: ViewModifier {
     var active: Bool
     var color: Color
-    @Environment(\.colorScheme) private var scheme
+    @Environment(\.scenePhase) private var phase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var visible = false
     func body(content: Content) -> some View {
-        content
-            .shadow(color: active ? color.opacity(scheme == .dark ? 0.85 : 0.55) : .clear, radius: 3)
-            .shadow(color: active ? color.opacity(scheme == .dark ? 0.55 : 0.30) : .clear, radius: 7)
+        if active {
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !visible || phase != .active || reduceMotion)) { context in
+                let progress = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
+                content.overlay {
+                    if !reduceMotion {
+                        GeometryReader { geometry in
+                            LinearGradient(colors: CoreAssetStyle.signatureFlow, startPoint: .leading, endPoint: .trailing)
+                                .frame(width: geometry.size.width * 0.8)
+                                .offset(x: geometry.size.width * (progress * 1.8 - 0.8))
+                        }.mask(content).allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                }
+            }.onAppear { visible = true }.onDisappear { visible = false }
+        } else { content }
     }
 }

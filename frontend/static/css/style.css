@@ -37,7 +37,7 @@
     --app-focus-ring: rgba(13, 110, 253, 0.24);
     --spread-tight: #198754;
     --spread-medium: #b7791f;
-    --spread-wide: #C62828;
+    --spread-wide: #854A0F;
     --spread-unavailable: #6c757d;
 }
 
@@ -78,7 +78,7 @@
     --app-focus-ring: rgba(86, 156, 214, 0.28);
     --spread-tight: #42d392;
     --spread-medium: #f2c94c;
-    --spread-wide: #FF453A;
+    --spread-wide: #AD6417;
     --spread-unavailable: #9aa6b2;
 }
 
@@ -602,7 +602,17 @@ h1 {
 
 .spread-wide, .metric-high {
     color: var(--spread-wide);
-    text-shadow: 0 0 3px color-mix(in srgb, var(--spread-wide) 65%, transparent), 0 0 7px color-mix(in srgb, var(--spread-wide) 40%, transparent);
+    background-image: linear-gradient(90deg, var(--spread-wide) 0%, var(--spread-wide) 30%, #D62117 43%, #FFD652 50%, #944D0D 57%, var(--spread-wide) 70%, var(--spread-wide) 100%);
+    background-size: 240% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: metric-gilded 5s linear infinite;
+}
+@keyframes metric-gilded { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.metrics-paused .spread-wide, .metrics-paused .metric-high { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+    .spread-wide, .metric-high { animation: none; background-image: none; -webkit-text-fill-color: currentColor; }
 }
 
 .spread-unavailable {

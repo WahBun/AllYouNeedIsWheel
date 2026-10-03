@@ -839,3 +839,9 @@ if (!window.fetch) {
         });
     };
 } 
+
+// Decorative metric animation never drives quote refreshes.
+document.addEventListener('visibilitychange', () => {
+    document.documentElement.classList.toggle('metrics-paused', document.hidden);
+});
+document.documentElement.classList.toggle('metrics-paused', document.hidden);

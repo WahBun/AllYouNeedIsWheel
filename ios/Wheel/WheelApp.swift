@@ -469,7 +469,7 @@ struct NoticeText: View {
 }
 
 struct RootView: View {
-    @AppStorage("allHighWarningRedV2") private var spreadWarningRedApplied = false
+    @AppStorage("allHighGildedV3") private var spreadWarningRedApplied = false
     @AppStorage("demoCustomColors") private var customColorsJSON = "{}"
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("appLanguage") private var appLanguage = "system"
@@ -496,8 +496,8 @@ struct RootView: View {
             if !spreadWarningRedApplied {
                 var palette = CustomPalette(json: customColorsJSON).values
                 for metric in ["delta", "spread", "iv"] {
-                    palette[metric + ".high.dark"] = "#FF453A"
-                    palette[metric + ".high.light"] = "#C62828"
+                    palette[metric + ".high.dark"] = "#AD6417"
+                    palette[metric + ".high.light"] = "#854A0F"
                 }
                 if let data = try? JSONEncoder().encode(palette), let text = String(data: data, encoding: .utf8) {
                     customColorsJSON = text; spreadWarningRedApplied = true

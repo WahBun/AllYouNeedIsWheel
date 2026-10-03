@@ -9,9 +9,9 @@ final class MetricPaletteTests: XCTestCase {
         }
         for scheme: ColorScheme in [.light, .dark] {
             for metric in ["delta", "iv"] {
-                XCTAssertEqual(CustomPalette().metric(metric, value: 80, scheme: scheme), CustomPalette.color(scheme == .dark ? "#FF453A" : "#C62828")!)
+                XCTAssertEqual(CustomPalette().metric(metric, value: 80, scheme: scheme), CustomPalette.color(scheme == .dark ? "#AD6417" : "#854A0F")!)
             }
-            XCTAssertEqual(CustomPalette().metric("spread", value: 20, scheme: scheme), CustomPalette.color(scheme == .dark ? "#FF453A" : "#C62828")!)
+            XCTAssertEqual(CustomPalette().metric("spread", value: 20, scheme: scheme), CustomPalette.color(scheme == .dark ? "#AD6417" : "#854A0F")!)
         }
     }
     func testThirtySeventyBands() {
