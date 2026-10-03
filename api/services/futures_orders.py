@@ -42,7 +42,7 @@ def futures_orders(conn, completed=False, db_path=None):
                     # A cancel/replace uses the edit request's reference. Recover
                     # ownership from the recorded broker state, not the action name.
                     state = json.loads(encoded).get('state', {}) if encoded else {}
-                    if request.get('action') == 'edit_entry' and state.get('order_ref') == ref:
+                    if request.get('action') in ('edit_entry', 'manage_entry') and state.get('order_ref') == ref:
                         journal[ref] = dict(request, side=state.get('side'), mode=state.get('mode'))
                 if db.execute("SELECT 1 FROM sqlite_master WHERE name='chart_paper_groups'").fetchone():
                     for cid, encoded in db.execute('SELECT con_id,orders FROM chart_paper_groups WHERE account=?', (account,)):

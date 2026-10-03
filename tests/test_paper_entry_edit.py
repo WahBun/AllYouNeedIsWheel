@@ -121,7 +121,8 @@ class EntryEditTests(unittest.TestCase):
             self.assertTrue(result['success'], result)
             self.assertEqual(self.trades[-1].order.tif,'DAY')
             self.assertEqual(self.trades[-1].order.lmtPrice,price)
-            self.assertEqual(len(self.trades),before)
+            self.assertEqual(len(self.trades),before+1)
+            self.assertEqual(self.trades[-2].orderStatus.status,'Cancelled')
             self.assertTrue(result['state']['entry_editable'])
 
     def test_confirmed_broker_rejection_does_not_lock_entry(self):

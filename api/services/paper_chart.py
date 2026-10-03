@@ -484,7 +484,8 @@ class PaperChart:
         group['pending_edit'] = request_id
         self.save_group(account, cid, group)
         try:
-            structural = body.get('cancel') is True or quantity != sum(t.order.totalQuantity for t in parents) or tif != current['tif']
+            structural = (body.get('cancel') is True or quantity != sum(t.order.totalQuantity for t in parents) or tif != current['tif']
+                or (current['tif'] == 'OVERNIGHT' and float(amount) != current['entry']))
             if not structural:
                 for trade in parents:
                     if trade.isDone() or trade.orderStatus.filled or trade.fills:
@@ -586,6 +587,9 @@ class PaperChart:
                 # Validation can pump broker events; recheck before the write.
                 if trade.isDone() or trade.orderStatus.filled or trade.fills or trade.orderStatus.status not in ('Submitted','PreSubmitted'):
                     raise ValueError('Order changed while validating; refresh Orders')
+                if trade.contract.exchange == 'OVERNIGHT':
+                    return self.edit_entry(conn, account, cid, contract, current, group,
+                        dict(price=float(amount), expected_ref=group['ref'], expected_snapshot=current['edit_snapshot']), request_id)
                 amended = copy.copy(trade.order)
                 amended.lmtPrice = float(amount)
                 self.modify_exit(conn, trade, amended, 'lmtPrice')

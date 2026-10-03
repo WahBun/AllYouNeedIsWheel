@@ -126,7 +126,7 @@ class OvernightTests(unittest.TestCase):
         self.conn.ib.placeOrder.assert_not_called()
         self.conn.ib.cancelOrder.assert_not_called()
 
-    def test_amend_preserves_route_quantity_and_identity(self):
+    def test_amend_preserves_route_quantity_with_confirmed_replacement(self):
         self.overnight()
         self.conn.ib.placeOrder.reset_mock()
         result=self.manage('amend',expected_price=768.88,price=748.88)
@@ -134,8 +134,9 @@ class OvernightTests(unittest.TestCase):
         self.conn.ib.placeOrder.assert_called_once()
         contract,order=self.conn.ib.placeOrder.call_args.args
         self.assertEqual((contract.exchange,order.orderId,order.totalQuantity,order.lmtPrice),
-                         ('OVERNIGHT',100,100,748.88))
-        self.conn.ib.cancelOrder.assert_not_called()
+                         ('OVERNIGHT',101,100,748.88))
+        self.conn.ib.cancelOrder.assert_called_once()
+        self.assertEqual(self.trades[0].orderStatus.status,'Cancelled')
 
     def test_partial_fill_disables_amendment(self):
         self.overnight()
