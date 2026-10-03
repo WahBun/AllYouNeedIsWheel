@@ -266,7 +266,7 @@ struct StockChartView: View {
     @AppStorage("chartBracketProfitUnit") private var bracketProfitUnit = "money"
     @AppStorage("chartShowATR") private var showATR = true
     @AppStorage("chartATRLength") private var atrLength = 4
-    @AppStorage("chartIndicatorCollapsed") private var indicatorCollapsed = false
+    @AppStorage("chartIndicatorCollapsedV2") private var indicatorCollapsed = true
     @AppStorage("chartIndicatorVisible") private var indicatorVisible = true
     @AppStorage("chartEMAFrame") private var emaFrame = 0
     @AppStorage("chartExtraEMAsV1") private var extraEMAJSON = ""
