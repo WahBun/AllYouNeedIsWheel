@@ -1237,6 +1237,21 @@ struct OrdersView: View {
     @Environment(WheelStore.self) private var store
     @AppStorage("confirmBeforeOrderExecution") private var confirmExecution = true
     @State private var history = false
+    @AppStorage("executionHistoryDays") private var historyDays = 30
+    @State private var historySearch = ""
+    private var filteredHistory: [Order] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        let today = calendar.startOfDay(for: Date())
+        let start = calendar.date(byAdding: .day, value: -(historyDays - 1), to: today)!
+        let end = calendar.date(byAdding: .day, value: 1, to: today)!
+        let query = historySearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        return store.filledOrders.filter { order in
+            guard let date = order.fillDate, date >= start, date < end else { return false }
+            let text = [order.name, order.expiration ?? "", order.option_type ?? ""].joined(separator: " ")
+            return query.isEmpty || text.localizedCaseInsensitiveContains(query)
+        }
+    }
     @State private var cancelAll = false
     @State private var cancelling = false
     @State private var quickOrder: Order?
@@ -1252,6 +1267,26 @@ struct OrdersView: View {
             }.listRowBackground(Color.clear).listRowSeparator(.hidden)
             StatusView(orders: true)
             Picker("Orders", selection: $history) { Text("Pending").tag(false); Text("Executed records").tag(true) }.pickerStyle(.segmented)
+            if history {
+                HStack {
+                    Picker("Date range", selection: $historyDays) {
+                        Text("Today").tag(1)
+                        Text("Past 7 Days").tag(7)
+                        Text("Past 30 Days").tag(30)
+                    }.labelsHidden().pickerStyle(.menu).fixedSize()
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Search symbol or contract", text: $historySearch)
+                        .textInputAutocapitalization(.characters).autocorrectionDisabled()
+                    if !historySearch.isEmpty {
+                        Button { historySearch = "" } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain).accessibilityLabel("Clear search")
+                    }
+                }
+                Text("New York dates · Available execution records only").font(.caption).foregroundStyle(.secondary)
+                if store.filledOrders.contains(where: { $0.fillDate == nil }) {
+                    Text("Records without a confirmed execution date are excluded from date filters.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
             if history, let error = store.filledError {
                 NoticeText(error).font(.caption).foregroundStyle(.orange)
             }
@@ -1263,11 +1298,11 @@ struct OrdersView: View {
                     NoticeText(error).font(.caption).textSelection(.enabled)
                 }.disclosureGroupStyle(ArrowlessDisclosureStyle()).foregroundStyle(.orange)
             } else if let error = store.error { NoticeText(error).foregroundStyle(.orange) }
-            if (history ? store.filledOrders : store.orders).isEmpty && store.orderError == nil && store.error == nil && (!history || store.filledError == nil) {
+            if (history ? filteredHistory : store.orders).isEmpty && store.orderError == nil && store.error == nil && (!history || store.filledError == nil) {
                 ContentUnavailableView("No orders", systemImage: "checkmark.circle")
             }
-            ForEach(history ? store.filledOrders : store.orders) { order in
-                if history, store.filledOrders.first(where: { $0.fillDayLabel == order.fillDayLabel })?.id == order.id {
+            ForEach(history ? filteredHistory : store.orders) { order in
+                if history, filteredHistory.first(where: { $0.fillDayLabel == order.fillDayLabel })?.id == order.id {
                     Text(order.fillDayLabel).font(.subheadline.weight(.semibold))
                         .listRowBackground(Color.secondary.opacity(0.12))
                 }
