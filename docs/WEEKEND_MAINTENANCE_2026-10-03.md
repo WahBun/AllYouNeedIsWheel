@@ -43,7 +43,16 @@ not a test execution account. No order is submitted, amended, or canceled.
   also passed.
 - Native progress rendering: 320, 393 and 1024 point widths, English, simplified
   and traditional Chinese, light/dark. Representative narrow English/dark and
-  Chinese/light renders inspected. Phone build succeeded.
+  Chinese/light renders inspected. Phone build and installation succeeded.
+
+## Deployment and read-only verification
+
+Code published to GitHub main and fast-forwarded on Mini. The service is healthy.
+The iPhone installation completed. Live account metadata reports Live with app
+submission permission, while chart execution is disabled. All three current
+option holdings returned historical charts (149–156 five-minute RTH bars) and
+historical/no-recent-trade-bar notices. No account IDs or contract IDs are saved
+in this report. The live configuration and databases were not changed.
 
 ## Remaining acceptance
 

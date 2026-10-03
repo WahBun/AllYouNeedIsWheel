@@ -38,6 +38,7 @@ class WeekendMaintenanceTests(unittest.TestCase):
         self.assertIn('Limited',option_data_notice(1,bars[:2],130))
         self.assertIn('No recent',option_data_notice(1,bars,200))
         self.assertIn('live updates',option_data_notice(1,bars,130,True))
+        self.assertIn('waiting',option_data_notice(1,bars,200,interval_seconds=300))
 
     def test_option_permission_error_is_scoped_and_listener_removed(self):
         import asyncio

@@ -13,14 +13,14 @@ from functools import lru_cache
 import pandas_market_calendars as calendars
 
 
-def option_data_notice(data_type, bars, now, live=False):
+def option_data_notice(data_type, bars, now, live=False, interval_seconds=60):
     if data_type == 4: return 'Delayed frozen option data'
     if data_type == 3: return 'Delayed option data'
     if data_type == 2: return 'Frozen option data'
     if not bars: return 'No option trades in the selected session; try ETH or a longer interval'
     if len(bars) < 20: return 'Limited option history; indicators may need more bars'
     if live: return 'IB option bars · live updates'
-    if now - bars[-1]['time'] >= 60: return 'No recent option trades · showing historical bars'
+    if now - bars[-1]['time'] >= interval_seconds: return 'No recent option trades · showing historical bars'
     return 'Historical option bars · waiting for updates'
 
 
@@ -389,7 +389,7 @@ class StockChart:
         # A known current bar has a scheduled close before the first Last tick.
         # Countdown eligibility is independent of quote freshness/trading eligibility.
         closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time)
-        return dict(data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, age is not None and age < 10) if state.get('option_bars') else None,
+        return dict(data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
             con_id=con_id, symbol=contract.symbol, security_type=contract.secType, local_symbol=getattr(contract, "localSymbol", "") or contract.symbol,
             exchange=getattr(contract, "primaryExchange", "") or getattr(contract, "exchange", ""),
             multiplier=positive(getattr(contract, "multiplier", 1)) or 1, interval=minutes,
