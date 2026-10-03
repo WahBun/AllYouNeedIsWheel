@@ -210,6 +210,11 @@ class PaperChart:
                 else 'rejected' if adjustment.get('outcome') == 'rejected' or any(r['status']=='Inactive' for r in selected)
                 else 'canceled' if any(r['status'] in ('Cancelled','ApiCancelled') for r in selected)
                 else 'working')
+        if group.get('mode') == 'overnight_entry':
+            result['broker_messages'] = [entry.message for t in trades.values()
+                if t.order.orderId in group['ids'].values() for entry in t.log if entry.message]
+            result.update(mode='overnight_entry', scalable=False, tif='OVERNIGHT',
+                          route='OVERNIGHT', protection=dict(status='not_requested'))
         return result
 
     @staticmethod
@@ -307,6 +312,51 @@ class PaperChart:
             if trade.orderStatus.status in ('Submitted','PreSubmitted') and getattr(trade.order,field)==getattr(order,field): return
             if time.monotonic()>=deadline: raise RuntimeError('Exit amendment not confirmed')
 
+    def submit_overnight_entry(self, conn, account, cid, contract, current, body, request_id):
+        """Standalone Paper BUY; venue controls the overnight session, never SMART fallback."""
+        from core.order_timing import routed_contract
+        if contract.secType != 'STK' or contract.currency != 'USD':
+            raise ValueError('Overnight entry requires a USD stock')
+        if body.get('side') != 1 or body.get('entry_type') != 'LMT':
+            raise ValueError('Standalone overnight entry supports BUY limit orders only')
+        qty = body.get('quantity')
+        if isinstance(qty, bool) or not isinstance(qty, (int, float)) or not math.isfinite(qty) or qty != int(qty) or not 1 <= qty <= 1000:
+            raise ValueError('Quantity must be 1–1000 whole shares')
+        if any(body.get(k) is not None for k in ('tp', 'sl')):
+            raise ValueError('Standalone overnight entry must not contain TP/SL')
+        try: amount = Decimal(str(body.get('entry')))
+        except Exception: raise ValueError('Invalid entry price')
+        if not amount.is_finite() or amount <= 0: raise ValueError('Invalid entry price')
+        conn._bounded_order_read(conn.ib.reqOpenOrders, timeout_seconds=3)
+        if not current['known'] or current['active'] or current['position']:
+            raise ValueError('Resolve existing chart orders/position before a standalone entry')
+        if any(t.contract.conId == cid and t.order.account == account for t in conn.ib.openTrades()):
+            raise ValueError('A working order already exists for this contract')
+        routed = routed_contract(contract, 'OVERNIGHT')
+        details = conn._bounded_order_read(conn.ib.reqContractDetails, routed, timeout_seconds=3)
+        matches = [d for d in details if d.contract.conId == cid and d.contract.secType == 'STK'
+                   and d.contract.currency == 'USD']
+        if len(matches) != 1: raise ValueError('Exact overnight contract details unavailable')
+        detail = matches[0]
+        venues = detail.validExchanges.split(',')
+        if 'OVERNIGHT' not in venues: raise ValueError('IB does not advertise OVERNIGHT for this contract')
+        ids = detail.marketRuleIds.split(',')
+        try: rule_id = int(ids[venues.index('OVERNIGHT')])
+        except (IndexError, ValueError): raise ValueError('Overnight price rule unavailable')
+        rules = conn._bounded_order_read(conn.ib.reqMarketRule, rule_id, timeout_seconds=3)
+        ticks = [r for r in rules if Decimal(str(r.lowEdge)) <= amount and r.increment > 0]
+        if not ticks: raise ValueError('Overnight price increment unavailable')
+        tick = Decimal(str(max(ticks, key=lambda r:r.lowEdge).increment))
+        if amount % tick: raise ValueError('Price does not match overnight tick size')
+        oid = conn.ib.client.getReqId()
+        ref = 'WheelPaper:' + request_id
+        # Persist ownership before sending. Unknown outcomes remain blocked, never replayed.
+        self.save_group(account, cid, dict(ids=dict(entry=oid), side=1, ref=ref,
+                                          mode='overnight_entry'))
+        order = LimitOrder('BUY', int(qty), float(amount), orderId=oid, account=account,
+                           tif='DAY', outsideRth=True, transmit=True, orderRef=ref)
+        conn.ib.placeOrder(routed, order)
+
     def perform(self, conn, account, cid, body, request_id):
         contract=contracts.resolve(conn,cid)
         if contract.secType not in ('STK','FUT','OPT'): raise ValueError('This contract supports chart viewing only')
@@ -315,6 +365,18 @@ class PaperChart:
             conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
         current=self.state(conn,cid)
         action=body.get('action')
+        if body.get('mode') == 'overnight_entry':
+            if action != 'submit': raise ValueError('Overnight entry mode only supports submit')
+            return self.submit_overnight_entry(conn, account, cid, contract, current, body, request_id)
+        group = self.group(account, cid)
+        if group and group.get('mode') == 'overnight_entry':
+            if action != 'cancel_entry':
+                raise ValueError('Standalone overnight entry has no TP/SL; only explicit entry cancellation is supported')
+            trade = getattr(self, '_resolved_trades', {}).get(group['ids']['entry'])
+            if not trade: raise ValueError('Entry status needs Gateway reconciliation')
+            if trade.isDone(): raise ValueError('Entry is already finished')
+            conn.ib.cancelOrder(trade.order)
+            return
         def price(value):
             try: number=float(value)
             except (TypeError,ValueError): raise ValueError('Invalid price')

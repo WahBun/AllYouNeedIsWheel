@@ -263,3 +263,21 @@ Gateway service for Paper or Live, with bounded asynchronous startup. The iOS ap
 polls actual account verification and shows IB Key guidance while waiting; Demo
 hides backend address/Connect while retaining the saved address. Credentials stay
 on Mini, outside Git. Validation: 328 Python tests and iPhone build passed.
+
+## Standalone Paper overnight stock entry (2026-10-03)
+
+POST /api/portfolio/paper-chart/<conId> accepts action=submit,
+mode=overnight_entry, side=1, entry_type=LMT, quantity (whole shares, 1–1000),
+entry, and a UUID request_id with the current account-epoch header.
+This is an explicit USD stock BUY without TP/SL. It uses the existing serialized
+IB owner, Paper account/4002/read-only checks and durable request journal.
+The exact contract must advertise OVERNIGHT, and the venue market rule must
+validate the limit. The broker receives exchange=OVERNIGHT, tif=DAY,
+outsideRth=true; there is no SMART fallback or automatic resubmission.
+The overnight venue's session governs eligibility; the server does not schedule
+or retry an order that IB rejects outside its accepted submission window.
+GET on the same endpoint exposes mode, route, broker status and broker messages.
+cancel_entry cancels the remaining entry only; generic close/BE/amend/add/trim
+are rejected for this standalone group, so holding it cannot trigger an implicit
+market exit. The existing iOS bracket buttons do not select this API mode.
+Verification: unittest tests.test_paper_overnight tests.test_paper_chart.
