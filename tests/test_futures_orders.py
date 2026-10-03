@@ -125,3 +125,28 @@ class FuturesOrdersTests(unittest.TestCase):
             self.assertEqual(rows[0]['contract_multiplier'],'1')
             self.conn.ib.placeOrder.assert_not_called()
             self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_replacement_entry_visible_from_group_and_completed_journal(self):
+        import json, sqlite3
+        with TemporaryDirectory() as tmp:
+            dbpath=str(Path(tmp)/'orders.db')
+            service=PaperChart(dbpath)
+            service.save_group('DU_TEST',7,dict(ref='WheelPaper:replacement',side=1,mode='overnight_entry',ids=dict(entry=50)))
+            self.contract=Stock('TQQQ','OVERNIGHT','USD',conId=7)
+            trade=self.trade(status='PreSubmitted');trade.order.orderRef='WheelPaper:replacement'
+            trade.order.totalQuantity=101;trade.order.lmtPrice=79.54
+            self.conn.get_order_status_snapshot.return_value={'authoritative_open_trades':[trade,trade]}
+            rows=futures_orders(self.conn,db_path=dbpath)
+            self.assertEqual(len(rows),1)
+            self.assertEqual((rows[0]['ticker'],rows[0]['quantity'],rows[0]['premium'],rows[0]['tif']),('TQQQ',101,79.54,'OVERNIGHT'))
+            self.assertEqual(rows[0]['chart_order_ref'],'WheelPaper:replacement')
+            with sqlite3.connect(dbpath) as db:
+                db.execute('DELETE FROM chart_paper_groups')
+                db.execute('INSERT INTO chart_paper_requests VALUES(?,?,?,?)',('replacement','DU_TEST',json.dumps(dict(action='edit_entry',con_id=7)),json.dumps(dict(state=dict(order_ref='WheelPaper:replacement',side=1,mode='overnight_entry')))))
+            self.assertEqual(len(futures_orders(self.conn,db_path=dbpath)),1)
+            trade.orderStatus.status='Filled';trade.orderStatus.filled=101
+            self.conn._bounded_order_read.return_value=[trade];self.conn.ib.trades.return_value=[trade]
+            self.assertEqual(len(futures_orders(self.conn,True,dbpath)),1)
+            with sqlite3.connect(dbpath) as db:
+                db.execute("UPDATE chart_paper_requests SET account='OTHER'")
+            self.assertEqual(futures_orders(self.conn,True,dbpath),[])

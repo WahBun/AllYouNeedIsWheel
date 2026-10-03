@@ -33,9 +33,26 @@ def futures_orders(conn, completed=False, db_path=None):
     if db_path:
         with sqlite3.connect(db_path) as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE name='chart_paper_requests'").fetchone():
-                for request_id, body in db.execute('SELECT id,body FROM chart_paper_requests WHERE account=?',(account,)):
+                columns = {r[1] for r in db.execute('PRAGMA table_info(chart_paper_requests)')}
+                result_column = 'result' if 'result' in columns else 'NULL'
+                for request_id, body, encoded in db.execute(f'SELECT id,body,{result_column} FROM chart_paper_requests WHERE account=?',(account,)):
                     request = json.loads(body)
-                    if request.get('action') == 'submit': journal['WheelPaper:'+request_id] = request
+                    ref = 'WheelPaper:' + request_id
+                    if request.get('action') == 'submit': journal[ref] = request
+                    # A cancel/replace uses the edit request's reference. Recover
+                    # ownership from the recorded broker state, not the action name.
+                    state = json.loads(encoded).get('state', {}) if encoded else {}
+                    if request.get('action') == 'edit_entry' and state.get('order_ref') == ref:
+                        journal[ref] = dict(request, side=state.get('side'), mode=state.get('mode'))
+                if db.execute("SELECT 1 FROM sqlite_master WHERE name='chart_paper_groups'").fetchone():
+                    for cid, encoded in db.execute('SELECT con_id,orders FROM chart_paper_groups WHERE account=?', (account,)):
+                        group = json.loads(encoded)
+                        ref = group.get('ref', '')
+                        # The group is persisted before a broker send, including
+                        # replacements whose response was interrupted. Broker rows
+                        # still provide the actual status; no write is performed.
+                        if ref.startswith('WheelPaper:'):
+                            journal[ref] = dict(con_id=cid, side=group.get('side'), mode=group.get('mode'))
     from core.connection import IBConnection
     result = {}
     brackets = {}
