@@ -301,7 +301,37 @@ class StockChart:
         higher_bars = None
         history_minutes = 1440 if minutes == 480 and session == 'rth' else minutes
         def option_intraday_fallback():
-            packet = self.packet(state, minutes, session)
+            # A bounded hourly backfill provides weeks of real trades without
+            # repeatedly requesting a large minute series on each chart refresh.
+            if time.monotonic() >= state.get('option_hourly_retry', 0):
+                state['option_hourly_retry'] = time.monotonic() + 60
+                history = conn.ib.reqHistoricalData(contract, '', '1 M', '1 hour', 'TRADES',
+                    useRTH=True, formatDate=2, keepUpToDate=False, timeout=8)
+                older = []
+                for bar in history:
+                    if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
+                        continue
+                    values = [positive(getattr(bar, field)) for field in ('open','high','low','close')]
+                    if any(value is None for value in values): continue
+                    o,h,l,c = values
+                    if l <= min(o,c) <= max(o,c) <= h:
+                        older.append(dict(time=int(bar.date.timestamp()), open=o, high=h, low=l, close=c))
+                if older: state['option_hourly'] = sorted(older, key=lambda bar: bar['time'])
+            older = state.get('option_hourly', [])
+            if older:
+                # Build sessions for the actual history range, not the short
+                # rolling calendar used by the minute stream.
+                days = {datetime.fromtimestamp(b['time'], ZoneInfo('America/New_York')).date().isoformat() for b in older + state['bars']}
+                sessions = sorted({window for day in days for window in regular_sessions(day)})
+                combined = {b['time']: b for b in aggregate(older, minutes, sessions)}
+                for bar in aggregate(state['bars'], minutes, sessions):
+                    old = combined.get(bar['time'])
+                    if old:
+                        combined[bar['time']] = dict(old, high=max(old['high'],bar['high']), low=min(old['low'],bar['low']), close=bar['close'])
+                    else: combined[bar['time']] = bar
+                packet = self.packet(state, minutes, session, sorted(combined.values(), key=lambda b:b['time']))
+            else:
+                packet = self.packet(state, minutes, session)
             packet['data_notice'] = 'Limited history · aggregated from available intraday trades; daily history pending'
             return packet
         option_eight_hour = contract.secType == 'OPT' and minutes == 480 and session == 'rth'

@@ -198,13 +198,20 @@ class StockChartTests(unittest.TestCase):
             feed.active['bars'] = [dict(time=int(datetime(2026,10,2,14,tzinfo=timezone.utc).timestamp()), open=1, high=2, low=1, close=2)]
             conn.ib.reqHistoricalData.return_value = []
             result = feed.snapshot(conn, 7, 480)
-            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4], ('1 M', '1 day'))
+            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4], ('1 M', '1 hour'))
             self.assertTrue(result['bars'])
             self.assertIn('Limited history', result['data_notice'])
             count = conn.ib.reqHistoricalData.call_count
             again = feed.snapshot(conn, 7, 480)
             self.assertEqual(again['bars'], result['bars'])
             self.assertEqual(conn.ib.reqHistoricalData.call_count, count)
+            feed.active['option_hourly_retry'] = 0
+            conn.ib.reqHistoricalData.return_value = [S(date=datetime(2026,9,1,14,tzinfo=timezone.utc), open=3, high=4, low=2, close=3)]
+            expanded = feed.snapshot(conn, 7, 480)
+            self.assertEqual(len(expanded['bars']), 2)
+            self.assertEqual(expanded['bars'][0]['high'], 4)
+            self.assertEqual(expanded['bars'][-1]['close'], 2)
+
             conn.ib.placeOrder.assert_not_called()
         finally:
             asyncio.get_event_loop().close()
