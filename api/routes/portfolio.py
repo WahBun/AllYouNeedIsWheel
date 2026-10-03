@@ -193,7 +193,14 @@ def paper_chart_order(con_id):
     try:
         conn=portfolio_service._ensure_connection()
         service=PaperChart(portfolio_service.config.get('db_path'))
-        if request.method=='GET': return _no_store_json(service.state(conn,con_id))
+        if request.method=='GET':
+            if request.args.get('request_id'):
+                return _no_store_json(service.request_status(conn, con_id, request.args['request_id']))
+            from api.services.paper_chart import paper_account
+            group = service.group(paper_account(conn), con_id) or {}
+            if group.get('pending_edit'):
+                service.request_status(conn, con_id, group['pending_edit'])
+            return _no_store_json(service.state(conn,con_id))
         result=service.execute(conn,con_id,request.get_json(silent=True) or {})
         return _no_store_json(result)
     except (ValueError,TypeError) as error:

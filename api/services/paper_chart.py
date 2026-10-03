@@ -246,6 +246,45 @@ class PaperChart:
                     status='flat' if size == 0 else 'unknown' if any(r['status']=='Unknown' for r in rows)
                     else 'covered' if quantities['tp'] == size and quantities['sl'] == size else 'needs_review')
 
+    def request_status(self, conn, cid, request_id):
+        """Read-only reconciliation. Never replay a broker write."""
+        account = paper_account(conn)
+        request_id = str(UUID(request_id))
+        with self.database() as db:
+            row = db.execute('SELECT body,result FROM chart_paper_requests WHERE id=? AND account=?', (request_id, account)).fetchone()
+        if not row: return dict(confirmed=False, status='unknown')
+        body = json.loads(row[0])
+        if body.get('con_id') != cid: raise ValueError('Request contract mismatch')
+        result = json.loads(row[1]) if row[1] else {}
+        if result.get('status') in ('acknowledged','rejected','working','filled','canceled','pending'):
+            return dict(confirmed=True, status=result['status'])
+        authoritative = conn._bounded_order_read(conn.ib.reqOpenOrders, timeout_seconds=3)
+        state = self.state(conn, cid)
+        group = self.group(account, cid) or {}
+        if body.get('action') == 'edit_entry' and state['known']:
+            # For a price-only edit, a fresh broker snapshot of that same order
+            # resolves uncertainty even if IB retained the old price. Never resend.
+            price_only = 'price' in body and not any(k in body for k in ('quantity','tif','cancel'))
+            parent_ids = [oid for role, oid in group.get('ids', {}).items() if role.split('_')[0] == 'entry']
+            confirmed_parent = [t for t in authoritative if t.order.orderId in parent_ids
+                and t.order.account == account and t.contract.conId == cid and t.order.orderRef == body.get('expected_ref')
+                and t.orderStatus.status in ('Submitted','PreSubmitted')]
+            if group.get('pending_edit') == request_id and price_only and len(parent_ids) == len(confirmed_parent) == 1:
+                group.pop('pending_edit'); self.save_group(account,cid,group)
+                return dict(confirmed=True,status='reconciled')
+            parents = [r for r in state['orders'] if r['role'].split('_')[0] == 'entry']
+            identity = group.get('ref') in (body.get('expected_ref'), 'WheelPaper:' + request_id)
+            matches = identity and bool(parents) and all(r['status'] in ('Submitted','PreSubmitted') and not r['filled'] for r in parents)
+            if 'price' in body: matches = matches and all(r['price'] == body['price'] for r in parents)
+            if 'quantity' in body: matches = matches and sum(r['quantity'] for r in parents) == body['quantity']
+            if 'tif' in body: matches = matches and state['tif'] == body['tif']
+            if body.get('cancel'): matches = identity and all(r['status'] in ('Cancelled','ApiCancelled') and not r['filled'] for r in state['orders'])
+            if matches:
+                if group.get('pending_edit') == request_id:
+                    group.pop('pending_edit'); self.save_group(account,cid,group)
+                return dict(confirmed=True,status='reconciled')
+        return dict(confirmed=False,status='unknown')
+
     def execute(self, conn, cid, body):
         account=paper_account(conn,True)
         request_id=str(UUID(str(body.get('request_id',''))))
@@ -328,12 +367,14 @@ class PaperChart:
         # them during a price amendment causes IB 10326/10327 rejections.
         import time
         start=len(trade.log)
+        # IB may report OVERNIGHT as TIF, but API writes require DAY on that venue.
+        if trade.contract.exchange == 'OVERNIGHT': order.tif = 'DAY'
         conn.ib.placeOrder(trade.contract,order)
         deadline=time.monotonic()+3
         while True:
             conn.ib.sleep(.05)
-            errors=[e.errorCode for e in trade.log[start:] if e.errorCode]
-            if errors: raise ValueError(f'IB rejected the exit amendment ({errors[-1]}); original protection needs review')
+            errors=[e.errorCode for e in trade.log[start:] if e.errorCode and e.errorCode not in (399, 2109)]
+            if errors: raise ValueError(f'IB rejected the order amendment ({errors[-1]}); broker state will be refreshed')
             if trade.orderStatus.status=='Filled': return
             if trade.orderStatus.status in ('Submitted','PreSubmitted') and getattr(trade.order,field)==getattr(order,field): return
             if time.monotonic()>=deadline: raise RuntimeError('Exit amendment not confirmed')
@@ -493,6 +534,11 @@ class PaperChart:
             self.save_group(account, cid, latest)
         except Exception as error:
             latest = self.group(account, cid)
+            if isinstance(error, ValueError) and not structural and len(parents) == 1:
+                confirmed = conn._bounded_order_read(conn.ib.reqOpenOrders, timeout_seconds=3)
+                if any(t.order.account == account and t.contract.conId == cid and t.order.orderId == parents[0].order.orderId for t in confirmed):
+                    latest.pop('pending_edit', None); self.save_group(account,cid,latest)
+                    raise ValueError(str(error)) from error
             latest['pending_edit'] = request_id
             self.save_group(account, cid, latest)
             # At least one broker write may have happened. Do not offer a blind retry.

@@ -4,6 +4,7 @@ import UIKit
 struct BackendHTTPError: LocalizedError {
     let status: Int
     let message: String
+    var confirmedRejection = false
     var errorDescription: String? { message }
 }
 
@@ -244,6 +245,18 @@ final class TradingSession {
         acknowledgedMessage = false
     }
     var uncertain = UserDefaults.standard.bool(forKey: "unresolvedTradingWrite")
+    private var paperRequests = UserDefaults.standard.dictionary(forKey: "pendingPaperChartRequests") as? [String: String] ?? [:]
+    private func paperKey(_ base: String, _ cid: Int) -> String { base.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "|" + String(cid) }
+    func paperPending(base: String, conID: Int) -> Bool { paperRequests[paperKey(base, conID)] != nil }
+    private func savePaperRequests() { UserDefaults.standard.set(paperRequests, forKey: "pendingPaperChartRequests") }
+    func reconcilePaper(base: String, conID: Int) async {
+        let key = paperKey(base, conID)
+        guard !busy, let id = paperRequests[key] else { return }
+        if let result = try? await get("api/portfolio/paper-chart/\(conID)", base: base, query: [URLQueryItem(name: "request_id", value: id)]),
+           result["confirmed"] as? Bool == true, paperRequests[key] == id {
+            paperRequests.removeValue(forKey: key); savePaperRequests()
+        }
+    }
     var demoOrders = [Order(id: 1, ticker: "TSLL", action: "BUY", option_type: "PUT", strike: 9, expiration: "20261016", premium: 0.01, quantity: 1, status: "pending", tif: "GTC", intent: "CLOSE")]
     private let metadataCache = ContractMetadataCache()
     private let session: URLSession
@@ -271,7 +284,7 @@ final class TradingSession {
     }
 
     func selectAccount(base: String, mode: String) async throws -> [String: Any] {
-        guard !busy, !uncertain else { throw AppError.message("Verify outstanding order operations before switching accounts.") }
+        guard !busy else { throw AppError.message("Wait for the current request before switching accounts.") }
         busy = true; version += 1
         defer { busy = false }
         let state = try await get("api/account/profiles", base: base)
@@ -287,21 +300,26 @@ final class TradingSession {
     }
 
     func paperChartWrite(base: String, conID: Int, body: [String: Any]) async throws -> [String: Any] {
-        guard !busy, !uncertain else { throw AppError.message("Verify the previous order in Gateway before submitting again") }
+        await reconcilePaper(base: base, conID: conID)
+        guard !busy, !paperPending(base: base, conID: conID) else { throw AppError.message("This order is awaiting broker confirmation. Other charts remain available.") }
         var request = URLRequest(url: try endpoint(base, "api/portfolio/paper-chart/\(conID)"), timeoutInterval: 35)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("1", forHTTPHeaderField: "X-All-You-Need-Is-Wheel")
-        var payload = body; payload["request_id"] = UUID().uuidString
+        let id = UUID().uuidString, key = paperKey(base, conID)
+        var payload = body; payload["request_id"] = id
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
         busy = true; version += 1
         defer { busy = false }
-        uncertain = true
-        UserDefaults.standard.set(true, forKey: "unresolvedTradingWrite")
-        let result = try await send(request)
-        if ["acknowledged", "rejected", "working", "filled", "canceled"].contains(result["status"] as? String ?? "") {
-            uncertain = false
-            UserDefaults.standard.set(false, forKey: "unresolvedTradingWrite")
+        paperRequests[key] = id; savePaperRequests()
+        let result: [String: Any]
+        do { result = try await send(request) }
+        catch let error as BackendHTTPError where error.confirmedRejection {
+            paperRequests.removeValue(forKey: key); savePaperRequests()
+            throw error
+        }
+        if ["acknowledged", "rejected", "working", "filled", "canceled", "pending"].contains(result["status"] as? String ?? "") {
+            paperRequests.removeValue(forKey: key); savePaperRequests()
         }
         return result
     }
@@ -429,7 +447,7 @@ final class TradingSession {
         let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         guard (200..<300).contains(http.statusCode), let payload else {
             let source = http.value(forHTTPHeaderField: "X-Wheel-Response-Origin") == "application" ? "application" : "unverified origin"
-            throw BackendHTTPError(status: http.statusCode, message: "\(payload?["error"] as? String ?? "Request failed.") [HTTP \(http.statusCode) · \(source) · \(diagnostic)]")
+            throw BackendHTTPError(status: http.statusCode, message: "\(payload?["error"] as? String ?? "Request failed.") [HTTP \(http.statusCode) · \(source) · \(diagnostic)]", confirmedRejection: source == "application" && [400, 403, 409, 422].contains(http.statusCode))
         }
         if let error = payload["error"] as? String { throw AppError.message("\(error) [\(diagnostic)]") }
         return payload
@@ -564,7 +582,7 @@ final class TradingSession {
 struct TradingNotice: View {
     @Environment(WheelStore.self) private var store
     var body: some View {
-        if !store.demo && store.trading.uncertain {
+        if !store.demo && store.trading.uncertain && store.portfolio?.connection?.mode != "paper" {
             Label("Unconfirmed request. Check IB and the web app before further trading.", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
         }
         if let message = store.trading.message { NoticeText(message).font(.footnote).foregroundStyle(.secondary) }
@@ -690,13 +708,13 @@ struct OrderDetail: View {
             Section { TradingNotice() }
         }
         .modifier(KeyboardDismissal())
-        .disabled(store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))
+        .disabled(store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain && !TradeRules.chartManageable(current ?? initial)))
         .symbolTitle(initial.name)
         .sheet(item: $pricePicker) { snapshot in
             NavigationStack {
                 PriceChoiceList(values: snapshot.values, selected: snapshot.selected) { value in
                         guard let current, (TradeRules.editable(current) || TradeRules.amendable(current)), !store.trading.busy,
-                              store.demo || !store.trading.uncertain else { return }
+                              store.demo || !store.trading.uncertain || TradeRules.chartManageable(current) else { return }
                         price = String(format: "%.2f", value)
                         pricePicker = nil
                 }.navigationTitle("Limit price")

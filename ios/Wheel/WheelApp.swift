@@ -1380,7 +1380,7 @@ struct OrdersView: View {
         }
         .onChange(of: store.ordersUpdated) { if refreshHistory { Task { await store.loadFilled() } } }
         .onChange(of: "\(store.demo)-\(store.address)") { quickOrder = nil; cancelAll = false }
-        .disabled(cancelling || store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))
+        .disabled(cancelling || store.trading.busy || store.opportunities.batchRunning)
         .confirmationDialog(LocalizedStringKey(quickCancel ? "Cancel order" : "Execute"), isPresented: Binding(get: { quickOrder != nil }, set: { if !$0 { quickOrder = nil } }), titleVisibility: .visible) {
             Button(LocalizedStringKey(quickCancel ? "Cancel order" : "Execute"), role: quickCancel ? .destructive : nil) {
                 if let order = quickOrder { performQuick(order, cancel: quickCancel) }
@@ -1503,9 +1503,24 @@ struct SettingsView: View {
         @Bindable var store = store
         Form {
             Section("Connection") {
-                Picker("Account", selection: Binding(get: { requestedMode }, set: { selectMode($0) })) {
-                    Text("Demo").tag("demo"); Text("Live").tag("live"); Text("Paper").tag("paper")
-                }.pickerStyle(.segmented).disabled(switchingAccount || connecting || store.trading.busy || store.trading.uncertain)
+                HStack(spacing: 3) {
+                    ForEach(["demo", "live", "paper"], id: \.self) { mode in
+                        let selected = requestedMode == mode
+                        let color: Color = mode == "live" ? .green : mode == "paper" ? .red : Color(uiColor: .systemGray)
+                        Button { selectMode(mode) } label: {
+                            Text(mode == "demo" ? "Demo" : mode == "live" ? "Live" : "Paper")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity, minHeight: 32)
+                                .foregroundStyle(selected ? Color.white : Color.primary)
+                                .background(selected ? color : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(selected ? .isSelected : [])
+                    }
+                }
+                .padding(3)
+                .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 9))
+                .disabled(switchingAccount || connecting || store.trading.busy)
                 if switchingAccount { ProgressView("Switching account…") }
                 if let accountSwitchMessage { Text(accountSwitchMessage).font(.footnote).foregroundStyle(.orange) }
                 if requestedMode != "demo" {
@@ -1615,7 +1630,7 @@ struct SettingsView: View {
                     Label("Custom colors", systemImage: "paintpalette")
                 }
             }.tint(.teal)
-            if store.trading.uncertain {
+            if store.trading.uncertain && store.portfolio?.connection?.mode != "paper" {
                 Section("Unconfirmed request") {
                     Text("Check the exact order in IB and the web app, including fills and pending orders. Clearing this lock does not cancel or resubmit anything.")
                     Button("I have verified the order outcome") { reviewed = true }

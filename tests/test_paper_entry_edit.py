@@ -110,3 +110,66 @@ class EntryEditTests(unittest.TestCase):
         result = self.edit(tif='OVERNIGHT', confirm_remove_protection=True)
         self.assertFalse(result['success'])
         self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_overnight_broker_tif_is_normalized_on_repeated_drag(self):
+        self.submit(quantity=100); self.overnight_rules()
+        self.assertTrue(self.edit(tif='OVERNIGHT', confirm_remove_protection=True)['success'])
+        for price in [10.25, 10.5, 10.0]:
+            self.trades[-1].order.tif='OVERNIGHT'  # IB open-order echo
+            before=len(self.trades)
+            result=self.edit(price=price)
+            self.assertTrue(result['success'], result)
+            self.assertEqual(self.trades[-1].order.tif,'DAY')
+            self.assertEqual(self.trades[-1].order.lmtPrice,price)
+            self.assertEqual(len(self.trades),before)
+            self.assertTrue(result['state']['entry_editable'])
+
+    def test_confirmed_broker_rejection_does_not_lock_entry(self):
+        from ib_async import TradeLogEntry
+        from datetime import datetime, timezone
+        self.submit()
+        original=self.conn.ib.placeOrder.side_effect
+        def reject(contract, order):
+            trade=original(contract,order)
+            trade.log.append(TradeLogEntry(datetime.now(timezone.utc),'Submitted','Rejected',10052))
+            return trade
+        self.conn.ib.placeOrder.side_effect=reject
+        result=self.edit(price=10.25)
+        self.assertEqual(result['status'],'rejected')
+        self.assertNotIn('pending_edit',self.service.group('DU_TEST',7))
+
+    def test_reconcile_saved_ack_is_read_only_and_exact_contract(self):
+        body=dict(request_id=str(uuid4()),action='submit',side=1,quantity=1,entry=10,tp=11,sl=9,entry_type='LMT')
+        self.service.execute(self.conn,7,body)
+        count=self.conn.ib.placeOrder.call_count
+        self.assertTrue(self.service.request_status(self.conn,7,body['request_id'])['confirmed'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count,count)
+        with self.assertRaises(ValueError): self.service.request_status(self.conn,8,body['request_id'])
+        self.assertFalse(self.service.request_status(self.conn,7,str(uuid4()))['confirmed'])
+
+    def test_price_timeout_recovers_from_broker_without_resubmitting(self):
+        from unittest.mock import patch
+        self.submit()
+        with patch.object(self.service,'modify_exit',side_effect=RuntimeError('timeout')):
+            result=self.edit(price=10.25)
+        self.assertEqual(result['status'],'unknown')
+        request_id=self.service.group('DU_TEST',7)['pending_edit']
+        writes=self.conn.ib.placeOrder.call_count
+        recovered=self.service.request_status(self.conn,7,request_id)
+        self.assertTrue(recovered['confirmed'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+        state=self.service.state(self.conn,7)
+        self.assertEqual(state['entry'],10)
+        self.assertTrue(state['entry_editable'])
+
+    def test_session_warning_does_not_reject_amendment(self):
+        from ib_async import TradeLogEntry
+        from datetime import datetime, timezone
+        self.submit()
+        original=self.conn.ib.placeOrder.side_effect
+        def warn(contract,order):
+            trade=original(contract,order)
+            trade.log.append(TradeLogEntry(datetime.now(timezone.utc),'Submitted','Held until session opens',399))
+            return trade
+        self.conn.ib.placeOrder.side_effect=warn
+        self.assertTrue(self.edit(price=10.25)['success'])

@@ -24,20 +24,48 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
-    func testPaperChartTimeoutLocksRepeatedWriteAcrossNewSession() async {
-        let original = UserDefaults.standard.bool(forKey: "unresolvedTradingWrite")
-        defer { UserDefaults.standard.set(original, forKey: "unresolvedTradingWrite"); MockProtocol.fail = false; MockProtocol.payload = nil }
+    func testPaperTimeoutScopesLockAndReconcilesAfterRestartWithoutReplay() async throws {
+        let defaults = UserDefaults.standard
+        let saved = defaults.dictionary(forKey: "pendingPaperChartRequests")
+        let legacy = defaults.bool(forKey: "unresolvedTradingWrite")
+        defaults.removeObject(forKey: "pendingPaperChartRequests")
+        defaults.set(false, forKey: "unresolvedTradingWrite")
+        defer { defaults.set(saved, forKey: "pendingPaperChartRequests"); defaults.set(legacy, forKey: "unresolvedTradingWrite"); MockProtocol.fail = false; MockProtocol.payload = nil }
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
-        let trading = TradingSession(session: URLSession(configuration: config)); trading.acknowledgeReview()
-        MockProtocol.requests = []; MockProtocol.fail = true
-        do { _ = try await trading.paperChartWrite(base: "https://mock.invalid", conID: 7, body: ["action": "trim", "quantity": 2]); XCTFail("Timeout should throw") } catch { }
-        XCTAssertTrue(trading.uncertain)
-        XCTAssertFalse(trading.busy)
+        let client = TradingSession(session: URLSession(configuration: config))
+        MockProtocol.statusCode = 200; MockProtocol.requests = []; MockProtocol.fail = true
+        do { _ = try await client.paperChartWrite(base: "https://mock.invalid", conID: 7, body: ["action": "edit_entry", "price": 79.54]); XCTFail("Timeout expected") } catch { }
+        XCTAssertTrue(client.paperPending(base: "https://mock.invalid", conID: 7))
+        XCTAssertFalse(client.paperPending(base: "https://mock.invalid", conID: 8))
+        XCTAssertFalse(client.uncertain)
         let restarted = TradingSession(session: URLSession(configuration: config))
-        XCTAssertTrue(restarted.uncertain)
-        let count = MockProtocol.requests.count
-        do { _ = try await restarted.paperChartWrite(base: "https://mock.invalid", conID: 7, body: ["action": "trim", "quantity": 2]); XCTFail("Must block duplicate") } catch { }
-        XCTAssertEqual(MockProtocol.requests.count, count)
+        XCTAssertTrue(restarted.paperPending(base: "https://mock.invalid", conID: 7))
+        MockProtocol.fail = false
+        MockProtocol.payload = { req in req.httpMethod == "GET" ? ["confirmed": false] : ["status": "working"] }
+        do { _ = try await restarted.paperChartWrite(base: "https://mock.invalid", conID: 7, body: ["action": "edit_entry", "price": 79]); XCTFail("Same unresolved order must not replay") } catch { }
+        XCTAssertEqual(MockProtocol.requests.filter { $0.httpMethod == "POST" }.count, 1)
+        _ = try await restarted.paperChartWrite(base: "https://mock.invalid", conID: 8, body: ["action": "edit_entry", "price": 50])
+        XCTAssertFalse(restarted.paperPending(base: "https://mock.invalid", conID: 8))
+        MockProtocol.payload = { _ in ["confirmed": true, "status": "reconciled"] }
+        await restarted.reconcilePaper(base: "https://mock.invalid", conID: 7)
+        XCTAssertFalse(restarted.paperPending(base: "https://mock.invalid", conID: 7))
+        XCTAssertEqual(MockProtocol.requests.filter { $0.httpMethod == "POST" }.count, 2)
+    }
+
+    func testPaperConfirmedRejectionAndPendingDoNotGloballyLock() async throws {
+        let defaults = UserDefaults.standard, saved = UserDefaults.standard.dictionary(forKey: "pendingPaperChartRequests")
+        defaults.removeObject(forKey: "pendingPaperChartRequests")
+        defer { defaults.set(saved, forKey: "pendingPaperChartRequests"); MockProtocol.payload = nil }
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        let client = TradingSession(session: URLSession(configuration: config))
+        client.uncertain = true // legacy lock must not disable verified Paper endpoint
+        MockProtocol.fail = false; MockProtocol.statusCode = 200
+        for status in ["rejected", "pending", "working"] {
+            MockProtocol.payload = { _ in ["status": status] }
+            _ = try await client.paperChartWrite(base: "https://mock.invalid", conID: 9, body: ["action": "edit_entry", "price": 10])
+            XCTAssertFalse(client.paperPending(base: "https://mock.invalid", conID: 9))
+        }
+        XCTAssertTrue(client.uncertain, "Live/legacy write guard is preserved")
     }
 
     func testChartStreamPreservesPermissionDiagnostic() async {
@@ -54,14 +82,14 @@ final class TradingTests: XCTestCase {
 
     func testAccountModeAndTradingPermissionAreIndependent() throws {
         let connection = try JSONDecoder().decode(AccountConnection.self, from: Data(#"{"mode":"paper","execution_enabled":false,"chart_execution_enabled":false}"#.utf8))
-        XCTAssertEqual(connection.label, "IB Paper")
+        XCTAssertEqual(connection.label, "Paper")
         XCTAssertFalse(connection.execution_enabled)
         let store = WheelStore(); store.demo = false
         XCTAssertEqual(store.accountModeLabel, "Unknown")
         XCTAssertFalse(store.chartTradingAvailable)
         store.portfolio = Bootstrap(summary: Summary(account_value: 1, cash_balance: 1), positions: [], connection: connection)
         store.updated = .now
-        XCTAssertEqual(store.accountModeLabel, "IB Paper")
+        XCTAssertEqual(store.accountModeLabel, "Paper")
         XCTAssertEqual(store.tradingAccessLabel, "Read only")
         store.error = "Disconnected"
         XCTAssertEqual(store.tradingAccessLabel, "Disconnected")

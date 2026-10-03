@@ -277,7 +277,7 @@ struct StockChartView: View {
     @State private var paperReceived: Date?
     @State private var paperBusy = false
     @State private var paperMessage: String?
-    private var paperEnabled: Bool { !store.trading.uncertain && !store.trading.busy && Date().timeIntervalSince(paperReceived ?? .distantPast) < 3 && store.chartTradingAvailable && paperState["sync_error"] as? Bool != true && paperState["known"] as? Bool != false && paperState["enabled"] as? Bool == true }
+    private var paperEnabled: Bool { !store.trading.paperPending(base: store.address, conID: chartID ?? 0) && !store.trading.busy && Date().timeIntervalSince(paperReceived ?? .distantPast) < 3 && store.chartTradingAvailable && paperState["sync_error"] as? Bool != true && paperState["known"] as? Bool != false && paperState["enabled"] as? Bool == true }
     private var paperActive: Bool { paperState["active"] as? Bool == true }
     private func applyPaperState(_ state: [String: Any]) {
         paperState = state
@@ -784,7 +784,7 @@ struct StockChartView: View {
     }
     private var paperStatusText: String {
         let rows = paperState["orders"] as? [[String: Any]] ?? []
-        if store.trading.uncertain { return "Order outcome unknown · verify Gateway before resubmitting" }
+        if store.trading.paperPending(base: store.address, conID: chartID ?? 0) { return "Confirming this order with IB…" }
         if paperState["sync_error"] as? Bool == true { return "Order updates paused · verify Gateway" }
         if paperState["known"] as? Bool == false { return "Order status unknown · verify Gateway" }
         if paperState["rejected"] as? Bool == true { return "Order rejected · verify Gateway" }
@@ -1221,6 +1221,7 @@ struct StockChartView: View {
             guard visible, phase == .active, store.chartTradingAvailable, let cid = chartID else { return }
             while !Task.isCancelled {
                 do {
+                    await store.trading.reconcilePaper(base: store.address, conID: cid)
                     let state = try await store.trading.get("api/portfolio/paper-chart/\(cid)", base: store.address)
                     try Task.checkCancellation()
                     guard chartID == cid else { return }

@@ -5,11 +5,11 @@ const result=await page.evaluate(()=>{
  const packet={generation:'paper',symbol:'TSLA',exchange:'NASDAQ',interval:5,session:'all',bars:[{time:1000,open:10,high:11,low:9,close:10}]};receive(packet);
  const config={entry:10,quantity:1,entryType:'LMT',joinSide:1,joinRevision:1,tpDistance:1,slDistance:.5,templateRevision:1,priceRules:[{low:0,increment:.25}],con_id:7,paper:{enabled:true}};
  configure(config);configure(config);const submitted=[...sent];
- config.paper={enabled:true,active:true,entry:10,tp:11,sl:9.5,side:1};configure(config);
+ config.paper={enabled:true,active:true,entry_editable:true,order_ref:'test',edit_snapshot:[],entry:10,tp:11,sl:9.5,side:1};configure(config);
  const h=document.getElementById('sl');dragging='sl';levels.sl=9.75;h.dispatchEvent(new PointerEvent('pointerup'));h.dispatchEvent(new PointerEvent('lostpointercapture'));
  document.getElementById('cancel').click();
  return {submitted,sent,title:document.getElementById('chart-title').textContent,stillVisible:!document.getElementById('entry').hidden};
-});assert.equal(result.submitted.length,1);assert.deepEqual(result.submitted[0],{action:'submit',entry:10,quantity:1,side:1,entry_type:'LMT',tp:11,sl:9.5,con_id:7});assert.deepEqual(result.sent[1],{action:'amend',role:'sl',price:9.75,con_id:7});assert.equal(result.sent.length,3);assert.equal(result.sent[2].action,'close');assert.equal(result.stillVisible,true);assert.equal(result.title,'TSLA · 5 · NASDAQ');const fills=await page.evaluate(()=>{
+});assert.equal(result.submitted.length,1);assert.deepEqual(result.submitted[0],{action:'submit',entry:10,quantity:1,side:1,entry_type:'LMT',tp:11,sl:9.5,con_id:7});assert.deepEqual(result.sent[1],{action:'amend',role:'sl',price:9.75,con_id:7});assert.equal(result.sent.length,3);assert.equal(result.sent[2].action,'edit_entry');assert.equal(result.sent[2].cancel,true);assert.equal(result.stillVisible,true);assert.equal(result.title,'TSLA · 5 · NASDAQ');const fills=await page.evaluate(()=>{
  const base={entry:10,quantity:1,entryType:'LMT',priceRules:[{low:0,increment:.25}],con_id:7};
  configure({...base,paper:{enabled:true,active:true,position:1,entry:10,tp:11,sl:9.5,side:1,orders:[{role:'entry',status:'Filled',filled:1}]}});
  const held=document.getElementById('entry').textContent;
@@ -39,9 +39,9 @@ await page.evaluate(()=>{
  const c={entry:100,quantity:3,con_id:7,tpDistance:2,slDistance:1,priceRules:[{low:0,increment:.25}],paper:{enabled:true,active:false}};
  configure(c);const before=sent.length;
  document.getElementById('preview-order-quantity').click();
- if(sent.length!==before+1||sent.at(-1).action!=='editQuantity')throw Error('Quantity editor submitted an order');
+ if(sent.length!==before||quantityPopup.hidden)throw Error('Quantity editor submitted an order or did not open');quantityPopup.hidden=true;
  configure({...c,paper:{enabled:true,active:true,entry:100,tp:102,sl:99,side:1}});
- if(document.getElementById('preview-order-quantity'))throw Error('Working order offered preview quantity edit');
+ document.getElementById('preview-order-quantity').click();if(!quantityPopup.hidden)throw Error('Noneditable working order offered quantity edit');
 });
 await page.evaluate(()=>{
  updatePriceCursor({point:{x:200,y:200}});
@@ -60,7 +60,7 @@ const markers=await page.evaluate(()=>{
  configure({...c,display:{executionLabels:false}});const unlabeled=executionMarkers.markers();
  executionTap={x:chart.timeScale().timeToCoordinate(1300),y:series.priceToCoordinate(12)-15,at:performance.now()};
  showExecutionDetails({hoveredObjectId:'sell',point:executionTap});
- if(executionPopup.hidden||!executionPopup.textContent.includes('Sell')||!executionPopup.textContent.includes('1 @ 11.00'))throw Error('Hidden label marker did not open fill details');
+ if(executionPopup.hidden||!executionPopup.textContent.includes('-1@11.00'))throw Error('Hidden label marker did not open fill details');
  executionTap={x:20,y:200,at:performance.now()};
  showExecutionDetails({hoveredObjectId:'sell',point:{x:200,y:160}});
  if(!executionPopup.hidden)throw Error('Blank chart tap did not dismiss fill');
@@ -71,7 +71,7 @@ const markers=await page.evaluate(()=>{
  configure({...c,entry:10,paper:{active:true,entry:10,tp:11,sl:9.5,side:1,position:1},display:{profit:false}});const noProfit=document.getElementById('tp').textContent;
  configure({...c,entry:10,paper:{active:true,entry:10,tp:11,sl:9.5,side:1,position:1},display:{bracketUnit:'ticks',positions:true,positionUnit:'ticks'}});const ticks=document.getElementById('tp').textContent,position=document.getElementById('entry').textContent;
  return {visible,switched,unlabeled,hidden,noProfit,ticks,position};
-});assert.equal(markers.visible.length,2);assert.equal(markers.visible[0].shape,'arrowUp');assert.equal(markers.visible[1].shape,'arrowDown');assert.equal(markers.visible[1].text,'1 @ 11.00');assert.equal(markers.switched.length,0);assert.equal(markers.unlabeled.length,2);assert.equal(markers.unlabeled[0].text,'');assert.equal(markers.hidden.length,0);assert.doesNotMatch(markers.noProfit,/ticks|\+/);assert.match(markers.ticks,/\+4.0 ticks/);assert.match(markers.position,/ticks/);
+});assert.equal(markers.visible.length,2);assert.equal(markers.visible[0].shape,'arrowUp');assert.equal(markers.visible[1].shape,'arrowDown');assert.equal(markers.visible[1].text,'1@11.00');assert.equal(markers.switched.length,0);assert.equal(markers.unlabeled.length,2);assert.equal(markers.unlabeled[0].text,'');assert.equal(markers.hidden.length,0);assert.doesNotMatch(markers.noProfit,/ticks|\+/);assert.match(markers.ticks,/\+4.0 ticks/);assert.match(markers.position,/ticks/);
 await page.evaluate(()=>{
  const c={entry:100,quantity:1,multiplier:5,con_id:7,paper:{enabled:true,active:true,entry:100,tp:102,sl:99,side:1,position:6}};
  configure(c);if(qty!==6||!document.getElementById('tp').textContent.includes('+$60.00'))throw Error('Scaled position did not update bracket PnL');
