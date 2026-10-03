@@ -223,6 +223,15 @@ class PaperChart:
             result['status'] = ('rejected' if result['rejected'] else 'unknown' if not result['known']
                 else 'filled' if statuses == {'Filled'} else 'canceled' if statuses <= {'Cancelled', 'ApiCancelled'}
                 else 'working' if statuses <= {'Submitted', 'PreSubmitted'} else 'pending')
+        parents = [r for r in rows if r['role'].split('_')[0] == 'entry']
+        result['order_ref'] = group.get('ref')
+        result['tif'] = result.get('tif') or (parent.order.tif if parent else 'DAY')
+        result['entry_type'] = parent.order.orderType if parent else 'LMT'
+        result['entry_editable'] = bool(parents and result['known'] and not result['position']
+            and not group.get('pending_edit') and all(r['filled'] == 0 and
+            r['status'] in ('Submitted', 'PreSubmitted') for r in rows))
+        result['edit_snapshot'] = [dict(order_id=r['order_id'], price=r['price'], quantity=r['quantity'],
+            filled=r['filled'], status=r['status'], tif=trades[r['order_id']].order.tif if r['order_id'] in trades else '') for r in rows]
         return result
 
     @staticmethod
@@ -287,7 +296,7 @@ class PaperChart:
             take=LimitOrder(sell,1,tp,orderId=ids['tp'],parentId=ids['entry'],transmit=False)
             stop=StopOrder(sell,1,sl,orderId=ids['sl'],parentId=ids['entry'],transmit=True)
             for order in (parent,take,stop):
-                order.account=account;order.tif='DAY';order.orderRef=group['ref']
+                order.account=account;order.tif=group.get('tif', 'DAY');order.orderRef=group['ref']
                 conn.ib.placeOrder(contract,order)
 
     def exit_lots(self, conn, account, cid, group, lots, trades, price, action, request_id):
@@ -374,6 +383,89 @@ class PaperChart:
         tick = Decimal(str(max(ticks, key=lambda r:r.lowEdge).increment))
         if amount % tick: raise ValueError('Price does not match overnight tick size')
 
+    def edit_entry(self, conn, account, cid, contract, current, group, body, request_id):
+        """Edit only a wholly unfilled, exactly identified Paper order group."""
+        import copy
+        import time
+        if not current.get('entry_editable') or body.get('expected_ref') != group.get('ref'):
+            raise ValueError('Entry is no longer editable; refresh chart')
+        if body.get('expected_snapshot') != current.get('edit_snapshot'):
+            raise ValueError('Order changed; refresh chart before editing')
+        trades = self._resolved_trades
+        owned = [trades[oid] for oid in group['ids'].values()]
+        if any(t.order.account != account or t.contract.conId != cid or
+               t.order.orderRef != group['ref'] for t in owned):
+            raise ValueError('Order ownership mismatch')
+        parents = [trades[oid] for role, oid in group['ids'].items() if role.split('_')[0] == 'entry']
+        quantity = body.get('quantity', sum(t.order.totalQuantity for t in parents))
+        limit = 1000 if contract.secType == 'STK' else 10
+        if isinstance(quantity, bool) or not isinstance(quantity, (int, float)) or not math.isfinite(quantity) or quantity != int(quantity) or not 1 <= quantity <= limit:
+            raise ValueError('Invalid order quantity')
+        tif = body.get('tif', current['tif'])
+        overnight = group.get('mode') == 'overnight_entry'
+        if tif not in (('OVERNIGHT',) if overnight else ('DAY', 'GTC')):
+            raise ValueError('This route supports ' + ('OVT only' if overnight else 'DAY or GTC'))
+        try: amount = Decimal(str(body.get('price', current['entry'])))
+        except Exception: raise ValueError('Invalid entry price')
+        if not amount.is_finite() or amount <= 0: raise ValueError('Invalid entry price')
+        if overnight:
+            self.validate_overnight_price(conn, parents[0].contract, cid, amount)
+        else:
+            active = stock_chart.active
+            rules = active.get('price_rules', []) if active and active['con_id'] == cid else []
+            ticks = [r['increment'] for r in rules if Decimal(str(r['low'])) <= amount]
+            if not ticks or amount % Decimal(str(ticks[-1])): raise ValueError('Invalid contract tick size')
+            if group['side'] * (current['tp'] - float(amount)) <= 0 or group['side'] * (current['sl'] - float(amount)) >= 0:
+                raise ValueError('Entry must stay between TP and SL; adjust protection first')
+        # Contract validation pumps broker events. Recheck all fills before any write.
+        fresh = self.state(conn, cid)
+        if not fresh.get('entry_editable') or fresh['edit_snapshot'] != current['edit_snapshot']:
+            raise ValueError('Order changed while validating; refresh chart')
+        group['pending_edit'] = request_id
+        self.save_group(account, cid, group)
+        try:
+            structural = quantity != sum(t.order.totalQuantity for t in parents) or tif != current['tif']
+            if not structural:
+                for trade in parents:
+                    if trade.isDone() or trade.orderStatus.filled or trade.fills:
+                        raise RuntimeError('Entry filled during amendment')
+                    amended = copy.copy(trade.order)
+                    field = 'auxPrice' if amended.orderType == 'STP' else 'lmtPrice'
+                    setattr(amended, field, float(amount)); amended.transmit = True
+                    self.modify_exit(conn, trade, amended, field)
+            else:
+                # Quantity/TIF changes replace the entire unfilled bracket. Cancel parents
+                # first; never remove protection if a fill races with cancellation.
+                for trade in parents: conn.ib.cancelOrder(trade.order)
+                deadline = time.monotonic() + 4
+                while any(not t.isDone() for t in parents) and time.monotonic() < deadline: conn.ib.sleep(.05)
+                fresh = self.state(conn, cid)
+                if any(t.orderStatus.status not in ('Cancelled', 'ApiCancelled') for t in parents) or fresh['position'] or any(r['filled'] for r in fresh['orders']):
+                    raise RuntimeError('Cancellation/fill needs reconciliation; protection retained')
+                for trade in owned:
+                    if trade not in parents and not trade.isDone(): conn.ib.cancelOrder(trade.order)
+                deadline = time.monotonic() + 4
+                while any(not t.isDone() for t in owned) and time.monotonic() < deadline: conn.ib.sleep(.05)
+                fresh = self.state(conn, cid)
+                if any(t.orderStatus.status not in ('Cancelled', 'ApiCancelled') for t in owned) or fresh['position'] or any(r['filled'] for r in fresh['orders']):
+                    raise RuntimeError('Original bracket not fully canceled; replacement blocked')
+                if overnight:
+                    replacement = dict(action='submit', mode='overnight_entry', side=1,
+                        entry_type='LMT', entry=float(amount), quantity=int(quantity))
+                else:
+                    replacement = dict(action='submit', side=group['side'], entry_type=current['entry_type'],
+                        entry=float(amount), quantity=int(quantity), tp=current['tp'], sl=current['sl'], tif=tif)
+                self.perform(conn, account, cid, replacement, request_id)
+            latest = self.group(account, cid)
+            latest.pop('pending_edit', None)
+            self.save_group(account, cid, latest)
+        except Exception as error:
+            latest = self.group(account, cid)
+            latest['pending_edit'] = request_id
+            self.save_group(account, cid, latest)
+            # At least one broker write may have happened. Do not offer a blind retry.
+            raise RuntimeError('Entry amendment needs broker reconciliation') from error
+
     def perform(self, conn, account, cid, body, request_id):
         contract=contracts.resolve(conn,cid)
         if contract.secType not in ('STK','FUT','OPT'): raise ValueError('This contract supports chart viewing only')
@@ -386,6 +478,9 @@ class PaperChart:
             if action != 'submit': raise ValueError('Overnight entry mode only supports submit')
             return self.submit_overnight_entry(conn, account, cid, contract, current, body, request_id)
         group = self.group(account, cid)
+        if action == 'edit_entry':
+            if not group: raise ValueError('No owned entry')
+            return self.edit_entry(conn, account, cid, contract, current, group, body, request_id)
         if group and group.get('mode') == 'overnight_entry':
             if action == 'manage_entry':
                 import copy
@@ -439,13 +534,15 @@ class PaperChart:
             if current['active'] or not current['known']: raise ValueError('An existing chart order needs resolution first')
             if current['position'] or any(t.contract.conId==cid and t.order.account==account for t in conn.ib.openTrades()):
                 raise ValueError('Close existing position/orders for this contract before starting a new bracket')
+            tif=body.get('tif', 'DAY')
+            if tif not in ('DAY', 'GTC'): raise ValueError('Unsupported bracket TIF')
             side=body.get('side'); qty=body.get('quantity')
             if side not in (-1,1) or not isinstance(qty,(int,float)) or not math.isfinite(qty) or qty!=int(qty) or not 1<=qty<=(10 if contract.secType in ('FUT','OPT') else 1000): raise ValueError('Invalid paper order size or side')
             entry=price(body.get('entry')); tp=price(body.get('tp')); sl=price(body.get('sl'))
             if side*(tp-entry)<=0 or side*(sl-entry)>=0: raise ValueError('TP and SL must be on opposite sides of entry')
             if body.get('entry_type') not in ('LMT','STP'): raise ValueError('Unsupported entry type')
             if contract.secType in ('FUT','OPT'):
-                group=dict(ids={},lots=[],side=side,ref='WheelPaper:'+request_id)
+                group=dict(ids={},lots=[],side=side,ref='WheelPaper:'+request_id,tif=tif)
                 self.add_lots(conn,account,cid,contract,group,int(qty),body['entry_type'],entry,tp,sl)
                 return
             buy='BUY' if side==1 else 'SELL'; sell='SELL' if side==1 else 'BUY'
@@ -456,7 +553,7 @@ class PaperChart:
             with self.database() as db:
                 db.execute('INSERT OR REPLACE INTO chart_paper_groups VALUES(?,?,?)',(account,cid,json.dumps(dict(ids=ids,side=side,ref='WheelPaper:'+request_id))))
             for order in (parent,take,stop):
-                order.account=account;order.tif='DAY';order.orderRef='WheelPaper:'+request_id
+                order.account=account;order.tif=tif;order.orderRef='WheelPaper:'+request_id
                 conn.ib.placeOrder(contract,order)
             return
         if not current['known']: raise ValueError('Orders need Gateway reconciliation before another action')

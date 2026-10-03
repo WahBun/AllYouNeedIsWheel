@@ -82,6 +82,101 @@ struct ChartOrderProgressView: View {
     }
 }
 
+struct ChartBarCountInput: View {
+    @Binding var value: Int
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+    private func finishEditing() {
+        value = Int(draft).map { min(2000, max(50, $0)) } ?? value
+        draft = String(value)
+    }
+    var body: some View {
+        HStack {
+            Text("Bars to render")
+            Spacer()
+            TextField("50–2000", text: $draft)
+                .keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                .frame(width: 100).focused($focused)
+                .accessibilityLabel("Bars to render")
+        }
+        .onAppear { draft = String(value) }
+        .onChange(of: draft) { _, text in
+            let digits = String(text.filter { $0.isASCII && $0.isNumber }.prefix(5))
+            if digits != text { draft = digits }
+            if let number = Int(digits), (50...2000).contains(number) { value = number }
+        }
+        .onChange(of: value) { _, number in if !focused { draft = String(number) } }
+        .onChange(of: focused) { _, editing in if !editing { finishEditing() } }
+        .onDisappear { finishEditing() }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { finishEditing(); focused = false }
+            }
+        }
+    }
+}
+
+struct PreviousValueRow: Codable, Equatable {
+    var enabled = true
+    var frame = 1440
+    var source: String
+    var color: String
+    var style = "dotted"
+    var width = 1
+}
+struct PreviousValuesSettings: Codable, Equatable {
+    var enabled = true
+    var display = "Today"
+    var baseChart = true
+    var lineDraw = true
+    var rows = [PreviousValueRow(source: "close", color: "#434651"), PreviousValueRow(source: "high", color: "#F23645"), PreviousValueRow(source: "low", color: "#089981")]
+}
+
+struct FVGSettings: Codable, Equatable {
+    var enabled = true
+    var confirmed = true
+    var shrink = true
+    var maxCount = 8
+    var minTicks = 2
+    var atrFactor = 0.05
+    var bullColor = "#f5a623"
+    var bearColor = "#4b8cff"
+    var bullOpacity = 22.0
+    var bearOpacity = 20.0
+}
+
+struct IndicatorTemplate: Codable, Identifiable {
+    var id = UUID()
+    var name: String
+    var settings: IndicatorSettingsSnapshot
+}
+
+struct IndicatorSettingsSnapshot: Codable, Equatable {
+    var fvg: FVGSettings? = nil
+    var previousValues: PreviousValuesSettings? = nil
+    var showEMA: Bool
+    var emaLength: Int
+    var emaSource: String
+    var emaOffset: Int
+    var emaFrame: Int
+    var emaDynamic: Bool
+    var emaColor: String
+    var emaWidth: Int
+    var emaStyle: Int
+    var extraEMAJSON: String
+    var showATR: Bool
+    var atrLength: Int
+    var showBarCount: Bool
+    var barCountFrame: Int
+    var barCountSize: String
+    var barCountColor: String
+    var barCountOpacity: Double
+    var barCountLimit: Bool
+    var barCountBars: Int
+    var indicatorVisible: Bool
+}
+
 struct ExtraEMA: Codable {
     var enabled = true
     var timeframe: Int
@@ -126,7 +221,13 @@ enum ChartHoldingOverlay {
             if strike && price == nil { return nil }
             if price == nil { caption += " —" }
             return ["id": "\(strike ? "strike" : "holding")-\(id)", "price": price as Any? ?? NSNull(), "title": caption,
-                    "kind": strike ? "strike" : "holding", "side": holding.position > 0 ? 1 : -1]
+                    "kind": strike ? "strike" : "holding", "side": holding.position > 0 ? 1 : -1,
+                    "pnl": holding.unrealized_pnl.flatMap { $0.isFinite ? $0 : nil } as Any? ?? NSNull(),
+                    "basis": holding.avg_cost.flatMap { cost -> Double? in
+                        let basis = abs(cost * holding.position)
+                        return basis.isFinite && basis > 0 ? basis : nil
+                    } as Any? ?? NSNull(),
+                    "marketPrice": holding.market_price.flatMap { $0.isFinite ? $0 : nil } as Any? ?? NSNull()]
         }
     }
 }
@@ -153,7 +254,19 @@ struct StockChartView: View {
     @State private var completedPaperOrders: Set<String> = []
     @State private var showQuantityEditor = false
     @State private var quantityDraft = "1"
-    private var quantityLimit: Int { chartType == "FUT" ? 10 : 1000 }
+    @State private var editSnapshot: [[String: Any]] = []
+    @State private var editOrderRef = ""
+    @State private var editTIF = "DAY"
+    @State private var editPrice = ""
+    private var entryEditable: Bool { paperState["entry_editable"] as? Bool == true && paperEnabled }
+    private func beginOrderEdit() {
+        quantityDraft = String(Int(paperState["quantity"] as? Double ?? (paperState["orders"] as? [[String: Any]])?.first(where: { $0["role"] as? String == "entry" })?["quantity"] as? Double ?? validQuantity))
+        editSnapshot = paperState["edit_snapshot"] as? [[String: Any]] ?? []
+        editOrderRef = paperState["order_ref"] as? String ?? ""
+        editTIF = paperState["tif"] as? String ?? "DAY"
+        editPrice = String(paperState["entry"] as? Double ?? validEntry)
+    }
+    private var quantityLimit: Int { chartType == "STK" ? 1000 : 10 }
     private var validQuantityDraft: Int? {
         guard let value = Int(quantityDraft), (1...quantityLimit).contains(value) else { return nil }
         return value
@@ -161,7 +274,7 @@ struct StockChartView: View {
     @State private var paperReceived: Date?
     @State private var paperBusy = false
     @State private var paperMessage: String?
-    private var paperEnabled: Bool { !store.trading.uncertain && !store.trading.busy && Date().timeIntervalSince(paperReceived ?? .distantPast) < 3 && store.chartTradingAvailable && chartType != "OPT" && paperState["sync_error"] as? Bool != true && paperState["known"] as? Bool != false && paperState["enabled"] as? Bool == true }
+    private var paperEnabled: Bool { !store.trading.uncertain && !store.trading.busy && Date().timeIntervalSince(paperReceived ?? .distantPast) < 3 && store.chartTradingAvailable && paperState["sync_error"] as? Bool != true && paperState["known"] as? Bool != false && paperState["enabled"] as? Bool == true }
     private var paperActive: Bool { paperState["active"] as? Bool == true }
     private func applyPaperState(_ state: [String: Any]) {
         paperState = state
@@ -176,9 +289,15 @@ struct StockChartView: View {
         if body["action"] as? String == "indicatorSettings" { showIndicatorSettings = true; return }
         if body["action"] as? String == "indicatorToggle" { indicatorVisible.toggle(); return }
         if body["action"] as? String == "indicatorCollapse", let collapsed = body["collapsed"] as? Bool { indicatorCollapsed = collapsed; return }
-        if body["action"] as? String == "editQuantity" {
-            guard !paperActive, !paperBusy, body["con_id"] as? Int == chartID else { return }
-            quantityDraft = quantity; showQuantityEditor = true; return
+        if body["action"] as? String == "setQuantity" {
+            guard !paperActive, !paperBusy, body["con_id"] as? Int == chartID,
+                  let value = body["quantity"] as? Int, (1...quantityLimit).contains(value) else { return }
+            quantity = String(value); return
+        }
+        if ["editQuantity", "editOrderSettings"].contains(body["action"] as? String ?? "") {
+            guard !paperBusy, !paperActive || entryEditable, body["con_id"] as? Int == chartID else { return }
+            if paperActive { beginOrderEdit() } else { quantityDraft = quantity }
+            showQuantityEditor = true; return
         }
         guard !paperBusy, paperEnabled, let cid = chartID else { return }
         if let source = body["con_id"] as? Int, source != cid { return }
@@ -221,6 +340,7 @@ struct StockChartView: View {
     @Environment(\.locale) private var locale
     @State private var interval = 5
     @State private var fullScreen = false
+    @State private var tradingPanelCollapsed = true
     @AppStorage("chartFavoriteIntervals") private var favoriteIntervals = "1,3,5,10,15,60,480,1440,10080,43200"
     @State private var showIntervals = false
     private let intervals = [1, 3, 5, 10, 15, 60, 480, 1440, 10080, 43200]
@@ -319,6 +439,7 @@ struct StockChartView: View {
         guard indicatorVisible else { return [] }
         var frames = extraEMAs.filter { $0.enabled }.map { $0.timeframe }
         if showEMA { frames.append(emaFrame) }
+        if session == "rth" && pvSettings.enabled && !pvSettings.baseChart { frames += pvSettings.rows.filter { $0.enabled }.map { $0.frame } }
         return Array(Set(frames.filter { $0 > 0 && $0 != interval })).sorted()
     }
     private var emaCacheKey: String { "ema-history-\(cacheKey)-" + requestedEMAFrames.map(String.init).joined(separator: ",") }
@@ -343,6 +464,228 @@ struct StockChartView: View {
             emaColor = String(format: "#%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
         })
     }
+    @AppStorage("chartIndicatorTemplatesV1") private var indicatorTemplatesJSON = "[]"
+    @State private var templateName = ""
+    @State private var namingTemplate = false
+    @State private var replacingTemplate = false
+    private var indicatorTemplates: [IndicatorTemplate] {
+        guard let data = indicatorTemplatesJSON.data(using: .utf8),
+              let rows = try? JSONDecoder().decode([IndicatorTemplate].self, from: data) else { return [] }
+        return rows
+    }
+    private var indicatorSnapshot: IndicatorSettingsSnapshot {
+        IndicatorSettingsSnapshot(fvg: fvgSettings, previousValues: pvSettings, showEMA: showEMA, emaLength: emaLength, emaSource: emaSource, emaOffset: emaOffset, emaFrame: emaFrame, emaDynamic: emaDynamic, emaColor: emaColor, emaWidth: emaWidth, emaStyle: emaStyle, extraEMAJSON: extraEMAJSON, showATR: showATR, atrLength: atrLength, showBarCount: showBarCount, barCountFrame: barCountFrame, barCountSize: barCountSize, barCountColor: barCountColor, barCountOpacity: barCountOpacity, barCountLimit: barCountLimit, barCountBars: barCountBars, indicatorVisible: indicatorVisible)
+    }
+    private func saveIndicatorTemplates(_ rows: [IndicatorTemplate]) {
+        if let data = try? JSONEncoder().encode(rows), let text = String(data: data, encoding: .utf8) {
+            indicatorTemplatesJSON = text
+        }
+    }
+    private func applyIndicatorTemplate(_ settings: IndicatorSettingsSnapshot) {
+        saveFVG(settings.fvg ?? FVGSettings())
+        savePV(settings.previousValues ?? PreviousValuesSettings())
+        showEMA = settings.showEMA
+        emaLength = settings.emaLength
+        emaSource = settings.emaSource
+        emaOffset = settings.emaOffset
+        emaFrame = settings.emaFrame
+        emaDynamic = settings.emaDynamic
+        emaColor = settings.emaColor
+        emaWidth = settings.emaWidth
+        emaStyle = settings.emaStyle
+        extraEMAJSON = settings.extraEMAJSON
+        showATR = settings.showATR
+        atrLength = settings.atrLength
+        showBarCount = settings.showBarCount
+        barCountFrame = settings.barCountFrame
+        barCountSize = settings.barCountSize
+        barCountColor = settings.barCountColor
+        barCountOpacity = settings.barCountOpacity
+        barCountLimit = settings.barCountLimit
+        barCountBars = settings.barCountBars
+        indicatorVisible = settings.indicatorVisible
+    }
+    private var cleanTemplateName: String { templateName.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var canSaveIndicatorTemplate: Bool {
+        !cleanTemplateName.isEmpty && cleanTemplateName.count <= 40
+    }
+    private func storeNamedIndicatorTemplate() {
+        guard canSaveIndicatorTemplate else { return }
+        var rows = indicatorTemplates
+        if let index = rows.firstIndex(where: { $0.name.caseInsensitiveCompare(cleanTemplateName) == .orderedSame }) {
+            rows[index].settings = indicatorSnapshot
+        } else {
+            rows.append(IndicatorTemplate(name: cleanTemplateName, settings: indicatorSnapshot))
+        }
+        saveIndicatorTemplates(rows)
+        namingTemplate = false
+    }
+    private var saveIndicatorTemplateSheet: some View {
+        NavigationStack {
+            Form {
+                Section("Template name") {
+                    HStack {
+                        TextField("New template name", text: $templateName)
+                            .autocorrectionDisabled().submitLabel(.done)
+                        if !indicatorTemplates.isEmpty {
+                            Menu {
+                                ForEach(indicatorTemplates) { item in
+                                    Button(item.name) { templateName = item.name }
+                                }
+                            } label: { Image(systemName: "chevron.down") }
+                            .accessibilityLabel("Choose existing template")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Save indicator template")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { namingTemplate = false } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        if indicatorTemplates.contains(where: { $0.name.caseInsensitiveCompare(cleanTemplateName) == .orderedSame }) {
+                            replacingTemplate = true
+                        } else { storeNamedIndicatorTemplate() }
+                    }.disabled(!canSaveIndicatorTemplate)
+                }
+            }
+            .alert("Replace template?", isPresented: $replacingTemplate) {
+                Button("Cancel", role: .cancel) {}
+                Button("Replace") { storeNamedIndicatorTemplate() }
+            } message: { Text("Replace the saved settings for \(cleanTemplateName)?") }
+        }.presentationDetents([.medium, .large])
+    }
+    private func applyDefaultIndicatorTemplate() {
+        saveFVG(FVGSettings())
+        savePV(PreviousValuesSettings())
+                        emaFrame = 0; extraEMAJSON = ""
+                        showBarCount = true; barCountFrame = 1440; barCountSize = "tiny"; barCountColor = "#521c6e"; barCountOpacity = 66; barCountLimit = true; barCountBars = 162
+                        indicatorVisible = true; showEMA = true; emaLength = 20; emaSource = "close"; emaOffset = 0
+                        emaDynamic = true; emaColor = "#f9f1db"; emaWidth = 1; emaStyle = 0
+                        showATR = true; atrLength = 4
+
+    }
+    private var indicatorTemplateSection: some View {
+        Section("Indicator templates") {
+            Button("Save Indicator Template As…") { templateName = ""; namingTemplate = true }
+            Button("Apply Default Indicator Template") { applyDefaultIndicatorTemplate() }
+            ForEach(indicatorTemplates) { item in
+                HStack {
+                    Button { applyIndicatorTemplate(item.settings) } label: {
+                        HStack {
+                            Text(verbatim: item.name)
+                            Spacer()
+                            if item.settings == indicatorSnapshot { Image(systemName: "checkmark") }
+                        }.contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                    Menu {
+                        Button("Update with current settings") {
+                            templateName = item.name
+                            namingTemplate = true
+                        }
+                        Button("Delete", role: .destructive) {
+                            saveIndicatorTemplates(indicatorTemplates.filter { $0.id != item.id })
+                        }
+                    } label: { Image(systemName: "ellipsis.circle").padding(.leading, 8) }
+                    .accessibilityLabel(Text("Template actions: \(item.name)"))
+                }
+            }
+        }
+    }
+    @AppStorage("chartFVGSettingsV1") private var fvgJSON = ""
+    private var fvgSettings: FVGSettings {
+        (try? JSONDecoder().decode(FVGSettings.self, from: Data(fvgJSON.utf8))) ?? FVGSettings()
+    }
+    private func saveFVG(_ value: FVGSettings) {
+        var checked = value
+        checked.atrFactor = value.atrFactor.isFinite ? max(0, value.atrFactor) : 0.05
+        if let data = try? JSONEncoder().encode(checked) { fvgJSON = String(decoding: data, as: UTF8.self) }
+    }
+    private func fvgBinding<T>(_ path: WritableKeyPath<FVGSettings, T>) -> Binding<T> {
+        Binding(get: { fvgSettings[keyPath: path] }, set: { value in
+            var settings = fvgSettings; settings[keyPath: path] = value; saveFVG(settings)
+        })
+    }
+    private func fvgColor(_ path: WritableKeyPath<FVGSettings, String>) -> Binding<Color> {
+        Binding(get: { CustomPalette.color(fvgSettings[keyPath: path]) ?? .orange }, set: { color in
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+            fvgBinding(path).wrappedValue = String(format: "#%02X%02X%02X", Int(r*255), Int(g*255), Int(b*255))
+        })
+    }
+    private var fvgDisplay: [String: Any] {
+        var result = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(fvgSettings))) as? [String: Any] ?? [:]
+        result["enabled"] = fvgSettings.enabled && indicatorVisible
+        return result
+    }
+    @ViewBuilder private var fvgSection: some View {
+        Section("FVG") {
+            if indicatorTab == "Inputs" {
+                Toggle("Confirmed Close Only", isOn: fvgBinding(\.confirmed))
+                Toggle("Show Open Portion Only", isOn: fvgBinding(\.shrink))
+                Stepper("Max FVGs: \(fvgSettings.maxCount)", value: fvgBinding(\.maxCount), in: 1...50)
+                Stepper("Min Gap Ticks: \(fvgSettings.minTicks)", value: fvgBinding(\.minTicks), in: 0...100)
+                HStack { Text("Min Gap ATR Factor"); TextField("0.05", value: fvgBinding(\.atrFactor), format: .number).keyboardType(.decimalPad).multilineTextAlignment(.trailing) }
+            } else if indicatorTab == "Style" {
+                ColorPicker("Bullish FVG", selection: fvgColor(\.bullColor), supportsOpacity: false)
+                Slider(value: fvgBinding(\.bullOpacity), in: 0...100, step: 1) { Text("Bullish opacity") }
+                ColorPicker("Bearish FVG", selection: fvgColor(\.bearColor), supportsOpacity: false)
+                Slider(value: fvgBinding(\.bearOpacity), in: 0...100, step: 1) { Text("Bearish opacity") }
+            } else { Toggle("Show Unfilled FVG", isOn: fvgBinding(\.enabled)) }
+        }
+    }
+    @AppStorage("chartPreviousValuesV1") private var pvJSON = ""
+    private var pvSettings: PreviousValuesSettings {
+        guard let value = try? JSONDecoder().decode(PreviousValuesSettings.self, from: Data(pvJSON.utf8)), value.rows.count == 3 else { return PreviousValuesSettings() }
+        return value
+    }
+    private func savePV(_ settings: PreviousValuesSettings) {
+        if let data = try? JSONEncoder().encode(settings) { pvJSON = String(decoding: data, as: UTF8.self) }
+    }
+    private func pvBinding<T>(_ path: WritableKeyPath<PreviousValuesSettings,T>) -> Binding<T> {
+        Binding(get: { pvSettings[keyPath: path] }, set: { v in var s = pvSettings; s[keyPath: path] = v; savePV(s) })
+    }
+    private func pvRowBinding<T>(_ i: Int, _ path: WritableKeyPath<PreviousValueRow,T>) -> Binding<T> {
+        Binding(get: { pvSettings.rows[i][keyPath: path] }, set: { v in var s = pvSettings; s.rows[i][keyPath: path] = v; savePV(s) })
+    }
+    private func pvColor(_ i: Int) -> Binding<Color> {
+        Binding(get: { CustomPalette.color(pvSettings.rows[i].color) ?? .gray }, set: { c in
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            UIColor(c).getRed(&r, green: &g, blue: &b, alpha: &a)
+            pvRowBinding(i, \.color).wrappedValue = String(format: "#%02X%02X%02X", Int(r*255), Int(g*255), Int(b*255))
+        })
+    }
+    private var pvDisplay: [String: Any] {
+        var value = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(pvSettings))) as? [String: Any] ?? [:]
+        value["enabled"] = session == "rth" && pvSettings.enabled && indicatorVisible
+        return value
+    }
+    private var pvSection: some View {
+        Section("Previous Values") {
+            if indicatorTab == "Inputs" {
+                Picker("Display", selection: pvBinding(\.display)) { ForEach(["Today","TimeFrame","All"], id: \.self) { Text($0).tag($0) } }
+                Toggle("Base On Chart", isOn: pvBinding(\.baseChart))
+                Toggle("Draw By Line", isOn: pvBinding(\.lineDraw))
+            } else if indicatorTab == "Visibility" { Toggle("Previous Values", isOn: pvBinding(\.enabled)) }
+            ForEach(0..<3, id: \.self) { i in
+                if indicatorTab == "Inputs" {
+                    Picker("Timeframe \(i+1)", selection: pvRowBinding(i, \.frame)) {
+                        ForEach(emaIntervals.filter { $0 > 0 }, id: \.self) { Text(intervalLabel($0)).tag($0) }
+                    }
+                    Picker("Source \(i+1)", selection: pvRowBinding(i, \.source)) {
+                        ForEach(["close","high","low","open","hl/2","hlc3","ohlc/4","hlcc/4","CurrentOpen"], id: \.self) { Text($0).tag($0) }
+                    }
+                } else if indicatorTab == "Style" {
+                    ColorPicker("Color \(i+1)", selection: pvColor(i), supportsOpacity: false)
+                    Picker("Line style \(i+1)", selection: pvRowBinding(i, \.style)) {
+                        ForEach(["solid","dotted","dashed","arrow_left","arrow_right","arrow_both"], id: \.self) { Text($0).tag($0) }
+                    }
+                    Stepper("Width \(i+1): \(pvSettings.rows[i].width)", value: pvRowBinding(i, \.width), in: 1...4)
+                } else { Toggle("Level \(i+1)", isOn: pvRowBinding(i, \.enabled)) }
+            }
+        }
+    }
     private var indicatorSettings: some View {
         NavigationStack {
             Form {
@@ -358,7 +701,6 @@ struct StockChartView: View {
                         Stepper("Offset: \(emaOffset)", value: $emaOffset, in: -100...100)
                         Picker("Timeframe", selection: $emaFrame) { frameChoices() }
                     }
-                    Section("ATR") { Stepper("Length: \(atrLength)", value: $atrLength, in: 1...200) }
                 } else if indicatorTab == "Style" {
                     Section("EMA") {
                         Toggle("Dynamic colors", isOn: $emaDynamic)
@@ -380,7 +722,7 @@ struct StockChartView: View {
                             Text("1 hour").tag(60); Text("1 day").tag(1440); Text("1 week").tag(10080); Text("1 month").tag(43200)
                         }
                         Toggle("Limit rendering range", isOn: $barCountLimit)
-                        Stepper("Bars to render: \(barCountBars)", value: $barCountBars, in: 50...2000).disabled(!barCountLimit)
+                        ChartBarCountInput(value: $barCountBars).disabled(!barCountLimit)
                         Text("Every third bar, plus the reference indicator’s highlighted counts.").font(.caption).foregroundStyle(.secondary)
                     } else if indicatorTab == "Style" {
                         Picker("Label size", selection: $barCountSize) {
@@ -393,18 +735,21 @@ struct StockChartView: View {
                 }
                 extraEMASection(0)
                 extraEMASection(1)
+                pvSection
+                fvgSection
+                indicatorTemplateSection
                 Section {
                     Text("Changes apply immediately and are saved.").font(.caption).foregroundStyle(.secondary)
-                    Button("Restore defaults") {
-                        emaFrame = 0; extraEMAJSON = ""
-                        showBarCount = true; barCountFrame = 1440; barCountSize = "tiny"; barCountColor = "#521c6e"; barCountOpacity = 66; barCountLimit = true; barCountBars = 162
-                        indicatorVisible = true; showEMA = true; emaLength = 20; emaSource = "close"; emaOffset = 0
-                        emaDynamic = true; emaColor = "#f9f1db"; emaWidth = 1; emaStyle = 0
-                        showATR = true; atrLength = 4
-                    }
+
+                }
+                // Keep ATR last; add future indicator sections above this trailing section.
+                if indicatorTab == "Inputs" {
+                    Section("ATR") { Stepper("Length: \(atrLength)", value: $atrLength, in: 1...200) }
                 }
             }.navigationTitle("𝔹𝕖𝕟").navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("Done") { showIndicatorSettings = false } }
+                .sheet(isPresented: $namingTemplate) { saveIndicatorTemplateSheet }
+
         }
     }
     @State private var adjustmentAction = ""
@@ -414,11 +759,25 @@ struct StockChartView: View {
     private var adjustmentLimit: Int { adjustmentAction == "trim" ? max(0, positionSize - 1) : max(0, quantityLimit - positionSize) }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["holdingsVisible": showHoldings, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
+        ["previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
          "emaDynamic": emaDynamic, "emaColor": emaColor + "ab", "emaWidth": emaWidth, "emaStyle": emaStyle,
-         "atr": showATR && indicatorVisible, "atrLength": atrLength, "profit": showProfit, "positions": showPositionProfit, "brackets": showBracketProfit,
+         "atr": showATR && indicatorVisible, "atrLength": atrLength, "profit": showHoldings && showProfit, "positions": showHoldings && showPositionProfit, "brackets": showHoldings && showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
          "positionUnit": positionProfitUnit, "bracketUnit": bracketProfitUnit]
+    }
+    private var chartStatusText: String {
+        let chinese = locale.language.languageCode?.identifier == "zh"
+        let chartName: String
+        switch chartType {
+        case "OPT": chartName = chinese ? "期权图表" : "Option chart"
+        case "FUT": chartName = chinese ? "期货图表" : "Futures chart"
+        default: chartName = chinese ? "股票图表" : "Stock chart"
+        }
+        if !paperStatusText.isEmpty {
+            return chartName + " · " + localizedNotice(paperStatusText, locale: locale)
+        }
+        let state = paperEnabled ? (chinese ? "交易" : "Trading") : (chinese ? "查看" : "View")
+        return localizedLabel(store.accountModeLabel, locale: locale) + " · " + chartName + " · " + state
     }
     private var paperStatusText: String {
         let rows = paperState["orders"] as? [[String: Any]] ?? []
@@ -462,7 +821,7 @@ struct StockChartView: View {
     private var cacheKey: String { "\(store.address)-\(chartID ?? 0)-\(interval)-\(session)" }
     private var context: String { "\(store.demo)-\(store.address)-\(chartID ?? 0)-\(interval)-\(session)-\(phase == .active)-\(visible)" }
     private var validEntry: Double { Double(entry).flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 0 }
-    private var validQuantity: Double { Double(quantity).flatMap { $0.isFinite && $0 > 0 && $0 <= 1_000_000 ? $0 : nil } ?? 0 }
+    private var validQuantity: Double { Double(quantity).flatMap { $0.isFinite && $0 > 0 && $0 <= 1_000_000 && (chartType == "STK" || $0.rounded(.towardZero) == $0) ? $0 : nil } ?? 0 }
     private func joinPrice(_ side: String) -> Double? {
         guard visible, phase == .active, let received, Date().timeIntervalSince(received) < 3,
               let expires = packet["quote_expires_at"] as? Double,
@@ -476,6 +835,13 @@ struct StockChartView: View {
         entryType = "LMT"; entry = String(price)
         joinSide = side == "bid" ? 1 : -1; joinRevision += 1
     }
+    private var distancePresets: [String] {
+        switch templateType {
+        case "OPT": return ["0.05", "0.1", "0.2", "0.3", "0.5", "1", "2", "3", "5", "10"]
+        case "FUT": return ["5", "10", "20", "30", "50", "75", "100", "150", "200", "300", "500"]
+        default: return ["1", "2", "3", "5", "10", "15", "20", "30", "50", "75", "100"]
+        }
+    }
     private func distanceRow(_ title: String, value: Binding<String>) -> some View {
         HStack {
             Text(title)
@@ -483,7 +849,7 @@ struct StockChartView: View {
             TextField(title, text: value).keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing).frame(width: 80)
             Menu {
-                ForEach(["0.01", "0.05", "0.10", "0.15", "0.20", "0.25", "0.50", "1.00", "2.00", "5.00", "10.00"], id: \.self) { distance in
+                ForEach(distancePresets, id: \.self) { distance in
                     Button {
                         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                         value.wrappedValue = distance
@@ -532,24 +898,35 @@ struct StockChartView: View {
             }
             }
             if let emaHistoryNotice { Text(verbatim: emaHistoryNotice).font(.caption2).foregroundStyle(.secondary) }
-            StockChartWeb(executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: chartType == "OPT" ? 0 : validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": chartType == "OPT"]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
+            StockChartWeb(executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
-                Color.clear.frame(width: 36, height: 32).accessibilityHidden(true)
-                Text(verbatim: chartType == "OPT" ? localizedLabel(store.accountModeLabel, locale: locale) + " · " + localizedLabel("Option chart · View only", locale: locale) : paperStatusText.isEmpty ? localizedLabel(store.accountModeLabel, locale: locale) + " · " + localizedLabel(paperEnabled ? "IB Paper trading" : "Preview only", locale: locale) : localizedNotice(paperStatusText, locale: locale))
-                    .font(.caption).foregroundStyle(paperEnabled ? .orange : .secondary)
-                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity)
                 Button { showDisplaySettings = true } label: {
                     Image(systemName: "gearshape").frame(width: 36, height: 32)
                 }.buttonStyle(.plain).accessibilityLabel("Chart display")
+                Text(verbatim: chartStatusText)
+                    .font(.caption).foregroundStyle(paperEnabled ? .orange : .secondary)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity)
+                if !fullScreen {
+                    Button { tradingPanelCollapsed.toggle() } label: {
+                        Image(systemName: tradingPanelCollapsed ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 12, weight: .medium))
+                            .frame(width: 24, height: 18)
+                            .overlay(RoundedRectangle(cornerRadius: 3).stroke(.secondary.opacity(0.5), lineWidth: 1))
+                            .frame(width: 36, height: 32).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                        .accessibilityLabel(tradingPanelCollapsed ? "Show trading controls" : "Hide trading controls")
+                } else {
+                    Color.clear.frame(width: 36, height: 32).accessibilityHidden(true)
+                }
             }
             ChartOrderProgressView(state: paperState)
-            if !fullScreen && chartType != "OPT" {
+            if !fullScreen && !tradingPanelCollapsed {
             if let paperMessage { Text(paperMessage).font(.caption).foregroundStyle(.secondary) }
             HStack(spacing: 8) {
-                TextField("Shares", text: $quantity).keyboardType(.decimalPad)
+                TextField(chartType == "STK" ? "Shares" : "Contracts", text: $quantity).keyboardType(chartType == "STK" ? .decimalPad : .numberPad)
                     .multilineTextAlignment(.center).textFieldStyle(.roundedBorder).frame(width: 48)
-                Stepper("Shares", value: Binding(get: { max(1, Int(validQuantity)) }, set: { quantity = String($0) }), in: 1...1_000_000).labelsHidden()
+                Stepper(chartType == "STK" ? "Shares" : "Contracts", value: Binding(get: { max(1, Int(validQuantity)) }, set: { quantity = String($0) }), in: 1...1_000_000).labelsHidden()
                 Spacer(minLength: 0)
                 if validEntry == 0 {
                     Button { entry = String(((packet["bars"] as? [[String: Any]])?.last?["close"] as? Double) ?? position.market_price ?? 0) } label: { Image(systemName: "plus.circle").frame(minWidth: 32, minHeight: 44) }.accessibilityLabel("Entry reference")
@@ -626,7 +1003,7 @@ struct StockChartView: View {
                             Button { quantityDraft = String(min(quantityLimit, (Int(quantityDraft) ?? 0) + 1)) } label: { Image(systemName: "plus").frame(maxWidth: .infinity) }
                         }.buttonStyle(.bordered)
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())]) {
-                            ForEach([1, 2, 3, 5, 10, 25], id: \.self) { value in
+                            ForEach(chartType == "STK" ? [1, 5, 25, 100, 500, 1000] : [1, 2, 3, 5, 8, 10], id: \.self) { value in
                                 Button { quantityDraft = String(value) } label: { Text(value.formatted()).frame(maxWidth: .infinity) }.buttonStyle(.bordered).disabled(value > quantityLimit)
                             }
                         }
@@ -637,12 +1014,29 @@ struct StockChartView: View {
                         }
                         Text("1–\(quantityLimit)").font(.caption).foregroundStyle(.secondary)
                     }
-                }.navigationTitle("Order quantity").navigationBarTitleDisplayMode(.inline)
+
+                    if paperActive {
+                        Section("Order settings") {
+                            TextField("Price", text: $editPrice).keyboardType(.decimalPad)
+                            Picker("Time in force", selection: $editTIF) {
+                                if paperState["mode"] as? String == "overnight_entry" { Text("OVT").tag("OVERNIGHT") }
+                                else { Text("DAY").tag("DAY"); Text("GTC").tag("GTC") }
+                            }
+                            Text("Quantity or time-in-force changes cancel and replace the unfilled order with its TP/SL. Queue priority resets.").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }.navigationTitle(paperActive ? "Edit order" : "Order quantity").navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showQuantityEditor = false } }
                         ToolbarItem(placement: .confirmationAction) { Button("Apply") {
-                            if let value = validQuantityDraft, !paperActive, !paperBusy { quantity = String(value); showQuantityEditor = false }
-                        }.disabled(validQuantityDraft == nil || paperActive || paperBusy) }
+                            if let value = validQuantityDraft, !paperBusy {
+                                if paperActive {
+                                    guard entryEditable, let price = Double(editPrice), price.isFinite, price > 0 else { return }
+                                    paperAction(["action": "edit_entry", "quantity": value, "price": price, "tif": editTIF, "expected_ref": editOrderRef, "expected_snapshot": editSnapshot])
+                                } else { quantity = String(value) }
+                                showQuantityEditor = false
+                            }
+                        }.disabled(validQuantityDraft == nil || (paperActive && !entryEditable) || paperBusy) }
                     }
             }.presentationDetents([.medium, .large])
         }
@@ -666,16 +1060,17 @@ struct StockChartView: View {
                 Form {
                     Section("Positions") { Toggle("Positions", isOn: $showHoldings) }
                     Section("Profit and loss value") {
-                        Toggle("Show P&L", isOn: $showProfit)
-                        Toggle("Position P&L", isOn: $showPositionProfit).disabled(!showProfit || !showHoldings)
+                        Toggle("Show P&L", isOn: Binding(get: { showHoldings && showProfit }, set: { showProfit = $0 }))
+                        Toggle("Position P&L", isOn: Binding(get: { showHoldings && showProfit && showPositionProfit }, set: { showPositionProfit = $0 })).disabled(!showProfit || !showHoldings)
                         Picker("Position P&L unit", selection: $positionProfitUnit) {
-                            Text("Money").tag("money"); Text("Ticks").tag("ticks")
+                            Text("Money").tag("money"); Text("Percent").tag("percent"); Text("Ticks").tag("ticks")
                         }.disabled(!showProfit || !showHoldings || !showPositionProfit)
-                        Toggle("Brackets", isOn: $showBracketProfit).disabled(!showProfit)
+                        Toggle("Brackets", isOn: Binding(get: { showHoldings && showProfit && showBracketProfit }, set: { showBracketProfit = $0 })).disabled(!showProfit)
                         Picker("Bracket P&L unit", selection: $bracketProfitUnit) {
                             Text("Money").tag("money"); Text("Ticks").tag("ticks")
                         }.disabled(!showProfit || !showBracketProfit)
                     }
+                    .disabled(!showHoldings)
                     Section("Executions") {
                         Toggle("Execution marks", isOn: $showExecutions)
                         Toggle("Execution labels", isOn: $showExecutionLabels).disabled(!showExecutions)
@@ -770,6 +1165,7 @@ struct StockChartView: View {
                 emaHistoryNotice = "EMA · Cached timeframe history; refreshing"
             }
             var retryDelay = 1.0
+            let recoveryStarted = Date()
             while !Task.isCancelled {
                 do {
                     let result = try await store.trading.get("api/portfolio/chart-ema/\(cid)", base: store.address, query: [URLQueryItem(name: "frames", value: requestedEMAFrames.map(String.init).joined(separator: ",")), URLQueryItem(name: "session", value: session)])
@@ -781,13 +1177,18 @@ struct StockChartView: View {
                     }
                     emaFrameContext = requestKey
                     if incoming.values.contains(where: { ($0 as? [[String: Any]])?.isEmpty == false }) {
-                        RecentStockCharts.save(["frames": incoming], key: historyKey)
+                        RecentStockCharts.save(["frames": emaFrames], key: historyKey)
                     }
                     retryDelay = requestedEMAFrames.allSatisfy { (incoming[String($0)] as? [[String: Any]])?.isEmpty == false } ? 10 : min(5, retryDelay * 2)
                     emaHistoryNotice = requestedEMAFrames.contains { (incoming[String($0)] as? [[String: Any]])?.isEmpty != false } ? "EMA · Waiting for fresh timeframe history" : nil
                 } catch {
                     if Task.isCancelled { return }
-                    if !requestedEMAFrames.isEmpty { emaHistoryNotice = "EMA · Timeframe history unavailable; retrying" }
+                    if !requestedEMAFrames.isEmpty {
+                        let cached = requestedEMAFrames.allSatisfy { (emaFrames[String($0)] as? [[String: Any]])?.isEmpty == false }
+                        emaHistoryNotice = cached && Date().timeIntervalSince(recoveryStarted) < 15
+                            ? "EMA · Cached timeframe history; refreshing"
+                            : "EMA · Timeframe history unavailable; retrying"
+                    }
                 }
                 do { try await Task.sleep(for: .seconds(retryDelay)) } catch { return }
             }
@@ -808,7 +1209,7 @@ struct StockChartView: View {
         }
         .task(id: "paper-" + context + String(store.chartTradingAvailable)) {
             paperState = [:]; paperReceived = nil
-            guard visible, phase == .active, store.chartTradingAvailable, chartType != "OPT", let cid = chartID else { return }
+            guard visible, phase == .active, store.chartTradingAvailable, let cid = chartID else { return }
             while !Task.isCancelled {
                 do {
                     let state = try await store.trading.get("api/portfolio/paper-chart/\(cid)", base: store.address)
@@ -844,6 +1245,7 @@ struct StockChartView: View {
                 notice = "Saved chart · connecting to live data"
             }
             var failures = 0
+            let recoveryStarted = Date()
             while !Task.isCancelled {
                 do {
                     if interval < 1440 && !(interval == 480 && session == "rth") {
@@ -859,13 +1261,21 @@ struct StockChartView: View {
                     try Task.checkCancellation()
                     guard context == requestContext else { return }
                     guard result["con_id"] as? Int == conID, result["bars"] is [[String: Any]] else { throw AppError.message("Invalid chart response") }
+                    if (result["bars"] as? [[String: Any]])?.isEmpty == true,
+                       (packet["bars"] as? [[String: Any]])?.isEmpty == false {
+                        throw AppError.message("Historical stock bars unavailable; retry shortly")
+                    }
                     packet = result; received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
                     RecentStockCharts.save(packet, key: requestCacheKey)
                     notice = chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (interval >= 1440 || (interval == 480 && session == "rth")) ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks"
                 } catch {
                     guard !Task.isCancelled else { return }
                     failures = min(failures + 1, 5)
-                    notice = connectionMessage(error)
+                    let message = connectionMessage(error)
+                    let transientHistory = message.contains("No historical trades returned") || message.contains("cooling down") || message.contains("Historical stock bars unavailable")
+                    let hasCachedBars = (packet["bars"] as? [[String: Any]])?.isEmpty == false
+                    notice = transientHistory && hasCachedBars && Date().timeIntervalSince(recoveryStarted) < 15
+                        ? "Saved chart · refreshing history" : message
                 }
                 do { try await Task.sleep(for: .seconds(failures == 0 ? (packet["status"] as? String == "live" ? 0.25 : 1) : min(10, pow(2, Double(failures - 1))))) } catch { return }
             }
@@ -972,7 +1382,11 @@ private struct StockChartWeb: UIViewRepresentable {
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             if message.name == "drawingsChanged", let value = message.body as? [String: Any],
                let data = try? JSONSerialization.data(withJSONObject: value), data.count < 2_000_000 {
-                UserDefaults.standard.set(data, forKey: "chartDrawings-" + drawingKey)
+                // A queued WebKit message may arrive after the native chart has switched.
+                // Persist against the originating chart, never the new selection.
+                let sourceKey = value["key"] as? String ?? loadedDrawingKey
+                guard !sourceKey.isEmpty else { return }
+                UserDefaults.standard.set(data, forKey: "chartDrawings-" + sourceKey)
                 if let styles = value["toolStyles"] as? [String: Any], let stylesData = try? JSONSerialization.data(withJSONObject: styles) { UserDefaults.standard.set(stylesData, forKey: "chartToolStylesV1") }
                 if let favorites = value["favorites"] as? [String] { UserDefaults.standard.set(favorites, forKey: "chartDrawingFavorites") }
                 if let order = value["order"] as? [String] { UserDefaults.standard.set(order, forKey: "chartDrawingOrder") }
@@ -1001,8 +1415,16 @@ private struct StockChartWeb: UIViewRepresentable {
                 if let magnet = UserDefaults.standard.string(forKey: "chartDrawingMagnet") { value["magnet"] = magnet }
                 if let collapsed = UserDefaults.standard.object(forKey: "chartDrawingCollapsed") as? Bool { value["collapsed"] = collapsed }
                 if let data = try? JSONSerialization.data(withJSONObject: ["key": drawingKey, "value": value]), let json = String(data: data, encoding: .utf8) {
-                    web?.evaluateJavaScript("window.configureDrawings?.(\(json))", completionHandler: nil)
-                    loadedDrawingKey = drawingKey
+                    let restoringKey = drawingKey
+                    bridgeBusy = true
+                    web?.evaluateJavaScript("window.configureDrawings(\(json)); true") { [weak self] result, error in
+                        guard let self else { return }
+                        self.bridgeBusy = false
+                        guard error == nil, result as? Bool == true else { return }
+                        self.loadedDrawingKey = restoringKey
+                        self.update()
+                    }
+                    return
                 }
             }
             var outgoing = packet
