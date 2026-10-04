@@ -199,6 +199,12 @@ class ProtectedLotTests(unittest.TestCase):
         self.conn.ib.placeOrder.assert_not_called()
         self.conn.ib.cancelOrder.assert_not_called()
 
+    def test_futures_unit_orders_allow_eth_but_options_keep_rth(self):
+        self.submit(quantity=2)
+        expected=self.contract.secType=='FUT'
+        self.assertTrue(all(t.order.outsideRth==expected for t in self.trades))
+        self.assertEqual(len(self.trades),6)
+
     def test_trim_preserves_all_stop_ids_and_other_lots(self):
         self.open_four();before=[(t.order.orderId,t.order.totalQuantity,t.order.auxPrice) for t in self.trades if t.order.orderType=='STP']
         body=dict(request_id=str(uuid4()),action='trim',quantity=1)

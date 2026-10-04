@@ -374,6 +374,7 @@ class PaperChart:
             stop=StopOrder(sell,1,sl,orderId=ids['sl'],parentId=ids['entry'],transmit=True)
             for order in (parent,take,stop):
                 order.account=account;order.tif=group.get('tif', 'DAY');order.orderRef=group['ref']
+                order.outsideRth = contract.secType == 'FUT'
                 conn.ib.placeOrder(contract,order)
 
     def exit_lots(self, conn, account, cid, group, lots, trades, price, action, request_id):
