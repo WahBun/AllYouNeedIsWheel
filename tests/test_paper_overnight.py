@@ -175,3 +175,29 @@ class OvernightTests(unittest.TestCase):
         self.assertEqual(state['orders'][0]['status'],'Submitted')
         self.assertEqual(state['orders'][0]['quantity'],100)
         self.assertEqual(self.conn.ib.placeOrder.call_count,1)
+
+    def test_immediate_close_fill_reconciles_after_restart_without_new_order(self):
+        from api.services.paper_chart import PaperChart
+        self.overnight()
+        self.trades[0].orderStatus.status = 'Filled'
+        self.trades[0].orderStatus.filled = 100
+        position = S(account='DU_TEST', contract=self.contract, position=100, avgCost=768.88)
+        self.conn.ib.positions.side_effect = lambda: [position] if position.position else []
+        self.conn._bounded_order_read.side_effect = lambda fn, *a, **k: ([position] if position.position else []) if fn == self.conn.ib.reqPositions else []
+        original = self.conn.ib.placeOrder.side_effect
+        def fill_close(contract, order):
+            trade = original(contract, order)
+            trade.orderStatus.status = 'Filled'; trade.orderStatus.filled = 100
+            position.position = 0
+            return trade
+        self.conn.ib.placeOrder.side_effect = fill_close
+        body = dict(request_id=str(uuid4()), action='close', expected_ref=self.service.group('DU_TEST', 7)['ref'])
+        result = self.service.execute(self.conn, 7, body)
+        self.assertTrue(result['success'], result)
+        self.assertEqual(result['status'], 'done')
+        self.assertFalse(result['state']['active'])
+        writes = self.conn.ib.placeOrder.call_count
+        restarted = PaperChart(self.service.path)
+        self.assertTrue(restarted.request_status(self.conn, 7, body['request_id'])['confirmed'])
+        self.assertEqual(restarted.execute(self.conn, 7, body), result)
+        self.assertEqual(self.conn.ib.placeOrder.call_count, writes)

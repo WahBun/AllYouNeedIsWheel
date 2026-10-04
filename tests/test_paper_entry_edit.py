@@ -211,3 +211,55 @@ class EntryEditTests(unittest.TestCase):
             return trade
         self.conn.ib.placeOrder.side_effect=warn
         self.assertTrue(self.edit(price=10.25)['success'])
+
+    def test_confirmed_ovt_cancel_reports_success_and_survives_restart(self):
+        from api.services.paper_chart import PaperChart
+        self.submit(quantity=100); self.overnight_rules()
+        self.assertTrue(self.edit(tif='OVERNIGHT', confirm_remove_protection=True)['success'])
+        state = self.service.state(self.conn, 7)
+        body = dict(request_id=str(uuid4()), action='edit_entry', cancel=True,
+                    expected_ref=state['order_ref'], expected_snapshot=state['edit_snapshot'])
+        result = self.service.execute(self.conn, 7, body)
+        self.assertTrue(result['success'], result)
+        self.assertEqual(result['status'], 'canceled')
+        self.assertFalse(result['state']['active'])
+        writes = self.conn.ib.placeOrder.call_count
+        cancellations = self.conn.ib.cancelOrder.call_count
+        restarted = PaperChart(self.service.path)
+        for _ in range(3):
+            self.assertEqual(restarted.execute(self.conn, 7, body), result)
+            self.assertTrue(restarted.request_status(self.conn, 7, body['request_id'])['confirmed'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count, writes)
+        self.assertEqual(self.conn.ib.cancelOrder.call_count, cancellations)
+
+    def test_timeout_after_broker_acceptance_is_not_replayed_after_restart(self):
+        from api.services.paper_chart import PaperChart
+        self.submit(quantity=100)
+        state = self.service.state(self.conn, 7)
+        body = dict(request_id=str(uuid4()), action='edit_entry', price=10.25,
+                    expected_ref=state['order_ref'], expected_snapshot=state['edit_snapshot'])
+        original = self.conn.ib.placeOrder.side_effect
+        def accepted_then_timeout(contract, order):
+            original(contract, order)
+            raise TimeoutError('Response lost after acceptance')
+        self.conn.ib.placeOrder.side_effect = accepted_then_timeout
+        result = self.service.execute(self.conn, 7, body)
+        self.assertEqual(result['status'], 'unknown')
+        writes = self.conn.ib.placeOrder.call_count
+        restarted = PaperChart(self.service.path)
+        self.assertEqual(restarted.execute(self.conn, 7, body)['status'], 'unknown')
+        self.assertTrue(restarted.request_status(self.conn, 7, body['request_id'])['confirmed'])
+        self.assertEqual(restarted.state(self.conn, 7)['entry'], 10.25)
+        self.assertEqual(self.conn.ib.placeOrder.call_count, writes)
+
+    def test_partial_fill_during_cancel_keeps_protection_and_never_replaces(self):
+        self.submit(quantity=100)
+        def raced(order):
+            self.trades[0].orderStatus.status = 'Cancelled'
+            self.trades[0].orderStatus.filled = 20
+        self.conn.ib.cancelOrder.side_effect = raced
+        result = self.edit(quantity=50, tif='GTC')
+        self.assertEqual(result['status'], 'unknown')
+        self.assertEqual(self.conn.ib.cancelOrder.call_count, 1)
+        self.assertEqual(self.conn.ib.placeOrder.call_count, 3)
+        self.assertTrue(all(t.orderStatus.status == 'Submitted' for t in self.trades[1:]))

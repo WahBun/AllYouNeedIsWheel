@@ -54,3 +54,26 @@ observed Paper market-session acceptance. Live execution remains restricted.
 build passed. Chart pointer/touch checks cover immediate cancellation feedback,
 repeat-click suppression, and broker-confirmed removal. These results measure
 application behavior, not real IB cancellation latency.
+
+## Stability regression pass (2026-10-04)
+
+Scope frozen: no new trading features, UI changes or mobile-network work.
+390 mocked backend tests, 86 Simulator TradingTests and seven chart browser
+suites passed (submit-button, entry-edit, paper-orders, controls, resume,
+holdings, execution-touch). Existing suites cover account isolation, stale
+snapshots, duplicate submission, uncertain writes, cancel/fill races, protected
+exits, rejection and Orders reconciliation.
+
+New fault-injection checks cover:
+- Confirmed OVT cancellation reports success and remains idempotent after restart.
+- Broker acceptance followed by a lost response reconciles without another write.
+- Partial entry fill during replacement cancellation retains protective children
+  and blocks replacement; this does not certify broker-adjusted protection sizes.
+- An immediately filled standalone close is recognized as completed after restart,
+  without another market order.
+
+Fixed two result/recovery defects: confirmed OVT cancellations were marked as
+failed, and persisted `done` close results were omitted from recognized outcomes.
+No broker test orders were sent. Actual fills, partial-fill protection quantity,
+OCA execution, and physical-device recovery still require Paper-session acceptance.
+No iPhone installation is part of this pass.

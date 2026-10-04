@@ -263,7 +263,7 @@ class PaperChart:
         body = json.loads(row[0])
         if body.get('con_id') != cid: raise ValueError('Request contract mismatch')
         result = json.loads(row[1]) if row[1] else {}
-        if result.get('status') in ('acknowledged','rejected','working','filled','canceled','pending'):
+        if result.get('status') in ('acknowledged','rejected','working','filled','canceled','pending','done'):
             return dict(confirmed=True, status=result['status'])
         authoritative = conn._bounded_order_read(conn.ib.reqOpenOrders, timeout_seconds=3)
         state = self.state(conn, cid)
@@ -313,7 +313,9 @@ class PaperChart:
             result=dict(success=not state.get('rejected',False),status='rejected' if state.get('rejected') else 'acknowledged',message='IB rejected a paper order; review Gateway' if state.get('rejected') else 'Paper request sent; broker status shown on chart',state=state)
             if state.get('mode') == 'overnight_entry':
                 status = state['status']
-                result.update(success=status in ('working', 'filled', 'done'), status=status,
+                cancel_requested = (body.get('cancel') is True or body.get('action') == 'cancel_entry'
+                    or (body.get('action') == 'manage_entry' and body.get('operation') == 'cancel'))
+                result.update(success=status in ('working', 'filled', 'done') or (cancel_requested and status == 'canceled'), status=status,
                     message=(('Paper close order is ' if body.get('action') == 'close' else 'Paper limit order is ') + status +
                              ('. ' + '; '.join(state.get('broker_messages', [])) if status == 'rejected'
                               else '; verify broker status before any further action')))
