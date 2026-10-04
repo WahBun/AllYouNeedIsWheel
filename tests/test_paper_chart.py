@@ -263,6 +263,23 @@ class ProtectedLotTests(unittest.TestCase):
         result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
         self.assertTrue(result['success'],result);self.conn.ib.cancelOrder.assert_not_called()
 
+    def test_trim_uses_reconnected_execution_records_for_owned_quantity(self):
+        from datetime import datetime, timezone
+        from ib_async import Fill, Execution, CommissionReport
+        self.open_four()
+        fills=[]
+        for i,t in enumerate(self.trades):
+            t.order.permId=1000+i
+            if not t.order.parentId:
+                t.orderStatus.filled=0
+                now=datetime.now(timezone.utc)
+                fills.append(Fill(self.contract,Execution(execId=str(i),acctNumber='DU_TEST',permId=t.order.permId,orderId=t.order.orderId,side='BOT',shares=1,price=10,time=now),CommissionReport(),now))
+        self.conn.ib.fills.return_value=fills
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
+        self.assertTrue(result['success'],result)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,1)
+        self.conn.ib.cancelOrder.assert_not_called()
+
     def test_execution_groups_follow_requests_not_unit_orders(self):
         body,result=self.submit(quantity=4)
         groups=self.service.execution_groups('DU_TEST',7)

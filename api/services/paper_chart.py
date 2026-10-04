@@ -707,8 +707,8 @@ class PaperChart:
             if not size or current['position'] * group['side'] <= 0: raise ValueError('No filled chart position')
             if action == 'trim' and qty >= size: raise ValueError('Trim must leave a position; use Close Position')
             if action == 'add' and size + qty > 10: raise ValueError('Resulting position exceeds the chart quantity limit')
-            owned = sum((1 if t.order.action == 'BUY' else -1) * max(float(t.orderStatus.filled),sum(float(f.execution.shares) for f in t.fills))
-                        for oid,t in trades.items() if oid in group['ids'].values())
+            owned = sum(group['side'] * (1 if row['role'].split('_')[0] == 'entry' else -1) * row['filled']
+                        for row in current['orders'])
             if abs(owned-current['position']) > .000001: raise ValueError('Position differs from chart fills; reconcile Gateway')
             if any(t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades() if t.contract.conId==cid and t.order.account==account):
                 raise ValueError('Other working orders exist; review Gateway')
