@@ -24,6 +24,21 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testPendingOrderChartUsesExactContractWithoutInventingHolding() throws {
+        for (kind, expected) in [("STOCK", "STK"), ("FUTURE", "FUT"), ("CALL", "OPT"), ("PUT", "OPT")] {
+            let data = try JSONSerialization.data(withJSONObject: ["id": 1, "ticker": "QQQ", "status": "submitted", "option_type": kind, "con_id": 123, "quantity": 100, "strike": 750, "expiration": "20261016"])
+            var order = try JSONDecoder().decode(Order.self, from: data)
+            XCTAssertEqual(order.chartPosition?.con_id, 123)
+            XCTAssertEqual(order.chartPosition?.security_type, expected)
+            XCTAssertEqual(order.chartPosition?.position, 0)
+            XCTAssertEqual(order.chartPosition?.expiration, "20261016")
+            order.chart_con_id = 456
+            XCTAssertEqual(order.chartPosition?.con_id, 456)
+            order.con_id = nil; order.chart_con_id = 0
+            XCTAssertNil(order.chartPosition)
+        }
+    }
+
     func testClosePositionUsesSameCancellationAsOrderXBeforeAnyFill() {
         let pending: [String: Any] = ["position": 0.0, "entry_editable": true, "order_ref": "WheelPaper:a", "edit_snapshot": [["order_id": 1]]]
         let cancel = TradeRules.chartCloseRequest(pending)

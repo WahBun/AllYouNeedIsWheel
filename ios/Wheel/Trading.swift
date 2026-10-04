@@ -110,7 +110,7 @@ struct PriceInput: View {
 
 extension Order {
     private enum CodingKeys: String, CodingKey {
-        case chart_con_id, chart_order_ref
+        case con_id, chart_con_id, chart_order_ref
         case gross_pnl, net_pnl, round_trip_commission
         case id, ticker, symbol, action, order_type, option_type, strike, expiration, premium, quantity, status
         case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, amendment_pending, error_message, isRollover, filled, avg_fill_price, fill_time, fill_action, commission, commission_currency, realized_pnl
@@ -147,6 +147,7 @@ extension Order {
         quantity = try values.decodeIfPresent(Double.self, forKey: .quantity)
         tif = try values.decodeIfPresent(String.self, forKey: .tif)
         intent = try values.decodeIfPresent(String.self, forKey: .intent)
+        con_id = try brokerID(.con_id)
         chart_con_id = try brokerID(.chart_con_id)
         chart_order_ref = try values.decodeIfPresent(String.self, forKey: .chart_order_ref)
         external_ib = try flag(.external_ib)
@@ -678,6 +679,11 @@ struct OrderDetail: View {
     var body: some View {
         Form {
             if let order = current {
+                if let chartPosition = order.chartPosition {
+                    Section {
+                        ArrowlessNavigationLink("𝑺𝒖𝒑𝒆𝒓𝒄𝒉𝒂𝒓𝒕𝒔") { StockChartView(position: chartPosition) }
+                    }
+                }
                 Section {
                     LabeledContent("Contract") {
                         if order.option_type == "FUTURE" { Text("\(order.name) · \(order.expiration ?? "") · FUTURE") }

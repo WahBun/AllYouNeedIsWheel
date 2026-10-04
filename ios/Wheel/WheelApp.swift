@@ -117,8 +117,21 @@ struct Order: Decodable, Identifiable {
         return value == "OVERNIGHT" ? "OVT" : value
     }
     var intent: String? = nil
+    var con_id: Int? = nil
     var chart_con_id: Int? = nil
     var chart_order_ref: String? = nil
+    var chartPosition: Position? {
+        guard let cid = [chart_con_id, con_id].compactMap({ $0 }).first(where: { $0 > 0 }) else { return nil }
+        let type: String
+        switch option_type {
+        case "STOCK": type = "STK"
+        case "FUTURE": type = "FUT"
+        case "CALL", "PUT": type = "OPT"
+        default: return nil
+        }
+        return Position(symbol: name, position: 0, security_type: type,
+                        strike: strike, expiration: expiration, option_type: option_type, con_id: cid)
+    }
     var external_ib: Bool? = nil
     var ib_status: String? = nil
     var executed: Bool? = nil
