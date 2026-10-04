@@ -73,3 +73,21 @@ GTC 决定跨日有效性；outsideRth 决定是否允许时段外触发/成交�
 ## 证据保管
 
 原始带时间戳的请求/响应、测试日志及本轮临时验收脚本保存在本机 `logs/acceptance/2026-10-05-es-eth/`，按仓库规则不提交原始日志。脚本是本轮专用证据，不应在未核对账户、合约、当前订单和持仓时直接重跑。
+
+## Web rapid-drag acceptance, 06:52–07:03 CST
+
+Scope: ESZ6, verified IB Paper, web only; Close remains the existing bid/ask limit exit. No iPhone build or installation.
+
+Reproduced before repair: after releasing an entry-price drag, the pending HTTP write disabled the order handle; an immediately following drag did not amend the order. Also observed web preview entry moves leaving TP/SL at their old absolute prices, allowing the preview SL to end up above a buy entry.
+
+Repair (`8aefebd`, published to GitHub and deployed on Mini):
+- During a price amendment, the same entry/TP/SL handle remains draggable. Keep only the latest released target for that role; send it after the prior amendment is acknowledged and its returned price matches the request.
+- Recheck account epoch, chart generation, order reference, order IDs, quantities, fills, TIF and position before sending the queued target. Discard it after rejection, unknown/lost response, fill or identity change. No write replay after reload.
+- Entry snapshots refresh when an earlier acknowledged amendment finishes during the next drag. Reads started before a write cannot overwrite its resulting state.
+- Distinguish pending targets in the web status and order label. Web preview TP/SL translate with entry, retaining their selected distances. Native behavior is gated separately and was not installed or accepted on a phone.
+
+Actual broker evidence: one unfilled BUY LMT, quantity 1, DAY, with parent 511 and TP/SL 512/513. Rapid entry changes finished at 7776.75. Three TP drags targeted 7786.00 → 7784.00 → 7785.00; IB ended at 7785.00. Three SL drags targeted 7766.00 → 7765.00 → 7766.50; IB ended at 7766.50. Activity showed two serialized writes for each three-drag protection sequence, coalescing the intermediate target. Chart, Orders and fresh broker-derived snapshots agreed; order IDs stayed 511/512/513 and fills stayed zero. Final cancellation confirmed all three Cancelled, ES position zero, protection flat and pending-orders empty. Existing SGOV holding was not changed.
+
+Validation: 417 backend tests passed; host queue regression covers latest-target coalescing, fresh snapshot, TP/SL, fill/identity/quantity/account change, rejection, unknown outcome and lost response. Existing entry-edit and paper-orders chart regressions passed; web-superchart covers submit/edit/cancel, Orders sync, reconciliation and Live isolation.
+
+Limits: actual rapid-drag broker evidence in this addendum is an unfilled long LMT and its contingent TP/SL. Held-position rapid protection edits, short/STP rapid sequences and a real fill arriving mid-drag were not separately accepted here. One in-flight role is freely re-draggable; other order actions/roles wait for its confirmation. This does not certify Live trading or guarantee immediate fills.
