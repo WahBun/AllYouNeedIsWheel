@@ -218,7 +218,7 @@ class ApiDispatcherTests(unittest.TestCase):
             return future
         with patch.object(executor, 'submit', side_effect=instrumented_submit):
             with ThreadPoolExecutor(4) as clients:
-                pending = [clients.submit(self.get, f'/api/slow?value={n}') for n in range(4)]
+                pending = [clients.submit(self.get, f'/api/slow?value={n}', 'POST') for n in range(4)]
                 try:
                     self.assertTrue(all_waiting.wait(2))
                     rejected = self.get('/api/slow?value=not-submitted', 'POST')
@@ -243,9 +243,9 @@ class ApiDispatcherTests(unittest.TestCase):
             result = future.result
             def wait(*args, **kwargs):
                 count.append(1)
-                if len(count) == 4:
+                if len(count) == 3:
                     waiting.set()
-                if len(count) == 5:
+                if len(count) == 4:
                     joined.set()
                 return result(*args, **kwargs)
             future.result = wait
@@ -253,16 +253,46 @@ class ApiDispatcherTests(unittest.TestCase):
 
         with patch.object(executor, 'submit', side_effect=instrumented_submit) as submitted:
             with ThreadPoolExecutor(5) as clients:
-                pending = [clients.submit(self.get, f'/api/slow?value={n}') for n in range(4)]
+                pending = [clients.submit(self.get, f'/api/slow?value={n}') for n in range(3)]
                 try:
                     self.assertTrue(waiting.wait(2))
                     duplicate = clients.submit(self.get, '/api/slow?value=0&t=99')
                     self.assertTrue(joined.wait(2))
-                    self.assertEqual(submitted.call_count, 4)
+                    self.assertEqual(submitted.call_count, 3)
                     self.assertEqual(self.get('/api/slow?value=new').status_code, 503)
                 finally:
                     self.release.set()
                 for future in pending:
                     self.assertEqual(future.result().status_code, 200)
                 self.assertEqual(duplicate.result().status_code, 200)
+        self.assertEqual(self.get('/api/slow?value=recovered').status_code, 200)
+
+    def test_polling_saturation_reserves_one_slot_for_a_write(self):
+        executor = self.app.extensions['ib_api_executor']
+        submit = executor.submit
+        admitted = threading.Condition()
+        count = [0]
+        def observed_submit(fn):
+            future = submit(fn)
+            with admitted:
+                count[0] += 1
+                admitted.notify_all()
+            return future
+        with patch.object(executor, 'submit', side_effect=observed_submit):
+            with ThreadPoolExecutor(4) as clients:
+                reads = [clients.submit(self.get, f'/api/slow?value={n}') for n in range(3)]
+                try:
+                    with admitted:
+                        self.assertTrue(admitted.wait_for(lambda: count[0] == 3, timeout=2))
+                    self.assertEqual(self.get('/api/slow?value=extra-read').status_code, 503)
+                    write = clients.submit(self.get, '/api/slow?value=trade', 'POST')
+                    with admitted:
+                        self.assertTrue(admitted.wait_for(lambda: count[0] == 4, timeout=2))
+                    self.assertEqual(self.get('/api/slow?value=extra-write', 'POST').status_code, 503)
+                finally:
+                    self.release.set()
+                self.assertTrue(all(r.result().status_code == 200 for r in reads))
+                self.assertEqual(write.result().status_code, 200)
+        self.assertEqual(sum(method == 'POST' for _, method, _ in self.calls), 1)
+        self.assertEqual(len({thread for thread, _, _ in self.calls}), 1)
         self.assertEqual(self.get('/api/slow?value=recovered').status_code, 200)

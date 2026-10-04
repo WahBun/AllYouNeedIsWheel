@@ -40,8 +40,12 @@ or uncommitted changes. Pull Git updates and inspect the current host first.
 - One Gunicorn process, eight HTTP threads, one dedicated API execution thread.
   `api/request_dispatcher.py` owns serialized API dispatch and preserves IB event-loop
   thread ownership. Identical in-flight GET requests share work. Writes never do.
-- Four concurrent API waiters are admitted; excess requests receive 503 and
-  Retry-After. HTML, static assets and health checks do not enter the IB queue.
+- At most four distinct API jobs are admitted. Reads/background sync use at most
+  three slots, reserving one for writes during polling saturation. Identical reads
+  still share work; writes remain serialized and are never automatically retried.
+  Excess requests receive 503 and Retry-After. This is admission reservation, not
+  execution priority: an accepted write may still wait behind earlier work. HTML,
+  static assets and health checks do not enter the IB queue.
 - Order staging is separate from Execute. Execution confirmation is configurable.
 - Unknown submissions without an IB ID are reconciled by local order reference;
   unknown broker statuses remain unknown and preserve confirmed partial fills.

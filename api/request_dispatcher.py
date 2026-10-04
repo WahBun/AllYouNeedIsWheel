@@ -12,6 +12,24 @@ def install_api_dispatcher(app):
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='ib-api')
     # Leave HTTP threads available for navigation even when IB is slow.
     slots = BoundedSemaphore(4)
+    # Read polling/background work cannot occupy the last admission slot.
+    # Execution remains serialized; this reserves capacity, not write retries.
+    read_slots = BoundedSemaphore(3)
+
+    def acquire_slot(read_only):
+        if read_only and not read_slots.acquire(blocking=False):
+            return False
+        if slots.acquire(blocking=False):
+            return True
+        if read_only:
+            read_slots.release()
+        return False
+
+    def release_slot(read_only):
+        slots.release()
+        if read_only:
+            read_slots.release()
+
     lock = RLock()
     pending_reads = {}
     original_dispatch = app.dispatch_request
@@ -26,7 +44,7 @@ def install_api_dispatcher(app):
             if app.testing or (outstanding is not None and not outstanding.done()):
                 continue
             with lock:
-                if pending_reads or not slots.acquire(blocking=False):
+                if pending_reads or not acquire_slot(True):
                     continue
                 def synchronize():
                     try:
@@ -38,9 +56,9 @@ def install_api_dispatcher(app):
                 try:
                     outstanding = executor.submit(synchronize)
                 except RuntimeError:
-                    slots.release()
+                    release_slot(True)
                     return
-                outstanding.add_done_callback(lambda done: slots.release())
+                outstanding.add_done_callback(lambda done: release_slot(True))
 
     if app.extensions.get('ib_background_sync') and not app.testing:
         Thread(target=background_loop, name='fill-sync-scheduler', daemon=True).start()
@@ -113,7 +131,7 @@ def install_api_dispatcher(app):
                 logger.debug('ib_job_shared id=%s owner=%s', request_id, getattr(future, 'wheel_job_id', 'untracked'))
             if future is None:
                 # Capacity counts IB jobs, not clients sharing the same read.
-                if not slots.acquire(blocking=False):
+                if not acquire_slot(key is not None):
                     logger.warning('ib_queue_full id=%s', request_id)
                     response = jsonify(status='rejected', code='QUEUE_FULL', error='IB requests are busy; please retry shortly')
                     response.status_code = 503
@@ -123,7 +141,7 @@ def install_api_dispatcher(app):
                     future = executor.submit(run)
                     future.wheel_job_id = request_id
                 except Exception:
-                    slots.release()
+                    release_slot(key is not None)
                     raise
                 if key is not None:
                     pending_reads[key] = future
@@ -133,7 +151,7 @@ def install_api_dispatcher(app):
                     with lock:
                         if key is not None and pending_reads.get(key) is done:
                             pending_reads.pop(key, None)
-                        slots.release()
+                        release_slot(key is not None)
 
                 future.add_done_callback(completed)
         try:
