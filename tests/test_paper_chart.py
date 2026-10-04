@@ -199,6 +199,19 @@ class ProtectedLotTests(unittest.TestCase):
         self.conn.ib.placeOrder.assert_not_called()
         self.conn.ib.cancelOrder.assert_not_called()
 
+    def test_partially_filled_group_separates_contingent_protection(self):
+        self.submit(quantity=4)
+        for t in self.trades[:9]:
+            if not t.order.parentId:
+                t.orderStatus.status='Filled';t.orderStatus.filled=1
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=3)]
+        progress=self.service.state(self.conn,7)['protection']
+        self.assertEqual(progress['tp'],3)
+        self.assertEqual(progress['sl'],3)
+        self.assertEqual(progress['pending_entry_tp'],1)
+        self.assertEqual(progress['pending_entry_sl'],1)
+        self.assertEqual(progress['status'],'covered')
+
     def test_futures_unit_orders_allow_eth_but_options_keep_rth(self):
         self.submit(quantity=2)
         expected=self.contract.secType=='FUT'

@@ -207,7 +207,7 @@ class PaperChart:
             if size and abs(size - abs(result['position'])) < .000001: result['entry'] = cost / size
         result['be_applied']=bool(result['position'] and result['sl']>0 and result['side']*(result['sl']-result['entry'])>0)
         result['rejected']=any(r['status']=='Inactive' for r in rows)
-        result['protection'] = self.protection_progress(rows, result['position'])
+        result['protection'] = self.protection_progress(rows, result['position'], group.get('lots'))
         adjustment = group.get('adjustment')
         if adjustment:
             by_id = {r['order_id']: r for r in rows}
@@ -254,11 +254,24 @@ class PaperChart:
         return result
 
     @staticmethod
-    def protection_progress(rows, position):
+    def protection_progress(rows, position, lots=None):
+        contingent = {'tp': 0, 'sl': 0}
+        if lots:
+            by_id = {r['order_id']: r for r in rows}
+            held = set()
+            for lot in lots:
+                parent = by_id.get(lot['entry'])
+                if parent and parent['filled'] == 0:
+                    held.update((lot['tp'], lot['sl']))
+            for row in rows:
+                role = row['role'].split('_')[0]
+                if row['order_id'] in held and role in contingent and row['status'] in ('Submitted', 'PreSubmitted'):
+                    contingent[role] += max(0, row['quantity'] - row['filled'])
+            rows = [r for r in rows if r['order_id'] not in held]
         quantities = {role: sum(max(0, r['quantity']-r['filled']) for r in rows
             if r['role'].split('_')[0] == role and r['status'] in ('Submitted','PreSubmitted')) for role in ('tp','sl')}
         size = abs(position)
-        return dict(**quantities, remaining_position=size,
+        return dict(**quantities, pending_entry_tp=contingent['tp'], pending_entry_sl=contingent['sl'], remaining_position=size,
                     status='flat' if size == 0 else 'unknown' if any(r['status']=='Unknown' for r in rows)
                     else 'covered' if quantities['tp'] == size and quantities['sl'] == size else 'needs_review')
 
