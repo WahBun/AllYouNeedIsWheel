@@ -24,6 +24,32 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testExplicitConnectionReturnsToPortfolioOnlyForFreshMatchingAccount() async {
+        let store = WheelStore()
+        await store.refreshPortfolio()
+        store.demo = false; store.address = "https://mock.invalid"
+        for mode in ["paper", "live"] {
+            store.portfolio?.connection = AccountConnection(mode: mode, execution_enabled: false, chart_execution_enabled: false)
+            store.updated = .now; store.error = nil; store.selectedTab = "settings"
+            store.showPortfolioAfterConnection(to: store.address, mode: mode)
+            XCTAssertEqual(store.selectedTab, "portfolio")
+            store.selectedTab = "trade"
+            store.showPortfolioAfterConnection(to: store.address, mode: mode)
+            XCTAssertEqual(store.selectedTab, "trade")
+            store.selectedTab = "settings"
+            store.showPortfolioAfterConnection(to: "https://other.invalid", mode: mode)
+            XCTAssertEqual(store.selectedTab, "settings")
+            store.showPortfolioAfterConnection(to: store.address, mode: mode == "paper" ? "live" : "paper")
+            XCTAssertEqual(store.selectedTab, "settings")
+            store.updated = Date(timeIntervalSinceNow: -30)
+            store.showPortfolioAfterConnection(to: store.address, mode: mode)
+            XCTAssertEqual(store.selectedTab, "settings")
+            store.updated = .now; store.error = "Offline"
+            store.showPortfolioAfterConnection(to: store.address, mode: mode)
+            XCTAssertEqual(store.selectedTab, "settings")
+        }
+    }
+
     func testPendingChartRoutesToTradeWithoutChangingOrdersOrSendingRequests() {
         let store = WheelStore()
         store.selectedTab = "orders"

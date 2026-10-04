@@ -279,6 +279,12 @@ final class WheelStore {
         portfolio != nil && error == nil && Date().timeIntervalSince(updated ?? .distantPast) < 15
     }
 
+    func showPortfolioAfterConnection(to requestedAddress: String, mode: String) {
+        guard selectedTab == "settings", isConnected(to: requestedAddress),
+              portfolio?.connection?.mode == mode, ["paper", "live"].contains(mode) else { return }
+        selectedTab = "portfolio"
+    }
+
     func refresh() async {
         await refreshPortfolio()
         await refreshOrders()
@@ -1529,7 +1535,13 @@ struct SettingsView: View {
                 store.trading.accountEpoch = result["epoch"] as? String
                 store.demo = false; store.changeMode()
                 accountSwitchMessage = nil
+                let requestedAddress = store.address
+                while store.busy {
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                guard !store.demo, store.address == requestedAddress else { return }
                 await store.refreshPortfolio()
+                store.showPortfolioAfterConnection(to: requestedAddress, mode: target)
             } catch {
                 accountSwitchMessage = connectionMessage(error)
             }
@@ -1576,9 +1588,7 @@ struct SettingsView: View {
                         }
                         guard !store.demo, store.address == requestedAddress else { return }
                         await store.refreshPortfolio()
-                        if store.isConnected(to: requestedAddress), store.selectedTab == "settings" {
-                            store.selectedTab = "portfolio"
-                        }
+                        store.showPortfolioAfterConnection(to: requestedAddress, mode: requestedMode)
                     }
                 } label: {
                     HStack(spacing: 12) {
