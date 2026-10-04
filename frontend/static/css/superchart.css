@@ -17,3 +17,7 @@
 @media(max-width:850px){#trade{border-top:1px solid var(--border)}#chart-detail:not([hidden]){grid-template-columns:1fr;max-height:220px}#trade:not([hidden]){gap:12px;padding:16px}.workspace{min-height:550px}}
 
 #resolve-request[hidden]{display:none}
+/* Order acknowledgements must not resize the chart or reset a manual price scale. */
+.chart-footer{height:52px;min-height:52px;flex:none;gap:8px}
+#order-status{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chart-footer>button{flex:none}
