@@ -353,7 +353,9 @@ class PaperChart:
             db.execute('INSERT INTO chart_paper_requests VALUES(?,?,?,NULL)',(request_id,account,encoded))
         try:
             self.perform(conn,account,cid,body,request_id)
-            if body.get('cancel') is not True and body.get('action') not in ('amend', 'be', 'edit_entry'): conn.ib.sleep(.2)
+            confirmed_price_edit = body.get('action') in ('amend', 'be') or (body.get('action') == 'edit_entry'
+                and 'price' in body and not any(k in body for k in ('quantity', 'tif', 'cancel')))
+            if body.get('cancel') is not True and not confirmed_price_edit: conn.ib.sleep(.2)
             group = self.group(account, cid)
             if group and group.get('adjustment', {}).get('request_id') == request_id:
                 group['adjustment']['outcome'] = 'acknowledged'
