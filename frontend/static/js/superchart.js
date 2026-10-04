@@ -30,7 +30,7 @@ const p=await api('account/profiles');if(token!==generation)return;
 if(epoch&&p.epoch!==epoch){state={};received=0;entry=0;log('Account changed; chart trading state cleared.');}
 profile=p;epoch=p.verified?p.epoch:null;$('connection').textContent=`${p.selected||'Disconnected'} · ${p.verified?'Connected':'Not verified'}`;$('connection').className=p.selected||'';
 if(selected){refreshMarket(selected,token);
-if(profile.selected==='paper'&&profile.verified){const pending=localStorage.getItem(pendingKey());if(pending){const r=await api(`portfolio/paper-chart/${selected}?request_id=${encodeURIComponent(pending)}`);if(token!==generation)return;if(terminal.has(r.status)){localStorage.removeItem(pendingKey());log(`Reconciled: ${r.status}`);}}
+if(profile.selected==='paper'&&profile.verified){const pending=localStorage.getItem(pendingKey());if(pending){const r=await api(`portfolio/paper-chart/${selected}?request_id=${encodeURIComponent(pending)}`);if(token!==generation)return;if(r.confirmed===true&&(terminal.has(r.status)||r.status==='reconciled')){localStorage.removeItem(pendingKey());log(`Reconciled: ${r.status}`);}}
 const s=await api(`portfolio/paper-chart/${selected}`);if(token!==generation)return;applyState(s);}else{state={};received=0;}}
 const [orders,portfolio]=await Promise.all([api('options/pending-orders'),api('portfolio/bootstrap')]);if(token!==generation)return;
 renderRows('orders',orders.orders||[],true);positions=portfolio.positions||portfolio.portfolio?.positions||[];renderRows('positions',positions,false);
