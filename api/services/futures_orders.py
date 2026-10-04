@@ -52,7 +52,7 @@ def futures_orders(conn, completed=False, db_path=None):
                         # replacements whose response was interrupted. Broker rows
                         # still provide the actual status; no write is performed.
                         if ref.startswith('WheelPaper:'):
-                            journal[ref] = dict(con_id=cid, side=group.get('side'), mode=group.get('mode'))
+                            journal[ref] = dict(con_id=cid, side=group.get('side'), mode=group.get('mode'), entry_ids=[oid for role, oid in group.get('ids', {}).items() if role.split('_')[0] == 'entry'])
     from core.connection import IBConnection
     result = {}
     brackets = {}
@@ -62,10 +62,10 @@ def futures_orders(conn, completed=False, db_path=None):
         c,o,s = trade.contract,trade.order,trade.orderStatus
         request = journal.get(o.orderRef)
         chart_owned = bool(request and request.get('con_id') == c.conId and c.currency == 'USD')
-        # Open option orders already come from get_open_option_orders. Include
-        # their chart-owned fills only in history, avoiding duplicate pending rows.
+        # Chart-owned options carry the same edit metadata as stock/futures entries.
+        # OptionsService merges these with its option feed by broker identity.
         supported = c.secType == 'FUT' or (chart_owned and
-                    (c.secType == 'STK' or (completed and c.secType == 'OPT')))
+                    c.secType in ('STK', 'OPT'))
         if not supported or o.account != account:
             continue
         filled = float(s.filled or 0)
@@ -88,7 +88,7 @@ def futures_orders(conn, completed=False, db_path=None):
             strike=c.strike,
             expiration=c.lastTradeDateOrContractMonth,action=o.action,quantity=max(float(o.totalQuantity),filled),
             premium=price,status=s.status.lower() or 'unknown',ib_status=s.status,external_ib=True,
-            executed=trade.isDone(),ib_order_id=o.orderId,perm_id=perm,con_id=c.conId,tif='OVERNIGHT' if c.exchange == 'OVERNIGHT' else o.tif,
+            executed=trade.isDone(),ib_order_id=o.orderId,client_id=o.clientId,perm_id=perm,con_id=c.conId,tif='OVERNIGHT' if c.exchange == 'OVERNIGHT' else o.tif,
             filled=filled,avg_fill_price=average or None,
             fill_time=max(f.time for f in fills).isoformat() if fills else None,fill_action=o.action,
             order_type=o.orderType,contract_multiplier='1' if c.secType == 'STK' else c.multiplier)
@@ -96,9 +96,10 @@ def futures_orders(conn, completed=False, db_path=None):
         result[identity].update(metadata)
         ref = o.orderRef
         request = journal.get(ref)
-        if (request and request.get('mode') == 'overnight_entry' and chart_owned
+        if (request and chart_owned and not o.parentId
                 and account.startswith('DU') and conn.port == 4002 and conn.readonly is False
-                and o.action == 'BUY' and not o.parentId and c.exchange in ('OVERNIGHT', 'SMART')):
+                and (request.get('entry_ids') == [o.orderId] or
+                     (request.get('entry_ids') is None and request.get('mode') == 'overnight_entry'))):
             result[identity]['chart_con_id'] = c.conId
             result[identity]['chart_order_ref'] = ref
         if request and request.get('con_id') == c.conId and c.currency == 'USD':

@@ -52,6 +52,29 @@ class OvernightTests(unittest.TestCase):
             self.assertFalse(result['success'], change)
         self.conn.ib.placeOrder.assert_not_called()
 
+    def test_options_and_futures_cannot_use_overnight_route(self):
+        for security_type in ('OPT', 'FUT'):
+            self.contract.secType = security_type
+            _, result = self.overnight()
+            self.assertFalse(result['success'])
+        self.conn.ib.placeOrder.assert_not_called()
+
+    def test_close_filled_standalone_uses_regular_smart_route_and_does_not_repeat(self):
+        self.overnight()
+        self.trades[0].orderStatus.status = 'Filled'
+        self.trades[0].orderStatus.filled = 100
+        position = S(account='DU_TEST', contract=self.contract, position=100, avgCost=768.88)
+        self.conn.ib.positions.return_value = [position]
+        self.conn._bounded_order_read.side_effect = lambda fn, *a, **k: [position] if fn == self.conn.ib.reqPositions else []
+        result = self.service.execute(self.conn, 7, dict(request_id=str(uuid4()), action='close', expected_ref=self.service.group('DU_TEST', 7)['ref']))
+        self.assertTrue(result['success'], result)
+        contract, order = self.conn.ib.placeOrder.call_args.args
+        self.assertEqual((contract.exchange, order.action, order.orderType, order.totalQuantity, order.tif), ('SMART', 'SELL', 'MKT', 100, 'DAY'))
+        writes = self.conn.ib.placeOrder.call_count
+        again = self.service.execute(self.conn, 7, dict(request_id=str(uuid4()), action='close', expected_ref=self.service.group('DU_TEST', 7)['ref']))
+        self.assertFalse(again['success'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count, writes)
+
     def test_live_account_cannot_submit(self):
         self.conn.account_id = 'U_TEST'
         self.conn.ib.managedAccounts.return_value = ['U_TEST']

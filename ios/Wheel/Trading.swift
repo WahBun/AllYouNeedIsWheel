@@ -183,7 +183,30 @@ struct OrderID: Decodable, Hashable, ExpressibleByIntegerLiteral, CustomStringCo
     var local: Int? { Int(description).flatMap { $0 > 0 ? $0 : nil } }
 }
 
+struct ChartJoinGate {
+    private(set) var acceptedRevision = 0
+    mutating func accept(_ revision: Int) -> Bool {
+        guard revision > acceptedRevision else { return false }
+        acceptedRevision = revision
+        return true
+    }
+}
+
 enum TradeRules {
+    static func chartCloseRequest(_ state: [String: Any]) -> [String: Any] {
+        if (state["position"] as? Double ?? 0) == 0, state["entry_editable"] as? Bool == true,
+           let ref = state["order_ref"] as? String, let snapshot = state["edit_snapshot"] as? [[String: Any]] {
+            return ["action": "edit_entry", "cancel": true, "expected_ref": ref, "expected_snapshot": snapshot]
+        }
+        var body: [String: Any] = ["action": "close"]
+        if let ref = state["order_ref"] as? String { body["expected_ref"] = ref }
+        return body
+    }
+
+    static func chartTIFs(securityType: String, currency: String, side: Int, entryType: String) -> [String] {
+        ["DAY", "GTC"] + (securityType == "STK" && currency == "USD" && side == 1 && entryType == "LMT" ? ["OVERNIGHT"] : [])
+    }
+
     static func priceChoiceID(_ value: Double?) -> Int? {
         guard let value, value.isFinite, value > 0, value < 1_000_001 else { return nil }
         return Int((value * 100).rounded())
@@ -214,6 +237,21 @@ enum TradeRules {
     }
     static func amendmentQuantityLocked(_ order: Order) -> Bool {
         order.isRollover == true || (order.option_type == "CALL" && order.action == "SELL" && order.intent != "CLOSE")
+    }
+    static func chartEditRequest(_ order: Order, state: [String: Any], price: Double?, quantity: Int, tif: String, confirmRemoveProtection: Bool) -> [String: Any]? {
+        guard chartManageable(order), (order.filled ?? 0) == 0,
+              let ref = order.chart_order_ref, state["order_ref"] as? String == ref,
+              state["entry_editable"] as? Bool == true,
+              let snapshot = state["edit_snapshot"] as? [[String: Any]], !snapshot.isEmpty,
+              state["entry"] as? Double == order.premium,
+              (state["quantity"] as? Double ?? (state["orders"] as? [[String: Any]])?.filter { ($0["role"] as? String ?? "").hasPrefix("entry") }.reduce(0) { $0 + ($1["quantity"] as? Double ?? 0) }) == order.quantity,
+              state["tif"] as? String == order.tif,
+              let price, price.isFinite, price > 0,
+              (1...(order.option_type == "STOCK" ? 1000 : 10)).contains(quantity),
+              (state["allowed_tifs"] as? [String] ?? ["DAY", "GTC"]).contains(tif),
+              tif != "OVERNIGHT" || state["mode"] as? String == "overnight_entry" || confirmRemoveProtection else { return nil }
+        return ["action": "edit_entry", "expected_ref": ref, "expected_snapshot": snapshot,
+                "price": price, "quantity": quantity, "tif": tif, "confirm_remove_protection": confirmRemoveProtection]
     }
     static func chartManageable(_ order: Order) -> Bool {
         order.chart_con_id != nil && order.chart_order_ref?.hasPrefix("WheelPaper:") == true &&
@@ -334,12 +372,25 @@ final class TradingSession {
         return result
     }
 
-    func manageChartEntry(_ order: Order, operation: String, price: Double? = nil, store: WheelStore) async -> Bool {
+    func manageChartEntry(_ order: Order, operation: String, price: Double? = nil, quantity: Int? = nil, tif: String? = nil, confirmRemoveProtection: Bool = false, store: WheelStore) async -> Bool {
         guard !store.demo, store.chartTradingAvailable, TradeRules.chartManageable(order),
               let cid = order.chart_con_id, let ref = order.chart_order_ref else { return false }
         var body: [String: Any] = ["action": "manage_entry", "operation": operation, "expected_ref": ref]
         if let price { body["price"] = price; body["expected_price"] = order.premium }
         do {
+            if operation == "cancel" {
+                let state = try await get("api/portfolio/paper-chart/\(cid)", base: store.address)
+                guard state["order_ref"] as? String == ref else { message = "Order changed; refresh before canceling"; return false }
+                if state["entry_editable"] as? Bool == true, let snapshot = state["edit_snapshot"] as? [[String: Any]] {
+                    body = ["action": "edit_entry", "cancel": true, "expected_ref": ref, "expected_snapshot": snapshot]
+                } else if state["mode"] as? String != "overnight_entry" { message = "Order changed; refresh before canceling"; return false }
+            } else if operation == "amend", let quantity, let tif {
+                let base = store.address
+                let state = try await get("api/portfolio/paper-chart/\(cid)", base: base)
+                guard store.address == base, store.chartTradingAvailable, !store.demo else { return false }
+                guard let request = TradeRules.chartEditRequest(order, state: state, price: price, quantity: quantity, tif: tif, confirmRemoveProtection: confirmRemoveProtection) else { message = "Order changed or settings unavailable; refresh before editing"; return false }
+                body = request
+            }
             let result = try await paperChartWrite(base: store.address, conID: cid, body: body)
             message = result["message"] as? String
             if result["success"] as? Bool == true,
@@ -613,6 +664,7 @@ struct OrderDetail: View {
     @State private var action: String?
     @State private var quantity = 1
     @State private var timing = "DAY"
+    @State private var confirmChartOVT = false
     @State private var editingSnapshot: Order?
     @State private var pricePicker: PricePickerSnapshot?
     @AppStorage("confirmBeforeOrderExecution") private var confirmExecution = true
@@ -633,8 +685,8 @@ struct OrderDetail: View {
                         else { Text("\(order.expiration ?? "") · \(money(order.strike)) · \(order.option_type ?? "")") }
                     }
                     LabeledContent("Action", value: "\(order.action ?? "") TO \(order.intent ?? "OPEN")")
-                    if TradeRules.amendable(order) && !TradeRules.amendmentQuantityLocked(order) {
-                        Stepper("Total quantity: \(quantity)", value: $quantity, in: 1...max(100, Int(order.quantity ?? 1)))
+                    if (TradeRules.amendable(order) && !TradeRules.amendmentQuantityLocked(order)) || (TradeRules.chartManageable(order) && (order.filled ?? 0) == 0) {
+                        Stepper("Total quantity: \(quantity)", value: $quantity, in: 1...(TradeRules.chartManageable(order) ? (order.option_type == "STOCK" ? 1000 : 10) : max(100, Int(order.quantity ?? 1))))
                     } else { LabeledContent("Quantity", value: order.quantity?.formatted() ?? "—") }
                     LabeledContent("Limit") {
                         if TradeRules.editable(order) || TradeRules.amendable(order) || (TradeRules.chartManageable(order) && (order.filled ?? 0) == 0) {
@@ -649,10 +701,14 @@ struct OrderDetail: View {
                             }
                         } else { Text(money(order.premium)) }
                     }
-                    if TradeRules.amendable(order) && order.tif != "OVERNIGHT" {
+                    if (TradeRules.amendable(order) && order.tif != "OVERNIGHT") || (TradeRules.chartManageable(order) && (order.filled ?? 0) == 0) {
                         Picker("Time in force", selection: $timing) {
                             Text("DAY").tag("DAY")
                             Text("GTC").tag("GTC")
+                            if TradeRules.chartManageable(order), order.option_type == "STOCK", order.action == "BUY", order.order_type == "LMT" || order.tif == "OVERNIGHT" { Text("OVT").tag("OVERNIGHT") }
+                        }
+                        if TradeRules.chartManageable(order), timing == "OVERNIGHT", order.tif != "OVERNIGHT" {
+                            Toggle("Confirm OVT without TP/SL", isOn: $confirmChartOVT)
                         }
                     } else { LabeledContent("Time in force", value: order.timingLabel) }
                     LabeledContent("Status", value: order.ib_status ?? order.status)
@@ -690,8 +746,8 @@ struct OrderDetail: View {
                 }
                 if TradeRules.chartManageable(order) && (order.filled ?? 0) == 0 {
                     Section {
-                        Button("Save price") { action = "Save price" }
-                            .disabled(TradeRules.price(price) == nil)
+                        Button("Save changes") { action = "Save changes" }
+                            .disabled(TradeRules.price(price) == nil || (timing == "OVERNIGHT" && order.tif != "OVERNIGHT" && !confirmChartOVT))
                     }
                 }
                 if TradeRules.cancelable(order) { Section { Button("Cancel order", role: .destructive) {
@@ -738,6 +794,7 @@ struct OrderDetail: View {
         .onAppear {
             if sourceContext == nil { sourceContext = context }
             editingSnapshot = current
+            confirmChartOVT = false
             price = String(format: "%.2f", current?.premium ?? 0)
             quantity = max(1, Int(current?.quantity ?? 1))
             timing = current?.tif ?? (current?.intent == "CLOSE" ? "GTC" : "DAY")
@@ -745,6 +802,7 @@ struct OrderDetail: View {
         .onChange(of: current?.id) {
             guard let current else { return }
             editingSnapshot = current
+            confirmChartOVT = false
             price = String(format: "%.2f", current.premium ?? 0)
             quantity = max(1, Int(current.quantity ?? 1))
             timing = current.tif ?? "DAY"
@@ -762,11 +820,11 @@ struct OrderDetail: View {
     private func perform(_ action: String) {
         guard let order = current else { return }
         if TradeRules.chartManageable(order) {
-            guard action == "Cancel order" || action == "Save price" else { return }
-            guard action != "Save price" || TradeRules.price(price) != nil else { return }
+            guard action == "Cancel order" || action == "Save changes" else { return }
+            guard action != "Save changes" || TradeRules.price(price) != nil else { return }
             let requestedPrice = TradeRules.price(price)
             Task {
-                _ = await store.trading.manageChartEntry(order, operation: action == "Cancel order" ? "cancel" : "amend", price: action == "Save price" ? requestedPrice : nil, store: store)
+                _ = await store.trading.manageChartEntry(order, operation: action == "Cancel order" ? "cancel" : "amend", price: action == "Save changes" ? requestedPrice : nil, quantity: action == "Save changes" ? quantity : nil, tif: action == "Save changes" ? timing : nil, confirmRemoveProtection: confirmChartOVT, store: store)
                 await store.refreshOrders()
             }
             return

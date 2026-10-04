@@ -24,6 +24,60 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testClosePositionUsesSameCancellationAsOrderXBeforeAnyFill() {
+        let pending: [String: Any] = ["position": 0.0, "entry_editable": true, "order_ref": "WheelPaper:a", "edit_snapshot": [["order_id": 1]]]
+        let cancel = TradeRules.chartCloseRequest(pending)
+        XCTAssertEqual(cancel["action"] as? String, "edit_entry")
+        XCTAssertEqual(cancel["cancel"] as? Bool, true)
+        XCTAssertEqual(cancel["expected_ref"] as? String, "WheelPaper:a")
+        let close = TradeRules.chartCloseRequest(pending.merging(["position": 1.0, "entry_editable": false]) { _, new in new })
+        XCTAssertEqual(close["action"] as? String, "close")
+        XCTAssertNil(close["cancel"])
+        XCTAssertEqual(close["expected_ref"] as? String, "WheelPaper:a")
+    }
+
+    func testOVTOnlyOfferedForUSDStockBuyLimit() {
+        for type in ["STK", "OPT", "FUT"] {
+            for side in [-1, 1] {
+                for orderType in ["LMT", "STP"] {
+                    let options = TradeRules.chartTIFs(securityType: type, currency: "USD", side: side, entryType: orderType)
+                    XCTAssertEqual(options.contains("OVERNIGHT"), type == "STK" && side == 1 && orderType == "LMT")
+                    XCTAssertEqual(Array(options.prefix(2)), ["DAY", "GTC"])
+                }
+            }
+        }
+        XCTAssertEqual(TradeRules.chartTIFs(securityType: "STK", currency: "HKD", side: 1, entryType: "LMT"), ["DAY", "GTC"])
+    }
+
+    func testJoinBridgeReplayCannotResubmitAfterWebViewReload() {
+        var gate = ChartJoinGate()
+        XCTAssertFalse(gate.accept(0))
+        XCTAssertTrue(gate.accept(1))
+        XCTAssertFalse(gate.accept(1))
+        XCTAssertFalse(gate.accept(0))
+        XCTAssertTrue(gate.accept(2))
+        XCTAssertFalse(gate.accept(1))
+    }
+
+    func testChartOrderSettingsUseFreshIdentityAndPreserveAllFields() {
+        let order = Order(id: 1, ticker: "TQQQ", action: "BUY", option_type: "STOCK", premium: 79.5, quantity: 100, status: "presubmitted", tif: "DAY", chart_con_id: 7, chart_order_ref: "WheelPaper:a")
+        let state: [String: Any] = ["order_ref": "WheelPaper:a", "entry_editable": true, "entry": 79.5, "quantity": 100.0, "tif": "DAY", "allowed_tifs": ["DAY", "GTC", "OVERNIGHT"], "edit_snapshot": [["order_id": 1, "filled": 0]], "mode": "bracket"]
+        func request(_ state: [String: Any], _ tif: String = "GTC", _ confirm: Bool = false) -> [String: Any]? {
+            TradeRules.chartEditRequest(order, state: state, price: 80, quantity: 101, tif: tif, confirmRemoveProtection: confirm)
+        }
+        let body = request(state)
+        XCTAssertEqual(body?["action"] as? String, "edit_entry")
+        XCTAssertEqual(body?["quantity"] as? Int, 101)
+        XCTAssertEqual(body?["price"] as? Double, 80)
+        XCTAssertEqual(body?["tif"] as? String, "GTC")
+        XCTAssertNil(request(state, "OVERNIGHT"))
+        XCTAssertNotNil(request(state, "OVERNIGHT", true))
+        for changed: [String: Any] in [["order_ref": "WheelPaper:b"], ["entry": 79.6], ["quantity": 99.0], ["tif": "GTC"], ["entry_editable": false], ["edit_snapshot": [[String: Any]]()]] {
+            XCTAssertNil(request(state.merging(changed) { _, new in new }))
+        }
+        XCTAssertNil(request(state, "BAD"))
+    }
+
     func testPaperTimeoutScopesLockAndReconcilesAfterRestartWithoutReplay() async throws {
         let defaults = UserDefaults.standard
         let saved = defaults.dictionary(forKey: "pendingPaperChartRequests")

@@ -9,7 +9,7 @@ const result=await page.evaluate(()=>{
  const h=document.getElementById('sl');dragging='sl';levels.sl=9.75;h.dispatchEvent(new PointerEvent('pointerup'));h.dispatchEvent(new PointerEvent('lostpointercapture'));
  document.getElementById('cancel').click();
  return {submitted,sent,title:document.getElementById('chart-title').textContent,stillVisible:!document.getElementById('entry').hidden};
-});assert.equal(result.submitted.length,1);assert.deepEqual(result.submitted[0],{action:'submit',entry:10,quantity:1,side:1,entry_type:'LMT',tp:11,sl:9.5,con_id:7});assert.deepEqual(result.sent[1],{action:'amend',role:'sl',price:9.75,con_id:7});assert.equal(result.sent.length,3);assert.equal(result.sent[2].action,'edit_entry');assert.equal(result.sent[2].cancel,true);assert.equal(result.stillVisible,true);assert.equal(result.title,'TSLA · 5 · NASDAQ');const fills=await page.evaluate(()=>{
+});assert.equal(result.submitted.length,1);assert.deepEqual(result.submitted[0],{action:'submit',entry:10,quantity:1,side:1,entry_type:'LMT',tp:11,sl:9.5,source:'join',join_revision:1,con_id:7});assert.deepEqual(result.sent[1],{action:'amend',role:'sl',price:9.75,con_id:7});assert.equal(result.sent.length,3);assert.equal(result.sent[2].action,'edit_entry');assert.equal(result.sent[2].cancel,true);assert.equal(result.stillVisible,true);assert.equal(result.title,'TSLA · 5 · NASDAQ');const fills=await page.evaluate(()=>{
  const base={entry:10,quantity:1,entryType:'LMT',priceRules:[{low:0,increment:.25}],con_id:7};
  configure({...base,paper:{enabled:true,active:true,position:1,entry:10,tp:11,sl:9.5,side:1,orders:[{role:'entry',status:'Filled',filled:1}]}});
  const held=document.getElementById('entry').textContent;
@@ -26,9 +26,12 @@ const priceOrders=await page.evaluate(()=>{
   cursorOrderPrice=price;priceAdd.style.top='100px';priceAdd.click();
   const buttons=priceMenu.querySelectorAll('[data-order-choice]');output.push([...buttons].map(b=>b.textContent));
   const before=sent.length;buttons[index].click();buttons[index].click();
-  if(sent.length!==before+1)throw Error('Price order double submitted');
+  if(sent.length!==before+1||sent.at(-1).action!=='previewOrder')throw Error('Price selection must only stage preview');
+  const submitCount=sent.filter(x=>x.action==='submit').length;document.getElementById('order-direction').click();document.getElementById('order-direction').click();
+  if(sent.filter(x=>x.action==='submit').length!==submitCount+1)throw Error('Buy/Sell must submit exactly once');
+  configure({entry:price,quantity:2,con_id:7,entryType:sent.at(-1).entry_type,tpDistance:2,slDistance:1,priceRules:[{low:0,increment:.25}],paper:{enabled:true,active:false,submit_revision:index+price}});
  }
- const orders=sent.slice(-4);
+ const orders=sent.filter(x=>x.action==='submit').slice(-4);
  configure({entry:0,quantity:2,con_id:7,tpDistance:2,slDistance:1,priceRules:[{low:0,increment:.25}],paper:{enabled:true,active:true}});
  cursorOrderPrice=105;priceAdd.click();if([...priceMenu.querySelectorAll('[data-order-choice]')].some(b=>!b.disabled))throw Error('Active bracket did not disable price orders');
  closePriceMenu();return {output,orders};

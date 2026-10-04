@@ -139,7 +139,21 @@ class OptionsService:
                 continue
             external_orders.append(order)
 
-        return local_orders + external_orders + futures_orders(conn, db_path=self.db.db_path)
+        chart_orders = futures_orders(conn, db_path=self.db.db_path)
+        # Keep the option feed's stable row ID while enriching chart-owned entries.
+        for external in external_orders:
+            matching = next((row for row in chart_orders if row.get('option_type') in ('CALL', 'PUT')
+                and row.get('con_id') == external.get('con_id')
+                and ((row.get('perm_id') and row.get('perm_id') == external.get('perm_id'))
+                     or (not row.get('perm_id') and not external.get('perm_id')
+                         and row.get('ib_order_id') == external.get('ib_order_id')
+                         and row.get('client_id', 0) == external.get('client_id', 0)))), None)
+            if matching is not None:
+                stable_id = external['id']
+                external.update(matching)
+                external['id'] = stable_id
+                chart_orders.remove(matching)
+        return local_orders + external_orders + chart_orders
 
     def validate_order_data(self, order_data):
         """Normalize an option order and reject values that are unsafe to persist."""

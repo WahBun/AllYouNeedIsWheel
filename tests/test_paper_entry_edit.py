@@ -16,6 +16,43 @@ class EntryEditTests(unittest.TestCase):
         body.update(changes)
         return self.service.execute(self.conn, 7, body)
 
+    def test_repeated_drag_release_and_replacement_stay_synced_in_orders(self):
+        from api.services.futures_orders import futures_orders
+        self.conn._order_account.return_value = 'DU_TEST'
+        self.conn.get_order_status_snapshot.side_effect = lambda: {'authoritative_open_trades': self.conn.ib.openTrades() * 2}
+        self.submit(quantity=100)
+        for changes in [dict(price=10.25), dict(price=10.5), dict(price=10.0), dict(quantity=101, tif='GTC'), dict(price=10.25)]:
+            result = self.edit(**changes)
+            self.assertTrue(result['success'], result)
+            writes = self.conn.ib.placeOrder.call_count
+            for _ in range(5):
+                state = self.service.state(self.conn, 7)
+                rows = futures_orders(self.conn, db_path=self.service.path)
+                entries = [r for r in rows if r.get('action') == 'BUY']
+                self.assertEqual(len(entries), 1, rows)
+                row = entries[0]
+                self.assertEqual(row['premium'], state['entry'])
+                self.assertEqual(row['quantity'], sum(r['quantity'] for r in state['orders'] if r['role'].split('_')[0] == 'entry'))
+                self.assertEqual(row['tif'], state['tif'])
+                self.assertEqual(row['ib_order_id'], next(r['order_id'] for r in state['orders'] if r['role'] == 'entry'))
+            self.assertEqual(self.conn.ib.placeOrder.call_count, writes)
+        result = self.edit(cancel=True)
+        self.assertTrue(result['success'], result)
+        for _ in range(5):
+            self.assertFalse(self.service.state(self.conn, 7)['active'])
+            self.assertEqual(futures_orders(self.conn, db_path=self.service.path), [])
+
+    def test_cancel_skips_contract_and_price_validation_but_keeps_exact_snapshot(self):
+        from unittest.mock import patch
+        self.submit(quantity=100)
+        self.conn.ib.sleep.reset_mock()
+        with patch('api.services.paper_chart.contracts.resolve', side_effect=AssertionError('Cancellation must not resolve contract')), patch('api.services.paper_chart.stock_chart.active', {}), patch.object(self.service, 'validate_overnight_price', side_effect=AssertionError('Cancellation must not request price rules')):
+            result = self.edit(cancel=True)
+        self.assertTrue(result['success'], result)
+        self.assertTrue(all(t.orderStatus.status == 'Cancelled' for t in self.trades))
+        self.assertEqual(self.conn.ib.placeOrder.call_count, 3)
+        self.assertNotIn(((.2,), {}), self.conn.ib.sleep.call_args_list)
+
     def test_entry_price_preserves_bracket_identity_and_protection(self):
         self.submit(quantity=100)
         before = self.service.group('DU_TEST', 7)['ids']

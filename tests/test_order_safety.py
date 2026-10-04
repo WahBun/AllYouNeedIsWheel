@@ -617,6 +617,18 @@ class OrderSafetyTests(unittest.TestCase):
                 self.assertEqual(order['remaining'], 1)
                 self.assertEqual(order['avg_fill_price'], 0.73)
 
+    def test_chart_option_enrichment_keeps_row_identity_without_duplicates(self):
+        external = dict(id='ib-123', perm_id=123, con_id=7, ib_order_id=50, ticker='TEST', status='processing', option_type='CALL')
+        connection = FakeIBConnection(open_option_orders=[external])
+        service = self.make_service(connection)
+        enriched = dict(external, id='ib-opt-123', status='presubmitted', chart_con_id=7, chart_order_ref='WheelPaper:a')
+        with patch('api.services.options_service.futures_orders', return_value=[enriched]):
+            rows = service.get_pending_orders_with_ib(force_refresh=True)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['id'], 'ib-123')
+        self.assertEqual(rows[0]['chart_order_ref'], 'WheelPaper:a')
+        self.assertEqual(rows[0]['status'], 'presubmitted')
+
     def test_pending_orders_merge_unmatched_ib_managed_orders(self):
         external_order = {
             'id': 'ib-409539202',

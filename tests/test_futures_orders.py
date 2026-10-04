@@ -17,6 +17,25 @@ class FuturesOrdersTests(unittest.TestCase):
         self.contract=Future('MES','20261218','CME',currency='USD',conId=7,localSymbol='MESZ6',multiplier='5')
     def trade(self,account='DU_TEST',status='Submitted',filled=0):
         return Trade(self.contract,LimitOrder('BUY',1,7790,account=account,orderId=50,permId=123),OrderStatus(status=status,filled=filled,avgFillPrice=7790 if filled else 0))
+    def test_chart_parent_metadata_for_stock_future_and_option_excludes_children(self):
+        from ib_async import Option
+        for contract in [Stock('TEST', 'SMART', 'USD', conId=7), Future('MES', '20261218', 'CME', currency='USD', conId=7), Option('TEST', '20261016', 10, 'C', 'SMART', currency='USD', conId=7)]:
+            with self.subTest(type=contract.secType), TemporaryDirectory() as tmp:
+                path = str(Path(tmp) / 'orders.db')
+                service = PaperChart(path)
+                service.save_group('DU_TEST', 7, dict(ref='WheelPaper:owned', side=1, ids=dict(entry=50, tp=51)))
+                self.contract = contract
+                entry = self.trade(); entry.order.orderRef = 'WheelPaper:owned'
+                child = self.trade(); child.order.orderId = 51; child.order.permId = 124; child.order.parentId = 50; child.order.orderRef = 'WheelPaper:owned'
+                self.conn.get_order_status_snapshot.return_value = {'authoritative_open_trades': [entry, child, entry]}
+                rows = futures_orders(self.conn, db_path=path)
+                self.assertEqual(len(rows), 2)
+                self.assertEqual(next(r for r in rows if r['ib_order_id'] == 50)['chart_order_ref'], 'WheelPaper:owned')
+                self.assertNotIn('chart_order_ref', next(r for r in rows if r['ib_order_id'] == 51))
+                self.conn.readonly = True
+                self.assertTrue(all('chart_order_ref' not in row for row in futures_orders(self.conn, db_path=path)))
+                self.conn.readonly = False
+
     def test_pending_account_isolation_and_dedup(self):
         t=self.trade();foreign=self.trade('OTHER')
         self.conn.get_order_status_snapshot.return_value={'authoritative_open_trades':[t,t,foreign]}
