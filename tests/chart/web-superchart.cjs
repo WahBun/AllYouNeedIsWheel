@@ -26,7 +26,8 @@ await page.waitForFunction(()=>document.getElementById('quantity').value==='4');
 // Filled positions have a separate adjustment size, independent of entry quantity.
 state={enabled:true,known:true,active:true,status:'working',position:4,scalable:true,entry:101,side:1,entry_type:'LMT',order_ref:'held-ref',orders:[]};
 await page.waitForFunction(()=>!document.getElementById('adjustment-control').hidden);
-assert.equal(await page.locator('#quantity').isDisabled(),true);
+assert.equal(await page.locator('#quantity').isDisabled(),true);assert.equal(await page.locator('#quantity').inputValue(),'4');assert.equal(await page.locator('#quantity-label').textContent(),'Position size');
+state={...state,position:6};await page.waitForFunction(()=>document.getElementById('quantity').value==='6');state={...state,position:4};await page.waitForFunction(()=>document.getElementById('quantity').value==='4');
 await page.locator('#adjustment-quantity').fill('2');assert.equal(await page.locator('#add').isEnabled(),true);assert.equal(await page.locator('#trim').isEnabled(),true);
 await page.locator('#add').click();await page.waitForTimeout(150);assert.equal(writes.at(-1).quantity,2);assert.equal(writes.at(-1).expected_ref,'held-ref');
 await page.locator('#adjustment-quantity').fill('4');assert.equal(await page.locator('#trim').isDisabled(),true);

@@ -141,3 +141,35 @@ Median release-to-response 842 ms; min 547 ms, max 1399 ms. Millisecond clock sa
 423 backend tests passed, including optimistic local echo rejection, first-old-then-current broker snapshot, late protection acknowledgement without replay, fill during amendment, idempotent fill outcome and replaced-reference rejection. Host queue tests cover discarding queued entry and protection changes when a fill/identity change arrives. Browser gesture tests inject a fill while the pointer is held and verify that release sends nothing stale and displays the actual entry basis.
 
 Actual broker coverage includes held long/short TP and SL rapid amendments, marketable entry amendment followed by fill, and SL trigger-region amendments followed by actual exits/OCA cancellation. Exact ordering of a real broker fill between pointer-down and pointer-up was not controlled or independently timestamp-proven; that narrow event ordering was verified by deterministic browser/broker fixtures. Single-order partial-fill timing, true connection-loss races and Live remain outside this run.
+
+## Detail trading-panel acceptance, from 07:25 CST
+
+This round exercised writes through the web UI, with independent read-only broker-derived order/fill/position checks after each step. Existing non-ES holdings remained read-only. Phone and Live were not tested.
+
+### Repairs found while reviewing the complete UI flow
+
+- `cc44d87`: Added a separate Add / Trim quantity field. The original entry quantity is locked after submission and previously also supplied the adjustment size, preventing an intentional 4 → Add 2 → 6 → Trim 2 → 4 workflow. Invalid fractional quantities, Trim of the whole position, and Add beyond the 10-contract limit disable the corresponding buttons. Adjustment requests carry the current order reference.
+- The same change sums all unit entry legs in the edit dialog, rather than showing the first unit's quantity. Pending entry quantity and TIF in the panel now follow acknowledged broker state after replacements.
+- Protection rows have separate navigation ownership metadata, allowing an Orders TP/SL click to select its correct independent group without granting those rows entry-edit authority. Paper/account/contract and saved order-ID checks remain in place.
+- `d08a9e9`: Hide adjustment controls while flat, overriding the general label layout rule.
+- `2374e12`: Protected Trim/Close now uses the fresh Bid/Ask returned by the quote filter independently of the Last-trade status. Last trades can pause in quiet ETH while the bid/ask feed remains current. Stale, delayed or missing quotes remain filtered out. Regression fixtures separately verify quiet Last with current quotes, stale quote rejection and delayed-feed rejection.
+
+### Actual Paper UI evidence
+
+- Long unfilled limit: parent 550 at 7783.50; 1 → 2/GTC replaced with 553/556; 2 → 1/DAY replaced with 559. Old orders no longer appeared in the authoritative pending list. The editor correctly displayed quantity 2 and GTC before reverting. Drag-release changed 559 to 7782.50 without another Buy click; chart/Orders/IB agreed. Cancellation ended 559/560/561 with zero fills and no pending orders.
+- From a new draft, clicking that long order's SL row recovered the original group and its entry. The UI selected the correct reference after asynchronous refresh.
+- Long held: parents 562/565/568/571 filled four contracts; Add 2 created 574/577 and position 6; Trim 2 filled existing TP 563/566 and position returned to 4. At each stage effective TP and SL quantities equaled 4/6/4. BE used entry basis 7788.00 plus one tick, moving remaining stops to 7788.25. Those four original stops filled; paired TPs canceled, position zero.
+- Short held: parents 580/583/586/589 submitted at 7788.25, dragged to 7787.00 and filled four contracts. Add 2 used 592/595; Trim 2 returned position from -6 to -4 with four TP/four SL protection. Close eventually filled the existing remaining TP limits and canceled paired SLs, leaving zero position. An earlier Close attempt explicitly rejected for quote availability with no order change; it was reconciled before a new request.
+- One initial long submission received an explicit dispatcher QUEUE_FULL rejection. Broker checks confirmed no order or position before a manual new submission. No automatic write retry was introduced; admission under concurrent read load remains a usability limitation.
+- A/B isolation: A was a 1-contract SELL STP group 607/608/609 at 7783.50. B was SELL LMT at 7793.50, replaced 610 with 613/616 for 2/GTC, then 619 for 1/DAY. A's IDs, quantity, trigger and DAY remained unchanged throughout. Clicking A's TP from B returned to A. Canceling A ended all three A orders while B 619/620/621 remained unchanged and working. B was then canceled, leaving no pending orders.
+- GTC BUY STP 622 with TP/SL 623/624 was submitted at 7787.75, one tick above the displayed Last 7787.50. Reloading the web page recovered the same group, STP, GTC and IDs without resubmission. Subsequent controlled amendment moved the trigger to 7787.25 while Last was 7787.00.
+
+### Regression evidence and limits
+
+426 Python tests passed after the exit-quote change. The web shared-chart suite passed, covering real browser UI with mocked APIs: submit/edit/cancel, total unit quantity, independent adjustment size and invalid-size guards, response-loss reconciliation, no reload replay, Live isolation, fixed chart geometry and 1440/850/393-width layout. The latest-target queue suite also passed. These fixtures do not certify broker races or real disconnect timing.
+
+This round extends the earlier actual TP/SL, BE in both directions, natural STP trigger, restart and rapid-drag evidence above; it does not repeat every earlier scenario. The exact fill-between-pointer-down-and-up race, a single multi-contract order's partial fill, physical mobile transitions and Live remain outside this UI acceptance.
+
+Final broker/UI result, approximately 07:40 CST: the amended GTC BUY STP 622 actually filled at 7788.00. The updated backend's Close used the existing TP 623 at 7789.00, which filled; SL 624 canceled. ES position 0, pending-orders empty, existing SGOV quantity unchanged. This proves the post-fix limit-close lifecycle against Paper; the exact quiet-Last/current-BidAsk condition was covered by fixtures, not deliberately forced at the broker.
+
+A final display-only follow-up labels the disabled main quantity as Position size while held and updates it to the actual remaining position, including after Add/Trim and page recovery. The independent Add / Trim quantity remains the requested adjustment. Browser fixtures verify 4 → 6 → 4 display updates.
