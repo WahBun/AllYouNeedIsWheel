@@ -116,7 +116,7 @@ class FillMetadataTests(unittest.TestCase):
                                    {'perm_id': 123, 'filled': 1, 'avg_fill_price': .62})
             external = {'id': 'ib-123', 'perm_id': 123, 'order_ref': f'AYNIW-{order_id}'}
             metadata = IBConnection._fill_metadata([fill()])
-            conn = NS(_order_account=lambda: 'TEST', get_open_option_orders=lambda **kw: [external],
+            conn = NS(get_order_status_snapshot=lambda **kw: {'authoritative_open_trades': []}, _order_account=lambda: 'TEST', get_open_option_orders=lambda **kw: [external],
                       get_order_fill_metadata=lambda details: metadata)
             service = OptionsService.__new__(OptionsService)
             service.db = db

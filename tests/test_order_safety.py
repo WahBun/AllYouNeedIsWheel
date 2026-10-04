@@ -72,7 +72,10 @@ class FakeIBConnection:
             return self.covered_call_capacity[0]
         return self.covered_call_capacity
 
-    def get_open_option_orders(self, account_id=None, force_refresh=False):
+    def get_order_status_snapshot(self, force_refresh=False):
+        return {"authoritative_open_trades": []}
+
+    def get_open_option_orders(self, account_id=None, force_refresh=False, status_snapshot=None):
         return self.open_option_orders
 
     def create_order(self, action, quantity, order_type, limit_price, tif='DAY'):
@@ -97,7 +100,7 @@ class FakeIBConnection:
     def cancel_order(self, order_id):
         return self.cancellation
 
-    def check_order_status(self, order_id, perm_id=None, order_details=None):
+    def check_order_status(self, order_id, perm_id=None, order_details=None, status_snapshot=None):
         self.status_calls.append((order_id, perm_id, order_details))
         return self.status
 

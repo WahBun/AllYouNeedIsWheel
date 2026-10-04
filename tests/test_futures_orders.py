@@ -48,6 +48,18 @@ class FuturesOrdersTests(unittest.TestCase):
             self.assertEqual(row['chart_group_id'], group_id)
             self.assertEqual(row['chart_order_ref'], 'WheelPaper:new')
 
+    def test_empty_shared_broker_snapshot_does_not_resurrect_cached_order(self):
+        stale = self.trade(status='PendingCancel')
+        self.conn.get_order_status_snapshot.return_value = {'trades': [stale]}
+        rows = futures_orders(self.conn, status_snapshot={'authoritative_open_trades': [], 'trades': [stale]})
+        self.assertEqual(rows, [])
+        self.conn.get_order_status_snapshot.assert_not_called()
+
+    def test_standalone_pending_read_requires_fresh_broker_snapshot(self):
+        self.conn.get_order_status_snapshot.return_value = {'authoritative_open_trades': []}
+        self.assertEqual(futures_orders(self.conn), [])
+        self.conn.get_order_status_snapshot.assert_called_once_with(force_refresh=True)
+
     def test_pending_account_isolation_and_dedup(self):
         t=self.trade();foreign=self.trade('OTHER')
         self.conn.get_order_status_snapshot.return_value={'authoritative_open_trades':[t,t,foreign]}

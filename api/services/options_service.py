@@ -111,9 +111,12 @@ class OptionsService:
             return local_orders
 
         try:
+            # All products in this response must use the same fresh broker view.
+            status_snapshot = conn.get_order_status_snapshot(force_refresh=True)
             ib_orders = conn.get_open_option_orders(
                 account_id=account,
-                force_refresh=force_refresh
+                force_refresh=force_refresh,
+                status_snapshot=status_snapshot
             )
         except Exception as error:
             logger.error("Could not load active IB option orders: %s", error)
@@ -139,7 +142,7 @@ class OptionsService:
                 continue
             external_orders.append(order)
 
-        chart_orders = futures_orders(conn, db_path=self.db.db_path)
+        chart_orders = futures_orders(conn, db_path=self.db.db_path, status_snapshot=status_snapshot)
         # Keep the option feed's stable row ID while enriching chart-owned entries.
         for external in external_orders:
             matching = next((row for row in chart_orders if row.get('option_type') in ('CALL', 'PUT')

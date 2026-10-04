@@ -14,7 +14,7 @@ def completed_trades(conn, account):
     return cache[2]
 
 
-def futures_orders(conn, completed=False, db_path=None):
+def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
     if not conn or not conn.is_connected():
         return []
     account = conn._order_account()
@@ -23,7 +23,7 @@ def futures_orders(conn, completed=False, db_path=None):
     if completed:
         trades = completed_trades(conn, account) + list(conn.ib.trades())
     else:
-        snapshot = conn.get_order_status_snapshot()
+        snapshot = status_snapshot if status_snapshot is not None else conn.get_order_status_snapshot(force_refresh=True)
         if not snapshot:
             return []
         trades = snapshot.get('authoritative_open_trades')

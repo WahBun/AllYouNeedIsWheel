@@ -19,7 +19,7 @@ class EntryEditTests(unittest.TestCase):
     def test_repeated_drag_release_and_replacement_stay_synced_in_orders(self):
         from api.services.futures_orders import futures_orders
         self.conn._order_account.return_value = 'DU_TEST'
-        self.conn.get_order_status_snapshot.side_effect = lambda: {'authoritative_open_trades': self.conn.ib.openTrades() * 2}
+        self.conn.get_order_status_snapshot.side_effect = lambda **kwargs: {'authoritative_open_trades': self.conn.ib.openTrades() * 2}
         self.submit(quantity=100)
         for changes in [dict(price=10.25), dict(price=10.5), dict(price=10.0), dict(quantity=101, tif='GTC'), dict(price=10.25)]:
             result = self.edit(**changes)
