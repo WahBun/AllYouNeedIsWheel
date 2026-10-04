@@ -25,6 +25,30 @@ class PaperChartTests(unittest.TestCase):
         self.conn.ib.cancelOrder.side_effect=lambda o:setattr(next(t for t in self.trades if t.order.orderId==o.orderId).orderStatus,'status','Cancelled')
         self.resolve=patch('api.services.paper_chart.contracts.resolve',return_value=self.contract);self.resolve.start()
         self.feed=patch('api.services.paper_chart.stock_chart.active',{'con_id':7,'price_rules':[{'low':0,'increment':.25}]});self.feed.start()
+    def test_first_old_snapshot_then_acknowledgement_sends_only_one_amendment(self):
+        import copy
+        self.submit();old=copy.deepcopy(self.trades);reads=0
+        def read(fn,*a,**kw):
+            nonlocal reads
+            if fn!=self.conn.ib.reqOpenOrders:return []
+            reads+=1
+            return old if reads<=2 else self.trades
+        self.conn._bounded_order_read.side_effect=read
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='amend',role='tp',price=12))
+        self.assertTrue(result['success'],result);self.assertEqual(self.conn.ib.placeOrder.call_count,4)
+        self.assertGreaterEqual(reads,3)
+
+    def test_late_protection_confirmation_unlocks_without_replay(self):
+        self.filled_position(1)
+        request=dict(request_id=str(uuid4()),action='amend',role='sl',price=9,expected_ref=self.service.group('DU_TEST',7)['ref'])
+        with patch.object(self.service,'modify_exit',side_effect=RuntimeError('response lost')):
+            result=self.service.execute(self.conn,7,request)
+        self.assertEqual(result['status'],'unknown')
+        self.trades[2].order.auxPrice=9
+        writes=self.conn.ib.placeOrder.call_count
+        self.assertTrue(self.service.request_status(self.conn,7,request['request_id'])['confirmed'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+
     def test_protection_amend_does_not_accept_optimistic_local_price(self):
         import copy
         self.submit()

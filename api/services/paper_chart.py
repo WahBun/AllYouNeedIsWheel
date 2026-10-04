@@ -299,6 +299,19 @@ class PaperChart:
                 db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
                     (json.dumps(dict(success=status != 'rejected', status=status)), request_id, account))
             return dict(confirmed=True, status=status)
+        if body.get('action') in ('amend','be') and state['known'] and group.get('ref') == body.get('expected_ref'):
+            role='sl' if body['action']=='be' else body.get('role')
+            target_ids={oid for key,oid in group.get('ids',{}).items() if key.split('_')[0]==role}
+            rows=[r for r in state['orders'] if r['order_id'] in target_ids]
+            if rows and not state['active'] and not state['position']:
+                return resolved('done')
+            # Only actual broker snapshot rows can release an uncertain amendment.
+            working=[t for t in authoritative if t.order.orderId in target_ids and t.order.account==account
+                     and t.contract.conId==cid and t.order.orderRef==group.get('ref')]
+            live_rows=[r for r in rows if r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive')]
+            if body['action']=='amend' and live_rows and {t.order.orderId for t in working}=={r['order_id'] for r in live_rows} and all(
+                    t.orderStatus.status in ('Submitted','PreSubmitted') and getattr(t.order,'auxPrice' if role=='sl' else 'lmtPrice')==body.get('price') for t in working):
+                return resolved('reconciled')
         if body.get('action') == 'edit_entry' and state['known']:
             original = group.get('ref') == body.get('expected_ref')
             if original and state['orders'] and not state['position'] and all(
@@ -422,13 +435,19 @@ class PaperChart:
         requested=getattr(order,field)
         identity=(order.orderId,order.account,trade.contract.conId,order.orderRef)
         conn.ib.placeOrder(trade.contract,order)
-        confirmed=conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
-        errors=[e.errorCode for e in trade.log[start:] if e.errorCode and e.errorCode not in (399,2109)]
-        if errors: raise ValueError(f'IB rejected the order amendment ({errors[-1]}); broker state will be refreshed')
-        if trade.orderStatus.status=='Filled': return
-        matches=[t for t in confirmed if (t.order.orderId,t.order.account,t.contract.conId,t.order.orderRef)==identity]
-        if not any(t.orderStatus.status in ('Submitted','PreSubmitted') and getattr(t.order,field)==requested for t in matches):
-            raise RuntimeError('Broker amendment not confirmed')
+        import time
+        deadline=time.monotonic()+3
+        while True:
+            # A first snapshot can precede the amendment acknowledgement. Wait
+            # for subsequent broker events and re-read; never repeat placeOrder.
+            confirmed=conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=max(.05,deadline-time.monotonic()))
+            errors=[e.errorCode for e in trade.log[start:] if e.errorCode and e.errorCode not in (399,2109)]
+            if errors: raise ValueError(f'IB rejected the order amendment ({errors[-1]}); broker state will be refreshed')
+            if trade.orderStatus.status=='Filled': return
+            matches=[t for t in confirmed if (t.order.orderId,t.order.account,t.contract.conId,t.order.orderRef)==identity]
+            if any(t.orderStatus.status in ('Submitted','PreSubmitted') and getattr(t.order,field)==requested for t in matches): return
+            if time.monotonic()>=deadline: raise RuntimeError('Broker amendment not confirmed')
+            conn.ib.sleep(.05)
 
     def submit_overnight_entry(self, conn, account, cid, contract, current, body, request_id):
         """Standalone Paper stock entry; venue controls the overnight session, never SMART fallback."""
