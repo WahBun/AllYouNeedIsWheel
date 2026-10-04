@@ -25,20 +25,31 @@ def paper_account(conn, write=False):
 
 
 class PaperChart:
-    def __init__(self, path):
+    def __init__(self, path, group_id=None):
         self.path = path
+        self.group_id = str(UUID(group_id)) if group_id else None
 
     def database(self):
         db = sqlite3.connect(self.path)
         db.execute('CREATE TABLE IF NOT EXISTS chart_paper_requests (id TEXT PRIMARY KEY, account TEXT NOT NULL, body TEXT NOT NULL, result TEXT)')
         db.execute('CREATE TABLE IF NOT EXISTS chart_paper_groups (account TEXT, con_id INTEGER, orders TEXT NOT NULL, PRIMARY KEY(account,con_id))')
+        db.execute('CREATE TABLE IF NOT EXISTS chart_paper_independent (account TEXT, con_id INTEGER, group_id TEXT, orders TEXT NOT NULL, PRIMARY KEY(account,con_id,group_id))')
         db.commit()
         return db
 
     def group(self, account, cid):
         with self.database() as db:
-            row = db.execute('SELECT orders FROM chart_paper_groups WHERE account=? AND con_id=?',(account,cid)).fetchone()
+            if self.group_id:
+                row = db.execute('SELECT orders FROM chart_paper_independent WHERE account=? AND con_id=? AND group_id=?',(account,cid,self.group_id)).fetchone()
+            else:
+                row = db.execute('SELECT orders FROM chart_paper_groups WHERE account=? AND con_id=?',(account,cid)).fetchone()
         return json.loads(row[0]) if row else None
+
+    def group_choices(self, account, cid):
+        with self.database() as db:
+            records = db.execute('SELECT group_id,orders FROM chart_paper_independent WHERE account=? AND con_id=? ORDER BY rowid',(account,cid)).fetchall()
+            original = db.execute('SELECT orders FROM chart_paper_groups WHERE account=? AND con_id=?',(account,cid)).fetchone()
+        return ([dict(id='',ref=json.loads(original[0]).get('ref'))] if original else []) + [dict(id=k,ref=json.loads(v).get('ref')) for k,v in records]
 
     def execution_groups(self, account, cid):
         """Recover logical user orders from the write journal, not candle time.
@@ -82,7 +93,7 @@ class PaperChart:
         trades = {t.order.orderId:t for t in conn.ib.trades() if t.order.account==account and t.contract.conId==cid}
         position = next((p for p in conn.ib.positions() if p.account==account and p.contract.conId==cid),None)
         result = dict(paper=True, enabled=conn.readonly is False, position=float(position.position) if position else 0,
-                      active=False, known=True, orders=[], entry=0, tp=0, sl=0, side=1, status='idle')
+                      active=False, known=True, orders=[], entry=0, tp=0, sl=0, side=1, status='idle', group_id=self.group_id or '', group_choices=self.group_choices(account,cid))
         executions = {}
         execution_groups=self.execution_groups(account,cid)
         for fill in conn.ib.fills():
@@ -128,8 +139,7 @@ class PaperChart:
                  for role,oid in group['ids'].items() if oid in trades and (trades[oid].order.permId or trades[oid].orderStatus.permId)}
         if perms and perms != group.get('perms'):
             group['perms'] = {**group.get('perms', {}), **perms}
-            with self.database() as db:
-                db.execute('UPDATE chart_paper_groups SET orders=? WHERE account=? AND con_id=?',(json.dumps(group),account,cid))
+            self.save_group(account,cid,group)
         def trade_fills(t):
             perm = t.order.permId or t.orderStatus.permId
             fills = list(t.fills)
@@ -160,8 +170,7 @@ class PaperChart:
         confirmed = {r['role']:r for r in rows if r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive')}
         if confirmed != group.get('terminal'):
             group['terminal'] = confirmed
-            with self.database() as db:
-                db.execute('UPDATE chart_paper_groups SET orders=? WHERE account=? AND con_id=?',(json.dumps(group),account,cid))
+            self.save_group(account,cid,group)
         result.update(orders=rows, side=group['side'], known=all(r['status']!='Unknown' for r in rows))
         result['active']=any(r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive') for r in rows) or result['position']!=0
         result['status']='working' if result['active'] else 'done'
@@ -261,6 +270,7 @@ class PaperChart:
             row = db.execute('SELECT body,result FROM chart_paper_requests WHERE id=? AND account=?', (request_id, account)).fetchone()
         if not row: return dict(confirmed=False, status='unknown')
         body = json.loads(row[0])
+        if body.get('group_id') != self.group_id: raise ValueError('Request order group mismatch')
         if body.get('con_id') != cid: raise ValueError('Request contract mismatch')
         result = json.loads(row[1]) if row[1] else {}
         if result.get('status') in ('acknowledged','rejected','working','filled','canceled','pending','done','reconciled'):
@@ -307,6 +317,7 @@ class PaperChart:
     def execute(self, conn, cid, body):
         account=paper_account(conn,True)
         request_id=str(UUID(str(body.get('request_id',''))))
+        if self.group_id: body=dict(body,group_id=self.group_id)
         encoded=json.dumps(dict(body,con_id=cid),sort_keys=True,allow_nan=False)
         with self.database() as db:
             old=db.execute('SELECT account,body,result FROM chart_paper_requests WHERE id=?',(request_id,)).fetchone()
@@ -345,7 +356,10 @@ class PaperChart:
 
     def save_group(self, account, cid, group):
         with self.database() as db:
-            db.execute('INSERT OR REPLACE INTO chart_paper_groups VALUES(?,?,?)',(account,cid,json.dumps(group)))
+            if self.group_id:
+                db.execute('INSERT OR REPLACE INTO chart_paper_independent VALUES(?,?,?,?)',(account,cid,self.group_id,json.dumps(group)))
+            else:
+                db.execute('INSERT OR REPLACE INTO chart_paper_groups VALUES(?,?,?)',(account,cid,json.dumps(group)))
 
     def add_lots(self, conn, account, cid, contract, group, qty, kind, entry, tp, sl):
         for _ in range(qty):
@@ -418,7 +432,7 @@ class PaperChart:
         conn._bounded_order_read(conn.ib.reqOpenOrders, timeout_seconds=3)
         if not current['known'] or current['active'] or current['position']:
             raise ValueError('Resolve existing chart orders/position before a standalone entry')
-        if any(t.contract.conId == cid and t.order.account == account for t in conn.ib.openTrades()):
+        if not self.group_id and any(t.contract.conId == cid and t.order.account == account for t in conn.ib.openTrades()):
             raise ValueError('A working order already exists for this contract')
         tif = body.get('tif', 'OVERNIGHT')
         if tif not in ('DAY', 'GTC', 'OVERNIGHT'): raise ValueError('Unsupported stock TIF')
@@ -568,6 +582,8 @@ class PaperChart:
             raise RuntimeError('Entry amendment needs broker reconciliation') from error
 
     def perform(self, conn, account, cid, body, request_id):
+        if body.get('action') in ('close','be','add','trim') and any(t.contract.conId==cid and t.order.account==account and t.order.orderRef in {g['ref'] for g in self.group_choices(account,cid) if g['id'] != (self.group_id or '')} for t in conn.ib.openTrades()):
+            raise ValueError('Multiple order groups: manage each order separately; position actions require reconciliation')
         if body.get('action') == 'edit_entry' and body.get('cancel') is True:
             # A pure cancellation needs exact broker identity, not new contract/price rules.
             conn._bounded_order_read(conn.ib.reqOpenOrders, timeout_seconds=3)
@@ -653,7 +669,7 @@ class PaperChart:
             return number
         if action=='submit':
             if current['active'] or not current['known']: raise ValueError('An existing chart order needs resolution first')
-            if current['position'] or any(t.contract.conId==cid and t.order.account==account for t in conn.ib.openTrades()):
+            if current['position'] or (not self.group_id and any(t.contract.conId==cid and t.order.account==account for t in conn.ib.openTrades())):
                 raise ValueError('Close existing position/orders for this contract before starting a new bracket')
             tif=body.get('tif', 'DAY')
             if tif not in ('DAY', 'GTC'): raise ValueError('Unsupported bracket TIF')
@@ -671,8 +687,7 @@ class PaperChart:
             parent=(LimitOrder if body['entry_type']=='LMT' else StopOrder)(buy,qty,entry,orderId=ids['entry'],transmit=False)
             take=LimitOrder(sell,qty,tp,orderId=ids['tp'],parentId=ids['entry'],transmit=False)
             stop=StopOrder(sell,qty,sl,orderId=ids['sl'],parentId=ids['entry'],transmit=True)
-            with self.database() as db:
-                db.execute('INSERT OR REPLACE INTO chart_paper_groups VALUES(?,?,?)',(account,cid,json.dumps(dict(ids=ids,side=side,ref='WheelPaper:'+request_id))))
+            self.save_group(account,cid,dict(ids=ids,side=side,ref='WheelPaper:'+request_id))
             for order in (parent,take,stop):
                 order.account=account;order.tif=tif;order.orderRef='WheelPaper:'+request_id
                 conn.ib.placeOrder(contract,order)
@@ -776,7 +791,7 @@ class PaperChart:
                 if any(t.contract.conId==cid and t.order.account==account for t in conn.ib.openTrades()): raise ValueError('Other working orders exist; review Gateway')
                 order=MarketOrder('SELL' if position.position>0 else 'BUY',abs(position.position),account=account,tif='DAY',orderRef=group.get('ref','WheelPaper:'+request_id))
                 order.orderId=conn.ib.client.getReqId();group['ids']['close']=order.orderId
-                with self.database() as db: db.execute('UPDATE chart_paper_groups SET orders=? WHERE account=? AND con_id=?',(json.dumps(group),account,cid))
+                self.save_group(account,cid,group)
                 if group.get('mode') == 'overnight_entry':
                     import copy
                     contract = copy.copy(contract); contract.exchange = 'SMART'

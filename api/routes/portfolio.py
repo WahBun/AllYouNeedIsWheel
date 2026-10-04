@@ -192,7 +192,7 @@ def paper_chart_order(con_id):
     from api.services.paper_chart import PaperChart
     try:
         conn=portfolio_service._ensure_connection()
-        service=PaperChart(portfolio_service.config.get('db_path'))
+        service=PaperChart(portfolio_service.config.get('db_path'), request.args.get('group_id'))
         if request.method=='GET':
             if request.args.get('request_id'):
                 return _no_store_json(service.request_status(conn, con_id, request.args['request_id']))
