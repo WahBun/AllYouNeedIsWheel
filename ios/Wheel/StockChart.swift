@@ -381,6 +381,7 @@ struct StockChartView: View {
     @State private var interval = 5
     @State private var fullScreen = false
     @State private var tradingPanelCollapsed = true
+    @AppStorage("chartOneMinuteShortcutAdded") private var oneMinuteShortcutAdded = false
     @AppStorage("chartFavoriteIntervals") private var favoriteIntervals = "1,3,5,10,15,60,480,1440,10080,43200"
     @State private var showIntervals = false
     private let intervals = [1, 3, 5, 10, 15, 60, 480, 1440, 10080, 43200]
@@ -909,7 +910,7 @@ struct StockChartView: View {
     }
     var body: some View {
         VStack(spacing: 8) {
-            HStack {
+            HStack(spacing: 4) {
                 Button { showSymbols = true } label: { Image(systemName: "magnifyingglass").frame(width: 30, height: 40) }.buttonStyle(.plain).accessibilityLabel("Search chart symbol")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 2) {
@@ -917,7 +918,7 @@ struct StockChartView: View {
                             Button { interval = value } label: {
                                 Text(intervalLabel(value))
                                     .font(.system(size: 13, weight: interval == value ? .semibold : .regular))
-                                    .fixedSize().padding(.horizontal, 9).frame(height: 40)
+                                    .fixedSize().padding(.horizontal, 6).frame(height: 40)
                                     .background(interval == value ? Color.secondary.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 6))
                             }.buttonStyle(.plain)
                                 .accessibilityAddTraits(interval == value ? .isSelected : [])
@@ -925,8 +926,8 @@ struct StockChartView: View {
                     }
                 }
                 Button { showIntervals = true } label: {
-                    HStack(spacing: 3) { Text(intervalLabel(interval)); Image(systemName: "chevron.down") }.font(.caption)
-                }.buttonStyle(.plain).frame(minHeight: 40)
+                    Image(systemName: "chevron.down").font(.caption).frame(width: 24, height: 44)
+                }.buttonStyle(.plain).accessibilityLabel("Timeframe").accessibilityValue(intervalLabel(interval))
                 Picker("Session", selection: $session) {
                     Text("RTH").tag("rth"); Text("ETH").tag("all")
                 }.fixedSize()
@@ -1207,6 +1208,10 @@ struct StockChartView: View {
                 if chartType == "FUT" && !resumeLast { session = "all" }
                 initialized = true
                 rememberChart()
+            }
+            if !oneMinuteShortcutAdded {
+                favoriteIntervals = intervals.filter { favorites.contains($0) || $0 == 1 }.map(String.init).joined(separator: ",")
+                oneMinuteShortcutAdded = true
             }
             visible = true
             store.chartVisible = true
