@@ -44,15 +44,14 @@ def futures_orders(conn, completed=False, db_path=None):
                     state = json.loads(encoded).get('state', {}) if encoded else {}
                     if request.get('action') in ('edit_entry', 'manage_entry') and state.get('order_ref') == ref:
                         journal[ref] = dict(request, side=state.get('side'), mode=state.get('mode'))
-                if db.execute("SELECT 1 FROM sqlite_master WHERE name='chart_paper_groups'").fetchone():
-                    for cid, encoded in db.execute('SELECT con_id,orders FROM chart_paper_groups WHERE account=?', (account,)):
+                for table, scope in [('chart_paper_groups', "''"), ('chart_paper_independent', 'group_id')]:
+                    if not db.execute("SELECT 1 FROM sqlite_master WHERE name=?", (table,)).fetchone():
+                        continue
+                    for cid, group_id, encoded in db.execute(f'SELECT con_id,{scope},orders FROM {table} WHERE account=?', (account,)):
                         group = json.loads(encoded)
                         ref = group.get('ref', '')
-                        # The group is persisted before a broker send, including
-                        # replacements whose response was interrupted. Broker rows
-                        # still provide the actual status; no write is performed.
                         if ref.startswith('WheelPaper:'):
-                            journal[ref] = dict(con_id=cid, side=group.get('side'), mode=group.get('mode'), entry_ids=[oid for role, oid in group.get('ids', {}).items() if role.split('_')[0] == 'entry'])
+                            journal[ref] = dict(con_id=cid, group_id=group_id, side=group.get('side'), mode=group.get('mode'), entry_ids=[oid for role, oid in group.get('ids', {}).items() if role.split('_')[0] == 'entry'])
     from core.connection import IBConnection
     result = {}
     brackets = {}
@@ -102,6 +101,7 @@ def futures_orders(conn, completed=False, db_path=None):
                      (request.get('entry_ids') is None and request.get('mode') == 'overnight_entry'))):
             result[identity]['chart_con_id'] = c.conId
             result[identity]['chart_order_ref'] = ref
+            result[identity]['chart_group_id'] = request.get('group_id') or ''
         if request and request.get('con_id') == c.conId and c.currency == 'USD':
             entry_action = 'BUY' if request.get('side') == 1 else 'SELL'
             result[identity]['intent'] = 'OPEN' if o.action == entry_action else 'CLOSE'

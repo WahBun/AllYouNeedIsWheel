@@ -83,7 +83,7 @@ def install_api_dispatcher(app):
             key = (request.path, args)
 
         def expired_response():
-            response = jsonify(error='Request expired before execution; no operation was started')
+            response = jsonify(status='rejected', code='NOT_EXECUTED', error='Request expired before execution; no operation was started')
             response.status_code = 503
             response.headers['Retry-After'] = '2'
             return response
@@ -115,7 +115,7 @@ def install_api_dispatcher(app):
                 # Capacity counts IB jobs, not clients sharing the same read.
                 if not slots.acquire(blocking=False):
                     logger.warning('ib_queue_full id=%s', request_id)
-                    response = jsonify(error='IB requests are busy; please retry shortly')
+                    response = jsonify(status='rejected', code='QUEUE_FULL', error='IB requests are busy; please retry shortly')
                     response.status_code = 503
                     response.headers['Retry-After'] = '2'
                     return response
