@@ -200,6 +200,23 @@ class EntryEditTests(unittest.TestCase):
         self.assertEqual(state['entry'],10)
         self.assertTrue(state['entry_editable'])
 
+    def test_late_full_cancel_releases_replacement_lock_without_new_order(self):
+        from unittest.mock import patch
+        self.submit()
+        self.conn.ib.cancelOrder.side_effect = RuntimeError('lost cancellation response')
+        result = self.edit(quantity=2, tif='GTC')
+        self.assertEqual(result['status'], 'unknown')
+        request_id = self.service.group('DU_TEST',7)['pending_edit']
+        before = self.conn.ib.placeOrder.call_count
+        self.trades[0].orderStatus.status = 'PendingCancel'
+        self.assertFalse(self.service.request_status(self.conn,7,request_id)['confirmed'])
+        for trade in self.trades: trade.orderStatus.status = 'Cancelled'
+        self.assertEqual(self.service.request_status(self.conn,7,request_id),dict(confirmed=True,status='canceled'))
+        self.assertNotIn('pending_edit',self.service.group('DU_TEST',7))
+        self.assertEqual(self.service.request_status(self.conn,7,request_id),dict(confirmed=True,status='canceled'))
+        self.assertEqual(self.conn.ib.placeOrder.call_count,before)
+        self.assertEqual(self.conn.ib.cancelOrder.call_count,1)
+
     def test_session_warning_does_not_reject_amendment(self):
         from ib_async import TradeLogEntry
         from datetime import datetime, timezone

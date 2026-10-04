@@ -263,12 +263,26 @@ class PaperChart:
         body = json.loads(row[0])
         if body.get('con_id') != cid: raise ValueError('Request contract mismatch')
         result = json.loads(row[1]) if row[1] else {}
-        if result.get('status') in ('acknowledged','rejected','working','filled','canceled','pending','done'):
+        if result.get('status') in ('acknowledged','rejected','working','filled','canceled','pending','done','reconciled'):
             return dict(confirmed=True, status=result['status'])
         authoritative = conn._bounded_order_read(conn.ib.reqOpenOrders, timeout_seconds=3)
         state = self.state(conn, cid)
         group = self.group(account, cid) or {}
+        def resolved(status):
+            # Persist reconciliation: a later read/restart must not resurrect the lock.
+            if group.get('pending_edit') == request_id:
+                group.pop('pending_edit'); self.save_group(account, cid, group)
+            with self.database() as db:
+                db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
+                    (json.dumps(dict(success=status != 'rejected', status=status)), request_id, account))
+            return dict(confirmed=True, status=status)
         if body.get('action') == 'edit_entry' and state['known']:
+            original = group.get('ref') == body.get('expected_ref')
+            if original and state['orders'] and not state['position'] and all(
+                    r['status'] in ('Cancelled', 'ApiCancelled') and not r['filled'] for r in state['orders']):
+                # A delayed cancellation can finish after the replacement timed out.
+                # Release the old request, but never submit its replacement on a GET.
+                return resolved('canceled')
             # For a price-only edit, a fresh broker snapshot of that same order
             # resolves uncertainty even if IB retained the old price. Never resend.
             price_only = 'price' in body and not any(k in body for k in ('quantity','tif','cancel'))
@@ -277,8 +291,7 @@ class PaperChart:
                 and t.order.account == account and t.contract.conId == cid and t.order.orderRef == body.get('expected_ref')
                 and t.orderStatus.status in ('Submitted','PreSubmitted')]
             if group.get('pending_edit') == request_id and price_only and len(parent_ids) == len(confirmed_parent) == 1:
-                group.pop('pending_edit'); self.save_group(account,cid,group)
-                return dict(confirmed=True,status='reconciled')
+                return resolved('reconciled')
             parents = [r for r in state['orders'] if r['role'].split('_')[0] == 'entry']
             identity = group.get('ref') in (body.get('expected_ref'), 'WheelPaper:' + request_id)
             matches = identity and bool(parents) and all(r['status'] in ('Submitted','PreSubmitted') and not r['filled'] for r in parents)
@@ -288,8 +301,7 @@ class PaperChart:
             if body.get('cancel'): matches = identity and all(r['status'] in ('Cancelled','ApiCancelled') and not r['filled'] for r in state['orders'])
             if matches:
                 if group.get('pending_edit') == request_id:
-                    group.pop('pending_edit'); self.save_group(account,cid,group)
-                return dict(confirmed=True,status='reconciled')
+                    return resolved('reconciled')
         return dict(confirmed=False,status='unknown')
 
     def execute(self, conn, cid, body):
