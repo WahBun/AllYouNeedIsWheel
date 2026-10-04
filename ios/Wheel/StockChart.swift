@@ -1241,6 +1241,7 @@ struct StockChartView: View {
                     emaHistoryNotice = requestedEMAFrames.contains { (incoming[String($0)] as? [[String: Any]])?.isEmpty != false } ? "EMA · Waiting for fresh timeframe history" : nil
                 } catch {
                     if Task.isCancelled { return }
+                    retryDelay = min(30, max(2, retryDelay * 2))
                     if !requestedEMAFrames.isEmpty {
                         let cached = requestedEMAFrames.allSatisfy { (emaFrames[String($0)] as? [[String: Any]])?.isEmpty == false }
                         emaHistoryNotice = cached && Date().timeIntervalSince(recoveryStarted) < 15
@@ -1304,15 +1305,26 @@ struct StockChartView: View {
                 notice = "Saved chart · connecting to live data"
             }
             var failures = 0
+            // Fetch a finite snapshot before opening a long-lived connection. Mobile
+            // networks may delay or buffer SSE even while ordinary requests work.
+            var snapshotLoaded = false
+            var nextStreamAttempt = Date.distantPast
             let recoveryStarted = Date()
             while !Task.isCancelled {
                 do {
-                    if interval < 1440 && !(interval == 480 && session == "rth") {
-                        try await store.trading.chartStream(base: store.address, conID: conID, interval: interval, marketSession: session) { result in
-                            guard !Task.isCancelled, context == requestContext, result["con_id"] as? Int == conID else { return }
-                            packet = result; received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
-                            RecentStockCharts.save(packet, key: requestCacheKey)
-                            notice = chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (result["status"] as? String == "live" ? "IB Last ticks · live push" : "Historical bars · waiting for IB Last ticks")
+                    if snapshotLoaded && Date() >= nextStreamAttempt && interval < 1440 && !(interval == 480 && session == "rth") {
+                        do {
+                            try await store.trading.chartStream(base: store.address, conID: conID, interval: interval, marketSession: session) { result in
+                                guard !Task.isCancelled, context == requestContext, result["con_id"] as? Int == conID else { return }
+                                packet = result; received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
+                                RecentStockCharts.save(packet, key: requestCacheKey)
+                                notice = chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (result["status"] as? String == "live" ? "IB Last ticks · live push" : "Historical bars · waiting for IB Last ticks")
+                            }
+                        } catch {
+                            try Task.checkCancellation()
+                            // Keep finite snapshots flowing instead of repeatedly waiting
+                            // for the same broken stream. Never retry a trading write here.
+                            nextStreamAttempt = Date().addingTimeInterval(30)
                         }
                     }
                     let result = try await store.trading.get("api/portfolio/stock-chart/\(conID)", base: store.address,
@@ -1324,6 +1336,7 @@ struct StockChartView: View {
                        (packet["bars"] as? [[String: Any]])?.isEmpty == false {
                         throw AppError.message("Historical stock bars unavailable; retry shortly")
                     }
+                    snapshotLoaded = true
                     packet = result; received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
                     RecentStockCharts.save(packet, key: requestCacheKey)
                     notice = chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (interval >= 1440 || (interval == 480 && session == "rth")) ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks"
