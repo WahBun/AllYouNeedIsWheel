@@ -48,6 +48,18 @@ class FuturesOrdersTests(unittest.TestCase):
             self.assertEqual(row['chart_group_id'], group_id)
             self.assertEqual(row['chart_order_ref'], 'WheelPaper:new')
 
+    def test_multiple_unit_entries_keep_same_chart_group(self):
+        from uuid import uuid4
+        with TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / 'orders.db'); gid = str(uuid4())
+            PaperChart(path, gid).save_group('DU_TEST', 7, dict(ref='WheelPaper:multi', side=1, ids=dict(entry=50, entry_1=51)))
+            a=self.trade(); a.order.orderRef='WheelPaper:multi'
+            b=self.trade(); b.order.orderRef='WheelPaper:multi'; b.order.orderId=51; b.order.permId=124
+            self.conn.get_order_status_snapshot.return_value={'authoritative_open_trades':[a,b]}
+            rows=futures_orders(self.conn, db_path=path)
+            self.assertEqual(len(rows),2)
+            self.assertTrue(all(r['chart_group_id']==gid for r in rows))
+
     def test_empty_shared_broker_snapshot_does_not_resurrect_cached_order(self):
         stale = self.trade(status='PendingCancel')
         self.conn.get_order_status_snapshot.return_value = {'trades': [stale]}

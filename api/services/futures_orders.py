@@ -97,7 +97,7 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
         request = journal.get(ref)
         if (request and chart_owned and not o.parentId
                 and account.startswith('DU') and conn.port == 4002 and conn.readonly is False
-                and (request.get('entry_ids') == [o.orderId] or
+                and (o.orderId in (request.get('entry_ids') or []) or
                      (request.get('entry_ids') is None and request.get('mode') == 'overnight_entry'))):
             result[identity]['chart_con_id'] = c.conId
             result[identity]['chart_order_ref'] = ref
