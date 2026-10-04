@@ -21,6 +21,18 @@ await page.reload();await page.waitForTimeout(2400);assert.equal(writes.length,s
 resolvePending=true;loseResponse=false;await page.waitForFunction(()=>!document.getElementById('order-status').textContent.includes('Confirming outcome'));
 await page.locator('#preview').click();await chart.locator('#order-direction').click();await page.waitForFunction(()=>document.getElementById('orders').textContent.includes('Submitted'));
 const handle=await chart.locator('#order-type').boundingBox();await page.mouse.move(handle.x+handle.width/2,handle.y+handle.height/2);await page.mouse.down();await page.waitForTimeout(400);await page.mouse.move(handle.x+handle.width/2,handle.y-35,{steps:5});await page.mouse.up();await page.waitForTimeout(500);assert.equal(writes.at(-1).action,'edit_entry','drag works after reconciliation');assert.ok(writes.at(-1).price>0);await page.waitForTimeout(700);await chart.locator('#cancel').click();await page.waitForFunction(()=>document.getElementById('orders').textContent.includes('No pending'));sent=writes.length;
+state={enabled:true,known:true,active:true,status:'working',position:0,entry_editable:true,entry:101,side:1,entry_type:'LMT',tif:'GTC',order_ref:'multi-ref',orders:[0,1,2,3].map(i=>({role:i?'entry_'+i:'entry',quantity:1,status:'Submitted'}))};
+await page.waitForFunction(()=>document.getElementById('quantity').value==='4');await chart.locator('#order-type').click();await page.locator('#editor').waitFor({state:'visible'});assert.equal(await page.locator('#edit-qty').inputValue(),'4');assert.equal(await page.locator('#edit-tif').inputValue(),'GTC');await page.locator('#edit-cancel').click();
+// Filled positions have a separate adjustment size, independent of entry quantity.
+state={enabled:true,known:true,active:true,status:'working',position:4,scalable:true,entry:101,side:1,entry_type:'LMT',order_ref:'held-ref',orders:[]};
+await page.waitForFunction(()=>!document.getElementById('adjustment-control').hidden);
+assert.equal(await page.locator('#quantity').isDisabled(),true);
+await page.locator('#adjustment-quantity').fill('2');assert.equal(await page.locator('#add').isEnabled(),true);assert.equal(await page.locator('#trim').isEnabled(),true);
+await page.locator('#add').click();await page.waitForTimeout(150);assert.equal(writes.at(-1).quantity,2);assert.equal(writes.at(-1).expected_ref,'held-ref');
+await page.locator('#adjustment-quantity').fill('4');assert.equal(await page.locator('#trim').isDisabled(),true);
+await page.locator('#adjustment-quantity').fill('7');assert.equal(await page.locator('#add').isDisabled(),true);
+await page.locator('#adjustment-quantity').fill('1.5');assert.equal(await page.locator('#add').isDisabled(),true);assert.equal(await page.locator('#trim').isDisabled(),true);
+state={enabled:true,known:true,active:false,status:'done',position:0};await page.waitForFunction(()=>document.getElementById('adjustment-control').hidden);sent=writes.length;
 await page.locator('#toggle-trade').click();mode='live';await page.waitForFunction(()=>document.getElementById('connection').textContent.includes('live'));await page.locator('#preview').click();await chart.locator('#order-direction').click({force:true});assert.equal(writes.length,sent,'Live never writes');
 for(const width of [1440,850,393]){await page.setViewportSize({width,height:900});await page.waitForTimeout(80);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal page overflow');}
 // Longer pending/unknown order feedback must not change chart height and reset its price scale.

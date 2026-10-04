@@ -14,6 +14,7 @@
 <button id="preview">＋ Preview</button>
 <div class="trade-pair join-actions"><button id="bid">Join Bid</button><button id="ask">Join Ask</button></div>
 <div class="trade-pair protection"><label>TP distance <input id="tp" type="number" min="0" value="0" step="any"></label><label>SL distance <input id="sl" type="number" min="0" value="0" step="any"></label></div>
+<label id="adjustment-control" hidden><span data-en="Add / Trim quantity" data-zh="加仓／减仓数量">Add / Trim quantity</span><input id="adjustment-quantity" type="number" min="1" max="10" step="1" value="1"></label>
 <div class="position-actions"><button id="add">Add</button><button id="trim">Trim</button><button id="be">BE</button></div>
 <button id="close">Close position</button><button id="resolve-request" hidden>Verify unresolved request…</button><p id="trade-feedback" role="status" aria-live="polite"></p></aside></main>
 <dialog id="editor"><form id="edit-form"><h2>Edit order</h2><label>Quantity<input id="edit-qty" type="number" min="1" required></label><label>Price<input id="edit-price" type="number" step="any" min="0.000001" required></label><label>Time in force<select id="edit-tif"></select></label><label><input id="remove-protection" type="checkbox"> Confirm replacing with OVT without TP/SL</label><p>Quantity or TIF changes may cancel and replace the unfilled order.</p><button type="button" id="edit-cancel">Cancel</button><button type="submit">Apply</button></form></dialog>

@@ -32,6 +32,7 @@ class FuturesOrdersTests(unittest.TestCase):
                 self.assertEqual(len(rows), 2)
                 self.assertEqual(next(r for r in rows if r['ib_order_id'] == 50)['chart_order_ref'], 'WheelPaper:owned')
                 self.assertNotIn('chart_order_ref', next(r for r in rows if r['ib_order_id'] == 51))
+                self.assertTrue(all(r['chart_navigation_group_id'] == '' for r in rows))
                 self.conn.readonly = True
                 self.assertTrue(all('chart_order_ref' not in row for row in futures_orders(self.conn, db_path=path)))
                 self.conn.readonly = False
@@ -41,12 +42,17 @@ class FuturesOrdersTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             path = str(Path(tmp) / 'orders.db')
             group_id = str(uuid4())
-            PaperChart(path, group_id).save_group('DU_TEST', 7, dict(ref='WheelPaper:new', side=1, ids=dict(entry=50)))
+            PaperChart(path, group_id).save_group('DU_TEST', 7, dict(ref='WheelPaper:new', side=1, ids=dict(entry=50, sl=51)))
             entry = self.trade(); entry.order.orderRef = 'WheelPaper:new'
             self.conn.get_order_status_snapshot.return_value = {'authoritative_open_trades': [entry]}
             row = futures_orders(self.conn, db_path=path)[0]
             self.assertEqual(row['chart_group_id'], group_id)
+            self.assertEqual(row['chart_navigation_group_id'], group_id)
             self.assertEqual(row['chart_order_ref'], 'WheelPaper:new')
+            entry.order.orderId=51; entry.order.parentId=50
+            child=futures_orders(self.conn, db_path=path)[0]
+            self.assertEqual(child['chart_navigation_group_id'], group_id)
+            self.assertNotIn('chart_order_ref', child)
 
     def test_multiple_unit_entries_keep_same_chart_group(self):
         from uuid import uuid4
