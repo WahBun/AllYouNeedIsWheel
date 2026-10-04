@@ -546,7 +546,7 @@ function sendPriceOrder(choice){
  if(cid!==paperCID||!paperConfig.enabled||paperConfig.active||paperConfig.busy||!(qty>0)||!Number.isFinite(qty))return;
  if(!priceOrderChoices(price,previous.at(-1)?.close).some(c=>c.side===choice.side&&c.type===choice.type)){validation('Price crossed the market · select the order again');return;}
  const tp=snapPrice(price+choice.side*template.tp),sl=snapPrice(price-choice.side*template.sl);
- if(!(template.tp>0&&template.sl>0&&tp>0&&sl>0&&(tp-price)*choice.side>0&&(price-sl)*choice.side>0)){validation('Set valid TP / SL distances first');return;}
+ if(paperConfig.preview_tif!=='OVERNIGHT'&&!(template.tp>0&&template.sl>0&&tp>0&&sl>0&&(tp-price)*choice.side>0&&(price-sl)*choice.side>0)){validation('Set valid TP / SL distances first');return;}
  entry=price;entryType=choice.type;explicitPreviewSide=choice.side;setSide(choice.side);levels={tp,sl};canceled=false;updateLines();paperAction({action:'previewOrder',entry:price,side:choice.side,entry_type:choice.type});
 }
 priceAdd.addEventListener('pointerdown',e=>{priceControlTouchUntil=performance.now()+600;e.preventDefault();e.stopPropagation();});

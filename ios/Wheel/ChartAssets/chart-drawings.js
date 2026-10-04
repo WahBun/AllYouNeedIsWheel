@@ -79,6 +79,10 @@ function magnetIcon(target,mode){
  if(mode==='off')element('path',{d:'m3 3 18 18'},icon);
  target.dataset.magnetMode=mode;
 }
+let temporaryMagnet=false;
+const effectiveMagnet=()=>temporaryMagnet&&magnet==='off'?'weak':magnet;
+window.setTemporaryMagnet=value=>{temporaryMagnet=!!value;snapFeedback=null;updateMagnetButtons();};
+function updateMagnetButtons(){const mode=effectiveMagnet();for(const target of document.querySelectorAll('[data-magnet-mode]')){magnetIcon(target,mode);target.className=mode==='off'?'':'on';target.style.opacity=mode==='off'?'.5':'1';target.title='Magnet: '+mode+' · Hold ⌘ to snap';target.setAttribute('aria-label',target.title);}}
 function cycleMagnet(){
  magnet={off:'weak',weak:'strong',strong:'off'}[magnet];snapFeedback=null;save();
  // Update in place so tapping does not replace the pressed control or flash the rail.
@@ -91,7 +95,7 @@ function cycleMagnet(){
 }
 function renderToolbar(){requestAnimationFrame(clampPanels);renderProperties();toolbar.replaceChildren();
  const magnetButton=button('', 'Magnet: '+magnet,cycleMagnet);
- magnetIcon(magnetButton,magnet);magnetButton.className=magnet==='off'?'':'on';magnetButton.style.opacity=magnet==='off'?'.5':'1';toolbar.append(magnetButton);
+ magnetIcon(magnetButton,magnet);magnetButton.className=magnet==='off'?'':'on';magnetButton.style.opacity=magnet==='off'?'.5':'1';toolbar.append(magnetButton);updateMagnetButtons();
  toolbar.append(properties);
  const fav=document.createElement('div');fav.id='draw-favorites';for(const t of orderedTools()){const b=toolButton(t,()=>choose(active===t[0]?null:t[0]));if(active===t[0])b.className='on';fav.append(b);}toolbar.append(fav);
 
@@ -199,7 +203,7 @@ function paint(d,isDraft=false){const p=d.p.map(xy);if(p.some(v=>!v))return;cons
 function commit(){if(!draft)return;if(drawings.length>=200){hint.textContent='200 drawings maximum; delete drawings first';return;}remember();drawings.push(draft);selected=draft.id;draft=null;save();choose(null);}
 function capture(e){
  const raw=anchor(e.clientX,e.clientY);
- if(!raw||magnet==='off'||active==='highlight'||(drag?.index===null||drag?.role==='entry')){snapFeedback=null;return raw;}
+ if(!raw||effectiveMagnet()==='off'||active==='highlight'||(drag?.index===null||drag?.role==='entry')){snapFeedback=null;return raw;}
  const bar=previous.reduce((best,b)=>!best||Math.abs(b.time-raw.time)<Math.abs(best.time-raw.time)?b:best,null);
  if(!bar){snapFeedback=null;return raw;}
  const x=chart.timeScale().timeToCoordinate(bar.time);
@@ -210,7 +214,7 @@ function capture(e){
  // deliberate move to a closer distinct level on the same candle.
  let holding=false;
  if(snapFeedback?.time===bar.time){const held=candidates.find(c=>c.name===snapFeedback.name);if(held&&held.distance<=radius+8&&held.distance<=best.distance+5){best=held;holding=true;}}
- const snapped=magnet==='strong'||best.distance<=radius+(holding?8:0);
+ const snapped=effectiveMagnet()==='strong'||best.distance<=radius+(holding?8:0);
  snapFeedback={time:bar.time,name:snapped?best.name:null,price:snapped?best.price:null,candidates};
  return snapped?{time:bar.time,price:best.price}:raw;
 }

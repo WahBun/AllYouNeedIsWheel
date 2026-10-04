@@ -3,3 +3,15 @@
 /* Settings switches are rows, distinct from vertically labelled fields. */
 #display label:has(>input[type=checkbox]){flex-direction:row-reverse;align-items:center;justify-content:space-between;gap:18px;min-height:38px;padding:7px 0;border-bottom:1px solid var(--border)}
 #display label>input[type=checkbox]{align-self:center;flex:none;margin:0;width:17px;height:17px;accent-color:#79acff}
+/* Desktop trading ticket: compact grouped controls, like the phone ticket. */
+#trade:not([hidden]){display:flex;flex-direction:column;align-items:stretch;gap:16px;padding:18px;overflow:auto}
+#trade h2{margin:0 0 4px}#trade label{min-width:0;gap:7px;font-size:12px;color:var(--muted)}
+#trade input,#trade select{width:100%;min-width:0;color:var(--fg);font-size:14px;min-height:40px}
+#trade button{margin:0;text-align:center;min-height:42px;font-size:14px}
+.quantity-controls{display:grid;grid-template-columns:minmax(0,1fr) 46px 46px;gap:6px}.quantity-controls button{font-size:21px!important}
+.trade-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;width:100%}
+.position-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;width:100%}
+#bid{color:#66c5a3}#ask{color:#ef9090}#close{width:100%;color:#edb979}.protection{padding:15px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+#chart-detail:not([hidden]){display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:20px;padding:12px 16px;max-height:240px;overflow:auto;border-top:1px solid var(--border)}
+#chart-detail h2{margin:0 0 8px}#chart-detail button{display:block;width:100%;text-align:left;margin:5px 0;white-space:pre-wrap}#chart-detail details{min-width:0}#chart-detail #activity{max-height:160px}
+@media(max-width:850px){#trade{border-top:1px solid var(--border)}#chart-detail:not([hidden]){grid-template-columns:1fr;max-height:220px}#trade:not([hidden]){gap:12px;padding:16px}.workspace{min-height:550px}}
