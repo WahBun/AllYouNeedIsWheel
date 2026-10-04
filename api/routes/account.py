@@ -39,7 +39,7 @@ def epoch():
 def write_guard():
     token = epoch()
     if token and request.method in {'POST','PUT','PATCH','DELETE'} and request.headers.get('X-Wheel-Account-Epoch') != token:
-        return jsonify(error='Account connection changed. Refresh and verify the account before continuing.'), 409
+        return jsonify(status='rejected', code='ACCOUNT_EPOCH_CHANGED', error='Account connection changed. Refresh and verify the account before continuing.'), 409
 
 def status():
     from api.routes.portfolio import portfolio_service

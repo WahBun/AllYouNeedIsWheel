@@ -32,6 +32,7 @@ class AccountProfileTests(unittest.TestCase):
         for headers in ({},{'X-Wheel-Account-Epoch':'old'}):
             with self.app.test_request_context('/api/options/execute',method='POST',headers=headers):
                 self.assertEqual(account.write_guard()[1],409)
+                self.assertEqual(account.write_guard()[0].get_json()['status'], 'rejected')
         with self.app.test_request_context('/api/options/execute',method='POST',headers={'X-Wheel-Account-Epoch':account.epoch()}):
             self.assertIsNone(account.write_guard())
         with self.app.test_request_context('/api/account/profiles'):

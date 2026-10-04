@@ -15,3 +15,5 @@
 #chart-detail:not([hidden]){display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:20px;padding:12px 16px;max-height:240px;overflow:auto;border-top:1px solid var(--border)}
 #chart-detail h2{margin:0 0 8px}#chart-detail button{display:block;width:100%;text-align:left;margin:5px 0;white-space:pre-wrap}#chart-detail details{min-width:0}#chart-detail #activity{max-height:160px}
 @media(max-width:850px){#trade{border-top:1px solid var(--border)}#chart-detail:not([hidden]){grid-template-columns:1fr;max-height:220px}#trade:not([hidden]){gap:12px;padding:16px}.workspace{min-height:550px}}
+
+#resolve-request[hidden]{display:none}
