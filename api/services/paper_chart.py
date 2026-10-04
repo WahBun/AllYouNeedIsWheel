@@ -340,7 +340,7 @@ class PaperChart:
             db.execute('INSERT INTO chart_paper_requests VALUES(?,?,?,NULL)',(request_id,account,encoded))
         try:
             self.perform(conn,account,cid,body,request_id)
-            if body.get('cancel') is not True: conn.ib.sleep(.2)
+            if body.get('cancel') is not True and body.get('action') not in ('amend', 'be', 'edit_entry'): conn.ib.sleep(.2)
             group = self.group(account, cid)
             if group and group.get('adjustment', {}).get('request_id') == request_id:
                 group['adjustment']['outcome'] = 'acknowledged'
@@ -415,19 +415,20 @@ class PaperChart:
     def modify_exit(self, conn, trade, order, field):
         # Keep the broker's parent/OCA fields verbatim. Clearing or rebuilding
         # them during a price amendment causes IB 10326/10327 rejections.
-        import time
         start=len(trade.log)
-        # IB may report OVERNIGHT as TIF, but API writes require DAY on that venue.
         if trade.contract.exchange == 'OVERNIGHT': order.tif = 'DAY'
+        # Capture immutable intent: ib_async mutates Trade/Order on local writes
+        # and broker callbacks. Their current price alone is not an acknowledgement.
+        requested=getattr(order,field)
+        identity=(order.orderId,order.account,trade.contract.conId,order.orderRef)
         conn.ib.placeOrder(trade.contract,order)
-        deadline=time.monotonic()+3
-        while True:
-            conn.ib.sleep(.05)
-            errors=[e.errorCode for e in trade.log[start:] if e.errorCode and e.errorCode not in (399, 2109)]
-            if errors: raise ValueError(f'IB rejected the order amendment ({errors[-1]}); broker state will be refreshed')
-            if trade.orderStatus.status=='Filled': return
-            if trade.orderStatus.status in ('Submitted','PreSubmitted') and getattr(trade.order,field)==getattr(order,field): return
-            if time.monotonic()>=deadline: raise RuntimeError('Exit amendment not confirmed')
+        confirmed=conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
+        errors=[e.errorCode for e in trade.log[start:] if e.errorCode and e.errorCode not in (399,2109)]
+        if errors: raise ValueError(f'IB rejected the order amendment ({errors[-1]}); broker state will be refreshed')
+        if trade.orderStatus.status=='Filled': return
+        matches=[t for t in confirmed if (t.order.orderId,t.order.account,t.contract.conId,t.order.orderRef)==identity]
+        if not any(t.orderStatus.status in ('Submitted','PreSubmitted') and getattr(t.order,field)==requested for t in matches):
+            raise RuntimeError('Broker amendment not confirmed')
 
     def submit_overnight_entry(self, conn, account, cid, contract, current, body, request_id):
         """Standalone Paper stock entry; venue controls the overnight session, never SMART fallback."""
@@ -545,15 +546,7 @@ class PaperChart:
                     field = 'auxPrice' if amended.orderType == 'STP' else 'lmtPrice'
                     setattr(amended, field, float(amount)); amended.transmit = True
                     self.modify_exit(conn, trade, amended, field)
-                    # placeOrder mutates the local Trade immediately. A completed
-                    # broker open-order roundtrip, not that local echo, confirms price.
-                    confirmed = conn._bounded_order_read(conn.ib.reqOpenOrders, timeout_seconds=3)
-                    matches = [t for t in confirmed if t.order.orderId == amended.orderId
-                        and t.order.account == account and t.contract.conId == cid
-                        and t.order.orderRef == group['ref']]
-                    if trade.orderStatus.status != 'Filled' and not any(
-                        getattr(t.order, field) == float(amount) and t.orderStatus.status in ('Submitted', 'PreSubmitted') for t in matches):
-                        raise RuntimeError('Broker amendment not confirmed')
+
             else:
                 # Quantity/TIF changes replace the entire unfilled bracket. Cancel parents
                 # first; never remove protection if a fill races with cancellation.
@@ -741,6 +734,8 @@ class PaperChart:
                 self.exit_lots(conn,account,cid,group,live[:int(qty)],trades,price,action,request_id)
             return
         if action in ('amend','be'):
+            if body.get('expected_ref') is not None and body['expected_ref'] != group.get('ref'):
+                raise ValueError('Order identity changed; refresh before amending protection')
             role='sl' if action=='be' else body.get('role')
             if role not in ('tp','sl'): raise ValueError('Only TP and SL can be amended')
             trade=next((trades.get(lot[role]) for lot in group.get('lots',[]) if trades.get(lot[role]) and not trades[lot[role]].isDone()),None) if group.get('lots') else trades.get(group['ids'][role])

@@ -8,5 +8,15 @@ await page.locator('#order-quantity-popup button').filter({hasText:/^25$/}).clic
 const point=await page.locator('#order-direction').boundingBox();await page.mouse.move(point.x+10,point.y+10);await page.mouse.down();await page.mouse.move(point.x+10,point.y-20);
 await page.evaluate(()=>configure(cfg));const preview=await page.evaluate(()=>entry);assert.notEqual(preview,79.5,'polling must not reset drag');await page.mouse.up();assert.equal(await page.evaluate(()=>sent.filter(x=>x.price).length),1);assert.equal(await page.evaluate(()=>sent.at(-1).price),preview);
 await page.evaluate(()=>{configure({...cfg,paper:{...cfg.paper,entry_editable:false}});});assert.equal(await page.locator('#entry').evaluate(el=>el.style.pointerEvents),'none');
+// A fill arriving during a held drag must restore broker state and emit no stale amendment.
+await page.evaluate(()=>configure({...cfg,paper:{...cfg.paper,webEntryDrag:true}}));
+let raceHandle=await page.locator('#order-direction').boundingBox();
+await page.mouse.move(raceHandle.x+10,raceHandle.y+10);await page.mouse.down();await page.mouse.move(raceHandle.x+10,raceHandle.y-15);
+const beforeFill=await page.evaluate(()=>sent.length);
+await page.evaluate(()=>configure({...cfg,paper:{...cfg.paper,webEntryDrag:true,position:100,entry_editable:false,entry:79.5}}));
+await page.mouse.up();assert.equal(await page.evaluate(()=>sent.length),beforeFill,'filled entry must not be amended on release');assert.equal(await page.evaluate(()=>entry),79.5,'show actual filled entry, not stale drag target');
+raceHandle=await page.locator('#sl').boundingBox();await page.mouse.move(raceHandle.x+10,raceHandle.y+10);await page.mouse.down();await page.mouse.move(raceHandle.x+10,raceHandle.y-15);
+await page.evaluate(()=>configure({...cfg,entry:0,paper:{enabled:true,webEntryDrag:true,active:false,position:0,status:'done'}}));
+await page.mouse.up();assert.equal(await page.evaluate(()=>sent.length),beforeFill,'completed exit must not be recreated on release');
 await page.screenshot({path:'/tmp/wheel-entry-ui.png'});console.log('Quantity popup, one release amendment, drag across polling, filled-entry lock passed');
 }finally{await browser.close()}})();

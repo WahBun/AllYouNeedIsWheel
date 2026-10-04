@@ -15,6 +15,7 @@ class PaperChartTests(unittest.TestCase):
         self.trades=[];self.conn.ib.trades.side_effect=lambda:self.trades
         self.conn.ib.openTrades.side_effect=lambda:[t for t in self.trades if not t.isDone()]
         self.conn.ib.fills.return_value=[];self.conn.ib.positions.return_value=[];self.conn._bounded_order_read.return_value=[]
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw:self.trades if fn==self.conn.ib.reqOpenOrders else self.conn._bounded_order_read.return_value
         self.conn.ib.client.getReqId.side_effect=iter(range(100,200))
         def place(c,o):
             old=next((t for t in self.trades if t.order.orderId==o.orderId),None)
@@ -24,6 +25,46 @@ class PaperChartTests(unittest.TestCase):
         self.conn.ib.cancelOrder.side_effect=lambda o:setattr(next(t for t in self.trades if t.order.orderId==o.orderId).orderStatus,'status','Cancelled')
         self.resolve=patch('api.services.paper_chart.contracts.resolve',return_value=self.contract);self.resolve.start()
         self.feed=patch('api.services.paper_chart.stock_chart.active',{'con_id':7,'price_rules':[{'low':0,'increment':.25}]});self.feed.start()
+    def test_protection_amend_does_not_accept_optimistic_local_price(self):
+        import copy
+        self.submit()
+        take=self.trades[1]; old=copy.deepcopy(take)
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw:[old] if fn==self.conn.ib.reqOpenOrders else []
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='amend',role='tp',price=12))
+        self.assertEqual(take.order.lmtPrice,12)  # local echo deliberately looks successful
+        self.assertEqual(result['status'],'unknown')
+        self.assertFalse(result['success'])
+
+    def test_confirmed_protection_amend_has_no_fixed_post_ack_delay(self):
+        self.submit();self.conn.ib.sleep.reset_mock()
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='amend',role='tp',price=12))
+        self.assertTrue(result['success'],result)
+        self.assertNotIn(((.2,),{}),self.conn.ib.sleep.call_args_list)
+        self.assertGreaterEqual(self.conn._bounded_order_read.call_count,2)
+
+    def test_exit_fill_during_amend_does_not_resurrect_order(self):
+        self.filled_position(1)
+        take,stop=self.trades[1:];original=self.conn.ib.placeOrder.side_effect
+        def place(c,o):
+            t=original(c,o)
+            if o.orderId==take.order.orderId:
+                t.orderStatus.status='Filled';t.orderStatus.filled=1
+                stop.orderStatus.status='Cancelled';self.pos.position=0
+            return t
+        self.conn.ib.placeOrder.side_effect=place
+        request=dict(request_id=str(uuid4()),action='amend',role='tp',price=12)
+        result=self.service.execute(self.conn,7,request)
+        self.assertTrue(result['success'],result);self.assertEqual(result['state']['position'],0)
+        self.assertFalse(result['state']['active']);writes=self.conn.ib.placeOrder.call_count
+        self.assertEqual(self.service.execute(self.conn,7,request),result)
+        next_result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='amend',role='tp',price=13))
+        self.assertFalse(next_result['success']);self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+
+    def test_protection_amend_rejects_replaced_order_reference(self):
+        self.submit();writes=self.conn.ib.placeOrder.call_count
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='amend',role='sl',price=8,expected_ref='replaced'))
+        self.assertEqual(result['status'],'rejected');self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+
     def test_tp_amendment_transmits_held_bracket_child(self):
         self.submit()
         take=self.trades[1]
@@ -80,7 +121,7 @@ class PaperChartTests(unittest.TestCase):
         parent=self.trades[0];parent.orderStatus.status='Filled';parent.orderStatus.filled=size;parent.orderStatus.avgFillPrice=10
         self.pos=S(account='DU_TEST',contract=self.contract,position=size,avgCost=10)
         self.conn.ib.positions.side_effect=lambda:[self.pos] if self.pos.position else []
-        self.conn._bounded_order_read.side_effect=lambda *a,**kw:[self.pos] if self.pos.position else []
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw:self.trades if fn==self.conn.ib.reqOpenOrders else ([self.pos] if self.pos.position else [])
         original=self.conn.ib.placeOrder.side_effect
         def fill(c,o):
             t=original(c,o)
