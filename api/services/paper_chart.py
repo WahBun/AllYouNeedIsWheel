@@ -414,7 +414,9 @@ class PaperChart:
         packet=stock_chart.packet(state,5,'all' if contract.secType == 'FUT' else 'rth')
         if not packet: raise ValueError('Fresh exit quote unavailable')
         quote=packet.get('bid' if group['side']==1 else 'ask')
-        if packet.get('status')!='live' or not quote: raise ValueError('Wait for a live bid/ask')
+        # packet() only exposes current, non-delayed Bid/Ask. Its status instead
+        # tracks Last trades, which can pause during a quiet ETH market.
+        if not quote: raise ValueError('Wait for a live bid/ask')
         target=price(quote)
         group['adjustment'] = dict(action=action, request_id=request_id, orders=[lot['tp'] for lot in lots], stops=[lot['sl'] for lot in lots], acknowledged=[], outcome='unknown')
         self.save_group(account, cid, group)

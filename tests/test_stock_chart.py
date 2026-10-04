@@ -309,6 +309,23 @@ class StockChartTests(unittest.TestCase):
             self.assertGreater(result['quote_expires_at'],result['server_time'])
         finally:feed.stop();asyncio.get_event_loop().close()
 
+    def test_current_bidask_remains_valid_without_recent_last_trade(self):
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection();feed=StockChart()
+        try:
+            ticker.marketDataType=1
+            feed.snapshot(conn,7,1,'all')
+            feed.active['last_tick']=datetime.now(timezone.utc).timestamp()-60
+            ticker.tickByTicks=[S(time=datetime.now(timezone.utc),bidPrice=10,askPrice=10.01)]
+            ticker.updateEvent.emit(ticker)
+            result=feed.packet(feed.active,1,'all')
+            self.assertEqual(result['status'],'waiting')
+            self.assertEqual((result['bid'],result['ask']),(10,10.01))
+            self.assertGreater(result['quote_expires_at'],result['server_time'])
+            ticker.marketDataType=3
+            self.assertIsNone(feed.packet(feed.active,1,'all')['bid'])
+        finally:feed.stop();asyncio.get_event_loop().close()
+
     def test_incremental_aggregation_matches_full_history_after_rollover_and_backfill(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
         conn,ticker=self.connection(); feed=StockChart()

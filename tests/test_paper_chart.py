@@ -258,10 +258,19 @@ class ProtectedLotTests(unittest.TestCase):
 
     def test_futures_close_rejects_stale_eth_quote_without_order_write(self):
         self.open_four()
-        with patch('api.services.paper_chart.stock_chart.packet',return_value={'status':'waiting','bid':10,'ask':10.25}):
+        with patch('api.services.paper_chart.stock_chart.packet',return_value={'status':'waiting','bid':None,'ask':None}):
             result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='close'))
             self.assertFalse(result['success'])
         self.conn.ib.placeOrder.assert_not_called()
+        self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_close_uses_current_bidask_when_last_trades_are_quiet(self):
+        self.open_four()
+        with patch('api.services.paper_chart.stock_chart.packet',return_value={'status':'waiting','bid':10,'ask':10.25}):
+            result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='close'))
+        self.assertTrue(result['success'],result)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,4)
+        self.assertTrue(all(c.args[1].orderType=='LMT' and c.args[1].lmtPrice==10 for c in self.conn.ib.placeOrder.call_args_list))
         self.conn.ib.cancelOrder.assert_not_called()
 
     def test_partially_filled_group_separates_contingent_protection(self):
