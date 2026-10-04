@@ -112,12 +112,20 @@ def bar_close_time(bar, minutes, session, now):
 class StockChart:
     def __init__(self):
         self.active = None
+        self.states = {}
         self.next_request = {}
         self.request_errors = {}
         self.listeners = set()
 
     def stop(self):
-        state, self.active = self.active, None
+        for state in list(self.states.values()):
+            self.stop_state(state)
+        if self.active is not None:
+            self.stop_state(self.active)
+
+    def stop_state(self, state):
+        self.states.pop(state['con_id'], None)
+        if self.active is state: self.active = None
         if state:
             if state.get('minute_history') is not None:
                 state['minute_history'].updateEvent -= state['history_handler']
@@ -135,10 +143,10 @@ class StockChart:
                 pass
 
     def expire(self, state):
-        if self.active is not state:
+        if self.states.get(state['con_id']) is not state:
             return
         if time.monotonic() - state['used'] >= 30:
-            self.stop()
+            self.stop_state(state)
         else:
             asyncio.get_event_loop().call_later(30, self.expire, state)
 
@@ -150,14 +158,14 @@ class StockChart:
             raise ValueError('Chart connection unavailable')
         from api.services.chart_contracts import contracts
         contract = contracts.resolve(conn, con_id)
-        state = self.active
-        if state and (state['conn'] is not conn or state['con_id'] != con_id or state['client'] is not conn.ib.client):
-            self.stop()
+        state = self.states.get(con_id)
+        if state and (state['conn'] is not conn or state['client'] is not conn.ib.client
+                      or conn.ib.ticker(state['contract']) is not state['ticker']):
+            self.stop_state(state)
             state = None
-        # On reconnect ib_async clears ticker registrations; rebuild explicitly.
-        if state and conn.ib.ticker(state['contract']) is not state['ticker']:
-            self.stop()
-            state = None
+        if state is None and len(self.states) >= 4:
+            self.stop_state(min(self.states.values(), key=lambda item: item['used']))
+        self.active = state
         initial = state is None
         if state is None:
             now = time.monotonic()
@@ -215,7 +223,7 @@ class StockChart:
                 con_id=con_id, bars=bars[-12000:], used=now, last_tick=None, received=None,
                 generation=time.time_ns(), ticks=0, live_bars={}, quotes={},option_bars=option_bars)
             def on_tick(updated):
-                if self.active is not state:
+                if self.states.get(state['con_id']) is not state:
                     return
                 # Only actual bid/ask price events establish quote freshness.
                 for quote in getattr(updated, 'ticks', []):
@@ -249,10 +257,11 @@ class StockChart:
                     listener(state)
             state['handler'] = on_tick
             self.active = state
+            self.states[con_id] = state
             ticker.updateEvent += on_tick
             if option_bars:
                 def on_history(updated, has_new_bar):
-                    if self.active is not state or not updated: return
+                    if self.states.get(state['con_id']) is not state or not updated: return
                     bar=updated[-1]
                     if not isinstance(bar.date,datetime) or bar.date.tzinfo is None: return
                     stamp=int(bar.date.timestamp())

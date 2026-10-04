@@ -231,3 +231,15 @@ def get_chart_ema(con_id):
         return _no_store_json(snapshot(portfolio_service._ensure_connection(), con_id, frames, request.args.get('session','rth')))
     except Exception:
         return _no_store_json({'error':'EMA history unavailable'},503)
+
+
+@bp.get('/stock-chart-history/<int:con_id>')
+def chart_history_page(con_id):
+    from api.services.chart_history import chart_history
+    try:
+        return _no_store_json(chart_history.page(portfolio_service._ensure_connection(), con_id,
+            int(request.args.get('interval', '5')), request.args.get('session', 'rth'), float(request.args.get('before', '0'))))
+    except (ValueError, TypeError) as error:
+        return _no_store_json({'error': str(error)}, 400)
+    except Exception:
+        return _no_store_json({'error': 'Earlier history unavailable; try again shortly'}, 503)

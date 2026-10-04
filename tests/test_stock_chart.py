@@ -364,3 +364,25 @@ class StockChartTests(unittest.TestCase):
         conn.ib.cancelHistoricalData.assert_called_once_with(history)
         conn.ib.cancelMktData.assert_not_called()
         conn.ib.cancelTickByTickData.assert_not_called()
+
+class MultiChartTests(unittest.TestCase):
+    def test_switching_contracts_retains_independent_state(self):
+        from unittest.mock import patch
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=StockChartTests().connection();feed=StockChart()
+        tickers={7:ticker,8:S(updateEvent=Event(),tickByTicks=[],ticks=[])}
+        conn.ib.reqTickByTickData.side_effect=lambda c,*args:tickers[c.conId]
+        conn.ib.ticker.side_effect=lambda c:tickers[c.conId]
+        with patch('api.services.chart_contracts.contracts.resolve',side_effect=lambda c,cid:S(conId=cid,secType='STK',currency='USD',symbol=str(cid))):
+            try:
+                feed.snapshot(conn,7,5,'all');first=feed.active
+                feed.snapshot(conn,8,5,'all');second=feed.active
+                feed.snapshot(conn,7,5,'all')
+                self.assertIs(feed.active,first)
+                self.assertIs(feed.states[8],second)
+                conn.ib.cancelTickByTickData.assert_not_called()
+                ticker.tickByTicks=[S(time=datetime.now(timezone.utc),price=12)]
+                ticker.updateEvent.emit(ticker)
+                self.assertEqual(first['ticks'],1)
+                self.assertEqual(second['ticks'],0)
+            finally:feed.stop();asyncio.get_event_loop().close()

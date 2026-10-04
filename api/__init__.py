@@ -47,6 +47,9 @@ def create_app(config=None):
         app.config.update(config)
         logger.debug("Applied custom configuration")
 
+    from api.routes.superchart import bp as superchart_bp
+    app.register_blueprint(superchart_bp)
+
     from api.request_diagnostics import install_request_diagnostics
     install_request_diagnostics(app)
 
