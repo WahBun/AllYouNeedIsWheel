@@ -912,19 +912,22 @@ struct StockChartView: View {
         VStack(spacing: 8) {
             HStack(spacing: 4) {
                 Button { showSymbols = true } label: { Image(systemName: "magnifyingglass").frame(width: 30, height: 40) }.buttonStyle(.plain).accessibilityLabel("Search chart symbol")
+                GeometryReader { geometry in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 2) {
                         ForEach(intervals.filter { favorites.contains($0) }, id: \.self) { value in
                             Button { interval = value } label: {
                                 Text(intervalLabel(value))
                                     .font(.system(size: 13, weight: interval == value ? .semibold : .regular))
-                                    .fixedSize().padding(.horizontal, 6).frame(height: 40)
+                                    .fixedSize().padding(.horizontal, 9)
+                                    .frame(minWidth: max(0, (geometry.size.width - 8) / CGFloat(max(1, min(5, favorites.count)))), minHeight: 40)
                                     .background(interval == value ? Color.secondary.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 6))
                             }.buttonStyle(.plain)
                                 .accessibilityAddTraits(interval == value ? .isSelected : [])
                         }
                     }
                 }
+                }.frame(height: 44)
                 Button { showIntervals = true } label: {
                     Image(systemName: "chevron.down").font(.caption).frame(width: 24, height: 44)
                 }.buttonStyle(.plain).accessibilityLabel("Timeframe").accessibilityValue(intervalLabel(interval))
