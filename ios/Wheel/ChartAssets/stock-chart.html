@@ -412,7 +412,7 @@ function updateLines(){
  if(!paperConfig.position){
   eh.replaceChildren();
   const cell=(text,id,action)=>{const el=document.createElement('span');el.textContent=text;el.id=id;el.style.cssText='padding:0 8px;border-radius:0;cursor:pointer';if(action){el.setAttribute('role','button');el.tabIndex=0;el.onpointerdown=e=>e.stopPropagation();el.onclick=e=>{e.preventDefault();e.stopPropagation();if(action==='editQuantity')openQuantityPopup();else paperAction({action});};el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();if(action==='editQuantity')openQuantityPopup();else paperAction({action});}};}eh.append(el);return el;};
-  const direction=cell(side>0?'Buy':'Sell','order-direction');direction.style.background=color;direction.style.color='white';direction.style.borderRadius='3px';direction.style.marginRight='6px';
+  const direction=cell(side>0?'Buy':'Sell','order-direction');direction.style.background=color;direction.style.borderColor='transparent';direction.style.boxShadow='none';direction.style.color='white';direction.style.borderRadius='3px';direction.style.marginRight='6px';
   cell(String(qty),'preview-order-quantity','editQuantity');
   cell(entryType+' ▾','order-type','editOrderSettings');
   eh.setAttribute('aria-label',(side>0?'Buy':'Sell')+' '+qty+' '+entryType+' '+priceText(entry));
