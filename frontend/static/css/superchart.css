@@ -21,3 +21,5 @@
 .chart-footer{height:52px;min-height:52px;flex:none;gap:8px}
 #order-status{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chart-footer>button{flex:none}
+
+#adjustment-control[hidden]{display:none}
