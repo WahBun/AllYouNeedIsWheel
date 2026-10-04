@@ -306,8 +306,8 @@ struct StockChartView: View {
             guard !paperActive, !paperBusy, body["con_id"] as? Int == chartID,
                   let price = body["entry"] as? Double, price > 0,
                   let type = body["entry_type"] as? String, ["LMT", "STP"].contains(type) else { return }
+            guard previewTIF != "OVERNIGHT" || type == "LMT" else { paperMessage = "OVT supports limit orders only; STP is unavailable"; return }
             entry = String(price); entryType = type
-            if type != "LMT" || body["side"] as? Int != 1 { previewTIF = "DAY" }
             return
         }
         if body["action"] as? String == "setQuantity" {
@@ -342,7 +342,7 @@ struct StockChartView: View {
                 if body["action"] as? String == "submit" {
                     request["tif"] = previewTIF
                     if previewTIF == "OVERNIGHT" {
-                        guard TradeRules.chartTIFs(securityType: chartType, currency: packet["currency"] as? String ?? "", side: body["side"] as? Int ?? 0, entryType: body["entry_type"] as? String ?? "").contains("OVERNIGHT") else { paperMessage = "OVT requires a USD stock BUY limit entry"; return }
+                        guard TradeRules.chartTIFs(securityType: chartType, currency: packet["currency"] as? String ?? "", side: body["side"] as? Int ?? 0, entryType: body["entry_type"] as? String ?? "").contains("OVERNIGHT") else { paperMessage = "OVT requires a USD stock limit entry"; return }
                         request["mode"] = "overnight_entry"; request.removeValue(forKey: "tp"); request.removeValue(forKey: "sl")
                     }
                 }
@@ -980,7 +980,7 @@ struct StockChartView: View {
                     Button { entry = String(((packet["bars"] as? [[String: Any]])?.last?["close"] as? Double) ?? position.market_price ?? 0) } label: { Image(systemName: "plus.circle").frame(minWidth: 32, minHeight: 44) }.accessibilityLabel("Entry reference")
                 }
                 Picker("Entry type", selection: $entryType) {
-                    Text("LMT").tag("LMT"); Text("STP").tag("STP")
+                    Text("LMT").tag("LMT"); Text("STP").tag("STP").disabled(previewTIF == "OVERNIGHT" || paperState["tif"] as? String == "OVERNIGHT")
                 }.pickerStyle(.segmented).frame(maxWidth: 140)
             }
             HStack(spacing: 10) {

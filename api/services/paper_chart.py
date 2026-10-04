@@ -235,7 +235,7 @@ class PaperChart:
         result['tif'] = result.get('tif') or (parent.order.tif if parent else 'DAY')
         result['entry_type'] = parent.order.orderType if parent else 'LMT'
         result['allowed_tifs'] = ['DAY', 'GTC']
-        if parent and parent.contract.secType == 'STK' and parent.contract.currency == 'USD' and parent.order.action == 'BUY' and parent.order.orderType == 'LMT':
+        if parent and parent.contract.secType == 'STK' and parent.contract.currency == 'USD' and parent.order.action in ('BUY', 'SELL') and parent.order.orderType == 'LMT':
             result['allowed_tifs'].append('OVERNIGHT')
         result['entry_editable'] = bool(parents and result['known'] and not result['position']
             and not group.get('pending_edit') and all(r['filled'] == 0 and
@@ -389,12 +389,12 @@ class PaperChart:
             if time.monotonic()>=deadline: raise RuntimeError('Exit amendment not confirmed')
 
     def submit_overnight_entry(self, conn, account, cid, contract, current, body, request_id):
-        """Standalone Paper BUY; venue controls the overnight session, never SMART fallback."""
+        """Standalone Paper stock entry; venue controls the overnight session, never SMART fallback."""
         import copy
         if contract.secType != 'STK' or contract.currency != 'USD':
             raise ValueError('Overnight entry requires a USD stock')
-        if body.get('side') != 1 or body.get('entry_type') != 'LMT':
-            raise ValueError('Standalone overnight entry supports BUY limit orders only')
+        if isinstance(body.get('side'), bool) or body.get('side') not in (-1, 1) or body.get('entry_type') != 'LMT':
+            raise ValueError('Standalone overnight entry supports BUY or SELL limit orders only')
         qty = body.get('quantity')
         if isinstance(qty, bool) or not isinstance(qty, (int, float)) or not math.isfinite(qty) or qty != int(qty) or not 1 <= qty <= 1000:
             raise ValueError('Quantity must be 1–1000 whole shares')
@@ -416,9 +416,9 @@ class PaperChart:
         oid = conn.ib.client.getReqId()
         ref = 'WheelPaper:' + request_id
         # Persist ownership before sending. Unknown outcomes remain blocked, never replayed.
-        self.save_group(account, cid, dict(ids=dict(entry=oid), side=1, ref=ref,
+        self.save_group(account, cid, dict(ids=dict(entry=oid), side=body['side'], ref=ref,
                                           mode='overnight_entry'))
-        order = LimitOrder('BUY', int(qty), float(amount), orderId=oid, account=account,
+        order = LimitOrder('BUY' if body['side'] == 1 else 'SELL', int(qty), float(amount), orderId=oid, account=account,
                            tif='DAY' if tif == 'OVERNIGHT' else tif, outsideRth=tif == 'OVERNIGHT', transmit=True, orderRef=ref)
         conn.ib.placeOrder(routed, order)
 
@@ -470,7 +470,7 @@ class PaperChart:
             tif = body.get('tif', current['tif'])
             overnight = group.get('mode') == 'overnight_entry'
             if tif not in current.get('allowed_tifs', ['DAY', 'GTC']):
-                raise ValueError('OVT requires a USD stock BUY limit entry')
+                raise ValueError('OVT requires a USD stock limit entry')
             to_overnight = tif == 'OVERNIGHT'
             if to_overnight and not overnight and body.get('confirm_remove_protection') is not True:
                 raise ValueError('Confirm replacing the bracket with an OVT entry without TP/SL')
@@ -534,7 +534,7 @@ class PaperChart:
                     self.save_group(account, cid, group)
                     return
                 if overnight or to_overnight:
-                    replacement = dict(action='submit', mode='overnight_entry', side=1,
+                    replacement = dict(action='submit', mode='overnight_entry', side=group['side'],
                         entry_type='LMT', entry=float(amount), quantity=int(quantity), tif=tif)
                 else:
                     replacement = dict(action='submit', side=group['side'], entry_type=current['entry_type'],
@@ -568,6 +568,8 @@ class PaperChart:
             if not parent or parent.order.account != account or parent.contract.conId != cid or parent.order.orderRef != group.get('ref'):
                 raise ValueError('Exact owned order unavailable')
             return self.edit_entry(conn, account, cid, parent.contract, current, group, body, request_id)
+        if body.get('entry_type') == 'STP' and (body.get('tif') == 'OVERNIGHT' or body.get('mode') == 'overnight_entry'):
+            raise ValueError('OVT supports limit orders only; STP is unavailable')
         contract=contracts.resolve(conn,cid)
         if contract.secType not in ('STK','FUT','OPT'): raise ValueError('This contract supports chart viewing only')
         if body.get('action')!='submit':

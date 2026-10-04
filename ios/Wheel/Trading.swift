@@ -205,7 +205,7 @@ enum TradeRules {
     }
 
     static func chartTIFs(securityType: String, currency: String, side: Int, entryType: String) -> [String] {
-        ["DAY", "GTC"] + (securityType == "STK" && currency == "USD" && side == 1 && entryType == "LMT" ? ["OVERNIGHT"] : [])
+        ["DAY", "GTC"] + (securityType == "STK" && currency == "USD" && [-1, 1].contains(side) && entryType == "LMT" ? ["OVERNIGHT"] : [])
     }
 
     static func priceChoiceID(_ value: Double?) -> Int? {
@@ -711,7 +711,7 @@ struct OrderDetail: View {
                         Picker("Time in force", selection: $timing) {
                             Text("DAY").tag("DAY")
                             Text("GTC").tag("GTC")
-                            if TradeRules.chartManageable(order), order.option_type == "STOCK", order.action == "BUY", order.order_type == "LMT" || order.tif == "OVERNIGHT" { Text("OVT").tag("OVERNIGHT") }
+                            if TradeRules.chartManageable(order), order.option_type == "STOCK", ["BUY", "SELL"].contains(order.action ?? ""), order.order_type == "LMT" || order.tif == "OVERNIGHT" { Text("OVT").tag("OVERNIGHT") }
                         }
                         if TradeRules.chartManageable(order), timing == "OVERNIGHT", order.tif != "OVERNIGHT" {
                             Toggle("Confirm OVT without TP/SL", isOn: $confirmChartOVT)

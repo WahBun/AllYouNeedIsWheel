@@ -489,7 +489,9 @@ document.addEventListener('pointerdown',e=>{if(!quantityPopup.contains(e.target)
 let explicitPreviewSide=null,lastSubmitRevision=0;
 let cancelPending=false;
 let submitPending=false,submitSawBusy=false,entryDragMoved=false,entryPressDirection=false,entryPressY=0;
+function ovtStopBlocked(type){return type==='STP'&&(paperConfig.preview_tif==='OVERNIGHT'||paperConfig.tif==='OVERNIGHT');}
 function submitPreview(source){
+ if(ovtStopBlocked(entryType)){validation('OVT supports limit orders only; STP is unavailable');return;}
  if(submitPending||paperConfig.active||!paperConfig.enabled||paperConfig.busy||canceled||!(entry>0&&qty>0))return;
  submitPending=true;
  paperAction({action:'submit',entry,quantity:qty,side,entry_type:entryType,tp:levels.tp,sl:levels.sl,...(source==='join'?{source:'join',join_revision:lastJoinRevision}:{})});
@@ -539,6 +541,7 @@ function priceOrderChoices(price,reference){
  return price>reference?[{side:-1,type:'LMT',label:'Sell Limit'},{side:1,type:'STP',label:'Buy Stop'}]:[{side:1,type:'LMT',label:'Buy Limit'},{side:-1,type:'STP',label:'Sell Stop'}];
 }
 function sendPriceOrder(choice){
+ if(ovtStopBlocked(choice.type)){validation('OVT supports limit orders only; STP is unavailable');return;}
  const price=menuOrderPrice,cid=menuOrderCID;closePriceMenu();
  if(cid!==paperCID||!paperConfig.enabled||paperConfig.active||paperConfig.busy||!(qty>0)||!Number.isFinite(qty))return;
  if(!priceOrderChoices(price,previous.at(-1)?.close).some(c=>c.side===choice.side&&c.type===choice.type)){validation('Price crossed the market · select the order again');return;}
@@ -560,7 +563,7 @@ priceAdd.onclick=e=>{
   const button=document.createElement('button');
   button.dataset.orderChoice='true';button.textContent=choice.label+' '+qty+' '+(countdownPacket?.local_symbol||countdownPacket?.symbol||'')+' @ '+priceText(menuOrderPrice);
   button.style.cssText='display:block;background:transparent;color:inherit;border:0;text-align:left;padding:12px;font:13px -apple-system;min-height:44px;width:100%;touch-action:manipulation';
-  button.disabled=!paperConfig.enabled||paperConfig.active||paperConfig.busy;
+  button.disabled=!paperConfig.enabled||paperConfig.active||paperConfig.busy||ovtStopBlocked(choice.type);
   button.onclick=e=>{e.stopPropagation();sendPriceOrder(choice);};priceMenu.append(button);
  }
  if(!choices.length){priceMenu.textContent='Choose a price above or below the market';}

@@ -99,12 +99,12 @@ final class TradingTests: XCTestCase {
         XCTAssertEqual(close["expected_ref"] as? String, "WheelPaper:a")
     }
 
-    func testOVTOnlyOfferedForUSDStockBuyLimit() {
+    func testOVTOnlyOfferedForUSDStockLimitBothSides() {
         for type in ["STK", "OPT", "FUT"] {
             for side in [-1, 1] {
                 for orderType in ["LMT", "STP"] {
                     let options = TradeRules.chartTIFs(securityType: type, currency: "USD", side: side, entryType: orderType)
-                    XCTAssertEqual(options.contains("OVERNIGHT"), type == "STK" && side == 1 && orderType == "LMT")
+                    XCTAssertEqual(options.contains("OVERNIGHT"), type == "STK" && orderType == "LMT")
                     XCTAssertEqual(Array(options.prefix(2)), ["DAY", "GTC"])
                 }
             }

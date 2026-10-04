@@ -46,7 +46,7 @@ class OvernightTests(unittest.TestCase):
 
     def test_invalid_order_never_writes(self):
         for change in [dict(quantity=True), dict(quantity=1.5), dict(quantity=1001),
-                       dict(entry=-1), dict(entry=768.881), dict(side=-1),
+                       dict(entry=-1), dict(entry=768.881), dict(side=0),
                        dict(entry_type='MKT'), dict(tp=800), dict(sl=700)]:
             _, result = self.overnight(**change)
             self.assertFalse(result['success'], change)
@@ -201,3 +201,39 @@ class OvernightTests(unittest.TestCase):
         self.assertTrue(restarted.request_status(self.conn, 7, body['request_id'])['confirmed'])
         self.assertEqual(restarted.execute(self.conn, 7, body), result)
         self.assertEqual(self.conn.ib.placeOrder.call_count, writes)
+
+    def test_sell_overnight_routes_exact_side_and_remains_idempotent(self):
+        body, result = self.overnight(side=-1)
+        self.assertTrue(result['success'], result)
+        contract, order = self.conn.ib.placeOrder.call_args.args
+        self.assertEqual((contract.exchange, order.action, order.tif), ('OVERNIGHT', 'SELL', 'DAY'))
+        self.assertEqual(result['state']['side'], -1)
+        self.assertIn('OVERNIGHT', result['state']['allowed_tifs'])
+        self.service.execute(self.conn, 7, body)
+        self.assertEqual(self.conn.ib.placeOrder.call_count, 1)
+
+    def test_close_filled_short_standalone_buys_back_exact_size_once(self):
+        self.overnight(side=-1)
+        self.trades[0].orderStatus.status = 'Filled'
+        self.trades[0].orderStatus.filled = 100
+        position = S(account='DU_TEST', contract=self.contract, position=-100, avgCost=768.88)
+        self.conn.ib.positions.return_value = [position]
+        self.conn._bounded_order_read.side_effect = lambda fn, *a, **k: [position] if fn == self.conn.ib.reqPositions else []
+        result = self.service.execute(self.conn, 7, dict(request_id=str(uuid4()), action='close', expected_ref=self.service.group('DU_TEST', 7)['ref']))
+        self.assertTrue(result['success'], result)
+        contract, order = self.conn.ib.placeOrder.call_args.args
+        self.assertEqual((contract.exchange, order.action, order.orderType, order.totalQuantity, order.tif), ('SMART', 'BUY', 'MKT', 100, 'DAY'))
+        writes = self.conn.ib.placeOrder.call_count
+        again = self.service.execute(self.conn, 7, dict(request_id=str(uuid4()), action='close', expected_ref=self.service.group('DU_TEST', 7)['ref']))
+        self.assertFalse(again['success'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count, writes)
+
+    def test_ovt_stop_rejected_both_sides_without_any_broker_write(self):
+        for side in (-1, 1):
+            for mode in ('overnight_entry', None):
+                _, result = self.overnight(side=side, entry_type='STP', tif='OVERNIGHT', mode=mode)
+                self.assertFalse(result['success'])
+                self.assertEqual(result['status'], 'rejected')
+                self.assertIn('STP is unavailable', result['message'])
+        self.conn.ib.placeOrder.assert_not_called()
+        self.conn.ib.cancelOrder.assert_not_called()

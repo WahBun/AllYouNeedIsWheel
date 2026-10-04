@@ -20,6 +20,12 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
  await page.evaluate(()=>configure({...cfg,paper:{enabled:false,submit_revision:3}}));await page.locator('#order-direction').click({force:true});assert.equal((await submissions()).length,3,'Unavailable trading cannot submit');
  await page.evaluate(()=>configure({...cfg,paper:{enabled:true,preview_tif:'OVERNIGHT',submit_revision:4}}));assert.equal(await page.locator('#tp').isVisible(),false);assert.equal(await page.locator('#sl').isVisible(),false);
 
+
+ for(const price of [79,82]){
+  const result=await page.evaluate(price=>{sent=[];configure({...cfg,paper:{enabled:true,preview_tif:'OVERNIGHT',submit_revision:10}});cursorOrderPrice=price;priceAdd.click();const stop=[...priceMenu.querySelectorAll('[data-order-choice]')].find(b=>b.textContent.includes('Stop'));const disabled=stop.disabled;sendPriceOrder({side:price>81?1:-1,type:'STP'});const unchanged=entryType==='LMT';entryType='STP';submitPreview();const message=document.getElementById('validation').textContent;entryType='LMT';closePriceMenu();return {disabled,unchanged,writes:sent.length,message};},price);
+  assert.equal(result.disabled,true);assert.equal(result.unchanged,true);assert.equal(result.writes,0);assert.match(result.message,/STP is unavailable/);
+ }
+
  for(const selector of ['#preview-order-quantity','#order-type','#cancel']){
   await page.evaluate(()=>{sent=[];configure({...cfg,paper:{enabled:true,active:true,entry_editable:true,entry:79,quantity:100,side:1,order_ref:'hold',edit_snapshot:[{order_id:3,filled:0}]}});});
   const r=await page.locator(selector).boundingBox();await page.mouse.move(r.x+r.width/2,r.y+r.height/2);await page.mouse.down();await page.waitForTimeout(400);await page.mouse.move(r.x+r.width/2,r.y-30);await page.mouse.up();

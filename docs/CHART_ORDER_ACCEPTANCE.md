@@ -22,7 +22,7 @@
 - The preview and active-order editors both expose price, quantity and TIF.
   The editor's purpose and reference remain fixed while it is open.
 - DAY/GTC are available for supported stocks, options and futures. OVT is only
-  available for USD stock BUY LMT entries, with explicit no-TP/SL acknowledgement.
+  available for USD stock BUY/SELL LMT entries, with explicit no-TP/SL acknowledgement.
   Options and futures never offer or submit OVT.
 - Chart-owned single-parent orders expose the same settings in Orders. Option
   enrichment keeps its existing row identity and does not duplicate the row.
@@ -77,3 +77,19 @@ failed, and persisted `done` close results were omitted from recognized outcomes
 No broker test orders were sent. Actual fills, partial-fill protection quantity,
 OCA execution, and physical-device recovery still require Paper-session acceptance.
 No iPhone installation is part of this pass.
+
+## Approved: symmetric stock OVT (2026-10-04)
+
+USD stock limit previews and pending-order editors offer OVT for both BUY and
+SELL. Standalone submission preserves direction in its ownership journal and
+broker order; price/quantity/TIF replacements keep the original side. Options,
+futures, non-USD contracts and stop entries remain excluded. Existing-position
+checks and broker rejection handling remain in place; no short-sale permission
+or borrow availability is inferred from showing the OVT choice.
+
+394 mocked backend tests, 88 Simulator TradingTests and submit-button/entry-edit
+browser checks passed. Sell-side coverage includes direct OVT, DAY/GTC/OVT
+replacement, price/quantity edits, cancellation and filled-short BUY close.
+OVT disables Buy Stop and Sell Stop choices; native and backend guards reject
+STP requests without placing or canceling a broker order. User approved GitHub
+push and Mini deployment. Physical-phone Run remains deferred.

@@ -263,3 +263,13 @@ class EntryEditTests(unittest.TestCase):
         self.assertEqual(self.conn.ib.cancelOrder.call_count, 1)
         self.assertEqual(self.conn.ib.placeOrder.call_count, 3)
         self.assertTrue(all(t.orderStatus.status == 'Submitted' for t in self.trades[1:]))
+
+    def test_sell_direction_survives_ovt_replacement_price_quantity_and_tif(self):
+        self.submit(side=-1, quantity=100, tp=9, sl=11); self.overnight_rules()
+        for changes in [dict(tif='OVERNIGHT', confirm_remove_protection=True), dict(price=10.25), dict(quantity=50), dict(tif='DAY'), dict(tif='GTC'), dict(tif='OVERNIGHT')]:
+            result = self.edit(**changes)
+            self.assertTrue(result['success'], result)
+            self.assertEqual(self.trades[-1].order.action, 'SELL')
+            self.assertEqual(result['state']['side'], -1)
+            self.assertIn('OVERNIGHT', result['state']['allowed_tifs'])
+        self.assertTrue(self.edit(cancel=True)['success'])
