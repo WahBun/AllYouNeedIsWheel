@@ -91,3 +91,53 @@ Actual broker evidence: one unfilled BUY LMT, quantity 1, DAY, with parent 511 a
 Validation: 417 backend tests passed; host queue regression covers latest-target coalescing, fresh snapshot, TP/SL, fill/identity/quantity/account change, rejection, unknown outcome and lost response. Existing entry-edit and paper-orders chart regressions passed; web-superchart covers submit/edit/cancel, Orders sync, reconciliation and Live isolation.
 
 Limits: actual rapid-drag broker evidence in this addendum is an unfilled long LMT and its contingent TP/SL. Held-position rapid protection edits, short/STP rapid sequences and a real fill arriving mid-drag were not separately accepted here. One in-flight role is freely re-draggable; other order actions/roles wait for its confirmation. This does not certify Live trading or guarantee immediate fills.
+
+## Held positions, confirmation latency and fill overlap, 07:08–07:19 CST
+
+Continued on verified ESZ6 IB Paper, one contract per group, web only. GitHub code: `2790603` then `ce6b2f7`; stable web status layout: `c60a98f`.
+
+### Findings and repairs
+
+- `ib_async.placeOrder` immediately mutates the local Trade. The old protection-amend check could accept that local echo as acknowledgement. All price amendments now capture immutable requested price/identity and confirm them against a completed broker open-order snapshot (or an actual Filled event).
+- Actual Paper testing showed the first snapshot can still contain the previous price. A single immediate snapshot caused premature `unknown` responses at 256–287 ms even though the requested change subsequently reached IB. The bounded confirmation loop now waits for broker events and re-reads within three seconds; it sends the write only once. Late protection acknowledgements can reconcile through the read-only request-status endpoint.
+- Removed the fixed 200 ms post-action sleep for entry/protection edits already covered by their confirmation/cancellation logic. This is not a claim of a measured net 200 ms improvement.
+- Order status text wrapping changed iframe height, resetting the manually adjusted price scale and pushing a TP handle out of view. Fixed the footer height and kept long feedback on one truncated line with full hover text/Activity details. Actual three-drag measurement remained 496.75 px throughout; existing 1440/393 web regression now checks this invariant.
+- A fill received while an entry handle is held cancels the stale drag and restores the broker entry basis. Release emits no amendment for the filled entry. Protection edits optionally validate the expected order reference as well.
+
+### Actual Paper results
+
+- Group parent 523: buy limit changed to 7788.75, filled 1 at 7787.50; SL ultimately confirmed at 7778.50 with position covered. During discovery of the premature-unknown issue, Close first rejected for a stale quote without writing; after a fresh quote, the existing TP 524 filled at 7787.00 and SL 525 canceled. Verified flat before the next deployment; no retry of the uncertain write.
+- Long parent 535 / TP 536 / SL 537: actual long 1 at 7787.75. Held SL rapid changes confirmed; held TP changes ended at 7800.25. SL dragged into the trigger region and immediately dragged again; original SL filled one contract and TP canceled. Final position 0, no reverse position or active exit order.
+- Short parent 538 / TP 539 / SL 540: sell entry amended to 7785.25, filled one at 7787.25. Held TP rapid changes ended at 7776.75; held SL changes ended at 7797.50. Four releases into the SL trigger region coalesced into three amendments; the original SL filled one contract, TP canceled, final position 0 and no pending orders. No replacement exit or duplicate entry was created.
+- Page reload while the long position existed recovered the same order group and protection without resubmission. Existing SGOV holding remained unchanged.
+
+### Measured latency
+
+Timing begins in the iframe message emitted by release and ends after the broker-confirmed response is applied on the host page. Includes postMessage dispatch, waiting behind an earlier amendment, transport, serialized backend work and broker snapshot verification. UI drag/render frame latency was not separately instrumented. Small sample; not a Live latency guarantee.
+
+Final stable-layout run, 14 confirmed amendments (milliseconds):
+
+| Role | Target | Release to response | Request duration | Queue/dispatch wait |
+|---|---:|---:|---:|---:|
+| TP | 7801.00 | 791 | 790 | 1 |
+| TP | 7800.25 | 644 | 526 | 118 |
+| SL | 7789.00 | 547 | 547 | 0 |
+| SL | 7789.50 | 950 | 847 | 103 |
+| Entry | 7785.25 | 1399 | 1400 | 0 |
+| TP | 7776.00 | 681 | 683 | 0 |
+| TP | 7778.00 | 1134 | 856 | 278 |
+| TP | 7776.75 | 1164 | 451 | 713 |
+| SL | 7798.50 | 592 | 593 | 0 |
+| SL | 7796.50 | 880 | 622 | 258 |
+| SL | 7797.50 | 983 | 505 | 478 |
+| SL | 7785.25 | 784 | 788 | 0 |
+| SL | 7784.75 | 875 | 535 | 340 |
+| SL | 7783.75 | 809 | 753 | 56 |
+
+Median release-to-response 842 ms; min 547 ms, max 1399 ms. Millisecond clock sampling/rounding can cause a few milliseconds of difference between the columns. Earlier same-backend held-SL run before the footer fix recorded 525, 1105 and 1160 ms (the latter two included 248 and 667 ms queue waits).
+
+### Validation boundaries
+
+423 backend tests passed, including optimistic local echo rejection, first-old-then-current broker snapshot, late protection acknowledgement without replay, fill during amendment, idempotent fill outcome and replaced-reference rejection. Host queue tests cover discarding queued entry and protection changes when a fill/identity change arrives. Browser gesture tests inject a fill while the pointer is held and verify that release sends nothing stale and displays the actual entry basis.
+
+Actual broker coverage includes held long/short TP and SL rapid amendments, marketable entry amendment followed by fill, and SL trigger-region amendments followed by actual exits/OCA cancellation. Exact ordering of a real broker fill between pointer-down and pointer-up was not controlled or independently timestamp-proven; that narrow event ordering was verified by deterministic browser/broker fixtures. Single-order partial-fill timing, true connection-loss races and Live remain outside this run.
