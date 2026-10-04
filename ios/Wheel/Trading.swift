@@ -679,9 +679,9 @@ struct OrderDetail: View {
     var body: some View {
         Form {
             if let order = current {
-                if let chartPosition = order.chartPosition {
+                if order.chartPosition != nil {
                     Section {
-                        ArrowlessNavigationLink("𝑺𝒖𝒑𝒆𝒓𝒄𝒉𝒂𝒓𝒕𝒔") { StockChartView(position: chartPosition) }
+                        Button("𝑺𝒖𝒑𝒆𝒓𝒄𝒉𝒂𝒓𝒕𝒔") { store.openOrderChart(order) }
                     }
                 }
                 Section {

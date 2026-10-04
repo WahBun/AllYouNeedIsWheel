@@ -591,8 +591,8 @@ struct OpportunitiesView: View {
             Section { TradingNotice() }
         }.navigationTitle(localizedLabel("Trade", locale: locale))
         .toolbar {
-            NavigationLink {
-                StockChartView(position: store.portfolio?.positions.first(where: { $0.security_type == "STK" && ($0.con_id ?? 0) > 0 }) ?? Position(symbol: "Chart", position: 0, security_type: "STK"), resumeLast: true)
+            Button {
+                store.openTradeChart(store.portfolio?.positions.first(where: { $0.security_type == "STK" && ($0.con_id ?? 0) > 0 }) ?? Position(symbol: "Chart", position: 0, security_type: "STK"), resumeLast: true)
             } label: {
                 Image(systemName: "chart.xyaxis.line").frame(width: 36, height: 36)
             }.accessibilityLabel("Open recent chart")

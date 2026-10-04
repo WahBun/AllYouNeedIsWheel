@@ -215,6 +215,14 @@ struct Order: Decodable, Identifiable {
 }
 struct Orders: Decodable { var orders: [Order] }
 
+struct TradeChartDestination: Hashable {
+    let id = UUID()
+    let position: Position
+    var resumeLast = false
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
 @MainActor @Observable
 final class WheelStore {
     var performanceHistoryCache: [String: Data] = [:]
@@ -254,6 +262,15 @@ final class WheelStore {
     var opportunities = OpportunityBook()
     var chartVisible = false
     var selectedTab = "settings"
+    var requestedTradeChart: TradeChartDestination?
+    func openOrderChart(_ order: Order) {
+        guard let position = order.chartPosition else { return }
+        openTradeChart(position)
+    }
+    func openTradeChart(_ position: Position, resumeLast: Bool = false) {
+        requestedTradeChart = TradeChartDestination(position: position, resumeLast: resumeLast)
+        selectedTab = "trade"
+    }
     init() { opportunities.configure(context: "demo") }
     private var revision = 0
     private var lastSummary: Date?
@@ -510,9 +527,18 @@ struct RootView: View {
         @Bindable var store = store
         TabView(selection: $store.selectedTab) {
             NavigationStack(path: $portfolioPath) { PortfolioView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Portfolio", locale: appLocale), systemImage: "chart.pie") }.tag("portfolio")
-            NavigationStack(path: $tradePath) { OpportunitiesView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Trade", locale: appLocale), systemImage: "arrow.left.arrow.right") }.tag("trade")
+            NavigationStack(path: $tradePath) {
+                OpportunitiesView().modifier(KeyboardDismissal())
+                    .navigationDestination(for: TradeChartDestination.self) { destination in
+                        StockChartView(position: destination.position, resumeLast: destination.resumeLast).id(destination.id)
+                    }
+            }.tabItem { Label(localizedLabel("Trade", locale: appLocale), systemImage: "arrow.left.arrow.right") }.tag("trade")
             NavigationStack(path: $ordersPath) { OrdersView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Orders", locale: appLocale), systemImage: "list.bullet.rectangle") }.tag("orders")
             NavigationStack { SettingsView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Settings", locale: appLocale), systemImage: "gearshape") }.tag("settings")
+        }
+        .onChange(of: store.requestedTradeChart) {
+            guard let destination = store.requestedTradeChart else { return }
+            tradePath = NavigationPath([destination])
         }
         .onAppear {
             if !spreadWarningRedApplied {
@@ -535,7 +561,7 @@ struct RootView: View {
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         // Keep each tab's navigation controller stable on iOS 18 when reconnecting.
         .onChange(of: "\(store.demo)-\(store.address)") {
-            portfolioPath = NavigationPath(); ordersPath = NavigationPath(); tradePath = NavigationPath()
+            portfolioPath = NavigationPath(); ordersPath = NavigationPath(); tradePath = NavigationPath(); store.requestedTradeChart = nil
         }
         .task(id: "\(phase)-\(store.demo)-\(store.address)") {
             guard phase == .active else { return }
@@ -1214,7 +1240,7 @@ struct PositionDetail: View {
     var body: some View {
         Form {
             if latest.hasChart {
-                Section { ArrowlessNavigationLink("𝑺𝒖𝒑𝒆𝒓𝒄𝒉𝒂𝒓𝒕𝒔") { StockChartView(position: latest) } }
+                Section { Button("𝑺𝒖𝒑𝒆𝒓𝒄𝒉𝒂𝒓𝒕𝒔") { store.openTradeChart(latest) } }
             }
             if latest.security_type == "STK", let cost = latest.reported_cost {
                 Section {

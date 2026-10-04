@@ -24,6 +24,28 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testPendingChartRoutesToTradeWithoutChangingOrdersOrSendingRequests() {
+        let store = WheelStore()
+        store.selectedTab = "orders"
+        let order = Order(id: 17, ticker: "QQQ", option_type: "STOCK", status: "submitted", con_id: 123)
+        store.orders = [order]
+        let requests = MockProtocol.requests.count
+        store.openOrderChart(order)
+        XCTAssertEqual(store.selectedTab, "trade")
+        XCTAssertEqual(store.requestedTradeChart?.position.con_id, 123)
+        let first = store.requestedTradeChart
+        store.openOrderChart(order)
+        XCTAssertNotEqual(first, store.requestedTradeChart)
+        XCTAssertEqual(store.orders.map(\.id), [order.id])
+        XCTAssertEqual(MockProtocol.requests.count, requests)
+        store.openTradeChart(Position(symbol: "MES", position: 1, security_type: "FUT", con_id: 456))
+        XCTAssertEqual(store.requestedTradeChart?.position.con_id, 456)
+        XCTAssertEqual(store.requestedTradeChart?.resumeLast, false)
+        store.openTradeChart(Position(symbol: "Chart", position: 0, security_type: "STK"), resumeLast: true)
+        XCTAssertEqual(store.requestedTradeChart?.resumeLast, true)
+        XCTAssertEqual(store.selectedTab, "trade")
+    }
+
     func testPendingOrderChartUsesExactContractWithoutInventingHolding() throws {
         for (kind, expected) in [("STOCK", "STK"), ("FUTURE", "FUT"), ("CALL", "OPT"), ("PUT", "OPT")] {
             let data = try JSONSerialization.data(withJSONObject: ["id": 1, "ticker": "QQQ", "status": "submitted", "option_type": kind, "con_id": 123, "quantity": 100, "strike": 750, "expiration": "20261016"])
