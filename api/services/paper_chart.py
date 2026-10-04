@@ -381,7 +381,8 @@ class PaperChart:
         state=stock_chart.active
         if not state or state['con_id']!=cid: raise ValueError('Wait for a current quote')
         # Use the chart's quote freshness rules, independently of its interval.
-        packet=stock_chart.packet(state,5,'rth')
+        contract = trades[lots[0]['tp']].contract
+        packet=stock_chart.packet(state,5,'all' if contract.secType == 'FUT' else 'rth')
         if not packet: raise ValueError('Fresh exit quote unavailable')
         quote=packet.get('bid' if group['side']==1 else 'ask')
         if packet.get('status')!='live' or not quote: raise ValueError('Wait for a live bid/ask')

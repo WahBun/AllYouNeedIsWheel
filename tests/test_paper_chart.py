@@ -181,6 +181,24 @@ class ProtectedLotTests(unittest.TestCase):
             if not t.order.parentId:t.orderStatus.status='Filled';t.orderStatus.filled=1;t.orderStatus.avgFillPrice=10
         self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=4)]
         self.conn.ib.placeOrder.reset_mock();self.conn.ib.cancelOrder.reset_mock()
+    def test_futures_trim_uses_eth_quote_but_still_rejects_stale_data(self):
+        self.open_four()
+        with patch('api.services.paper_chart.stock_chart.packet') as packet:
+            expected_session='all' if self.contract.secType=='FUT' else 'rth'
+            packet.side_effect=lambda state, minutes, session: {'status':'live' if session==expected_session else 'waiting','bid':10,'ask':10.25}
+            result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
+            self.assertTrue(result['success'],result)
+            self.assertEqual(packet.call_args.args[2],expected_session)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,1)
+
+    def test_futures_close_rejects_stale_eth_quote_without_order_write(self):
+        self.open_four()
+        with patch('api.services.paper_chart.stock_chart.packet',return_value={'status':'waiting','bid':10,'ask':10.25}):
+            result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='close'))
+            self.assertFalse(result['success'])
+        self.conn.ib.placeOrder.assert_not_called()
+        self.conn.ib.cancelOrder.assert_not_called()
+
     def test_trim_preserves_all_stop_ids_and_other_lots(self):
         self.open_four();before=[(t.order.orderId,t.order.totalQuantity,t.order.auxPrice) for t in self.trades if t.order.orderType=='STP']
         body=dict(request_id=str(uuid4()),action='trim',quantity=1)
