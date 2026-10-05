@@ -281,7 +281,15 @@ class PaperChart:
         request_id = str(UUID(request_id))
         with self.database() as db:
             row = db.execute('SELECT body,result FROM chart_paper_requests WHERE id=? AND account=?', (request_id, account)).fetchone()
-        if not row: return dict(confirmed=False, status='unknown')
+        if not row:
+            # Serialized with execute(): no ledger row means no broker write started.
+            # Reserve the UUID as rejected so a delayed HTTP submission cannot run later.
+            tombstone = json.dumps(dict(con_id=cid, group_id=self.group_id, not_started=True), sort_keys=True)
+            result = json.dumps(dict(success=False, status='rejected', message='Request did not start; no order was sent'))
+            with self.database() as db:
+                inserted = db.execute('INSERT OR IGNORE INTO chart_paper_requests VALUES(?,?,?,?)',
+                                      (request_id, account, tombstone, result)).rowcount
+            return dict(confirmed=bool(inserted), status='rejected' if inserted else 'unknown')
         body = json.loads(row[0])
         if body.get('group_id') != self.group_id: raise ValueError('Request order group mismatch')
         if body.get('con_id') != cid: raise ValueError('Request contract mismatch')

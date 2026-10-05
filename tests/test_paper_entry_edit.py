@@ -183,7 +183,8 @@ class EntryEditTests(unittest.TestCase):
         self.assertTrue(self.service.request_status(self.conn,7,body['request_id'])['confirmed'])
         self.assertEqual(self.conn.ib.placeOrder.call_count,count)
         with self.assertRaises(ValueError): self.service.request_status(self.conn,8,body['request_id'])
-        self.assertFalse(self.service.request_status(self.conn,7,str(uuid4()))['confirmed'])
+        self.assertEqual(self.service.request_status(self.conn,7,str(uuid4())),dict(confirmed=True,status='rejected'))
+        self.assertEqual(self.conn.ib.placeOrder.call_count,count)
 
     def test_price_timeout_recovers_from_broker_without_resubmitting(self):
         from unittest.mock import patch

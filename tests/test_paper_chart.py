@@ -25,6 +25,15 @@ class PaperChartTests(unittest.TestCase):
         self.conn.ib.cancelOrder.side_effect=lambda o:setattr(next(t for t in self.trades if t.order.orderId==o.orderId).orderStatus,'status','Cancelled')
         self.resolve=patch('api.services.paper_chart.contracts.resolve',return_value=self.contract);self.resolve.start()
         self.feed=patch('api.services.paper_chart.stock_chart.active',{'con_id':7,'price_rules':[{'low':0,'increment':.25}]});self.feed.start()
+    def test_missing_request_is_fenced_before_late_submission(self):
+        identity=str(uuid4())
+        result=self.service.request_status(self.conn,7,identity)
+        self.assertEqual(result,dict(confirmed=True,status='rejected'))
+        self.assertTrue(self.service.request_status(self.conn,7,identity)['confirmed'])
+        with self.assertRaises(ValueError):
+            self.service.execute(self.conn,7,dict(request_id=identity,action='submit',quantity=500,entry=10,side=1,entry_type='LMT',mode='overnight_entry',tif='OVERNIGHT'))
+        self.conn.ib.placeOrder.assert_not_called()
+
     def test_first_old_snapshot_then_acknowledgement_sends_only_one_amendment(self):
         import copy
         self.submit();old=copy.deepcopy(self.trades);reads=0
