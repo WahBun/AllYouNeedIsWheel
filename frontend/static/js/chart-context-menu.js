@@ -15,9 +15,10 @@
  chart.timeScale().subscribeVisibleLogicalRangeChange(repositionCancels);
  document.addEventListener('pointermove',repositionCancels,{passive:true});
  window.addEventListener('chart-viewport-resized',repositionCancels);
+ let refreshOrderMenu=()=>{};
  const sharedConfigure=window.configure;
  window.configure=config=>{
-  sharedConfigure(config);
+  sharedConfigure(config);refreshOrderMenu();
   const pending=(config.paper?.orders||[]).filter(o=>/^entry_/.test(o.role)&&!o.filled&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status)&&o.price>0);
   const live=new Set(pending.map(o=>`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${o.order_id}`));
   for(const [id,row] of pendingLines)if(!live.has(id)){series.removePriceLine(row.line);row.button.remove();pendingLines.delete(id);}
@@ -82,12 +83,16 @@
   addDialog.append(title,detail,label,summary,footer);addDialog.showModal();
  }
  function orderItems(price,append){
+  const updates=[],contract=paperCID,epoch=paperConfig.web_account_epoch;
   for(const choice of priceOrderChoices(price,previous.at(-1)?.close)){
    const adding=!!paperConfig.position;
    const disabled=adding?!addAllowed(choice):!paperConfig.enabled||paperConfig.active||paperConfig.busy||ovtStopBlocked(choice.type);
    const quantity=adding?(paperConfig.adjustment_quantity||1):qty;
-   append(`${adding?'Add · ':''}${choice.label} ${quantity} ${countdownPacket?.local_symbol||countdownPacket?.symbol||''} @ ${priceText(price)}`,()=>choosePriceOrder(choice,price),disabled);
+   const b=append(`${adding?'Add · ':''}${choice.label} ${quantity} ${countdownPacket?.local_symbol||countdownPacket?.symbol||''} @ ${priceText(price)}`,()=>choosePriceOrder(choice,price),disabled);
+   if(b)updates.push(()=>{const changed=contract!==paperCID||epoch!==paperConfig.web_account_epoch||adding!==!!paperConfig.position||quantity!==(adding?(paperConfig.adjustment_quantity||1):qty);const reason=changed?'Chart or quantity changed; reopen menu':ovtStopBlocked(choice.type)?'OVT supports limit orders only':!paperConfig.enabled?(paperConfig.trading_block_reason||'Waiting for verified order status'):paperConfig.busy?'Order request in progress':paperConfig.active&&!adding?'An entry order is already working':adding&&!addAllowed(choice)?'Position is not ready for this add order':'';b.disabled=!!reason;b.style.opacity=reason?'.4':'1';b.title=reason;let note=b.querySelector('small');if(reason&&!note){note=document.createElement('small');note.style.cssText='display:block;max-width:270px;white-space:normal;margin-top:5px;font-size:11px';b.append(note);}if(note){note.textContent=reason;note.hidden=!reason;}});
+
   }
+  const refresh=()=>updates.forEach(update=>update());refresh();return refresh;
  }
  priceAdd.onclick=e=>{
   if(!paperConfig.position)return originalPriceClick(e);
@@ -115,7 +120,7 @@
   finally{copying=false;}
  };
  document.addEventListener('keydown',event=>{if(!event.repeat&&(event.metaKey||event.ctrlKey)&&event.shiftKey&&!event.altKey&&event.code==='KeyS'){event.preventDefault();window.copyChartImage();return;}if(!event.repeat&&event.shiftKey&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&event.code==='KeyF'&&!event.target.closest('input,textarea,select,[contenteditable=true]')){event.preventDefault();parent.document.fullscreenElement?parent.document.exitFullscreen():parent.document.querySelector('.workspace').requestFullscreen();return;}if(event.repeat||event.target.closest('input,textarea,select,[contenteditable=true]'))return;});
- function item(label,run,disabled=false){const b=document.createElement('button');b.textContent=label;b.setAttribute('role','menuitem');b.disabled=disabled;b.style.cssText='display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:12px;font:13px system-ui;cursor:pointer';if(disabled)b.style.opacity='.4';b.onmouseenter=()=>b.style.background='#ffffff15';b.onmouseleave=()=>b.style.background='transparent';b.onclick=()=>{close();run();};menu.append(b);}
+ function item(label,run,disabled=false){const b=document.createElement('button');b.textContent=label;b.setAttribute('role','menuitem');b.disabled=disabled;b.style.cssText='display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:12px;font:13px system-ui;cursor:pointer';if(disabled)b.style.opacity='.4';b.onmouseenter=()=>b.style.background='#ffffff15';b.onmouseleave=()=>b.style.background='transparent';b.onclick=()=>{close();run();};menu.append(b);return b;}
  document.addEventListener('contextmenu',event=>{
   if(event.target.closest('input,textarea,button,#draw-toolbar,#draw-menu,#draw-properties,#price-order-menu'))return;
   const size=chart.paneSize();if(event.clientX>size.width||event.clientY>size.height)return;
@@ -123,7 +128,7 @@
   const price=snapPrice(series.coordinateToPrice(event.clientY)),contract=paperCID;
   menu.replaceChildren();
   item('Reset chart view',()=>{chart.priceScale('right').applyOptions({autoScale:true});chart.timeScale().applyOptions({barSpacing:6});const last=latestBarLogical();if(last!==null)chart.timeScale().setVisibleLogicalRange({from:Math.max(0,last-69),to:last+18});});
-  orderItems(price,(label,run,disabled)=>item(label,()=>{if(contract===paperCID)run();},disabled));
+  refreshOrderMenu=orderItems(price,(label,run,disabled)=>item(label,()=>{if(contract===paperCID)run();},disabled));
   item('Copy image · '+(/Mac/.test(navigator.platform)?'⌘⇧S':'Ctrl⇧S'),()=>window.copyChartImage());
   const n=window.chartDrawingActions?.count()||0;item(`Remove ${n} drawings`,()=>window.chartDrawingActions?.removeAll(),n===0);
   menu.hidden=false;menu.style.left=Math.max(6,Math.min(event.clientX,innerWidth-menu.offsetWidth-6))+'px';menu.style.top=Math.max(6,Math.min(event.clientY,innerHeight-menu.offsetHeight-6))+'px';
