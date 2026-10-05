@@ -213,3 +213,13 @@ The capture-loss condition is reproduced; the recording itself lacks event-level
 evidence to establish it as the sole cause. Do not mark the reported incident
 passed solely from these mocked regressions. Existing user positions were only
 read; no test amendment was applied to their protection orders.
+
+Post-fix read/write Paper check: an independent one-contract unfilled GTC bracket
+had TP 7774 → 7775 and SL 7754 → 7757.25 dragged through the browser. IB confirmed
+both prices; measured release/response was 420 ms (417 request, 3 wait) and 506 ms
+(505 request, 1 wait). The test parent and both children were then broker-confirmed
+canceled, with ES flat and no pending orders. This verifies normal browser-to-IB
+amendments while the entry is pending; injected capture-loss and fill-transition
+coverage remains mocked, and the user's full reported incident is not certified
+closed. Chart assets were deployed without restarting the active backend; the
+separate daily-P&L backend activation remains deferred.
