@@ -45,3 +45,5 @@ body.light #daily-pnl-value[data-direction=negative]{color:#b73544}
 .workspace>nav>#session-picker{margin-left:auto}
 
 #session-picker{position:relative}#session-button{min-width:70px}#session-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:30;min-width:94px;padding:4px;border:1px solid var(--border);border-radius:8px;background:var(--panel);box-shadow:0 5px 18px #0003}#session-menu button{display:block;width:100%;text-align:left;border:0;white-space:nowrap}#session-menu button[aria-checked=true]{background:#315fc4;color:white}#session-menu button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+.symbol-input{position:relative;display:flex}.symbol-input #symbol{padding-right:30px}#clear-symbol{position:absolute;right:4px;top:50%;transform:translateY(-50%);border:0;background:transparent;padding:0;width:24px;height:26px;line-height:24px;font-size:20px;color:var(--muted)}#clear-symbol:hover{color:var(--fg)}

@@ -1,6 +1,10 @@
 /* Browser host only. Chart geometry and gestures are shared with iOS verbatim. */
 (()=>{'use strict';
 const $=id=>document.getElementById(id),frame=$('chart');
+const updateSymbolClear=()=>{$('clear-symbol').hidden=!$('symbol').value;};
+$('symbol').addEventListener('input',updateSymbolClear);
+$('clear-symbol').onclick=()=>{$('symbol').value='';updateSymbolClear();$('symbol').focus();};
+window.addEventListener('pageshow',updateSymbolClear);updateSymbolClear();
 let groupID='',switchingChart=false;
 function chartTransition(){switchingChart=true;frame.style.opacity='.3';frame.style.pointerEvents='none';frame.setAttribute('aria-busy','true');$('market-status').textContent=`Loading ${session==='all'?'ETH':'RTH'} · ${interval}m…`;sync();ensureMarket();}
 let entryFlight=null,queuedEntry=null,writeVersion=0;
