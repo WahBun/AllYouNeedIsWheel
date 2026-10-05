@@ -42,7 +42,7 @@ function renderDailyPnL(){
  $('daily-pnl').setAttribute('aria-label',(zh?'当日盈亏 ':'Daily P&L ')+value+'. '+$('daily-pnl').title);
 }
 function sync(){renderDailyPnL();if(!ready)return;const can=enabled(),ovt=$('tif').value==='OVERNIGHT';$('quantity-label').textContent=state.position?(document.documentElement.lang==='zh'?'持仓数量':'Position size'):(document.documentElement.lang==='zh'?'数量':'Quantity');$('type').options[1].disabled=ovt;$('tif').options[2].disabled=!allowed().includes('OVERNIGHT');
-const config={con_id:cid,entry,quantity:Number($('quantity').value),entryType:$('type').value,dark,priceRules:packet.price_rules||[],multiplier:packet.multiplier||1,holdings:holdingRows(),tpDistance:Number($('tp').value),slDistance:Number($('sl').value),templateRevision:revision,joinSide,joinRevision,display,executions:state.executions||[],paper:{...state,enabled:can,busy,webEntryDrag:true,web_account_epoch:epoch,entry_drag_allowed:entryFlight?.role==='entry'&&canQueueEntry(),entry_target:entryFlight?.role==='entry'?(queuedEntry?.price??entryFlight.price):undefined,protection_drag_role:entryFlight?.role!=='entry'&&canQueueEntry()?entryFlight?.role:null,protection_target:entryFlight?.role!=='entry'?(queuedEntry?.price??entryFlight?.price):undefined,preview_tif:$('tif').value,submit_revision:revision}};
+const config={con_id:cid,entry,quantity:Number($('quantity').value),entryType:$('type').value,dark,priceRules:packet.price_rules||[],multiplier:packet.multiplier||1,holdings:holdingRows(),tpDistance:Number($('tp').value),slDistance:Number($('sl').value),templateRevision:revision,joinSide,joinRevision,display,executions:state.executions||[],paper:{...state,adjustment_quantity:Number($('adjustment-quantity').value),enabled:can,busy,webEntryDrag:true,web_account_epoch:epoch,entry_drag_allowed:entryFlight?.role==='entry'&&canQueueEntry(),entry_target:entryFlight?.role==='entry'?(queuedEntry?.price??entryFlight.price):undefined,protection_drag_role:entryFlight?.role!=='entry'&&canQueueEntry()?entryFlight?.role:null,protection_target:entryFlight?.role!=='entry'?(queuedEntry?.price??entryFlight?.price):undefined,preview_tif:$('tif').value,submit_revision:revision}};
 $('resolve-request').hidden=!localStorage.getItem(pendingKey())||busy||state.known!==true||!state.entry_editable;frame.contentWindow.configure(config);$('order-status').textContent=`${enabled()?'Trading · ':''}${state.orders?.some(o=>o.status==='PendingCancel')?'Waiting for IB cancellation':state.status||'View'}${busy?' · Updating…':''}${entryFlight?' · '+entryFlight.role.toUpperCase()+' target '+(queuedEntry?.price??entryFlight.price)+' (pending)':''}${localStorage.getItem(pendingKey())?' · Confirming outcome…':''}`;$('order-status').title=$('order-status').textContent;
 $('order-group').disabled=busy;
 $('new-order').disabled=busy||!cid||profile.selected!=='paper'||!profile.verified;
@@ -58,7 +58,9 @@ const marketContext=()=>({cid,interval,session,epoch,generation});
 const currentMarket=c=>JSON.stringify(c)===JSON.stringify(marketContext());
 const marketStream=new WheelChartStream({receive:(bars,context)=>{if(currentMarket(context))applyMarket(bars,true);},status:message=>{$('market-status').textContent=message;}});
 function applyMarket(bars,push=false){
- const pnl={daily_pnl:packet.daily_pnl,account_epoch:packet.account_epoch};
+ const pushedPnL=push&&state.position&&bars.account_epoch===epoch&&bars.daily_pnl?.fresh===true;
+ const pnl=pushedPnL?{daily_pnl:bars.daily_pnl,account_epoch:bars.account_epoch}:{daily_pnl:packet.daily_pnl,account_epoch:packet.account_epoch};
+ if(pushedPnL)pnlReceived=Date.now();
  packet={...mergeHistory(bars),...pnl};loadProtection();
  if($('contracts').selectedOptions[0])$('contracts').selectedOptions[0].textContent=bars.display_symbol||bars.local_symbol||bars.symbol||String(cid);
  packetReceived=Date.now();
@@ -74,9 +76,9 @@ async function refreshMarket(){
  }catch(error){if(currentMarket(context)&&!marketStream.healthy())$('market-status').textContent=error.message;}finally{marketBusy=false;}
 }
 async function refreshPnL(){
- if(pnlBusy||Date.now()-lastPnL<5000)return;pnlBusy=true;lastPnL=Date.now();const context=marketContext();
- try{const result=await api(`portfolio/chart-pnl/${context.cid}`);if(currentMarket(context)){packet={...packet,...result};pnlReceived=Date.now();renderDailyPnL();}}
- catch{if(currentMarket(context)){packet.daily_pnl=null;renderDailyPnL();}}finally{pnlBusy=false;}
+ if(pnlBusy||Date.now()-lastPnL<5000)return;pnlBusy=true;lastPnL=Date.now();const context=marketContext(),started=Date.now();
+ try{const result=await api(`portfolio/chart-pnl/${context.cid}`);if(currentMarket(context)&&pnlReceived<=started){packet={...packet,...result};pnlReceived=Date.now();renderDailyPnL();}}
+ catch{if(currentMarket(context)&&pnlReceived<=started){packet.daily_pnl=null;renderDailyPnL();}}finally{pnlBusy=false;}
 }
 function ensureMarket(){
  if(!ready||!cid||!epoch||document.hidden){marketStream.stop();return;}

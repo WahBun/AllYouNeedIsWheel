@@ -48,7 +48,7 @@ class ChartStreams:
         self.prepared_generation = None
         self.next_maintenance = 0
 
-    def open(self, connection, con_id, minutes, session):
+    def open(self, connection, con_id, minutes, session, include_pnl=False):
         if self.clients and any(s.con_id != con_id for s in self.clients.values()):
             for old in self.clients.values(): old.closed = True
             self.clients.clear()
@@ -59,13 +59,32 @@ class ChartStreams:
         else:
             packet = stock_chart.snapshot(connection, con_id, minutes, session)
         sub = Subscriber(con_id, minutes, session)
-        sub.publish(packet)
+        sub.include_pnl = include_pnl
+        if include_pnl:
+            from api.services.chart_pnl import snapshot
+            snapshot(connection, con_id)
+            if not getattr(connection, '_chart_pnl_stream_hook', False):
+                connection.ib.pnlSingleEvent += self.publish_pnl
+                connection._chart_pnl_stream_hook = True
+        sub.publish(self.with_pnl(packet, connection, sub))
         key = uuid4().hex
         self.clients[key] = sub
         stock_chart.listeners.add(self.publish_changed)
         return key, sub
 
-    def publish_changed(self, state):
+    def with_pnl(self, packet, connection, sub):
+        service = getattr(connection, '_chart_pnl', None)
+        if getattr(sub, 'include_pnl', False) and service:
+            from api.routes.account import epoch
+            return dict(packet, daily_pnl=service.snapshot(sub.con_id, cached_only=True), account_epoch=epoch())
+        return packet
+
+    def publish_pnl(self, pnl):
+        state = stock_chart.active
+        if state and state['con_id'] == pnl.conId and state['conn'].account_id == pnl.account:
+            self.publish_changed(state, pnl_changed=True)
+
+    def publish_changed(self, state, pnl_changed=False):
         # Called on the IB owner directly from the ticker callback, including
         # while synchronous IB reads are yielding to that same event loop.
         now = time.monotonic()
@@ -73,9 +92,9 @@ class ChartStreams:
         for sub in tuple(self.clients.values()):
             if sub.closed or sub.con_id != state['con_id']:
                 continue
-            if marker != getattr(sub, 'marker', None) or now-sub.sent >= 1:
+            if marker != getattr(sub, 'marker', None) or now-sub.sent >= 1 or (pnl_changed and getattr(sub, 'include_pnl', False)):
                 sub.marker = marker
-                sub.publish(stock_chart.packet(state, sub.minutes, sub.session))
+                sub.publish(self.with_pnl(stock_chart.packet(state, sub.minutes, sub.session), state['conn'], sub))
 
     def pulse(self):
         if not self.clients:
@@ -107,7 +126,7 @@ class ChartStreams:
             first = next(iter(self.clients.values()))
             stock_chart.snapshot(state['conn'], first.con_id, first.minutes, first.session)
             for sub in self.clients.values():
-                sub.publish(stock_chart.packet(state, sub.minutes, sub.session))
+                sub.publish(self.with_pnl(stock_chart.packet(state, sub.minutes, sub.session), state['conn'], sub))
 
 
 streams = ChartStreams()
@@ -124,11 +143,12 @@ def response(connection_factory):
         return {'error': 'Unsupported streaming chart interval'}, 400
     if not slots.acquire(blocking=False):
         return {'error': 'Chart streams busy'}, 503
+    include_pnl = request.args.get('include_pnl') == '1'
     app = current_app._get_current_object()
     executor = app.extensions['ib_api_executor']
     def start():
         with app.app_context():
-            return streams.open(connection_factory(), con_id, minutes, session)
+            return streams.open(connection_factory(), con_id, minutes, session, include_pnl)
     future = executor.submit(start)
     try:
         key, sub = future.result(timeout=12)

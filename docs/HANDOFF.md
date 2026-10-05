@@ -367,3 +367,29 @@ This is not an import of historical account statements. No-trade/missing-report
 states remain unavailable, not zero. Regression: 440 Python tests passed, including
 persistence, deduplication, corrections, pending reports, scope and session rollover;
 a read-only mocked browser check verified the realized label, amount and reload.
+
+## Desktop priced adds and event-driven P&L (2026-10-05)
+
+The plot's price plus is restored; only mouse movement into the actual right
+price-axis pane hides it. Native touch behavior remains unchanged. The plus and
+context menu share one desktop priced-add choice/confirmation path. A held long
+position permits Buy Limit/Buy Stop, a short permits Sell Limit/Sell Stop; opposite
+side entries are disabled. Quantity comes from Add/Trim and is editable in the
+confirmation. The backend validates the exact group reference, side, tick, limit,
+and unchanged TP/SL before creating independent unit brackets at the selected
+LMT/STP price. Existing protection is unchanged; target prices must lie between
+current TP/SL. Pending adds are marked on the chart and included in Orders. Further
+adds wait for outstanding parents to resolve. The existing market Add stays intact.
+Unknown outcomes retain the request lock and are never resent automatically.
+
+Web SSE opts into cached contract P&L. IB pnlSingle events trigger a packet even
+without a price tick, without another IB request or nested event-loop drain.
+Periodic execution-ledger reads still preserve realized values after flattening;
+an older HTTP response cannot overwrite a newer pushed value. The broker's P&L
+publication cadence remains the limiting source, not a synthetic tick valuation.
+
+Verification: 448 Python tests; browser plus/context payload parity, plot/axis hover,
+stale preview rejection and pushed P&L checks passed. Includes long/short adds,
+old protection retention, contingent protection counts, invalid prices/identity,
+and lost-response non-replay. Broker acceptance of priced adds is still outstanding;
+no orders were placed, amended or canceled by this maintenance verification.

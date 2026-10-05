@@ -93,3 +93,10 @@ class ChartPnLTests(unittest.TestCase):
         self.assertEqual(snapshot(self.conn, 7)['currency'], 'EUR')
         self.ib.wrapper.acctSummary[3] = NS(account='paper-test', tag='InitMarginReq', currency='USD')
         self.assertIsNone(snapshot(self.conn, 7)['currency'], 'Conflicting currencies must not be guessed')
+
+    def test_push_cache_never_subscribes_or_drains_ib(self):
+        snapshot(self.conn, 7)
+        self.emit(42)
+        with patch.object(self.ib, 'sleep', side_effect=AssertionError('push must not yield')), patch.object(self.ib, 'reqPnLSingle', side_effect=AssertionError('push must not subscribe')):
+            self.assertEqual(self.conn._chart_pnl.snapshot(7, cached_only=True)['value'], 42)
+            self.assertIsNone(self.conn._chart_pnl.snapshot(8, cached_only=True)['value'])

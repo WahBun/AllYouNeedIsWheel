@@ -1,0 +1,21 @@
+const {chromium}=require('playwright'),assert=require('node:assert/strict');
+(async()=>{const browser=await chromium.launch();try{
+const page=await browser.newPage({viewport:{width:1440,height:1000}}),writes=[],errors=[];page.on('pageerror',e=>errors.push(e.message));
+const state={enabled:true,known:true,active:true,status:'working',position:1,scalable:true,entry:100,tp:110,sl:90,side:1,order_ref:'ref',orders:[{role:'entry',order_id:1,status:'Filled',filled:1,quantity:1,price:100}]};
+await page.route('**/api/**',async route=>{const req=route.request(),u=new URL(req.url());let result={};
+if(req.method()==='POST'){writes.push(req.postDataJSON());result={success:true,status:'acknowledged',state};}
+else if(u.pathname.endsWith('/profiles'))result={selected:'paper',verified:true,epoch:'e'};
+else if(u.pathname.includes('/paper-chart/'))result=state;
+else if(u.pathname.includes('/stock-chart/'))result={con_id:7,generation:'g',security_type:'FUT',interval:5,session:'all',symbol:'MNQ',price_rules:[{low:0,increment:.25}],bars:Array.from({length:60},(_,i)=>({time:1790947800+i*300,open:100,high:108,low:92,close:100}))};
+await route.fulfill({json:result});});
+await page.goto('http://127.0.0.1:8765/superchart?con_id=7');await page.waitForFunction(()=>document.getElementById('order-status').textContent.includes('Trading'));
+const frame=page.frames().find(f=>f.url().includes('/superchart/frame'));await frame.waitForFunction(()=>previous.length>0);
+const box=await page.locator('#chart').boundingBox(),y=await frame.evaluate(()=>series.priceToCoordinate(104));
+await page.mouse.move(box.x+300,box.y+y);assert.equal(await frame.locator('#price-order-add').isVisible(),true,'plot shows plus');
+await frame.locator('#price-order-add').click();const plus=frame.locator('#price-order-menu button').filter({hasText:'Add · Buy Stop'});assert.equal(await plus.isEnabled(),true);assert.equal(await frame.locator('#price-order-menu button').filter({hasText:'Sell Limit'}).isEnabled(),false);await plus.click();await frame.locator('#priced-add-dialog input').fill('2');await frame.getByRole('button',{name:'Place add order',exact:true}).click();await page.waitForTimeout(150);assert.equal(writes.length,1);assert.equal(writes[0].action,'add');assert.equal(writes[0].entry_type,'STP');assert.equal(writes[0].quantity,2);assert.equal(writes[0].expected_tp,110);
+await page.mouse.click(box.x+300,box.y+y,{button:'right'});await frame.locator('#desktop-chart-menu button').filter({hasText:'Add · Buy Stop'}).click();await frame.locator('#priced-add-dialog input').fill('2');await frame.getByRole('button',{name:'Place add order',exact:true}).click();await page.waitForTimeout(150);assert.equal(writes.length,2);const strip=x=>Object.fromEntries(Object.entries(x).filter(([k])=>k!=='request_id'));assert.deepEqual(strip(writes[0]),strip(writes[1]),'both menus submit identical orders');
+await page.mouse.move(box.x+box.width-5,box.y+y);assert.equal(await frame.locator('#price-order-add').isVisible(),false,'axis hides plus');
+await page.mouse.move(box.x+300,box.y+y);assert.equal(await frame.locator('#price-order-add').isVisible(),true,'return to plot restores plus');
+await page.mouse.click(box.x+300,box.y+y,{button:'right'});await frame.locator('#desktop-chart-menu button').filter({hasText:'Add · Buy Stop'}).click();state.order_ref='replacement';await page.waitForTimeout(2300);await frame.getByRole('button',{name:'Place add order',exact:true}).click();await page.waitForTimeout(100);assert.equal(writes.length,2,'stale preview cannot write');
+assert.deepEqual(errors,[]);console.log('Plus/right-click parity, priced-add preview payload, opposite-side block, stale reference and axis-only hiding passed');
+}finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1)});

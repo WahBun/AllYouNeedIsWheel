@@ -65,3 +65,23 @@ class ChartPushTests(unittest.TestCase):
         sub.publish(packet)
         packet['bars'][0]['close']=100
         self.assertEqual(sub.queue.get_nowait()['bars'][0]['close'],10)
+
+    def test_pnl_event_pushes_without_a_price_tick_or_new_ib_read(self):
+        from types import SimpleNamespace as S
+        from unittest.mock import Mock, patch
+        from api.services.chart_stream import ChartStreams
+        hub=ChartStreams();sub=Subscriber(7,5,'all');sub.include_pnl=True
+        sub.marker=(0, ());sub.sent=__import__('time').monotonic()
+        hub.clients['test']=sub
+        service=Mock();service.snapshot.return_value={'con_id':7,'value':39.17,'fresh':True}
+        conn=S(account_id='paper',_chart_pnl=service)
+        state={'con_id':7,'conn':conn,'ticks':0,'quotes':{}}
+        with patch('api.services.chart_stream.stock_chart') as feed, patch('api.routes.account.epoch',return_value='epoch'):
+            feed.active=state;feed.packet.return_value=self.packet()
+            hub.publish_pnl(S(conId=7,account='paper'))
+            value=sub.queue.get_nowait()
+            self.assertEqual(value['daily_pnl']['value'],39.17)
+            self.assertEqual(value['account_epoch'],'epoch')
+            service.snapshot.assert_called_once_with(7,cached_only=True)
+            hub.publish_pnl(S(conId=7,account='other'))
+            self.assertTrue(sub.queue.empty())

@@ -31,7 +31,7 @@ class ChartPnL:
             row['value'] = value if isinstance(value, (int, float)) and math.isfinite(value) and abs(value) < 1e100 else None
             row['at'] = time.monotonic()
 
-    def snapshot(self, con_id):
+    def snapshot(self, con_id, cached_only=False):
         ib = self.connection.ib
         account = self.connection.account_id
         empty = dict(con_id=con_id, value=None, fresh=False, age_seconds=None,
@@ -39,9 +39,11 @@ class ChartPnL:
         if not ib.isConnected() or not account or account not in ib.managedAccounts():
             return empty
         key = (account, con_id)
+        if cached_only and key not in self.rows:
+            return empty
         # Drop other accounts even if a caller mutates configuration in place.
         for old_key in list(self.rows):
-            if old_key[0] != account:
+            if old_key[0] != account and not cached_only:
                 self.cancel(old_key)
         if key not in self.rows:
             if len(self.rows) >= self.MAX_SUBSCRIPTIONS:
@@ -49,7 +51,8 @@ class ChartPnL:
             pnl = ib.reqPnLSingle(account, '', con_id)
             self.rows[key] = dict(pnl=pnl, value=None, at=None)
         self.rows.move_to_end(key)
-        ib.sleep(0)  # Drain callbacks, never wait for an initial response.
+        if not cached_only:
+            ib.sleep(0)  # Drain callbacks, never wait for an initial response.
         row = self.rows.get(key)
         if row is None:  # Disconnection may occur while draining callbacks.
             return empty

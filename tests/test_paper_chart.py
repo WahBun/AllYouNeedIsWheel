@@ -311,6 +311,59 @@ class ProtectedLotTests(unittest.TestCase):
         self.assertEqual([o.transmit for o in sent],[False,False,True]*2)
         self.assertEqual(sent[1].parentId,sent[2].parentId);self.assertNotEqual(sent[1].parentId,sent[4].parentId)
         self.assertTrue(all(not o.ocaGroup for o in sent))
+    def test_priced_add_preserves_old_protection_and_is_not_replayed(self):
+        self.open_four()
+        group=self.service.group('DU_TEST',7)
+        old=[(t.order.orderId,t.order.lmtPrice,t.order.auxPrice) for t in self.trades]
+        body=dict(request_id=str(uuid4()),action='add',quantity=2,entry_type='STP',entry=10.25,side=1,
+                  expected_ref=group['ref'],expected_tp=11,expected_sl=9)
+        result=self.service.execute(self.conn,7,body)
+        self.assertTrue(result['success'],result)
+        sent=[c.args[1] for c in self.conn.ib.placeOrder.call_args_list]
+        self.assertEqual([o.orderType for o in sent],['STP','LMT','STP']*2)
+        self.assertEqual(sent[0].auxPrice,10.25)
+        self.assertEqual(old,[(t.order.orderId,t.order.lmtPrice,t.order.auxPrice) for t in self.trades[:12]])
+        self.assertEqual(result['state']['protection']['status'],'covered')
+        self.assertEqual(result['state']['protection']['pending_entry_sl'],2)
+        self.service.execute(self.conn,7,body)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,6)
+        self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_priced_add_rejects_wrong_side_ref_protection_tick_and_size(self):
+        self.open_four();group=self.service.group('DU_TEST',7)
+        base=dict(action='add',quantity=1,entry_type='LMT',entry=9.75,side=1,
+                  expected_ref=group['ref'],expected_tp=11,expected_sl=9)
+        for change in [dict(side=-1),dict(expected_ref='old'),dict(expected_tp=12),dict(entry=11),dict(entry=9),dict(entry=9.76),dict(quantity=7),dict(entry_type='BAD')]:
+            result=self.service.execute(self.conn,7,dict(base,**{'request_id':str(uuid4()),**change}))
+            self.assertEqual(result['status'],'rejected',result)
+        self.conn.ib.placeOrder.assert_not_called()
+        result=self.service.execute(self.conn,7,dict(base,request_id=str(uuid4())))
+        self.assertTrue(result['success'],result)
+        self.assertEqual(self.conn.ib.placeOrder.call_args_list[0].args[1].lmtPrice,9.75)
+
+    def test_short_priced_add_and_lost_response_do_not_replay(self):
+        self.open_four();group=self.service.group('DU_TEST',7);group['side']=-1
+        self.service.save_group('DU_TEST',7,group)
+        for t in self.trades:
+            t.order.action='SELL' if not t.order.parentId else 'BUY'
+            if t.order.parentId:
+                if t.order.orderType=='LMT': t.order.lmtPrice=9
+                else: t.order.auxPrice=11
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=-4)]
+        body=dict(request_id=str(uuid4()),action='add',quantity=1,entry_type='STP',entry=9.75,side=-1,
+                  expected_ref=group['ref'],expected_tp=9,expected_sl=11)
+        place=self.conn.ib.placeOrder.side_effect
+        def lost(c,o):
+            result=place(c,o)
+            if o.transmit: raise RuntimeError('response lost after write')
+            return result
+        self.conn.ib.placeOrder.side_effect=lost
+        result=self.service.execute(self.conn,7,body)
+        self.assertEqual(result['status'],'unknown')
+        self.assertEqual(self.conn.ib.placeOrder.call_args_list[0].args[1].action,'SELL')
+        self.service.execute(self.conn,7,body)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,3)
+
     def test_unresolved_trim_cannot_repeat_or_add(self):
         self.open_four()
         self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))

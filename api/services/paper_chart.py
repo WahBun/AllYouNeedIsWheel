@@ -752,7 +752,21 @@ class PaperChart:
                 live.append(lot)
             if len(live) != size: raise ValueError('Protected lot count differs from position')
             if action == 'add':
-                self.add_lots(conn,account,cid,contract,group,int(qty),'MKT',0,price(current['tp']),price(current['sl']))
+                if body.get('expected_ref') is not None and body['expected_ref'] != group.get('ref'):
+                    raise ValueError('Order identity changed; refresh before adding')
+                kind = body.get('entry_type', 'MKT')
+                if kind not in ('MKT', 'LMT', 'STP'):
+                    raise ValueError('Unsupported add order type')
+                target = 0 if kind == 'MKT' else price(body.get('entry'))
+                tp, sl = price(current['tp']), price(current['sl'])
+                if kind != 'MKT':
+                    if body.get('expected_ref') != group.get('ref') or body.get('side') != group['side']:
+                        raise ValueError('Priced add must match the current position and order identity')
+                    if body.get('expected_tp') != tp or body.get('expected_sl') != sl:
+                        raise ValueError('Protection prices changed; reopen the add order')
+                    if group['side'] * (tp-target) <= 0 or group['side'] * (sl-target) >= 0:
+                        raise ValueError('Add price must lie between the current TP and SL')
+                self.add_lots(conn,account,cid,contract,group,int(qty),kind,target,tp,sl)
             else:
                 self.exit_lots(conn,account,cid,group,live[:int(qty)],trades,price,action,request_id)
             return

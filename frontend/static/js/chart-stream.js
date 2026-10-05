@@ -10,7 +10,7 @@ class WheelChartStream {
   if(this.key!==key){this.stop();this.key=key;}
   if(this.source){if(this.now()-(this.last||this.started)>8000)this.fail(this.source);else return;}
   if(this.now()<this.retryAt||!this.Source)return;
-  const source=this.source=new this.Source(`/api/portfolio/stock-chart-stream/${context.cid}?interval=${context.interval}&session=${context.session}`);
+  const source=this.source=new this.Source(`/api/portfolio/stock-chart-stream/${context.cid}?interval=${context.interval}&session=${context.session}&include_pnl=1`);
   this.started=this.now();let sequence=0,generation;
   source.onmessage=event=>{
    if(this.source!==source||this.key!==key)return;
