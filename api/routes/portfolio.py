@@ -197,7 +197,15 @@ def get_stock_chart_stream(con_id):
 def chart_contract_search():
     from api.services.chart_contracts import contracts
     try:
-        return _no_store_json({'contracts': contracts.search(portfolio_service._ensure_connection(), request.args.get('q',''))})
+        conn = portfolio_service._ensure_connection()
+        if request.args.get('type') == 'OPT_DATES':
+            return _no_store_json({'expirations': contracts.option_dates(conn, request.args.get('q', ''))})
+        if request.args.get('type') == 'OPT':
+            found = contracts.search_option(conn, request.args.get('q', ''), request.args.get('expiration', ''),
+                                            request.args.get('right', ''), request.args.get('strike', ''))
+        else:
+            found = contracts.search(conn, request.args.get('q', ''))
+        return _no_store_json({'contracts': found})
     except Exception as error:
         return _no_store_json({'error': str(error)}, 400)
 

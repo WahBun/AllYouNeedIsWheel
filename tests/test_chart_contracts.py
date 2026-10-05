@@ -5,6 +5,31 @@ from ib_async import Stock,Future,Option
 from api.services.chart_contracts import ChartContracts
 
 class ChartContractsTests(unittest.TestCase):
+    def test_option_search_uses_exact_contract_and_registers_without_position(self):
+        service=ChartContracts();conn=Mock()
+        contract=Option('QQQ','20991016',775,'C','SMART',currency='USD',multiplier='100',conId=123)
+        conn._bounded_order_read.return_value=[S(contract=contract)]
+        result=service.search_option(conn,'qqq','20991016','C','775')
+        self.assertEqual(result[0]['con_id'],123)
+        self.assertEqual(result[0]['local_symbol'],'QQQ 20991016 775 CALL')
+        self.assertEqual(service.resolve(conn,123).right,'C')
+        conn.get_option_position_by_con_id.assert_not_called()
+        conn.ib.placeOrder.assert_not_called()
+
+    def test_option_search_does_not_substitute_nearby_or_ambiguous_contract(self):
+        service=ChartContracts();conn=Mock()
+        for contracts in [[Option('QQQ','20991016',776,'C','SMART',currency='USD',multiplier='100',conId=123)],
+                          [Option('QQQ','20991016',775,'C','SMART',currency='USD',multiplier='100',conId=i) for i in (123,124)]]:
+            conn._bounded_order_read.return_value=[S(contract=c) for c in contracts]
+            with self.assertRaises(ValueError):service.search_option(conn,'QQQ','20991016','C',775)
+        self.assertEqual(service.contracts,{})
+        for bad in ['nan','inf','-1','0']:
+            with self.assertRaises(ValueError):service.search_option(conn,'QQQ','20991016','C',bad)
+
+    def test_option_dates_include_weeklies(self):
+        conn=Mock();conn.get_option_definition.return_value=(Stock('QQQ'),S(expirations={'20991016','20991015','20000101'}))
+        self.assertEqual(ChartContracts().option_dates(conn,'qqq'),['20991015','20991016'])
+
     def test_stock_search_registers_exact_contract_without_holdings(self):
         service=ChartContracts();conn=Mock()
         stock=Stock('TSLA','SMART','USD',conId=7,primaryExchange='NASDAQ')
