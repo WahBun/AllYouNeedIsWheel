@@ -42,3 +42,4 @@ body.light #daily-pnl-value[data-direction=negative]{color:#b73544}
 #display.indicator-settings .settings-body{max-height:calc(88dvh - 190px)}
 
 #trade-feedback{width:100%;white-space:pre-line;overflow-wrap:anywhere;line-height:1.6;margin:12px 0 0}
+.workspace>nav>#session{margin-left:auto}
