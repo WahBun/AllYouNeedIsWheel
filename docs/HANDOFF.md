@@ -417,3 +417,18 @@ single cancellation, other-unit protection retention, canceled-unit reuse, fille
 cancellation races, unknown-response recovery, identity rejection and non-replay.
 Browser mocks verified repeated priced adds, no quantity max, per-ID cancellation,
 and popup rendering. Actual broker cancel/fill race acceptance is not claimed.
+
+### Browser trading sounds
+
+The user's supplied filled/cancelled/rejected/disconnected WAV assets are served
+locally under static/audio. The current chart observes confirmed broker state:
+filled quantity/new executions, confirmed cancellations, rejection and verified
+connection loss. Initial snapshots and replayed history are silent; a fill takes
+precedence over its simultaneous OCA cancellation, and repeated packets do not
+repeat the announcement. Request rejections also produce rejection feedback.
+
+Sound is enabled by default with a persisted Sound on/off header control. Browser
+user-gesture activation is required; no stale sounds queue before activation.
+Muting stops queued sources. Node transition tests and a browser AudioContext mock
+verified initial silence, event classification, OCA priority, audio loading,
+gesture activation, mute and preference retention without broker writes.

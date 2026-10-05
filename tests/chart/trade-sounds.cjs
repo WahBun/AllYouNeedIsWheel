@@ -1,0 +1,10 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const ctx={Date};vm.runInNewContext(fs.readFileSync('frontend/static/js/trade-sounds.js','utf8').split('(()=>{')[0],ctx);
+const heard=[],sound=new ctx.WheelTradeSounds(n=>heard.push(n));
+const state=(status,filled=0)=>({known:true,orders:[{order_id:1,status,filled}],executions:[]});
+sound.connection(false);sound.connection(true);assert.deepEqual(heard,[]);sound.connection(false);sound.connection(false);assert.deepEqual(heard,['disconnected']);heard.length=0;
+sound.observe('paper:7',state('Filled',1));assert.deepEqual(heard,[],'initial history is silent');sound.observe('paper:8',state('Submitted'));sound.observe('paper:8',state('Filled',1));sound.observe('paper:8',state('Filled',1));assert.deepEqual(heard,['filled']);heard.length=0;
+sound.observe('paper:9',{known:true,orders:[{order_id:1,status:'Submitted',filled:0},{order_id:2,status:'Submitted',filled:0}]});sound.observe('paper:9',{known:true,orders:[{order_id:1,status:'Filled',filled:1},{order_id:2,status:'Cancelled',filled:0}]});assert.deepEqual(heard,['filled'],'OCA cancel does not announce after fill');heard.length=0;
+sound.observe('paper:10',state('Submitted'));sound.observe('paper:10',state('PendingCancel'));assert.deepEqual(heard,[]);sound.observe('paper:10',state('Cancelled'));assert.deepEqual(heard,['cancelled']);heard.length=0;
+sound.observe('paper:11',state('Submitted'));sound.observe('paper:11',state('Inactive'));assert.deepEqual(heard,['rejected']);
+console.log('Confirmed fill/cancel/reject/disconnect, initial silence, dedup and OCA precedence passed');
