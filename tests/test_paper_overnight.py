@@ -21,6 +21,33 @@ class OvernightTests(unittest.TestCase):
         body.update(changes)
         return body, self.service.execute(self.conn, 7, body)
 
+    def test_canceled_overnight_allows_fresh_day_bracket(self):
+        _, result = self.overnight()
+        self.assertTrue(result['success'])
+        old = self.trades[0]
+        old.orderStatus.status = 'Cancelled'
+        body = dict(request_id=str(uuid4()), action='submit', side=1,
+                    entry_type='LMT', entry=750, quantity=500, tp=760, sl=740, tif='DAY')
+        result = self.service.execute(self.conn, 7, body)
+        self.assertTrue(result['success'], result)
+        self.assertEqual(self.conn.ib.placeOrder.call_count, 4)
+        for trade in self.trades[1:]:
+            self.assertEqual(trade.contract.exchange, 'SMART')
+            self.assertEqual(trade.order.tif, 'DAY')
+            self.assertEqual(trade.order.totalQuantity, 500)
+        self.assertNotEqual(self.trades[1].order.orderRef, old.order.orderRef)
+        self.assertNotEqual(self.service.group('DU_TEST', 7).get('mode'), 'overnight_entry')
+        self.service.execute(self.conn, 7, body)
+        self.assertEqual(self.conn.ib.placeOrder.call_count, 4)
+
+    def test_working_overnight_blocks_new_day_bracket(self):
+        self.overnight()
+        result = self.service.execute(self.conn, 7, dict(request_id=str(uuid4()),
+            action='submit', side=1, entry_type='LMT', entry=750, quantity=500,
+            tp=760, sl=740, tif='DAY'))
+        self.assertFalse(result['success'])
+        self.conn.ib.placeOrder.assert_called_once()
+
     def test_route_quantity_price_and_no_protection(self):
         body, result = self.overnight()
         self.assertTrue(result['success'], result)

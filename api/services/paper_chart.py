@@ -707,7 +707,8 @@ class PaperChart:
         if group and group.get('mode') == 'overnight_entry' and action == 'close':
             if not current['position'] or body.get('expected_ref') != group.get('ref'):
                 raise ValueError('Explicit filled-position reference required; cancel an unfilled entry instead')
-        if group and group.get('mode') == 'overnight_entry' and action != 'close':
+        # Fresh submissions use their own mode after checking the prior order is resolved.
+        if group and group.get('mode') == 'overnight_entry' and action not in ('close', 'submit'):
             if action == 'manage_entry':
                 import copy
                 if not current['known'] or body.get('expected_ref') != group.get('ref'):
