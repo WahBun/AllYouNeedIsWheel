@@ -4,6 +4,7 @@ import Observation
 @testable import Wheel
 
 final class MockProtocol: URLProtocol {
+    static var headers: [String: String]?
     static var statusCode = 200
     static var requests: [URLRequest] = []
     static var fail = false
@@ -13,7 +14,7 @@ final class MockProtocol: URLProtocol {
     override func startLoading() {
         Self.requests.append(request)
         if Self.fail { client?.urlProtocol(self, didFailWithError: URLError(.timedOut)); return }
-        let response = HTTPURLResponse(url: request.url!, statusCode: Self.statusCode, httpVersion: nil, headerFields: nil)!
+        let response = HTTPURLResponse(url: request.url!, statusCode: Self.statusCode, httpVersion: nil, headerFields: Self.headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         let body = Self.payload?(request) ?? ["success": true, "status": "processing"]
         client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: body))
@@ -24,6 +25,45 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testProtectionCancellationKeepsIndependentGroupIdentity() async throws {
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        let client = TradingSession(session: URLSession(configuration: config))
+        MockProtocol.requests = []; MockProtocol.statusCode = 200; MockProtocol.fail = false
+        MockProtocol.payload = { _ in ["success": true, "status": "canceled"] }
+        defer { MockProtocol.payload = nil }
+        let group = UUID().uuidString
+        _ = try await client.paperChartWrite(base: "https://mock.invalid", conID: 345678,
+            body: ["action": "cancel_protection", "expected_ref": "WheelPaper:owned", "group_id": group, "confirm_remove_protection": true])
+        let request = try XCTUnwrap(MockProtocol.requests.last)
+        XCTAssertEqual(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first?.value, group)
+        XCTAssertFalse(client.paperPending(base: "https://mock.invalid", conID: 345678, groupID: group))
+        let order = Order(id: 77, ticker: "QQQ", action: "SELL", quantity: 100, status: "presubmitted", con_id: 345678, chart_protection_ref: "WheelPaper:owned", chart_protection_group_id: group)
+        XCTAssertTrue(TradeRules.protectionCancelable(order))
+        XCTAssertFalse(TradeRules.chartManageable(order))
+    }
+
+    func testConfirmedRejectionUnlocksButUnverifiedResponseStaysLocked() async {
+        let saved = UserDefaults.standard.object(forKey: "unresolvedTradingWrite")
+        defer {
+            UserDefaults.standard.set(saved, forKey: "unresolvedTradingWrite")
+            MockProtocol.statusCode = 200; MockProtocol.headers = nil; MockProtocol.payload = nil
+        }
+        let store = WheelStore(); store.demo = false; store.address = "https://mock.invalid"
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        MockProtocol.fail = false; MockProtocol.statusCode = 422
+        MockProtocol.payload = { _ in ["error": "Trading permission denied"] }
+        for verified in [true, false] {
+            store.trading.uncertain = false
+            MockProtocol.headers = verified ? ["X-Wheel-Response-Origin": "application"] : nil
+            let result = await store.trading.write("api/options/execute/49", store: store)
+            XCTAssertFalse(result)
+            XCTAssertEqual(store.trading.uncertain, !verified)
+            XCTAssertEqual(UserDefaults.standard.bool(forKey: "unresolvedTradingWrite"), !verified)
+            XCTAssertEqual(store.trading.message?.contains("locked pending review"), !verified)
+        }
+    }
+
     func testExplicitConnectionReturnsToPortfolioOnlyForFreshMatchingAccount() async {
         let store = WheelStore()
         await store.refreshPortfolio()

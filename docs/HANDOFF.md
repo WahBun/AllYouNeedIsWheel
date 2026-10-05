@@ -432,3 +432,18 @@ user-gesture activation is required; no stale sounds queue before activation.
 Muting stops queued sources. Node transition tests and a browser AudioContext mock
 verified initial silence, event classification, OCA priority, audio loading,
 gesture activation, mute and preference retention without broker writes.
+
+## 2026-10-06 protection cancellation and native rejection recovery
+
+New chart TP/SL children use GTC independently of the entry TIF. Existing broker
+orders are not migrated. Chart TP/SL handles and native Orders offer paired
+protection cancellation with explicit confirmation, exact group/reference checks,
+and broker reconciliation. Filled positions remain; pending entries must finish
+or be canceled first. Unknown cancellation outcomes are reconciled without replay.
+
+Native confirmed application rejections clear the current write lock. Unknown
+responses retain it, while opportunity navigation, refresh, and chart access remain
+available. Settings exposes manual reviewed-outcome recovery for legacy Paper locks.
+Validation: 467 backend tests, native simulator suite, and mocked desktop/mobile
+chart lifecycle checks. Broker cancellation and GTC overnight persistence still
+require actual Paper observations; no existing protection orders were changed.

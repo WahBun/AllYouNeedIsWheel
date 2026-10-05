@@ -283,6 +283,8 @@ struct StockChartView: View {
     @State private var joinSubmissionGate = ChartJoinGate()
     @State private var paperMessage: String?
     @State private var pendingActionLabel = ""
+    @State private var protectionCancelRef: String?
+    @State private var protectionCancelCID: Int?
     private var hasOrderPreview: Bool { !paperActive && validEntry > 0 && validQuantity > 0 }
     private var paperEnabled: Bool { !store.trading.paperPending(base: store.address, conID: chartID ?? 0) && !store.trading.busy && Date().timeIntervalSince(paperReceived ?? .distantPast) < 3 && store.chartTradingAvailable && paperState["sync_error"] as? Bool != true && paperState["known"] as? Bool != false && paperState["enabled"] as? Bool == true }
     private var paperActive: Bool { paperState["active"] as? Bool == true }
@@ -297,6 +299,11 @@ struct StockChartView: View {
     }
     private func paperAction(_ incoming: [String: Any]) {
         var body = incoming
+        if body["action"] as? String == "cancelProtectionPreview" {
+            protectionCancelRef = body["expected_ref"] as? String
+            protectionCancelCID = chartID
+            return
+        }
         if body["action"] as? String == "close", paperState["closing"] as? Bool == true { return }
         if body["action"] as? String == "close" { body = TradeRules.chartCloseRequest(paperState); body["con_id"] = chartID }
         if body["action"] as? String == "indicatorSettings" { showIndicatorSettings = true; return }
@@ -1099,6 +1106,13 @@ struct StockChartView: View {
                     }
             }.presentationDetents([.large])
         }
+        .confirmationDialog("Cancel both TP and SL?", isPresented: Binding(get: { protectionCancelRef != nil }, set: { if !$0 { protectionCancelRef = nil } }), titleVisibility: .visible) {
+            Button("Remove TP/SL; keep position", role: .destructive) {
+                guard let ref = protectionCancelRef, protectionCancelCID == chartID, paperState["order_ref"] as? String == ref else { return }
+                paperAction(["action": "cancel_protection", "expected_ref": ref, "confirm_remove_protection": true])
+                protectionCancelRef = nil
+            }
+        } message: { Text("Both protection orders will be canceled. Your position remains open without TP/SL.") }
         .sheet(isPresented: $showAdjustment) {
             NavigationStack {
                 Form {

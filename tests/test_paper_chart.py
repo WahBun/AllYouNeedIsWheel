@@ -25,6 +25,61 @@ class PaperChartTests(unittest.TestCase):
         self.conn.ib.cancelOrder.side_effect=lambda o:setattr(next(t for t in self.trades if t.order.orderId==o.orderId).orderStatus,'status','Cancelled')
         self.resolve=patch('api.services.paper_chart.contracts.resolve',return_value=self.contract);self.resolve.start()
         self.feed=patch('api.services.paper_chart.stock_chart.active',{'con_id':7,'price_rules':[{'low':0,'increment':.25}]});self.feed.start()
+    def test_cancel_protection_keeps_position_and_is_idempotent(self):
+        self.filled_position(100)
+        request=dict(request_id=str(uuid4()),action='cancel_protection',
+                     expected_ref=self.service.group('DU_TEST',7)['ref'],confirm_remove_protection=True)
+        result=self.service.execute(self.conn,7,request)
+        self.assertTrue(result['success'],result)
+        self.assertEqual(self.pos.position,100)
+        self.assertEqual(self.conn.ib.cancelOrder.call_count,2)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,3)
+        self.assertEqual(result['state']['protection']['status'],'unprotected')
+        self.assertEqual(result['state']['tp'],0)
+        self.assertEqual(result['state']['sl'],0)
+        self.assertEqual(self.service.execute(self.conn,7,request),result)
+        self.assertEqual(self.conn.ib.cancelOrder.call_count,2)
+
+    def test_cancel_protection_requires_identity_confirmation_and_filled_parent(self):
+        self.submit()
+        ref=self.service.group('DU_TEST',7)['ref']
+        for extra in [dict(expected_ref=ref,confirm_remove_protection=True),
+                      dict(expected_ref='wrong',confirm_remove_protection=True),dict(expected_ref=ref)]:
+            result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='cancel_protection',**extra))
+            self.assertFalse(result['success'],result)
+        self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_cancel_protection_unknown_recovers_without_replay(self):
+        self.filled_position(100)
+        self.conn.ib.cancelOrder.side_effect=None
+        request=dict(request_id=str(uuid4()),action='cancel_protection',
+                     expected_ref=self.service.group('DU_TEST',7)['ref'],confirm_remove_protection=True)
+        with patch('api.services.paper_chart.time.monotonic',side_effect=[0,5]):
+            result=self.service.execute(self.conn,7,request)
+        self.assertEqual(result['status'],'unknown')
+        for t in self.trades[1:]:t.orderStatus.status='Cancelled'
+        restarted=PaperChart(str(Path(self.tmp.name)/'paper.db'))
+        self.assertTrue(restarted.request_status(self.conn,7,request['request_id'])['confirmed'])
+        self.assertEqual(self.conn.ib.cancelOrder.call_count,2)
+
+    def test_cancel_protection_fill_race_does_not_exit_again(self):
+        self.filled_position(100)
+        def cancel(order):
+            self.trades[1].orderStatus.status='Filled'
+            self.trades[1].orderStatus.filled=100
+            self.trades[2].orderStatus.status='Cancelled'
+            self.pos.position=0
+        self.conn.ib.cancelOrder.side_effect=cancel
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='cancel_protection',
+                    expected_ref=self.service.group('DU_TEST',7)['ref'],confirm_remove_protection=True))
+        self.assertTrue(result['success'],result)
+        self.assertEqual(result['state']['position'],0)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,3)
+
+    def test_day_entry_has_gtc_protection(self):
+        self.submit(tif='DAY')
+        self.assertEqual([t.order.tif for t in self.trades],['DAY','GTC','GTC'])
+
     def test_missing_request_is_fenced_before_late_submission(self):
         identity=str(uuid4())
         result=self.service.request_status(self.conn,7,identity)
@@ -300,6 +355,7 @@ class ProtectedLotTests(unittest.TestCase):
         expected=self.contract.secType=='FUT'
         self.assertTrue(all(t.order.outsideRth==expected for t in self.trades))
         self.assertEqual(len(self.trades),6)
+        self.assertTrue(all(t.order.tif == ('GTC' if t.order.parentId else 'DAY') for t in self.trades))
 
     def test_trim_preserves_all_stop_ids_and_other_lots(self):
         self.open_four();before=[(t.order.orderId,t.order.totalQuantity,t.order.auxPrice) for t in self.trades if t.order.orderType=='STP']
@@ -621,6 +677,7 @@ class OptionProtectedLotTests(ProtectedLotTests):
             self.assertIs(contract, self.contract)
             self.assertEqual(order.account, 'DU_TEST')
             self.assertEqual(order.totalQuantity, 1)
+            self.assertEqual(order.tif, 'GTC' if order.parentId else 'DAY')
 
     def test_option_rejects_live_account(self):
         self.conn.account_id = 'U_TEST'

@@ -120,6 +120,8 @@ struct Order: Decodable, Identifiable {
     var con_id: Int? = nil
     var chart_con_id: Int? = nil
     var chart_order_ref: String? = nil
+    var chart_protection_ref: String? = nil
+    var chart_protection_group_id: String? = nil
     var chartPosition: Position? {
         guard let cid = [chart_con_id, con_id].compactMap({ $0 }).first(where: { $0 > 0 }) else { return nil }
         let type: String
@@ -1401,15 +1403,15 @@ struct OrdersView: View {
                 }
                 .swipeActions(edge: .leading, allowsFullSwipe: false) {
                     if !history && TradeRules.cancelable(order) {
-                        Button("Cancel order", systemImage: "xmark.circle") {
-                            if confirmExecution { quickCancel = true; quickOrder = order }
+                        Button(TradeRules.protectionCancelable(order) ? "Cancel TP/SL" : "Cancel order", systemImage: "xmark.circle") {
+                            if confirmExecution || TradeRules.protectionCancelable(order) { quickCancel = true; quickOrder = order }
                             else { performQuick(order, cancel: true) }
                         }.tint(.red)
                     }
                 }
             }
             if !history { Button("Cancel all eligible (\(cancelable.count))", role: .destructive) {
-                if confirmExecution { cancelAll = true } else { performCancelAll() }
+                if confirmExecution || cancelable.contains(where: TradeRules.protectionCancelable) { cancelAll = true } else { performCancelAll() }
             }.disabled(cancelable.isEmpty) }
             TradingNotice()
         }.scrollDismissesKeyboard(.immediately)
@@ -1433,6 +1435,7 @@ struct OrdersView: View {
             }
         } message: {
             if let order = quickOrder {
+                if quickCancel && TradeRules.protectionCancelable(order) { Text("Both TP and SL will be canceled. The position remains open without protection.") }
                 Text("\(order.name) · \(order.action ?? "") · \(order.option_type ?? "") · \(money(order.strike)) · \(order.expiration ?? "")\n\(order.quantity?.formatted() ?? "—") · \(money(order.premium)) · \(order.timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
             }
         }
@@ -1440,7 +1443,7 @@ struct OrdersView: View {
             Button("Cancel eligible orders", role: .destructive) {
                 performCancelAll()
             }
-        } message: { Text("IB-managed and unknown orders are excluded. Stops on the first failure. Cancellation remains pending until IB confirms it.") }
+        } message: { Text("Unknown and unsupported orders are excluded. TP/SL pairs are canceled together; positions remain open without protection. Stops on the first failure. Wait for IB confirmation.") }
     }
     private func performCancelAll() {
         guard !cancelling, !store.trading.busy, !store.opportunities.batchRunning else { return }
@@ -1679,7 +1682,7 @@ struct SettingsView: View {
                     Label("Custom colors", systemImage: "paintpalette")
                 }
             }.tint(.teal)
-            if store.trading.uncertain && store.portfolio?.connection?.mode != "paper" {
+            if store.trading.uncertain {
                 Section("Unconfirmed request") {
                     Text("Check the exact order in IB and the web app, including fills and pending orders. Clearing this lock does not cancel or resubmit anything.")
                     Button("I have verified the order outcome") { reviewed = true }

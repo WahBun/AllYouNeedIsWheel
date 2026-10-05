@@ -33,7 +33,7 @@ class OvernightTests(unittest.TestCase):
         self.assertEqual(self.conn.ib.placeOrder.call_count, 4)
         for trade in self.trades[1:]:
             self.assertEqual(trade.contract.exchange, 'SMART')
-            self.assertEqual(trade.order.tif, 'DAY')
+            self.assertEqual(trade.order.tif, 'DAY' if trade is self.trades[1] else 'GTC')
             self.assertEqual(trade.order.totalQuantity, 500)
         self.assertNotEqual(self.trades[1].order.orderRef, old.order.orderRef)
         self.assertNotEqual(self.service.group('DU_TEST', 7).get('mode'), 'overnight_entry')

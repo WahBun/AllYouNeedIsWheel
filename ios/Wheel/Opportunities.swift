@@ -566,7 +566,7 @@ struct OpportunitiesView: View {
                     }
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    if let row, row.canStage {
+                    if let row, row.canStage, !store.trading.busy, !book.batchRunning, store.demo || !store.trading.uncertain {
                         Button("Stage entry", systemImage: "plus.circle") {
                             Task { await book.stageAndOpenOrders([row], store: store) }
                         }.tint(.teal)
@@ -586,7 +586,7 @@ struct OpportunitiesView: View {
                         Spacer()
                         Image(systemName: "plus.circle").accessibilityHidden(true)
                     }.contentShape(Rectangle())
-                }.disabled(ready.isEmpty)
+                }.disabled(ready.isEmpty || store.trading.busy || book.batchRunning || (!store.demo && store.trading.uncertain))
             }
             Section { TradingNotice() }
         }.navigationTitle(localizedLabel("Trade", locale: locale))
@@ -629,7 +629,7 @@ struct OpportunitiesView: View {
                 return false
             }
         }
-        .disabled(store.trading.busy || book.batchRunning || (!store.demo && store.trading.uncertain))
+
     }
 }
 
@@ -761,7 +761,7 @@ struct OpportunityDetail: View {
                             Spacer()
                             Image(systemName: "plus.circle").accessibilityHidden(true)
                         }.contentShape(Rectangle())
-                    }.disabled(!row.canStage)
+                    }.disabled(!row.canStage || store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))
                 }
             }
             Section { TradingNotice() }
@@ -843,7 +843,7 @@ struct OpportunityDetail: View {
                 strikeError = connectionMessage(error)
             }
         }
-        .disabled(store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))
+
     }
     private func scrollToStrike(_ proxy: ScrollViewProxy) {
         guard let target = preference.strike ?? row.quote?.strike ?? row.stockPrice,

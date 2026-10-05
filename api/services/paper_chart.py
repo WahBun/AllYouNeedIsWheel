@@ -5,6 +5,7 @@ never automatically replayed. Real accounts cannot use this execution path.
 """
 import json
 import math
+import time
 import sqlite3
 from decimal import Decimal, ROUND_CEILING
 from uuid import UUID
@@ -208,6 +209,18 @@ class PaperChart:
         result['be_applied']=bool(result['position'] and result['sl']>0 and result['side']*(result['sl']-result['entry'])>0)
         result['rejected']=any(r['status']=='Inactive' for r in rows)
         result['protection'] = self.protection_progress(rows, result['position'], group.get('lots'))
+        protective = [r for r in rows if r['role'].split('_')[0] in ('tp', 'sl')]
+        result['protection_cancelable'] = bool(result['known'] and result['position'] and protective
+            and all(r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive') for r in rows if r['role'].split('_')[0]=='entry')
+            and any(r['status'] in ('Submitted','PreSubmitted') for r in protective))
+        for role in ('tp', 'sl'):
+            if not any(r['role'].split('_')[0] == role and r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive') for r in rows):
+                result[role] = 0
+        if result['position'] and protective and all(r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive') for r in protective):
+            result['protection']['status'] = 'unprotected'
+            result['scalable'] = False
+            result['be_applied'] = False
+
         adjustment = group.get('adjustment')
         if adjustment:
             by_id = {r['order_id']: r for r in rows}
@@ -307,6 +320,10 @@ class PaperChart:
                 db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
                     (json.dumps(dict(success=status != 'rejected', status=status)), request_id, account))
             return dict(confirmed=True, status=status)
+        if body.get('action') == 'cancel_protection' and state['known'] and group.get('ref') == body.get('expected_ref'):
+            rows = [r for r in state['orders'] if r['role'].split('_')[0] in ('tp', 'sl')]
+            if rows and all(r['status'] in ('Filled', 'Cancelled', 'ApiCancelled', 'Inactive') for r in rows):
+                return resolved('canceled')
         if body.get('action') == 'cancel_add' and state['known'] and group.get('ref') == body.get('expected_ref'):
             lot = next((lot for lot in group.get('lots', [])[1:] if lot['entry'] == body.get('order_id')), None)
             rows = {r['order_id']: r for r in state['orders']}
@@ -380,6 +397,8 @@ class PaperChart:
                 self.save_group(account, cid, group)
             state=self.state(conn,cid)
             result=dict(success=not state.get('rejected',False),status='rejected' if state.get('rejected') else 'acknowledged',message='IB rejected a paper order; review Gateway' if state.get('rejected') else 'Paper request sent; broker status shown on chart',state=state)
+            if body.get('action') == 'cancel_protection':
+                result.update(success=True, status='canceled', message='TP/SL are no longer working; position reflects broker fills')
             if body.get('action') == 'cancel_add':
                 parent = next((r for r in state['orders'] if r['order_id'] == body.get('order_id')), {})
                 filled = bool(parent.get('filled') or parent.get('status') == 'Filled')
@@ -424,7 +443,7 @@ class PaperChart:
             take=LimitOrder(sell,1,tp,orderId=ids['tp'],parentId=ids['entry'],transmit=False)
             stop=StopOrder(sell,1,sl,orderId=ids['sl'],parentId=ids['entry'],transmit=True)
             for order in (parent,take,stop):
-                order.account=account;order.tif=group.get('tif', 'DAY');order.orderRef=group['ref']
+                order.account=account;order.tif=group.get('tif', 'DAY') if order is parent else 'GTC';order.orderRef=group['ref']
                 order.outsideRth = contract.secType == 'FUT'
                 conn.ib.placeOrder(contract,order)
 
@@ -671,7 +690,41 @@ class PaperChart:
             conn.ib.sleep(.05)
         raise RuntimeError('Add cancellation is awaiting broker confirmation')
 
+    def cancel_protection(self, conn, account, cid, body):
+        conn._bounded_order_read(conn.ib.reqOpenOrders, timeout_seconds=3)
+        current = self.state(conn, cid)
+        group = self.group(account, cid)
+        if not group or body.get('expected_ref') != group.get('ref') or not current['known']:
+            raise ValueError('Protection identity/status changed; refresh before canceling')
+        if body.get('confirm_remove_protection') is not True:
+            raise ValueError('Confirm removal of both TP and SL; the position will be unprotected')
+        terminal = ('Filled', 'Cancelled', 'ApiCancelled', 'Inactive')
+        if any(r['role'].split('_')[0] == 'entry' and r['status'] not in terminal for r in current['orders']):
+            raise ValueError('Finish or cancel pending entries before removing protection')
+        rows = [r for r in current['orders'] if r['role'].split('_')[0] in ('tp', 'sl')]
+        if not rows: raise ValueError('No owned protection orders')
+        trades = getattr(self, '_resolved_trades', {})
+        targets = []
+        for row in rows:
+            if row['status'] in terminal: continue
+            trade = trades.get(row['order_id'])
+            if (not trade or trade.order.account != account or trade.contract.conId != cid
+                    or trade.order.orderRef != group['ref']):
+                raise ValueError('Exact protection order unavailable')
+            targets.append(trade)
+        for trade in targets:
+            if not trade.isDone(): conn.ib.cancelOrder(trade.order)
+        deadline = time.monotonic() + 4
+        while any(not t.isDone() for t in targets) and time.monotonic() < deadline:
+            conn.ib.sleep(.05)
+        fresh = self.state(conn, cid)
+        if not fresh['known'] or any(r['status'] not in terminal for r in fresh['orders']
+                                     if r['role'].split('_')[0] in ('tp', 'sl')):
+            raise RuntimeError('Protection cancellation awaiting broker confirmation; do not resubmit')
+
     def perform(self, conn, account, cid, body, request_id):
+        if body.get('action') == 'cancel_protection':
+            return self.cancel_protection(conn, account, cid, body)
         if body.get('action') == 'cancel_add':
             return self.cancel_add(conn, account, cid, body)
         if body.get('action') in ('close','be','add','trim') and any(t.contract.conId==cid and t.order.account==account and t.order.orderRef in {g['ref'] for g in self.group_choices(account,cid) if g['id'] != (self.group_id or '')} for t in conn.ib.openTrades()):
@@ -782,7 +835,7 @@ class PaperChart:
             stop=StopOrder(sell,qty,sl,orderId=ids['sl'],parentId=ids['entry'],transmit=True)
             self.save_group(account,cid,dict(ids=ids,side=side,ref='WheelPaper:'+request_id))
             for order in (parent,take,stop):
-                order.account=account;order.tif=tif;order.orderRef='WheelPaper:'+request_id
+                order.account=account;order.tif=tif if order is parent else 'GTC';order.orderRef='WheelPaper:'+request_id
                 conn.ib.placeOrder(contract,order)
             return
         if not current['known']: raise ValueError('Orders need Gateway reconciliation before another action')
@@ -871,7 +924,7 @@ class PaperChart:
             return
         if action == 'close' and body.get('expected_ref') is not None and body['expected_ref'] != group.get('ref'):
             raise ValueError('Order identity changed; refresh before closing')
-        if action=='close' and group.get('lots'):
+        if action=='close' and group.get('lots') and current.get('protection', {}).get('status') != 'unprotected':
             live=[]
             for lot in group['lots']:
                 parent,take,stop=[trades.get(lot[r]) for r in ('entry','tp','sl')]

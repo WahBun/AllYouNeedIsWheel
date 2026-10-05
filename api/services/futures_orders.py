@@ -99,6 +99,10 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
         if (request and chart_owned and o.orderId in request.get('order_ids', [])
                 and account.startswith('DU') and conn.port == 4002 and conn.readonly is False):
             result[identity]['chart_navigation_group_id'] = request.get('group_id') or ''
+            if o.parentId:
+                result[identity]['chart_protection_ref'] = ref
+                result[identity]['chart_protection_group_id'] = request.get('group_id') or ''
+
         if (request and chart_owned and not o.parentId
                 and account.startswith('DU') and conn.port == 4002 and conn.readonly is False
                 and (o.orderId in (request.get('entry_ids') or []) or

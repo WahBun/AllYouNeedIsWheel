@@ -53,6 +53,8 @@ class FuturesOrdersTests(unittest.TestCase):
             child=futures_orders(self.conn, db_path=path)[0]
             self.assertEqual(child['chart_navigation_group_id'], group_id)
             self.assertNotIn('chart_order_ref', child)
+            self.assertEqual(child['chart_protection_ref'], 'WheelPaper:new')
+            self.assertEqual(child['chart_protection_group_id'], group_id)
 
     def test_multiple_unit_entries_keep_same_chart_group(self):
         from uuid import uuid4
