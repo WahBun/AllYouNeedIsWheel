@@ -31,3 +31,12 @@ class ChartEMATests(unittest.TestCase):
         self.ib.reqHistoricalData.return_value=[NS(date=datetime(2026,11,27,17,30,tzinfo=timezone.utc),open=10,high=12,low=9,close=11)]
         result=snapshot(self.conn,7,[60],'rth')['frames']['60'][0]
         self.assertEqual(result['end'],datetime(2026,11,27,18,tzinfo=timezone.utc).timestamp())
+
+    def test_six_indicator_frames_and_upper_bound(self):
+        frames=[1,3,5,10,15,60]
+        result=snapshot(self.conn,7,frames,'all')
+        self.assertEqual(set(result['frames']),set(map(str,frames)))
+        self.assertEqual(self.ib.reqHistoricalData.call_count,6)
+        with self.assertRaises(ValueError):
+            snapshot(self.conn,7,frames+[240],'all')
+        self.assertEqual(self.ib.reqHistoricalData.call_count,6)

@@ -9,7 +9,7 @@ SPECS = {1:('10 D','1 min'),3:('1 M','3 mins'),5:('1 M','5 mins'),10:('2 M','10 
 
 
 def snapshot(conn, cid, frames, session):
-    if session not in ('rth','all') or len(frames)>3 or any(frame not in SPECS for frame in frames):
+    if session not in ('rth','all') or len(frames)>6 or any(frame not in SPECS for frame in frames):
         raise ValueError('Invalid EMA timeframes')
     state=stock_chart.active
     if not state or state['conn'] is not conn or state['con_id']!=cid or not conn.is_connected():
