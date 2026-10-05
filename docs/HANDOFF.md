@@ -447,3 +447,40 @@ available. Settings exposes manual reviewed-outcome recovery for legacy Paper lo
 Validation: 467 backend tests, native simulator suite, and mocked desktop/mobile
 chart lifecycle checks. Broker cancellation and GTC overnight persistence still
 require actual Paper observations; no existing protection orders were changed.
+
+## 2026-10-06 / AllYouNeedIsWheel 1.4: optional TP and SL
+
+The chart entry preview on web and iOS now has independent TP and SL switches.
+Omitted/null legs create no order; zero or invalid enabled prices are rejected.
+TP accepts distance, absolute target price, or entry-premium profit percentage.
+For short options, 2.12 at 75% profit previews a 0.53 buyback before fees, rounded
+to the contract tick. Preferences remain separate by asset class and client.
+New exits retain GTC independently of entry TIF. OVT remains entry-only.
+
+Each chart exit handle cancels its selected role; a separate explicit operation
+removes all exits. Broker-side OCA effects are reported from the next snapshot,
+never silently repaired. Manage TP / SL can replace or add exits to settled,
+fully owned chart positions. It requires the exact group reference and order
+snapshot, blocks unfinished entries/foreign working orders, confirms old exits
+are terminal, and checks fresh positions and fills before sending replacements.
+A fill during cancellation stops replacement. Unknown requests are journaled
+and reconciled on reads without replay, including after restart.
+
+Protection replacement explicitly discloses a cancellation gap. Paired new
+standalone exits share an OCA group with proportional reduction/blocking;
+only the last order transmits the group. See the [IB OCA documentation](https://interactivebrokers.github.io/tws-api/oca.html).
+Retired order IDs/permIds remain available for accounting and reconnect recovery.
+Single-leg/no-exit positions use the reconciled Close path. Add/Trim remains
+available only for the original unit brackets with both exits confirmed covered;
+rebuilding protection currently disables unit scaling. BE requires a working SL.
+The management editor does not adopt unrelated/manual holdings or pending entries.
+
+Validation uses mocked broker responses, shared-chart browser interactions across
+desktop/mobile, English/Chinese and light/dark, plus native simulator tests.
+Actual Paper fills, OCA reduction, single-leg cancellation behavior and GTC
+persistence still require broker acceptance. No broker write was made for tests.
+Validated locally: 484 backend tests, 125 native simulator tests, optional-exit browser checks and order-interaction regressions. Deployment uses the GitHub commit on Mini; physical-device installation follows these gates.
+
+The unrelated legacy `mobile-preview.cjs` drawing-toolbar fixture times out on
+its Horizontal ray locator on both the pre-change chart and this revision;
+it is not included in the passing trading-interaction checks above.

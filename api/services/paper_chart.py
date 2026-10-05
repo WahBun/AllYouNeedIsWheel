@@ -181,7 +181,7 @@ class PaperChart:
             for role in ('tp','sl'):
                 live_rows=[r for r in rows if r['role'].split('_')[0]==role and r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive')]
                 if live_rows: result[role]=live_rows[-1]['price']
-            result['scalable']=True
+            result['scalable']=all('tp' in lot and 'sl' in lot for lot in group['lots'])
             result['quantity']=sum(max(0,r['quantity']-r['filled']) for r in rows if r['role'].split('_')[0]=='entry' and r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive'))
         parent=trades.get(group['ids']['entry'])
         if parent and parent.orderStatus.avgFillPrice>0: result['entry']=parent.orderStatus.avgFillPrice
@@ -207,7 +207,7 @@ class PaperChart:
                     cost -= cost * quantity / size; size -= quantity
             if size and abs(size - abs(result['position'])) < .000001: result['entry'] = cost / size
         result['be_applied']=bool(result['position'] and result['sl']>0 and result['side']*(result['sl']-result['entry'])>0)
-        result['rejected']=any(r['status']=='Inactive' for r in rows)
+        result['rejected']=any(r['status']=='Inactive' and '_retired_' not in r['role'] for r in rows)
         result['protection'] = self.protection_progress(rows, result['position'], group.get('lots'))
         protective = [r for r in rows if r['role'].split('_')[0] in ('tp', 'sl')]
         result['protection_cancelable'] = bool(result['known'] and result['position'] and protective
@@ -220,6 +220,15 @@ class PaperChart:
             result['protection']['status'] = 'unprotected'
             result['scalable'] = False
             result['be_applied'] = False
+
+        requested = group.get('requested_protection', ['tp', 'sl'])
+        result['requested_protection'] = requested
+        coverage = result['protection']
+        if result['known'] and result['position'] and all(coverage[r] == (abs(result['position']) if r in requested else 0) for r in ('tp','sl')):
+            coverage['status'] = 'covered' if len(requested)==2 else 'tp_only' if requested==['tp'] else 'sl_only' if requested==['sl'] else ('unprotected' if protective else 'not_requested')
+        result['protection_manageable'] = bool(result['known'] and result['position'] and not group.get('pending_protection')
+            and all(r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive') for r in rows if r['role'].split('_')[0] in ('entry','close')))
+        if coverage['status'] != 'covered': result['scalable'] = False
 
         adjustment = group.get('adjustment')
         if adjustment:
@@ -275,7 +284,7 @@ class PaperChart:
             for lot in lots:
                 parent = by_id.get(lot['entry'])
                 if parent and parent['filled'] == 0:
-                    held.update((lot['tp'], lot['sl']))
+                    held.update(lot[r] for r in ('tp', 'sl') if r in lot)
             for row in rows:
                 role = row['role'].split('_')[0]
                 if row['order_id'] in held and role in contingent and row['status'] in ('Submitted', 'PreSubmitted'):
@@ -321,8 +330,20 @@ class PaperChart:
                     (json.dumps(dict(success=status != 'rejected', status=status)), request_id, account))
             return dict(confirmed=True, status=status)
         if body.get('action') == 'cancel_protection' and state['known'] and group.get('ref') == body.get('expected_ref'):
-            rows = [r for r in state['orders'] if r['role'].split('_')[0] in ('tp', 'sl')]
+            rows = [r for r in state['orders'] if r['role'].split('_')[0] in ((body['role'],) if body.get('role') in ('tp','sl') else ('tp', 'sl'))]
             if rows and all(r['status'] in ('Filled', 'Cancelled', 'ApiCancelled', 'Inactive') for r in rows):
+                group['requested_protection']=[r for r in group.get('requested_protection',['tp','sl']) if body.get('role') and r!=body['role']]
+                self.save_group(account,cid,group)
+                return resolved('canceled')
+        if body.get('action') == 'set_protection' and state['known'] and group.get('ref') == body.get('expected_ref'):
+            operation=group.get('protection_request', {})
+            if operation.get('id')==request_id:
+                targets=[r for r in state['orders'] if r['order_id'] in operation['ids'].values()]
+                if len(targets)==len(operation['ids']) and all(r['status'] in ('Submitted','PreSubmitted','Filled','Cancelled','ApiCancelled','Inactive') for r in targets):
+                    group.pop('pending_protection',None); self.save_group(account,cid,group)
+                    return resolved('reconciled')
+            elif all(r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive') for r in state['orders'] if r['role'].split('_')[0] in ('tp','sl')):
+                group.pop('pending_protection',None); self.save_group(account,cid,group)
                 return resolved('canceled')
         if body.get('action') == 'cancel_add' and state['known'] and group.get('ref') == body.get('expected_ref'):
             lot = next((lot for lot in group.get('lots', [])[1:] if lot['entry'] == body.get('order_id')), None)
@@ -332,7 +353,7 @@ class PaperChart:
                 if parent['filled'] or parent['status'] == 'Filled':
                     return resolved('filled')
                 if parent['status'] in ('Cancelled','ApiCancelled') and all(
-                        rows.get(lot[r], {}).get('status') in ('Cancelled','ApiCancelled','Inactive') for r in ('tp','sl')):
+                        rows.get(lot[r], {}).get('status') in ('Cancelled','ApiCancelled','Inactive') for r in ('tp','sl') if r in lot):
                     return resolved('canceled')
         if body.get('action') in ('amend','be') and state['known'] and group.get('ref') == body.get('expected_ref'):
             role='sl' if body['action']=='be' else body.get('role')
@@ -398,7 +419,7 @@ class PaperChart:
             state=self.state(conn,cid)
             result=dict(success=not state.get('rejected',False),status='rejected' if state.get('rejected') else 'acknowledged',message='IB rejected a paper order; review Gateway' if state.get('rejected') else 'Paper request sent; broker status shown on chart',state=state)
             if body.get('action') == 'cancel_protection':
-                result.update(success=True, status='canceled', message='TP/SL are no longer working; position reflects broker fills')
+                result.update(success=True, status='canceled', message='Requested protection cancellation confirmed; position and remaining protection reflect broker state')
             if body.get('action') == 'cancel_add':
                 parent = next((r for r in state['orders'] if r['order_id'] == body.get('order_id')), {})
                 filled = bool(parent.get('filled') or parent.get('status') == 'Filled')
@@ -434,15 +455,17 @@ class PaperChart:
     def add_lots(self, conn, account, cid, contract, group, qty, kind, entry, tp, sl):
         for _ in range(qty):
             index = len(group['lots'])
-            ids = {role:conn.ib.client.getReqId() for role in ('entry','tp','sl')}
+            values = {r:v for r,v in (('tp',tp),('sl',sl)) if v is not None}
+            group['requested_protection'] = list(values)
+            ids = {role:conn.ib.client.getReqId() for role in ('entry', *values)}
             for role, oid in ids.items(): group['ids'][role if index==0 else f'{role}_{index}'] = oid
             group['lots'].append(ids); self.save_group(account,cid,group)
             buy = 'BUY' if group['side']==1 else 'SELL'; sell = 'SELL' if group['side']==1 else 'BUY'
             parent = MarketOrder(buy,1) if kind=='MKT' else (LimitOrder if kind=='LMT' else StopOrder)(buy,1,entry)
-            parent.orderId=ids['entry']; parent.transmit=False
-            take=LimitOrder(sell,1,tp,orderId=ids['tp'],parentId=ids['entry'],transmit=False)
-            stop=StopOrder(sell,1,sl,orderId=ids['sl'],parentId=ids['entry'],transmit=True)
-            for order in (parent,take,stop):
+            parent.orderId=ids['entry']; parent.transmit=not values
+            orders=[parent]+[(LimitOrder if r=='tp' else StopOrder)(sell,1,v,orderId=ids[r],parentId=ids['entry'],transmit=False) for r,v in values.items()]
+            orders[-1].transmit=True
+            for order in orders:
                 order.account=account;order.tif=group.get('tif', 'DAY') if order is parent else 'GTC';order.orderRef=group['ref']
                 order.outsideRth = contract.secType == 'FUT'
                 conn.ib.placeOrder(contract,order)
@@ -592,7 +615,7 @@ class PaperChart:
                 rules = active.get('price_rules', []) if active and active['con_id'] == cid else []
                 ticks = [r['increment'] for r in rules if Decimal(str(r['low'])) <= amount]
                 if not ticks or amount % Decimal(str(ticks[-1])): raise ValueError('Invalid contract tick size')
-                if not overnight and (group['side'] * (current['tp'] - float(amount)) <= 0 or group['side'] * (current['sl'] - float(amount)) >= 0):
+                if not overnight and ((current['tp'] and group['side'] * (current['tp'] - float(amount)) <= 0) or (current['sl'] and group['side'] * (current['sl'] - float(amount)) >= 0)):
                     raise ValueError('Entry must stay between TP and SL; adjust protection first')
         # Contract validation pumps broker events. Recheck all fills before any write.
         fresh = self.state(conn, cid)
@@ -637,7 +660,7 @@ class PaperChart:
                         entry_type='LMT', entry=float(amount), quantity=int(quantity), tif=tif)
                 else:
                     replacement = dict(action='submit', side=group['side'], entry_type=current['entry_type'],
-                        entry=float(amount), quantity=int(quantity), tp=current['tp'], sl=current['sl'], tif=tif)
+                        entry=float(amount), quantity=int(quantity), tp=current['tp'] or None, sl=current['sl'] or None, tif=tif)
                 self.perform(conn, account, cid, replacement, request_id)
             latest = self.group(account, cid)
             latest.pop('pending_edit', None)
@@ -683,7 +706,7 @@ class PaperChart:
         while time.monotonic() < deadline:
             if parent.orderStatus.filled or parent.orderStatus.status == 'Filled':
                 return
-            children = [trades.get(lot[r]) for r in ('tp', 'sl')]
+            children = [trades.get(lot[r]) for r in ('tp', 'sl') if r in lot]
             if parent.orderStatus.status in ('Cancelled', 'ApiCancelled') and all(
                     t and t.orderStatus.status in ('Cancelled', 'ApiCancelled', 'Inactive') for t in children):
                 return
@@ -696,12 +719,14 @@ class PaperChart:
         group = self.group(account, cid)
         if not group or body.get('expected_ref') != group.get('ref') or not current['known']:
             raise ValueError('Protection identity/status changed; refresh before canceling')
+        role = body.get('role')
+        if role not in (None, 'tp', 'sl'): raise ValueError('Invalid protection role')
         if body.get('confirm_remove_protection') is not True:
             raise ValueError('Confirm removal of both TP and SL; the position will be unprotected')
         terminal = ('Filled', 'Cancelled', 'ApiCancelled', 'Inactive')
         if any(r['role'].split('_')[0] == 'entry' and r['status'] not in terminal for r in current['orders']):
             raise ValueError('Finish or cancel pending entries before removing protection')
-        rows = [r for r in current['orders'] if r['role'].split('_')[0] in ('tp', 'sl')]
+        rows = [r for r in current['orders'] if r['role'].split('_')[0] in ((role,) if role else ('tp', 'sl'))]
         if not rows: raise ValueError('No owned protection orders')
         trades = getattr(self, '_resolved_trades', {})
         targets = []
@@ -719,8 +744,94 @@ class PaperChart:
             conn.ib.sleep(.05)
         fresh = self.state(conn, cid)
         if not fresh['known'] or any(r['status'] not in terminal for r in fresh['orders']
-                                     if r['role'].split('_')[0] in ('tp', 'sl')):
+                                     if r['role'].split('_')[0] in ((role,) if role else ('tp', 'sl'))):
             raise RuntimeError('Protection cancellation awaiting broker confirmation; do not resubmit')
+        group=self.group(account,cid)
+        group['requested_protection']=[r for r in group.get('requested_protection',['tp','sl']) if role and r!=role]
+        self.save_group(account,cid,group)
+
+    def set_protection(self, conn, account, cid, contract, current, group, body, request_id, price):
+        """Explicit replacement for a settled, fully owned position. Never replay writes.
+
+        Existing exits are canceled and reconciled before fresh standalone GTC
+        exits are sent. The user confirms this cancellation gap in the editor.
+        """
+        terminal = ('Filled','Cancelled','ApiCancelled','Inactive')
+        if not group or body.get('expected_ref') != group.get('ref') or not current.get('protection_manageable'):
+            raise ValueError('Wait for settled entries and a known owned position')
+        if body.get('expected_snapshot') != current['edit_snapshot']:
+            raise ValueError('Orders changed; reopen protection settings')
+        if body.get('confirm_replace_protection') is not True:
+            raise ValueError('Confirm replacing existing exits; protection may be interrupted')
+        values = {r:price(body[r]) for r in ('tp','sl') if body.get(r) is not None}
+        if 'tp' in values and group['side']*(values['tp']-current['entry']) <= 0:
+            raise ValueError('TP must be on the profitable side of entry')
+        if len(values)==2 and group['side']*(values['tp']-values['sl']) <= 0:
+            raise ValueError('TP and SL cannot cross')
+        owned = sum((1 if r['role'].split('_')[0]=='entry' else -1)*r['filled'] for r in current['orders'])*group['side']
+        if abs(owned-current['position']) > .000001 or owned*group['side'] <= 0:
+            raise ValueError('Position differs from owned fills; reconcile before protecting')
+        trades = self._resolved_trades
+        if any(t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades() if t.order.account==account and t.contract.conId==cid):
+            raise ValueError('Other working orders exist; reconcile before protecting')
+        if any(t.order.account!=account or t.contract.conId!=cid or t.order.orderRef!=group['ref'] for oid,t in trades.items() if oid in group['ids'].values()):
+            raise ValueError('Protection ownership mismatch')
+        fresh=self.state(conn,cid)
+        if fresh['edit_snapshot']!=current['edit_snapshot'] or fresh['position']!=current['position']:
+            raise ValueError('Position changed while validating')
+        group['pending_protection'] = request_id
+        self.save_group(account,cid,group)
+        try:
+            targets=[trades[r['order_id']] for r in current['orders'] if r['role'].split('_')[0] in ('tp','sl') and r['status'] not in terminal]
+            for t in targets:
+                if not t.isDone(): conn.ib.cancelOrder(t.order)
+            deadline=time.monotonic()+4
+            while any(not t.isDone() for t in targets) and time.monotonic()<deadline: conn.ib.sleep(.05)
+            fresh=self.state(conn,cid)
+            if not fresh['known'] or any(not t.isDone() for t in targets): raise RuntimeError('Cancellation unconfirmed')
+            # A fill during cancellation invalidates the requested quantity. Do not replace.
+            if fresh['position']!=current['position'] or any(r['filled']!=old['filled'] for r,old in zip(fresh['orders'],current['orders'])):
+                raise RuntimeError('Fill raced protection replacement; reconcile before another action')
+            positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
+            actual=next((float(p.position) for p in positions if p.account==account and p.contract.conId==cid),0)
+            if actual!=fresh['position']: raise RuntimeError('Position reconciliation incomplete')
+            verified=self.state(conn,cid)
+            if verified['edit_snapshot']!=fresh['edit_snapshot'] or verified['position']!=actual:
+                raise RuntimeError('Orders changed during position reconciliation')
+            if any(t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades() if t.order.account==account and t.contract.conId==cid):
+                raise RuntimeError('Other working orders appeared during reconciliation')
+            # Archive old IDs to retain fills and reconnect history; new roles own the new exits.
+            for role in list(group['ids']):
+                if role.split('_')[0] in ('tp','sl'):
+                    archived=role+'_retired_'+str(group['ids'][role])
+                    group['ids'][archived]=group['ids'].pop(role)
+                    if role in group.get('perms',{}): group['perms'][archived]=group['perms'].pop(role)
+                    if role in group.get('terminal',{}):
+                        group['terminal'][archived]=dict(group['terminal'].pop(role),role=archived)
+            group.pop('lots',None); group.pop('adjustment',None); group.pop('mode',None)
+            group['requested_protection']=list(values)
+            ids={r:conn.ib.client.getReqId() for r in values}
+            group['ids'].update(ids)
+            group['protection_request']=dict(id=request_id,ids=ids)
+            self.save_group(account,cid,group)
+            for role,value in values.items():
+                order=(LimitOrder if role=='tp' else StopOrder)('SELL' if actual>0 else 'BUY',abs(actual),value,
+                    orderId=ids[role],account=account,tif='GTC',orderRef=group['ref'],transmit=role==next(reversed(values)),
+                    ocaGroup=('WheelExit:'+request_id) if len(values)==2 else '',ocaType=2 if len(values)==2 else 0)
+                order.outsideRth=contract.secType=='FUT'
+                conn.ib.placeOrder(contract,order)
+            deadline=time.monotonic()+3
+            while ids:
+                snapshot=conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=max(.05,deadline-time.monotonic()))
+                confirmed={t.order.orderId for t in snapshot if t.order.account==account and t.contract.conId==cid and t.order.orderRef==group['ref'] and t.orderStatus.status in ('Submitted','PreSubmitted')}
+                fresh=self.state(conn,cid)
+                done={r['order_id'] for r in fresh['orders'] if r['status'] in terminal}
+                if set(ids.values()) <= confirmed | done: break
+                if time.monotonic()>=deadline: raise RuntimeError('New exits not yet confirmed')
+                conn.ib.sleep(.05)
+            group.pop('pending_protection',None); self.save_group(account,cid,group)
+        except Exception as error:
+            raise RuntimeError('Protection replacement needs broker reconciliation; do not resubmit') from error
 
     def perform(self, conn, account, cid, body, request_id):
         if body.get('action') == 'cancel_protection':
@@ -761,7 +872,7 @@ class PaperChart:
             if not current['position'] or body.get('expected_ref') != group.get('ref'):
                 raise ValueError('Explicit filled-position reference required; cancel an unfilled entry instead')
         # Fresh submissions use their own mode after checking the prior order is resolved.
-        if group and group.get('mode') == 'overnight_entry' and action not in ('close', 'submit'):
+        if group and group.get('mode') == 'overnight_entry' and action not in ('close', 'submit', 'set_protection'):
             if action == 'manage_entry':
                 import copy
                 if not current['known'] or body.get('expected_ref') != group.get('ref'):
@@ -803,6 +914,7 @@ class PaperChart:
             conn.ib.cancelOrder(trade.order)
             return
         def price(value):
+            if isinstance(value,bool): raise ValueError('Invalid price')
             try: number=float(value)
             except (TypeError,ValueError): raise ValueError('Invalid price')
             if not math.isfinite(number) or number<=0: raise ValueError('Invalid price')
@@ -813,6 +925,8 @@ class PaperChart:
             tick=Decimal(str(increments[-1])); amount=Decimal(str(number))
             if abs(amount/tick-(amount/tick).to_integral_value())>Decimal('0.000001'): raise ValueError('Price does not match contract tick size')
             return number
+        if action=='set_protection':
+            return self.set_protection(conn,account,cid,contract,current,group,body,request_id,price)
         if action=='submit':
             if current['active'] or not current['known']: raise ValueError('An existing chart order needs resolution first')
             if current['position'] or (not self.group_id and any(t.contract.conId==cid and t.order.account==account for t in conn.ib.openTrades())):
@@ -820,21 +934,22 @@ class PaperChart:
             tif=body.get('tif', 'DAY')
             if tif not in ('DAY', 'GTC'): raise ValueError('Unsupported bracket TIF')
             side=body.get('side'); qty=body.get('quantity')
-            if side not in (-1,1) or not isinstance(qty,(int,float)) or not math.isfinite(qty) or qty!=int(qty) or not 1<=qty<=(10 if contract.secType in ('FUT','OPT') else 1000): raise ValueError('Invalid paper order size or side')
-            entry=price(body.get('entry')); tp=price(body.get('tp')); sl=price(body.get('sl'))
-            if side*(tp-entry)<=0 or side*(sl-entry)>=0: raise ValueError('TP and SL must be on opposite sides of entry')
+            if isinstance(side,bool) or isinstance(qty,bool) or side not in (-1,1) or not isinstance(qty,(int,float)) or not math.isfinite(qty) or qty!=int(qty) or not 1<=qty<=(10 if contract.secType in ('FUT','OPT') else 1000): raise ValueError('Invalid paper order size or side')
+            entry=price(body.get('entry')); tp=price(body['tp']) if body.get('tp') is not None else None; sl=price(body['sl']) if body.get('sl') is not None else None
+            if (tp is not None and side*(tp-entry)<=0) or (sl is not None and side*(sl-entry)>=0): raise ValueError('TP and SL must be on opposite sides of entry')
             if body.get('entry_type') not in ('LMT','STP'): raise ValueError('Unsupported entry type')
             if contract.secType in ('FUT','OPT'):
                 group=dict(ids={},lots=[],side=side,ref='WheelPaper:'+request_id,tif=tif)
                 self.add_lots(conn,account,cid,contract,group,int(qty),body['entry_type'],entry,tp,sl)
                 return
             buy='BUY' if side==1 else 'SELL'; sell='SELL' if side==1 else 'BUY'
-            ids={role:conn.ib.client.getReqId() for role in ('entry','tp','sl')}
-            parent=(LimitOrder if body['entry_type']=='LMT' else StopOrder)(buy,qty,entry,orderId=ids['entry'],transmit=False)
-            take=LimitOrder(sell,qty,tp,orderId=ids['tp'],parentId=ids['entry'],transmit=False)
-            stop=StopOrder(sell,qty,sl,orderId=ids['sl'],parentId=ids['entry'],transmit=True)
-            self.save_group(account,cid,dict(ids=ids,side=side,ref='WheelPaper:'+request_id))
-            for order in (parent,take,stop):
+            values = {r:v for r,v in (('tp',tp),('sl',sl)) if v is not None}
+            ids={role:conn.ib.client.getReqId() for role in ('entry', *values)}
+            parent=(LimitOrder if body['entry_type']=='LMT' else StopOrder)(buy,qty,entry,orderId=ids['entry'],transmit=not values)
+            orders=[parent]+[(LimitOrder if r=='tp' else StopOrder)(sell,qty,v,orderId=ids[r],parentId=ids['entry'],transmit=False) for r,v in values.items()]
+            orders[-1].transmit=True
+            self.save_group(account,cid,dict(ids=ids,side=side,ref='WheelPaper:'+request_id,requested_protection=list(values)))
+            for order in orders:
                 order.account=account;order.tif=tif if order is parent else 'GTC';order.orderRef='WheelPaper:'+request_id
                 conn.ib.placeOrder(contract,order)
             return
@@ -843,6 +958,7 @@ class PaperChart:
         if not group: raise ValueError('No chart bracket for this contract')
         trades=getattr(self,'_resolved_trades',{})
         if action in ('add','trim'):
+            if not current.get('scalable'): raise ValueError('Add/Trim requires active paired protection; use an independent order or Close')
             if not group.get('lots'):
                 raise ValueError('This older bracket cannot be scaled without replacing protection; start a new protected futures bracket')
             qty = body.get('quantity')
@@ -895,7 +1011,7 @@ class PaperChart:
                 raise ValueError('Order identity changed; refresh before amending protection')
             role='sl' if action=='be' else body.get('role')
             if role not in ('tp','sl'): raise ValueError('Only TP and SL can be amended')
-            trade=next((trades.get(lot[role]) for lot in group.get('lots',[]) if trades.get(lot[role]) and not trades[lot[role]].isDone()),None) if group.get('lots') else trades.get(group['ids'][role])
+            trade=next((trades.get(lot.get(role)) for lot in group.get('lots',[]) if trades.get(lot.get(role)) and not trades[lot[role]].isDone()),None) if group.get('lots') else trades.get(group['ids'].get(role))
             if not trade or trade.isDone(): raise ValueError('Exit order is no longer working')
             if action=='be':
                 if not current['position']: raise ValueError('BE requires a filled position')
@@ -912,7 +1028,7 @@ class PaperChart:
             if other>0 and group['side']*((other-new_price) if role=='sl' else (new_price-other))<=0: raise ValueError('TP and SL cannot cross')
             # Initial TP is held (transmit=False) until the last bracket leg.
             # A later amendment must be transmitted on its own.
-            targets=[trades.get(lot[role]) for lot in group['lots']] if group.get('lots') else [trade]
+            targets=[trades.get(lot.get(role)) for lot in group['lots']] if group.get('lots') else [trade]
             for target in targets:
                 if not target or target.isDone(): continue
                 if action=='be' and group['side']*(target.order.auxPrice-new_price)>=0: continue
@@ -924,7 +1040,7 @@ class PaperChart:
             return
         if action == 'close' and body.get('expected_ref') is not None and body['expected_ref'] != group.get('ref'):
             raise ValueError('Order identity changed; refresh before closing')
-        if action=='close' and group.get('lots') and current.get('protection', {}).get('status') != 'unprotected':
+        if action=='close' and group.get('lots') and current.get('scalable') and current.get('protection', {}).get('status') == 'covered':
             live=[]
             for lot in group['lots']:
                 parent,take,stop=[trades.get(lot[r]) for r in ('entry','tp','sl')]

@@ -221,8 +221,8 @@ def paper_chart_order(con_id):
                 return _no_store_json(service.request_status(conn, con_id, request.args['request_id']))
             from api.services.paper_chart import paper_account
             group = service.group(paper_account(conn), con_id) or {}
-            if group.get('pending_edit'):
-                service.request_status(conn, con_id, group['pending_edit'])
+            for key in ('pending_edit', 'pending_protection'):
+                if group.get(key): service.request_status(conn, con_id, group[key])
             return _no_store_json(service.state(conn,con_id))
         result=service.execute(conn,con_id,request.get_json(silent=True) or {})
         return _no_store_json(result)

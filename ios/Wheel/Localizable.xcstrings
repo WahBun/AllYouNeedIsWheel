@@ -1,6 +1,266 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Manage TP / SL": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理 TP / SL"
+          }
+        }
+      }
+    },
+    "Position TP / SL": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "持仓 TP / SL"
+          }
+        }
+      }
+    },
+    "Optional TP / SL · GTC": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TP / SL 独立可选 · GTC"
+          }
+        }
+      }
+    },
+    "Enable TP": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用止盈 TP"
+          }
+        }
+      }
+    },
+    "Enable SL": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用止损 SL"
+          }
+        }
+      }
+    },
+    "TP input": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "止盈输入方式"
+          }
+        }
+      }
+    },
+    "Distance": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "价差"
+          }
+        }
+      }
+    },
+    "Target price": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标价"
+          }
+        }
+      }
+    },
+    "Profit %": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "获利百分比"
+          }
+        }
+      }
+    },
+    "SL distance": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "止损价差"
+          }
+        }
+      }
+    },
+    "SL target price": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "止损目标价"
+          }
+        }
+      }
+    },
+    "Confirm replacing protection": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认重建退出订单"
+          }
+        }
+      }
+    },
+    "Apply TP / SL": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用 TP / SL"
+          }
+        }
+      }
+    },
+    "Cancel all TP / SL": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销全部 TP / SL"
+          }
+        }
+      }
+    },
+    "Back": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返回"
+          }
+        }
+      }
+    },
+    "Enter a positive value for each enabled exit.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请为已启用的退出订单填写正数。"
+          }
+        }
+      }
+    },
+    "Profit % uses the entry premium before fees. A short option sold at 2.12 with 75% profit targets 0.53, rounded to the contract tick.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "获利百分比按开仓权利金计算，未计手续费。以 2.12 卖出期权，获利 75% 的目标买回价为 0.53，并按合约最小价位取整。"
+          }
+        }
+      }
+    },
+    "Existing exits will be canceled before replacement. Protection may be interrupted. A fill or uncertain response stops replacement; inspect the refreshed orders.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先确认撤销旧退出单，再建立新单，期间可能没有保护。若出现成交或结果不明确，将停止重建，请核对刷新后的订单。"
+          }
+        }
+      }
+    },
+    "The selected exits will be canceled. Your position remains open. Check remaining orders after cancellation.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将撤销选定的退出订单，持仓保留。撤单后请核对剩余订单。"
+          }
+        }
+      }
+    },
+    "Cancel TP?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销止盈 TP？"
+          }
+        }
+      }
+    },
+    "Cancel SL?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销止损 SL？"
+          }
+        }
+      }
+    },
+    "Remove TP; keep position": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销 TP，保留持仓"
+          }
+        }
+      }
+    },
+    "Remove SL; keep position": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销 SL，保留持仓"
+          }
+        }
+      }
+    },
+    "tp_only": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅止盈"
+          }
+        }
+      }
+    },
+    "sl_only": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅止损"
+          }
+        }
+      }
+    },
+    "not_requested": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未设置退出订单"
+          }
+        }
+      }
+    },
     "Account mode" : {
       "extractionState": "manual",
       "localizations": {

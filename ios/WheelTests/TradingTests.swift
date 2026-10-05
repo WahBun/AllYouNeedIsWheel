@@ -25,6 +25,33 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testOptionalProtectionTargets() {
+        let rules: [[String: Any]] = [["low": 0.0, "increment": 0.01]]
+        XCTAssertEqual(ChartProtectionMath.target(entry: 2.12, side: -1, value: 75, percent: true, rules: rules) ?? 0, 0.53, accuracy: 0.000001)
+        XCTAssertEqual(ChartProtectionMath.target(entry: 2.12, side: 1, value: 75, percent: true, rules: rules) ?? 0, 3.71, accuracy: 0.000001)
+        XCTAssertNil(ChartProtectionMath.target(entry: 2.12, side: -1, value: 100, percent: true, rules: rules))
+        XCTAssertNil(ChartProtectionMath.target(entry: 2.12, side: -1, value: 75, percent: true, rules: []))
+        XCTAssertNil(ChartProtectionMath.target(entry: 2.12, side: -1, value: .nan, percent: false, rules: rules))
+        XCTAssertEqual(ChartProtectionMath.target(entry: 2.12, side: -1, value: 0.55, percent: false, rules: rules), 0.55)
+    }
+
+    func testOptionalProtectionWriteOmitsDisabledStop() async throws {
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        let client = TradingSession(session: URLSession(configuration: config))
+        MockProtocol.requests = []; MockProtocol.statusCode = 200; MockProtocol.fail = false
+        MockProtocol.payload = { _ in ["success": true, "status": "acknowledged"] }
+        defer { MockProtocol.payload = nil }
+        _ = try await client.paperChartWrite(base: "https://mock.invalid", conID: 7,
+            body: ["action": "set_protection", "expected_ref": "WheelPaper:test", "expected_snapshot": [["order_id": 77]], "tp": 0.53, "confirm_replace_protection": true])
+        let request = try XCTUnwrap(MockProtocol.requests.last)
+        let stream = try XCTUnwrap(request.httpBodyStream); stream.open(); defer { stream.close() }
+        var data = Data(); var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable { let count = stream.read(&buffer, maxLength: buffer.count); if count <= 0 { break }; data.append(buffer, count: count) }
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(body["tp"] as? Double, 0.53); XCTAssertNil(body["sl"])
+        XCTAssertNotNil(body["expected_snapshot"]); XCTAssertNotNil(body["request_id"])
+    }
+
     func testProtectionCancellationKeepsIndependentGroupIdentity() async throws {
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
         let client = TradingSession(session: URLSession(configuration: config))

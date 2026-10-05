@@ -285,6 +285,30 @@ struct StockChartView: View {
     @State private var pendingActionLabel = ""
     @State private var protectionCancelRef: String?
     @State private var protectionCancelCID: Int?
+    @State private var protectionCancelRole: String?
+    @State private var showPositionProtection = false
+    @State private var positionProtectionState: [String: Any] = [:]
+    @State private var positionProtectionCID: Int?
+    @AppStorage("chartProtectionOptionsV14") private var protectionOptions = "{}"
+    private func protectionOption(_ type: String, _ key: String) -> String? {
+        guard let data = protectionOptions.data(using: .utf8), let values = try? JSONDecoder().decode([String: String].self, from: data) else { return nil }
+        return values[type + key]
+    }
+    private func saveProtectionOption(_ type: String, _ key: String, _ value: String) {
+        var values = (try? JSONDecoder().decode([String: String].self, from: Data(protectionOptions.utf8))) ?? [:]
+        values[type + key] = value
+        if let data = try? JSONEncoder().encode(values), let text = String(data: data, encoding: .utf8) { protectionOptions = text }
+    }
+    private func protectionToggle(_ type: String, _ role: String) -> Binding<Bool> {
+        Binding(get: { protectionOption(type, role) != "off" }, set: { saveProtectionOption(type, role, $0 ? "on" : "off"); templateRevision += 1 })
+    }
+    private func protectionMode(_ type: String) -> Binding<String> {
+        Binding(get: { protectionOption(type, "mode") ?? "distance" }, set: { value in
+            saveProtectionOption(type, "mode", value)
+            distanceBinding(type, tp: true).wrappedValue = value == "percent" ? "75" : value == "price" ? String(max(validEntry, 0.01)) : "0.20"
+            templateRevision += 1
+        })
+    }
     private var hasOrderPreview: Bool { !paperActive && validEntry > 0 && validQuantity > 0 }
     private var paperEnabled: Bool { !store.trading.paperPending(base: store.address, conID: chartID ?? 0) && !store.trading.busy && Date().timeIntervalSince(paperReceived ?? .distantPast) < 3 && store.chartTradingAvailable && paperState["sync_error"] as? Bool != true && paperState["known"] as? Bool != false && paperState["enabled"] as? Bool == true }
     private var paperActive: Bool { paperState["active"] as? Bool == true }
@@ -302,6 +326,7 @@ struct StockChartView: View {
         if body["action"] as? String == "cancelProtectionPreview" {
             protectionCancelRef = body["expected_ref"] as? String
             protectionCancelCID = chartID
+            protectionCancelRole = body["role"] as? String
             return
         }
         if body["action"] as? String == "close", paperState["closing"] as? Bool == true { return }
@@ -862,7 +887,7 @@ struct StockChartView: View {
     private var slDistance: String { distanceBinding(chartType, tp: false).wrappedValue }
     private var validTemplate: Bool {
         [true, false].allSatisfy { tp in
-            Double(distanceBinding(templateType, tp: tp).wrappedValue).map { $0.isFinite && $0 > 0 } ?? false
+            (protectionOption(templateType, tp ? "tp" : "sl") == "off") || Double(distanceBinding(templateType, tp: tp).wrappedValue).map { $0.isFinite && $0 > 0 } ?? false
         }
     }
     @State private var packet: [String: Any] = [:]
@@ -953,7 +978,7 @@ struct StockChartView: View {
             }
             }
             if let emaHistoryNotice { Text(verbatim: emaHistoryNotice).font(.caption2).foregroundStyle(.secondary) }
-            StockChartWeb(executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
+            StockChartWeb(executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: protectionOption(chartType, "tp") != "off", slEnabled: protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
                 Button { showDisplaySettings = true } label: {
@@ -976,6 +1001,11 @@ struct StockChartView: View {
                 }
             }
             if !hasOrderPreview { ChartOrderProgressView(state: paperState) }
+            if positionSize > 0 {
+                Button("Manage TP / SL") {
+                    positionProtectionState = paperState; positionProtectionCID = chartID; showPositionProtection = true
+                }.disabled(!paperEnabled || paperBusy || paperState["protection_manageable"] as? Bool != true)
+            }
             if let paperMessage, !paperMessage.isEmpty { NoticeText(paperMessage).font(.caption).foregroundStyle(.secondary) }
             if !fullScreen && !tradingPanelCollapsed {
             HStack(spacing: 8) {
@@ -1006,7 +1036,7 @@ struct StockChartView: View {
                             Button("Trim contracts") { adjustmentAction = "trim"; adjustmentQuantity = 1; showAdjustment = true }.disabled(positionSize < 2)
                         } label: { Image(systemName: "plus.forwardslash.minus").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.accessibilityLabel("Add or trim contracts").disabled(!paperEnabled || paperBusy || positionSize == 0 || paperState["known"] as? Bool != true || paperState["scalable"] as? Bool != true)
                         Button { if paperEnabled { paperAction(["action": "close"]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.65).frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || paperState["closing"] as? Bool == true || (paperEnabled ? !paperActive : validEntry <= 0))
-                        Button { if paperEnabled { paperAction(["action": "be"]) } else { beRevision += 1 } } label: { Text("BE").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(paperBusy || (paperEnabled && (paperState["position"] as? Double ?? 0) == 0) || beApplied || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
+                        Button { if paperEnabled { paperAction(["action": "be"]) } else { beRevision += 1 } } label: { Text("BE").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(paperBusy || (paperEnabled && ((paperState["position"] as? Double ?? 0) == 0 || (paperState["sl"] as? Double ?? 0) <= 0)) || (!paperEnabled && protectionOption(chartType, "sl") == "off") || beApplied || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
                     }
                 }.font(.system(size: 13, weight: .semibold))
             }.buttonStyle(.bordered)
@@ -1106,13 +1136,15 @@ struct StockChartView: View {
                     }
             }.presentationDetents([.large])
         }
-        .confirmationDialog("Cancel both TP and SL?", isPresented: Binding(get: { protectionCancelRef != nil }, set: { if !$0 { protectionCancelRef = nil } }), titleVisibility: .visible) {
-            Button("Remove TP/SL; keep position", role: .destructive) {
+        .confirmationDialog(localizedLabel(protectionCancelRole.map { "Cancel " + $0.uppercased() + "?" } ?? "Cancel both TP and SL?", locale: locale), isPresented: Binding(get: { protectionCancelRef != nil }, set: { if !$0 { protectionCancelRef = nil } }), titleVisibility: .visible) {
+            Button(localizedLabel(protectionCancelRole.map { "Remove " + $0.uppercased() + "; keep position" } ?? "Remove TP/SL; keep position", locale: locale), role: .destructive) {
                 guard let ref = protectionCancelRef, protectionCancelCID == chartID, paperState["order_ref"] as? String == ref else { return }
-                paperAction(["action": "cancel_protection", "expected_ref": ref, "confirm_remove_protection": true])
+                var request: [String: Any] = ["action": "cancel_protection", "expected_ref": ref, "confirm_remove_protection": true]
+                if let role = protectionCancelRole { request["role"] = role }
+                paperAction(request)
                 protectionCancelRef = nil
             }
-        } message: { Text("Both protection orders will be canceled. Your position remains open without TP/SL.") }
+        } message: { Text("The selected exits will be canceled. Your position remains open. Check remaining orders after cancellation.") }
         .sheet(isPresented: $showAdjustment) {
             NavigationStack {
                 Form {
@@ -1154,6 +1186,12 @@ struct StockChartView: View {
                 }.navigationTitle("Chart display").toolbar { Button("Done") { showDisplaySettings = false } }
             }.presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $showPositionProtection) {
+            PositionProtectionEditor(state: positionProtectionState, rules: packet["price_rules"] as? [[String: Any]] ?? []) { request in
+                guard positionProtectionCID == chartID, positionProtectionState["order_ref"] as? String == paperState["order_ref"] as? String else { paperMessage = "Order changed; reopen TP / SL"; return }
+                showPositionProtection = false; paperAction(request)
+            }
+        }
         .sheet(isPresented: $showTemplate) {
             NavigationStack {
                 Form {
@@ -1162,9 +1200,17 @@ struct StockChartView: View {
                         Text("Options").tag("OPT")
                         Text("Futures").tag("FUT")
                     }.pickerStyle(.segmented)
-                    Section("Price distance") {
-                        distanceRow("TP", value: distanceBinding(templateType, tp: true))
-                        distanceRow("SL", value: distanceBinding(templateType, tp: false))
+                    Section("Optional TP / SL · GTC") {
+                        Toggle("Enable TP", isOn: protectionToggle(templateType, "tp"))
+                        if protectionToggle(templateType, "tp").wrappedValue {
+                            Picker("TP input", selection: protectionMode(templateType)) {
+                                Text("Distance").tag("distance"); Text("Target price").tag("price"); Text("Profit %").tag("percent")
+                            }
+                            distanceRow("TP", value: distanceBinding(templateType, tp: true))
+                        }
+                        Toggle("Enable SL", isOn: protectionToggle(templateType, "sl"))
+                        if protectionToggle(templateType, "sl").wrappedValue { distanceRow("SL distance", value: distanceBinding(templateType, tp: false)) }
+                        Text("Profit % uses the entry premium before fees. A short option sold at 2.12 with 75% profit targets 0.53, rounded to the contract tick.").font(.caption)
                     }
                     if validEntry > 0 && templateType == chartType && !paperActive {
                         Text("Apply updates the current preview and saves these distances for new orders.")
@@ -1173,7 +1219,7 @@ struct StockChartView: View {
                         Text(paperActive ? "These distances apply to your next order. Existing orders stay unchanged." : "These distances will be used for new orders in this asset class.")
                         Button("Save template") { showTemplate = false }.disabled(!validTemplate)
                     }
-                    if !validTemplate { Text("Enter a positive TP and SL distance.").font(.caption).foregroundStyle(.orange) }
+                    if !validTemplate { Text("Enter a positive value for each enabled exit.").font(.caption).foregroundStyle(.orange) }
                 }.navigationTitle("TP / SL template").toolbar { Button("Done") { showTemplate = false } }
             }.presentationDetents([.medium, .large])
         }
@@ -1197,7 +1243,7 @@ struct StockChartView: View {
             NavigationStack {
                 Form {
                     Section("Entry reference") { TextField("Price", text: $entry).keyboardType(.decimalPad) }
-                    Text(paperEnabled ? "IB Paper: Join Bid / Ask submits Entry, TP and SL. Dragging TP / SL sends an amendment on release. New futures brackets keep protection while Trim / Close sends a limit exit at bid / ask; a moving market may leave the exit working." : "TP / SL preview only · drag the labels. No orders are sent.")
+                    Text(paperEnabled ? "IB Paper: Join Bid / Ask submits Entry and the enabled TP / SL exits. Dragging TP / SL sends an amendment on release. New futures brackets keep protection while Trim / Close sends a limit exit at bid / ask; a moving market may leave the exit working." : "TP / SL preview only · drag the labels. No orders are sent.")
                     Text("Prices and market-data permissions come from the connected IB account.")
                     Text("ETH includes available extended-hours data. Time: New York.")
                     Text("TradingView Lightweight Charts™ · Copyright © 2025 TradingView, Inc.")
@@ -1410,6 +1456,9 @@ private struct StockChartWeb: UIViewRepresentable {
     var beRevision: Int
     var tpDistance: Double
     var slDistance: Double
+    var tpEnabled: Bool = true
+    var slEnabled: Bool = true
+    var tpMode: String = "distance"
     var templateRevision: Int
     var onBE: (Bool) -> Void
     var onEntry: (Double) -> Void
@@ -1449,7 +1498,7 @@ private struct StockChartWeb: UIViewRepresentable {
         context.coordinator.onEntry = onEntry
         context.coordinator.onBE = onBE
         context.coordinator.onPaper = onPaper
-        context.coordinator.config = ["executions": executions, "holdings": holdings, "display": display, "entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "beRevision": beRevision, "tpDistance": tpDistance.isFinite ? tpDistance : 0, "slDistance": slDistance.isFinite ? slDistance : 0, "templateRevision": templateRevision, "priceRules": packet["price_rules"] ?? [], "paper": paperState, "con_id": conID, "multiplier": packet["multiplier"] ?? 1]
+        context.coordinator.config = ["executions": executions, "holdings": holdings, "display": display, "entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "beRevision": beRevision, "tpDistance": tpDistance.isFinite ? tpDistance : 0, "slDistance": slDistance.isFinite ? slDistance : 0, "tpEnabled": tpEnabled, "slEnabled": slEnabled, "tpMode": tpMode, "templateRevision": templateRevision, "priceRules": packet["price_rules"] ?? [], "paper": paperState, "con_id": conID, "multiplier": packet["multiplier"] ?? 1]
         context.coordinator.update()
     }
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {
@@ -1549,5 +1598,68 @@ private struct StockChartWeb: UIViewRepresentable {
                 if self.bridgePending { self.bridgePending = false; self.update() }
             }
         }
+    }
+}
+
+
+private struct PositionProtectionEditor: View {
+    let state: [String: Any]
+    let rules: [[String: Any]]
+    let apply: ([String: Any]) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var tpEnabled = false
+    @State private var slEnabled = false
+    @State private var tp = ""
+    @State private var sl = ""
+    @State private var mode = "price"
+    @State private var confirm = false
+    private var targetTP: Double? {
+        ChartProtectionMath.target(entry: state["entry"] as? Double ?? 0, side: state["side"] as? Double ?? 1, value: Double(tp), percent: mode == "percent", rules: rules)
+    }
+    private var valid: Bool {
+        (!tpEnabled || targetTP != nil) && (!slEnabled || (Double(sl).map { $0.isFinite && $0 > 0 } ?? false))
+    }
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Optional TP / SL · GTC") {
+                    Toggle("Enable TP", isOn: $tpEnabled)
+                    if tpEnabled {
+                        Picker("TP input", selection: $mode) { Text("Target price").tag("price"); Text("Profit %").tag("percent") }
+                            .onChange(of: mode) { _, value in tp = value == "percent" ? "75" : String(state["tp"] as? Double ?? 0) }
+                        TextField("TP", text: $tp).keyboardType(.decimalPad)
+                        if let targetTP { Text("TP target: " + String(format: "%.4f", targetTP)).font(.caption) }
+                    }
+                    Toggle("Enable SL", isOn: $slEnabled)
+                    if slEnabled { TextField("SL target price", text: $sl).keyboardType(.decimalPad) }
+                }
+                Section {
+                    Text("Existing exits will be canceled before replacement. Protection may be interrupted. A fill or uncertain response stops replacement; inspect the refreshed orders.").font(.caption)
+                    Toggle("Confirm replacing protection", isOn: $confirm)
+                    Button("Apply TP / SL") {
+                        var request: [String: Any] = ["action": "set_protection", "expected_ref": state["order_ref"] ?? "", "expected_snapshot": state["edit_snapshot"] ?? [], "confirm_replace_protection": true]
+                        if tpEnabled { request["tp"] = targetTP }
+                        if slEnabled { request["sl"] = Double(sl) }
+                        apply(request)
+                    }.disabled(!valid || !confirm)
+                    Button("Cancel all TP / SL", role: .destructive) {
+                        apply(["action": "cancel_protection", "expected_ref": state["order_ref"] ?? "", "confirm_remove_protection": true])
+                    }.disabled(!confirm)
+                }
+            }.navigationTitle("Position TP / SL").toolbar { Button("Back") { dismiss() } }
+        }.onAppear { tp = String(state["tp"] as? Double ?? 0); sl = String(state["sl"] as? Double ?? 0); tpEnabled = (state["tp"] as? Double ?? 0) > 0; slEnabled = (state["sl"] as? Double ?? 0) > 0 }
+    }
+}
+
+
+enum ChartProtectionMath {
+    static func target(entry: Double, side: Double, value: Double?, percent: Bool, rules: [[String: Any]]) -> Double? {
+        guard let value, value.isFinite, value > 0 else { return nil }
+        if !percent { return value }
+        guard entry.isFinite, entry > 0, side == -1 || side == 1 else { return nil }
+        let raw = entry * (1 + side * value / 100)
+        guard raw.isFinite, raw > 0, let tick = rules.last(where: { ($0["low"] as? Double ?? 0) <= raw })?["increment"] as? Double, tick.isFinite, tick > 0 else { return nil }
+        let result = (raw / tick).rounded() * tick
+        return result.isFinite && result > 0 ? result : nil
     }
 }

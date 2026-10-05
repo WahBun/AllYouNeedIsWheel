@@ -11,12 +11,23 @@
 <div class="trade-pair"><select id="order-group" aria-label="Chart order"><option value="">Original order</option></select><button id="new-order">＋ New order</button></div>
 <label><span id="quantity-label">Quantity</span><div class="quantity-controls"><input id="quantity" type="number" min="1" max="1000" value="1"><button id="quantity-minus" aria-label="Decrease quantity">−</button><button id="quantity-plus" aria-label="Increase quantity">＋</button></div></label>
 <div class="trade-pair"><label>Type <select id="type"><option>LMT</option><option>STP</option></select></label><label>TIF <select id="tif"><option>DAY</option><option>GTC</option><option value="OVERNIGHT">OVT</option></select></label></div>
-<div class="trade-pair protection"><label>TP pts <input id="tp" type="number" min="0" value="0" step="any"></label><label>SL pts <input id="sl" type="number" min="0" value="0" step="any"></label></div>
+<div class="protection-settings">
+<div class="protection-toggle"><label><input id="tp-enabled" type="checkbox" checked> TP</label><select id="tp-mode" aria-label="TP input mode"><option value="distance" data-en="Distance" data-zh="价差">Distance</option><option value="price" data-en="Target price" data-zh="目标价">Target price</option><option value="percent" data-en="Profit %" data-zh="获利 %">Profit %</option></select></div>
+<input id="tp" aria-label="TP value" type="number" min="0" value="0" step="any">
+<label class="protection-toggle"><input id="sl-enabled" type="checkbox" checked> SL <span data-en="Distance" data-zh="价差">Distance</span></label><input id="sl" aria-label="SL distance" type="number" min="0" value="0" step="any">
+<small data-en="TP and SL are optional · exits use GTC" data-zh="TP、SL 独立可选 · 退出订单使用 GTC">TP and SL are optional · exits use GTC</small>
+</div>
+<button id="manage-protection" hidden data-en="Manage TP / SL" data-zh="管理 TP / SL">Manage TP / SL</button>
 <button id="preview">＋ Preview</button>
 <div class="trade-pair join-actions"><button id="bid">Join Bid</button><button id="ask">Join Ask</button></div>
 <label id="adjustment-control" hidden><span data-en="Add / Trim quantity" data-zh="加仓／减仓数量">Add / Trim quantity</span><input id="adjustment-quantity" type="number" min="1" step="1" value="1"></label>
 <div class="position-actions"><button id="add">Add</button><button id="trim">Trim</button><button id="be">BE</button></div>
 <button id="close">Close position</button><button id="resolve-request" hidden>Verify unresolved request…</button><p id="trade-feedback" role="status" aria-live="polite"></p></aside></main>
+<dialog id="protection-editor"><form id="protection-form"><h2 data-en="Position TP / SL" data-zh="持仓 TP / SL">Position TP / SL</h2>
+<label><input id="position-tp-enabled" type="checkbox"> TP</label><select id="position-tp-mode"><option value="price" data-en="Target price" data-zh="目标价">Target price</option><option value="percent" data-en="Profit %" data-zh="获利 %">Profit %</option></select><input id="position-tp" aria-label="Position TP" type="number" step="any" min="0">
+<label><input id="position-sl-enabled" type="checkbox"> SL</label><input id="position-sl" aria-label="SL target price" type="number" step="any" min="0">
+<p id="protection-estimate"></p><p data-en="Existing exits will be canceled before replacement. Protection may be interrupted. A fill or uncertain response stops replacement; inspect the refreshed orders." data-zh="先确认撤销旧退出单，再建立新单，期间可能没有保护。若出现成交或结果不明确，将停止重建，请核对刷新后的订单。">Existing exits will be canceled before replacement. Protection may be interrupted. A fill or uncertain response stops replacement; inspect the refreshed orders.</p>
+<button type="button" id="protection-dismiss" data-en="Back" data-zh="返回">Back</button><button type="submit" data-en="Apply TP / SL" data-zh="应用 TP / SL">Apply TP / SL</button><button type="button" id="protection-remove" data-en="Cancel all TP / SL" data-zh="撤销全部 TP / SL">Cancel all TP / SL</button></form></dialog>
 <dialog id="editor"><form id="edit-form"><h2>Edit order</h2><label>Quantity<input id="edit-qty" type="number" min="1" required></label><label>Price<input id="edit-price" type="number" step="any" min="0.000001" required></label><label>Time in force<select id="edit-tif"></select></label><label><input id="remove-protection" type="checkbox"> Confirm replacing with OVT without TP/SL</label><p>Quantity or TIF changes may cancel and replace the unfilled order.</p><button type="button" id="edit-cancel">Cancel</button><button type="submit">Apply</button></form></dialog>
 <dialog id="option-picker" aria-labelledby="option-title"><form id="option-form">
 <div class="option-heading"><h2 id="option-title">Find an option</h2><button id="option-dismiss" type="button" aria-label="Close option search">×</button></div>
