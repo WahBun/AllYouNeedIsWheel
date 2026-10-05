@@ -188,3 +188,28 @@ Verification: 92 mocked backend tests in `tests.test_paper_chart` and `tests.tes
 After the user's direction to retain unit brackets and prioritize speed/stability, the API dispatcher now limits reads/background synchronization to three of its four admitted jobs. Read saturation can no longer consume the final write admission slot. Total capacity remains four and IB execution stays on its single serialized thread. Identical reads share work; writes are neither deduplicated nor retried. Already-running writes retain their acknowledgement path after an HTTP wait timeout; unstarted expired writes never reach their handler.
 
 Regression evidence: 427 Python tests passed, plus the latest-drag queue regression. A deterministic concurrent test holds three distinct reads, rejects an additional read, admits one POST, rejects a further POST at full capacity, then verifies exactly one executed POST, one IB execution thread and recovered read capacity. Existing tests cover full write saturation, shared reads, cancellation of unstarted work, exceptions, expiry and running-job acknowledgement. This removes read-only admission starvation; it does not prioritize execution ahead of earlier jobs or prove a measured reduction in live broker latency. No additional broker order was placed for this maintenance verification.
+
+## User-reported protection drag failure — acceptance reopened
+
+The user's 10:18–10:19 recording shows SL/TP moving and then reverting without an
+amendment request in the corresponding backend access log. A later successful
+sample reports 560 ms release-to-response (446 ms request, 114 ms pre-request),
+which does not explain the missing requests. Prior steady-position success is
+insufficient to certify the complete drag experience; this issue remains open
+for broker/UI acceptance.
+
+A browser regression reproduces silent request loss when pointer capture is
+lost before pointerup. Previously that event cleared the drag; the later release
+was discarded. The web protection gesture now retains its contract, account
+epoch, order reference and pointer identity until an actual release, observing
+release on both the frame document and host. Capture loss alone never writes.
+True cancellation/focus loss restores the confirmed level and reports interruption.
+Changed/finished orders are rejected; an entry fill within the same protected
+order retains the pending exit-price gesture. Native gestures keep their existing
+path. Tests cover pending and filled positions, injected capture loss, entry fill
+during dragging, order identity changes, pointer cancellation and host release.
+
+The capture-loss condition is reproduced; the recording itself lacks event-level
+evidence to establish it as the sole cause. Do not mark the reported incident
+passed solely from these mocked regressions. Existing user positions were only
+read; no test amendment was applied to their protection orders.
