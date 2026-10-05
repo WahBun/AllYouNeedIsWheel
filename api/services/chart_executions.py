@@ -36,6 +36,21 @@ def execution_rows(conn, contract, path):
         if ref.startswith('AYNIW-') and ref[6:].isdigit():
             record_groups[int(ref[6:])] = group
         groups.setdefault(group, {})[e.execId] = dict(id=e.execId, group=group, time=when, price=price, quantity=qty, side=side)
+    # Persist exact broker executions, including their original timestamps.
+    # Account/contract and correction keys prevent cross-account leakage or duplicates.
+    try:
+        with sqlite3.connect(path, timeout=.1) as db:
+            db.execute("CREATE TABLE IF NOT EXISTS chart_execution_marks (account TEXT, con_id INTEGER, execution_key TEXT, exec_id TEXT, group_id TEXT, stamp REAL, price REAL, quantity REAL, side TEXT, PRIMARY KEY(account,con_id,execution_key))")
+            for fills in groups.values():
+                for row in fills.values():
+                    key = row['id'].rsplit('.', 1)[0] if '.' in row['id'] else row['id']
+                    db.execute("INSERT INTO chart_execution_marks VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(account,con_id,execution_key) DO UPDATE SET exec_id=excluded.exec_id,group_id=excluded.group_id,stamp=excluded.stamp,price=excluded.price,quantity=excluded.quantity,side=excluded.side WHERE excluded.exec_id>=chart_execution_marks.exec_id", (account,cid,key,row['id'],row['group'],row['time'],row['price'],row['quantity'],row['side']))
+            saved = db.execute("SELECT exec_id,group_id,stamp,price,quantity,side FROM chart_execution_marks WHERE account=? AND con_id=?", (account,cid)).fetchall()
+        groups = {}
+        for identity, group, when, price, qty, side in saved:
+            groups.setdefault(group,{})[identity] = dict(id=identity,group=group,time=when,price=price,quantity=qty,side=side)
+    except (sqlite3.Error, TypeError, ValueError, OSError):
+        pass
     try:
         with sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True, timeout=.1) as db:
             db.row_factory = sqlite3.Row

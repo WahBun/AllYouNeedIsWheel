@@ -25,9 +25,24 @@ class ChartExecutionTests(unittest.TestCase):
             self.assertEqual(sum(r['quantity'] for r in rows),2)
             conn.ib.fills=lambda:[fill('a')]
             rows=execution_rows(conn,c,path)
-            self.assertEqual(len(rows),1)
-            self.assertEqual(rows[0]['quantity'],2)
+            self.assertEqual(len(rows),2)
+            self.assertEqual(sum(r['quantity'] for r in rows),2)
             self.assertEqual(rows[0]['price'],.78)
+            conn.ib.fills=lambda:[]
+            self.assertEqual(len(execution_rows(conn,c,path)),2)
+            conn._order_account=lambda:'B'
+            self.assertEqual(execution_rows(conn,c,path),[])
+            conn._order_account=lambda:'A'
+            conn.ib.fills=lambda:[fill('correction.01',perm=30)]
+            execution_rows(conn,c,path)
+            revised=fill('correction.02',perm=30)
+            revised.execution.price=.9
+            conn.ib.fills=lambda:[revised]
+            rows=execution_rows(conn,c,path)
+            self.assertEqual(len(rows),3)
+            self.assertNotIn('correction.01',[r['id'] for r in rows])
+            self.assertEqual(next(r['price'] for r in rows if r['id']=='correction.02'),.9)
+
 
     def test_legacy_option_identity_requires_exact_terms_and_aware_fill_time(self):
         c=NS(conId=7,secType='OPT',symbol='TSLL',lastTradeDateOrContractMonth='20261120',strike=11,right='C')

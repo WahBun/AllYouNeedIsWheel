@@ -68,7 +68,7 @@ chart.timeScale().subscribeVisibleLogicalRangeChange(hideExecutionPopup);
 window.addEventListener('chart-viewport-resized',hideExecutionPopup);
 
 function updateExecutionMarks(){
- const fills=displayOptions.executions!==false&&countdownPacket?.con_id===paperCID?((paperConfig.executions?.length?paperConfig.executions:accountExecutions)||[]):[];
+ const fills=displayOptions.executions!==false&&countdownPacket?.con_id===paperCID?[...new Map([...(accountExecutions||[]),...(paperConfig.executions||[])].map(f=>[f.id,f])).values()]:[];
  const marks=[], grouped=new Map();executionDetails.clear();
  for(const fill of fills){
   const id=(fill.group||fill.id)+'-'+fill.side;
