@@ -14,6 +14,8 @@ const savedSession=stored('wheel.web.chart.session'),urlSession=new URL(location
 session=['all','rth'].includes(urlSession)?urlSession:['all','rth'].includes(savedSession)?savedSession:'all';
 function rememberSession(){
  $('session').value=session;
+ $('session-button').textContent=(session==='all'?'ETH':'RTH')+' ▾';
+ for(const button of $('session-menu').children)button.setAttribute('aria-checked',String(button.dataset.session===session));
  try{localStorage.setItem('wheel.web.chart.session',JSON.stringify(session));}catch{}
  const url=new URL(location);url.searchParams.set('session',session);history.replaceState(null,'',url);
 }
@@ -177,6 +179,13 @@ function changeInterval(value){if(busy)return;interval=value;generation++;market
 $('interval').onclick=()=>{$('interval-menu').hidden=!$('interval-menu').hidden;$('interval').setAttribute('aria-expanded',String(!$('interval-menu').hidden));};
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('.interval-picker')){$('interval-menu').hidden=true;$('interval').setAttribute('aria-expanded','false');}});
 renderIntervals();
+function closeSessionMenu(focus=false){$('session-menu').hidden=true;$('session-button').setAttribute('aria-expanded','false');if(focus)$('session-button').focus();}
+$('session-button').onclick=()=>{const open=$('session-menu').hidden;$('session-menu').hidden=!open;$('session-button').setAttribute('aria-expanded',String(open));if(open)$('session-menu').querySelector('[aria-checked="true"]').focus();};
+for(const button of $('session-menu').children)button.onclick=()=>{closeSessionMenu(true);if(busy||button.dataset.session===session)return;$('session').value=button.dataset.session;$('session').dispatchEvent(new Event('change'));};
+$('session-picker').onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();closeSessionMenu(true);}else if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();$('session-menu').hidden=false;$('session-button').setAttribute('aria-expanded','true');const buttons=[...$('session-menu').children],i=buttons.indexOf(document.activeElement);buttons[e.key==='Home'?0:e.key==='End'?1:(i+(e.key==='ArrowDown'?1:-1)+2)%2].focus();}};
+document.addEventListener('pointerdown',e=>{if(!$('session-picker').contains(e.target))closeSessionMenu();});
+document.addEventListener('focusin',e=>{if(!$('session-picker').contains(e.target))closeSessionMenu();});
+window.addEventListener('blur',()=>closeSessionMenu());
 $('session').onchange=()=>{if(busy){$('session').value=session;return;}session=$('session').value;rememberSession();generation++;marketStream.stop();lastFallback=0;lastPnL=0;chartTransition();refresh();};
 $('toggle-trade').onclick=()=>{const detail=$('chart-detail');detail.hidden=!detail.hidden;$('toggle-trade').textContent='Detail '+(detail.hidden?'▾':'▴');$('toggle-trade').setAttribute('aria-expanded',String(!detail.hidden));};
 for(const [id,delta] of [['quantity-minus',-1],['quantity-plus',1]])$(id).onclick=()=>{if($('quantity').disabled)return;$('quantity').value=Math.min(Number($('quantity').max),Math.max(1,(Number($('quantity').value)||1)+delta));sync();};
