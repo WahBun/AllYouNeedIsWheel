@@ -62,6 +62,7 @@ final class ChartViewportTests: XCTestCase {
             return try String(contentsOf: url, encoding: .utf8)
         }
         let html = try resource("stock-chart", "html").replacingOccurrences(of: "/*LIBRARY*/", with: resource("lightweight-charts.standalone.production", "js"))
+            .replacingOccurrences(of: "</body>", with: "<script>" + resource("chart-add-orders", "js") + "</script></body>")
         let ready = expectation(description: "Chart script ready")
         let config = WKWebViewConfiguration()
         config.userContentController.add(ReadyBridge(ready), name: "chartReady")
@@ -84,14 +85,15 @@ final class ChartViewportTests: XCTestCase {
             let state = try await web.callAsyncJavaScript("""
             await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
             const c=document.querySelector('#chart table').getBoundingClientRect();
-            return {width:c.width,height:c.height,bars:series.data().length,axis:chart.priceScale('right').width(),entryRight:parseFloat(document.getElementById('entry').style.right),label:document.getElementById('entry').textContent};
+            return {width:c.width,height:c.height,bars:series.data().length,axis:chart.priceScale('right').width(),entryRight:parseFloat(document.getElementById('entry').style.right),direction:document.getElementById('order-direction').textContent,type:document.getElementById('order-type').textContent};
             """, arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
             let result = try XCTUnwrap(state)
             XCTAssertEqual(try XCTUnwrap(result["width"] as? Double), 393, accuracy: 1)
             XCTAssertEqual(try XCTUnwrap(result["height"] as? Double), Double(height), accuracy: 1)
             XCTAssertEqual(result["bars"] as? Int, 70)
             XCTAssertTrue((result["entryRight"] as? Double ?? 0) >= (result["axis"] as? Double ?? 0) + 35)
-            XCTAssertTrue((result["label"] as? String ?? "").contains("Sell LMT"))
+            XCTAssertEqual(result["direction"] as? String, "Sell")
+            XCTAssertTrue((result["type"] as? String ?? "").hasPrefix("LMT"))
             let axis = try XCTUnwrap(result["axis"] as? Double)
             XCTAssertLessThan(axis, 55)
             if let coldAxis { XCTAssertEqual(axis, coldAxis) } else { coldAxis = axis }

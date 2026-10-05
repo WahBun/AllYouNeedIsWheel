@@ -49,10 +49,10 @@ struct MetricPalettePreview: View {
         List {
             Section("P&L") {
                 Button { editing = PaletteEditTarget(id: "gain", title: "Profit", fallback: FinancialColors.gain) } label: {
-                    Text("+$128.00  +12.8%").foregroundStyle(palette.color("gain", scheme: scheme, fallback: FinancialColors.gain)).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    Text(128.0.formatted(.currency(code: "USD").sign(strategy: .always())) + "  " + 0.128.formatted(.percent.precision(.fractionLength(1)).sign(strategy: .always()))).foregroundStyle(palette.color("gain", scheme: scheme, fallback: FinancialColors.gain)).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 }.buttonStyle(.plain)
                 Button { editing = PaletteEditTarget(id: "loss", title: "Loss", fallback: FinancialColors.loss) } label: {
-                    Text("−$64.00  −6.4%").foregroundStyle(palette.color("loss", scheme: scheme, fallback: FinancialColors.loss)).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    Text((-64.0).formatted(.currency(code: "USD").sign(strategy: .always())) + "  " + (-0.064).formatted(.percent.precision(.fractionLength(1)).sign(strategy: .always()))).foregroundStyle(palette.color("loss", scheme: scheme, fallback: FinancialColors.loss)).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
             Section("Delta / Spread / IV") {

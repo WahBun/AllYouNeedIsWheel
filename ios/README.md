@@ -139,3 +139,9 @@ Daytime regression verification (2026-10-02): 96 iOS tests, 232 Python tests and
 amendment review, missing amendment acknowledgement after a partial fill, and
 entry-margin response mismatches. Broker execution was mocked; this does not
 constitute live-order validation or a long-duration phone battery measurement.
+
+## 2026-10-05 图表同步验证
+
+网页和 WKWebView 共同加载 `ChartAssets/chart-add-orders.js`，挂单加仓、取消和订单身份校验共用同一实现。原生加仓数量可直接输入，不再限制合计持仓；减仓仍需保留持仓。保留动态翻译键，清理无引用的旧翻译，并使用百分比 FormatStyle。项目没有 App Intents，关闭该项元数据提取，不关闭编译警告。
+
+验证：后端 460 项、iOS 模拟器 121 项通过；移动触控加仓、20 手数量、取消、旧订单引用、明暗主题，以及网页提交/修改/撤销、OVT 500 股与未知请求恢复交互通过。干净模拟器构建及真机构建没有编译警告。以上订单测试使用模拟数据，不代表 IB 成交验收。

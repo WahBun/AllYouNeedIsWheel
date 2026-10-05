@@ -358,7 +358,7 @@ struct StockChartView: View {
     }
     @State private var selectedContract: [String: Any] = [:]
     @State private var showSymbols = false
-    @State private var symbolQuery = "TSLA"
+    @State private var symbolQuery = "QQQ"
     @State private var symbolResults: [[String: Any]] = []
     @State private var symbolError: String?
     @State private var searching = false
@@ -771,7 +771,7 @@ struct StockChartView: View {
                             ForEach(["auto", "tiny", "small", "normal", "large", "huge"], id: \.self) { Text($0.capitalized).tag($0) }
                         }
                         ColorPicker("Label color", selection: barCountColorBinding, supportsOpacity: false)
-                        HStack { Text("Opacity"); Spacer(); Text("\(Int(barCountOpacity))%").monospacedDigit() }
+                        HStack { Text("Opacity"); Spacer(); Text((barCountOpacity / 100).formatted(.percent.precision(.fractionLength(0)))).monospacedDigit() }
                         Slider(value: $barCountOpacity, in: 0...100, step: 1)
                     } else { Toggle("Bar Count", isOn: $showBarCount) }
                 }
@@ -798,7 +798,7 @@ struct StockChartView: View {
     @State private var adjustmentQuantity = 1
     @State private var showAdjustment = false
     private var positionSize: Int { Int(abs(paperState["position"] as? Double ?? 0)) }
-    private var adjustmentLimit: Int { adjustmentAction == "trim" ? max(0, positionSize - 1) : max(0, quantityLimit - positionSize) }
+    private var adjustmentLimit: Int { adjustmentAction == "trim" ? max(0, positionSize - 1) : Int.max }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
         ["previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
@@ -969,7 +969,7 @@ struct StockChartView: View {
                 }
             }
             if !hasOrderPreview { ChartOrderProgressView(state: paperState) }
-            if let paperMessage, !paperMessage.isEmpty { Text(paperMessage).font(.caption).foregroundStyle(.secondary) }
+            if let paperMessage, !paperMessage.isEmpty { NoticeText(paperMessage).font(.caption).foregroundStyle(.secondary) }
             if !fullScreen && !tradingPanelCollapsed {
             HStack(spacing: 8) {
                 TextField(chartType == "STK" ? "Shares" : "Contracts", text: $quantity).keyboardType(chartType == "STK" ? .decimalPad : .numberPad)
@@ -995,7 +995,7 @@ struct StockChartView: View {
                     }
                     ChartPositionActionsLayout {
                         Menu {
-                            Button("Add contracts") { adjustmentAction = "add"; adjustmentQuantity = 1; showAdjustment = true }.disabled(positionSize >= quantityLimit)
+                            Button("Add contracts") { adjustmentAction = "add"; adjustmentQuantity = 1; showAdjustment = true }
                             Button("Trim contracts") { adjustmentAction = "trim"; adjustmentQuantity = 1; showAdjustment = true }.disabled(positionSize < 2)
                         } label: { Image(systemName: "plus.forwardslash.minus").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.accessibilityLabel("Add or trim contracts").disabled(!paperEnabled || paperBusy || positionSize == 0 || paperState["known"] as? Bool != true || paperState["scalable"] as? Bool != true)
                         Button { if paperEnabled { paperAction(["action": "close"]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.65).frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || paperState["closing"] as? Bool == true || (paperEnabled ? !paperActive : validEntry <= 0))
@@ -1016,7 +1016,7 @@ struct StockChartView: View {
                             .onSubmit { Task { await searchSymbols() } }
                         Button("Search") { Task { await searchSymbols() } }.disabled(searching)
                     }
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3)) { ForEach(["TSLA", "ES", "NQ", "TSLL", "MES", "MNQ"], id: \.self) { symbol in Button(symbol) { symbolQuery = symbol; Task { await searchSymbols() } }.buttonStyle(.bordered) } }
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3)) { ForEach(["TSLA", "ES", "NQ", "NVDA", "MES", "MNQ"], id: \.self) { symbol in Button(symbol) { symbolQuery = symbol; Task { await searchSymbols() } }.buttonStyle(.bordered) } }
                     if searching { ProgressView() }
                     if let symbolError { Text(symbolError).foregroundStyle(.red) }
                     ForEach(symbolResults.indices, id: \.self) { index in
@@ -1103,12 +1103,12 @@ struct StockChartView: View {
             NavigationStack {
                 Form {
                     Text("Current position: \(positionSize)")
-                    Stepper("Quantity: \(adjustmentQuantity)", value: $adjustmentQuantity, in: 1...max(1, adjustmentLimit))
+                    TextField("Quantity", value: $adjustmentQuantity, format: .number.grouping(.never)).keyboardType(.numberPad)
                     Text("Futures use one protected bracket per contract. Add creates new brackets. Trim exits selected contracts at bid/ask while keeping every other bracket unchanged.").font(.caption)
                     Button(adjustmentAction == "trim" ? "Trim position" : "Add to position") {
                         showAdjustment = false
-                        paperAction(["action": adjustmentAction, "quantity": adjustmentQuantity])
-                    }.disabled(paperBusy || adjustmentLimit < adjustmentQuantity)
+                        paperAction(["action": adjustmentAction, "quantity": adjustmentQuantity, "expected_ref": paperState["order_ref"] ?? ""])
+                    }.disabled(paperBusy || adjustmentQuantity < 1 || adjustmentLimit < adjustmentQuantity)
                 }.navigationTitle(adjustmentAction == "trim" ? "Trim" : "Add")
                     .toolbar { Button("Cancel") { showAdjustment = false } }
             }.presentationDetents([.medium])
@@ -1422,8 +1422,9 @@ private struct StockChartWeb: UIViewRepresentable {
         if let html = resource("stock-chart", "html"), let library = resource("lightweight-charts.standalone.production", "js"),
            let template = try? String(contentsOf: html, encoding: .utf8), let js = try? String(contentsOf: library, encoding: .utf8) {
             let drawingJS = resource("chart-drawings", "js").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+            let addJS = resource("chart-add-orders", "js").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
             let html = template.replacingOccurrences(of: "/*LIBRARY*/", with: js)
-                .replacingOccurrences(of: "</body>", with: "<script>" + drawingJS + "</script></body>")
+                .replacingOccurrences(of: "</body>", with: "<script>" + drawingJS + "</script><script>" + addJS + "</script></body>")
             web.loadHTMLString(html, baseURL: nil)
         } else { web.loadHTMLString("<p>Chart resources unavailable</p>", baseURL: nil) }
         return web

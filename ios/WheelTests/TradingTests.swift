@@ -1453,7 +1453,7 @@ extension TradingTests {
 
 
 // Leaves an SSE response open without sending another byte, like a suspended link.
-private final class SuspendedChartProtocol: URLProtocol, @unchecked Sendable {
+private final class SuspendedChartProtocol: URLProtocol {
     static let lock = NSLock()
     nonisolated(unsafe) static var onStop: (() -> Void)?
     override class func canInit(with request: URLRequest) -> Bool { true }

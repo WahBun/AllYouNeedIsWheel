@@ -157,6 +157,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				/* No App Intents or shortcuts are defined in this app or its tests. */
+				LM_SKIP_METADATA_EXTRACTION = YES;
 				ENABLE_TESTABILITY = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				SDKROOT = iphoneos;
@@ -169,6 +171,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				/* No App Intents or shortcuts are defined in this app or its tests. */
+				LM_SKIP_METADATA_EXTRACTION = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
