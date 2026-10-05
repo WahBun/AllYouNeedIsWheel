@@ -31,7 +31,7 @@ state={...state,position:6};await page.waitForFunction(()=>document.getElementBy
 await page.locator('#adjustment-quantity').fill('2');assert.equal(await page.locator('#add').isEnabled(),true);assert.equal(await page.locator('#trim').isEnabled(),true);
 await page.locator('#add').click();await page.waitForTimeout(150);assert.equal(writes.at(-1).quantity,2);assert.equal(writes.at(-1).expected_ref,'held-ref');
 await page.locator('#adjustment-quantity').fill('4');assert.equal(await page.locator('#trim').isDisabled(),true);
-await page.locator('#adjustment-quantity').fill('7');assert.equal(await page.locator('#add').isDisabled(),true);
+await page.locator('#adjustment-quantity').fill('20');assert.equal(await page.locator('#add').isEnabled(),true);
 await page.locator('#adjustment-quantity').fill('1.5');assert.equal(await page.locator('#add').isDisabled(),true);assert.equal(await page.locator('#trim').isDisabled(),true);
 state={enabled:true,known:true,active:false,status:'done',position:0};await page.waitForFunction(()=>document.getElementById('adjustment-control').hidden);assert.equal(await page.locator('#adjustment-control').isVisible(),false);sent=writes.length;
 await page.locator('#toggle-trade').click();mode='live';await page.waitForFunction(()=>document.getElementById('connection').textContent.includes('live'));await page.locator('#preview').click();await chart.locator('#order-direction').click({force:true});assert.equal(writes.length,sent,'Live never writes');

@@ -299,6 +299,16 @@ class PaperChart:
                 db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
                     (json.dumps(dict(success=status != 'rejected', status=status)), request_id, account))
             return dict(confirmed=True, status=status)
+        if body.get('action') == 'cancel_add' and state['known'] and group.get('ref') == body.get('expected_ref'):
+            lot = next((lot for lot in group.get('lots', [])[1:] if lot['entry'] == body.get('order_id')), None)
+            rows = {r['order_id']: r for r in state['orders']}
+            parent = rows.get(body.get('order_id'))
+            if lot and parent:
+                if parent['filled'] or parent['status'] == 'Filled':
+                    return resolved('filled')
+                if parent['status'] in ('Cancelled','ApiCancelled') and all(
+                        rows.get(lot[r], {}).get('status') in ('Cancelled','ApiCancelled','Inactive') for r in ('tp','sl')):
+                    return resolved('canceled')
         if body.get('action') in ('amend','be') and state['known'] and group.get('ref') == body.get('expected_ref'):
             role='sl' if body['action']=='be' else body.get('role')
             target_ids={oid for key,oid in group.get('ids',{}).items() if key.split('_')[0]==role}
@@ -362,6 +372,11 @@ class PaperChart:
                 self.save_group(account, cid, group)
             state=self.state(conn,cid)
             result=dict(success=not state.get('rejected',False),status='rejected' if state.get('rejected') else 'acknowledged',message='IB rejected a paper order; review Gateway' if state.get('rejected') else 'Paper request sent; broker status shown on chart',state=state)
+            if body.get('action') == 'cancel_add':
+                parent = next((r for r in state['orders'] if r['order_id'] == body.get('order_id')), {})
+                filled = bool(parent.get('filled') or parent.get('status') == 'Filled')
+                result.update(success=True, status='filled' if filled else 'canceled',
+                              message='Add filled before cancellation; position and protection retained' if filled else 'Add order canceled; existing position and protection retained')
             if state.get('mode') == 'overnight_entry':
                 status = state['status']
                 cancel_requested = (body.get('cancel') is True or body.get('action') == 'cancel_entry'
@@ -612,7 +627,45 @@ class PaperChart:
             # At least one broker write may have happened. Do not offer a blind retry.
             raise RuntimeError('Entry amendment needs broker reconciliation') from error
 
+    def cancel_add(self, conn, account, cid, body):
+        """Cancel one owned, unfilled unit parent; never cancel its protection directly."""
+        conn._bounded_order_read(conn.ib.reqOpenOrders, timeout_seconds=3)
+        current = self.state(conn, cid)
+        group = self.group(account, cid) or {}
+        if not current['known'] or body.get('expected_ref') != group.get('ref'):
+            raise ValueError('Order identity/status changed; refresh before canceling the add')
+        oid = body.get('order_id')
+        if isinstance(oid, bool) or not isinstance(oid, int):
+            raise ValueError('Exact add order ID required')
+        lot = next((lot for lot in group.get('lots', [])[1:] if lot['entry'] == oid), None)
+        if not lot:
+            raise ValueError('This is not an owned add order')
+        trades = getattr(self, '_resolved_trades', {})
+        parent = trades.get(oid)
+        if (not parent or parent.contract.conId != cid or parent.order.account != account
+                or parent.order.orderRef != group.get('ref')):
+            raise ValueError('Exact add order unavailable')
+        if parent.orderStatus.filled or parent.orderStatus.status == 'Filled':
+            return  # Fill won the race; never remove filled-unit protection.
+        if parent.orderStatus.status not in ('Cancelled', 'ApiCancelled', 'PendingCancel'):
+            if parent.orderStatus.status not in ('Submitted', 'PreSubmitted'):
+                raise ValueError('Add order is not currently cancelable')
+            conn.ib.cancelOrder(parent.order)
+        import time
+        deadline = time.monotonic() + 4
+        while time.monotonic() < deadline:
+            if parent.orderStatus.filled or parent.orderStatus.status == 'Filled':
+                return
+            children = [trades.get(lot[r]) for r in ('tp', 'sl')]
+            if parent.orderStatus.status in ('Cancelled', 'ApiCancelled') and all(
+                    t and t.orderStatus.status in ('Cancelled', 'ApiCancelled', 'Inactive') for t in children):
+                return
+            conn.ib.sleep(.05)
+        raise RuntimeError('Add cancellation is awaiting broker confirmation')
+
     def perform(self, conn, account, cid, body, request_id):
+        if body.get('action') == 'cancel_add':
+            return self.cancel_add(conn, account, cid, body)
         if body.get('action') in ('close','be','add','trim') and any(t.contract.conId==cid and t.order.account==account and t.order.orderRef in {g['ref'] for g in self.group_choices(account,cid) if g['id'] != (self.group_id or '')} for t in conn.ib.openTrades()):
             raise ValueError('Multiple order groups: manage each order separately; position actions require reconciliation')
         if body.get('action') == 'edit_entry' and body.get('cancel') is True:
@@ -736,7 +789,6 @@ class PaperChart:
             size = abs(current['position'])
             if not size or current['position'] * group['side'] <= 0: raise ValueError('No filled chart position')
             if action == 'trim' and qty >= size: raise ValueError('Trim must leave a position; use Close Position')
-            if action == 'add' and size + qty > 10: raise ValueError('Resulting position exceeds the chart quantity limit')
             owned = sum(group['side'] * (1 if row['role'].split('_')[0] == 'entry' else -1) * row['filled']
                         for row in current['orders'])
             if abs(owned-current['position']) > .000001: raise ValueError('Position differs from chart fills; reconcile Gateway')
@@ -746,6 +798,12 @@ class PaperChart:
             for lot in group['lots']:
                 parent, take, stop = [trades.get(lot[r]) for r in ('entry','tp','sl')]
                 if not all((parent,take,stop)): raise ValueError('Lot status needs reconciliation')
+                if (parent.orderStatus.status in ('Cancelled','ApiCancelled') and not parent.orderStatus.filled
+                        and all(t.orderStatus.status in ('Cancelled','ApiCancelled','Inactive') and not t.orderStatus.filled for t in (take,stop))):
+                    continue
+                if (action == 'add' and parent.orderStatus.status in ('Submitted','PreSubmitted') and not parent.orderStatus.filled
+                        and all(t.orderStatus.status in ('Submitted','PreSubmitted') and not t.orderStatus.filled for t in (take,stop))):
+                    continue
                 if parent.orderStatus.status != 'Filled': raise ValueError('Wait for all entry orders to finish')
                 if take.orderStatus.status == 'Filled' or stop.orderStatus.status == 'Filled': continue
                 if lot.get('closing') or take.isDone() or stop.isDone(): raise ValueError('An exit needs reconciliation before another adjustment')

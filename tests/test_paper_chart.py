@@ -333,7 +333,7 @@ class ProtectedLotTests(unittest.TestCase):
         self.open_four();group=self.service.group('DU_TEST',7)
         base=dict(action='add',quantity=1,entry_type='LMT',entry=9.75,side=1,
                   expected_ref=group['ref'],expected_tp=11,expected_sl=9)
-        for change in [dict(side=-1),dict(expected_ref='old'),dict(expected_tp=12),dict(entry=11),dict(entry=9),dict(entry=9.76),dict(quantity=7),dict(entry_type='BAD')]:
+        for change in [dict(side=-1),dict(expected_ref='old'),dict(expected_tp=12),dict(entry=11),dict(entry=9),dict(entry=9.76),dict(entry_type='BAD')]:
             result=self.service.execute(self.conn,7,dict(base,**{'request_id':str(uuid4()),**change}))
             self.assertEqual(result['status'],'rejected',result)
         self.conn.ib.placeOrder.assert_not_called()
@@ -363,6 +363,66 @@ class ProtectedLotTests(unittest.TestCase):
         self.assertEqual(self.conn.ib.placeOrder.call_args_list[0].args[1].action,'SELL')
         self.service.execute(self.conn,7,body)
         self.assertEqual(self.conn.ib.placeOrder.call_count,3)
+
+    def priced_add(self, quantity=1):
+        group=self.service.group('DU_TEST',7)
+        return self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='add',quantity=quantity,
+            entry_type='STP',entry=10.25,side=1,expected_ref=group['ref'],expected_tp=11,expected_sl=9))
+
+    def test_multiple_pending_adds_allow_more_than_ten(self):
+        self.open_four()
+        self.assertTrue(self.priced_add(2)['success'])
+        self.assertTrue(self.priced_add(2)['success'])
+        self.assertTrue(self.priced_add(20)['success'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count,72)
+
+    def test_cancel_one_add_preserves_other_pending_adds_and_protection(self):
+        self.open_four();self.priced_add();self.priced_add()
+        group=self.service.group('DU_TEST',7);lot=group['lots'][4]
+        def cancel(order):
+            for trade in self.trades:
+                if trade.order.orderId==order.orderId or trade.order.parentId==order.orderId:
+                    trade.orderStatus.status='Cancelled'
+        self.conn.ib.cancelOrder.side_effect=cancel
+        body=dict(request_id=str(uuid4()),action='cancel_add',order_id=lot['entry'],expected_ref=group['ref'])
+        result=self.service.execute(self.conn,7,body)
+        self.assertEqual(result['status'],'canceled',result)
+        self.assertEqual(self.conn.ib.cancelOrder.call_count,1)
+        self.assertEqual(self.conn.ib.cancelOrder.call_args.args[0].orderId,lot['entry'])
+        self.assertEqual(self.trades[-3].orderStatus.status,'Submitted')
+        self.assertEqual(result['state']['protection']['status'],'covered')
+        self.service.execute(self.conn,7,body);self.assertEqual(self.conn.ib.cancelOrder.call_count,1)
+        self.assertTrue(self.priced_add()['success'])
+
+    def test_cancel_add_fill_race_retains_children(self):
+        self.open_four();self.priced_add();group=self.service.group('DU_TEST',7);parent=self.trades[-3]
+        def race(order):
+            parent.orderStatus.status='Filled';parent.orderStatus.filled=1
+            self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=5)]
+        self.conn.ib.cancelOrder.side_effect=race
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='cancel_add',order_id=parent.order.orderId,expected_ref=group['ref']))
+        self.assertEqual(result['status'],'filled',result)
+        self.assertTrue(all(t.orderStatus.status=='Submitted' for t in self.trades[-2:]))
+        self.assertEqual(result['state']['protection']['status'],'covered')
+        self.assertEqual(self.conn.ib.cancelOrder.call_count,1)
+
+    def test_cancel_add_unknown_is_reconciled_without_replay(self):
+        self.open_four();self.priced_add();group=self.service.group('DU_TEST',7);lot=group['lots'][4]
+        body=dict(request_id=str(uuid4()),action='cancel_add',order_id=lot['entry'],expected_ref=group['ref'])
+        self.conn.ib.cancelOrder.side_effect=RuntimeError('response lost')
+        result=self.service.execute(self.conn,7,body);self.assertEqual(result['status'],'unknown')
+        self.service.execute(self.conn,7,body);self.assertEqual(self.conn.ib.cancelOrder.call_count,1)
+        for t in self.trades[-3:]:t.orderStatus.status='Cancelled'
+        result=self.service.request_status(self.conn,7,body['request_id'])
+        self.assertEqual(result['status'],'canceled');self.assertTrue(result['confirmed'])
+        self.assertEqual(self.conn.ib.cancelOrder.call_count,1)
+
+    def test_cancel_add_rejects_original_protection_or_stale_identity(self):
+        self.open_four();self.priced_add();group=self.service.group('DU_TEST',7)
+        for oid,ref in [(101,group['ref']),(100,group['ref']),(112,'old')]:
+            result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='cancel_add',order_id=oid,expected_ref=ref))
+            self.assertEqual(result['status'],'rejected',result)
+        self.conn.ib.cancelOrder.assert_not_called()
 
     def test_unresolved_trim_cannot_repeat_or_add(self):
         self.open_four()

@@ -393,3 +393,27 @@ stale preview rejection and pushed P&L checks passed. Includes long/short adds,
 old protection retention, contingent protection counts, invalid prices/identity,
 and lost-response non-replay. Broker acceptance of priced adds is still outstanding;
 no orders were placed, amended or canceled by this maintenance verification.
+
+### Add-order cancellation, multiple pending adds and quantity policy
+
+Supersedes the preceding pending-add and ten-contract restrictions: the user
+explicitly removed the aggregate add cap. Market and priced adds accept positive
+integer quantities including 20, even with existing acknowledged, unfilled unit
+parents. Uncertain/pending-cancel or incomplete protection states still block
+unsafe changes. Initial-entry limits are unchanged by this add-specific request.
+
+Each pending unit add now exposes a chart cancel button and a scrollable ticket
+list with exact order IDs, so overlapping prices remain individually reachable.
+`cancel_add` validates account, conId, group reference and the recorded unit parent;
+it sends at most one cancellation for that parent and never directly cancels its
+children. Cancellation is confirmed only after broker parent/child outcomes arrive.
+A fill wins the race and retains protection; timeouts remain unknown and GET
+reconciliation resolves them without another write. Confirmed canceled units no
+longer block another add. The add preview now uses a styled responsive modal with
+quantity, price, TIF, TP/SL and existing pending quantity, plus dark/light treatment.
+
+Verification: 458 Python tests, including repeated pending adds above ten, exact
+single cancellation, other-unit protection retention, canceled-unit reuse, filled
+cancellation races, unknown-response recovery, identity rejection and non-replay.
+Browser mocks verified repeated priced adds, no quantity max, per-ID cancellation,
+and popup rendering. Actual broker cancel/fill race acceptance is not claimed.
