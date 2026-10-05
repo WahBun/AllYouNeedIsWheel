@@ -190,7 +190,6 @@ const settingsPanel=WheelChartSettings.mount({read:()=>display,change:saveDispla
 function settings(mode='display'){settingsPanel.open(mode);}
 $('settings').onclick=()=>settings();
 $('theme').onclick=()=>{dark=!dark;document.body.classList.toggle('light',!dark);localStorage.setItem('theme',dark?'dark':'light');sync();};document.body.classList.toggle('light',!dark);
-$('language').onclick=()=>{const zh=document.documentElement.lang!=='zh';document.documentElement.lang=zh?'zh':'en';for(const el of document.querySelectorAll('[data-en]'))el.textContent=el.dataset[zh?'zh':'en'];sync();};
 $('copy').onclick=()=>navigator.clipboard.writeText(JSON.stringify({contract:cid,interval,session,mode:profile.selected,status:state.status,activity},null,2));
 // Install on both documents: focus may be in the chart or its surrounding controls.
 function magnetKeys(doc){const reset=()=>frame.contentWindow.setTemporaryMagnet?.(false);doc.addEventListener('keydown',e=>{if(e.key==='Meta'&&!e.target.closest('input,textarea,select,[contenteditable=true]')&&!document.querySelector('dialog[open]'))frame.contentWindow.setTemporaryMagnet?.(true);});doc.addEventListener('keyup',e=>{if(e.key==='Meta'||!e.metaKey)reset();});doc.defaultView.addEventListener('blur',reset);doc.addEventListener('visibilitychange',()=>{if(doc.hidden)reset();});}
