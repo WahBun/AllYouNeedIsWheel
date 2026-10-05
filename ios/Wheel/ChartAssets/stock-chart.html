@@ -494,7 +494,8 @@ let submitPending=false,submitSawBusy=false,entryDragMoved=false,entryPressDirec
 function ovtStopBlocked(type){return type==='STP'&&(paperConfig.preview_tif==='OVERNIGHT'||paperConfig.tif==='OVERNIGHT');}
 function submitPreview(source){
  if(ovtStopBlocked(entryType)){validation('OVT supports limit orders only; STP is unavailable');return;}
- if(submitPending||paperConfig.active||!paperConfig.enabled||paperConfig.busy||canceled||!(entry>0&&qty>0))return;
+ if(!paperConfig.enabled||paperConfig.busy){if(paperConfig.webEntryDrag)paperAction({action:'submitBlocked'});else validation('Trading unavailable; waiting for order status');return;}
+ if(submitPending||paperConfig.active||canceled||!(entry>0&&qty>0))return;
  submitPending=true;
  paperAction({action:'submit',entry,quantity:qty,side,entry_type:entryType,tp:levels.tp,sl:levels.sl,...(source==='join'?{source:'join',join_revision:lastJoinRevision}:{})});
 }
