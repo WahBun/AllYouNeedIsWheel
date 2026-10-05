@@ -177,6 +177,16 @@ def get_stock_chart(con_id):
         return _no_store_json({'error': 'Stock chart unavailable; retry shortly'}, 503)
 
 
+@bp.get('/chart-pnl/<int:con_id>')
+def get_chart_pnl(con_id):
+    """Read P&L separately so chart streaming never waits for a full snapshot."""
+    from api.services.chart_pnl import snapshot
+    from api.routes.account import status as account_status
+    connection = portfolio_service._ensure_connection()
+    return _no_store_json({'daily_pnl': snapshot(connection, con_id),
+                           'account_epoch': account_status()['epoch']})
+
+
 @bp.route('/stock-chart-stream/<int:con_id>', methods=['GET'])
 def get_stock_chart_stream(con_id):
     from api.services.chart_stream import response

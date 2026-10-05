@@ -326,3 +326,23 @@ Source: https://interactivebrokers.github.io/tws-api/pnl.html
 Validation: `tests/test_chart_pnl.py` and `tests/chart/daily-pnl.cjs` cover missing,
 zero, negative, stale and invalid values, account/contract switching, reconnect,
 subscription limits, and English/Chinese light/dark at 393/850/1440px.
+
+## Web chart push (2026-10-05)
+
+The browser now uses the same `/api/portfolio/stock-chart-stream` SSE endpoint as
+native iOS for supported intraday intervals. Healthy streams replace chart polling;
+changed bars go directly to the shared chart renderer even while a trading write
+is waiting. Order reconciliation remains separate and never replays writes.
+An eight-second packet watchdog, bounded reconnect backoff and snapshot-first
+sequence validation recover lost streams. Hidden/unloaded pages close subscriptions;
+contract, interval, session and account-context changes discard old callbacks.
+Unsupported higher periods retain snapshot refresh, and disconnected streams use
+snapshot fallback. P&L is read independently every five seconds with its own expiry.
+The existing backend limits (two streams and one active chart contract) still apply;
+SSE does not imply an unfiltered exchange tick feed or upgrade market-data entitlement.
+
+Verification: 433 Python tests; browser stream regression (deltas during pending
+writes, gap recovery, old-timeframe isolation, no write replay); lifecycle watchdog
+and account-context tests; existing web order/Live-isolation/responsive regression;
+and P&L freshness, contract/account, Chinese/English and light/dark checks passed.
+All automated trading interactions in these browser checks use intercepted mocks.

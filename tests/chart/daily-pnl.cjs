@@ -5,7 +5,8 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  await page.route('**/api/**',async route=>{
   const req=route.request(),url=new URL(req.url());assert.equal(req.method(),'GET','PnL never submits orders');let result={};
   if(url.pathname.endsWith('/profiles'))result={selected:'paper',verified,epoch:'test'};
-  else if(url.pathname.includes('/stock-chart/')){assert.equal(url.searchParams.get('include_pnl'),'1');result={con_id:7,account_epoch:responseEpoch,daily_pnl:{con_id:conId,value,fresh:true,age_seconds:age,currency:'USD'},generation:'test',security_type:'FUT',currency:'USD',symbol:'ES',interval:5,session:'rth',bars:[{time:1790947800,open:100,high:102,low:98,close:101}]};}
+  else if(url.pathname.includes('/stock-chart/')){result={con_id:7,account_epoch:responseEpoch,daily_pnl:{con_id:conId,value,fresh:true,age_seconds:age,currency:'USD'},generation:'test',security_type:'FUT',currency:'USD',symbol:'ES',interval:5,session:'rth',bars:[{time:1790947800,open:100,high:102,low:98,close:101}]};}
+  else if(url.pathname.includes('/chart-pnl/'))result={account_epoch:responseEpoch,daily_pnl:{con_id:conId,value,fresh:true,age_seconds:age,currency:'USD'}};
   else if(url.pathname.includes('/paper-chart/'))result={enabled:true,known:true,active:false,status:'idle',position:0};
   else if(url.pathname.endsWith('/pending-orders'))result={orders:[]};
   else if(url.pathname.endsWith('/bootstrap'))result={positions:[]};
@@ -16,9 +17,9 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  const shows=async expected=>page.waitForFunction(v=>document.getElementById('daily-pnl-value').textContent===v,expected);
  await shows('+123.45');assert.equal(await page.locator('#daily-pnl-value').getAttribute('data-direction'),'positive');assert.equal(await page.locator('#daily-pnl-currency').textContent(),'USD');
  value=-15.5;await shows('-15.50');assert.equal(await page.locator('#daily-pnl-value').getAttribute('data-direction'),'negative');value=0;await shows('0.00');assert.equal(await page.locator('#daily-pnl-value').getAttribute('data-direction'),'neutral');value=null;await shows('—');assert.equal(await page.locator('#daily-pnl-value').getAttribute('data-direction'),'neutral');
- value=42;age=16;await page.waitForTimeout(2200);assert.equal(await page.locator('#daily-pnl-value').textContent(),'—');
- age=0;responseEpoch='old-account';await page.waitForTimeout(2200);assert.equal(await page.locator('#daily-pnl-value').textContent(),'—');
- responseEpoch='test';conId=8;await page.waitForTimeout(2200);assert.equal(await page.locator('#daily-pnl-value').textContent(),'—');
+ value=42;age=16;await page.waitForTimeout(5500);assert.equal(await page.locator('#daily-pnl-value').textContent(),'—');
+ age=0;responseEpoch='old-account';await page.waitForTimeout(5500);assert.equal(await page.locator('#daily-pnl-value').textContent(),'—');
+ responseEpoch='test';conId=8;await page.waitForTimeout(5500);assert.equal(await page.locator('#daily-pnl-value').textContent(),'—');
  conId=7;await shows('+42.00');verified=false;await shows('—');verified=true;value=1234567.89;await shows('+1,234,567.89');
  for(const width of [1440,850,393]){
   await page.setViewportSize({width,height:1000});
