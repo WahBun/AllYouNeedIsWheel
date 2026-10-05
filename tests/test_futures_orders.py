@@ -37,6 +37,17 @@ class FuturesOrdersTests(unittest.TestCase):
                 self.assertTrue(all('chart_order_ref' not in row for row in futures_orders(self.conn, db_path=path)))
                 self.conn.readonly = False
 
+    def test_standalone_tp_has_protection_identity_without_parent(self):
+        with TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / 'orders.db')
+            PaperChart(path).save_group('DU_TEST',7,dict(ref='WheelPaper:position:test',side=-1,origin_position=-1,origin_entry=2.12,ids={'tp':50}))
+            trade=self.trade();trade.order.orderRef='WheelPaper:position:test'
+            self.conn.get_order_status_snapshot.return_value={'authoritative_open_trades':[trade]}
+            row=futures_orders(self.conn,db_path=path)[0]
+            self.assertEqual(row['chart_protection_ref'],'WheelPaper:position:test')
+            self.assertEqual(row['chart_protection_group_id'],'')
+            self.assertNotIn('chart_order_ref',row)
+
     def test_independent_group_metadata_preserves_exact_scope(self):
         from uuid import uuid4
         with TemporaryDirectory() as tmp:

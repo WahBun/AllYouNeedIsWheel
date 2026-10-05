@@ -1,6 +1,26 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Add exits to the current position. Profit % uses the broker cost basis, which may include fees.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为当前持仓补挂退出单。获利百分比按券商成本计算，成本可能含手续费。"
+          }
+        }
+      }
+    },
+    "Confirm adding exits": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认添加退出订单"
+          }
+        }
+      }
+    },
     "Manage TP / SL": {
       "localizations": {
         "zh-Hans": {

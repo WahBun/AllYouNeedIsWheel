@@ -51,7 +51,7 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
                         group = json.loads(encoded)
                         ref = group.get('ref', '')
                         if ref.startswith('WheelPaper:'):
-                            journal[ref] = dict(con_id=cid, group_id=group_id, side=group.get('side'), mode=group.get('mode'), order_ids=list(group.get('ids', {}).values()), entry_ids=[oid for role, oid in group.get('ids', {}).items() if role.split('_')[0] == 'entry'])
+                            journal[ref] = dict(con_id=cid, group_id=group_id, side=group.get('side'), mode=group.get('mode'), order_ids=list(group.get('ids', {}).values()), entry_ids=[oid for role, oid in group.get('ids', {}).items() if role.split('_')[0] == 'entry'], protection_ids=[oid for role, oid in group.get('ids', {}).items() if role.split('_')[0] in ('tp','sl')])
     from core.connection import IBConnection
     result = {}
     brackets = {}
@@ -99,7 +99,7 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
         if (request and chart_owned and o.orderId in request.get('order_ids', [])
                 and account.startswith('DU') and conn.port == 4002 and conn.readonly is False):
             result[identity]['chart_navigation_group_id'] = request.get('group_id') or ''
-            if o.parentId:
+            if o.parentId or o.orderId in request.get('protection_ids', []):
                 result[identity]['chart_protection_ref'] = ref
                 result[identity]['chart_protection_group_id'] = request.get('group_id') or ''
 

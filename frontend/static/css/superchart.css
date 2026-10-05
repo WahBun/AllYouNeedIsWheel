@@ -55,3 +55,4 @@ body.light #daily-pnl-value[data-direction=negative]{color:#b73544}
 
 .protection-settings{display:grid;gap:8px;padding:12px 0}.protection-toggle{display:flex;align-items:center;gap:8px;margin:0}.protection-toggle label{display:flex;align-items:center;gap:7px;margin:0}.protection-toggle input[type=checkbox],#protection-editor input[type=checkbox]{width:18px;height:18px;min-height:18px;margin:0}.protection-settings small{color:var(--muted)}#protection-editor{max-width:min(460px,calc(100vw - 24px));max-height:85dvh;overflow:auto;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:12px;padding:20px}#protection-form{display:grid;gap:12px}#protection-form h2,#protection-form p{margin:0}#protection-editor::backdrop{background:#0008}
 #protection-form label{display:flex;align-items:center;gap:9px;margin:0}#protection-form input:disabled{display:none}
+#protection-form label{flex-direction:row;justify-content:flex-start}

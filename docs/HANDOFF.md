@@ -473,7 +473,7 @@ Retired order IDs/permIds remain available for accounting and reconnect recovery
 Single-leg/no-exit positions use the reconciled Close path. Add/Trim remains
 available only for the original unit brackets with both exits confirmed covered;
 rebuilding protection currently disables unit scaling. BE requires a working SL.
-The management editor does not adopt unrelated/manual holdings or pending entries.
+Pending entries remain blocked; see the existing-position follow-up below for holdings without chart entry groups.
 
 Validation uses mocked broker responses, shared-chart browser interactions across
 desktop/mobile, English/Chinese and light/dark, plus native simulator tests.
@@ -484,3 +484,24 @@ Validated locally: 484 backend tests, 125 native simulator tests, optional-exit 
 The unrelated legacy `mobile-preview.cjs` drawing-toolbar fixture times out on
 its Horizontal ray locator on both the pre-change chart and this revision;
 it is not included in the passing trading-interaction checks above.
+
+## 2026-10-06 existing-position TP follow-up
+
+The first 1.4 implementation omitted management for holdings without a chart
+entry group. The read-only broker snapshot now exposes a position-specific
+management reference and exact quantity/cost snapshot. Explicit Apply claims
+that holding only after checking all clients' open orders and rereading the
+position. No synthetic entry order is created. TP-only shorts place a GTC BUY
+limit for the actual remaining quantity; SL remains optional. The editor starts
+with TP enabled and 75% as an editable suggestion, and never submits on opening.
+Broker cost basis may include fees and option/futures multipliers are required.
+
+The persisted starting quantity plus owned exit fills drives later replacement,
+close, and reconnect checks. Outside position changes, competing groups (even
+with uncertain writes), and existing working orders block a second claim.
+Standalone exits now carry protection identity in Orders despite having no
+parent entry ID. Tests cover adoption, stale snapshots, foreign orders, partial
+fills, quantity changes, no replay after lost responses, and Paper/Live isolation.
+No existing broker order was changed during validation.
+
+Follow-up validation: 497 backend tests and 125 native simulator tests passed, plus existing-position and existing chart lifecycle browser checks.

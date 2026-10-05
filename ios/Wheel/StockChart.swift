@@ -1005,6 +1005,7 @@ struct StockChartView: View {
                 Button("Manage TP / SL") {
                     positionProtectionState = paperState; positionProtectionCID = chartID; showPositionProtection = true
                 }.disabled(!paperEnabled || paperBusy || paperState["protection_manageable"] as? Bool != true)
+                if let reason = paperState["protection_block_reason"] as? String, !reason.isEmpty { Text(reason).font(.caption).foregroundStyle(.secondary) }
             }
             if let paperMessage, !paperMessage.isEmpty { NoticeText(paperMessage).font(.caption).foregroundStyle(.secondary) }
             if !fullScreen && !tradingPanelCollapsed {
@@ -1035,7 +1036,7 @@ struct StockChartView: View {
                             Button("Add contracts") { adjustmentAction = "add"; adjustmentQuantity = 1; showAdjustment = true }
                             Button("Trim contracts") { adjustmentAction = "trim"; adjustmentQuantity = 1; showAdjustment = true }.disabled(positionSize < 2)
                         } label: { Image(systemName: "plus.forwardslash.minus").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.accessibilityLabel("Add or trim contracts").disabled(!paperEnabled || paperBusy || positionSize == 0 || paperState["known"] as? Bool != true || paperState["scalable"] as? Bool != true)
-                        Button { if paperEnabled { paperAction(["action": "close"]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.65).frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || paperState["closing"] as? Bool == true || (paperEnabled ? !paperActive : validEntry <= 0))
+                        Button { if paperEnabled { paperAction(["action": "close"]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.65).frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || paperState["position_only"] as? Bool == true || paperState["closing"] as? Bool == true || (paperEnabled ? !paperActive : validEntry <= 0))
                         Button { if paperEnabled { paperAction(["action": "be"]) } else { beRevision += 1 } } label: { Text("BE").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(paperBusy || (paperEnabled && ((paperState["position"] as? Double ?? 0) == 0 || (paperState["sl"] as? Double ?? 0) <= 0)) || (!paperEnabled && protectionOption(chartType, "sl") == "off") || beApplied || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
                     }
                 }.font(.system(size: 13, weight: .semibold))
@@ -1634,20 +1635,29 @@ private struct PositionProtectionEditor: View {
                     if slEnabled { TextField("SL target price", text: $sl).keyboardType(.decimalPad) }
                 }
                 Section {
-                    Text("Existing exits will be canceled before replacement. Protection may be interrupted. A fill or uncertain response stops replacement; inspect the refreshed orders.").font(.caption)
-                    Toggle("Confirm replacing protection", isOn: $confirm)
+                    if state["position_only"] as? Bool == true {
+                        Text("Add exits to the current position. Profit % uses the broker cost basis, which may include fees.").font(.caption)
+                    } else {
+                        Text("Existing exits will be canceled before replacement. Protection may be interrupted. A fill or uncertain response stops replacement; inspect the refreshed orders.").font(.caption)
+                    }
+                    Toggle(isOn: $confirm) {
+                        if state["position_only"] as? Bool == true { Text("Confirm adding exits") }
+                        else { Text("Confirm replacing protection") }
+                    }
                     Button("Apply TP / SL") {
                         var request: [String: Any] = ["action": "set_protection", "expected_ref": state["order_ref"] ?? "", "expected_snapshot": state["edit_snapshot"] ?? [], "confirm_replace_protection": true]
                         if tpEnabled { request["tp"] = targetTP }
                         if slEnabled { request["sl"] = Double(sl) }
                         apply(request)
                     }.disabled(!valid || !confirm)
+                    if state["position_only"] as? Bool != true {
                     Button("Cancel all TP / SL", role: .destructive) {
                         apply(["action": "cancel_protection", "expected_ref": state["order_ref"] ?? "", "confirm_remove_protection": true])
                     }.disabled(!confirm)
+                    }
                 }
             }.navigationTitle("Position TP / SL").toolbar { Button("Back") { dismiss() } }
-        }.onAppear { tp = String(state["tp"] as? Double ?? 0); sl = String(state["sl"] as? Double ?? 0); tpEnabled = (state["tp"] as? Double ?? 0) > 0; slEnabled = (state["sl"] as? Double ?? 0) > 0 }
+        }.onAppear { tp = String(state["tp"] as? Double ?? 0); sl = String(state["sl"] as? Double ?? 0); tpEnabled = (state["tp"] as? Double ?? 0) > 0; slEnabled = (state["sl"] as? Double ?? 0) > 0; if state["position_only"] as? Bool == true { tpEnabled = true; mode = "percent"; tp = "75" } }
     }
 }
 
