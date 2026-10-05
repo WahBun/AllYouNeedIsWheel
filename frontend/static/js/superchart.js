@@ -1,7 +1,8 @@
 /* Browser host only. Chart geometry and gestures are shared with iOS verbatim. */
 (()=>{'use strict';
 const $=id=>document.getElementById(id),frame=$('chart');
-let groupID='';
+let groupID='',switchingChart=false;
+function chartTransition(){switchingChart=true;frame.style.opacity='.3';frame.style.pointerEvents='none';frame.setAttribute('aria-busy','true');$('market-status').textContent=`Loading ${session==='all'?'ETH':'RTH'} · ${interval}m…`;sync();ensureMarket();}
 let entryFlight=null,queuedEntry=null,writeVersion=0;
 const entryIdentity=s=>JSON.stringify((s.edit_snapshot||[]).map(({order_id,quantity,filled,tif})=>({order_id,quantity,filled,tif})));
 function priceRoleEditable(role){return state.active&&state.known===true&&!state.sync_error&&(role==='entry'?state.entry_editable===true&&!state.position:state.orders?.some(o=>o.role.split('_')[0]===role&&['Submitted','PreSubmitted'].includes(o.status)));}
@@ -37,7 +38,7 @@ async function api(path,body){const response=await fetch('/api/'+path,{method:bo
 let protectionType=null;
 function loadProtection(){const type=packet.security_type;if(!type||type===protectionType)return;protectionType=type;const saved=stored('wheel.web.protection:'+type),defaults=type==='FUT'?[2,1]:[.2,.1];for(const [i,id] of ['tp','sl'].entries())$(id).value=Number(saved[id])>0?saved[id]:defaults[i];revision++;}
 function allowed(){return ['DAY','GTC',...(packet.security_type==='STK'&&packet.currency==='USD'&&$('type').value==='LMT'?['OVERNIGHT']:[])];}
-function enabled(){return profile.selected==='paper'&&profile.verified&&!!epoch&&state.enabled===true&&state.known!==false&&!state.sync_error&&Date.now()-received<15000&&!busy&&!localStorage.getItem(pendingKey());}
+function enabled(){return !switchingChart&&profile.selected==='paper'&&profile.verified&&!!epoch&&state.enabled===true&&state.known!==false&&!state.sync_error&&Date.now()-received<15000&&!busy&&!localStorage.getItem(pendingKey());}
 function renderDailyPnL(){
  if(!$('daily-pnl'))return; // Compatible with an already-running server template during asset updates.
  const pnl=packet.daily_pnl,zh=document.documentElement.lang==='zh',age=(pnl?.age_seconds??Infinity)+(Date.now()-pnlReceived)/1000;
@@ -56,7 +57,7 @@ $('resolve-request').hidden=!localStorage.getItem(pendingKey())||busy||state.kno
 $('order-group').disabled=busy;
 $('new-order').disabled=busy||!cid||profile.selected!=='paper'||!profile.verified;
 for(const id of ['bid','ask','close','be'])$(id).disabled=!can||(id==='close'?!(state.active||state.position):id==='be'?!state.position:state.active===true);
-$('preview').disabled=!cid||busy||state.active;for(const id of ['quantity-minus','quantity-plus'])$(id).disabled=busy||state.active===true;const size=Math.abs(state.position||0),adjustment=Number($('adjustment-quantity').value),valid=Number.isInteger(adjustment)&&adjustment>0;$('adjustment-control').hidden=!size;$('adjustment-quantity').disabled=!can||!state.scalable||!size;for(const id of ['add','trim']){$(id).disabled=!can||!state.scalable||!size||!valid||(id==='trim'&&adjustment>=size);$(id).title=id==='trim'&&adjustment>=size?'Trim must leave a position; use Close position':'';}for(const id of ['quantity','type','tif','tp','sl'])$(id).disabled=busy||state.active===true;}
+$('preview').disabled=!cid||busy||switchingChart||state.active;for(const id of ['quantity-minus','quantity-plus'])$(id).disabled=busy||state.active===true;const size=Math.abs(state.position||0),adjustment=Number($('adjustment-quantity').value),valid=Number.isInteger(adjustment)&&adjustment>0;$('adjustment-control').hidden=!size;$('adjustment-quantity').disabled=!can||!state.scalable||!size;for(const id of ['add','trim']){$(id).disabled=!can||!state.scalable||!size||!valid||(id==='trim'&&adjustment>=size);$(id).title=id==='trim'&&adjustment>=size?'Trim must leave a position; use Close position':'';}for(const id of ['quantity','type','tif','tp','sl'])$(id).disabled=busy||state.active===true;}
 const cancelAddButtons=new Map();
 function renderPendingAdds(can){
  let list=$('pending-adds');if(!list){list=document.createElement('div');list.id='pending-adds';list.style.cssText='display:grid;gap:6px;max-height:160px;overflow:auto';$('adjustment-control').after(list);}
@@ -79,8 +80,9 @@ async function loadHistory(body){if(historyLoading||busy||body.con_id!==cid||bod
 let marketBusy=false,pnlBusy=false,lastFallback=0,lastPnL=0;
 const marketContext=()=>({cid,interval,session,epoch,generation});
 const currentMarket=c=>JSON.stringify(c)===JSON.stringify(marketContext());
-const marketStream=new WheelChartStream({receive:(bars,context)=>{if(currentMarket(context))applyMarket(bars,true);},status:message=>{$('market-status').textContent=message;}});
+const marketStream=new WheelChartStream({receive:(bars,context)=>{if(currentMarket(context))applyMarket(bars,true);},status:message=>{if(!switchingChart)$('market-status').textContent=message;}});
 function applyMarket(bars,push=false){
+ if(bars.con_id!==cid||bars.interval!==interval||bars.session!==session)return;
  const pushedPnL=push&&state.position&&bars.account_epoch===epoch&&bars.daily_pnl?.fresh===true;
  const pnl=pushedPnL?{daily_pnl:bars.daily_pnl,account_epoch:bars.account_epoch}:{daily_pnl:packet.daily_pnl,account_epoch:packet.account_epoch};
  if(pushedPnL)pnlReceived=Date.now();
@@ -88,7 +90,8 @@ function applyMarket(bars,push=false){
  if($('contracts').selectedOptions[0])$('contracts').selectedOptions[0].textContent=bars.display_symbol||bars.local_symbol||bars.symbol||String(cid);
  packetReceived=Date.now();
  // Keep paged history in the host; send only changed bars to the shared renderer.
- frame.contentWindow.receive(push&&bars.mode==='delta'?bars:packet);
+ frame.contentWindow.receive(push&&bars.mode==='delta'&&!switchingChart?bars:packet);
+ switchingChart=false;frame.style.opacity='';frame.style.pointerEvents='';frame.removeAttribute('aria-busy');
  $('market-status').textContent=(bars.message||(bars.status==='waiting'?'Historical bars · waiting for IB last ticks':bars.status)||'')+(push?' · SSE push':' · Snapshot refresh');
  sync();
 }
@@ -170,11 +173,11 @@ function renderIntervals(){
  }
  $('interval').title='Current interval: '+(periods.find(p=>p[0]===interval)?.[1]||interval);
 }
-function changeInterval(value){if(busy)return;interval=value;generation++;marketStream.stop();lastFallback=0;lastPnL=0;renderIntervals();refresh();}
+function changeInterval(value){if(busy)return;interval=value;generation++;marketStream.stop();lastFallback=0;lastPnL=0;renderIntervals();chartTransition();refresh();}
 $('interval').onclick=()=>{$('interval-menu').hidden=!$('interval-menu').hidden;$('interval').setAttribute('aria-expanded',String(!$('interval-menu').hidden));};
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('.interval-picker')){$('interval-menu').hidden=true;$('interval').setAttribute('aria-expanded','false');}});
 renderIntervals();
-$('session').onchange=()=>{if(busy){$('session').value=session;return;}session=$('session').value;rememberSession();generation++;marketStream.stop();lastFallback=0;lastPnL=0;refresh();};
+$('session').onchange=()=>{if(busy){$('session').value=session;return;}session=$('session').value;rememberSession();generation++;marketStream.stop();lastFallback=0;lastPnL=0;chartTransition();refresh();};
 $('toggle-trade').onclick=()=>{const detail=$('chart-detail');detail.hidden=!detail.hidden;$('toggle-trade').textContent='Detail '+(detail.hidden?'▾':'▴');$('toggle-trade').setAttribute('aria-expanded',String(!detail.hidden));};
 for(const [id,delta] of [['quantity-minus',-1],['quantity-plus',1]])$(id).onclick=()=>{if($('quantity').disabled)return;$('quantity').value=Math.min(Number($('quantity').max),Math.max(1,(Number($('quantity').value)||1)+delta));sync();};
 for(const id of ['quantity','type','tif','tp','sl'])$(id).onchange=()=>{if((id==='tp'||id==='sl')&&protectionType)localStorage.setItem('wheel.web.protection:'+protectionType,JSON.stringify({tp:Number($('tp').value),sl:Number($('sl').value)}));revision++;sync();};
