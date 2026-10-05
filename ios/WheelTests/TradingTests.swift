@@ -25,6 +25,50 @@ final class MockProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testAccountVerificationRequiresMatchingModeAndEpoch() throws {
+        XCTAssertNil(try AccountConnectionRules.verifiedEpoch(["selected": "paper", "verified": false], mode: "paper"))
+        XCTAssertEqual(try AccountConnectionRules.verifiedEpoch(["selected": "paper", "verified": true, "epoch": "new"], mode: "paper"), "new")
+        XCTAssertThrowsError(try AccountConnectionRules.verifiedEpoch(["selected": "live", "verified": true, "epoch": "new"], mode: "paper"))
+        XCTAssertThrowsError(try AccountConnectionRules.verifiedEpoch(["selected": "paper", "verified": true], mode: "paper"))
+    }
+
+    func testAccountConnectionAutomaticallyRecoversBootstrapAndRejectsOtherAccount() async throws {
+        let savedMode = UserDefaults.standard.object(forKey: "selectedBrokerMode")
+        let savedAddress = UserDefaults.standard.object(forKey: "backendURL")
+        defer {
+            UserDefaults.standard.set(savedMode, forKey: "selectedBrokerMode")
+            UserDefaults.standard.set(savedAddress, forKey: "backendURL")
+            MockProtocol.payload = nil; MockProtocol.statusCode = 200
+        }
+        UserDefaults.standard.set("paper", forKey: "selectedBrokerMode")
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        for scenario in ["recover", "wrongEpoch", "wrongMode", "offline"] {
+            let store = WheelStore(session: URLSession(configuration: config))
+            store.address = "https://mock.invalid"; store.selectedTab = "settings"
+            MockProtocol.requests = []; MockProtocol.fail = false; MockProtocol.statusCode = 503
+            MockProtocol.payload = { _ in
+                MockProtocol.statusCode = scenario == "offline" ? 503 : 200
+                return ["summary": ["account_value": 1000, "cash_balance": 500], "positions": [],
+                        "connection": ["mode": scenario == "wrongMode" ? "live" : "paper",
+                                       "account_epoch": scenario == "wrongEpoch" ? "old" : "new",
+                                       "execution_enabled": false, "chart_execution_enabled": false]]
+            }
+            do {
+                try await store.completeAccountConnection(to: store.address, mode: "paper", epoch: "new", attempts: 3, retryDelay: .zero)
+                XCTAssertEqual(scenario, "recover")
+                XCTAssertEqual(store.selectedTab, "portfolio")
+                XCTAssertTrue(store.isConnected(to: store.address))
+                XCTAssertEqual(MockProtocol.requests.count, 2)
+            } catch {
+                XCTAssertNotEqual(scenario, "recover")
+                XCTAssertEqual(store.selectedTab, "settings")
+                XCTAssertNil(store.portfolio)
+                XCTAssertFalse(store.isConnected(to: store.address))
+            }
+            XCTAssertTrue(MockProtocol.requests.allSatisfy { $0.httpMethod == "GET" && $0.url?.path == "/api/portfolio/bootstrap" })
+        }
+    }
+
     func testOptionalProtectionTargets() {
         let rules: [[String: Any]] = [["low": 0.0, "increment": 0.01]]
         XCTAssertEqual(ChartProtectionMath.target(entry: 2.12, side: -1, value: 75, percent: true, rules: rules) ?? 0, 0.53, accuracy: 0.000001)

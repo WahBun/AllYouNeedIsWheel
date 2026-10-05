@@ -273,7 +273,10 @@ final class WheelStore {
         requestedTradeChart = TradeChartDestination(position: position, resumeLast: resumeLast)
         selectedTab = "trade"
     }
-    init() { opportunities.configure(context: "demo") }
+    private let session: URLSession
+    private var connectingEpoch: String?
+    private var connectingMode: String?
+    init(session: URLSession = .shared) { self.session = session; opportunities.configure(context: "demo") }
     private var revision = 0
     private var lastSummary: Date?
     func isConnected(to candidate: String) -> Bool {
@@ -287,12 +290,34 @@ final class WheelStore {
         selectedTab = "portfolio"
     }
 
+    func completeAccountConnection(to base: String, mode: String, epoch: String,
+                                   attempts: Int = 30, retryDelay: Duration = .seconds(1)) async throws {
+        guard ["paper", "live"].contains(mode), !epoch.isEmpty, address == base else { throw CancellationError() }
+        demo = false; changeMode(); connectingEpoch = epoch; connectingMode = mode; trading.accountEpoch = epoch
+        let context = revision, deadline = Date().addingTimeInterval(45)
+        defer { if revision == context { connectingEpoch = nil; connectingMode = nil } }
+        for attempt in 0..<attempts {
+            try Task.checkCancellation()
+            guard revision == context, !demo, address == base else { throw CancellationError() }
+            if !busy && !trading.busy { await refreshPortfolio(includeWeekly: false) }
+            guard revision == context, !demo, address == base else { throw CancellationError() }
+            if error == nil, portfolio?.connection?.mode == mode, portfolio?.connection?.account_epoch == epoch,
+               Date().timeIntervalSince(updated ?? .distantPast) < 15 {
+                showPortfolioAfterConnection(to: base, mode: mode)
+                return
+            }
+            if Date() >= deadline || attempt == attempts - 1 { break }
+            try await Task.sleep(for: retryDelay)
+        }
+        throw AppError.message(error ?? "Account data is not ready. Retry connection.")
+    }
+
     func refresh() async {
         await refreshPortfolio()
         await refreshOrders()
     }
 
-    func refreshPortfolio() async {
+    func refreshPortfolio(includeWeekly: Bool = true) async {
         guard !busy, !trading.busy else { return }
         busy = true
         let requestedRevision = revision
@@ -338,13 +363,16 @@ final class WheelStore {
                next.connection?.mode != expected {
                 throw AppError.message("Gateway account does not match the selected mode. Log in to the selected account on Mini.")
             }
+            if let connectingEpoch, next.connection?.account_epoch != connectingEpoch || next.connection?.mode != connectingMode {
+                throw AppError.message("Another device changed the selected account. Select your account again.")
+            }
             trading.accountEpoch = next.connection?.account_epoch
             portfolio = next
             if reloadSummary { lastSummary = Date() }
             updated = Date()
             error = nil
             UserDefaults.standard.set(address, forKey: "backendURL")
-            if reloadSummary && selectedTab != "trade" {
+            if includeWeekly && reloadSummary && selectedTab != "trade" {
                 let income: WeeklyIncome? = try? await read(base.appendingPathComponent("api/portfolio/weekly-income"))
                 guard requestedRevision == revision, !Task.isCancelled else { return }
                 weekly = income
@@ -411,7 +439,7 @@ final class WheelStore {
     private func read<T: Decodable>(_ url: URL) async throws -> T {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
         request.httpMethod = "GET"
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse, response.statusCode == 200 else { throw AppError.message("Backend unavailable. Check your connection and Tailscale.") }
         return try JSONDecoder().decode(T.self, from: data)
     }
@@ -433,7 +461,7 @@ final class WheelStore {
             if token == revision, version == trading.version, !Task.isCancelled { filledError = connectionMessage(error) }
         }
     }
-    func changeMode() { completedOrders = [:]; performanceHistoryCache = [:]; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; filledUpdated = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
+    func changeMode() { connectingEpoch = nil; connectingMode = nil; completedOrders = [:]; performanceHistoryCache = [:]; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; filledUpdated = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
 }
 
 func connectionMessage(_ error: Error) -> String {
@@ -1492,37 +1520,38 @@ struct SettingsView: View {
     @State private var requestedMode = "demo"
     @State private var switchingAccount = false
     @State private var accountSwitchMessage: String?
-    @State private var connecting = false
     private var hasAddress: Bool {
         let value = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         return !value.isEmpty && value != "https://"
     }
     @FocusState private var addressFocused: Bool
-    private func selectMode(_ mode: String) {
-        guard !switchingAccount else { return }
+    private func selectMode(_ mode: String, force: Bool = false) {
+        guard !switchingAccount, !store.trading.busy else { return }
         requestedMode = mode
-        if requestedMode == (store.demo ? "demo" : store.portfolio?.connection?.mode) { return }
+        if !force && requestedMode == (store.demo ? "demo" : store.portfolio?.connection?.mode) && (store.demo || store.isConnected(to: draft.trimmingCharacters(in: .whitespacesAndNewlines))) { return }
         if requestedMode == "demo" { store.demo = true; store.changeMode(); accountSwitchMessage = nil; return }
+        guard hasAddress else { accountSwitchMessage = "Enter your private HTTPS backend address in Settings."; return }
         let target = requestedMode
+        let requestedAddress = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         UserDefaults.standard.set(target, forKey: "selectedBrokerMode")
         switchingAccount = true; addressFocused = false
-        store.address = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        store.address = requestedAddress
         store.demo = true; store.changeMode()
         RecentStockCharts.packets.removeAll(); RecentStockCharts.lastSaved.removeAll()
         UserDefaults.standard.removeObject(forKey: RecentStockCharts.diskKey)
         Task {
             defer { switchingAccount = false }
             do {
-                var result = try await store.trading.selectAccount(base: store.address, mode: target)
+                var result = try await store.trading.selectAccount(base: requestedAddress, mode: target)
                 let deadline = Date().addingTimeInterval(180)
-                while result["verified"] as? Bool != true && Date() < deadline {
+                while try AccountConnectionRules.verifiedEpoch(result, mode: target) == nil && Date() < deadline {
                     accountSwitchMessage = result["message"] as? String ?? "Waiting for Gateway login…"
                     if let gateway = result["gateway"] as? [String: Any], let error = gateway["error"] as? String {
                         throw AppError.message(error)
                     }
                     try await Task.sleep(for: .seconds(1))
                     do {
-                        result = try await store.trading.get("api/account/profiles", base: store.address)
+                        result = try await store.trading.get("api/account/profiles", base: requestedAddress)
                     } catch let failure as BackendHTTPError where [502, 503, 504].contains(failure.status) {
                         continue // Gateway login temporarily occupies the serialized IB connection.
                     } catch let failure as URLError where failure.code == .timedOut {
@@ -1532,19 +1561,12 @@ struct SettingsView: View {
                         throw AppError.message("Another device changed the selected account. Select your account again.")
                     }
                 }
-                guard result["verified"] as? Bool == true else {
-                    throw AppError.message("Gateway login is still pending. Complete IB Key if prompted, then tap Connect.")
+                guard let epoch = try AccountConnectionRules.verifiedEpoch(result, mode: target) else {
+                    throw AppError.message("Gateway login is still pending. Complete IB Key if prompted, then retry connection.")
                 }
-                store.trading.accountEpoch = result["epoch"] as? String
-                store.demo = false; store.changeMode()
+                accountSwitchMessage = "Loading account…"
+                try await store.completeAccountConnection(to: requestedAddress, mode: target, epoch: epoch)
                 accountSwitchMessage = nil
-                let requestedAddress = store.address
-                while store.busy {
-                    try await Task.sleep(for: .milliseconds(100))
-                }
-                guard !store.demo, store.address == requestedAddress else { return }
-                await store.refreshPortfolio()
-                store.showPortfolioAfterConnection(to: requestedAddress, mode: target)
             } catch {
                 accountSwitchMessage = connectionMessage(error)
             }
@@ -1574,79 +1596,24 @@ struct SettingsView: View {
                 }
                 .padding(3)
                 .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 9))
-                .disabled(switchingAccount || connecting || store.trading.busy)
+                .disabled(switchingAccount || store.trading.busy)
                 if switchingAccount { ProgressView("Switching account…") }
-                if let accountSwitchMessage { Text(accountSwitchMessage).font(.footnote).foregroundStyle(.orange) }
+                if let accountSwitchMessage { Text(localizedLabel(accountSwitchMessage, locale: locale)).font(.footnote).foregroundStyle(.orange) }
                 if requestedMode != "demo" {
-                TextField("https://your-mini.ts.net", text: $draft).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).focused($addressFocused).submitLabel(.done).onSubmit { addressFocused = false }
-                Button {
-                    if store.demo || accountSwitchMessage != nil { selectMode(requestedMode); return }
-                    addressFocused = false; connecting = true
-                    store.address = draft.trimmingCharacters(in: .whitespacesAndNewlines); store.demo = false; store.changeMode()
-                    let requestedAddress = store.address
-                    Task {
-                        defer { connecting = false }
-                        while store.busy {
-                            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-                        }
-                        guard !store.demo, store.address == requestedAddress else { return }
-                        await store.refreshPortfolio()
-                        store.showPortfolioAfterConnection(to: requestedAddress, mode: requestedMode)
-                    }
-                } label: {
-                    HStack(spacing: 12) {
-                        Group {
-                            if connecting {
-                                ProgressView().tint(Color.black.opacity(0.8))
-                            } else {
-                                Image(systemName: store.isConnected(to: draft) ? "checkmark.circle" : "command")
-                                    .font(.title3.weight(.semibold))
-                                    .foregroundStyle(store.isConnected(to: draft) ? Color.white : Color.black.opacity(0.85))
-                            }
-                        }
-                        .frame(width: 36, height: 36)
-                        .background(.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                        .overlay { RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(.white.opacity(0.3), lineWidth: 0.5) }
-                        .accessibilityHidden(true)
-                        if !connecting && store.isConnected(to: draft) {
-                            GildedConnectionLabel(active: store.selectedTab == "settings")
-                        } else {
-                            Text(LocalizedStringKey(connecting ? "Connecting…" : "Connect"))
-                                .font(.system(.headline, design: .default, weight: .bold))
-                        }
-                        Spacer(minLength: 8)
-                    }
-                    .foregroundStyle(Color.black.opacity(0.85))
-                    .padding(.leading, 12)
-                    .padding(.trailing, 18)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, minHeight: 52)
-                    .background {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(LinearGradient(colors: [Color(red: 0.40, green: 0.94, blue: 0.89), Color(red: 0.25, green: 0.73, blue: 0.98)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(LinearGradient(colors: [.white.opacity(0.18), .clear], startPoint: .top, endPoint: .center))
-                            .allowsHitTesting(false)
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(LinearGradient(colors: [.white.opacity(0.6), .white.opacity(0.10)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
-                            .allowsHitTesting(false)
-                    }
-                    .overlay {
-                        if connecting {
-                            ConnectingGlow(active: store.selectedTab == "settings")
-                                .allowsHitTesting(false).accessibilityHidden(true)
+                TextField("https://your-mini.ts.net", text: $draft).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).focused($addressFocused).submitLabel(.done)
+                    .disabled(switchingAccount)
+                    .onSubmit { addressFocused = false; selectMode(requestedMode, force: true) }
+                    .onChange(of: addressFocused) { previous, focused in
+                        if previous && !focused && hasAddress && draft.trimmingCharacters(in: .whitespacesAndNewlines) != store.address {
+                            selectMode(requestedMode, force: true)
                         }
                     }
-                    .shadow(color: .cyan.opacity(!hasAddress ? 0 : 0.20), radius: 10, y: 4)
-                    .opacity(!hasAddress ? 0.45 : connecting ? 0.75 : 1)
-                    .contentShape(RoundedRectangle(cornerRadius: 16))
-                }.buttonStyle(.plain)
-                    .listRowSeparator(.hidden)
-                    .disabled(!hasAddress || connecting || switchingAccount)
+                if !switchingAccount && store.isConnected(to: draft) && store.portfolio?.connection?.mode == requestedMode {
+                    Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                } else if !switchingAccount && (accountSwitchMessage != nil || store.error != nil) {
+                    Button("Retry connection") { selectMode(requestedMode, force: true) }
+                        .disabled(!hasAddress || store.trading.busy)
+                }
                 if !switchingAccount, let error = store.error { NoticeText(error).font(.footnote).foregroundStyle(.orange) }
                 }
             }
@@ -1706,7 +1673,7 @@ struct SettingsView: View {
             }
         }
         .listSectionSpacing(12)
-        .navigationTitle(localizedLabel("Settings", locale: locale)).onAppear { if !switchingAccount && accountSwitchMessage == nil { requestedMode = store.demo ? "demo" : (store.portfolio?.connection?.mode ?? "live") }; draft = store.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "https://" : store.address }
+        .navigationTitle(localizedLabel("Settings", locale: locale)).onAppear { if !switchingAccount && accountSwitchMessage == nil { requestedMode = store.demo ? "demo" : (store.portfolio?.connection?.mode ?? UserDefaults.standard.string(forKey: "selectedBrokerMode") ?? "paper") }; draft = store.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "https://" : store.address }
         .disabled(store.trading.busy || store.opportunities.batchRunning)
         .confirmationDialog("Have you verified the order in IB and the web app?", isPresented: $reviewed, titleVisibility: .visible) {
             Button("Verified · unlock trading") { store.trading.acknowledgeReview() }
@@ -1852,5 +1819,19 @@ private struct MarginWarningAmount: View {
         }
         .onAppear { visible = true }
         .onDisappear { visible = false }
+    }
+}
+
+
+enum AccountConnectionRules {
+    static func verifiedEpoch(_ state: [String: Any], mode: String) throws -> String? {
+        guard ["paper", "live"].contains(mode), state["selected"] as? String == mode else {
+            throw AppError.message("Another device changed the selected account. Select your account again.")
+        }
+        guard state["verified"] as? Bool == true else { return nil }
+        guard let epoch = state["epoch"] as? String, !epoch.isEmpty else {
+            throw AppError.message("Account verification is incomplete. Retry connection.")
+        }
+        return epoch
     }
 }

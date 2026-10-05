@@ -57,7 +57,7 @@ def status():
     elif gateway['managed']:
         message = 'Starting IB Paper Gateway…' if target == 'paper' else 'Starting Live Gateway. Confirm IB Key on your phone when prompted.'
     else:
-        message = 'Log in to the selected IB Gateway mode on Mini, then tap Connect.'
+        message = 'Log in to the selected IB Gateway mode on Mini. Connection will complete automatically.'
     return dict(selected=target, verified=verified, epoch=_epoch,
                 available=list(profiles()), gateway=gateway, message=message)
 

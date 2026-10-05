@@ -505,3 +505,18 @@ fills, quantity changes, no replay after lost responses, and Paper/Live isolatio
 No existing broker order was changed during validation.
 
 Follow-up validation: 497 backend tests and 125 native simulator tests passed, plus existing-position and existing chart lifecycle browser checks.
+
+## 2026-10-06 account-switch connection follow-up
+
+Native Settings now completes profile verification and portfolio loading as one
+operation. Temporary bootstrap failures receive bounded read-only retries; success
+requires the requested mode and verified account epoch, then returns Settings to
+Portfolio. The always-visible Connect button is removed. Connected is a status;
+failed attempts expose Retry connection. Submitting an edited backend address
+also connects. Account-selection writes are not automatically replayed.
+
+Validation: 497 backend tests, 127 native simulator tests, and the shared-chart
+browser lifecycle/isolation/responsive regression passed. New mocked connection
+tests cover temporary bootstrap failure, wrong epoch/mode, exhausted retries,
+and absence of trading writes during recovery. Device build passed. No actual
+Gateway account switch or broker order was performed for this verification.
