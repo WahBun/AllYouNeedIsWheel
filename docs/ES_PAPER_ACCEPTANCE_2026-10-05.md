@@ -223,3 +223,24 @@ amendments while the entry is pending; injected capture-loss and fill-transition
 coverage remains mocked, and the user's full reported incident is not certified
 closed. Chart assets were deployed without restarting the active backend; the
 separate daily-P&L backend activation remains deferred.
+
+## NQZ6 follow-up and daily P&L activation
+
+Per user direction, switched to NQZ6, exact conId 563947726, CME December 2026,
+multiplier 20, tick 0.25, IB Paper only. The first one-contract long bracket was
+submitted using web Join Bid; TP/SL amendments while pending were confirmed in
+339/360 ms. Entry limit modification filled at 31149.50. Post-fill TP/SL browser
+amendments confirmed in 463/420 ms. Two consecutive TP targets confirmed in
+452/604 ms (second waited 244 ms for the first); two consecutive SL targets in
+425/671 ms (second waited 305 ms). All final prices and protection quantities
+were reconciled against IB. Existing limit-based Close filled at 31143.50; the
+other exit canceled, NQ/ES were flat and no pending orders remained. This is a
+small Paper sample, not a latency guarantee or a complete Live acceptance.
+
+Daily P&L is now active and exact-contract IB values were observed during the NQ
+position. Base-currency labels use the existing cached account summary, never a
+new blocking request. Per user styling: positive green, negative red, rounded
+zero/unavailable neutral, retaining signs in both light and dark themes.
+IB stopped publishing this contract's P&L after the position became flat; after
+15 seconds the field correctly became unavailable instead of showing a stale
+number as live. Closed-position daily accounting remains a source limitation.

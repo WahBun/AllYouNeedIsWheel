@@ -33,3 +33,9 @@
 #daily-pnl-value{font-size:18px;line-height:1.3;font-weight:750;letter-spacing:-.4px;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #daily-pnl-currency{font-size:9px;color:var(--muted)}
 #daily-pnl:focus-visible{outline:1px solid var(--accent);outline-offset:3px;border-radius:3px}
+
+/* User-selected trading convention: green profit, red loss; sign remains visible. */
+#daily-pnl-value[data-direction=positive]{color:#66c5a3}
+#daily-pnl-value[data-direction=negative]{color:#ef9090}
+body.light #daily-pnl-value[data-direction=positive]{color:#147d59}
+body.light #daily-pnl-value[data-direction=negative]{color:#b73544}

@@ -84,3 +84,12 @@ class ChartPnLTests(unittest.TestCase):
         self.conn.account_id = 'paper-test'
         with patch.object(self.ib, 'reqPnLSingle', side_effect=RuntimeError('offline')):
             self.assertIsNone(snapshot(self.conn, 7)['value'])
+
+    def test_base_currency_from_existing_summary_cache(self):
+        self.ib.wrapper = NS(acctSummary={1:NS(account='paper-test', tag='InitMarginReq', currency='EUR'),
+                                        2:NS(account='other-test', tag='InitMarginReq', currency='USD')})
+        snapshot(self.conn, 7)
+        self.emit(12)
+        self.assertEqual(snapshot(self.conn, 7)['currency'], 'EUR')
+        self.ib.wrapper.acctSummary[3] = NS(account='paper-test', tag='InitMarginReq', currency='USD')
+        self.assertIsNone(snapshot(self.conn, 7)['currency'], 'Conflicting currencies must not be guessed')

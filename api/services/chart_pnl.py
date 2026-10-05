@@ -55,9 +55,17 @@ class ChartPnL:
             return empty
         age = None if row['at'] is None else max(0, time.monotonic() - row['at'])
         fresh = age is not None and age < self.FRESH_SECONDS and row['value'] is not None
-        currencies = {v.value for v in ib.accountValues(account)
-                      if v.account == account and v.tag == 'Currency' and v.currency == 'BASE'
-                      and isinstance(v.value, str) and len(v.value) == 3}
+        # Summary InitMarginReq is denominated in the account base currency.
+        # Read the existing cache populated by bootstrap; never start a blocking
+        # summary request on the chart path. Account-window rows may say BASE.
+        summary = getattr(getattr(ib, 'wrapper', None), 'acctSummary', {})
+        currencies = {v.currency for v in summary.values()
+                      if v.account == account and v.tag == 'InitMarginReq'
+                      and isinstance(v.currency, str) and len(v.currency) == 3}
+        if not currencies:
+            currencies = {v.value for v in ib.accountValues(account)
+                          if v.account == account and v.tag == 'Currency'
+                          and isinstance(v.value, str) and len(v.value) == 3}
         return dict(empty, value=row['value'] if fresh else None, fresh=fresh,
                     age_seconds=age, currency=next(iter(currencies)) if len(currencies) == 1 else None)
 
