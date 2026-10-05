@@ -18,8 +18,17 @@ window.installOptionSearch=({api,select,symbol,canSelect})=>{
   const token=++revision;strike.replaceChildren();strike.disabled=open.disabled=true;
   if(!loaded||loaded!==ticker()||!expiry.value)return;
   status.textContent='Loading strikes…';
-  try{const r=await api('options/strikes?'+query({ticker:loaded,expiration:expiry.value,optionType:right.value==='C'?'CALL':'PUT'}));if(token!==revision||!dialog.open)return;
-   strike.replaceChildren(new Option('Select strike',''),...r.strikes.filter(n=>Number.isFinite(n)&&n>0).map(n=>new Option(String(n),String(n))));strike.disabled=!r.strikes.length;status.textContent=r.strikes.length?'Choose a strike to open its chart.':'No contracts for this expiration and type.';
+  try{const name=loaded;const [strikesResult,priceResult]=await Promise.allSettled([
+    api('options/strikes?'+query({ticker:name,expiration:expiry.value,optionType:right.value==='C'?'CALL':'PUT'})),
+    api('options/stock-price?'+query({tickers:name}))]);if(token!==revision||!dialog.open)return;
+   if(strikesResult.status==='rejected')throw strikesResult.reason;
+   const values=strikesResult.value.strikes.filter(n=>Number.isFinite(n)&&n>0).sort((a,b)=>a-b);
+   strike.replaceChildren(new Option('Select strike',''),...values.map(n=>new Option(String(n),String(n))));strike.disabled=!values.length;
+   const price=priceResult.status==='fulfilled'?Number(priceResult.value.data?.[name]):NaN;
+   if(values.length&&Number.isFinite(price)&&price>0){
+    strike.value=String(values.reduce((best,n)=>Math.abs(n-price)<Math.abs(best-price)?n:best));open.disabled=false;
+    status.textContent=`Underlying $${price.toFixed(2)} · Nearest strike selected.`;
+   }else status.textContent=values.length?'Underlying price unavailable. Choose a strike.':'No contracts for this expiration and type.';
   }catch(e){if(token===revision)status.textContent=e.message;}
  }
  $('option-search').onclick=()=>{if(!canSelect())return;underlying.value=symbol()||'QQQ';dialog.showModal();dates();};
