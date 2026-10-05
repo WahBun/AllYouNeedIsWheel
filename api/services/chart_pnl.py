@@ -1,7 +1,7 @@
 """Read-only exact-contract daily P&L on the existing serialized IB connection.
 
 IB's dailyPnL follows its instrument-specific reset schedule, not browser midnight.
-No account-total, lifetime realized/unrealized or local-fill fallback is used.
+A separate persisted broker-execution total supplies realized P&L after closing.
 https://interactivebrokers.github.io/tws-api/pnl.html
 """
 import math
@@ -74,13 +74,22 @@ class ChartPnL:
         self.connection.ib.cancelPnLSingle(key[0], '', key[1])
 
 
-def snapshot(connection, con_id):
+def snapshot(connection, con_id, path=None):
     """PnL unavailability must never break quotes or order controls."""
     try:
         service = getattr(connection, '_chart_pnl', None)
         if service is None:
             service = connection._chart_pnl = ChartPnL(connection)
-        return service.snapshot(con_id)
+        result = service.snapshot(con_id)
+        if path:
+            from api.services.chart_realized_pnl import realized_snapshot
+            try:
+                realized = realized_snapshot(connection, con_id, path)
+                if realized and realized['flat']:
+                    return dict(result, **realized, fresh=True, age_seconds=0)
+            except Exception:
+                pass  # Execution reports must never break the live P&L path.
+        return result
     except Exception:
         return dict(con_id=con_id, value=None, fresh=False, age_seconds=None,
                     currency=None, source='IBKR contract daily P&L')

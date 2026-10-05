@@ -346,3 +346,24 @@ writes, gap recovery, old-timeframe isolation, no write replay); lifecycle watch
 and account-context tests; existing web order/Live-isolation/responsive regression;
 and P&L freshness, contract/account, Chinese/English and light/dark checks passed.
 All automated trading interactions in these browser checks use intercepted mocks.
+
+### Closed-contract P&L retention
+
+The chart now persists authoritative IB commission-report realized P&L by account,
+exact conId and execution identity in `chart_realized_executions` in the existing
+local database. Corrections replace older execution revisions; duplicate reads do
+not add P&L twice. Pending commission reports suppress partial totals. Once the
+broker position is flat, the card reads **Realized today** and uses this retained
+execution total instead of expiring the last open-position daily P&L. Open positions
+keep the original IB daily mark-to-market figure. No order is submitted by this path.
+
+The realized basis is explicitly distinct from IB's configurable portfolio reset:
+CME-family futures use 18:00 America/New_York session boundaries; other contracts use
+New York calendar dates. Currency is the commission report currency, with mixed
+currencies withheld instead of guessed. The tooltip identifies basis and date.
+Only broker reports available to this API connection can be recovered initially;
+subsequent reads preserve them across browser refreshes and backend restarts.
+This is not an import of historical account statements. No-trade/missing-report
+states remain unavailable, not zero. Regression: 440 Python tests passed, including
+persistence, deduplication, corrections, pending reports, scope and session rollover;
+a read-only mocked browser check verified the realized label, amount and reload.

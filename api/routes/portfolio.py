@@ -169,7 +169,7 @@ def get_stock_chart(con_id):
         if request.args.get('include_pnl') == '1':
             from api.services.chart_pnl import snapshot
             from api.routes.account import status as account_status
-            result = dict(result, daily_pnl=snapshot(connection, con_id), account_epoch=account_status()["epoch"])
+            result = dict(result, daily_pnl=snapshot(connection, con_id, portfolio_service.config.get('db_path')), account_epoch=account_status()["epoch"])
         return _no_store_json(result)
     except ValueError as error:
         return _no_store_json({'error': str(error)}, 503)
@@ -183,7 +183,7 @@ def get_chart_pnl(con_id):
     from api.services.chart_pnl import snapshot
     from api.routes.account import status as account_status
     connection = portfolio_service._ensure_connection()
-    return _no_store_json({'daily_pnl': snapshot(connection, con_id),
+    return _no_store_json({'daily_pnl': snapshot(connection, con_id, portfolio_service.config.get('db_path')),
                            'account_epoch': account_status()['epoch']})
 
 
