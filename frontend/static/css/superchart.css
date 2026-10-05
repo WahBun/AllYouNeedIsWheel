@@ -23,3 +23,13 @@
 .chart-footer>button{flex:none}
 
 #adjustment-control[hidden]{display:none}
+
+/* lieflat G18 number/label hierarchy, adapted to the requested header slot.
+   Mono signed numerals; no invented time series or intermediate counter values. */
+.trade-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+#trade .trade-heading h2{margin:0;flex-shrink:0}
+#daily-pnl{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:5px;align-items:baseline;text-align:right;min-width:0;max-width:190px;cursor:help}
+#daily-pnl>span{grid-column:1/-1;font-size:10px;line-height:1.4;font-weight:600;color:var(--muted)}
+#daily-pnl-value{font-size:18px;line-height:1.3;font-weight:750;letter-spacing:-.4px;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#daily-pnl-currency{font-size:9px;color:var(--muted)}
+#daily-pnl:focus-visible{outline:1px solid var(--accent);outline-offset:3px;border-radius:3px}

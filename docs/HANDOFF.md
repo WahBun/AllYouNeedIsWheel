@@ -300,3 +300,29 @@ no replacement entry is generated. The phone retains unknown-write blocking and
 account epoch checks. Physical phone cold-start/network and actual broker
 amend/cancel acceptance remain to be checked; current live Paper QQQ order is
 deliberately preserved during mocked acceptance.
+
+## Web chart contract daily P&L (2026-10-05)
+
+Trading's right-hand header now shows the exact selected conId's IB `dailyPnL`,
+account-scoped and including all order groups for that contract. It follows IB's
+instrument-specific daily reset, not local calendar midnight. The metric is in
+account base currency; `BASE` is shown if the ISO currency cannot be established.
+It is not an account-total or a sum of lifetime realized/unrealized values.
+Missing, unset or older-than-15-second values show an em dash, including when IB
+does not publish P&L for a contract no longer present in the account.
+
+The web chart opts into P&L on its existing quote request. Up to four subscriptions
+reuse the serialized Gateway connection, with account/contract/epoch isolation
+and disconnect invalidation. No new polling request or trading write is added.
+
+Design: lieflat-charts G18 (Glance gallery, “H1 revenue, drawn in one stroke”)
+number/label hierarchy adapted to the requested existing header. L3 requires
+multiple observations; F2 requires a time series; F11 requires a target/range.
+Those inputs are absent. Only G18's numeral hierarchy is used: Mono signed
+numbers, existing theme tokens, no fabricated sparkline or counting animation.
+The narrow header request takes precedence over a standalone template card.
+
+Source: https://interactivebrokers.github.io/tws-api/pnl.html
+Validation: `tests/test_chart_pnl.py` and `tests/chart/daily-pnl.cjs` cover missing,
+zero, negative, stale and invalid values, account/contract switching, reconnect,
+subscription limits, and English/Chinese light/dark at 393/850/1440px.

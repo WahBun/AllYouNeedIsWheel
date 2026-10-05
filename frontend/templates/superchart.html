@@ -7,7 +7,7 @@
 <div><h2 data-en="Orders" data-zh="订单">Orders</h2><div id="orders"></div></div>
 <details open><summary data-en="Activity" data-zh="操作记录">Activity</summary><div id="activity" aria-live="polite"></div><button id="copy">Copy diagnostics</button></details>
 </section></section>
-<aside id="trade"><h2 data-en="Trading" data-zh="交易">Trading</h2>
+<aside id="trade"><div class="trade-heading"><h2 data-en="Trading" data-zh="交易">Trading</h2><div id="daily-pnl" tabindex="0"><span data-en="Daily P&amp;L" data-zh="当日盈亏">Daily P&amp;L</span><strong id="daily-pnl-value">—</strong><small id="daily-pnl-currency"></small></div></div>
 <div class="trade-pair"><select id="order-group" aria-label="Chart order"><option value="">Original order</option></select><button id="new-order">＋ New order</button></div>
 <label><span id="quantity-label">Quantity</span><div class="quantity-controls"><input id="quantity" type="number" min="1" max="1000" value="1"><button id="quantity-minus" aria-label="Decrease quantity">−</button><button id="quantity-plus" aria-label="Increase quantity">＋</button></div></label>
 <div class="trade-pair"><label>Type <select id="type"><option>LMT</option><option>STP</option></select></label><label>TIF <select id="tif"><option>DAY</option><option>GTC</option><option value="OVERNIGHT">OVT</option></select></label></div>
