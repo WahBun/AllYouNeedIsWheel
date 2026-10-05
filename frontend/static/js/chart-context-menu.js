@@ -1,5 +1,9 @@
 // Desktop-only menu; use the shared chart's price-choice and preview path.
 (()=>{
+ // Desktop uses the context menu; leave the touch price button to native iOS.
+ chart.unsubscribeCrosshairMove(updatePriceCursor);
+ priceAdd.hidden=true;
+ closePriceMenu();
  const menu=document.createElement('div');menu.id='desktop-chart-menu';menu.hidden=true;menu.setAttribute('role','menu');
  menu.style.cssText='position:fixed;z-index:100;background:#202124;color:#eee;border:1px solid #555;border-radius:8px;padding:5px;box-shadow:0 6px 24px #0006;min-width:220px;max-width:calc(100vw - 12px)';document.body.append(menu);
  function close(){menu.hidden=true;}
