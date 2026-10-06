@@ -40,7 +40,7 @@ const pendingKey=()=>`wheel.web.pending:${profile.selected}:${cid}${groupID?':'+
 const orderPath=(id=cid)=>`portfolio/paper-chart/${id}${groupID?'?group_id='+encodeURIComponent(groupID):''}`;
 function log(message){$('trade-feedback').textContent=String(message).replace(/;\s*| · /g,'\n').replace(/(^|\n)([ \t]*)([a-z])/g,(_,line,space,letter)=>line+space+letter.toUpperCase());trace(message);}
 function trace(message){activity.unshift(`${new Date().toLocaleTimeString()} ${message}`);activity.splice(100);$('activity').textContent=activity.join('\n');}
-async function api(path,body){const response=await fetch('/api/'+path,{method:body?'POST':'GET',cache:'no-store',headers:body?{'Content-Type':'application/json','X-All-You-Need-Is-Wheel':'1','X-Wheel-Account-Epoch':epoch||''}:{},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(body?35000:12000)}).catch(error=>{error.network=error instanceof TypeError;throw error;});const data=await response.json();if(!response.ok){const error=new Error(data.message||data.error||`HTTP ${response.status}`);error.confirmed=data.status==='rejected'||(response.status===503&&['IB requests are busy; please retry shortly','Request expired before execution; no operation was started'].includes(data.error))||(response.status===409&&data.error==='Account connection changed. Refresh and verify the account before continuing.');throw error;}return data;}
+async function api(path,body,signal){const response=await fetch('/api/'+path,{method:body?'POST':'GET',cache:'no-store',headers:body?{'Content-Type':'application/json','X-All-You-Need-Is-Wheel':'1','X-Wheel-Account-Epoch':epoch||''}:{},body:body?JSON.stringify(body):undefined,signal:signal||AbortSignal.timeout(body?35000:12000)}).catch(error=>{error.network=error instanceof TypeError;throw error;});const data=await response.json();if(!response.ok){const error=new Error(data.message||data.error||`HTTP ${response.status}`);error.confirmed=data.status==='rejected'||(response.status===503&&['IB requests are busy; please retry shortly','Request expired before execution; no operation was started'].includes(data.error))||(response.status===409&&data.error==='Account connection changed. Refresh and verify the account before continuing.');throw error;}return data;}
 let protectionType=null;
 function loadProtection(){const type=packet.security_type;if(!type||type===protectionType)return;protectionType=type;const saved=stored('wheel.web.protection:'+type),defaults=type==='FUT'?[2,1]:[.2,.1];for(const [i,id] of ['tp','sl'].entries())$(id).value=Number(saved[id])>0?saved[id]:defaults[i];for(const role of ['tp','sl'])$(role+'-enabled').checked=saved[role+'Enabled']!==false;$('tp-mode').value=saved.tpMode||'distance';$('sl-mode').value=saved.slMode||'distance';revision++;}
 function allowed(){return ['DAY','GTC',...(packet.security_type==='STK'&&packet.currency==='USD'&&$('type').value==='LMT'?['OVERNIGHT']:[])];}
@@ -153,10 +153,10 @@ const historyCaches=new Map();let historyLoading=false;const historyRetry=new Ma
 function historyKey(){return `${epoch}:${cid}:${interval}:${session}`;}
 function mergeHistory(bars){const key=historyKey(),saved=historyCaches.get(key)||[],rows=new Map(saved.map(b=>[b.time,b]));for(const b of bars.bars||[])rows.set(b.time,b);const merged=[...rows.values()].sort((a,b)=>a.time-b.time).slice(-20000);historyCaches.set(key,merged);if(historyCaches.size>12)historyCaches.delete(historyCaches.keys().next().value);return {...bars,bars:merged,mode:'snapshot'};}
 async function loadHistory(body){if(historyLoading||busy||body.con_id!==cid||body.interval!==interval||body.session!==session||!epoch)return;const token=generation,key=historyKey(),requestKey=key+':'+body.before;if(Date.now()<(historyRetry.get(requestKey)||0))return;if((historyCaches.get(key)?.length||0)>=20000){$('market-status').textContent='History limit reached · use a longer interval';return;}historyLoading=true;historyRetry.set(requestKey,Date.now()+30000);$('market-status').textContent='Loading earlier history…';try{const page=await api(`portfolio/stock-chart-history/${cid}?interval=${interval}&session=${session}&before=${body.before}`);if(token!==generation||key!==historyKey())return;const rows=new Map((page.bars||[]).map(b=>[b.time,b]));for(const b of packet.bars||[])rows.set(b.time,b);packet={...packet,mode:'snapshot',bars:[...rows.values()].sort((a,b)=>a.time-b.time)};historyCaches.set(key,packet.bars);frame.contentWindow.receive(packet);$('market-status').textContent=page.bars?.length?'Earlier history loaded':'No earlier bars returned; retry later';}catch(error){if(token===generation)$('market-status').textContent=error.message;}finally{historyLoading=false;}}
-let marketBusy=false,pnlBusy=false,lastFallback=0,lastPnL=0;
+let marketBusy=null,marketRevision=0,pnlBusy=false,lastFallback=0,lastPnL=0;
 const marketContext=()=>({cid,interval,session,epoch,generation});
 const currentMarket=c=>JSON.stringify(c)===JSON.stringify(marketContext());
-const marketStream=new WheelChartStream({receive:(bars,context)=>{if(currentMarket(context))applyMarket(bars,true);},status:message=>{if(!switchingChart)$('market-status').textContent=message;}});
+const marketStream=new WheelChartStream({receive:(bars,context)=>{if(currentMarket(context)){marketRevision++;applyMarket(bars,true);}},status:message=>{if(!switchingChart)$('market-status').textContent=message;}});
 function applyMarket(bars,push=false){
  if(bars.con_id!==cid||bars.interval!==interval||bars.session!==session)return;
  const pushedPnL=push&&state.position&&bars.account_epoch===epoch&&bars.daily_pnl?.fresh===true;
@@ -172,10 +172,20 @@ function applyMarket(bars,push=false){
  sync();
 }
 async function refreshMarket(){
- if(marketBusy)return;marketBusy=true;lastFallback=Date.now();const context=marketContext();
- try{const bars=await api(`portfolio/stock-chart/${context.cid}?interval=${context.interval}&session=${context.session}`);
- if(currentMarket(context)&&!marketStream.healthy())applyMarket(bars);
- }catch(error){if(currentMarket(context)&&!marketStream.healthy())$('market-status').textContent=error.message;}finally{marketBusy=false;}
+ if(marketBusy)return;const request=marketBusy=new AbortController();lastFallback=Date.now();const context=marketContext(),revision=marketRevision;
+ const timeout=setTimeout(()=>request.abort(),12000);
+ try{const bars=await api(`portfolio/stock-chart/${context.cid}?interval=${context.interval}&session=${context.session}`,undefined,request.signal);
+ if(marketBusy===request&&currentMarket(context)&&revision===marketRevision&&!marketStream.healthy())applyMarket(bars);
+ }catch(error){if(marketBusy===request&&!request.signal.aborted&&currentMarket(context)&&revision===marketRevision&&!marketStream.healthy())$('market-status').textContent=error.message;}finally{clearTimeout(timeout);if(marketBusy===request)marketBusy=null;}
+}
+// Foreground events often arrive together. Restart only reads, never trading writes.
+let resumedAt=0;
+function resumeMarket(){
+ if(document.hidden||!ready||!cid||!epoch)return;
+ const now=Date.now();if(now-resumedAt<300)return;resumedAt=now;
+ marketStream.stop();marketRevision++;marketBusy?.abort();marketBusy=null;lastFallback=0;
+ $('market-status').textContent='Refreshing latest prices…';
+ ensureMarket();refresh();
 }
 async function refreshPnL(){
  if(pnlBusy||Date.now()-lastPnL<5000)return;pnlBusy=true;lastPnL=Date.now();const context=marketContext(),started=Date.now();
@@ -304,6 +314,9 @@ setInterval(()=>{sync();refresh();},2000);
 setInterval(ensureMarket,500);
 setInterval(refreshEMA,2000);
 setInterval(refreshExecutions,2000);
-document.addEventListener('visibilitychange',()=>{if(document.hidden)marketStream.stop();else{ensureMarket();refresh();}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){marketStream.stop();marketRevision++;marketBusy?.abort();marketBusy=null;resumedAt=0;}else resumeMarket();});
+window.addEventListener('focus',resumeMarket);
+window.addEventListener('online',resumeMarket);
+window.addEventListener('pageshow',resumeMarket);
 window.addEventListener('pagehide',()=>marketStream.stop());
 })();

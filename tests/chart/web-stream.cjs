@@ -26,6 +26,16 @@ await page.waitForFunction(()=>document.getElementById('daily-pnl-value').textCo
 holding=true;await page.waitForFunction(()=>document.getElementById('quantity-label').textContent==='Position size');
 await page.evaluate(({base})=>streams.at(-1).send({...base,interval:15,mode:'delta',sequence:2,account_epoch:'epoch',daily_pnl:{con_id:7,value:37.25,fresh:true,age_seconds:0,currency:'USD'}}),{base});
 assert.equal(await page.locator('#daily-pnl-value').textContent(),'+37.25','P&L event renders immediately, without waiting for periodic GET');
+const resumedSnapshots=snapshots,resumedStreams=await page.evaluate(()=>streams.length);
+await page.evaluate(()=>{window.dispatchEvent(new Event('focus'));window.dispatchEvent(new Event('pageshow'));window.dispatchEvent(new Event('online'));});
+await page.waitForFunction(n=>streams.length===n+1,resumedStreams);
+await page.waitForTimeout(150);
+assert.equal(snapshots,resumedSnapshots+1,'foreground immediately fetches a snapshot, coalescing duplicate lifecycle events');
+assert.equal(await page.evaluate(()=>streams.at(-2).closed),true,'foreground replaces even a recently healthy connection');
+await page.evaluate(({base})=>streams.at(-2).send({...base,interval:15,mode:'delta',sequence:3,bars:[{...base.bars[0],close:999}]}),{base});
+assert.notEqual(await cf.evaluate(()=>previous.at(-1).close),999,'old connection is ignored after foreground recovery');
+await page.evaluate(({base})=>streams.at(-1).send({...base,interval:15,mode:'snapshot',sequence:1,bars:[{...base.bars[0],close:105}]}),{base});
+assert.equal(await cf.evaluate(()=>previous.at(-1).close),105,'new stream resumes immediately');
 assert.equal(posts,1,'reconnect never replays trading requests');assert.deepEqual(errors,[]);
 console.log('Web SSE: deltas, polling removal, pending-write quotes, sequence recovery, timeframe isolation, P&L and no replay passed');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1)});
