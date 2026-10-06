@@ -6,6 +6,7 @@ from threading import BoundedSemaphore
 from uuid import uuid4
 from flask import Response, current_app, request
 from api.services.stock_chart import stock_chart
+from api.services.chart_latest import latest_charts
 
 slots = BoundedSemaphore(2)
 
@@ -84,6 +85,8 @@ class ChartStreams:
     def publish_changed(self, state, pnl_changed=False):
         # Called on the IB owner directly from the ticker callback, including
         # while synchronous IB reads are yielding to that same event loop.
+        from api.routes.account import epoch
+        latest_charts.publish(stock_chart,state,epoch())
         now = time.monotonic()
         marker = (state['ticks'], tuple(sorted(state['quotes'].items())))
         for sub in tuple(self.clients.values()):
@@ -94,24 +97,25 @@ class ChartStreams:
                 sub.publish(self.with_pnl(stock_chart.packet(state, sub.minutes, sub.session), state['conn'], sub))
 
     def pulse(self):
-        if not self.clients:
+        contexts=latest_charts.contexts()
+        if not self.clients and not contexts:
             return
         now = time.monotonic()
         for key, sub in list(self.clients.items()):
             if sub.closed or now-sub.created > 120:
                 sub.closed = True
                 self.clients.pop(key, None)
-        if not self.clients:
+        if not self.clients and not contexts:
             return
         # Each browser/phone may view a different contract. A global active
         # pointer belongs to the most recent request, not to every subscriber.
-        for cid in {s.con_id for s in self.clients.values()}:
+        for cid in {s.con_id for s in self.clients.values()} | {key[0] for key in contexts}:
             clients=[s for s in self.clients.values() if s.con_id==cid and not s.closed]
-            if not clients: continue
             state=stock_chart.states.get(cid)
             if (not state or not state['conn'].is_connected()
                     or state['conn'].ib.ticker(state['contract']) is not state['ticker']):
                 for sub in clients: sub.closed=True
+                latest_charts.invalidate(cid)
                 continue
             state['used']=now
             if state.get('option_bars') and now-state.get('quote_keepalive',0)>60:
@@ -119,6 +123,7 @@ class ChartStreams:
                 state['conn'].get_market_ticker(state['contract'])
             state['conn'].ib.sleep(.005)
             self.publish_changed(state)
+            if not clients: continue
             generation,retry=self.maintenance.get(cid,(None,0))
             if (now-min(s.created for s in clients)>2
                     and (generation!=state['generation'] or

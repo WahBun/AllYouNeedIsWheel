@@ -166,6 +166,7 @@ const currentMarket=c=>JSON.stringify(c)===JSON.stringify(marketContext());
 const marketStream=new WheelChartStream({receive:(bars,context)=>{if(currentMarket(context)){marketRevision++;applyMarket(bars,true);}},status:message=>{if(!switchingChart)$('market-status').textContent=message;}});
 function applyMarket(bars,push=false){
  if(bars.con_id!==cid||bars.interval!==interval||bars.session!==session)return;
+ if(Number.isFinite(bars.server_time)&&Number.isFinite(packet.server_time)&&bars.server_time<packet.server_time)return;
  const pushedPnL=push&&state.position&&bars.account_epoch===epoch&&bars.daily_pnl?.fresh===true;
  const pnl=pushedPnL?{daily_pnl:bars.daily_pnl,account_epoch:bars.account_epoch}:{daily_pnl:packet.daily_pnl,account_epoch:packet.account_epoch};
  if(pushedPnL)pnlReceived=Date.now();
@@ -173,16 +174,39 @@ function applyMarket(bars,push=false){
  if($('contracts').selectedOptions[0])$('contracts').selectedOptions[0].textContent=bars.display_symbol||bars.local_symbol||bars.symbol||String(cid);
  packetReceived=Date.now();
  // Keep paged history in the host; send only changed bars to the shared renderer.
- frame.contentWindow.receive(push&&bars.mode==='delta'&&!switchingChart?bars:packet);
+ frame.contentWindow.receive(bars.mode==='delta'&&!switchingChart?bars:packet);
  switchingChart=false;frame.style.opacity='';frame.style.pointerEvents='';frame.removeAttribute('aria-busy');
  $('market-status').textContent=(bars.message||(bars.status==='waiting'?'Historical bars · waiting for IB last ticks':bars.status)||'')+(push?' · SSE push':' · Snapshot refresh');
  sync();
 }
-async function refreshMarket(){
- if(marketBusy)return;const request=marketBusy=new AbortController();lastFallback=Date.now();const context=marketContext(),revision=marketRevision;
+let legacyMarket=null,legacyStarted=0,legacyContext=null;
+async function refreshLegacyMarket(context){
+ if(legacyContext&&!currentMarket(legacyContext)){legacyMarket?.abort();legacyMarket=null;legacyStarted=0;}
+ if(legacyMarket||Date.now()-legacyStarted<5000)return;
+ legacyContext=context;
+ const request=legacyMarket=new AbortController();legacyStarted=Date.now();
  const timeout=setTimeout(()=>request.abort(),12000);
- try{const bars=await api(`portfolio/stock-chart/${context.cid}?interval=${context.interval}&session=${context.session}&fast=1`,undefined,request.signal);
- if(marketBusy===request&&currentMarket(context)&&revision===marketRevision&&!marketStream.healthy())applyMarket(bars);
+ try{const bars=await api(`portfolio/stock-chart/${context.cid}?interval=${context.interval}&session=${context.session}&fast=1`,undefined,request.signal);if(currentMarket(context))applyMarket(bars);}
+ catch(error){if(currentMarket(context)&&!marketStream.healthy()&&Date.now()-packetReceived>2000)$('market-status').textContent='Waiting for fresh market data…';}
+ finally{clearTimeout(timeout);if(legacyMarket===request)legacyMarket=null;}
+}
+const streamSupported=()=>[1,3,5,10,15,60,480].includes(interval)&&!(interval===480&&session==='rth');
+async function refreshMarket({full=false}={}){
+ if(marketBusy||!ready||!cid||document.hidden)return;
+ const request=marketBusy=new AbortController();lastFallback=Date.now();const context=marketContext(),revision=marketRevision;
+ const timeout=setTimeout(()=>request.abort(),12000);
+ try{
+  if(streamSupported()){
+   try{
+    const generation=!full&&packet.generation&&packetReceived>Date.now()-5000?`&generation=${encodeURIComponent(packet.generation)}`:'';
+    const bars=await api(`portfolio/stock-chart-latest/${context.cid}?interval=${context.interval}&session=${context.session}${context.epoch?'&epoch='+encodeURIComponent(context.epoch):''}${generation}`,undefined,AbortSignal.any([request.signal,AbortSignal.timeout(800)]));
+    if(!Array.isArray(bars.bars)||!Number.isFinite(bars.server_time))throw Error('Latest quote packet unavailable');
+    if(marketBusy===request&&currentMarket(context))applyMarket(bars);
+    return;
+   }catch(error){if(request.signal.aborted)throw error;if(!marketStream.healthy())refreshLegacyMarket(context);return;}
+  }
+  const bars=await api(`portfolio/stock-chart/${context.cid}?interval=${context.interval}&session=${context.session}&fast=1`,undefined,request.signal);
+  if(marketBusy===request&&currentMarket(context)&&revision===marketRevision&&!marketStream.healthy())applyMarket(bars);
  }catch(error){if(marketBusy===request&&!request.signal.aborted&&currentMarket(context)&&revision===marketRevision&&!marketStream.healthy())$('market-status').textContent=error.message;}finally{clearTimeout(timeout);if(marketBusy===request)marketBusy=null;}
 }
 // Foreground events often arrive together. Restart only reads, never trading writes.
@@ -190,9 +214,9 @@ let resumedAt=0,marketPriorityUntil=0;
 function resumeMarket(){
  if(document.hidden||!ready||!cid||!epoch)return;
  const now=Date.now();if(now-resumedAt<300)return;resumedAt=now;marketPriorityUntil=now+1500;
- marketStream.stop();marketRevision++;marketBusy?.abort();marketBusy=null;lastFallback=0;
+ if(!marketStream.healthy())marketStream.stop();marketRevision++;marketBusy?.abort();marketBusy=null;lastFallback=0;
  $('market-status').textContent='Refreshing latest prices…';
- ensureMarket();refresh();
+ refreshMarket({full:true});ensureMarket();refresh();
 }
 async function refreshPnL(){
  if(document.hidden||Date.now()<marketPriorityUntil||pnlBusy||Date.now()-lastPnL<5000)return;pnlBusy=true;lastPnL=Date.now();const context=marketContext(),started=Date.now();
@@ -201,9 +225,9 @@ async function refreshPnL(){
 }
 function ensureMarket(){
  if(!ready||!cid||!epoch||document.hidden){marketStream.stop();return;}
- const supported=[1,3,5,10,15,60,480].includes(interval)&&!(interval===480&&session==='rth');
+ const supported=streamSupported();
  if(supported)marketStream.ensure(marketContext());else marketStream.stop();
- if(!marketStream.healthy()&&Date.now()-lastFallback>=2000)refreshMarket();
+ if(Date.now()-lastFallback>=(supported?(Date.now()<marketPriorityUntil?250:1000):2000))refreshMarket();
  refreshPnL();
 }
 async function refresh(){if(document.hidden||Date.now()<marketPriorityUntil||polling||busy||!ready)return;polling=true;const token=generation,selected=cid,readVersion=writeVersion;let stateRead=false;try{
@@ -219,7 +243,7 @@ renderRows('orders',orders.orders||[],true);positions=portfolio.positions||portf
 }catch(error){if(error.network)window.wheelTradeSounds?.connection(false);if(!stateRead)received=0;$('market-status').textContent=error.message;log(error.message);}finally{polling=false;sync();}}
 function holdingRows(){return positions.flatMap(p=>{const exact=p.con_id===cid&&p.security_type===packet.security_type,strike=packet.security_type==='STK'&&p.security_type==='OPT'&&p.symbol===packet.symbol;if(!(p.position&&p.con_id&&(exact||strike)))return [];const report=p.reported_cost;let price=strike?p.strike:p.security_type==='STK'&&report&&Math.abs(report.quantity-p.position)<.000001?report.average:p.entry_fill_price;if(!(price>0))price=null;if(strike&&!price)return [];return [{id:(strike?'strike-':'holding-')+p.con_id,kind:strike?'strike':'holding',price,title:strike?`${p.position} ${p.strike}${p.option_type==='CALL'?'C':'P'}@${p.entry_fill_price??'—'}`:`${p.position} · Avg${price?'':' —'}`,side:p.position>0?1:-1,pnl:p.unrealized_pnl,basis:Math.abs(p.avg_cost*p.position),marketPrice:p.market_price}];});}
 function renderRows(id,rows,isOrder){$(id).replaceChildren();if(!rows.length){$(id).textContent=isOrder?'No pending orders':'No positions';return;}for(const row of rows){const target=row.chart_con_id||row.con_id;const button=document.createElement('button');button.textContent=isOrder?`${row.local_symbol||row.symbol||row.ticker||''} ${row.action||''} ${row.quantity||''}\n${row.order_type||''} ${row.tif||''} @ ${row.premium??row.limit_price??'—'} · ${row.status||''}`:`${row.local_symbol||row.symbol} · ${row.position??row.quantity??''}`;button.disabled=!target||busy;button.onclick=()=>{if(isOrder&&('chart_navigation_group_id' in row||row.chart_order_ref))localStorage.setItem('wheel.web.group:'+target,row.chart_navigation_group_id??row.chart_group_id??'');select(Number(target),row.local_symbol||row.symbol||row.ticker);};$(id).append(button);}}
-function select(id,label){if(busy)return;cid=id;groupID=localStorage.getItem('wheel.web.group:'+id)||'';generation++;marketStream.stop();lastFallback=0;lastPnL=0;entry=0;state={};received=0;packet={};$('tif').value='DAY';$('editor').close();const url=new URL(location);url.searchParams.set('con_id',id);history.replaceState(null,'',url);if(![...$('contracts').options].some(o=>o.value===String(id)))$('contracts').append(new Option(label||String(id),String(id)));$('contracts').value=String(id);frame.contentWindow.configureDrawings({key:`web:${location.origin}:${id}`,value:{...stored(`wheel.drawings:${id}`),magnet:'off'}});frame.contentWindow.receive({bars:[],con_id:id,generation:'clear',interval,session});sync();refresh();}
+function select(id,label){if(busy)return;cid=id;groupID=localStorage.getItem('wheel.web.group:'+id)||'';generation++;marketStream.stop();lastFallback=0;lastPnL=0;entry=0;state={};received=0;packet={};$('tif').value='DAY';$('editor').close();const url=new URL(location);url.searchParams.set('con_id',id);history.replaceState(null,'',url);if(![...$('contracts').options].some(o=>o.value===String(id)))$('contracts').append(new Option(label||String(id),String(id)));$('contracts').value=String(id);frame.contentWindow.configureDrawings({key:`web:${location.origin}:${id}`,value:{...stored(`wheel.drawings:${id}`),magnet:'off'}});frame.contentWindow.receive({bars:[],con_id:id,generation:'clear',interval,session});sync();refreshMarket({full:true});refresh();}
 function entryPriceOnly(body){return !('order_id' in body)&&( body.action==='edit_entry'||body.action==='amend'&&['tp','sl'].includes(body.role))&&Number.isFinite(body.price)&&body.price>0&&!body.cancel&&!('quantity' in body)&&!('tif' in body);}
 async function write(body){
  const releasedAt=body.clientReleasedAt||Date.now();body={...body};delete body.clientReleasedAt;
@@ -318,7 +342,7 @@ magnetKeys(document);frame.addEventListener('load',()=>{magnetKeys(frame.content
 $('fullscreen').title='Fullscreen · Shift+F';$('fullscreen').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.querySelector('.workspace').requestFullscreen();
 for(const b of $('intervals').children)b.classList.toggle('active',Number(b.dataset.interval)===interval);
 setInterval(()=>{sync();refresh();},2000);
-setInterval(ensureMarket,500);
+setInterval(ensureMarket,250);
 setInterval(refreshEMA,2000);
 setInterval(refreshExecutions,2000);
 document.addEventListener('visibilitychange',()=>{if(document.hidden){marketStream.stop();marketRevision++;marketBusy?.abort();marketBusy=null;resumedAt=0;}else resumeMarket();});

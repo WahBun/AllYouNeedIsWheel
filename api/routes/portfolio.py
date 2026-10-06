@@ -187,6 +187,30 @@ def get_chart_pnl(con_id):
                            'account_epoch': account_status()['epoch']})
 
 
+@bp.get('/stock-chart-latest/<int:con_id>')
+def get_stock_chart_latest(con_id):
+    """HTTP-only immutable reads: no connection lookup, no broker/portfolio queue."""
+    from flask import Response
+    from api.routes.account import epoch
+    from api.services.chart_latest import latest_charts
+    token=epoch()
+    expected=request.args.get('epoch')
+    if expected and expected!=token:
+        return _no_store_json({'error':'Account changed; refresh connection state'},409)
+    try: minutes=int(request.args.get('interval','5'))
+    except ValueError: minutes=0
+    session=request.args.get('session','rth')
+    if con_id<=0 or minutes not in (1,3,5,10,15,60,480) or session not in ('rth','all') or (minutes==480 and session=='rth'):
+        return _no_store_json({'error':'Unsupported latest chart context'},400)
+    encoded=latest_charts.read(con_id,minutes,session,token,request.args.get('generation'))
+    if encoded is None:
+        return _no_store_json({'error':'Waiting for a fresh chart packet'},503)
+    response=Response(encoded,mimetype='application/json')
+    response.headers['Cache-Control']='no-store'
+    response.headers['X-Chart-Path']='immutable-latest'
+    return response
+
+
 @bp.route('/stock-chart-stream/<int:con_id>', methods=['GET'])
 def get_stock_chart_stream(con_id):
     from api.services.chart_stream import response

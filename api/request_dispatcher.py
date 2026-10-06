@@ -66,9 +66,10 @@ def install_api_dispatcher(app):
 
     def chart_loop():
         from api.services.chart_stream import streams
+        from api.services.chart_latest import latest_charts
         outstanding = None
         while not stop_background.wait(.005):
-            if not streams.clients or (outstanding is not None and not outstanding.done()):
+            if (not streams.clients and not latest_charts.contexts()) or (outstanding is not None and not outstanding.done()):
                 continue
             def pulse():
                 try:
@@ -83,7 +84,7 @@ def install_api_dispatcher(app):
         Thread(target=chart_loop, name='chart-event-pump', daemon=True).start()
 
     def dispatch():
-        if request.endpoint == 'portfolio.get_stock_chart_stream':
+        if request.endpoint in ('portfolio.get_stock_chart_stream','portfolio.get_stock_chart_latest'):
             return original_dispatch()
         if not request.path.startswith('/api/') or (request.method == 'GET' and request.path in {'/api/options/market-session', '/api/performance/history'}):
             return original_dispatch()
