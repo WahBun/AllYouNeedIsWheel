@@ -377,6 +377,11 @@ class PaperChart:
             r['status'] in ('Submitted', 'PreSubmitted') for r in rows))
         result['edit_snapshot'] = [dict(order_id=r['order_id'], price=r['price'], quantity=r['quantity'],
             filled=r['filled'], status=r['status'], tif=trades[r['order_id']].order.tif if r['order_id'] in trades else '') for r in rows]
+        if group.get('pending_resize'):
+            result['sync_error']=True
+            result['scalable']=False
+            for key in ('tp_projection','sl_projection'):
+                if key in result: result[key]['known']=False
         return result
 
     @staticmethod
