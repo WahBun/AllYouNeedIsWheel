@@ -707,7 +707,16 @@ function latestBarLogical(){const time=previous.at(-1)?.time;if(time===undefined
 latestBarButton.onclick=()=>{const last=latestBarLogical();if(last===null)return;const r=chart.timeScale().getVisibleLogicalRange(),width=r?Math.max(5,r.to-r.from):70,right=last+Math.min(18,width*.2);chart.timeScale().setVisibleLogicalRange({from:right-width,to:right});chart.priceScale('right').applyOptions({autoScale:true});};
 function updateLatestBarButton(){const r=chart.timeScale().getVisibleLogicalRange(),last=latestBarLogical();const y=previous.length?series.priceToCoordinate(previous.at(-1).close):null;const priceVisible=y!==null&&y>=0&&y<=chart.paneSize().height;latestBarButton.hidden=last===null||!r||(r.from<=last&&r.to>=last&&priceVisible&&chart.priceScale('right').options().autoScale);latestBarButton.style.right=(chart.priceScale('right').width()+12)+'px';}
 // Visible candle extrema: use timestamps, since indicator-only points can shift logical indices.
-let extremaBars=null,extremaRange='',extremaLines={};
+let extremaBars=null,extremaRange='',extremaLines={},extremaLabels={};
+function positionExtremaLabels(){
+ for(const [name,label] of Object.entries(extremaLabels)){
+  const price=extremaLines[name]?.options().price;if(!Number.isFinite(price)){label.style.display='none';continue;}const y=series.priceToCoordinate(price);
+  label.style.display=y===null||y<8||y>innerHeight-40?'none':'flex';
+  if(y!==null)label.style.top=(y-7.5)+'px';
+  label.lastChild.textContent=priceText(price);
+ }
+}
+
 function updateVisibleExtrema(){
  const range=chart.timeScale().getVisibleRange(),signature=range?range.from+':'+range.to:'';
  if(extremaBars===previous&&extremaRange===signature)return;
@@ -715,12 +724,14 @@ function updateVisibleExtrema(){
  let high=-Infinity,low=Infinity;
  if(range)for(const bar of previous){if(bar.time>=range.from&&bar.time<=range.to){high=Math.max(high,bar.high);low=Math.min(low,bar.low);}}
  for(const [name,price] of [['High',high],['Low',low]]){
-  if(!Number.isFinite(price)){if(extremaLines[name]){series.removePriceLine(extremaLines[name]);delete extremaLines[name];}continue;}
-  const options={price,title:name,color:'#e3eef8',axisLabelColor:'#e3eef8',axisLabelTextColor:'#242424',lineVisible:false,axisLabelVisible:true};
+  if(!Number.isFinite(price)){if(extremaLines[name]){series.removePriceLine(extremaLines[name]);delete extremaLines[name];}if(extremaLabels[name])extremaLabels[name].hidden=true;continue;}
+  const options={price,title:'',color:'#e3eef8',axisLabelColor:'#e3eef8',axisLabelTextColor:'#242424',lineVisible:false,axisLabelVisible:false};
+  if(!extremaLabels[name]){const label=document.createElement('div');label.className='extrema-label';label.style.cssText='position:absolute;right:3px;display:flex;gap:3px;height:15px;font:11px/15px -apple-system,BlinkMacSystemFont,sans-serif;color:#242424;pointer-events:none;z-index:5';const title=document.createElement('span'),value=document.createElement('span');title.textContent=name;title.style.cssText='background:#e3eef8;border-radius:1px;width:30px;text-align:center';value.style.cssText='background:#e3eef8;border-radius:1px;min-width:58px;padding:0 3px;box-sizing:border-box;text-align:right;font-variant-numeric:tabular-nums';label.append(title,value);document.body.append(label);extremaLabels[name]=label;}
+
   if(extremaLines[name])extremaLines[name].applyOptions(options);else extremaLines[name]=series.createPriceLine(options);
  }
 }
-function position(){updateVisibleExtrema();document.getElementById('chart-header').style.right=(chart.priceScale('right').width()+7)+'px';updateLatestBarButton();drawPV();drawFVG();drawBarCount();for(const badge of holdingAxisBadges.values()){const price=Number(badge.dataset.price),y=series.priceToCoordinate(price);badge.hidden=y===null||y<9||y>innerHeight-50;badge.textContent=priceText(price);badge.style.width=axisBadgeWidth()+'px';if(y!==null)badge.style.top=(y-9)+'px';}const axisRight=Math.ceil(chart.priceScale('right').width())+7;for(const badge of holdingBadges.values()){const y=badge.dataset.price===''?innerHeight-65:series.priceToCoordinate(Number(badge.dataset.price));badge.hidden=y===null||y<20||y>innerHeight-36;badge.style.right=axisRight+'px';if(y!==null)badge.style.top=y+'px';}for(const id of ['tp','sl','cancel'])document.getElementById(id).style.right=axisRight+'px';document.getElementById('entry').style.right=(axisRight+35)+'px';updateCountdown();for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}requestAnimationFrame(position);}position();
+function position(){updateVisibleExtrema();positionExtremaLabels();document.getElementById('chart-header').style.right=(chart.priceScale('right').width()+7)+'px';updateLatestBarButton();drawPV();drawFVG();drawBarCount();for(const badge of holdingAxisBadges.values()){const price=Number(badge.dataset.price),y=series.priceToCoordinate(price);badge.hidden=y===null||y<9||y>innerHeight-50;badge.textContent=priceText(price);badge.style.width=axisBadgeWidth()+'px';if(y!==null)badge.style.top=(y-9)+'px';}const axisRight=Math.ceil(chart.priceScale('right').width())+7;for(const badge of holdingBadges.values()){const y=badge.dataset.price===''?innerHeight-65:series.priceToCoordinate(Number(badge.dataset.price));badge.hidden=y===null||y<20||y>innerHeight-36;badge.style.right=axisRight+'px';if(y!==null)badge.style.top=y+'px';}for(const id of ['tp','sl','cancel'])document.getElementById(id).style.right=axisRight+'px';document.getElementById('entry').style.right=(axisRight+35)+'px';updateCountdown();for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}requestAnimationFrame(position);}position();
 // A WKWebView changes size in place when native full-screen controls appear.
 // Resize the canvas and restore the time window together; stale manual Y scaling
 // must not carry the full-screen pixel range into the shorter chart.

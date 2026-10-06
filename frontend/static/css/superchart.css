@@ -87,5 +87,10 @@ body.light .core-symbol-sgov{color:#c79929}
 .core-symbol::after{content:attr(data-lettering);position:absolute;inset:0;pointer-events:none;color:transparent;background:linear-gradient(90deg,transparent 25%,#d62117 38%,#ffd652 50%,#944d0d 62%,transparent 75%);background-size:265% 100%;background-clip:text;-webkit-background-clip:text;animation:core-symbol-flow 5s linear infinite;animation-delay:var(--symbol-phase,0ms)}
 .core-symbol-sgov::after{background-image:linear-gradient(90deg,transparent 30%,#fff 50%,transparent 70%)}
 body.light .core-symbol-sgov::after{background-image:linear-gradient(90deg,transparent 30%,#7a3b05 50%,transparent 70%)}
-@keyframes core-symbol-flow{from{background-position:150% 0}to{background-position:-150% 0}}
+@keyframes core-symbol-flow{from{background-position:100% 0}to{background-position:0% 0}}
 @media(prefers-reduced-motion:reduce){.core-symbol::after{display:none;animation:none}}
+
+input[type=number]{appearance:textfield;-moz-appearance:textfield}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.order-buy{color:#0a84ff}.order-sell{color:#ff453a}
+body.light .order-buy{color:#007aff}body.light .order-sell{color:#d92d20}
