@@ -260,24 +260,34 @@ class PaperChart:
         if group.get('lots'):
             projection=dict(realized=0.0,known=True,targets=[])
             multiplier=float(next(iter(trades.values())).contract.multiplier or 1) if trades else 1
+            def execution_totals(trade):
+                if not trade: return 0.0, 0.0
+                fills=trade_fills(trade)
+                shares=sum(float(f.execution.shares) for f in fills)
+                quantity=max(float(trade.orderStatus.filled or 0),shares)
+                average=float(trade.orderStatus.avgFillPrice or 0)
+                if shares and shares>=quantity:
+                    average=sum(float(f.execution.shares)*float(f.execution.price) for f in fills)/shares
+                return quantity,average
             for lot in group['lots']:
                 parent=trades.get(lot['entry'])
-                basis=float(parent.orderStatus.avgFillPrice or 0) if parent else 0
+                parent_filled,basis=execution_totals(parent)
                 if not parent: projection['known']=False; continue
-                if not parent.orderStatus.filled: continue
+                if not parent_filled:
+                    if parent.orderStatus.status=='Filled': projection['known']=False
+                    continue
                 if basis<=0: projection['known']=False; continue
                 for role in ('tp','sl'):
                     if role not in lot: continue
                     trade=trades.get(lot[role])
                     if not trade: projection['known']=False; continue
-                    filled=float(trade.orderStatus.filled or 0)
+                    filled,actual=execution_totals(trade)
                     if filled:
-                        actual=float(trade.orderStatus.avgFillPrice or 0)
                         if actual<=0: projection['known']=False
                         else: projection['realized']+=(actual-basis)*group['side']*filled*multiplier
                     if role=='tp' and not trade.isDone():
                         stop=trades.get(lot.get('sl'))
-                        remaining=max(0,float(parent.orderStatus.filled)-filled-float(stop.orderStatus.filled or 0) if stop else float(parent.orderStatus.filled)-filled)
+                        remaining=max(0,parent_filled-filled-execution_totals(stop)[0])
                         if remaining: projection['targets'].append(dict(order_id=trade.order.orderId,price=trade.order.lmtPrice,
                             quantity=remaining,entry=basis,side=group['side'],multiplier=multiplier,trim=bool(lot.get('closing'))))
             result['tp_projection']=projection

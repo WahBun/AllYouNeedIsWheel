@@ -626,3 +626,8 @@ position direction, Trim purple, and BE the SL color; disabled controls fade.
 505 backend and 127 simulator tests passed, plus optional protection variants,
 aggregate amount, drag payload and line lifecycle browser checks. Real broker
 amendments were not exercised; existing user orders were not modified for tests.
+
+### TP aggregate reconnect correction
+- Recover per-lot filled quantities and weighted execution prices from deduplicated broker fills when completed-order status fields reset after reconnect. Missing completed entry evidence renders unknown rather than a zero profit.
+- Backend unittest suite: 507 passed; includes reconnect fixtures for stock and option protected lots. Validation uses mocks and read-only broker state, no order writes.
+- Add color verified in sync(): positive position blue, negative position red.

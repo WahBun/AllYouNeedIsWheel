@@ -418,6 +418,21 @@ class ProtectedLotTests(unittest.TestCase):
         self.assertEqual(projection['realized'],.5*float(self.contract.multiplier or 1))
         self.assertNotIn(row['order_id'],[r['order_id'] for r in projection['targets']])
 
+    def test_projection_recovers_completed_parent_execution_after_reconnect(self):
+        self.open_four()
+        for index,t in enumerate(self.trades):
+            if t.order.parentId: continue
+            t.orderStatus.filled=0
+            t.orderStatus.avgFillPrice=0
+            t.fills=[S(time=index,execution=S(execId=str(index),shares=1,price=10))]
+        projection=self.service.state(self.conn,7)['tp_projection']
+        self.assertTrue(projection['known'])
+        self.assertEqual(len(projection['targets']),4)
+        self.assertTrue(all(r['entry']==10 and r['quantity']==1 for r in projection['targets']))
+        self.conn.ib.placeOrder.reset_mock()
+        self.service.state(self.conn,7)
+        self.conn.ib.placeOrder.assert_not_called()
+
     def test_priced_trim_all_and_stale_position(self):
         self.open_four()
         body=dict(request_id=str(uuid4()),action='trim',quantity=4,exit_type='LMT',exit_price=10.75,
