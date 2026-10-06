@@ -66,10 +66,34 @@ class LatestChartTests(unittest.TestCase):
         state=dict(self.state,conn=conn,contract=7,ticker=object(),ticks=0,quotes={})
         conn.ib.ticker.return_value=state['ticker']
         self.cache.read(7,5,'all','epoch')
-        with patch('api.services.chart_stream.stock_chart') as feed,patch('api.services.chart_stream.latest_charts',self.cache),patch('api.routes.account.epoch',return_value='epoch'):
+        with patch.object(self.cache,'start_owner_pump'),patch('api.services.chart_stream.stock_chart') as feed,patch('api.services.chart_stream.latest_charts',self.cache),patch('api.routes.account.epoch',return_value='epoch'):
             feed.states={7:state};feed.listeners=set();feed.packet.return_value=self.packet
             hub.pulse()
             self.assertIn(hub.publish_changed,feed.listeners)
             self.assertIsNotNone(self.cache.read(7,5,'all','epoch'))
             feed.snapshot.assert_not_called()
             conn.ib.placeOrder.assert_not_called()
+
+    def test_owner_heartbeat_runs_while_executor_read_awaits_ib_without_ticks(self):
+        import asyncio
+        loop=asyncio.new_event_loop()
+        conn=Mock();conn.is_connected.return_value=True
+        state=dict(self.state,conn=conn,contract=7,ticker=object())
+        conn.ib.ticker.return_value=state['ticker']
+        self.feed.states={7:state}
+        self.cache.read(7,5,'all','epoch')
+        try:
+            with patch('api.services.chart_latest.asyncio.get_event_loop',return_value=loop):
+                self.cache.start_owner_pump(self.feed,lambda:'epoch')
+                timer=self.cache.timer
+                self.cache.start_owner_pump(self.feed,lambda:'epoch')
+                self.assertIs(self.cache.timer,timer)
+                # A synchronous IB read pumps the same event loop while awaiting
+                # its reply; no queued executor pulse or ticker event can run.
+                loop.run_until_complete(asyncio.sleep(.45))
+                self.assertGreaterEqual(self.feed.packet.call_count,2)
+                self.assertIsNotNone(self.cache.read(7,5,'all','epoch'))
+                conn.ib.placeOrder.assert_not_called()
+        finally:
+            if self.cache.timer:self.cache.timer.cancel()
+            loop.close()

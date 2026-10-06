@@ -99,6 +99,8 @@ class ChartStreams:
     def pulse(self):
         contexts=latest_charts.contexts()
         if contexts:
+            from api.routes.account import epoch
+            latest_charts.start_owner_pump(stock_chart,epoch)
             stock_chart.listeners.add(self.publish_changed)
         if not self.clients and not contexts:
             return
