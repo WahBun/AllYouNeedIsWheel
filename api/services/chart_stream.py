@@ -45,16 +45,13 @@ class Subscriber:
 class ChartStreams:
     def __init__(self):
         self.clients = {}
-        self.prepared_generation = None
-        self.next_maintenance = 0
+        self.maintenance = {}
 
     def open(self, connection, con_id, minutes, session, include_pnl=False):
-        if self.clients and any(s.con_id != con_id for s in self.clients.values()):
-            for old in self.clients.values(): old.closed = True
-            self.clients.clear()
-        state = stock_chart.active
+        state = stock_chart.states.get(con_id)
         if (state and state['conn'] is connection and state['con_id'] == con_id
                 and connection.is_connected() and connection.ib.ticker(state['contract']) is state['ticker']):
+            state['used'] = time.monotonic()
             packet = stock_chart.packet(state, minutes, session)
         else:
             packet = stock_chart.snapshot(connection, con_id, minutes, session)
@@ -80,7 +77,7 @@ class ChartStreams:
         return packet
 
     def publish_pnl(self, pnl):
-        state = stock_chart.active
+        state = stock_chart.states.get(pnl.conId)
         if state and state['con_id'] == pnl.conId and state['conn'].account_id == pnl.account:
             self.publish_changed(state, pnl_changed=True)
 
@@ -106,27 +103,32 @@ class ChartStreams:
                 self.clients.pop(key, None)
         if not self.clients:
             return
-        state = stock_chart.active
-        if (not state or not state['conn'].is_connected()
-                or state['conn'].ib.ticker(state['contract']) is not state['ticker']):
-            for sub in self.clients.values(): sub.closed = True
-            return
-        state['used'] = now
-        if state.get('option_bars') and now-state.get('quote_keepalive',0)>60:
-            state['quote_keepalive']=now
-            state['conn'].get_market_ticker(state['contract'])
-        state['conn'].ib.sleep(.005)
-        self.publish_changed(state)
-        # Defer slow history/metadata until the first snapshot has been delivered.
-        if (now-min(s.created for s in self.clients.values()) > 2
-                and (self.prepared_generation != state['generation']
-                     or (now >= self.next_maintenance and (not state.get('backfilled') or not state.get('price_rules'))))):
-            self.prepared_generation = state['generation']
-            self.next_maintenance = now + 30
-            first = next(iter(self.clients.values()))
-            stock_chart.snapshot(state['conn'], first.con_id, first.minutes, first.session)
-            for sub in self.clients.values():
-                sub.publish(self.with_pnl(stock_chart.packet(state, sub.minutes, sub.session), state['conn'], sub))
+        # Each browser/phone may view a different contract. A global active
+        # pointer belongs to the most recent request, not to every subscriber.
+        for cid in {s.con_id for s in self.clients.values()}:
+            clients=[s for s in self.clients.values() if s.con_id==cid and not s.closed]
+            if not clients: continue
+            state=stock_chart.states.get(cid)
+            if (not state or not state['conn'].is_connected()
+                    or state['conn'].ib.ticker(state['contract']) is not state['ticker']):
+                for sub in clients: sub.closed=True
+                continue
+            state['used']=now
+            if state.get('option_bars') and now-state.get('quote_keepalive',0)>60:
+                state['quote_keepalive']=now
+                state['conn'].get_market_ticker(state['contract'])
+            state['conn'].ib.sleep(.005)
+            self.publish_changed(state)
+            generation,retry=self.maintenance.get(cid,(None,0))
+            if (now-min(s.created for s in clients)>2
+                    and (generation!=state['generation'] or
+                         (now>=retry and (not state.get('backfilled') or not state.get('price_rules'))))):
+                self.maintenance[cid]=(state['generation'],now+30)
+                first=clients[0]
+                stock_chart.snapshot(state['conn'],cid,first.minutes,first.session)
+                for sub in clients:
+                    sub.publish(self.with_pnl(stock_chart.packet(state,sub.minutes,sub.session),state['conn'],sub))
+        self.maintenance={cid:value for cid,value in self.maintenance.items() if cid in stock_chart.states}
 
 
 streams = ChartStreams()

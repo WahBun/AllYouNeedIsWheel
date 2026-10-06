@@ -29,11 +29,11 @@ let display=WheelChartSettings.normalize(stored('wheel.chart.display')),dark=loc
 let emaFrames={},emaContext='',emaBusy=false,emaLast=0;
 function indicatorHistoryStatus(message){$('display').dataset.historyStatus=message;const label=$('indicator-history-status');if(label)label.textContent=message;}
 function emaKey(){return JSON.stringify([epoch,cid,session,interval,generation,display.indicatorVisible,WheelChartSettings.requested(display,interval,session)]);}
-async function refreshEMA(){const key=emaKey(),frames=WheelChartSettings.requested(display,interval,session);if(!ready||!cid||!epoch||!display.indicatorVisible||!frames.length||emaBusy||(key===emaContext&&Date.now()-emaLast<10000))return;
+async function refreshEMA(){const key=emaKey(),frames=WheelChartSettings.requested(display,interval,session);if(document.hidden||Date.now()<marketPriorityUntil||!ready||!cid||!epoch||!display.indicatorVisible||!frames.length||emaBusy||(key===emaContext&&Date.now()-emaLast<10000))return;
  if(key!==emaContext){emaFrames={};emaContext=key;}emaBusy=true;emaLast=Date.now();indicatorHistoryStatus('Loading timeframe history…');try{const result=await api(`portfolio/chart-ema/${cid}?frames=${frames.join(',')}&session=${session}`);if(key!==emaKey()||result.con_id!==cid||result.session!==session)return;emaFrames=result.frames||{};emaContext=key;indicatorHistoryStatus(frames.every(f=>emaFrames[f]?.length)?'':'Waiting for timeframe history…');sync();}catch(error){if(key===emaKey()){emaContext=key;indicatorHistoryStatus('Timeframe history: '+error.message);trace('EMA history: '+error.message);}}finally{emaBusy=false;}}
 let chartExecutions=[],executionContext='',executionBusy=false,executionLast=0;
 const executionsKey=()=>JSON.stringify([epoch,cid,generation]);
-async function refreshExecutions(){if(!ready||!cid||!epoch||!profile.verified||executionBusy)return;const key=executionsKey();if(key===executionContext&&Date.now()-executionLast<5000)return;
+async function refreshExecutions(){if(document.hidden||Date.now()<marketPriorityUntil||!ready||!cid||!epoch||!profile.verified||executionBusy)return;const key=executionsKey();if(key===executionContext&&Date.now()-executionLast<5000)return;
  if(key!==executionContext){chartExecutions=[];executionContext=key;}executionBusy=true;executionLast=Date.now();try{const result=await api(`portfolio/chart-executions/${cid}`);if(key!==executionsKey()||result.con_id!==cid)return;chartExecutions=result.executions||[];sync();}catch(error){if(key===executionsKey())trace('Execution marks: '+error.message);}finally{executionBusy=false;}}
 const activity=[],terminal=new Set(['acknowledged','rejected','working','filled','canceled','pending','done']);
 const pendingKey=()=>`wheel.web.pending:${profile.selected}:${cid}${groupID?':'+groupID:''}`;
@@ -178,21 +178,21 @@ function applyMarket(bars,push=false){
 async function refreshMarket(){
  if(marketBusy)return;const request=marketBusy=new AbortController();lastFallback=Date.now();const context=marketContext(),revision=marketRevision;
  const timeout=setTimeout(()=>request.abort(),12000);
- try{const bars=await api(`portfolio/stock-chart/${context.cid}?interval=${context.interval}&session=${context.session}`,undefined,request.signal);
+ try{const bars=await api(`portfolio/stock-chart/${context.cid}?interval=${context.interval}&session=${context.session}&fast=1`,undefined,request.signal);
  if(marketBusy===request&&currentMarket(context)&&revision===marketRevision&&!marketStream.healthy())applyMarket(bars);
  }catch(error){if(marketBusy===request&&!request.signal.aborted&&currentMarket(context)&&revision===marketRevision&&!marketStream.healthy())$('market-status').textContent=error.message;}finally{clearTimeout(timeout);if(marketBusy===request)marketBusy=null;}
 }
 // Foreground events often arrive together. Restart only reads, never trading writes.
-let resumedAt=0;
+let resumedAt=0,marketPriorityUntil=0;
 function resumeMarket(){
  if(document.hidden||!ready||!cid||!epoch)return;
- const now=Date.now();if(now-resumedAt<300)return;resumedAt=now;
+ const now=Date.now();if(now-resumedAt<300)return;resumedAt=now;marketPriorityUntil=now+1500;
  marketStream.stop();marketRevision++;marketBusy?.abort();marketBusy=null;lastFallback=0;
  $('market-status').textContent='Refreshing latest prices…';
  ensureMarket();refresh();
 }
 async function refreshPnL(){
- if(pnlBusy||Date.now()-lastPnL<5000)return;pnlBusy=true;lastPnL=Date.now();const context=marketContext(),started=Date.now();
+ if(document.hidden||Date.now()<marketPriorityUntil||pnlBusy||Date.now()-lastPnL<5000)return;pnlBusy=true;lastPnL=Date.now();const context=marketContext(),started=Date.now();
  try{const result=await api(`portfolio/chart-pnl/${context.cid}`);if(currentMarket(context)&&pnlReceived<=started){packet={...packet,...result};pnlReceived=Date.now();renderDailyPnL();}}
  catch{if(currentMarket(context)&&pnlReceived<=started){packet.daily_pnl=null;renderDailyPnL();}}finally{pnlBusy=false;}
 }
@@ -203,7 +203,7 @@ function ensureMarket(){
  if(!marketStream.healthy()&&Date.now()-lastFallback>=2000)refreshMarket();
  refreshPnL();
 }
-async function refresh(){if(polling||busy||!ready)return;polling=true;const token=generation,selected=cid,readVersion=writeVersion;let stateRead=false;try{
+async function refresh(){if(document.hidden||Date.now()<marketPriorityUntil||polling||busy||!ready)return;polling=true;const token=generation,selected=cid,readVersion=writeVersion;let stateRead=false;try{
 const p=await api('account/profiles');if(token!==generation||readVersion!==writeVersion)return;
 if(epoch&&p.epoch!==epoch){marketStream.stop();historyCaches.clear();packet={};state={};received=0;entry=0;log('Account changed; chart trading state cleared.');}
 window.wheelTradeSounds?.connection(p.verified===true);profile=p;epoch=p.verified?p.epoch:null;$('connection').textContent=`${p.selected||'Disconnected'} · ${p.verified?'Connected':'Not verified'}`;$('connection').className=p.selected||'';
@@ -245,7 +245,7 @@ function action(body){if(body.con_id!==cid)return;switch(body.action){case 'canc
 function close(){write(!state.position&&state.entry_editable?{action:'edit_entry',cancel:true,expected_ref:state.order_ref,expected_snapshot:state.edit_snapshot}:{action:'close',expected_ref:state.order_ref});}
 document.addEventListener('pointerup',event=>{if(ready)frame.contentWindow.finishWebProtectionDrag?.(event.pointerId);},true);
 document.addEventListener('keydown',event=>{if(!event.repeat&&(event.metaKey||event.ctrlKey)&&event.shiftKey&&!event.altKey&&event.code==='KeyS'){event.preventDefault();frame.contentWindow.copyChartImage?.();return;}if(ready&&!event.repeat&&event.shiftKey&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&event.code==='KeyF'&&!event.target.closest('input,textarea,select,[contenteditable=true]')&&!document.querySelector('dialog[open]')){event.preventDefault();$('fullscreen').click();return;}if(!ready||event.repeat||event.target.closest('input,textarea,select,[contenteditable=true]')||document.querySelector('dialog[open]'))return;});
-window.addEventListener('message',event=>{if(event.origin!==location.origin||event.source!==frame.contentWindow||!event.data?.wheelChart)return;const {name,body}=event.data;if(name==='chartReady'){ready=true;sync();const id=Number(new URL(location).searchParams.get('con_id'));if(id>0)select(id);else refresh();}else if(name==='historyRequest')loadHistory(body);else if(name==='paperAction')action({...body,clientReleasedAt:event.data.sentAt});else if(name==='chartDiagnostic'){const message=`${body.role?.toUpperCase()||'Order'} drag: ${body.message}`;(body.interrupted?log:trace)(message);}else if(name==='entryChanged'){entry=body;}else if(name==='drawingsChanged'&&cid){const expected=`web:${location.origin}:${cid}`;if(body.key===expected)localStorage.setItem(`wheel.drawings:${cid}`,JSON.stringify(body));}});
+window.addEventListener('message',event=>{if(event.origin!==location.origin||event.source!==frame.contentWindow||!event.data?.wheelChart)return;const {name,body}=event.data;if(name==='chartReady'){frame.contentWindow.addEventListener('focus',resumeMarket);ready=true;sync();const id=Number(new URL(location).searchParams.get('con_id'));if(id>0)select(id);else refresh();}else if(name==='historyRequest')loadHistory(body);else if(name==='paperAction')action({...body,clientReleasedAt:event.data.sentAt});else if(name==='chartDiagnostic'){const message=`${body.role?.toUpperCase()||'Order'} drag: ${body.message}`;(body.interrupted?log:trace)(message);}else if(name==='entryChanged'){entry=body;}else if(name==='drawingsChanged'&&cid){const expected=`web:${location.origin}:${cid}`;if(body.key===expected)localStorage.setItem(`wheel.drawings:${cid}`,JSON.stringify(body));}});
 window.installOptionSearch({api,select,symbol:()=>packet.symbol||$('symbol').value,canSelect:()=>!busy});
 $('search').onsubmit=async event=>{event.preventDefault();try{const r=await api('portfolio/chart-contracts?q='+encodeURIComponent($('symbol').value));$('contracts').replaceChildren(...r.contracts.map(c=>new Option(c.local_symbol,c.con_id)));if(r.contracts.length)select(r.contracts[0].con_id,r.contracts[0].local_symbol);}catch(error){log(error.message);}};
 function renderGroups(value){const choices=value.group_choices||[],picker=$('order-group');picker.replaceChildren(new Option('Original order',''),...choices.filter(g=>g.id).map((g,i)=>new Option('Order '+(i+2)+' · '+(g.ref||g.id).slice(-6),g.id)));if(groupID&&!choices.some(g=>g.id===groupID))picker.append(new Option('New order draft',groupID));picker.value=groupID;picker.disabled=busy;}
@@ -311,7 +311,7 @@ $('theme').onclick=()=>{dark=!dark;document.body.classList.toggle('light',!dark)
 $('copy').onclick=()=>navigator.clipboard.writeText(JSON.stringify({contract:cid,interval,session,mode:profile.selected,status:state.status,activity},null,2));
 // Install on both documents: focus may be in the chart or its surrounding controls.
 function magnetKeys(doc){const reset=()=>frame.contentWindow.setTemporaryMagnet?.(false);doc.addEventListener('keydown',e=>{if(e.key==='Meta'&&!e.target.closest('input,textarea,select,[contenteditable=true]')&&!document.querySelector('dialog[open]'))frame.contentWindow.setTemporaryMagnet?.(true);});doc.addEventListener('keyup',e=>{if(e.key==='Meta'||!e.metaKey)reset();});doc.defaultView.addEventListener('blur',reset);doc.addEventListener('visibilitychange',()=>{if(doc.hidden)reset();});}
-magnetKeys(document);frame.addEventListener('load',()=>magnetKeys(frame.contentDocument));
+magnetKeys(document);frame.addEventListener('load',()=>{magnetKeys(frame.contentDocument);frame.contentWindow.addEventListener('focus',resumeMarket);});
 $('fullscreen').title='Fullscreen · Shift+F';$('fullscreen').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.querySelector('.workspace').requestFullscreen();
 for(const b of $('intervals').children)b.classList.toggle('active',Number(b.dataset.interval)===interval);
 setInterval(()=>{sync();refresh();},2000);

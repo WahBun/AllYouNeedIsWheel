@@ -165,7 +165,7 @@ def get_stock_chart(con_id):
         if con_id <= 0 or minutes not in (1, 3, 5, 10, 15, 60, 480, 1440, 10080, 43200):
             return _no_store_json({'error': 'Invalid stock chart parameters'}, 400)
         connection = portfolio_service._ensure_connection()
-        result = stock_chart.snapshot(connection, con_id, minutes, request.args.get("session", "rth"))
+        result = stock_chart.snapshot(connection, con_id, minutes, request.args.get("session", "rth"), **({"fast": True} if request.args.get("fast") == "1" else {}))
         if request.args.get('include_pnl') == '1':
             from api.services.chart_pnl import snapshot
             from api.routes.account import status as account_status

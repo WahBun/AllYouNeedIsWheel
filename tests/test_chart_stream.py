@@ -77,7 +77,7 @@ class ChartPushTests(unittest.TestCase):
         conn=S(account_id='paper',_chart_pnl=service)
         state={'con_id':7,'conn':conn,'ticks':0,'quotes':{}}
         with patch('api.services.chart_stream.stock_chart') as feed, patch('api.routes.account.epoch',return_value='epoch'):
-            feed.active=state;feed.packet.return_value=self.packet()
+            feed.states={7:state};feed.packet.return_value=self.packet()
             hub.publish_pnl(S(conId=7,account='paper'))
             value=sub.queue.get_nowait()
             self.assertEqual(value['daily_pnl']['value'],39.17)
@@ -85,3 +85,23 @@ class ChartPushTests(unittest.TestCase):
             service.snapshot.assert_called_once_with(7,cached_only=True)
             hub.publish_pnl(S(conId=7,account='other'))
             self.assertTrue(sub.queue.empty())
+
+    def test_different_contract_subscribers_keep_independent_heartbeats(self):
+        from unittest.mock import Mock, patch
+        from api.services.chart_stream import ChartStreams
+        hub=ChartStreams();conn=Mock();conn.is_connected.return_value=True
+        states={cid:dict(con_id=cid,conn=conn,contract=cid,ticker=object(),generation=str(cid),ticks=0,quotes={}) for cid in (7,8)}
+        conn.ib.ticker.side_effect=lambda contract:states[contract]['ticker']
+        with patch('api.services.chart_stream.stock_chart') as feed:
+            feed.states=states
+            feed.packet.side_effect=lambda state,*args:dict(self.packet(),con_id=state['con_id'])
+            _,first=hub.open(conn,7,5,'all');first.queue.get_nowait()
+            _,second=hub.open(conn,8,5,'all');second.queue.get_nowait()
+            self.assertFalse(first.closed)
+            self.assertEqual(len(hub.clients),2)
+            feed.active=states[8]
+            hub.pulse()
+            self.assertEqual(first.queue.get_nowait()['con_id'],7)
+            self.assertEqual(second.queue.get_nowait()['con_id'],8)
+            feed.snapshot.assert_not_called()
+            conn.ib.placeOrder.assert_not_called()

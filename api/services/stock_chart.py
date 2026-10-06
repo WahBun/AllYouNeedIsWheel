@@ -150,7 +150,7 @@ class StockChart:
         else:
             asyncio.get_event_loop().call_later(30, self.expire, state)
 
-    def snapshot(self, conn, con_id, minutes, session="rth"):
+    def snapshot(self, conn, con_id, minutes, session="rth", fast=False):
         if minutes not in (1, 3, 5, 10, 15, 60, 480, 1440, 10080, 43200) or session not in ("rth", "all"):
             raise ValueError('Unsupported chart interval')
         if not conn or not conn.is_connected():
@@ -166,6 +166,11 @@ class StockChart:
         if state is None and len(self.states) >= 4:
             self.stop_state(min(self.states.values(), key=lambda item: item['used']))
         self.active = state
+        if fast and state is not None and minutes in (1,3,5,10,15,60,480) and not (minutes==480 and session=='rth'):
+            # Resume quotes first; the stream pump handles deferred history work.
+            state['used']=time.monotonic()
+            conn.ib.sleep(.005)
+            return self.packet(state,minutes,session)
         initial = state is None
         if state is None:
             now = time.monotonic()

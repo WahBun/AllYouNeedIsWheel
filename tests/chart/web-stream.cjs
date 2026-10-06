@@ -2,9 +2,9 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
 (async()=>{const browser=await chromium.launch();try{
 const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
 await page.addInitScript(()=>{window.streams=[];window.EventSource=class{constructor(url){this.url=url;streams.push(this);}close(){this.closed=true;}send(p){this.onmessage?.({data:JSON.stringify(p)});}};});
-let snapshots=0,posts=0,release,holding=false;
+let snapshots=0,posts=0,reads=0,release,holding=false;
 const base={con_id:7,generation:'g',security_type:'STK',currency:'USD',symbol:'QQQ',interval:5,session:'rth',bid:100,ask:101,price_rules:[{low:0,increment:.01}],bars:[{time:1790947800,open:100,high:102,low:98,close:101}]};
-await page.route('**/api/**',async route=>{const url=new URL(route.request().url());let result={};
+await page.route('**/api/**',async route=>{const url=new URL(route.request().url());let result={};if(route.request().method()==='GET')reads++;
 if(route.request().method()==='POST'){posts++;await new Promise(r=>release=r);result={status:'rejected',message:'Mock rejection'};}
 else if(url.pathname.endsWith('/profiles'))result={selected:'paper',verified:true,epoch:'epoch'};
 else if(url.pathname.includes('/stock-chart/')){snapshots++;result={...base,interval:Number(url.searchParams.get('interval')),session:url.searchParams.get('session')};}
@@ -36,6 +36,14 @@ await page.evaluate(({base})=>streams.at(-2).send({...base,interval:15,mode:'del
 assert.notEqual(await cf.evaluate(()=>previous.at(-1).close),999,'old connection is ignored after foreground recovery');
 await page.evaluate(({base})=>streams.at(-1).send({...base,interval:15,mode:'snapshot',sequence:1,bars:[{...base.bars[0],close:105}]}),{base});
 assert.equal(await cf.evaluate(()=>previous.at(-1).close),105,'new stream resumes immediately');
+await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});
+await page.waitForTimeout(150);const hiddenReads=reads;
+await page.waitForTimeout(2300);assert.equal(reads,hiddenReads,'hidden page pauses all recurring reads');
+const beforeFrame=snapshots;
+await page.evaluate(()=>Object.defineProperty(document,'hidden',{configurable:true,value:false}));
+await cf.evaluate(()=>window.dispatchEvent(new Event('focus')));
+await page.waitForTimeout(150);
+assert.equal(snapshots,beforeFrame+1,'focus inside the chart iframe restores quotes without a top-window event');
 assert.equal(posts,1,'reconnect never replays trading requests');assert.deepEqual(errors,[]);
 console.log('Web SSE: deltas, polling removal, pending-write quotes, sequence recovery, timeframe isolation, P&L and no replay passed');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1)});

@@ -40,6 +40,22 @@ class StockChartTests(unittest.TestCase):
         conn.ib.reqTickByTickData.return_value=ticker
         conn.ib.ticker.return_value=ticker
         return conn,ticker
+    def test_fast_resume_uses_live_subscription_without_history_backfill(self):
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection();feed=StockChart()
+        try:
+            feed.snapshot(conn,7,5,'all')
+            conn.ib.reqHistoricalData.reset_mock()
+            result=feed.snapshot(conn,7,5,'all',fast=True)
+            self.assertEqual(result['con_id'],7)
+            self.assertTrue(result['bars'])
+            conn.ib.reqHistoricalData.assert_not_called()
+            conn.ib.placeOrder.assert_not_called()
+            feed.snapshot(conn,7,5,'all')
+            conn.ib.reqHistoricalData.assert_called_once()
+        finally:
+            feed.stop();asyncio.get_event_loop().close()
+
     def test_cold_snapshot_countdown_does_not_wait_for_first_trade(self):
         from unittest.mock import patch
         asyncio.set_event_loop(asyncio.new_event_loop())
