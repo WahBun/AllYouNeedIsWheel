@@ -2,16 +2,35 @@
 (()=>{
  let darkAppearance=false;
  const pendingLines=new Map();
- const exitLines=new Map();
+ const exitLines=new Map(),exitHandles=new Map();
+ let exitGesture=null;
+ function clearExitGesture(){exitGesture=null;trimPricePreview=null;updateLines();}
+ function createExitHandle(id,row){
+  const button=document.createElement('button');button.style.cssText='position:absolute;right:65px;height:28px;padding:0 7px;background:#f4f5f3;color:#825095;border:1px solid #b27bcd;border-radius:3px;z-index:6;touch-action:none;font:600 12px -apple-system;cursor:ns-resize';
+  button.setAttribute('aria-label','Drag trim limit price');button.title='Drag to amend this trim order';document.body.append(button);
+  button.onpointerdown=e=>{if(e.button!==0||paperConfig.busy||!paperConfig.enabled)return;const current=paperConfig.pending_exits?.find(r=>r.order_id===row.order_id);if(!current||!['Submitted','PreSubmitted'].includes(current.status))return;
+   exitGesture={id,row:{...current},pointer:e.pointerId,cid:paperCID,ref:paperConfig.order_ref,epoch:paperConfig.web_account_epoch};button.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();};
+  button.onpointermove=e=>{if(exitGesture?.id!==id)return;const price=snapPrice(series.coordinateToPrice(e.clientY));if(!(price>0))return;trimPricePreview={order_id:row.order_id,price};exitLines.get(id)?.applyOptions({price});updateLines();e.preventDefault();};
+  button.onpointerup=e=>{if(exitGesture?.id!==id)return;const g=exitGesture,price=trimPricePreview?.price,current=paperConfig.pending_exits?.find(r=>r.order_id===g.row.order_id);
+   const valid=g.cid===paperCID&&g.ref===paperConfig.order_ref&&g.epoch===paperConfig.web_account_epoch&&!paperConfig.busy&&paperConfig.enabled&&current?.price===g.row.price&&current?.quantity===g.row.quantity&&['Submitted','PreSubmitted'].includes(current?.status);
+   clearExitGesture();if(valid&&price>0&&price!==g.row.price)paperAction({action:'amend',role:'tp',order_id:g.row.order_id,price,expected_ref:g.ref,expected_price:g.row.price,expected_quantity:g.row.quantity});
+   else exitLines.get(id)?.applyOptions({price:current?.price||g.row.price});e.stopPropagation();};
+  button.onlostpointercapture=()=>{if(exitGesture?.id===id){exitLines.get(id)?.applyOptions({price:exitGesture.row.price});clearExitGesture();}};
+  button.onpointercancel=()=>{if(exitGesture?.id===id){exitLines.get(id)?.applyOptions({price:exitGesture.row.price});clearExitGesture();}};
+  return button;
+ }
+ function positionExitHandles(){for(const [id,handle] of exitHandles){const row=handle.row,price=exitGesture?.id===id&&trimPricePreview?trimPricePreview.price:row.price,y=series.priceToCoordinate(price);handle.button.hidden=y===null||y<20||y>chart.paneSize().height-20;handle.button.style.top=(y-14)+'px';handle.button.style.right=(chart.priceScale('right').width()+7)+'px';}requestAnimationFrame(positionExitHandles);}positionExitHandles();
  function syncExitLines(config){
+  if(exitGesture&&(exitGesture.cid!==config.con_id||exitGesture.ref!==config.paper?.order_ref||exitGesture.epoch!==config.paper?.web_account_epoch))clearExitGesture();
   const live=new Set();
   for(const row of config.paper?.pending_exits||[]){
    if(!(row.price>0&&row.quantity>0))continue;
    const id=`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${row.order_id}`;live.add(id);
    const options={price:row.price,color:'#b27bcd',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:`${row.action==='trim'?'Trim':'Close'} ×${row.quantity}${row.status==='PendingCancel'?' · Canceling':''}`};
-   if(exitLines.has(id))exitLines.get(id).applyOptions(options);else exitLines.set(id,series.createPriceLine(options));
+   if(exitLines.has(id)){if(exitGesture?.id!==id)exitLines.get(id).applyOptions(options);}else exitLines.set(id,series.createPriceLine(options));
+   if(!exitHandles.has(id))exitHandles.set(id,{button:createExitHandle(id,row),row});const handle=exitHandles.get(id);handle.row=row;handle.button.textContent=`Trim ×${row.quantity}`;handle.button.disabled=config.paper.busy||!config.paper.enabled||row.status==='PendingCancel';
   }
-  for(const [id,line] of exitLines)if(!live.has(id)){series.removePriceLine(line);exitLines.delete(id);}
+  for(const [id,line] of exitLines)if(!live.has(id)){series.removePriceLine(line);exitLines.delete(id);exitHandles.get(id)?.button.remove();exitHandles.delete(id);if(exitGesture?.id===id)clearExitGesture();}
  }
 
  function positionCancelButton(row){const y=series.priceToCoordinate(row.price);row.button.hidden=y===null||y<35||y>chart.paneSize().height-5;if(!row.button.hidden)row.button.style.top=y+'px';}

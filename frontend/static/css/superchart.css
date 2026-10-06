@@ -66,3 +66,7 @@ body.light #daily-pnl-value[data-direction=negative]{color:#b73544}
 #trade:not([hidden]){flex-wrap:nowrap;min-height:0}
 #trade>*{flex-shrink:0}
 #trade #close{position:sticky;bottom:0;z-index:5;background:var(--panel);border-color:#a57445;box-shadow:0 -8px 12px var(--panel);min-height:44px}
+
+.protection-settings{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.protection-settings>small{grid-column:1/-1}.protection-settings .exit-card{padding:10px}.protection-settings .exit-fields{grid-template-columns:1fr;gap:7px}.protection-settings .exit-heading{margin-bottom:9px!important}#trade .exit-fields input,#trade .exit-fields select{font-size:12px;min-height:36px;padding:7px}.protection-settings .exit-fields input{text-align:left}
+
+#trim{--order-color:#b27bcd}#be{--order-color:#9a5b25}#add,#trim,#be{color:var(--order-color);border-color:color-mix(in srgb,var(--order-color) 55%,var(--border));background:color-mix(in srgb,var(--order-color) 9%,var(--panel))}#add:enabled:hover,#trim:enabled:hover,#be:enabled:hover{background:color-mix(in srgb,var(--order-color) 18%,var(--panel))}

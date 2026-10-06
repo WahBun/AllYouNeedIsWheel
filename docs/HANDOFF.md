@@ -609,3 +609,20 @@ exit rows, and the shared chart renders independent Trim/Close quantity labels.
 Repeated snapshots update in place; filled/canceled exits and chart/account
 changes remove stale lines. No broker write was made for this display repair.
 503 backend tests and pending-exit rendering/lifecycle checks passed.
+
+## 2026-10-06 combined TP projection and independent trim dragging
+
+TP Sigma sums realized exit P&L from actual unit fills and projected P&L for
+remaining TP/trim quantities at their current targets. Each unit uses its own
+entry fill and contract multiplier; values exclude fees. Missing fill basis
+produces an unknown amount instead of an invented zero. During dragging the
+preview recomputes immediately. A trim drag submits the exact exit order ID,
+original price/quantity and group reference; remaining TP amendments exclude
+units reserved for trim. Targeted amendments do not enter the generic price
+coalescing queue. Snapshot drift rejects the amendment; no replay is performed.
+
+The TP/SL ticket cards now sit side by side with abbreviated badges. Add follows
+position direction, Trim purple, and BE the SL color; disabled controls fade.
+505 backend and 127 simulator tests passed, plus optional protection variants,
+aggregate amount, drag payload and line lifecycle browser checks. Real broker
+amendments were not exercised; existing user orders were not modified for tests.

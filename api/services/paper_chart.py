@@ -257,6 +257,31 @@ class PaperChart:
             if abs(owned-result['position'])>=.000001:
                 result['protection_block_reason']='Position changed outside this protection group; reconcile orders'
 
+        if group.get('lots'):
+            projection=dict(realized=0.0,known=True,targets=[])
+            multiplier=float(next(iter(trades.values())).contract.multiplier or 1) if trades else 1
+            for lot in group['lots']:
+                parent=trades.get(lot['entry'])
+                basis=float(parent.orderStatus.avgFillPrice or 0) if parent else 0
+                if not parent: projection['known']=False; continue
+                if not parent.orderStatus.filled: continue
+                if basis<=0: projection['known']=False; continue
+                for role in ('tp','sl'):
+                    if role not in lot: continue
+                    trade=trades.get(lot[role])
+                    if not trade: projection['known']=False; continue
+                    filled=float(trade.orderStatus.filled or 0)
+                    if filled:
+                        actual=float(trade.orderStatus.avgFillPrice or 0)
+                        if actual<=0: projection['known']=False
+                        else: projection['realized']+=(actual-basis)*group['side']*filled*multiplier
+                    if role=='tp' and not trade.isDone():
+                        stop=trades.get(lot.get('sl'))
+                        remaining=max(0,float(parent.orderStatus.filled)-filled-float(stop.orderStatus.filled or 0) if stop else float(parent.orderStatus.filled)-filled)
+                        if remaining: projection['targets'].append(dict(order_id=trade.order.orderId,price=trade.order.lmtPrice,
+                            quantity=remaining,entry=basis,side=group['side'],multiplier=multiplier,trim=bool(lot.get('closing'))))
+            result['tp_projection']=projection
+
         adjustment = group.get('adjustment')
         if adjustment:
             by_id = {r['order_id']: r for r in rows}
@@ -389,6 +414,9 @@ class PaperChart:
         if body.get('action') in ('amend','be') and state['known'] and group.get('ref') == body.get('expected_ref'):
             role='sl' if body['action']=='be' else body.get('role')
             target_ids={oid for key,oid in group.get('ids',{}).items() if key.split('_')[0]==role}
+            if body.get('order_id') is not None: target_ids &= {body['order_id']}
+            elif role=='tp': target_ids -= {lot['tp'] for lot in group.get('lots',[]) if lot.get('closing')}
+
             rows=[r for r in state['orders'] if r['order_id'] in target_ids]
             if rows and not state['active'] and not state['position']:
                 return resolved('done')
@@ -1084,7 +1112,17 @@ class PaperChart:
             if other>0 and group['side']*((other-new_price) if role=='sl' else (new_price-other))<=0: raise ValueError('TP and SL cannot cross')
             # Initial TP is held (transmit=False) until the last bracket leg.
             # A later amendment must be transmitted on its own.
-            targets=[trades.get(lot.get(role)) for lot in group['lots']] if group.get('lots') else [trade]
+            if body.get('order_id') is not None:
+                wanted=body['order_id']
+                row=next((r for r in current.get('pending_exits',[]) if r['order_id']==wanted),None)
+                if role!='tp' or not row or row['status'] not in ('Submitted','PreSubmitted') or body.get('expected_ref')!=group.get('ref'):
+                    raise ValueError('Exact working trim exit required')
+                if body.get('expected_price')!=row['price'] or body.get('expected_quantity')!=row['quantity']:
+                    raise ValueError('Trim changed; refresh before moving')
+                targets=[trades.get(wanted)]
+            else:
+                targets=[trades.get(lot.get(role)) for lot in group['lots'] if role!='tp' or not lot.get('closing')] if group.get('lots') else [trade]
+            if not any(t and not t.isDone() for t in targets): raise ValueError('No remaining exit at this level')
             for target in targets:
                 if not target or target.isDone(): continue
                 if action=='be' and group['side']*(target.order.auxPrice-new_price)>=0: continue

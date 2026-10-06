@@ -391,6 +391,33 @@ class ProtectedLotTests(unittest.TestCase):
         self.conn.ib.cancelOrder.assert_not_called()
         self.assertEqual([t.order.auxPrice for t in self.trades if t.order.orderType=='STP'],[11,11])
 
+    def test_trim_amend_isolated_from_remaining_tp_and_projection(self):
+        self.open_four()
+        ref=self.service.group('DU_TEST',7)['ref']
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1,
+            exit_type='LMT',exit_price=10.75,expected_ref=ref,expected_position=4))
+        self.assertTrue(result['success'],result)
+        row=result['state']['pending_exits'][0]
+        projection=result['state']['tp_projection']
+        self.assertTrue(projection['known']);self.assertEqual(len(projection['targets']),4)
+        self.assertEqual(sum(r['quantity'] for r in projection['targets'] if r['trim']),1)
+        self.conn.ib.placeOrder.reset_mock()
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='amend',role='tp',
+            order_id=row['order_id'],price=10.5,expected_ref=ref,expected_price=10.75,expected_quantity=1))
+        self.assertTrue(result['success'],result)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,1)
+        self.assertEqual(self.conn.ib.placeOrder.call_args.args[1].orderId,row['order_id'])
+        self.conn.ib.placeOrder.reset_mock()
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='amend',role='tp',price=11.25,expected_ref=ref))
+        self.assertTrue(result['success'],result)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,3)
+        self.assertNotIn(row['order_id'],[c.args[1].orderId for c in self.conn.ib.placeOrder.call_args_list])
+        filled=next(t for t in self.trades if t.order.orderId==row['order_id'])
+        filled.orderStatus.status='Filled';filled.orderStatus.filled=1;filled.orderStatus.avgFillPrice=10.5
+        projection=self.service.state(self.conn,7)['tp_projection']
+        self.assertEqual(projection['realized'],.5*float(self.contract.multiplier or 1))
+        self.assertNotIn(row['order_id'],[r['order_id'] for r in projection['targets']])
+
     def test_priced_trim_all_and_stale_position(self):
         self.open_four()
         body=dict(request_id=str(uuid4()),action='trim',quantity=4,exit_type='LMT',exit_price=10.75,

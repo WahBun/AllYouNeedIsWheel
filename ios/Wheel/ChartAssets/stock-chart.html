@@ -407,7 +407,16 @@ function profitText(price,unit,quantity=qty){
  if(unit==='ticks'){const tick=tickAt(entry);return tick?((change>=0?'+':'−')+Math.abs(change/tick).toFixed(1)+' ticks'):'—';}
  const value=change*quantity*contractMultiplier;return (value>=0?'+':'−')+'$'+Math.abs(value).toFixed(2);
 }
-function label(k){return k.toUpperCase()+(paperConfig.protection_drag_role===k?' …':'')+(displayOptions.profit!==false&&displayOptions.brackets!==false?'  '+profitText(levels[k],displayOptions.bracketUnit):'');}
+let trimPricePreview=null;
+function totalTPText(){
+ const projection=paperConfig.tp_projection;if(!projection)return null;
+ if(!projection.known)return '—';
+ let total=projection.realized||0;
+ for(const row of projection.targets||[]){const target=trimPricePreview?.order_id===row.order_id?trimPricePreview.price:!row.trim?levels.tp:row.price;total+=(target-row.entry)*row.side*row.quantity*row.multiplier;}
+ return (total>=0?'+':'−')+'$'+Math.abs(total).toFixed(2);
+}
+function label(k){const total=k==='tp'&&paperConfig.active?totalTPText():null;return k.toUpperCase()+(total!==null?' Σ':'')+(paperConfig.protection_drag_role===k?' …':'')+(displayOptions.profit!==false&&displayOptions.brackets!==false?'  '+(total??profitText(levels[k],displayOptions.bracketUnit)):'');}
+
 function templatePrices(base,direction){
  const values={tp:0,sl:0};
  for(const role of ['tp','sl']){
