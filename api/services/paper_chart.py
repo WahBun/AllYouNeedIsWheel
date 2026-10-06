@@ -199,7 +199,11 @@ class PaperChart:
         if group.get('lots'):
             for role in ('tp','sl'):
                 live_rows=[r for r in rows if r['role'].split('_')[0]==role and r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive')]
-                if live_rows: result[role]=live_rows[-1]['price']
+                if role=='tp':
+                    ordinary=[r for r in live_rows if not any(l.get('closing') and l.get('tp')==r['order_id'] for l in group['lots'])]
+                    result[role]=ordinary[-1]['price'] if ordinary else 0
+                    result['add_tp']=result[role] or group.get('ordinary_tp') or next((l.get('original_tp') for l in group['lots'] if l.get('original_tp')),0)
+                elif live_rows: result[role]=live_rows[-1]['price']
             result['scalable']=all('tp' in lot and 'sl' in lot for lot in group['lots'])
             result['quantity']=sum(max(0,r['quantity']-r['filled']) for r in rows if r['role'].split('_')[0]=='entry' and r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive'))
         parent=trades.get(group['ids'].get('entry'))
@@ -305,13 +309,16 @@ class PaperChart:
                 lot=next((lot for lot in group.get('lots',[]) if lot.get('tp')==pending['order_id']),{})
                 ordinary=[r['price'] for r in rows if r['role'].split('_')[0]=='tp' and r['status'] in ('Submitted','PreSubmitted')
                           and not any(l.get('tp')==r['order_id'] and l.get('closing') for l in group.get('lots',[]))]
-                pending['restore_price']=ordinary[-1] if ordinary else lot.get('original_tp')
+                pending['restore_price']=ordinary[-1] if ordinary else group.get('ordinary_tp') or lot.get('original_tp')
             result['adjustment'] = dict(action=adjustment['action'], requested=len(selected), filled=filled,
                 remaining=max(0, len(selected)-filled), pending=sum(max(0, 1-r['filled']) for r in selected if r.get('order_id') in adjustment.get('acknowledged', []) and r['status'] in ('Submitted','PreSubmitted')), position=result['position'],
                 status='filled' if filled == len(selected) else 'unknown' if any(r['status']=='Unknown' for r in selected) or adjustment.get('outcome') == 'unknown'
                 else 'rejected' if adjustment.get('outcome') == 'rejected' or any(r['status']=='Inactive' for r in selected)
                 else 'canceled' if any(r['status'] in ('Cancelled','ApiCancelled') for r in selected)
                 else 'working')
+        if group.get('lots'):
+            reserved=sum(r['quantity'] for r in result.get('pending_exits',[]))
+            result['trim_available']=max(0,abs(result['position'])-reserved)
         if group.get('mode') == 'overnight_entry':
             result['broker_messages'] = [entry.message for t in trades.values()
                 if t.order.orderId in group['ids'].values() for entry in t.log if entry.message]
@@ -416,6 +423,16 @@ class PaperChart:
             elif all(r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive') for r in state['orders'] if r['role'].split('_')[0] in ('tp','sl')):
                 group.pop('pending_protection',None); self.save_group(account,cid,group)
                 return resolved('canceled')
+        if body.get('action') in ('trim','close') and state['known']:
+            adjustment=group.get('adjustment',{})
+            ids=set(adjustment.get('latest_orders',[]))
+            if adjustment.get('request_id')==request_id and ids:
+                working={t.order.orderId:t for t in authoritative if t.order.account==account and t.contract.conId==cid and t.order.orderRef==group.get('ref')}
+                rows={r['order_id']:r for r in state['orders']}
+                if all(rows.get(oid,{}).get('status')=='Filled' or oid in working and working[oid].orderStatus.status in ('Submitted','PreSubmitted') and working[oid].order.lmtPrice==adjustment.get('target_price') for oid in ids):
+                    adjustment['acknowledged']=list(set(adjustment.get('acknowledged',[]))|ids)
+                    adjustment['outcome']='acknowledged';self.save_group(account,cid,group)
+                    return resolved('reconciled')
         if body.get('action') == 'cancel_add' and state['known'] and group.get('ref') == body.get('expected_ref'):
             lot = next((lot for lot in group.get('lots', [])[1:] if lot['entry'] == body.get('order_id')), None)
             rows = {r['order_id']: r for r in state['orders']}
@@ -565,7 +582,14 @@ class PaperChart:
             target=price(quote)
         else:
             target=price(limit_target)
-        group['adjustment'] = dict(action=action, request_id=request_id, orders=[lot['tp'] for lot in lots], stops=[lot['sl'] for lot in lots], acknowledged=[], outcome='unknown')
+        old=group.get('adjustment',{})
+        pairs=dict(zip(old.get('orders',[]),old.get('stops',[])))
+        pairs.update({lot['tp']:lot['sl'] for lot in lots})
+        group['adjustment'] = dict(action=action, request_id=request_id, orders=list(pairs), stops=list(pairs.values()),
+            acknowledged=[oid for oid in old.get('acknowledged',[]) if oid not in {lot['tp'] for lot in lots}],
+            latest_orders=[lot['tp'] for lot in lots],target_price=target,outcome='unknown')
+        ordinary=next((trades[l['tp']].order.lmtPrice for l in group['lots'] if not l.get('closing') and l.get('tp') in trades and not trades[l['tp']].isDone()),0)
+        if ordinary: group['ordinary_tp']=ordinary
         self.save_group(account, cid, group)
         for lot in lots:
             take=trades[lot['tp']];stop=trades[lot['sl']]
@@ -1089,7 +1113,10 @@ class PaperChart:
             if abs(owned-current['position']) > .000001: raise ValueError('Position differs from chart fills; reconcile Gateway')
             if any(t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades() if t.contract.conId==cid and t.order.account==account):
                 raise ValueError('Other working orders exist; review Gateway')
+            if group.get('adjustment',{}).get('outcome') in ('unknown','rejected'):
+                raise ValueError('Previous exit needs reconciliation before another adjustment')
             live = []
+            reserved=[]
             for lot in group['lots']:
                 parent, take, stop = [trades.get(lot[r]) for r in ('entry','tp','sl')]
                 if not all((parent,take,stop)): raise ValueError('Lot status needs reconciliation')
@@ -1101,9 +1128,15 @@ class PaperChart:
                     continue
                 if parent.orderStatus.status != 'Filled': raise ValueError('Wait for all entry orders to finish')
                 if take.orderStatus.status == 'Filled' or stop.orderStatus.status == 'Filled': continue
-                if lot.get('closing') or take.isDone() or stop.isDone(): raise ValueError('An exit needs reconciliation before another adjustment')
-                live.append(lot)
-            if len(live) != size: raise ValueError('Protected lot count differs from position')
+                if take.isDone() or stop.isDone() or take.orderStatus.status not in ('Submitted','PreSubmitted') or stop.orderStatus.status not in ('Submitted','PreSubmitted'):
+                    raise ValueError('An exit needs reconciliation before another adjustment')
+                if lot.get('closing'):
+                    if lot['tp'] not in group.get('adjustment',{}).get('acknowledged',[]): raise ValueError('Trim outcome needs reconciliation')
+                    reserved.append(lot)
+                else: live.append(lot)
+            if len(live)+len(reserved) != size: raise ValueError('Protected lot count differs from position')
+            if action=='trim' and qty>len(live):
+                raise ValueError('Trim quantity exceeds unreserved position')
             if action == 'add':
                 if body.get('expected_ref') is not None and body['expected_ref'] != group.get('ref'):
                     raise ValueError('Order identity changed; refresh before adding')
@@ -1111,7 +1144,7 @@ class PaperChart:
                 if kind not in ('MKT', 'LMT', 'STP'):
                     raise ValueError('Unsupported add order type')
                 target = 0 if kind == 'MKT' else price(body.get('entry'))
-                tp, sl = price(current['tp']), price(current['sl'])
+                tp, sl = price(current.get('add_tp') or current['tp']), price(current['sl'])
                 if kind != 'MKT':
                     if body.get('expected_ref') != group.get('ref') or body.get('side') != group['side']:
                         raise ValueError('Priced add must match the current position and order identity')
@@ -1168,6 +1201,8 @@ class PaperChart:
                 if role=='sl': amended.auxPrice=new_price
                 else: amended.lmtPrice=new_price
                 amended.transmit=True;self.modify_exit(conn,target,amended,'auxPrice' if role=='sl' else 'lmtPrice')
+            if role=='tp' and body.get('order_id') is None:
+                group['ordinary_tp']=new_price;self.save_group(account,cid,group)
             if body.get('restore_trim'):
                 self.finish_trim_restore(account,cid,group,body['order_id'])
             return

@@ -70,3 +70,9 @@ body.light #daily-pnl-value[data-direction=negative]{color:#b73544}
 .protection-settings{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.protection-settings>small{grid-column:1/-1}.protection-settings .exit-card{padding:10px}.protection-settings .exit-fields{grid-template-columns:1fr;gap:7px}.protection-settings .exit-heading{margin-bottom:9px!important}#trade .exit-fields input,#trade .exit-fields select{font-size:12px;min-height:36px;padding:7px}.protection-settings .exit-fields input{text-align:left}
 
 #trim{--order-color:#b27bcd}#be{--order-color:#9a5b25}#add,#trim,#be{color:var(--order-color);border-color:color-mix(in srgb,var(--order-color) 55%,var(--border));background:color-mix(in srgb,var(--order-color) 9%,var(--panel))}#add:enabled:hover,#trim:enabled:hover,#be:enabled:hover{background:color-mix(in srgb,var(--order-color) 18%,var(--panel))}
+
+.position-actions button small{display:block;font-size:10px;line-height:1.5;font-weight:400;opacity:.85;white-space:nowrap}.trade-hint{font-size:11px;color:var(--muted);line-height:1.5;margin:5px 0}#exit-plan{padding:10px;border:1px solid var(--border);border-radius:8px;font-size:11px;line-height:1.7}#exit-plan strong{display:block}#close{white-space:normal}
+
+#entry-settings[hidden],.join-actions[hidden]{display:none}
+
+#preview[hidden]{display:none}

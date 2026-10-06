@@ -619,10 +619,73 @@ class ProtectedLotTests(unittest.TestCase):
 
     def test_unresolved_trim_cannot_repeat_or_add(self):
         self.open_four()
-        self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
+        with patch.object(self.service,'modify_exit',side_effect=RuntimeError('response missing')):
+            self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
         for action in ['trim','add']:
             r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action=action,quantity=1));self.assertFalse(r['success'])
-        self.assertEqual(self.conn.ib.placeOrder.call_count,1);self.conn.ib.cancelOrder.assert_not_called()
+        self.conn.ib.placeOrder.assert_not_called();self.conn.ib.cancelOrder.assert_not_called()
+    def test_multiple_trim_plans_add_and_independent_restore(self):
+        self.open_four()
+        ref=self.service.group('DU_TEST',7)['ref']
+        def trim(qty,price):
+            return self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=qty,
+                exit_type='LMT',exit_price=price,expected_ref=ref,expected_position=4))
+        first=trim(1,10.5);self.assertTrue(first['success'],first)
+        second=trim(1,10.75);self.assertTrue(second['success'],second)
+        rows=second['state']['pending_exits']
+        self.assertEqual([r['price'] for r in rows],[10.5,10.75])
+        self.assertEqual(second['state']['trim_available'],2)
+        self.conn.ib.placeOrder.reset_mock()
+        bad=trim(3,10.6);self.assertFalse(bad['success']);self.conn.ib.placeOrder.assert_not_called()
+        added=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='add',quantity=1,expected_ref=ref))
+        self.assertTrue(added['success'],added)
+        self.assertEqual([r['price'] for r in added['state']['pending_exits']],[10.5,10.75])
+        row=rows[0]
+        restored=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='amend',role='tp',order_id=row['order_id'],
+            price=row['restore_price'],restore_trim=True,expected_ref=ref,expected_price=row['price'],expected_quantity=1))
+        self.assertTrue(restored['success'],restored)
+        self.assertEqual([r['price'] for r in restored['state']['pending_exits']],[10.75])
+        self.conn.ib.cancelOrder.assert_not_called()
+        restarted=PaperChart(self.service.path)
+        self.assertEqual([r['price'] for r in restarted.state(self.conn,7)['pending_exits']],[10.75])
+
+    def test_second_trim_unknown_recovery_preserves_first_without_replay(self):
+        self.open_four();ref=self.service.group('DU_TEST',7)['ref']
+        def request(price):
+            return dict(request_id=str(uuid4()),action='trim',quantity=1,exit_type='LMT',exit_price=price,expected_ref=ref,expected_position=4)
+        first=self.service.execute(self.conn,7,request(10.5))
+        second=request(10.75);original=self.service.modify_exit
+        def lost(*args):
+            original(*args);raise RuntimeError('lost acknowledgement')
+        with patch.object(self.service,'modify_exit',side_effect=lost):
+            self.assertEqual(self.service.execute(self.conn,7,second)['status'],'unknown')
+        self.conn.ib.placeOrder.reset_mock()
+        self.assertFalse(self.service.execute(self.conn,7,request(10.6))['success'])
+        restarted=PaperChart(self.service.path)
+        self.assertTrue(restarted.request_status(self.conn,7,second['request_id'])['confirmed'])
+        self.assertEqual([r['price'] for r in restarted.state(self.conn,7)['pending_exits']],[10.5,10.75])
+        self.conn.ib.placeOrder.assert_not_called()
+        # Fill only the first plan: the second price and protection remain.
+        row=first['state']['pending_exits'][0]
+        trade=next(t for t in self.trades if t.order.orderId==row['order_id'])
+        trade.orderStatus.status='Filled';trade.orderStatus.filled=1;trade.orderStatus.avgFillPrice=10.5
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=3)]
+        state=restarted.state(self.conn,7)
+        self.assertEqual([r['price'] for r in state['pending_exits']],[10.75])
+        self.assertEqual(state['trim_available'],2)
+
+    def test_all_units_reserved_can_add_using_ordinary_tp(self):
+        self.open_four();ref=self.service.group('DU_TEST',7)['ref']
+        target=self.service.state(self.conn,7)['tp']
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=4,
+            exit_type='LMT',exit_price=10.5,expected_ref=ref,expected_position=4))
+        self.assertTrue(result['success'],result);self.assertEqual(result['state']['trim_available'],0)
+        self.assertEqual(result['state']['tp'],0)
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='add',quantity=1,expected_ref=ref))
+        self.assertTrue(result['success'],result)
+        self.assertEqual(self.trades[-2].order.lmtPrice,target)
+        self.assertEqual(len(result['state']['pending_exits']),4)
+
     def test_all_unit_stops_amend_for_be(self):
         self.open_four()
         r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='be'));self.assertTrue(r['success'],r)

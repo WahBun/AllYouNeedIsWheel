@@ -835,7 +835,7 @@ struct StockChartView: View {
     @State private var adjustmentQuantity = 1
     @State private var showAdjustment = false
     private var positionSize: Int { Int(abs(paperState["position"] as? Double ?? 0)) }
-    private var adjustmentLimit: Int { adjustmentAction == "trim" ? max(0, positionSize - 1) : Int.max }
+    private var adjustmentLimit: Int { adjustmentAction == "trim" ? min(max(0, positionSize - 1), (paperState["trim_available"] as? NSNumber)?.intValue ?? positionSize) : Int.max }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
         ["previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
@@ -1039,7 +1039,7 @@ struct StockChartView: View {
                     ChartPositionActionsLayout {
                         Menu {
                             Button("Add contracts") { adjustmentAction = "add"; adjustmentQuantity = 1; showAdjustment = true }
-                            Button("Trim contracts") { adjustmentAction = "trim"; adjustmentQuantity = 1; showAdjustment = true }.disabled(positionSize < 2)
+                            Button("Trim contracts") { adjustmentAction = "trim"; adjustmentQuantity = 1; showAdjustment = true }.disabled(positionSize < 2 || ((paperState["trim_available"] as? NSNumber)?.intValue ?? positionSize) < 1)
                         } label: { Image(systemName: "plus.forwardslash.minus").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.accessibilityLabel("Add or trim contracts").disabled(!paperEnabled || paperBusy || positionSize == 0 || paperState["known"] as? Bool != true || paperState["scalable"] as? Bool != true)
                         Button { if paperEnabled { paperAction(["action": "close"]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.65).frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || paperState["position_only"] as? Bool == true || paperState["closing"] as? Bool == true || (paperEnabled ? !paperActive : validEntry <= 0))
                         Button { if paperEnabled { paperAction(["action": "be"]) } else { beRevision += 1 } } label: { Text("BE").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(paperBusy || (paperEnabled && ((paperState["position"] as? Double ?? 0) == 0 || (paperState["sl"] as? Double ?? 0) <= 0)) || (!paperEnabled && protectionOption(chartType, "sl") == "off") || beApplied || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)

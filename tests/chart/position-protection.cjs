@@ -66,6 +66,18 @@ for(const width of [1440,393])for(const language of ['en','zh'])for(const light 
  const before=writes.length;await page.locator('#sl').fill('8');await page.locator('#sl').press('Escape');await page.locator('#sl').blur();
  assert.equal(writes.length,before,'Escape cancels a draft');
  assert.equal(await page.locator('#tp-apply').count(),0);
+ state={...state,scalable:true,protection:{status:'covered'},trim_available:1,pending_exits:[{action:'trim',order_id:12,quantity:1,price:11,status:'Submitted'}]};
+ await page.waitForFunction(()=>!document.getElementById('exit-plan').hidden);
+ assert.equal(await page.locator('#preview').isVisible(),false);
+ assert.equal(await page.locator('#entry-settings').isVisible(),false);
+ assert.equal(await page.locator('#add').isDisabled(),false);
+ assert.equal(await page.locator('#trim').isDisabled(),false);
+ await page.locator('#adjustment-quantity').fill('2');await page.locator('#adjustment-quantity').dispatchEvent('change');
+ assert.equal(await page.locator('#add').isDisabled(),false);
+ assert.equal(await page.locator('#trim').isDisabled(),true);
+ assert.match(await page.locator('#position-action-reason').textContent(),/unreserved|尚未分配/);
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ if(width===1440&&language==='en'&&!light)await page.screenshot({path:'/tmp/wheel-trading-context.png'});
  assert.deepEqual(errors,[]);
  await page.close();
 }
