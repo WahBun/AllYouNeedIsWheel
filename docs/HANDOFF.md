@@ -551,3 +551,14 @@ Follow-up: Fibonacci retracement/extension retain their existing inline prices
 and no longer duplicate those levels on the right axis. Other drawing labels
 remain enabled. Native simulator regression passed (127 tests), alongside shared
 chart lifecycle and optional-exit browser checks for the ticket refresh.
+
+## 2026-10-06 SL input modes
+
+Web stop-loss controls now match TP with Distance, Target price and Loss % modes,
+including the position protection editor. Percent uses entry/broker cost basis,
+not account equity; shorts add the loss percentage and longs subtract it.
+Calculated targets use contract price increments and shared chart validation.
+Mode and value persist per security type. Native configurations without slMode
+retain distance behavior. Browser regression covers long/short percent math,
+absolute wrong-side rejection, invalid zero targets and submitted position SL.
+497 backend tests and optional-exit mobile/desktop, language/theme checks passed.

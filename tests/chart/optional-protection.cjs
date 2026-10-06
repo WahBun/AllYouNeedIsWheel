@@ -26,7 +26,12 @@ for(const width of [1440,393])for(const language of ['en','zh'])for(const light 
  await page.screenshot({path:`/tmp/wheel14-protection-${width}-${language}-${light}.png`});
  await page.locator('#protection-form button[type=submit]').click();await page.waitForTimeout(100);
  assert.equal(writes.at(-1).action,'set_protection');assert.equal(writes.at(-1).tp,.53);assert.equal(writes.at(-1).sl,null);assert.deepEqual(writes.at(-1).expected_snapshot,[{order_id:1}]);
+ await page.locator('#manage-protection').click();await page.locator('#position-sl-enabled').check();await page.locator('#position-sl-mode').selectOption('percent');await page.locator('#position-sl').fill('10');await page.locator('#position-sl').dispatchEvent('input');
+ assert.match(await page.locator('#protection-estimate').textContent(),/2\.33/);
+ await page.locator('#protection-form button[type=submit]').click();await page.waitForTimeout(100);assert.equal(writes.at(-1).sl,2.33);
  const frame=page.frames().find(f=>f.url().includes('/superchart/frame'));
+ const stops=await frame.evaluate(()=>{template={tpEnabled:false,slEnabled:true,slMode:'percent',sl:10};const percent=[templatePrices(2.12,1),templatePrices(2.12,-1)];template.slMode='price';template.sl=2;const absolute=[templatePrices(2.12,1),templatePrices(2.12,-1)];template.slMode='percent';template.sl=100;return {percent,absolute,invalid:templatePrices(2.12,1)};});
+ assert.deepEqual(stops,{percent:[{tp:0,sl:1.91},{tp:0,sl:2.33}],absolute:[{tp:0,sl:2},null],invalid:null});
  // Shared chart covers all four choices and short/long price math without host API calls.
  const combinations=await frame.evaluate(()=>{
   return [[true,true],[true,false],[false,true],[false,false]].map(([tpEnabled,slEnabled])=>{template={tp:.2,sl:.1,tpEnabled,slEnabled,tpMode:'distance'};return templatePrices(2.12,-1);});
