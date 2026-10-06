@@ -9,6 +9,11 @@ assert.equal(await page.evaluate(()=>totalTPText()),'+$385.00');
 assert.equal(await page.evaluate(()=>{trimPricePreview={order_id:1165,price:31250};return totalTPText()}),'+$402.50');
 assert.equal(await page.evaluate(()=>{trimPricePreview=null;paperConfig.tp_projection.realized=151;paperConfig.tp_projection.targets.shift();return totalTPText()}),'+$385.00');
 
+await page.evaluate(()=>{paperConfig.sl_projection={known:true,realized:151,targets:[{price:31371,entry:31334.25,quantity:1,side:-1,multiplier:2}]};levels.sl=31371;});
+assert.equal(await page.evaluate(()=>totalSLText()),'+$77.50');
+assert.equal(await page.evaluate(()=>{dragging='sl';levels.sl=31314.25;return totalSLText()}),'+$191.00');
+await page.evaluate(()=>{dragging=null;paperConfig.sl_projection.known=false;});
+assert.equal(await page.evaluate(()=>totalSLText()),'—');
 await page.evaluate(()=>{window.sent=[];window.webkit={messageHandlers:{paperAction:{postMessage:x=>sent.push(x)}}};base.paper.enabled=true;configure(base);});
 const handle=page.getByRole('button',{name:'Drag trim limit price',exact:true});const box=await handle.boundingBox();await page.mouse.move(box.x+15,box.y+14);await page.mouse.down();await handle.evaluate(b=>{for(let i=1;i<10;i++)if(b.hasPointerCapture(i))b.releasePointerCapture(i);b.dispatchEvent(new PointerEvent('lostpointercapture',{pointerId:1}));});await page.evaluate(()=>configure(base));await page.mouse.move(box.x+15,box.y-12,{steps:4});await page.mouse.up();
 const sent=await page.evaluate(()=>sent);assert.equal(sent.length,1);assert.equal(sent[0].order_id,1165);assert.equal(sent[0].expected_price,31258.75);assert.equal(sent[0].action,'amend');assert.notEqual(sent[0].price,31258.75);

@@ -263,6 +263,7 @@ class PaperChart:
 
         if group.get('lots'):
             projection=dict(realized=0.0,known=True,targets=[])
+            stop_targets=[];stop_known=True
             multiplier=float(next(iter(trades.values())).contract.multiplier or 1) if trades else 1
             def execution_totals(trade):
                 if not trade: return 0.0, 0.0
@@ -294,7 +295,17 @@ class PaperChart:
                         remaining=max(0,parent_filled-filled-execution_totals(stop)[0])
                         if remaining: projection['targets'].append(dict(order_id=trade.order.orderId,price=trade.order.lmtPrice,
                             quantity=remaining,entry=basis,side=group['side'],multiplier=multiplier,trim=bool(lot.get('closing'))))
+                take=trades.get(lot.get('tp'));stop=trades.get(lot.get('sl'))
+                remaining=max(0,parent_filled-execution_totals(take)[0]-execution_totals(stop)[0])
+                if remaining:
+                    if not stop or stop.isDone() or stop.order.orderType!='STP' or not (0<float(stop.order.auxPrice)<1e100):
+                        stop_known=False
+                    else:
+                        stop_targets.append(dict(order_id=stop.order.orderId,price=stop.order.auxPrice,
+                            quantity=remaining,entry=basis,side=group['side'],multiplier=multiplier))
             result['tp_projection']=projection
+            result['sl_projection']=dict(realized=projection['realized'],known=projection['known'] and stop_known
+                and abs(sum(r['quantity'] for r in stop_targets)-abs(result['position']))<.000001,targets=stop_targets)
 
         adjustment = group.get('adjustment')
         if adjustment:

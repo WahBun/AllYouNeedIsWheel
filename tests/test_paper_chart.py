@@ -686,6 +686,23 @@ class ProtectedLotTests(unittest.TestCase):
         self.assertEqual(self.trades[-2].order.lmtPrice,target)
         self.assertEqual(len(result['state']['pending_exits']),4)
 
+    def test_stop_projection_includes_realized_trim_and_remaining_stops(self):
+        self.open_four()
+        group=self.service.group('DU_TEST',7);first=group['lots'][0]
+        take=next(t for t in self.trades if t.order.orderId==first['tp'])
+        take.orderStatus.status='Filled';take.orderStatus.filled=1;take.orderStatus.avgFillPrice=10.5
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=3)]
+        for t in self.trades:
+            if t.order.orderType=='STP': t.order.auxPrice=10.25
+        projection=self.service.state(self.conn,7)['sl_projection']
+        multiplier=float(self.contract.multiplier or 1)
+        self.assertTrue(projection['known'])
+        self.assertEqual(len(projection['targets']),3)
+        total=projection['realized']+sum((r['price']-r['entry'])*r['side']*r['quantity']*r['multiplier'] for r in projection['targets'])
+        self.assertEqual(total,1.25*multiplier)
+        next(t for t in self.trades if t.order.orderId==group['lots'][1]['sl']).orderStatus.status='Cancelled'
+        self.assertFalse(self.service.state(self.conn,7)['sl_projection']['known'])
+
     def test_all_unit_stops_amend_for_be(self):
         self.open_four()
         r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='be'));self.assertTrue(r['success'],r)
