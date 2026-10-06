@@ -333,10 +333,6 @@ function syncDrawingPriceLabels(){
   let prices=[];
   if(['hray','price','up','down'].includes(d.type))prices=d.p.slice(0,1).map(p=>p.price);
   else if(['trend','info','channel','long','short','range','arrow','rect','triangle','curve'].includes(d.type))prices=d.p.map(p=>p.price);
-  else if(['fib','fibext'].includes(d.type)&&d.p.length>=2){
-   const a=d.p[0].price,b=d.p[1].price,ext=d.type==='fibext';
-   prices=(ext?[0,.618,1,1.618,2,2.618]:[0,.382,.5,1,1.5,2,2.5,3]).map(r=>ext?d.p.at(-1).price+(b-a)*r:b+(a-b)*r);
-  }
   for(const [i,price] of prices.entries()){
    if(!Number.isFinite(price)||price<=0)continue;
    const color=d.color||(['long','short'].includes(d.type)?['#315fc4','#b54747','#287b56'][i]:'#315fc4');

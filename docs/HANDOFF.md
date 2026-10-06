@@ -546,3 +546,8 @@ mode/value fields. Checkbox sizing overrides the generic full-width trade input
 rule. Existing IDs, optional-exit behavior and submission logic are unchanged.
 Browser optional-exit checks passed across mobile/desktop, English/Chinese and
 light/dark; desktop screenshot reviewed. No broker writes used for validation.
+
+Follow-up: Fibonacci retracement/extension retain their existing inline prices
+and no longer duplicate those levels on the right axis. Other drawing labels
+remain enabled. Native simulator regression passed (127 tests), alongside shared
+chart lifecycle and optional-exit browser checks for the ticket refresh.

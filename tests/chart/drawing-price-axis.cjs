@@ -10,7 +10,7 @@ for(const width of [393,1440]){
  let values=await load('hray',[103.25]);assert.equal(values.length,1);assert.equal(values[0].price,103.25);assert.equal(values[0].lineVisible,false);assert.equal(values[0].axisLabelVisible,true);
  values=await load('hray',[104.75]);assert.equal(values.length,1);assert.equal(values[0].price,104.75);
  values=await load('long',[100,95,110]);assert.deepEqual(values.map(v=>v.price),[100,95,110]);
- values=await load('fib',[110,100]);assert.deepEqual(values.map(v=>v.price),[100,103.82,105,110,115,120,125,130]);
+ values=await load('fib',[110,100]);assert.equal(values.length,0); assert.equal((await load('fibext',[100,110,105])).length,0);
  assert.equal((await load('hray',[103.25],true)).length,0);
  assert.equal((await load('text',[103.25])).length,0);
  await load('hray',[103.25]);
