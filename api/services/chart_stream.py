@@ -98,6 +98,8 @@ class ChartStreams:
 
     def pulse(self):
         contexts=latest_charts.contexts()
+        if contexts:
+            stock_chart.listeners.add(self.publish_changed)
         if not self.clients and not contexts:
             return
         now = time.monotonic()

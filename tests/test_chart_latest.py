@@ -59,3 +59,17 @@ class LatestChartTests(unittest.TestCase):
                 self.assertEqual(app.test_client().get('/api/portfolio/stock-chart-latest/7?epoch=old').status_code,409)
         finally:
             release.set();app.extensions['ib_background_stop'].set();executor.shutdown(wait=True)
+
+    def test_cache_only_readers_subscribe_to_owner_tick_callbacks(self):
+        from api.services.chart_stream import ChartStreams
+        hub=ChartStreams();conn=Mock();conn.is_connected.return_value=True
+        state=dict(self.state,conn=conn,contract=7,ticker=object(),ticks=0,quotes={})
+        conn.ib.ticker.return_value=state['ticker']
+        self.cache.read(7,5,'all','epoch')
+        with patch('api.services.chart_stream.stock_chart') as feed,patch('api.services.chart_stream.latest_charts',self.cache),patch('api.routes.account.epoch',return_value='epoch'):
+            feed.states={7:state};feed.listeners=set();feed.packet.return_value=self.packet
+            hub.pulse()
+            self.assertIn(hub.publish_changed,feed.listeners)
+            self.assertIsNotNone(self.cache.read(7,5,'all','epoch'))
+            feed.snapshot.assert_not_called()
+            conn.ib.placeOrder.assert_not_called()
