@@ -110,6 +110,7 @@ def bar_close_time(bar, minutes, session, now):
 
 
 class StockChart:
+    IDLE_SECONDS = 300  # Keep a bounded subscription warm across short app switches.
     def __init__(self):
         self.active = None
         self.states = {}
@@ -145,7 +146,7 @@ class StockChart:
     def expire(self, state):
         if self.states.get(state['con_id']) is not state:
             return
-        if time.monotonic() - state['used'] >= 30:
+        if time.monotonic() - state['used'] >= self.IDLE_SECONDS:
             self.stop_state(state)
         else:
             asyncio.get_event_loop().call_later(30, self.expire, state)

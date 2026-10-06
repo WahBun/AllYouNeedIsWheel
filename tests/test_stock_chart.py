@@ -40,6 +40,14 @@ class StockChartTests(unittest.TestCase):
         conn.ib.reqTickByTickData.return_value=ticker
         conn.ib.ticker.return_value=ticker
         return conn,ticker
+    def test_short_background_keeps_subscription_but_idle_eventually_releases(self):
+        from unittest.mock import patch
+        feed=StockChart();state={'con_id':7,'used':100};feed.states[7]=state
+        with patch('api.services.stock_chart.time.monotonic',return_value=160), patch('api.services.stock_chart.asyncio.get_event_loop') as loop, patch.object(feed,'stop_state') as stop:
+            feed.expire(state);stop.assert_not_called();loop.return_value.call_later.assert_called_once()
+        with patch('api.services.stock_chart.time.monotonic',return_value=401), patch.object(feed,'stop_state') as stop:
+            feed.expire(state);stop.assert_called_once_with(state)
+
     def test_fast_resume_uses_live_subscription_without_history_backfill(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
         conn,ticker=self.connection();feed=StockChart()
