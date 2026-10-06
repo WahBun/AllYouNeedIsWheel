@@ -220,8 +220,8 @@ $('resolve-request').onclick=async()=>{const key=pendingKey(),id=localStorage.ge
 
 $('close').onclick=close;$('be').onclick=()=>write({action:'be'});
 $('edit-cancel').onclick=()=>$('editor').close();$('edit-form').onsubmit=event=>{event.preventDefault();if(!editContext||editContext.cid!==cid||editContext.generation!==generation)return log('Chart changed; reopen the editor.');const quantity=Number($('edit-qty').value),price=Number($('edit-price').value),tif=$('edit-tif').value;if(!Number.isInteger(quantity)||quantity<1||price<=0)return;if(editContext.active)write({action:'edit_entry',quantity,price,tif,expected_ref:editContext.ref,expected_snapshot:editContext.snapshot,confirm_remove_protection:$('remove-protection').checked});else{$('quantity').value=quantity;entry=price;$('tif').value=tif;sync();}$('editor').close();};
-function saveDisplay(value){display=value;localStorage.setItem('wheel.chart.display',JSON.stringify(display));sync();refreshEMA();}
-const settingsPanel=WheelChartSettings.mount({read:()=>display,change:saveDisplay});
+function saveDisplay(value){display={...value,barCount:session==='rth'?value.barCount:display.barCount,barCountETH:session==='rth'?display.barCountETH:value.barCount};localStorage.setItem('wheel.chart.display',JSON.stringify(display));sync();refreshEMA();}
+const settingsPanel=WheelChartSettings.mount({read:()=>({...display,barCount:session==='rth'?display.barCount:display.barCountETH}),change:saveDisplay,getSession:()=>session});
 function settings(mode='display'){settingsPanel.open(mode);}
 $('settings').onclick=()=>settings();
 $('theme').onclick=()=>{dark=!dark;document.body.classList.toggle('light',!dark);localStorage.setItem('theme',dark?'dark':'light');sync();};document.body.classList.toggle('light',!dark);

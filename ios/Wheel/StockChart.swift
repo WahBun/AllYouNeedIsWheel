@@ -441,7 +441,12 @@ struct StockChartView: View {
     @AppStorage("chartShowProfit") private var showProfit = true
     @AppStorage("chartShowHoldings") private var showHoldings = true
     @AppStorage("chartOrderExtensionLines") private var showOrderExtensionLines = true
-    @AppStorage("chartBarCount") private var showBarCount = true
+    @AppStorage("chartBarCount") private var rthBarCount = true
+    @AppStorage("chartBarCountETH") private var ethBarCount = false
+    private var showBarCount: Bool {
+        get { session == "rth" ? rthBarCount : ethBarCount }
+        nonmutating set { if session == "rth" { rthBarCount = newValue } else { ethBarCount = newValue } }
+    }
     @AppStorage("chartBarCountFrame") private var barCountFrame = 1440
     @AppStorage("chartBarCountSize") private var barCountSize = "tiny"
     @AppStorage("chartBarCountColor") private var barCountColor = "#521c6e"
@@ -634,7 +639,7 @@ struct StockChartView: View {
         saveFVG(FVGSettings())
         savePV(PreviousValuesSettings())
                         emaFrame = 0; extraEMAJSON = ""
-                        showBarCount = true; barCountFrame = 1440; barCountSize = "tiny"; barCountColor = "#521c6e"; barCountOpacity = 66; barCountLimit = true; barCountBars = 162
+                        showBarCount = session == "rth"; barCountFrame = 1440; barCountSize = "tiny"; barCountColor = "#521c6e"; barCountOpacity = 66; barCountLimit = true; barCountBars = 162
                         indicatorVisible = true; showEMA = true; emaLength = 20; emaSource = "close"; emaOffset = 0
                         emaDynamic = true; emaColor = "#f9f1db"; emaWidth = 1; emaStyle = 0
                         showATR = true; atrLength = 4
@@ -805,7 +810,7 @@ struct StockChartView: View {
                         ColorPicker("Label color", selection: barCountColorBinding, supportsOpacity: false)
                         HStack { Text("Opacity"); Spacer(); Text((barCountOpacity / 100).formatted(.percent.precision(.fractionLength(0)))).monospacedDigit() }
                         Slider(value: $barCountOpacity, in: 0...100, step: 1)
-                    } else { Toggle("Bar Count", isOn: $showBarCount) }
+                    } else { Toggle("Bar Count", isOn: Binding(get: { showBarCount }, set: { showBarCount = $0 })) }
                 }
                 extraEMASection(0)
                 extraEMASection(1)

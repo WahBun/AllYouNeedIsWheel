@@ -570,3 +570,12 @@ cell, separator and right-aligned grouped price on a near-black background. The
 price cell is visual only; the plus retains the existing order-menu action and
 the axis retains its interactions. Grouping applies only to the integer portion,
 preserving contract tick precision. Price-menu interaction regression passed.
+
+## 2026-10-06 session-specific Bar Count defaults
+
+ETH now defaults Bar Count off while RTH retains its existing default on. Web and
+iOS persist independent session preferences so manually enabling ETH does not
+change RTH. Indicator reset uses the current session default. Verified web
+settings defaults/independent overrides and physical iOS build. The unrelated
+session-scroll-header fixture reports its header `below` assertion false against
+the unchanged chart HTML; it is not counted as passing validation.
