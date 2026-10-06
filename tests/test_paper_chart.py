@@ -366,6 +366,8 @@ class ProtectedLotTests(unittest.TestCase):
         self.assertTrue(result['success'],result)
         sent=[c.args[1] for c in self.conn.ib.placeOrder.call_args_list]
         self.assertEqual(len(sent),2)
+        self.assertEqual(len(result['state']['pending_exits']),2)
+        self.assertTrue(all(r['price']==10.75 and r['quantity']==1 for r in result['state']['pending_exits']))
         self.assertTrue(all(o.orderType=='LMT' and o.lmtPrice==10.75 and o.totalQuantity==1 for o in sent))
         ids={o.orderId for o in sent}
         for t in self.trades:

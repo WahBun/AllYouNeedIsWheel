@@ -1,0 +1,9 @@
+const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),assert=require('assert');
+(async()=>{const browser=await chromium.launch();try{const page=await browser.newPage({viewport:{width:1000,height:650}});const root=path.resolve(__dirname,'../../ios/Wheel/ChartAssets');await page.setContent(fs.readFileSync(path.join(root,'stock-chart.html'),'utf8').replace('/*LIBRARY*/',()=>fs.readFileSync(path.join(root,'lightweight-charts.standalone.production.js'),'utf8')));await page.addScriptTag({content:fs.readFileSync(path.join(root,'chart-add-orders.js'),'utf8')});
+await page.evaluate(()=>{window.exits=new Set();const create=series.createPriceLine.bind(series),remove=series.removePriceLine.bind(series);series.createPriceLine=o=>{const l=create(o);if(o.title?.startsWith('Trim'))exits.add(l);return l};series.removePriceLine=l=>{exits.delete(l);remove(l)};window.base={con_id:7,entry:0,quantity:1,paper:{web_account_epoch:'a',order_ref:'ref',pending_exits:[{order_id:1165,price:31258.75,quantity:1,status:'Submitted',action:'trim'}]}};configure(base);receive({con_id:7,generation:'test',interval:5,bars:Array.from({length:30},(_,i)=>({time:1790947800+i*300,open:31300,high:31350,low:31200,close:31320}))});});
+assert.deepEqual(await page.evaluate(()=>[...exits].map(l=>({price:l.options().price,title:l.options().title}))),[{price:31258.75,title:'Trim ×1'}]);
+await page.evaluate(()=>configure(base));assert.equal(await page.evaluate(()=>exits.size),1);
+await page.screenshot({path:'/tmp/wheel-trim-visible.png'});
+await page.evaluate(()=>configure({...base,paper:{...base.paper,pending_exits:[]}}));assert.equal(await page.evaluate(()=>exits.size),0);
+console.log('Pending trim line price/quantity, duplicate refresh and fill cleanup passed');
+}finally{await browser.close()}})().catch(e=>{console.error(e);process.exit(1)});

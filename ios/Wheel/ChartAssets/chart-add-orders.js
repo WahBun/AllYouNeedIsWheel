@@ -2,6 +2,18 @@
 (()=>{
  let darkAppearance=false;
  const pendingLines=new Map();
+ const exitLines=new Map();
+ function syncExitLines(config){
+  const live=new Set();
+  for(const row of config.paper?.pending_exits||[]){
+   if(!(row.price>0&&row.quantity>0))continue;
+   const id=`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${row.order_id}`;live.add(id);
+   const options={price:row.price,color:'#b27bcd',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:`${row.action==='trim'?'Trim':'Close'} ×${row.quantity}${row.status==='PendingCancel'?' · Canceling':''}`};
+   if(exitLines.has(id))exitLines.get(id).applyOptions(options);else exitLines.set(id,series.createPriceLine(options));
+  }
+  for(const [id,line] of exitLines)if(!live.has(id)){series.removePriceLine(line);exitLines.delete(id);}
+ }
+
  function positionCancelButton(row){const y=series.priceToCoordinate(row.price);row.button.hidden=y===null||y<35||y>chart.paneSize().height-5;if(!row.button.hidden)row.button.style.top=y+'px';}
  const repositionCancels=()=>{for(const row of pendingLines.values())positionCancelButton(row);};
  chart.timeScale().subscribeVisibleLogicalRangeChange(repositionCancels);
@@ -10,7 +22,7 @@
 
  const sharedConfigure=window.configure;
  window.configure=config=>{
-  darkAppearance=!!config.dark;sharedConfigure(config);window.dispatchEvent(new Event('order-configured')); 
+  darkAppearance=!!config.dark;sharedConfigure(config);syncExitLines(config);window.dispatchEvent(new Event('order-configured')); 
   const pending=(config.paper?.orders||[]).filter(o=>/^entry_/.test(o.role)&&!o.filled&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status)&&o.price>0);
   const live=new Set(pending.map(o=>`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${o.order_id}`));
   for(const [id,row] of pendingLines)if(!live.has(id)){series.removePriceLine(row.line);row.button.remove();pendingLines.delete(id);}

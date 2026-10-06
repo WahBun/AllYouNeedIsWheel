@@ -599,3 +599,13 @@ Validation: long/short target-price and quantity tests, full exit, stale positio
 unchanged stops/other lots and request deduplication; shared menu/browser payload
 checks and 127 native simulator tests passed. Device build passed. Actual broker
 Paper acceptance of priced trims remains outstanding.
+
+## 2026-10-06 pending trim chart visibility
+
+Read-only Paper verification found the user's one-unit priced trim acknowledged
+and working at the broker; the chart had omitted its distinct price because it
+only rendered the common TP. State now exposes acknowledged working adjustment
+exit rows, and the shared chart renders independent Trim/Close quantity labels.
+Repeated snapshots update in place; filled/canceled exits and chart/account
+changes remove stale lines. No broker write was made for this display repair.
+503 backend tests and pending-exit rendering/lifecycle checks passed.

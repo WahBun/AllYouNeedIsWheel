@@ -262,6 +262,10 @@ class PaperChart:
             by_id = {r['order_id']: r for r in rows}
             selected = [by_id.get(oid, dict(status='Unknown', filled=0)) for oid in adjustment['orders']]
             filled = sum(min(1, r['filled'] + by_id.get(sl, {}).get('filled', 0)) for r, sl in zip(selected, adjustment.get('stops', [None]*len(selected))))
+            result['pending_exits'] = [dict(order_id=r['order_id'], price=r['price'],
+                quantity=max(0,r['quantity']-r['filled']), status=r['status'], action=adjustment['action'])
+                for r in selected if r.get('order_id') in adjustment.get('acknowledged', [])
+                and r['status'] in ('Submitted','PreSubmitted','PendingCancel') and r.get('quantity',0)>r['filled']]
             result['adjustment'] = dict(action=adjustment['action'], requested=len(selected), filled=filled,
                 remaining=max(0, len(selected)-filled), pending=sum(max(0, 1-r['filled']) for r in selected if r.get('order_id') in adjustment.get('acknowledged', []) and r['status'] in ('Submitted','PreSubmitted')), position=result['position'],
                 status='filled' if filled == len(selected) else 'unknown' if any(r['status']=='Unknown' for r in selected) or adjustment.get('outcome') == 'unknown'
