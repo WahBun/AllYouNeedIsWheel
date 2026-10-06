@@ -78,3 +78,14 @@ body.light #daily-pnl-value[data-direction=negative]{color:#b73544}
 #preview[hidden]{display:none}
 #trade .exit-heading input[hidden],#trade .exit-heading span[hidden]{display:none}
 #trade .exit-heading .trade-hint{font-size:10px;white-space:nowrap;margin:0}
+
+/* Native core-asset lettering and five-second signature sweep. */
+.core-symbol{position:relative;display:inline-block;color:#ffd652;font-weight:600}
+.core-symbol-sgov{color:#ffe094}
+body.light .core-symbol{color:#944d0d}
+body.light .core-symbol-sgov{color:#c79929}
+.core-symbol::after{content:attr(data-lettering);position:absolute;inset:0;pointer-events:none;color:transparent;background:linear-gradient(90deg,transparent 25%,#d62117 38%,#ffd652 50%,#944d0d 62%,transparent 75%);background-size:265% 100%;background-clip:text;-webkit-background-clip:text;animation:core-symbol-flow 5s linear infinite;animation-delay:var(--symbol-phase,0ms)}
+.core-symbol-sgov::after{background-image:linear-gradient(90deg,transparent 30%,#fff 50%,transparent 70%)}
+body.light .core-symbol-sgov::after{background-image:linear-gradient(90deg,transparent 30%,#7a3b05 50%,transparent 70%)}
+@keyframes core-symbol-flow{from{background-position:150% 0}to{background-position:-150% 0}}
+@media(prefers-reduced-motion:reduce){.core-symbol::after{display:none;animation:none}}
