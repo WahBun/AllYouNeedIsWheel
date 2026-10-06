@@ -520,3 +520,15 @@ browser lifecycle/isolation/responsive regression passed. New mocked connection
 tests cover temporary bootstrap failure, wrong epoch/mode, exhausted retries,
 and absence of trading writes during recovery. Device build passed. No actual
 Gateway account switch or broker order was performed for this verification.
+
+## 2026-10-06 drawing price-axis labels
+
+Analysis drawings now expose their price levels through native right-axis labels:
+horizontal rays and price/arrow marks, geometric anchor/boundary prices,
+long/short entry-stop-target prices, and Fibonacci levels. Text and freehand
+annotations do not add price labels. Labels update on edits and are removed when
+drawings are hidden, deleted or replaced by another chart's drawing set. They
+never create order lines or broker writes. Native labels use series precision.
+
+Verified mobile/desktop price labels, dragging, Fib values and lifecycle cleanup;
+timeframe drawing/edit regression passed. Physical iOS build passed.

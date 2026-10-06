@@ -324,5 +324,30 @@ window.receive=packet=>{
  }
  return receiveChart(packet);
 };
-let lastRender='';function render(){requestAnimationFrame(render);const range=chart.timeScale().getVisibleLogicalRange();const fingerprint=JSON.stringify([range,innerWidth,innerHeight,drawingChartKey,previous.length,previous[0],previous.at(-1),revision,draft,ghost,cursor,snapFeedback,selected,active,locked,hidden,series.priceToCoordinate(1),series.priceToCoordinate(2)]);if(fingerprint!==lastRender){lastRender=fingerprint;const oldLayer=svg;const rebuildTextLayer=drawings.some(d=>d.type==='text'||d.type==='note')||draft?.type==='text'||draft?.type==='note';if(rebuildTextLayer){svg=oldLayer.cloneNode(false);}svg.setAttribute('width',innerWidth);svg.setAttribute('height',innerHeight-30);svg.replaceChildren();if(!hidden){drawings.forEach(d=>paint(d));if(draft){const count=tools.find(t=>t[0]===draft.type)[3];paint(ghost&&(draft.p.length<count||draft.type==='path')?{...draft,p:[...draft.p,ghost]}:draft,true);}paintSnap();paintCursor();}if(rebuildTextLayer)oldLayer.replaceWith(svg);}}syncToolVisibility();renderToolbar();render();
+// Native price-axis labels share the chart's precision, scale and collision layout.
+// These are analysis annotations only; no order state or broker action is involved.
+const drawingPriceLabels=new Map();
+function syncDrawingPriceLabels(){
+ const wanted=new Map();
+ if(!hidden)for(const d of [...drawings,...(draft?[draft]:[])]){
+  let prices=[];
+  if(['hray','price','up','down'].includes(d.type))prices=d.p.slice(0,1).map(p=>p.price);
+  else if(['trend','info','channel','long','short','range','arrow','rect','triangle','curve'].includes(d.type))prices=d.p.map(p=>p.price);
+  else if(['fib','fibext'].includes(d.type)&&d.p.length>=2){
+   const a=d.p[0].price,b=d.p[1].price,ext=d.type==='fibext';
+   prices=(ext?[0,.618,1,1.618,2,2.618]:[0,.382,.5,1,1.5,2,2.5,3]).map(r=>ext?d.p.at(-1).price+(b-a)*r:b+(a-b)*r);
+  }
+  for(const [i,price] of prices.entries()){
+   if(!Number.isFinite(price)||price<=0)continue;
+   const color=d.color||(['long','short'].includes(d.type)?['#315fc4','#b54747','#287b56'][i]:'#315fc4');
+   wanted.set(d.id+':'+i,{price,color,lineVisible:false,axisLabelVisible:true,title:''});
+  }
+ }
+ for(const [key,item] of drawingPriceLabels)if(!wanted.has(key)){series.removePriceLine(item.line);drawingPriceLabels.delete(key);}
+ for(const [key,options] of wanted){const signature=JSON.stringify(options),old=drawingPriceLabels.get(key);
+  if(!old)drawingPriceLabels.set(key,{line:series.createPriceLine(options),signature});
+  else if(old.signature!==signature){old.line.applyOptions(options);old.signature=signature;}
+ }
+}
+let lastRender='';function render(){requestAnimationFrame(render);const range=chart.timeScale().getVisibleLogicalRange();const fingerprint=JSON.stringify([range,innerWidth,innerHeight,drawingChartKey,previous.length,previous[0],previous.at(-1),revision,draft,ghost,cursor,snapFeedback,selected,active,locked,hidden,series.priceToCoordinate(1),series.priceToCoordinate(2)]);if(fingerprint!==lastRender){lastRender=fingerprint;syncDrawingPriceLabels();const oldLayer=svg;const rebuildTextLayer=drawings.some(d=>d.type==='text'||d.type==='note')||draft?.type==='text'||draft?.type==='note';if(rebuildTextLayer){svg=oldLayer.cloneNode(false);}svg.setAttribute('width',innerWidth);svg.setAttribute('height',innerHeight-30);svg.replaceChildren();if(!hidden){drawings.forEach(d=>paint(d));if(draft){const count=tools.find(t=>t[0]===draft.type)[3];paint(ghost&&(draft.p.length<count||draft.type==='path')?{...draft,p:[...draft.p,ghost]}:draft,true);}paintSnap();paintCursor();}if(rebuildTextLayer)oldLayer.replaceWith(svg);}}syncToolVisibility();renderToolbar();render();
 })();
