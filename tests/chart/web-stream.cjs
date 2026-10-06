@@ -16,7 +16,7 @@ await page.goto('http://127.0.0.1:8765/superchart?con_id=7&session=rth');await p
 const cf=page.frames().find(f=>f.url().includes('/superchart/frame'));
 const send=async (sequence,price,mode='delta')=>{if(sequence!==5)latestPrice=price;return page.evaluate(({base,sequence,price,mode})=>streams.at(-1).send({...base,mode,sequence,bars:[{...base.bars[0],close:price,high:Math.max(102,price)}]}),{base,sequence,price,mode});};
 await send(1,101,'snapshot');await send(2,102);assert.equal(await cf.evaluate(()=>previous.at(-1).close),102);
-const before=snapshots;await page.waitForTimeout(2200);assert.equal(snapshots,before,'healthy stream replaces 2s chart polling');
+const before=snapshots,beforeLatest=latestReads;await page.waitForTimeout(2200);assert.equal(snapshots,before,'healthy stream replaces 2s chart polling');assert.equal(latestReads,beforeLatest,'healthy streaming does not compete with periodic snapshots');
 await page.locator('#toggle-trade').click();await page.locator('#preview').click();await cf.locator('#order-direction').click();await page.waitForFunction(()=>document.getElementById('order-status').textContent.includes('Updating'));
 await send(3,103);assert.equal(await cf.evaluate(()=>previous.at(-1).close),103,'quotes update while trading write is pending');assert.equal(posts,1);release();
 await send(5,999);assert.equal(await cf.evaluate(()=>previous.at(-1).close),103,'sequence gaps never reach chart');await page.waitForFunction(()=>streams.length===2);await send(1,104,'snapshot');assert.equal(await cf.evaluate(()=>previous.at(-1).close),104);
@@ -54,6 +54,15 @@ await cf.waitForFunction(()=>previous.at(-1).close===108,{},{timeout:950});
 assert.ok(Date.now()-warmingStart<1000,'slow legacy bootstrap does not block rapid latest-cache retry');
 console.log(`Cache-warming recovery with 3-second legacy read: ${Date.now()-warmingStart}ms`);
 console.log(`Foreground recovery with slow account reads: ${restoreMs}ms`);
+const streaming=await page.evaluate(async({base})=>{
+ const chart=document.getElementById('chart').contentWindow,old=chart.receive,times=[];let started;
+ chart.receive=packet=>{old(packet);if(started!==undefined)times.push(performance.now()-started);};
+ for(let i=0;i<100;i++){started=performance.now();streams.at(-1).send({...base,interval:15,server_time:Date.now()/1000,sequence:i+1,mode:i?'delta':'snapshot',bars:[{...base.bars[0],close:110+i/100,high:112}]});await new Promise(r=>setTimeout(r,10));}
+ chart.receive=old;return {updates:times.length,max_ms:Math.max(...times)};
+},{base});
+assert.equal(streaming.updates,100,'all continuous pushed updates reach the renderer without one-second batching');
+assert.equal(await cf.evaluate(()=>previous.at(-1).close),110.99);
+console.log('Continuous push renderer delivery:',streaming);
 assert.equal(posts,1,'reconnect never replays trading requests');assert.deepEqual(errors,[]);
 console.log('Web SSE: deltas, polling removal, pending-write quotes, sequence recovery, timeframe isolation, P&L and no replay passed');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1)});

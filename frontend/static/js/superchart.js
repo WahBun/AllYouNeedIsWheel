@@ -158,7 +158,16 @@ function renderPendingAdds(can){
 function applyState(value){window.wheelTradeSounds?.observe(`${epoch}:${cid}:${groupID}`,value);renderGroups(value);const completed=state.active&&!value.active&&['canceled','done'].includes(value.status);state=value;received=Date.now();if(value.active){if(value.position)$('quantity').value=Math.abs(value.position);if(value.tif)$('tif').value=value.tif;if(value.entry_type)$('type').value=value.entry_type;if(value.entry_editable&&!value.position)$('quantity').value=value.orders?.filter(o=>o.role.split('_')[0]==='entry').reduce((sum,o)=>sum+o.quantity,0)||1;}if(value.active&&value.entry>0)entry=value.entry;else if(completed)entry=0;sync();}
 const historyCaches=new Map();let historyLoading=false;const historyRetry=new Map();
 function historyKey(){return `${epoch}:${cid}:${interval}:${session}`;}
-function mergeHistory(bars){const key=historyKey(),saved=historyCaches.get(key)||[],rows=new Map(saved.map(b=>[b.time,b]));for(const b of bars.bars||[])rows.set(b.time,b);const merged=[...rows.values()].sort((a,b)=>a.time-b.time).slice(-20000);historyCaches.set(key,merged);if(historyCaches.size>12)historyCaches.delete(historyCaches.keys().next().value);return {...bars,bars:merged,mode:'snapshot'};}
+function mergeHistory(bars){
+ const key=historyKey(),saved=historyCaches.get(key)||[];let merged;
+ if(bars.mode==='delta'&&saved.length){
+  // Live packets normally change only the tail; do not rebuild/sort all history.
+  merged=saved;
+  for(const bar of bars.bars||[]){let lo=0,hi=merged.length;while(lo<hi){const mid=(lo+hi)>>>1;if(merged[mid].time<bar.time)lo=mid+1;else hi=mid;}if(merged[lo]?.time===bar.time)merged[lo]=bar;else merged.splice(lo,0,bar);}
+  if(merged.length>20000)merged.splice(0,merged.length-20000);
+ }else{const rows=new Map(saved.map(b=>[b.time,b]));for(const b of bars.bars||[])rows.set(b.time,b);merged=[...rows.values()].sort((a,b)=>a.time-b.time).slice(-20000);}
+ historyCaches.set(key,merged);if(historyCaches.size>12)historyCaches.delete(historyCaches.keys().next().value);return {...bars,bars:merged,mode:'snapshot'};
+}
 async function loadHistory(body){if(historyLoading||busy||body.con_id!==cid||body.interval!==interval||body.session!==session||!epoch)return;const token=generation,key=historyKey(),requestKey=key+':'+body.before;if(Date.now()<(historyRetry.get(requestKey)||0))return;if((historyCaches.get(key)?.length||0)>=20000){$('market-status').textContent='History limit reached · use a longer interval';return;}historyLoading=true;historyRetry.set(requestKey,Date.now()+30000);$('market-status').textContent='Loading earlier history…';try{const page=await api(`portfolio/stock-chart-history/${cid}?interval=${interval}&session=${session}&before=${body.before}`);if(token!==generation||key!==historyKey())return;const rows=new Map((page.bars||[]).map(b=>[b.time,b]));for(const b of packet.bars||[])rows.set(b.time,b);packet={...packet,mode:'snapshot',bars:[...rows.values()].sort((a,b)=>a.time-b.time)};historyCaches.set(key,packet.bars);frame.contentWindow.receive(packet);$('market-status').textContent=page.bars?.length?'Earlier history loaded':'No earlier bars returned; retry later';}catch(error){if(token===generation)$('market-status').textContent=error.message;}finally{historyLoading=false;}}
 let marketBusy=null,marketRevision=0,pnlBusy=false,lastFallback=0,lastPnL=0;
 const marketContext=()=>({cid,interval,session,epoch,generation});
@@ -186,7 +195,7 @@ async function refreshLegacyMarket(context){
  legacyContext=context;
  const request=legacyMarket=new AbortController();legacyStarted=Date.now();
  const timeout=setTimeout(()=>request.abort(),20000);
- try{const bars=await api(`portfolio/stock-chart/${context.cid}?interval=${context.interval}&session=${context.session}&fast=1`,undefined,request.signal);if(currentMarket(context))applyMarket(bars);}
+ try{const bars=await api(`portfolio/stock-chart/${context.cid}?interval=${context.interval}&session=${context.session}&fast=1`,undefined,request.signal);if(currentMarket(context)&&!marketStream.healthy())applyMarket(bars);}
  catch(error){if(currentMarket(context)&&!marketStream.healthy()&&Date.now()-packetReceived>2000){marketReadError=request.signal.aborted?'History request timed out · retrying automatically':error.message;$('market-status').textContent=marketReadError;}}
  finally{clearTimeout(timeout);if(legacyMarket===request)legacyMarket=null;}
 }
@@ -201,7 +210,7 @@ async function refreshMarket({full=false}={}){
     const generation=!full&&packet.generation&&packetReceived>Date.now()-5000?`&generation=${encodeURIComponent(packet.generation)}`:'';
     const bars=await api(`portfolio/stock-chart-latest/${context.cid}?interval=${context.interval}&session=${context.session}${context.epoch?'&epoch='+encodeURIComponent(context.epoch):''}${generation}`,undefined,AbortSignal.any([request.signal,AbortSignal.timeout(800)]));
     if(!Array.isArray(bars.bars)||!Number.isFinite(bars.server_time))throw Error('Latest quote packet unavailable');
-    if(marketBusy===request&&currentMarket(context))applyMarket(bars);
+    if(marketBusy===request&&currentMarket(context)&&(full||!marketStream.healthy()))applyMarket(bars);
     return;
    }catch(error){if(request.signal.aborted)throw error;if(!marketStream.healthy())refreshLegacyMarket(context);return;}
   }
@@ -227,7 +236,7 @@ function ensureMarket(){
  if(!ready||!cid||!epoch||document.hidden){marketStream.stop();return;}
  const supported=streamSupported();
  if(supported)marketStream.ensure(marketContext());else marketStream.stop();
- if(Date.now()-lastFallback>=(supported?(Date.now()<marketPriorityUntil?250:1000):2000))refreshMarket();
+ if((!supported||!marketStream.healthy())&&Date.now()-lastFallback>=(supported?(Date.now()<marketPriorityUntil?250:1000):2000))refreshMarket();
  refreshPnL();
 }
 async function refresh(){if(document.hidden||Date.now()<marketPriorityUntil||polling||busy||!ready)return;polling=true;const token=generation,selected=cid,readVersion=writeVersion;let stateRead=false;try{
