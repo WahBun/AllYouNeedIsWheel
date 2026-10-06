@@ -666,3 +666,8 @@ amendments were not exercised; existing user orders were not modified for tests.
 - The cache-only recovery path also attaches to owner-thread tick callbacks before SSE reconnects; it can publish while ordinary IB reads yield. Controlled cache-warming retry recovered in 491 ms despite a 3-second legacy read.
 
 - Live-page testing exposed 3-second recovery outliers when no new ticks arrived during a slow IB read. A 200 ms owner-event-loop heartbeat now publishes already-received state while that read yields, independent of queued pulses and ticker events. It performs no broker requests and retains quote/tick freshness fields. A dedicated event-loop regression covers this quiet-market case.
+
+### Cold MNQ chart history timeout
+- User video and Mini logs showed blank first-load charts after repeated 5-second IB historical-data cancellations. Cold history now has a 15-second budget, coordinated with 20-second initial SSE/bootstrap waits; established-stream watchdog and fast quote reads retain their short recovery intervals.
+- Keep the concrete bootstrap error visible until valid chart data arrives instead of replacing it with a generic reconnect message.
+- 548 backend tests, cold-stream watchdog regression and web quote recovery tests passed. Tests do not submit broker orders.

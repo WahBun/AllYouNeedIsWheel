@@ -5,8 +5,8 @@ const updateSymbolClear=()=>{$('clear-symbol').hidden=!$('symbol').value;};
 $('symbol').addEventListener('input',updateSymbolClear);
 $('clear-symbol').onclick=()=>{$('symbol').value='';updateSymbolClear();$('symbol').focus();};
 window.addEventListener('pageshow',updateSymbolClear);updateSymbolClear();
-let groupID='',switchingChart=false;
-function chartTransition(){switchingChart=true;frame.style.opacity='.3';frame.style.pointerEvents='none';frame.setAttribute('aria-busy','true');$('market-status').textContent=`Loading ${session==='all'?'ETH':'RTH'} · ${interval}m…`;sync();ensureMarket();}
+let groupID='',switchingChart=false,marketReadError='';
+function chartTransition(){marketReadError='';switchingChart=true;frame.style.opacity='.3';frame.style.pointerEvents='none';frame.setAttribute('aria-busy','true');$('market-status').textContent=`Loading ${session==='all'?'ETH':'RTH'} · ${interval}m…`;sync();ensureMarket();}
 let entryFlight=null,queuedEntry=null,writeVersion=0;
 const entryIdentity=s=>JSON.stringify((s.edit_snapshot||[]).map(({order_id,quantity,filled,tif})=>({order_id,quantity,filled,tif})));
 function priceRoleEditable(role){return state.active&&state.known===true&&!state.sync_error&&(role==='entry'?state.entry_editable===true&&!state.position:state.orders?.some(o=>o.role.split('_')[0]===role&&['Submitted','PreSubmitted'].includes(o.status)));}
@@ -163,7 +163,7 @@ async function loadHistory(body){if(historyLoading||busy||body.con_id!==cid||bod
 let marketBusy=null,marketRevision=0,pnlBusy=false,lastFallback=0,lastPnL=0;
 const marketContext=()=>({cid,interval,session,epoch,generation});
 const currentMarket=c=>JSON.stringify(c)===JSON.stringify(marketContext());
-const marketStream=new WheelChartStream({receive:(bars,context)=>{if(currentMarket(context)){marketRevision++;applyMarket(bars,true);}},status:message=>{if(!switchingChart)$('market-status').textContent=message;}});
+const marketStream=new WheelChartStream({receive:(bars,context)=>{if(currentMarket(context)){marketRevision++;applyMarket(bars,true);}},status:message=>{if(!switchingChart&&!marketReadError)$('market-status').textContent=message;}});
 function applyMarket(bars,push=false){
  if(bars.con_id!==cid||bars.interval!==interval||bars.session!==session)return;
  if(Number.isFinite(bars.server_time)&&Number.isFinite(packet.server_time)&&bars.server_time<packet.server_time)return;
@@ -172,7 +172,7 @@ function applyMarket(bars,push=false){
  if(pushedPnL)pnlReceived=Date.now();
  packet={...mergeHistory(bars),...pnl};loadProtection();
  if($('contracts').selectedOptions[0])$('contracts').selectedOptions[0].textContent=bars.display_symbol||bars.local_symbol||bars.symbol||String(cid);
- packetReceived=Date.now();
+ marketReadError='';packetReceived=Date.now();
  // Keep paged history in the host; send only changed bars to the shared renderer.
  frame.contentWindow.receive(bars.mode==='delta'&&!switchingChart?bars:packet);
  switchingChart=false;frame.style.opacity='';frame.style.pointerEvents='';frame.removeAttribute('aria-busy');
@@ -185,9 +185,9 @@ async function refreshLegacyMarket(context){
  if(legacyMarket||Date.now()-legacyStarted<5000)return;
  legacyContext=context;
  const request=legacyMarket=new AbortController();legacyStarted=Date.now();
- const timeout=setTimeout(()=>request.abort(),12000);
+ const timeout=setTimeout(()=>request.abort(),20000);
  try{const bars=await api(`portfolio/stock-chart/${context.cid}?interval=${context.interval}&session=${context.session}&fast=1`,undefined,request.signal);if(currentMarket(context))applyMarket(bars);}
- catch(error){if(currentMarket(context)&&!marketStream.healthy()&&Date.now()-packetReceived>2000)$('market-status').textContent='Waiting for fresh market data…';}
+ catch(error){if(currentMarket(context)&&!marketStream.healthy()&&Date.now()-packetReceived>2000){marketReadError=request.signal.aborted?'History request timed out · retrying automatically':error.message;$('market-status').textContent=marketReadError;}}
  finally{clearTimeout(timeout);if(legacyMarket===request)legacyMarket=null;}
 }
 const streamSupported=()=>[1,3,5,10,15,60,480].includes(interval)&&!(interval===480&&session==='rth');

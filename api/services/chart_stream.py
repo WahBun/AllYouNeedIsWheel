@@ -162,7 +162,7 @@ def response(connection_factory):
             return streams.open(connection_factory(), con_id, minutes, session, include_pnl)
     future = executor.submit(start)
     try:
-        key, sub = future.result(timeout=12)
+        key, sub = future.result(timeout=20)
     except Exception as error:
         def abandon(done):
             if not done.cancelled() and done.exception() is None:

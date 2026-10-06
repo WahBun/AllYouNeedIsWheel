@@ -192,7 +192,7 @@ class StockChart:
             if event is not None: event += history_error
             try:
                 historical = conn.ib.reqHistoricalData(contract, '', '2 D', '1 min', 'TRADES',
-                    useRTH=False, formatDate=2, keepUpToDate=option_bars, timeout=5)
+                    useRTH=False, formatDate=2, keepUpToDate=option_bars, timeout=15)
             finally:
                 if event is not None: event -= history_error
             bars = []

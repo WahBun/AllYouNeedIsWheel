@@ -10,3 +10,5 @@ stream.ensure({...context,epoch:'b'});assert.ok(sources[1].closed);assert.equal(
 stream.stop();now+=30000;assert.equal(stream.healthy(),false);assert.equal(stream.source,null);
 stream.ensure(context);send(sources.at(-1),{...packet,con_id:8});assert.ok(sources.at(-1).closed,'wrong contract rejected');
 console.log('Stream watchdog, retry delay, stale callbacks, account isolation and snapshot recovery passed');
+
+stream.stop();stream.ensure(context);const cold=sources.at(-1);now+=10000;stream.ensure(context);assert.equal(cold.closed,undefined,'cold history read survives beyond the old 8s watchdog');send(cold);assert.ok(stream.healthy());now+=8001;stream.ensure(context);assert.ok(cold.closed,'established streams still recover promptly');

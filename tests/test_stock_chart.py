@@ -48,6 +48,22 @@ class StockChartTests(unittest.TestCase):
         with patch('api.services.stock_chart.time.monotonic',return_value=401), patch.object(feed,'stop_state') as stop:
             feed.expire(state);stop.assert_called_once_with(state)
 
+    def test_cold_history_outlasting_five_seconds_can_initialize(self):
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection();feed=StockChart()
+        bars=conn.ib.reqHistoricalData.return_value
+        conn.ib.reqHistoricalData.side_effect=lambda *args,**kwargs: bars if kwargs['timeout']>=9 else []
+        try:
+            packet=feed.snapshot(conn,7,5,'all',fast=True)
+            self.assertTrue(packet['bars'])
+            self.assertEqual(conn.ib.reqHistoricalData.call_count,1)
+            conn.ib.reqHistoricalData.reset_mock()
+            self.assertTrue(feed.snapshot(conn,7,5,'all',fast=True)['bars'])
+            conn.ib.reqHistoricalData.assert_not_called()
+            conn.ib.placeOrder.assert_not_called()
+        finally:
+            feed.stop();asyncio.get_event_loop().close()
+
     def test_fast_resume_uses_live_subscription_without_history_backfill(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
         conn,ticker=self.connection();feed=StockChart()
