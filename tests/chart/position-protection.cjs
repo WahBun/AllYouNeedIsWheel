@@ -29,20 +29,27 @@ for(const width of [1440,393])for(const language of ['en','zh'])for(const light 
  await page.waitForTimeout(2200);
  assert.equal(await page.locator('#tp').inputValue(),'3');
  assert.equal(writes.length,0);
- await page.locator('#tp-apply').click();
+ assert.equal(await page.locator('#tp').evaluate(el=>document.activeElement===el),true,'polls must not blur the draft');
+
+ await page.locator('#tp').press('Enter');
  await page.waitForTimeout(150);
  assert.equal(writes.at(-1).action,'amend');
  assert.equal(writes.at(-1).role,'tp');
  assert.equal(writes.at(-1).price,7);
  assert.equal(writes.at(-1).expected_ref,'test');
+ const count=writes.length;await page.locator('#tp').blur();await page.waitForTimeout(50);
+ assert.equal(writes.length,count,'Enter plus blur sends only once');
  state={...state,tp:7,sl:9.5};
  await page.waitForFunction(()=>document.getElementById('tp').value==='3'&&document.getElementById('sl').value==='9.5');
+ const unchanged=writes.length;
+ await page.locator('#tp').fill('3');await page.locator('#tp').press('Enter');await page.locator('#tp').blur();
+ assert.equal(writes.length,unchanged,'unchanged normalized target does not submit');
  await page.locator('#sl-mode').selectOption('distance');
  assert.equal(await page.locator('#sl').inputValue(),'-0.5');
  await page.locator('#sl-mode').selectOption('percent');
  assert.equal(await page.locator('#sl').inputValue(),'-5');
  await page.locator('#sl').fill('-2');
- await page.locator('#sl-apply').click();
+ await page.locator('#sl').blur();
  await page.waitForTimeout(150);
  assert.equal(writes.at(-1).price,9.8);
  assert.equal(writes.at(-1).role,'sl');
@@ -51,10 +58,14 @@ for(const width of [1440,393])for(const language of ['en','zh'])for(const light 
  await page.locator('#tp-mode').selectOption('percent');
  assert.equal(await page.locator('#tp').inputValue(),'20');
  await page.locator('#tp').fill('25');
- await page.locator('#tp-apply').click();
+ await page.locator('#tp').press('Enter');
  await page.waitForTimeout(150);
  assert.equal(writes.at(-1).price,12.5);
  assert.equal(writes.at(-1).expected_ref,'long');
+ await page.locator('#sl').fill('');await page.locator('#sl').blur();await page.waitForTimeout(50);
+ const before=writes.length;await page.locator('#sl').fill('8');await page.locator('#sl').press('Escape');await page.locator('#sl').blur();
+ assert.equal(writes.length,before,'Escape cancels a draft');
+ assert.equal(await page.locator('#tp-apply').count(),0);
  assert.deepEqual(errors,[]);
  await page.close();
 }
