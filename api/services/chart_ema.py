@@ -1,5 +1,6 @@
 """Independent EMA timeframe bars, owned and cancelled with the active chart."""
 import math
+import asyncio
 from datetime import datetime, date, time as clock_time, timedelta
 from bisect import bisect_right
 from zoneinfo import ZoneInfo
@@ -11,11 +12,13 @@ SPECS = {1:('10 D','1 min'),3:('1 M','3 mins'),5:('1 M','5 mins'),10:('2 M','10 
 def snapshot(conn, cid, frames, session):
     if session not in ('rth','all') or len(frames)>6 or any(frame not in SPECS for frame in frames):
         raise ValueError('Invalid EMA timeframes')
-    state=stock_chart.active
+    state=stock_chart.states.get(cid) or stock_chart.active
     if not state or state['conn'] is not conn or state['con_id']!=cid or not conn.is_connected():
         raise ValueError('Waiting for chart')
     histories=state.setdefault('ema_history',{})
     wanted={(frame,session) for frame in frames}
+    state['ema_wanted']=wanted
+    pending=state.setdefault('ema_pending',{})
     for key in list(histories):
         if key not in wanted:
             conn.ib.cancelHistoricalData(histories.pop(key))
@@ -26,19 +29,24 @@ def snapshot(conn, cid, frames, session):
         if key not in histories:
             retry=state.setdefault('ema_retry',{})
             if time.monotonic()<retry.get(key,0): continue
-            retry[key]=time.monotonic()+60
             duration,size=SPECS[frame]
-            try:
-                history=conn.ib.reqHistoricalData(state['contract'],'',duration,size,'TRADES',useRTH=session=='rth',formatDate=2,keepUpToDate=True,timeout=5)
-            except Exception:
-                continue
-            if stock_chart.active is not state:
-                conn.ib.cancelHistoricalData(history)
-                raise ValueError('Chart changed')
-            if not history:
-                conn.ib.cancelHistoricalData(history)
-                continue
-            histories[key]=history
+            # Fetch on the existing IB event loop, without holding an API job.
+            # Limit concurrent cold indicator requests; later polls use the cache.
+            if key in pending or len(pending)>=2: continue
+            retry[key]=time.monotonic()+60
+            async def load(key=key,duration=duration,size=size):
+                try:
+                    history=await conn.ib.reqHistoricalDataAsync(state['contract'],'',duration,size,'TRADES',useRTH=key[1]=='rth',formatDate=2,keepUpToDate=True,timeout=15)
+                    valid=(stock_chart.states.get(cid) is state or stock_chart.active is state)
+                    if not valid or key not in state.get('ema_wanted',set()) or not history:
+                        conn.ib.cancelHistoricalData(history)
+                    else: histories[key]=history
+                except Exception:
+                    pass  # The bounded retry remains visible as missing frame data.
+                finally:
+                    pending.pop(key,None)
+            pending[key]=asyncio.get_event_loop().create_task(load())
+            continue
         bars=[]
         ends=state.setdefault('ema_ends',{}).setdefault(key,{})
         for b in histories[key]:
