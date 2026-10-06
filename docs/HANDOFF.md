@@ -579,3 +579,23 @@ change RTH. Indicator reset uses the current session default. Verified web
 settings defaults/independent overrides and physical iOS build. The unrelated
 session-scroll-header fixture reports its header `below` assertion false against
 the unchanged chart HTML; it is not counted as passing validation.
+
+## 2026-10-06 right-click priced trim
+
+The sidebar Trim retains its current bid/ask exit behavior. Opposite-side limit
+choices in the shared plus/right-click menu now open a quantity confirmation for
+a limit trim at the selected price. Selecting the full remaining size closes at
+that limit. Stop-triggered priced exits are explicitly unavailable in this pass.
+
+The backend validates the expected reference and signed position, then amends
+only selected filled-unit TP limit orders, retaining their IDs, parent/OCA fields,
+paired stops, and the other lots. It never creates a separate opposite entry.
+Pending entries, unreconciled protection and unsupported older/non-unit groups
+retain their existing blocks. Existing adjustment reconciliation tracks fills
+and uncertain acknowledgments without replaying writes. Pending priced exits
+must settle before another adjustment. No broker orders were sent for tests.
+
+Validation: long/short target-price and quantity tests, full exit, stale position,
+unchanged stops/other lots and request deduplication; shared menu/browser payload
+checks and 127 native simulator tests passed. Device build passed. Actual broker
+Paper acceptance of priced trims remains outstanding.

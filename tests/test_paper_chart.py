@@ -357,6 +357,49 @@ class ProtectedLotTests(unittest.TestCase):
         self.assertEqual(len(self.trades),6)
         self.assertTrue(all(t.order.tif == ('GTC' if t.order.parentId else 'DAY') for t in self.trades))
 
+    def test_priced_trim_preserves_stop_and_remaining_targets(self):
+        self.open_four()
+        before={t.order.orderId:(t.order.lmtPrice,t.order.auxPrice,t.order.ocaGroup,t.order.parentId) for t in self.trades}
+        body=dict(request_id=str(uuid4()),action='trim',quantity=2,exit_type='LMT',exit_price=10.75,
+                  expected_ref=self.service.group('DU_TEST',7)['ref'],expected_position=4)
+        result=self.service.execute(self.conn,7,body)
+        self.assertTrue(result['success'],result)
+        sent=[c.args[1] for c in self.conn.ib.placeOrder.call_args_list]
+        self.assertEqual(len(sent),2)
+        self.assertTrue(all(o.orderType=='LMT' and o.lmtPrice==10.75 and o.totalQuantity==1 for o in sent))
+        ids={o.orderId for o in sent}
+        for t in self.trades:
+            if t.order.orderId not in ids:self.assertEqual(before[t.order.orderId],(t.order.lmtPrice,t.order.auxPrice,t.order.ocaGroup,t.order.parentId))
+        self.conn.ib.cancelOrder.assert_not_called()
+        self.service.execute(self.conn,7,body)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,2)
+
+    def test_priced_short_trim_uses_buy_limit_and_preserves_stops(self):
+        self.submit(quantity=2,side=-1,tp=9,sl=11)
+        for t in self.trades:
+            if not t.order.parentId:t.orderStatus.status='Filled';t.orderStatus.filled=1;t.orderStatus.avgFillPrice=10
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=-2)]
+        self.conn.ib.placeOrder.reset_mock();self.conn.ib.cancelOrder.reset_mock()
+        body=dict(request_id=str(uuid4()),action='trim',quantity=1,exit_type='LMT',exit_price=9.5,
+                  expected_ref=self.service.group('DU_TEST',7)['ref'],expected_position=-2)
+        result=self.service.execute(self.conn,7,body)
+        self.assertTrue(result['success'],result)
+        order=self.conn.ib.placeOrder.call_args.args[1]
+        self.assertEqual((order.action,order.orderType,order.lmtPrice,order.totalQuantity),('BUY','LMT',9.5,1))
+        self.conn.ib.cancelOrder.assert_not_called()
+        self.assertEqual([t.order.auxPrice for t in self.trades if t.order.orderType=='STP'],[11,11])
+
+    def test_priced_trim_all_and_stale_position(self):
+        self.open_four()
+        body=dict(request_id=str(uuid4()),action='trim',quantity=4,exit_type='LMT',exit_price=10.75,
+                  expected_ref=self.service.group('DU_TEST',7)['ref'],expected_position=3)
+        self.assertFalse(self.service.execute(self.conn,7,body)['success'])
+        self.conn.ib.placeOrder.assert_not_called()
+        body.update(request_id=str(uuid4()),expected_position=4)
+        result=self.service.execute(self.conn,7,body)
+        self.assertTrue(result['success'],result)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,4)
+
     def test_trim_preserves_all_stop_ids_and_other_lots(self):
         self.open_four();before=[(t.order.orderId,t.order.totalQuantity,t.order.auxPrice) for t in self.trades if t.order.orderType=='STP']
         body=dict(request_id=str(uuid4()),action='trim',quantity=1)

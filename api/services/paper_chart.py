@@ -497,19 +497,22 @@ class PaperChart:
                 order.outsideRth = contract.secType == 'FUT'
                 conn.ib.placeOrder(contract,order)
 
-    def exit_lots(self, conn, account, cid, group, lots, trades, price, action, request_id):
+    def exit_lots(self, conn, account, cid, group, lots, trades, price, action, request_id, limit_target=None):
         import copy
-        state=stock_chart.active
-        if not state or state['con_id']!=cid: raise ValueError('Wait for a current quote')
-        # Use the chart's quote freshness rules, independently of its interval.
-        contract = trades[lots[0]['tp']].contract
-        packet=stock_chart.packet(state,5,'all' if contract.secType == 'FUT' else 'rth')
-        if not packet: raise ValueError('Fresh exit quote unavailable')
-        quote=packet.get('bid' if group['side']==1 else 'ask')
-        # packet() only exposes current, non-delayed Bid/Ask. Its status instead
-        # tracks Last trades, which can pause during a quiet ETH market.
-        if not quote: raise ValueError('Wait for a live bid/ask')
-        target=price(quote)
+        if limit_target is None:
+            state=stock_chart.active
+            if not state or state['con_id']!=cid: raise ValueError('Wait for a current quote')
+            # Use the chart's quote freshness rules, independently of its interval.
+            contract = trades[lots[0]['tp']].contract
+            packet=stock_chart.packet(state,5,'all' if contract.secType == 'FUT' else 'rth')
+            if not packet: raise ValueError('Fresh exit quote unavailable')
+            quote=packet.get('bid' if group['side']==1 else 'ask')
+            # packet() only exposes current, non-delayed Bid/Ask. Its status instead
+            # tracks Last trades, which can pause during a quiet ETH market.
+            if not quote: raise ValueError('Wait for a live bid/ask')
+            target=price(quote)
+        else:
+            target=price(limit_target)
         group['adjustment'] = dict(action=action, request_id=request_id, orders=[lot['tp'] for lot in lots], stops=[lot['sl'] for lot in lots], acknowledged=[], outcome='unknown')
         self.save_group(account, cid, group)
         for lot in lots:
@@ -996,6 +999,8 @@ class PaperChart:
         if not group: raise ValueError('No chart bracket for this contract')
         trades=getattr(self,'_resolved_trades',{})
         if action in ('add','trim'):
+            if body.get('expected_ref') is not None and body['expected_ref'] != group.get('ref'):
+                raise ValueError('Order identity changed; refresh before adjusting')
             if not current.get('scalable'): raise ValueError('Add/Trim requires active paired protection; use an independent order or Close')
             if not group.get('lots'):
                 raise ValueError('This older bracket cannot be scaled without replacing protection; start a new protected futures bracket')
@@ -1004,7 +1009,16 @@ class PaperChart:
                 raise ValueError('Invalid adjustment quantity')
             size = abs(current['position'])
             if not size or current['position'] * group['side'] <= 0: raise ValueError('No filled chart position')
-            if action == 'trim' and qty >= size: raise ValueError('Trim must leave a position; use Close Position')
+            priced_trim = action == 'trim' and 'exit_price' in body
+            if priced_trim:
+                if body.get('expected_ref') != group.get('ref') or body.get('expected_position') != current['position']:
+                    raise ValueError('Position changed; reopen the priced exit')
+                if body.get('exit_type') != 'LMT': raise ValueError('Priced trim supports limit orders only')
+                target=price(body.get('exit_price'))
+                if group['side']*(target-current['sl']) <= 0:
+                    raise ValueError('Exit limit cannot cross the protective stop')
+                if qty > size: raise ValueError('Exit quantity exceeds remaining position')
+            elif action == 'trim' and qty >= size: raise ValueError('Trim must leave a position; use Close Position')
             owned = sum(group['side'] * (1 if row['role'].split('_')[0] == 'entry' else -1) * row['filled']
                         for row in current['orders'])
             if abs(owned-current['position']) > .000001: raise ValueError('Position differs from chart fills; reconcile Gateway')
@@ -1042,7 +1056,7 @@ class PaperChart:
                         raise ValueError('Add price must lie between the current TP and SL')
                 self.add_lots(conn,account,cid,contract,group,int(qty),kind,target,tp,sl)
             else:
-                self.exit_lots(conn,account,cid,group,live[:int(qty)],trades,price,action,request_id)
+                self.exit_lots(conn,account,cid,group,live[:int(qty)],trades,price,action,request_id,limit_target=target if priced_trim else None)
             return
         if action in ('amend','be'):
             if body.get('expected_ref') is not None and body['expected_ref'] != group.get('ref'):

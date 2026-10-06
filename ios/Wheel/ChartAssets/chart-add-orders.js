@@ -53,6 +53,7 @@
  function addAllowed(choice){return paperConfig.enabled&&paperConfig.scalable&&paperConfig.position&&choice.side===Math.sign(paperConfig.position)&&!paperConfig.busy&&!paperConfig.orders?.some(o=>['PendingSubmit','PendingCancel','Unknown'].includes(o.status));}
  function choosePriceOrder(choice,price){
   if(!paperConfig.position){menuOrderPrice=price;menuOrderCID=paperCID;sendPriceOrder(choice);return;}
+  if(choice.side!==Math.sign(paperConfig.position)){if(choice.type==='LMT'&&paperConfig.scalable)chooseExit(true,price);return;}
   if(!addAllowed(choice))return;
   const cid=paperCID,ref=paperConfig.order_ref,epoch=paperConfig.web_account_epoch,tp=paperConfig.tp,sl=paperConfig.sl;
   addDialog.replaceChildren();const zh=parent.document.documentElement.lang.startsWith('zh');addDialog.dataset.light=String(!darkAppearance);
@@ -60,6 +61,7 @@
   const detail=document.createElement('p');detail.textContent=`${countdownPacket?.local_symbol||countdownPacket?.symbol||''} · ${priceText(price)} · ${paperConfig.tif||'DAY'}`;
   const label=document.createElement('label');label.textContent=zh?'加仓数量':'Add quantity';
   const input=document.createElement('input');input.type='number';input.min='1';input.step='1';input.value=String(paperConfig.adjustment_quantity||1);input.setAttribute('aria-label','Add quantity');label.append(input);
+
   const cancel=document.createElement('button');cancel.textContent=zh?'返回':'Cancel';cancel.onclick=()=>addDialog.close();
   const submit=document.createElement('button');submit.textContent=zh?'确认加仓':'Place add order';
   submit.onclick=()=>{
@@ -74,14 +76,43 @@
   const footer=document.createElement('footer');footer.append(cancel,submit);
   addDialog.append(title,detail,label,summary,footer);addDialog.showModal();
  }
+ function exitReason(trim,priced=false){
+  if(!paperConfig.enabled)return paperConfig.trading_block_reason||'Waiting for verified order status';
+  if(paperConfig.busy)return 'Order request in progress';
+  if(!paperConfig.position)return 'No remaining position';
+  if(trim&&!priced&&Math.abs(paperConfig.position)<=1)return 'Only 1 remains; use Close position';
+  if(trim&&!paperConfig.scalable)return 'Partial exit requires reconciled paired protection; use Close position';
+  return '';
+ }
+ function chooseExit(trim,price=null){
+  const priced=price!==null;
+  if(exitReason(trim,priced))return;
+  const cid=paperCID,ref=paperConfig.order_ref,epoch=paperConfig.web_account_epoch,position=paperConfig.position;
+  const size=Math.abs(position),zh=parent.document.documentElement.lang.startsWith('zh');
+  addDialog.replaceChildren();addDialog.dataset.light=String(!darkAppearance);
+  const title=document.createElement('strong');title.textContent=priced?(zh?'限价减仓 / 平仓':'Limit trim / close'):trim?(zh?'减仓':'Trim position'):(zh?'全部平仓':'Close position');
+  const detail=document.createElement('p');detail.textContent=`${countdownPacket?.local_symbol||countdownPacket?.symbol||''} · ${position>0?'Long':'Short'} ${size} · `+(paperConfig.scalable?(zh?'按当前买卖价调整退出限价单，不保证立即成交。':'Exit limit at current bid/ask; immediate fill is not guaranteed.'):(zh?'核验撤单与剩余仓位后市价平仓。':'Market close after cancellation and position reconciliation.'));
+  if(priced)detail.textContent=`${countdownPacket?.local_symbol||countdownPacket?.symbol||''} · ${position>0?'Sell':'Buy'} Limit @ ${priceText(price)} · ${zh?'现有持仓':'Position'} ${size}`;
+  const input=document.createElement('input');input.type='number';input.min='1';input.max=String(trim&&!priced?size-1:size);input.step='1';input.value=String(trim?Math.min(priced?size:size-1,paperConfig.adjustment_quantity||1):size);input.disabled=!trim;input.setAttribute('aria-label','Exit quantity');
+  const remaining=document.createElement('p');const updateRemaining=()=>{remaining.textContent=(zh?'成交后剩余：':'Remaining after fill: ')+Math.max(0,size-Number(input.value));};input.oninput=updateRemaining;updateRemaining();
+  const cancel=document.createElement('button');cancel.textContent=zh?'返回':'Cancel';cancel.onclick=()=>addDialog.close();
+  const submit=document.createElement('button');submit.textContent=priced?(zh?'挂限价退出单':'Place limit exit'):trim?(zh?'确认减仓':'Confirm trim'):(zh?'确认平仓':'Confirm close');
+  submit.onclick=()=>{const quantity=Number(input.value);if(!Number.isSafeInteger(quantity)||quantity<1||(trim&&!priced&&quantity>=size)||quantity>size)return input.reportValidity();
+   if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||position!==paperConfig.position||exitReason(trim,priced)){addDialog.close();return validation('Position changed; reopen exit menu');}
+   addDialog.close();paperAction({action:trim?'trim':'close',quantity,expected_ref:ref,...(priced?{exit_type:'LMT',exit_price:price,expected_position:position}:{})});
+  };
+  const footer=document.createElement('footer');footer.append(cancel,submit);addDialog.append(title,detail,input,remaining,footer);addDialog.showModal();
+ }
  function orderItems(price,append){
   const updates=[],contract=paperCID,epoch=paperConfig.web_account_epoch;
   for(const choice of priceOrderChoices(price,previous.at(-1)?.close)){
    const adding=!!paperConfig.position;
-   const disabled=adding?!addAllowed(choice):!paperConfig.enabled||paperConfig.active||paperConfig.busy||ovtStopBlocked(choice.type);
+   const reducing=adding&&choice.side!==Math.sign(paperConfig.position);
+   const reduceReason=()=>exitReason(true,true)||(choice.type!=='LMT'?'Priced stop exits are not supported; choose a limit price':'');
+   const disabled=adding?(reducing?!!reduceReason():!addAllowed(choice)):!paperConfig.enabled||paperConfig.active||paperConfig.busy||ovtStopBlocked(choice.type);
    const quantity=adding?(paperConfig.adjustment_quantity||1):qty;
-   const b=append(`${adding?'Add · ':''}${choice.label} ${quantity} ${countdownPacket?.local_symbol||countdownPacket?.symbol||''} @ ${priceText(price)}`,()=>choosePriceOrder(choice,price),disabled);
-   if(b)updates.push(()=>{const changed=contract!==paperCID||epoch!==paperConfig.web_account_epoch||adding!==!!paperConfig.position||quantity!==(adding?(paperConfig.adjustment_quantity||1):qty);const reason=changed?'Chart or quantity changed; reopen menu':ovtStopBlocked(choice.type)?'OVT supports limit orders only':!paperConfig.enabled?(paperConfig.trading_block_reason||'Waiting for verified order status'):paperConfig.busy?'Order request in progress':paperConfig.active&&!adding?'An entry order is already working':adding&&!addAllowed(choice)?'Position is not ready for this add order':'';b.disabled=!!reason;b.style.opacity=reason?'.4':'1';b.title=reason;let note=b.querySelector('small');if(reason&&!note){note=document.createElement('small');note.style.cssText='display:block;max-width:270px;white-space:normal;margin-top:5px;font-size:11px';b.append(note);}if(note){note.textContent=reason;note.hidden=!reason;}});
+   const b=append(`${reducing?(Math.abs(paperConfig.position)===1?'Close · ':'Trim · '):adding?'Add · ':''}${choice.label} ${quantity} ${countdownPacket?.local_symbol||countdownPacket?.symbol||''} @ ${priceText(price)}`,()=>choosePriceOrder(choice,price),disabled);
+   if(b)updates.push(()=>{const changed=contract!==paperCID||epoch!==paperConfig.web_account_epoch||adding!==!!paperConfig.position||quantity!==(adding?(paperConfig.adjustment_quantity||1):qty);const reason=changed?'Chart or quantity changed; reopen menu':ovtStopBlocked(choice.type)?'OVT supports limit orders only':!paperConfig.enabled?(paperConfig.trading_block_reason||'Waiting for verified order status'):paperConfig.busy?'Order request in progress':paperConfig.active&&!adding?'An entry order is already working':reducing?reduceReason():adding&&!addAllowed(choice)?'Position is not ready for this add order':'';b.disabled=!!reason;b.style.opacity=reason?'.4':'1';b.title=reason;let note=b.querySelector('small');if(reason&&!note){note=document.createElement('small');note.style.cssText='display:block;max-width:270px;white-space:normal;margin-top:5px;font-size:11px';b.append(note);}if(note){note.textContent=reason;note.hidden=!reason;}});
 
   }
   const refresh=()=>updates.forEach(update=>update());refresh();return refresh;
