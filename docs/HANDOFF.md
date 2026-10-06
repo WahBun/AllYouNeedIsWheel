@@ -652,3 +652,8 @@ amendments were not exercised; existing user orders were not modified for tests.
 - Added sl_projection: realized exits in the current lot group plus remaining units at their acknowledged stop prices. Shared chart displays SL Σ, including positive locked-profit scenarios, and previews aggregate changes during SL dragging.
 - Uses recovered executions and per-lot entry prices; requires stop coverage to match the current position. Missing/canceled stops or unsupported trailing-order price representations yield unknown rather than treating a trailing distance as a stop price. Does not enable an automatic trailing strategy.
 - 519 backend tests, 127 native simulator tests and shared-chart SL aggregate/drag tests passed; physical-device build succeeded. Amounts exclude fees and assume fills at the displayed stop price; actual trigger fills remain subject to Paper acceptance.
+
+### Independent pending Add price edits
+- Split the Add chart control into a draggable price label and a separate cancel button. Document-level pointer release tolerates capture loss; refresh, contract/account changes and fills invalidate stale gestures.
+- amend_add verifies the exact group, owned pending unit parent, original price/quantity, zero fills and paired protection. It edits only the LMT price or STP trigger while preserving type, quantity, children and order identity. Unknown outcomes reconcile exact broker state without replay.
+- 523 backend tests, 127 native simulator tests, desktop Add drag/fill-race tests, mobile Add/cancel tests and priced-order web tests passed. Physical build succeeded. Broker writes were mocked; live Paper amendments were not exercised against user orders.

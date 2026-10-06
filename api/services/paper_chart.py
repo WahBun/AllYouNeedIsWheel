@@ -444,6 +444,18 @@ class PaperChart:
                     adjustment['acknowledged']=list(set(adjustment.get('acknowledged',[]))|ids)
                     adjustment['outcome']='acknowledged';self.save_group(account,cid,group)
                     return resolved('reconciled')
+        if body.get('action')=='amend_add' and state['known'] and group.get('ref')==body.get('expected_ref'):
+            oid=body.get('order_id')
+            lot=next((l for l in group.get('lots',[])[1:] if l['entry']==oid),None)
+            row=next((r for r in state['orders'] if r['order_id']==oid),None)
+            if lot and row:
+                if row['filled'] or row['status']=='Filled': return resolved('filled')
+                if row['status'] in ('Cancelled','ApiCancelled'): return resolved('canceled')
+                matches=[t for t in authoritative if t.order.orderId==oid and t.order.account==account
+                         and t.contract.conId==cid and t.order.orderRef==group['ref']
+                         and t.orderStatus.status in ('Submitted','PreSubmitted') and t.order.orderType in ('LMT','STP')]
+                if len(matches)==1 and getattr(matches[0].order,'lmtPrice' if matches[0].order.orderType=='LMT' else 'auxPrice')==body.get('price'):
+                    return resolved('reconciled')
         if body.get('action') == 'cancel_add' and state['known'] and group.get('ref') == body.get('expected_ref'):
             lot = next((lot for lot in group.get('lots', [])[1:] if lot['entry'] == body.get('order_id')), None)
             rows = {r['order_id']: r for r in state['orders']}
@@ -516,7 +528,7 @@ class PaperChart:
             db.execute('INSERT INTO chart_paper_requests VALUES(?,?,?,NULL)',(request_id,account,encoded))
         try:
             self.perform(conn,account,cid,body,request_id)
-            confirmed_price_edit = body.get('action') in ('amend', 'be') or (body.get('action') == 'edit_entry'
+            confirmed_price_edit = body.get('action') in ('amend', 'be', 'amend_add') or (body.get('action') == 'edit_entry'
                 and 'price' in body and not any(k in body for k in ('quantity', 'tif', 'cancel')))
             if body.get('cancel') is not True and not confirmed_price_edit: conn.ib.sleep(.2)
             group = self.group(account, cid)
@@ -1066,6 +1078,32 @@ class PaperChart:
             tick=Decimal(str(increments[-1])); amount=Decimal(str(number))
             if abs(amount/tick-(amount/tick).to_integral_value())>Decimal('0.000001'): raise ValueError('Price does not match contract tick size')
             return number
+        if action=='amend_add':
+            if not group or not current['known'] or body.get('expected_ref')!=group.get('ref'):
+                raise ValueError('Add identity/status changed; refresh before amending')
+            oid=body.get('order_id')
+            lot=next((l for l in group.get('lots',[])[1:] if l['entry']==oid),None)
+            row=next((r for r in current['orders'] if r['order_id']==oid),None)
+            trades=getattr(self,'_resolved_trades',{})
+            parent=trades.get(oid)
+            if not lot or not row or not parent or parent.contract.conId!=cid or parent.order.account!=account or parent.order.orderRef!=group['ref']:
+                raise ValueError('Exact owned add order required')
+            if row['filled'] or row['status'] not in ('Submitted','PreSubmitted') or parent.order.orderType not in ('LMT','STP'):
+                raise ValueError('Add filled or is no longer amendable')
+            if body.get('expected_price')!=row['price'] or body.get('expected_quantity')!=row['quantity']:
+                raise ValueError('Add changed; refresh before moving')
+            target=price(body.get('price'))
+            take,stop=trades.get(lot.get('tp')),trades.get(lot.get('sl'))
+            if not take or not stop or any(t.isDone() or t.orderStatus.status not in ('Submitted','PreSubmitted') for t in (take,stop)):
+                raise ValueError('Add protection needs reconciliation')
+            if group['side']*(take.order.lmtPrice-target)<=0 or group['side']*(stop.order.auxPrice-target)>=0:
+                raise ValueError('Add price must lie between its TP and SL')
+            import copy
+            order=copy.copy(parent.order)
+            field='lmtPrice' if order.orderType=='LMT' else 'auxPrice'
+            setattr(order,field,target);order.transmit=True
+            self.modify_exit(conn,parent,order,field)
+            return
         if action=='set_protection':
             return self.set_protection(conn,account,cid,contract,current,group,body,request_id,price)
         if action=='submit':

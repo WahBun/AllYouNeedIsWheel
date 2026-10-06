@@ -3,7 +3,23 @@
  let darkAppearance=false;
  const pendingLines=new Map();
  const exitLines=new Map(),exitHandles=new Map();
- let exitGesture=null;
+ let exitGesture=null,addGesture=null;
+ function cancelAddDrag(){if(addGesture){const row=pendingLines.get(addGesture.id);if(row){row.price=paperConfig.orders?.find(r=>r.order_id===addGesture.oid)?.price??addGesture.start;row.button.textContent=row.button.textContent.replace(/@ .*/,'@ '+priceText(row.price));row.line.applyOptions({price:row.price});}addGesture=null;repositionCancels();}}
+ document.addEventListener('pointermove',e=>{
+  if(!addGesture||e.pointerId!==addGesture.pointer||!(e.buttons&1))return;
+  const price=snapPrice(series.coordinateToPrice(e.clientY));if(!(price>0))return;
+  const row=pendingLines.get(addGesture.id);if(!row)return;
+  addGesture.price=price;row.price=price;row.button.textContent=row.button.textContent.replace(/@ .*/,'@ '+priceText(price));row.line.applyOptions({price});positionCancelButton(row);e.preventDefault();
+ },true);
+ document.addEventListener('pointerup',e=>{
+  if(!addGesture||addGesture.pointer!==e.pointerId)return;
+  const g=addGesture,current=paperConfig.orders?.find(r=>r.order_id===g.oid);
+  const valid=g.cid===paperCID&&g.ref===paperConfig.order_ref&&g.epoch===paperConfig.web_account_epoch&&paperConfig.enabled&&!paperConfig.busy&&current&&!current.filled&&current.price===g.start&&current.quantity===g.quantity&&['Submitted','PreSubmitted'].includes(current.status);
+  cancelAddDrag();
+  if(valid&&g.price>0&&g.price!==g.start)paperAction({action:'amend_add',order_id:g.oid,price:g.price,expected_ref:g.ref,expected_price:g.start,expected_quantity:g.quantity});
+ },true);
+ document.addEventListener('pointercancel',e=>{if(addGesture?.pointer===e.pointerId)cancelAddDrag();},true);
+ window.addEventListener('blur',cancelAddDrag);
  function clearExitGesture(){exitGesture=null;trimPricePreview=null;updateLines();}
  function createExitHandle(id,row){
   const button=document.createElement('button');button.style.cssText='position:absolute;right:65px;height:28px;padding:0 7px;background:#f4f5f3;color:#825095;border:1px solid #b27bcd;border-radius:3px;z-index:6;touch-action:none;font:600 12px -apple-system;cursor:ns-resize';
@@ -64,7 +80,7 @@
   for(const [id,line] of exitLines)if(!live.has(id)){series.removePriceLine(line);exitLines.delete(id);exitHandles.get(id)?.button.remove();exitHandles.get(id)?.cancel.remove();exitHandles.delete(id);if(exitGesture?.id===id)clearExitGesture();}
  }
 
- function positionCancelButton(row){const y=series.priceToCoordinate(row.price);row.button.hidden=y===null||y<35||y>chart.paneSize().height-5;if(!row.button.hidden)row.button.style.top=y+'px';}
+ function positionCancelButton(row){const y=series.priceToCoordinate(row.price);row.button.hidden=y===null||y<35||y>chart.paneSize().height-5;if(!row.button.hidden)row.button.style.top=y+'px';if(row.cancel){row.cancel.hidden=row.button.hidden;row.cancel.style.top=y+'px';row.cancel.style.right=(chart.priceScale('right').width()+7)+'px';row.button.style.right=(chart.priceScale('right').width()+40)+'px';}}
  const repositionCancels=()=>{for(const row of pendingLines.values())positionCancelButton(row);};
  chart.timeScale().subscribeVisibleLogicalRangeChange(repositionCancels);
  document.addEventListener('pointermove',repositionCancels,{passive:true});
@@ -72,25 +88,32 @@
 
  const sharedConfigure=window.configure;
  window.configure=config=>{
-  darkAppearance=!!config.dark;sharedConfigure(config);syncExitLines(config);window.dispatchEvent(new Event('order-configured')); 
+  darkAppearance=!!config.dark;sharedConfigure(config);if(addGesture&&(addGesture.cid!==paperCID||addGesture.ref!==paperConfig.order_ref||addGesture.epoch!==paperConfig.web_account_epoch))cancelAddDrag();syncExitLines(config);window.dispatchEvent(new Event('order-configured'));
   const pending=(config.paper?.orders||[]).filter(o=>/^entry_/.test(o.role)&&!o.filled&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status)&&o.price>0);
   const live=new Set(pending.map(o=>`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${o.order_id}`));
-  for(const [id,row] of pendingLines)if(!live.has(id)){series.removePriceLine(row.line);row.button.remove();pendingLines.delete(id);}
+  for(const [id,row] of pendingLines)if(!live.has(id)){series.removePriceLine(row.line);row.button.remove();row.cancel?.remove();pendingLines.delete(id);if(addGesture?.id===id)addGesture=null;}
   for(const order of pending){
    const id=`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${order.order_id}`,options={price:order.price,color:'#638ddd',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:''};
-   if(pendingLines.has(id))pendingLines.get(id).line.applyOptions(options);
+   if(pendingLines.has(id)){if(addGesture?.id!==id)pendingLines.get(id).line.applyOptions(options);}
    else {
     const button=document.createElement('button');button.style.cssText='position:absolute;right:85px;min-height:32px;z-index:6;transform:translateY(-50%);background:#638ddd;color:white;border:1px solid #bdd0ff;border-radius:3px;padding:4px 7px;font:12px -apple-system;cursor:pointer';document.body.append(button);
     const cid=config.con_id,ref=config.paper.order_ref,epoch=config.paper.web_account_epoch,oid=order.order_id;
-    button.onclick=e=>{e.stopPropagation();if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||!paperConfig.enabled||paperConfig.busy)return;button.disabled=true;paperAction({action:'cancel_add',order_id:oid,expected_ref:ref});};
-    button.addEventListener('pointerdown',e=>e.stopPropagation());
-    pendingLines.set(id,{line:series.createPriceLine(options),button});
+    const cancel=document.createElement('button');cancel.textContent='×';cancel.style.cssText=button.style.cssText+';width:29px;padding:0';cancel.setAttribute('aria-label',`Cancel add order ${oid}`);document.body.append(cancel);
+    cancel.onclick=e=>{e.stopPropagation();if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||!paperConfig.enabled||paperConfig.busy)return;button.disabled=true;cancel.disabled=true;paperAction({action:'cancel_add',order_id:oid,expected_ref:ref});};
+    cancel.onpointerdown=e=>e.stopPropagation();
+    button.style.touchAction='none';button.style.cursor='ns-resize';
+    button.onpointerdown=e=>{const current=paperConfig.orders?.find(r=>r.order_id===oid);
+     if(e.button!==0||!paperConfig.enabled||paperConfig.busy||!current||current.filled||!['Submitted','PreSubmitted'].includes(current.status))return;
+     addGesture={id,cid,ref,epoch,oid,pointer:e.pointerId,start:current.price,quantity:current.quantity,price:current.price};
+     button.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();
+    };
+    pendingLines.set(id,{line:series.createPriceLine(options),button,cancel});
    }
-   const row=pendingLines.get(id);row.price=order.price;
-   row.button.textContent=`Add ${config.paper.side===1?'Buy':'Sell'} ${order.quantity} @ ${priceText(order.price)} · ${order.status==='PendingCancel'?'Canceling…':'×'}`;
-   row.button.setAttribute('aria-label',`Cancel add order ${order.order_id}`);
+   const row=pendingLines.get(id);if(addGesture?.id!==id)row.price=order.price;
+   row.button.textContent=`Add ${config.paper.side===1?'Buy':'Sell'} ${order.quantity} @ ${priceText(row.price)}${order.status==='PendingCancel'?' · Canceling…':''}`;
+   row.button.setAttribute('aria-label',`Drag add order ${order.order_id}`);row.button.title='Drag to amend this unfilled add order';
    row.button.disabled=!config.paper.enabled||config.paper.busy||!['Submitted','PreSubmitted'].includes(order.status);
-   positionCancelButton(row);
+   row.cancel.disabled=row.button.disabled;positionCancelButton(row);
   }
  };
  const originalPriceClick=priceAdd.onclick;

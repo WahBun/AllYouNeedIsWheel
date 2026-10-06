@@ -562,6 +562,50 @@ class ProtectedLotTests(unittest.TestCase):
         return self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='add',quantity=quantity,
             entry_type='STP',entry=10.25,side=1,expected_ref=group['ref'],expected_tp=11,expected_sl=9))
 
+    def test_amend_one_pending_add_keeps_siblings_and_protection(self):
+        for kind in ('STP','LMT'):
+            with self.subTest(kind=kind):
+                if not self.trades:self.open_four()
+                result=self.priced_add();self.assertTrue(result['success'],result)
+                parent=self.trades[-3]
+                parent.order.orderType=kind
+                if kind=='LMT':parent.order.lmtPrice=10.25
+                ref=self.service.group('DU_TEST',7)['ref']
+                children=[(t.order.orderId,t.order.parentId,t.order.lmtPrice,t.order.auxPrice) for t in self.trades if t.order.parentId]
+                request=dict(request_id=str(uuid4()),action='amend_add',order_id=parent.order.orderId,
+                    price=10.5,expected_ref=ref,expected_price=10.25,expected_quantity=1)
+                self.conn.ib.placeOrder.reset_mock()
+                result=self.service.execute(self.conn,7,request)
+                self.assertTrue(result['success'],result)
+                self.assertEqual(self.conn.ib.placeOrder.call_count,1)
+                sent=self.conn.ib.placeOrder.call_args.args[1]
+                self.assertEqual(sent.orderId,parent.order.orderId)
+                self.assertEqual(sent.orderType,kind)
+                self.assertEqual(getattr(sent,'auxPrice' if kind=='STP' else 'lmtPrice'),10.5)
+                self.assertEqual(children,[(t.order.orderId,t.order.parentId,t.order.lmtPrice,t.order.auxPrice) for t in self.trades if t.order.parentId])
+                self.service.execute(self.conn,7,request);self.assertEqual(self.conn.ib.placeOrder.call_count,1)
+                self.conn.ib.placeOrder.reset_mock()
+                self.assertFalse(self.service.execute(self.conn,7,dict(request,request_id=str(uuid4()),price=12))['success'])
+                parent.orderStatus.status='Filled';parent.orderStatus.filled=1
+                self.assertFalse(self.service.execute(self.conn,7,dict(request,request_id=str(uuid4()),expected_price=10.5))['success'])
+                self.conn.ib.placeOrder.assert_not_called()
+                # Restore mock pending status for the next independent add fixture.
+                parent.orderStatus.status='Submitted';parent.orderStatus.filled=0
+
+    def test_add_price_unknown_reconciles_without_replay(self):
+        self.open_four();self.priced_add();parent=self.trades[-3]
+        request=dict(request_id=str(uuid4()),action='amend_add',order_id=parent.order.orderId,
+            price=10.5,expected_ref=self.service.group('DU_TEST',7)['ref'],expected_price=10.25,expected_quantity=1)
+        original=self.service.modify_exit
+        def lost(*args):
+            original(*args);raise RuntimeError('lost response')
+        with patch.object(self.service,'modify_exit',side_effect=lost):
+            self.assertEqual(self.service.execute(self.conn,7,request)['status'],'unknown')
+        self.conn.ib.placeOrder.reset_mock()
+        self.service.execute(self.conn,7,request)
+        self.assertTrue(PaperChart(self.service.path).request_status(self.conn,7,request['request_id'])['confirmed'])
+        self.conn.ib.placeOrder.assert_not_called()
+
     def test_multiple_pending_adds_allow_more_than_ten(self):
         self.open_four()
         self.assertTrue(self.priced_add(2)['success'])
