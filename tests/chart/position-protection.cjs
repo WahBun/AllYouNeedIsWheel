@@ -68,6 +68,8 @@ for(const width of [1440,393])for(const language of ['en','zh'])for(const light 
  assert.equal(await page.locator('#tp-apply').count(),0);
  state={...state,scalable:true,protection:{status:'covered'},trim_available:1,pending_exits:[{action:'trim',order_id:12,quantity:1,price:11,status:'Submitted'}]};
  await page.waitForFunction(()=>!document.getElementById('exit-plan').hidden);
+ state={...state,orders:[...state.orders,{role:'entry_3',status:'Submitted',quantity:1,filled:0,order_id:88,price:11}]};
+ await page.waitForFunction(()=>document.getElementById('exit-plan').textContent.includes('pending')||document.getElementById('exit-plan').textContent.includes('待成交'));
  assert.equal(await page.locator('#preview').isVisible(),false);
  assert.equal(await page.locator('#entry-settings').isVisible(),false);
  assert.equal(await page.locator('#add').isDisabled(),false);

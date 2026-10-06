@@ -70,7 +70,9 @@ struct ChartOrderProgressView: View {
     private func number(_ data: [String: Any], _ key: String) -> String { (data[key] as? Double)?.formatted() ?? "—" }
     var body: some View {
         VStack(spacing: 3) {
-            if let progress = state["adjustment"] as? [String: Any] {
+            if let progress = state["close_progress"] as? [String: Any] {
+                Text(verbatim: "Close · \(label("Filled")) \(number(progress, "filled"))/\(number(progress, "requested")) · \(label("Position")) \(number(progress, "remaining")) · \(progress["status"] as? String ?? "unknown")")
+            } else if let progress = state["adjustment"] as? [String: Any] {
                 Text(verbatim: "\(label("Filled")) \(number(progress, "filled"))/\(number(progress, "requested")) · \(label("Awaiting fill")) \(number(progress, "pending")) · \(label("Remaining")) \(number(progress, "remaining"))")
             }
             if let protection = state["protection"] as? [String: Any], state["active"] as? Bool == true {
@@ -1150,7 +1152,7 @@ struct StockChartView: View {
                 paperAction(request)
                 protectionCancelRef = nil
             }
-        } message: { Text("The selected exits will be canceled. Your position remains open. Check remaining orders after cancellation.") }
+        } message: { Text(protectionCancelRole == "tp" ? "Only ordinary TP exits will be canceled. Trim / Close plans and SL remain." : "The selected exits will be canceled. Your position remains open. Check remaining orders after cancellation.") }
         .sheet(isPresented: $showAdjustment) {
             NavigationStack {
                 Form {

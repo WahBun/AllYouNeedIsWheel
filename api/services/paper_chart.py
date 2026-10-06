@@ -318,6 +318,7 @@ class PaperChart:
                 and r['status'] in ('Submitted','PreSubmitted','PendingCancel') and r.get('quantity',0)>r['filled']]
             for pending in result['pending_exits']:
                 lot=next((lot for lot in group.get('lots',[]) if lot.get('tp')==pending['order_id']),{})
+                pending['action']=lot.get('exit_action',adjustment['action'])
                 ordinary=[r['price'] for r in rows if r['role'].split('_')[0]=='tp' and r['status'] in ('Submitted','PreSubmitted')
                           and not any(l.get('tp')==r['order_id'] and l.get('closing') for l in group.get('lots',[]))]
                 pending['restore_price']=ordinary[-1] if ordinary else group.get('ordinary_tp') or lot.get('original_tp')
@@ -327,6 +328,19 @@ class PaperChart:
                 else 'rejected' if adjustment.get('outcome') == 'rejected' or any(r['status']=='Inactive' for r in selected)
                 else 'canceled' if any(r['status'] in ('Cancelled','ApiCancelled') for r in selected)
                 else 'working')
+        if adjustment and adjustment.get('action')=='close':
+            closing_ids=set(adjustment.get('latest_orders',[]))
+            closing_pairs=[(oid,sl) for oid,sl in zip(adjustment['orders'],adjustment.get('stops',[])) if oid in closing_ids]
+            closed=sum(min(1,by_id.get(oid,{}).get('filled',0)+by_id.get(sl,{}).get('filled',0)) for oid,sl in closing_pairs)
+            pending_entries=any(r['role'].split('_')[0]=='entry' and r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive') for r in rows)
+            result['close_progress']=dict(requested=len(closing_pairs),filled=closed,remaining=abs(result['position']),
+                status='completed' if result['known'] and not result['active'] and not pending_entries
+                else 'unknown' if not result['known'] else 'working' if result['adjustment']['status'] in ('working','filled') else result['adjustment']['status'])
+        close_row=next((r for r in rows if r['role']=='close'),None)
+        if close_row:
+            result['close_progress']=dict(requested=close_row['quantity'],filled=close_row['filled'],remaining=abs(result['position']),
+                status='completed' if result['known'] and not result['position'] and not result['active']
+                else 'unknown' if not result['known'] else close_row['status'])
         if group.get('lots'):
             reserved=sum(r['quantity'] for r in result.get('pending_exits',[]))
             result['trim_available']=max(0,abs(result['position'])-reserved)
@@ -419,7 +433,7 @@ class PaperChart:
                     (json.dumps(dict(success=status != 'rejected', status=status)), request_id, account))
             return dict(confirmed=True, status=status)
         if body.get('action') == 'cancel_protection' and state['known'] and group.get('ref') == body.get('expected_ref'):
-            rows = [r for r in state['orders'] if r['role'].split('_')[0] in ((body['role'],) if body.get('role') in ('tp','sl') else ('tp', 'sl'))]
+            rows = self.protection_cancel_rows(state,group,body.get('role'))
             if rows and all(r['status'] in ('Filled', 'Cancelled', 'ApiCancelled', 'Inactive') for r in rows):
                 group['requested_protection']=[r for r in group.get('requested_protection',['tp','sl']) if body.get('role') and r!=body['role']]
                 self.save_group(account,cid,group)
@@ -606,6 +620,8 @@ class PaperChart:
         else:
             target=price(limit_target)
         old=group.get('adjustment',{})
+        for previous in group['lots']:
+            if previous.get('closing'): previous.setdefault('exit_action',old.get('action','trim'))
         pairs=dict(zip(old.get('orders',[]),old.get('stops',[])))
         pairs.update({lot['tp']:lot['sl'] for lot in lots})
         group['adjustment'] = dict(action=action, request_id=request_id, orders=list(pairs), stops=list(pairs.values()),
@@ -618,7 +634,7 @@ class PaperChart:
             take=trades[lot['tp']];stop=trades[lot['sl']]
             if take.isDone() or stop.isDone(): raise ValueError('Exit changed before adjustment')
             lot.setdefault('original_tp',take.order.lmtPrice)
-            lot['closing']=True;self.save_group(account,cid,group)
+            lot['closing']=True;lot['exit_action']=action;self.save_group(account,cid,group)
             order=copy.copy(take.order);order.lmtPrice=target;order.transmit=True
             self.modify_exit(conn,take,order,'lmtPrice')
             group['adjustment']['acknowledged'].append(lot['tp'])
@@ -627,7 +643,7 @@ class PaperChart:
     def finish_trim_restore(self, account, cid, group, oid):
         for lot in group.get('lots',[]):
             if lot.get('tp')==oid:
-                lot.pop('closing',None);lot.pop('original_tp',None)
+                lot.pop('closing',None);lot.pop('original_tp',None);lot.pop('exit_action',None)
         adjustment=group.get('adjustment',{})
         pairs=[(o,stop) for o,stop in zip(adjustment.get('orders',[]),adjustment.get('stops',[])) if o!=oid]
         if pairs:
@@ -855,6 +871,13 @@ class PaperChart:
             conn.ib.sleep(.05)
         raise RuntimeError('Add cancellation is awaiting broker confirmation')
 
+    @staticmethod
+    def protection_cancel_rows(state, group, role):
+        planned={lot.get('tp') for lot in group.get('lots',[]) if lot.get('closing')}
+        return [r for r in state['orders']
+                if r['role'].split('_')[0] in ((role,) if role else ('tp','sl'))
+                and not (role=='tp' and r['order_id'] in planned)]
+
     def cancel_protection(self, conn, account, cid, body):
         conn._bounded_order_read(conn.ib.reqOpenOrders, timeout_seconds=3)
         current = self.state(conn, cid)
@@ -868,7 +891,7 @@ class PaperChart:
         terminal = ('Filled', 'Cancelled', 'ApiCancelled', 'Inactive')
         if any(r['role'].split('_')[0] == 'entry' and r['status'] not in terminal for r in current['orders']):
             raise ValueError('Finish or cancel pending entries before removing protection')
-        rows = [r for r in current['orders'] if r['role'].split('_')[0] in ((role,) if role else ('tp', 'sl'))]
+        rows = self.protection_cancel_rows(current,group,role)
         if not rows: raise ValueError('No owned protection orders')
         trades = getattr(self, '_resolved_trades', {})
         targets = []
@@ -885,8 +908,7 @@ class PaperChart:
         while any(not t.isDone() for t in targets) and time.monotonic() < deadline:
             conn.ib.sleep(.05)
         fresh = self.state(conn, cid)
-        if not fresh['known'] or any(r['status'] not in terminal for r in fresh['orders']
-                                     if r['role'].split('_')[0] in ((role,) if role else ('tp', 'sl'))):
+        if not fresh['known'] or any(r['status'] not in terminal for r in self.protection_cancel_rows(fresh,group,role)):
             raise RuntimeError('Protection cancellation awaiting broker confirmation; do not resubmit')
         group=self.group(account,cid)
         group['requested_protection']=[r for r in group.get('requested_protection',['tp','sl']) if role and r!=role]
@@ -1172,7 +1194,7 @@ class PaperChart:
                 if (parent.orderStatus.status in ('Cancelled','ApiCancelled') and not parent.orderStatus.filled
                         and all(t.orderStatus.status in ('Cancelled','ApiCancelled','Inactive') and not t.orderStatus.filled for t in (take,stop))):
                     continue
-                if (action == 'add' and parent.orderStatus.status in ('Submitted','PreSubmitted') and not parent.orderStatus.filled
+                if (parent.orderStatus.status in ('Submitted','PreSubmitted') and not parent.orderStatus.filled
                         and all(t.orderStatus.status in ('Submitted','PreSubmitted') and not t.orderStatus.filled for t in (take,stop))):
                     continue
                 if parent.orderStatus.status != 'Filled': raise ValueError('Wait for all entry orders to finish')

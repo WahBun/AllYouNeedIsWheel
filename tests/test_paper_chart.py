@@ -310,6 +310,58 @@ class ProtectedLotTests(unittest.TestCase):
             if not t.order.parentId:t.orderStatus.status='Filled';t.orderStatus.filled=1;t.orderStatus.avgFillPrice=10
         self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=4)]
         self.conn.ib.placeOrder.reset_mock();self.conn.ib.cancelOrder.reset_mock()
+    def test_pending_add_does_not_reserve_filled_units_for_trim(self):
+        self.open_four();self.priced_add(2)
+        parents=[t for t in self.trades if t.orderStatus.status=='Submitted' and not t.order.parentId]
+        self.conn.ib.placeOrder.reset_mock()
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=2))
+        self.assertTrue(result['success'],result)
+        self.assertEqual(result['state']['trim_available'],2)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,2)
+        self.assertTrue(all(t.orderStatus.status=='Submitted' and not t.orderStatus.filled for t in parents))
+        self.conn.ib.cancelOrder.assert_not_called()
+        parents[0].orderStatus.status='PendingCancel'
+        self.assertFalse(self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))['success'])
+
+    def test_ordinary_tp_cancel_keeps_trim_and_reconciles_without_replay(self):
+        self.open_four()
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
+        trim_id=result['state']['pending_exits'][0]['order_id']
+        request=dict(request_id=str(uuid4()),action='cancel_protection',role='tp',
+            expected_ref=self.service.group('DU_TEST',7)['ref'],confirm_remove_protection=True)
+        self.conn.ib.cancelOrder.side_effect=None
+        with patch('api.services.paper_chart.time.monotonic',side_effect=[0,5]):
+            result=self.service.execute(self.conn,7,request)
+        self.assertEqual(result['status'],'unknown',result)
+        ids={c.args[0].orderId for c in self.conn.ib.cancelOrder.call_args_list}
+        self.assertEqual(len(ids),3);self.assertNotIn(trim_id,ids)
+        for t in self.trades:
+            if t.order.orderId in ids:t.orderStatus.status='Cancelled'
+        restarted=PaperChart(self.service.path)
+        self.assertTrue(restarted.request_status(self.conn,7,request['request_id'])['confirmed'])
+        self.assertEqual(self.conn.ib.cancelOrder.call_count,3)
+        self.assertEqual(restarted.state(self.conn,7)['pending_exits'][0]['order_id'],trim_id)
+        self.assertTrue(all(t.orderStatus.status=='Submitted' for t in self.trades if t.order.orderType=='STP'))
+
+    def test_close_progress_and_per_plan_identity(self):
+        self.open_four()
+        self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='close'))
+        self.assertTrue(result['success'],result)
+        self.assertTrue(all(r['action']=='close' for r in result['state']['pending_exits']))
+        self.assertEqual(result['state']['close_progress'],dict(requested=4,filled=0,remaining=4,status='working'))
+        group=self.service.group('DU_TEST',7)
+        for lot in group['lots']:
+            take=next(t for t in self.trades if t.order.orderId==lot['tp'])
+            take.orderStatus.status='Filled';take.orderStatus.filled=1
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=1)]
+        self.assertNotEqual(self.service.state(self.conn,7)['close_progress']['status'],'completed')
+        self.conn.ib.positions.return_value=[]
+        self.assertNotEqual(self.service.state(self.conn,7)['close_progress']['status'],'completed')
+        for t in self.trades:
+            if t.order.orderType=='STP':t.orderStatus.status='Cancelled'
+        self.assertEqual(self.service.state(self.conn,7)['close_progress']['status'],'completed')
+
     def test_futures_trim_uses_eth_quote_but_still_rejects_stale_data(self):
         self.open_four()
         with patch('api.services.paper_chart.stock_chart.packet') as packet:
