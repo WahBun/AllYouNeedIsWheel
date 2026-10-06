@@ -310,6 +310,82 @@ class ProtectedLotTests(unittest.TestCase):
             if not t.order.parentId:t.orderStatus.status='Filled';t.orderStatus.filled=1;t.orderStatus.avgFillPrice=10
         self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=4)]
         self.conn.ib.placeOrder.reset_mock();self.conn.ib.cancelOrder.reset_mock()
+    def resize_request(self, state, quantity):
+        return dict(request_id=str(uuid4()),action='resize_trim',quantity=quantity,
+            expected_ref=state['order_ref'],expected_position=state['position'],
+            expected_orders=[{k:r[k] for k in ('order_id','price','quantity')} for r in state['pending_exits']])
+
+    def test_trim_quantity_grow_shrink_and_zero_keep_unit_stops(self):
+        self.open_four()
+        state=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))['state']
+        self.conn.ib.placeOrder.reset_mock()
+        result=self.service.execute(self.conn,7,self.resize_request(state,3))
+        self.assertTrue(result['success'],result)
+        state=result['state'];self.assertEqual(len(state['pending_exits']),3)
+        self.assertEqual(state['trim_available'],1)
+        self.assertEqual(len({r['plan_id'] for r in state['pending_exits']}),1)
+        self.assertTrue(all(c.args[1].totalQuantity==1 and c.args[1].orderType=='LMT' for c in self.conn.ib.placeOrder.call_args_list))
+        result=self.service.execute(self.conn,7,self.resize_request(state,1))
+        self.assertTrue(result['success'],result);self.assertEqual(len(result['state']['pending_exits']),1)
+        result=self.service.execute(self.conn,7,self.resize_request(result['state'],0))
+        self.assertTrue(result['success'],result);self.assertFalse(result['state'].get('pending_exits'))
+        self.assertEqual(result['state']['protection']['status'],'covered')
+        self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_trim_quantity_rejects_stale_position_and_overallocation(self):
+        self.open_four()
+        state=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))['state']
+        self.conn.ib.placeOrder.reset_mock()
+        for extra in [dict(quantity=5),dict(expected_position=3),dict(quantity=True),dict(expected_orders=[])]:
+            result=self.service.execute(self.conn,7,{**self.resize_request(state,2),**extra})
+            self.assertFalse(result['success'],result)
+        self.conn.ib.placeOrder.assert_not_called()
+
+    def test_trim_quantity_does_not_touch_another_plan_or_price(self):
+        self.open_four()
+        first=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))['state']
+        original=first['pending_exits'][0]
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))
+        state=result['state'];self.conn.ib.placeOrder.reset_mock()
+        request=self.resize_request(state,2)
+        # Same price is not enough to merge independent plans.
+        self.assertFalse(self.service.execute(self.conn,7,request)['success'])
+        self.conn.ib.placeOrder.assert_not_called()
+        request=self.resize_request({**state,'pending_exits':[original]},2)
+        result=self.service.execute(self.conn,7,request)
+        self.assertTrue(result['success'],result)
+        self.assertEqual(len(result['state']['pending_exits']),3)
+        self.assertEqual(len({r['plan_id'] for r in result['state']['pending_exits']}),2)
+
+    def test_trim_quantity_short_position_keeps_buy_stops(self):
+        self.submit(quantity=4,side=-1,entry=10,tp=9,sl=11)
+        for t in self.trades:
+            if not t.order.parentId:t.orderStatus.status='Filled';t.orderStatus.filled=1;t.orderStatus.avgFillPrice=10
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=-4)]
+        state=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))['state']
+        self.conn.ib.placeOrder.reset_mock()
+        result=self.service.execute(self.conn,7,self.resize_request(state,2))
+        self.assertTrue(result['success'],result)
+        self.assertTrue(all(c.args[1].action=='BUY' and c.args[1].orderType=='LMT' for c in self.conn.ib.placeOrder.call_args_list))
+        self.assertEqual(result['state']['protection']['sl'],4)
+        self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_trim_quantity_lost_reply_reconciles_without_replay(self):
+        self.open_four()
+        state=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1))['state']
+        request=self.resize_request(state,2);original=self.service.modify_exit
+        def lost(*args):original(*args);raise RuntimeError('lost reply')
+        with patch.object(self.service,'modify_exit',side_effect=lost):
+            result=self.service.execute(self.conn,7,request)
+        self.assertEqual(result['status'],'unknown')
+        self.conn.ib.placeOrder.reset_mock()
+        self.service.execute(self.conn,7,request);self.conn.ib.placeOrder.assert_not_called()
+        restarted=PaperChart(self.service.path)
+        self.assertTrue(restarted.request_status(self.conn,7,request['request_id'])['confirmed'])
+        self.assertEqual(len(restarted.state(self.conn,7)['pending_exits']),2)
+        self.assertNotIn('pending_resize',restarted.group('DU_TEST',7))
+        self.conn.ib.placeOrder.assert_not_called()
+
     def test_pending_add_does_not_reserve_filled_units_for_trim(self):
         self.open_four();self.priced_add(2)
         parents=[t for t in self.trades if t.orderStatus.status=='Submitted' and not t.order.parentId]

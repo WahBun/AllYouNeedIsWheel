@@ -1209,6 +1209,7 @@ struct StockChartView: View {
                         Text("Futures").tag("FUT")
                     }.pickerStyle(.segmented)
                     Section("Optional TP / SL · GTC") {
+                        Text(verbatim: locale.language.languageCode?.identifier == "zh" ? "新订单默认设置，不会修改当前持仓。当前保护请用管理 TP / SL。" : "Defaults for new orders. Existing positions are unchanged; use Manage TP / SL for current protection.").font(.caption).foregroundStyle(.secondary)
                         Toggle("Enable TP", isOn: protectionToggle(templateType, "tp"))
                         if protectionToggle(templateType, "tp").wrappedValue {
                             Picker("TP input", selection: protectionMode(templateType)) {

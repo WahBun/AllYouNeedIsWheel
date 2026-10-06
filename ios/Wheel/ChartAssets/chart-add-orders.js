@@ -7,7 +7,7 @@
  function cancelAddDrag(){if(addGesture){const row=pendingLines.get(addGesture.id);if(row){row.price=paperConfig.orders?.find(r=>r.order_id===addGesture.oid)?.price??addGesture.start;row.button.textContent=row.button.textContent.replace(/@ .*/,'@ '+priceText(row.price));row.line.applyOptions({price:row.price});}addGesture=null;repositionCancels();}}
  document.addEventListener('pointermove',e=>{
   if(!addGesture||e.pointerId!==addGesture.pointer||!(e.buttons&1))return;
-  const price=snapPrice(series.coordinateToPrice(e.clientY));if(!(price>0))return;
+  const price=snapPrice(series.coordinateToPrice(e.clientY-(addGesture.offset||0)));if(!(price>0))return;
   const row=pendingLines.get(addGesture.id);if(!row)return;
   addGesture.price=price;row.price=price;row.button.textContent=row.button.textContent.replace(/@ .*/,'@ '+priceText(price));row.line.applyOptions({price});positionCancelButton(row);e.preventDefault();
  },true);
@@ -25,13 +25,13 @@
   const button=document.createElement('button');button.style.cssText='position:absolute;right:65px;height:28px;padding:0 7px;background:#f4f5f3;color:#825095;border:1px solid #b27bcd;border-radius:3px;z-index:6;touch-action:none;font:600 12px -apple-system;cursor:ns-resize';
   button.setAttribute('aria-label','Drag trim limit price');button.title='Drag to amend this trim order';document.body.append(button);
   button.onpointerdown=e=>{if(e.button!==0||paperConfig.busy||!paperConfig.enabled)return;const current=paperConfig.pending_exits?.find(r=>r.order_id===row.order_id);if(!current||!['Submitted','PreSubmitted'].includes(current.status))return;
-   exitGesture={id,row:{...current},pointer:e.pointerId,cid:paperCID,ref:paperConfig.order_ref,epoch:paperConfig.web_account_epoch};button.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();};
+   exitGesture={id,row:{...current},offset:e.clientY-series.priceToCoordinate(current.price),pointer:e.pointerId,cid:paperCID,ref:paperConfig.order_ref,epoch:paperConfig.web_account_epoch};button.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();};
   button.onlostpointercapture=()=>{}; // A capture loss is not an actual release.
   return button;
  }
  function moveExit(e){
   if(!exitGesture||exitGesture.pointer!==e.pointerId||!(e.buttons&1))return;
-  const price=snapPrice(series.coordinateToPrice(e.clientY));if(!(price>0))return;
+  const price=snapPrice(series.coordinateToPrice(e.clientY-(exitGesture.offset||0)));if(!(price>0))return;
   trimPricePreview={order_id:exitGesture.row.order_id,price};exitLines.get(exitGesture.id)?.applyOptions({price});updateLines();e.preventDefault();
  }
  function finishExit(e){
@@ -66,7 +66,46 @@
   };
   return button;
  }
- function positionExitHandles(){for(const [id,handle] of exitHandles){const row=handle.row,price=exitGesture?.id===id&&trimPricePreview?trimPricePreview.price:row.price,y=series.priceToCoordinate(price);handle.button.hidden=y===null||y<20||y>chart.paneSize().height-20;handle.button.style.top=(y-14)+'px';handle.button.style.right=(chart.priceScale('right').width()+40)+'px';handle.cancel.hidden=handle.button.hidden;handle.cancel.style.top=(y-14)+'px';handle.cancel.style.right=(chart.priceScale('right').width()+7)+'px';}requestAnimationFrame(positionExitHandles);}positionExitHandles();
+ function positionExitHandles(){
+  const height=chart.paneSize().height,right=chart.priceScale('right').width(),items=[];
+  for(const [id,h] of exitHandles){const price=exitGesture?.id===id&&trimPricePreview?trimPricePreview.price:h.row.price;items.push({h,y:series.priceToCoordinate(price),exit:true});}
+  for(const h of pendingLines.values())items.push({h,y:series.priceToCoordinate(h.price),exit:false});
+  const visible=items.filter(x=>x.y!==null&&x.y>=20&&x.y<=height-20).sort((a,b)=>a.y-b.y);
+  const occupied=['entry','tp','sl'].map(id=>document.getElementById(id)).filter(el=>el&&!el.hidden).map(el=>{const r=el.getBoundingClientRect();return r.top+r.height/2;});
+  for(const item of items){const hidden=!visible.includes(item);for(const b of [item.h.button,item.h.cancel,item.h.edit])if(b)b.hidden=hidden;}
+  for(let i=0;i<visible.length;i++){
+   const item=visible[i],h=item.h;
+   let y=item.y;
+   for(let step=0;step<Math.ceil(height/34);step++){const candidates=step?[item.y+step*34,item.y-step*34]:[item.y];const free=candidates.find(v=>v>=20&&v<=height-20&&occupied.every(other=>Math.abs(other-v)>=32));if(free!==undefined){y=free;break;}}
+   occupied.push(y);
+   h.button.style.transform='none';h.button.style.top=(y-14)+'px';h.button.style.right=(right+(item.exit?74:40))+'px';
+   h.cancel.style.transform='none';h.cancel.style.top=(y-14)+'px';h.cancel.style.right=(right+7)+'px';
+   if(h.edit){h.edit.style.top=(y-14)+'px';h.edit.style.right=(right+40)+'px';}
+  }
+  requestAnimationFrame(positionExitHandles);
+ }positionExitHandles();
+ function createPlanEditor(row){
+  const button=document.createElement('button');button.textContent='⋯';button.setAttribute('aria-label','Edit trim quantity');
+  button.style.cssText='position:absolute;height:28px;width:29px;padding:0;background:#f4f5f3;color:#825095;border:1px solid #b27bcd;border-radius:3px;z-index:7;touch-action:manipulation';
+  button.onpointerdown=e=>e.stopPropagation();button.onclick=()=>{
+   const current=paperConfig.pending_exits?.find(r=>r.order_id===row.order_id);
+   if(!current||current.action!=='trim'||paperConfig.busy||!paperConfig.enabled)return;
+   const rows=paperConfig.pending_exits.filter(r=>(r.plan_id||r.order_id)===(current.plan_id||current.order_id)&&r.price===current.price);
+   const expected=rows.map(({order_id,price,quantity})=>({order_id,price,quantity}));
+   const total=rows.reduce((n,r)=>n+r.quantity,0),cid=paperCID,ref=paperConfig.order_ref,epoch=paperConfig.web_account_epoch,position=paperConfig.position;
+   const zh=parent.document.documentElement.lang.startsWith('zh');addDialog.replaceChildren();addDialog.dataset.light=String(!darkAppearance);
+   const title=document.createElement('strong');title.textContent=(zh?'修改 Trim 数量 @ ':'Edit Trim quantity @ ')+priceText(current.price);
+   const note=document.createElement('p');note.textContent=zh?'增加：分配可用持仓。减少：退回普通 TP，保留 SL。0 = 撤销本计划。':'Increase: allocate unreserved units. Decrease: return units to ordinary TP, keeping SL. 0 cancels this plan.';
+   const input=document.createElement('input');input.type='number';input.min='0';input.max=String(total+(paperConfig.trim_available||0));input.step='1';input.value=String(total);input.setAttribute('aria-label','Trim plan quantity');
+   const cancel=document.createElement('button');cancel.textContent=zh?'返回':'Back';cancel.onclick=()=>addDialog.close();
+   const save=document.createElement('button');save.textContent=zh?'确认数量':'Confirm quantity';save.onclick=()=>{
+    const quantity=Number(input.value);if(!input.value||!Number.isSafeInteger(quantity)||quantity<0||quantity>Number(input.max))return input.reportValidity();
+    if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||position!==paperConfig.position||paperConfig.busy||!paperConfig.enabled)return validation('Position changed; reopen quantity editor.');
+    addDialog.close();if(quantity!==total)paperAction({action:'resize_trim',quantity,expected_orders:expected,expected_ref:ref,expected_position:position});
+   };
+   const footer=document.createElement('footer');footer.append(cancel,save);addDialog.append(title,note,input,footer);addDialog.showModal();
+  };document.body.append(button);return button;
+ }
  function syncExitLines(config){
   if(exitGesture&&(exitGesture.cid!==config.con_id||exitGesture.ref!==config.paper?.order_ref||exitGesture.epoch!==config.paper?.web_account_epoch))clearExitGesture();
   const live=new Set();
@@ -75,9 +114,9 @@
    const id=`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${row.order_id}`;live.add(id);
    const options={price:row.price,color:'#b27bcd',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:''};
    if(exitLines.has(id)){if(exitGesture?.id!==id)exitLines.get(id).applyOptions(options);}else exitLines.set(id,series.createPriceLine(options));
-   if(!exitHandles.has(id))exitHandles.set(id,{button:createExitHandle(id,row),cancel:createExitCancel(row),row});const handle=exitHandles.get(id);handle.row=row;const label=row.action==='close'?'Close':'Trim';handle.button.textContent=`${label} ×${row.quantity}`;handle.button.setAttribute('aria-label',`Drag ${label.toLowerCase()} limit price`);handle.button.title=`Drag to amend this ${label.toLowerCase()} order`;handle.cancel.setAttribute('aria-label',`Cancel ${label.toLowerCase()} plan`);handle.cancel.disabled=config.paper.busy||!config.paper.enabled||!row.restore_price||row.status==='PendingCancel';handle.button.disabled=config.paper.busy||!config.paper.enabled||row.status==='PendingCancel';
+   if(!exitHandles.has(id))exitHandles.set(id,{button:createExitHandle(id,row),cancel:createExitCancel(row),edit:createPlanEditor(row),row});const handle=exitHandles.get(id);handle.row=row;const label=row.action==='close'?'Close':'Trim';handle.button.textContent=`${label} ×${row.quantity} @ ${priceText(row.price)}`;handle.edit.disabled=row.action!=='trim'||config.paper.busy||!config.paper.enabled||row.status!=='Submitted'&&row.status!=='PreSubmitted';handle.button.setAttribute('aria-label',`Drag ${label.toLowerCase()} limit price`);handle.button.title=`Drag to amend this ${label.toLowerCase()} order`;handle.cancel.setAttribute('aria-label',`Cancel ${label.toLowerCase()} plan`);handle.cancel.disabled=config.paper.busy||!config.paper.enabled||!row.restore_price||row.status==='PendingCancel';handle.button.disabled=config.paper.busy||!config.paper.enabled||row.status==='PendingCancel';
   }
-  for(const [id,line] of exitLines)if(!live.has(id)){series.removePriceLine(line);exitLines.delete(id);exitHandles.get(id)?.button.remove();exitHandles.get(id)?.cancel.remove();exitHandles.delete(id);if(exitGesture?.id===id)clearExitGesture();}
+  for(const [id,line] of exitLines)if(!live.has(id)){series.removePriceLine(line);exitLines.delete(id);exitHandles.get(id)?.button.remove();exitHandles.get(id)?.cancel.remove();exitHandles.get(id)?.edit.remove();exitHandles.delete(id);if(exitGesture?.id===id)clearExitGesture();}
  }
 
  function positionCancelButton(row){const y=series.priceToCoordinate(row.price);row.button.hidden=y===null||y<35||y>chart.paneSize().height-5;if(!row.button.hidden)row.button.style.top=y+'px';if(row.cancel){row.cancel.hidden=row.button.hidden;row.cancel.style.top=y+'px';row.cancel.style.right=(chart.priceScale('right').width()+7)+'px';row.button.style.right=(chart.priceScale('right').width()+40)+'px';}}
@@ -104,7 +143,7 @@
     button.style.touchAction='none';button.style.cursor='ns-resize';
     button.onpointerdown=e=>{const current=paperConfig.orders?.find(r=>r.order_id===oid);
      if(e.button!==0||!paperConfig.enabled||paperConfig.busy||!current||current.filled||!['Submitted','PreSubmitted'].includes(current.status))return;
-     addGesture={id,cid,ref,epoch,oid,pointer:e.pointerId,start:current.price,quantity:current.quantity,price:current.price};
+     addGesture={id,cid,ref,epoch,oid,offset:e.clientY-series.priceToCoordinate(current.price),pointer:e.pointerId,start:current.price,quantity:current.quantity,price:current.price};
      button.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();
     };
     pendingLines.set(id,{line:series.createPriceLine(options),button,cancel});
@@ -115,6 +154,23 @@
    row.button.disabled=!config.paper.enabled||config.paper.busy||!['Submitted','PreSubmitted'].includes(order.status);
    row.cancel.disabled=row.button.disabled;positionCancelButton(row);
   }
+ };
+ window.showExitBreakdown=role=>{
+  const projection=paperConfig[role+'_projection'];if(!projection)return;
+  const zh=parent.document.documentElement.lang.startsWith('zh');addDialog.replaceChildren();addDialog.dataset.light=String(!darkAppearance);
+  const title=document.createElement('strong');title.textContent=role.toUpperCase()+' Σ';addDialog.append(title);
+  const money=n=>(n>=0?'+':'−')+'$'+Math.abs(n).toFixed(2);
+  const line=(name,value)=>{const p=document.createElement('p');p.textContent=name+' · '+value;addDialog.append(p);};
+  if(!projection.known)line(zh?'金额待核对':'Amount awaiting reconciliation','—');
+  else{
+   line(zh?'已实现退出盈亏':'Realized exit P&L',money(projection.realized||0));let pending=0,ordinary=0;
+   for(const r of projection.targets||[]){const value=(r.price-r.entry)*r.side*r.quantity*r.multiplier;if(role==='tp'&&r.trim)pending+=value;else ordinary+=value;}
+   if(role==='tp')line(zh?'待成交 Trim / Close 预估':'Pending Trim / Close estimate',money(pending));
+   line(role==='tp'?(zh?'剩余普通 TP 预估':'Remaining ordinary TP estimate'):(zh?'剩余 SL 预估':'Remaining SL estimate'),money(ordinary));
+   line(zh?'预计最终合计':'Projected final total',money((projection.realized||0)+pending+ordinary));
+  }
+  line(zh?'计算口径':'Basis',zh?'本订单组；按目标价成交估算，未扣费用，未成交金额不是已实现利润。':'This order group; target fills assumed, before fees. Pending amounts are not realized profit.');
+  const close=document.createElement('button');close.textContent=zh?'关闭':'Close';close.onclick=()=>addDialog.close();addDialog.append(close);addDialog.showModal();
  };
  const originalPriceClick=priceAdd.onclick;
  const addDialog=document.createElement('dialog');

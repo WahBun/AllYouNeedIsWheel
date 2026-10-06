@@ -319,6 +319,7 @@ class PaperChart:
             for pending in result['pending_exits']:
                 lot=next((lot for lot in group.get('lots',[]) if lot.get('tp')==pending['order_id']),{})
                 pending['action']=lot.get('exit_action',adjustment['action'])
+                pending['plan_id']=lot.get('plan_id',str(pending['order_id']))
                 ordinary=[r['price'] for r in rows if r['role'].split('_')[0]=='tp' and r['status'] in ('Submitted','PreSubmitted')
                           and not any(l.get('tp')==r['order_id'] and l.get('closing') for l in group.get('lots',[]))]
                 pending['restore_price']=ordinary[-1] if ordinary else group.get('ordinary_tp') or lot.get('original_tp')
@@ -432,6 +433,18 @@ class PaperChart:
                 db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
                     (json.dumps(dict(success=status != 'rejected', status=status)), request_id, account))
             return dict(confirmed=True, status=status)
+        if body.get('action')=='resize_trim' and state['known'] and group.get('ref')==body.get('expected_ref'):
+            operation=group.get('pending_resize',{})
+            if operation.get('id')==request_id:
+                working={t.order.orderId:t for t in authoritative if t.order.account==account and t.contract.conId==cid and t.order.orderRef==group['ref']}
+                rows={r['order_id']:r for r in state['orders']}
+                changes=operation['changes']
+                if all(rows.get(c['order_id'],{}).get('status')=='Filled' or c['order_id'] in working
+                       and working[c['order_id']].orderStatus.status in ('Submitted','PreSubmitted')
+                       and working[c['order_id']].order.lmtPrice==c['price'] for c in changes):
+                    for change in changes:self.finish_resize_change(account,cid,change,operation['plan_id'])
+                    group=self.group(account,cid);group.pop('pending_resize',None);self.save_group(account,cid,group)
+                    return resolved('reconciled')
         if body.get('action') == 'cancel_protection' and state['known'] and group.get('ref') == body.get('expected_ref'):
             rows = self.protection_cancel_rows(state,group,body.get('role'))
             if rows and all(r['status'] in ('Filled', 'Cancelled', 'ApiCancelled', 'Inactive') for r in rows):
@@ -634,7 +647,7 @@ class PaperChart:
             take=trades[lot['tp']];stop=trades[lot['sl']]
             if take.isDone() or stop.isDone(): raise ValueError('Exit changed before adjustment')
             lot.setdefault('original_tp',take.order.lmtPrice)
-            lot['closing']=True;lot['exit_action']=action;self.save_group(account,cid,group)
+            lot['closing']=True;lot['exit_action']=action;lot['plan_id']=request_id;self.save_group(account,cid,group)
             order=copy.copy(take.order);order.lmtPrice=target;order.transmit=True
             self.modify_exit(conn,take,order,'lmtPrice')
             group['adjustment']['acknowledged'].append(lot['tp'])
@@ -643,7 +656,7 @@ class PaperChart:
     def finish_trim_restore(self, account, cid, group, oid):
         for lot in group.get('lots',[]):
             if lot.get('tp')==oid:
-                lot.pop('closing',None);lot.pop('original_tp',None);lot.pop('exit_action',None)
+                lot.pop('closing',None);lot.pop('original_tp',None);lot.pop('exit_action',None);lot.pop('plan_id',None)
         adjustment=group.get('adjustment',{})
         pairs=[(o,stop) for o,stop in zip(adjustment.get('orders',[]),adjustment.get('stops',[])) if o!=oid]
         if pairs:
@@ -1008,12 +1021,94 @@ class PaperChart:
         except Exception as error:
             raise RuntimeError('Protection replacement needs broker reconciliation; do not resubmit') from error
 
+    def resize_trim(self, conn, account, cid, current, group, body, request_id, price):
+        import copy
+        if not group or not current['known'] or not current.get('scalable') or body.get('expected_ref')!=group['ref']:
+            raise ValueError('Trim ownership/protection changed; refresh')
+        if body.get('expected_position')!=current['position']:
+            raise ValueError('Position changed; reopen quantity editor')
+        expected=body.get('expected_orders')
+        if not isinstance(expected,list) or not expected: raise ValueError('Exact trim orders required')
+        ids=[r.get('order_id') for r in expected if isinstance(r,dict)]
+        if len(ids)!=len(expected) or len(set(ids))!=len(ids): raise ValueError('Invalid trim selection')
+        rows={r['order_id']:r for r in current.get('pending_exits',[])}
+        if any(oid not in rows or rows[oid]['action']!='trim' or rows[oid]['status'] not in ('Submitted','PreSubmitted')
+               or item.get('price')!=rows[oid]['price'] or item.get('quantity')!=rows[oid]['quantity']
+               for oid,item in zip(ids,expected)): raise ValueError('Trim plan changed; reopen editor')
+        if any(rows[oid]['quantity']!=1 for oid in ids): raise ValueError('Wait for partial fills to reconcile before changing quantity')
+        plans={rows[oid]['plan_id'] for oid in ids}
+        if len(plans)!=1 or {r['order_id'] for r in rows.values() if r['plan_id'] in plans and r['price']==rows[ids[0]]['price']}!=set(ids):
+            raise ValueError('Select the complete trim plan')
+        qty=body.get('quantity')
+        if isinstance(qty,bool) or not isinstance(qty,int) or not 0<=qty<=len(ids)+current.get('trim_available',0):
+            raise ValueError('Quantity exceeds unreserved filled position')
+        if len({rows[oid]['price'] for oid in ids})!=1: raise ValueError('Plan prices differ; manage the individual orders')
+        target=price(rows[ids[0]]['price'])
+        if any(r['status'] in ('PendingSubmit','PendingCancel','Unknown') for r in current['orders']):
+            raise ValueError('Wait for stable broker order status')
+        if group.get('adjustment',{}).get('outcome') in ('unknown','rejected'):
+            raise ValueError('Previous exit needs reconciliation')
+        trades=getattr(self,'_resolved_trades',{})
+        owned=sum(group['side']*(1 if r['role'].split('_')[0]=='entry' else -1)*r['filled'] for r in current['orders'])
+        if abs(owned-current['position'])>.000001: raise ValueError('Position differs from owned fills')
+        free=[]
+        for lot in group['lots']:
+            parent,take,stop=(trades.get(lot.get(r)) for r in ('entry','tp','sl'))
+            if parent and take and stop and parent.orderStatus.status=='Filled' and not lot.get('closing') and all(t.orderStatus.status in ('Submitted','PreSubmitted') for t in (take,stop)):
+                free.append(lot)
+        if qty>len(ids)+len(free): raise ValueError('Filled quantity changed')
+        changes=[]
+        for oid in ids[qty:]:
+            changes.append(dict(order_id=oid,price=price(rows[oid]['restore_price']),restore=True))
+        additions=free[:max(0,qty-len(ids))]
+        for lot in additions: changes.append(dict(order_id=lot['tp'],price=target,restore=False,original_price=trades[lot['tp']].order.lmtPrice))
+        if not changes:return
+        for change in changes:
+            t=trades.get(change['order_id'])
+            if not t or t.order.account!=account or t.contract.conId!=cid or t.order.orderRef!=group['ref']:
+                raise ValueError('Exact owned exit unavailable')
+            lot=next(l for l in group['lots'] if l.get('tp')==change['order_id'])
+            stop=trades.get(lot['sl'])
+            if not stop or stop.orderStatus.status not in ('Submitted','PreSubmitted') or group['side']*(change['price']-stop.order.auxPrice)<=0:
+                raise ValueError('Trim target cannot cross its protective stop')
+        group['pending_resize']=dict(id=request_id,changes=changes,plan_id=next(iter(plans)))
+        self.save_group(account,cid,group)
+        try:
+            for change in changes:
+                t=trades[change['order_id']]
+                lot=next(l for l in group['lots'] if l.get('tp')==change['order_id'])
+                stop=trades.get(lot['sl'])
+                if t.orderStatus.status not in ('Submitted','PreSubmitted') or t.orderStatus.filled or not stop or stop.orderStatus.status not in ('Submitted','PreSubmitted') or stop.orderStatus.filled:
+                    raise RuntimeError('Exit filled during quantity change')
+                order=copy.copy(t.order);order.lmtPrice=change['price'];order.transmit=True
+                self.modify_exit(conn,t,order,'lmtPrice')
+                self.finish_resize_change(account,cid,change,next(iter(plans)))
+            fresh=self.group(account,cid);fresh.pop('pending_resize',None);self.save_group(account,cid,fresh)
+        except Exception as error:
+            raise RuntimeError('Quantity change needs reconciliation; do not replay') from error
+
+    def finish_resize_change(self, account, cid, change, plan_id):
+        group=self.group(account,cid);oid=change['order_id']
+        if change['restore']:
+            self.finish_trim_restore(account,cid,group,oid)
+        else:
+            lot=next(l for l in group['lots'] if l.get('tp')==oid)
+            lot.setdefault('original_tp',change.get('original_price') or group.get('ordinary_tp'))
+            lot.update(closing=True,exit_action='trim',plan_id=plan_id)
+            adjustment=group['adjustment']
+            if oid not in adjustment['orders']:
+                adjustment['orders'].append(oid);adjustment['stops'].append(lot['sl'])
+            if oid not in adjustment['acknowledged']:adjustment['acknowledged'].append(oid)
+            self.save_group(account,cid,group)
+
     def perform(self, conn, account, cid, body, request_id):
+        pending=self.group(account,cid) or {}
+        if pending.get('pending_resize'): raise ValueError('Previous quantity change needs broker reconciliation')
         if body.get('action') == 'cancel_protection':
             return self.cancel_protection(conn, account, cid, body)
         if body.get('action') == 'cancel_add':
             return self.cancel_add(conn, account, cid, body)
-        if body.get('action') in ('close','be','add','trim') and any(t.contract.conId==cid and t.order.account==account and t.order.orderRef in {g['ref'] for g in self.group_choices(account,cid) if g['id'] != (self.group_id or '')} for t in conn.ib.openTrades()):
+        if body.get('action') in ('close','be','add','trim','resize_trim') and any(t.contract.conId==cid and t.order.account==account and t.order.orderRef in {g['ref'] for g in self.group_choices(account,cid) if g['id'] != (self.group_id or '')} for t in conn.ib.openTrades()):
             raise ValueError('Multiple order groups: manage each order separately; position actions require reconciliation')
         if body.get('action') == 'edit_entry' and body.get('cancel') is True:
             # A pure cancellation needs exact broker identity, not new contract/price rules.
@@ -1100,6 +1195,8 @@ class PaperChart:
             tick=Decimal(str(increments[-1])); amount=Decimal(str(number))
             if abs(amount/tick-(amount/tick).to_integral_value())>Decimal('0.000001'): raise ValueError('Price does not match contract tick size')
             return number
+        if action=='resize_trim':
+            return self.resize_trim(conn,account,cid,current,group,body,request_id,price)
         if action=='amend_add':
             if not group or not current['known'] or body.get('expected_ref')!=group.get('ref'):
                 raise ValueError('Add identity/status changed; refresh before amending')

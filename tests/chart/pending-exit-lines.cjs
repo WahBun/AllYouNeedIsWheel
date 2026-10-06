@@ -26,7 +26,7 @@ await page.evaluate(()=>{base.paper.pending_exits=base.paper.pending_exits.filte
 assert.equal(await page.evaluate(()=>exits.size),1);
 assert.equal(await page.evaluate(()=>[...exits][0].options().price),31230);
 await page.evaluate(()=>{base.paper.pending_exits[0].action='close';configure(base);});
-assert.equal(await page.getByRole('button',{name:'Drag close limit price',exact:true}).textContent(),'Close ×1');
+assert.equal(await page.getByRole('button',{name:'Drag close limit price',exact:true}).textContent(),'Close ×1 @ 31230.00');
 await page.getByRole('button',{name:'Cancel close plan',exact:true}).click();
 await page.getByRole('button',{name:'Confirm cancel close',exact:true}).click();
 assert.equal(await page.evaluate(()=>sent.at(-1).order_id),1168);

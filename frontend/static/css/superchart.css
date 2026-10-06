@@ -76,3 +76,5 @@ body.light #daily-pnl-value[data-direction=negative]{color:#b73544}
 #entry-settings[hidden],.join-actions[hidden]{display:none}
 
 #preview[hidden]{display:none}
+#trade .exit-heading input[hidden],#trade .exit-heading span[hidden]{display:none}
+#trade .exit-heading .trade-hint{font-size:10px;white-space:nowrap;margin:0}

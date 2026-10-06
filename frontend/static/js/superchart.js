@@ -69,6 +69,9 @@ function syncPositionProtection(){
  if(key!==ticketProtectionKey){ticketProtectionKey=key;ticketDraft={};if(key)for(const r of ['tp','sl'])$(r+'-mode').value='price';else if(ticketProtectionState){protectionType=null;loadProtection();}}
  if(snapshot!==ticketProtectionState){ticketDraft={};ticketProtectionState=snapshot;}
  for(const r of ['tp','sl']){
+  let status=$(r+'-order-state');if(!status){status=document.createElement('span');status.id=r+'-order-state';status.className='trade-hint';$(r+'-enabled').after(status);}
+  $(r+'-enabled').hidden=!!key;status.hidden=!key;
+  if(key){const zh=document.documentElement.lang==='zh',rows=(state.orders||[]).filter(o=>o.role.split('_')[0]===r);status.textContent=state.known!==true||state.sync_error?(zh?'待核对':'Checking'):rows.some(o=>o.status==='PendingCancel')?(zh?'撤单中':'Canceling'):rows.some(o=>o.status==='PendingSubmit')?(zh?'提交中':'Submitting'):state[r]>0?(zh?'已挂单':'Working'):(zh?'未设置':'Not set');status.title=zh?'当前订单状态；添加或移除请用管理 TP / SL。':'Current order status; add or remove through Manage TP / SL.';}
   if(!key){$(r).min='0';continue;}
   $(r+'-enabled').checked=state[r]>0;
   $(r).min=''; // Signed distance also represents stops moved beyond breakeven.
@@ -118,7 +121,7 @@ function renderTradingContext(){
  $('close').title=protectedClose?(zh?'多仓按 Bid、空仓按 Ask 挂限价退出，仍需等待成交。':'Limit exit at Bid for longs / Ask for shorts; may remain working.'):(zh?'核对撤单和剩余持仓后提交退出。':'Exit after reconciling cancellations and remaining position.');
  $('new-order').title=zh?'新建独立订单组；不会加到当前组，也不取消原订单。':'Start an independent group; existing orders remain.';
  const note=$('protection-note');note.removeAttribute('data-en');note.removeAttribute('data-zh');
- note.textContent=size?(zh?'改价：Enter 或离开输入框 · Esc 撤回':'Edit: Enter or leave field · Esc to discard'):(zh?'独立可选 · GTC 退出单':'Optional · GTC exit orders');
+ note.textContent=size?(zh?'改价：Enter 或离开输入框 · 增删保护：管理 TP / SL':'Edit: Enter or leave field · Add/remove: Manage TP / SL'):(zh?'独立可选 · GTC 退出单':'Optional · GTC exit orders');
  const progress=state.close_progress;
  const plan=$('exit-plan');plan.hidden=!exits.length&&!progress&&!pendingEntry;plan.replaceChildren();
  if(pendingEntry){const line=document.createElement('div');line.textContent=zh?'有待成交加仓单；减仓仅使用已成交且未分配的持仓。':'Add orders pending; Trim uses only filled, unreserved units.';plan.append(line);}

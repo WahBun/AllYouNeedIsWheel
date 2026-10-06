@@ -22,6 +22,8 @@ for(const width of [1440,393])for(const language of ['en','zh'])for(const light 
  state={enabled:true,known:true,active:true,position:-2,side:-1,entry:10,tp:8,sl:11,order_ref:'test',orders:[{role:'tp',status:'Submitted'},{role:'sl',status:'PreSubmitted'}]};
  await page.waitForFunction(()=>document.getElementById('tp').value==='8');
  assert.equal(await page.locator('#tp-mode').inputValue(),'price');
+ assert.equal(await page.locator('#tp-enabled').isVisible(),false,'held-position status is not a misleading toggle');
+ assert.equal(await page.locator('#tp-order-state').isVisible(),true);
  assert.equal(await page.locator('#sl').inputValue(),'11');
  await page.locator('#tp-mode').selectOption('distance');
  assert.equal(await page.locator('#tp').inputValue(),'2');
