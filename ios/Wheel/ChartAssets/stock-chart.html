@@ -555,10 +555,11 @@ function handleReadoutMove(p){
 chart.subscribeCrosshairMove(handleReadoutMove);
 // Price-axis order entry: explicit side and type at the selected tick price.
 const priceAdd=document.createElement('button'),priceMenu=document.createElement('div');
-priceAdd.id='price-order-add';priceAdd.textContent='⊕';priceAdd.setAttribute('aria-label','Orders at selected price');priceAdd.hidden=true;
-priceAdd.style.cssText='position:absolute;right:62px;width:20px;height:20px;padding:0;border:0;border-radius:3px;background:#20242d;color:white;font:16px -apple-system;z-index:6;touch-action:manipulation';
+priceAdd.id='price-order-add';priceAdd.innerHTML='<span class="price-cursor-add"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke="currentColor"/><path d="M8 4.5v7M4.5 8h7" stroke="currentColor"/></svg></span><span class="price-cursor-value"></span>';priceAdd.setAttribute('aria-label','Orders at selected price');priceAdd.hidden=true;
+priceAdd.style.cssText='position:absolute;right:60px;width:20px;height:20px;padding:0;border:0;border-radius:2px;background:#191919;color:#fff;font:11px -apple-system,BlinkMacSystemFont,sans-serif;z-index:6;touch-action:manipulation;white-space:nowrap';
 priceMenu.id='price-order-menu';priceMenu.hidden=true;priceMenu.style.cssText='position:absolute;right:8px;z-index:16;background:#20242d;color:#eee;border-radius:6px;padding:4px;box-shadow:0 3px 10px #0005;max-width:calc(100% - 16px)';
 document.body.append(priceAdd,priceMenu);
+const cursorBadgeStyle=document.createElement('style');cursorBadgeStyle.textContent='#price-order-add:not([hidden]){display:flex;align-items:stretch}#price-order-add .price-cursor-add{width:20px;display:flex;align-items:center;justify-content:center;border-right:1px solid #666}#price-order-add .price-cursor-value{position:absolute;left:20px;top:0;height:20px;background:#191919;border-radius:0 2px 2px 0;pointer-events:none;display:flex;align-items:center;justify-content:flex-end;padding:0 5px;font-variant-numeric:tabular-nums;box-sizing:border-box}';document.head.append(cursorBadgeStyle);
 let cursorOrderPrice=null,menuOrderPrice=null,menuOrderCID=null,priceControlTouchUntil=0;
 function closePriceMenu(){priceMenu.hidden=true;menuOrderPrice=null;}
 function priceOrderChoices(price,reference){
@@ -602,7 +603,7 @@ function updatePriceCursor(p){
  }
  cursorOrderPrice=snapPrice(series.coordinateToPrice(p.point.y));
  priceAdd.hidden=paperConfig.chart_only===true||cursorOrderPrice===null||p.point.y<35||p.point.y>innerHeight-32;
- if(!priceAdd.hidden)priceAdd.style.top=(p.point.y-10)+'px';
+ if(!priceAdd.hidden){priceAdd.style.top=(p.point.y-10)+'px';const value=priceAdd.querySelector('.price-cursor-value');value.textContent=axisPriceText(cursorOrderPrice).split('.').map((part,i)=>i?part:part.replace(/\B(?=(\d{3})+(?!\d))/g,',')).join('.');value.style.minWidth=Math.ceil(chart.priceScale('right').width())+'px';priceAdd.style.right=value.style.minWidth;}
 }
 chart.subscribeCrosshairMove(updatePriceCursor);
 function dismissPriceControls(e){

@@ -562,3 +562,11 @@ Mode and value persist per security type. Native configurations without slMode
 retain distance behavior. Browser regression covers long/short percent math,
 absolute wrong-side rejection, invalid zero targets and submitted position SL.
 497 backend tests and optional-exit mobile/desktop, language/theme checks passed.
+
+## 2026-10-06 cursor price badge
+
+The selected-price badge now matches the compact reference: a 20px outlined plus
+cell, separator and right-aligned grouped price on a near-black background. The
+price cell is visual only; the plus retains the existing order-menu action and
+the axis retains its interactions. Grouping applies only to the integer portion,
+preserving contract tick precision. Price-menu interaction regression passed.
