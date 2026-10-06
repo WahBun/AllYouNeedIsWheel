@@ -1,0 +1,62 @@
+const {chromium}=require('playwright'),assert=require('node:assert/strict');
+(async()=>{const browser=await chromium.launch();try{
+for(const width of [1440,393])for(const language of ['en','zh'])for(const light of [false,true]){
+ const page=await browser.newPage({viewport:{width,height:900}}),writes=[],errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
+ const packet={con_id:7,generation:'optional',security_type:'OPT',currency:'USD',symbol:'QQQ',interval:5,session:'rth',bid:2.11,ask:2.12,server_time:100,quote_expires_at:10000,multiplier:100,price_rules:[{low:0,increment:.01}],bars:Array.from({length:30},(_,i)=>({time:1790947800+i*300,open:2.1,high:2.2,low:2,close:2.12}))};
+ let state={enabled:true,known:true,active:false,status:'idle',position:0};
+ await page.route('**/api/**',async route=>{const req=route.request(),url=new URL(req.url());let result={};
+  if(req.method()==='POST'){const body=req.postDataJSON();writes.push(body);if(body.action==='submit')state={enabled:true,known:true,active:true,status:'filled',position:-1,side:-1,entry:2.12,tp:body.tp||0,sl:body.sl||0,order_ref:'ref',protection_manageable:true,protection_cancelable:true,edit_snapshot:[{order_id:1}],orders:[{role:'entry',price:2.12,quantity:1,filled:1,status:'Filled'}]};result={status:'acknowledged',success:true,state};}
+  else if(url.pathname.endsWith('/profiles'))result={selected:'paper',verified:true,epoch:'test-epoch'};
+  else if(url.pathname.includes('/stock-chart/'))result={...packet,interval:Number(url.searchParams.get('interval')),session:url.searchParams.get('session')};
+  else if(url.pathname.includes('/paper-chart/'))result=state;
+  else if(url.pathname.endsWith('/bootstrap'))result={positions:[]};
+  else if(url.pathname.endsWith('/pending-orders'))result={orders:[]};
+  else if(url.pathname.endsWith('/chart-contracts'))result={contracts:[{con_id:7,local_symbol:'QQQ CALL'}]};
+  await route.fulfill({json:result});
+ });
+
+ await page.goto('http://127.0.0.1:8765/superchart?con_id=7');
+ await page.waitForFunction(()=>!document.getElementById('ask').disabled);
+ await page.evaluate(({language,light})=>{document.documentElement.lang=language;document.body.classList.toggle('light',light)},{language,light});
+ const frame=page.frames().find(f=>f.url().includes('/superchart/frame'));
+ state={enabled:true,known:true,active:true,position:-2,side:-1,entry:10,tp:8,sl:11,order_ref:'test',orders:[{role:'tp',status:'Submitted'},{role:'sl',status:'PreSubmitted'}]};
+ await page.waitForFunction(()=>document.getElementById('tp').value==='8');
+ assert.equal(await page.locator('#tp-mode').inputValue(),'price');
+ assert.equal(await page.locator('#sl').inputValue(),'11');
+ await page.locator('#tp-mode').selectOption('distance');
+ assert.equal(await page.locator('#tp').inputValue(),'2');
+ await page.locator('#tp').fill('3');
+ await page.waitForTimeout(2200);
+ assert.equal(await page.locator('#tp').inputValue(),'3');
+ assert.equal(writes.length,0);
+ await page.locator('#tp-apply').click();
+ await page.waitForTimeout(150);
+ assert.equal(writes.at(-1).action,'amend');
+ assert.equal(writes.at(-1).role,'tp');
+ assert.equal(writes.at(-1).price,7);
+ assert.equal(writes.at(-1).expected_ref,'test');
+ state={...state,tp:7,sl:9.5};
+ await page.waitForFunction(()=>document.getElementById('tp').value==='3'&&document.getElementById('sl').value==='9.5');
+ await page.locator('#sl-mode').selectOption('distance');
+ assert.equal(await page.locator('#sl').inputValue(),'-0.5');
+ await page.locator('#sl-mode').selectOption('percent');
+ assert.equal(await page.locator('#sl').inputValue(),'-5');
+ await page.locator('#sl').fill('-2');
+ await page.locator('#sl-apply').click();
+ await page.waitForTimeout(150);
+ assert.equal(writes.at(-1).price,9.8);
+ assert.equal(writes.at(-1).role,'sl');
+ state={...state,position:2,side:1,order_ref:'long',tp:12,sl:9};
+ await page.waitForFunction(()=>document.getElementById('tp').value==='12');
+ await page.locator('#tp-mode').selectOption('percent');
+ assert.equal(await page.locator('#tp').inputValue(),'20');
+ await page.locator('#tp').fill('25');
+ await page.locator('#tp-apply').click();
+ await page.waitForTimeout(150);
+ assert.equal(writes.at(-1).price,12.5);
+ assert.equal(writes.at(-1).expected_ref,'long');
+ assert.deepEqual(errors,[]);
+ await page.close();
+}
+console.log('Position TP/SL bidirectional values, signed BE, explicit edits, polling preservation passed');
+}finally{await browser.close()}})().catch(e=>{console.error(e);process.exit(1)});

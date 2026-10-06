@@ -58,13 +58,46 @@ function renderDailyPnL(){
  $('daily-pnl').title=scope+(fresh?' '+value+' '+(pnl.currency||'BASE'):(zh?' 数据未返回或已过期；不代表零盈亏。':' Data unavailable or stale; this does not mean zero P&L.'));
  $('daily-pnl').setAttribute('aria-label',(zh?'当日盈亏 ':'Daily P&L ')+value+'. '+$('daily-pnl').title);
 }
+let ticketProtectionKey='',ticketProtectionState='',ticketDraft={};
+function protectionValue(role){
+ const price=Number(state[role]),basis=Number(state.entry),direction=state.side*(role==='tp'?1:-1),mode=$(role+'-mode').value;
+ return mode==='price'?price:mode==='percent'?(price-basis)*direction/basis*100:(price-basis)*direction;
+}
+function syncPositionProtection(){
+ const key=state.position?JSON.stringify([cid,epoch,state.order_ref]):'';
+ const snapshot=JSON.stringify([state.tp,state.sl,state.entry,state.position,state.edit_snapshot]);
+ if(key!==ticketProtectionKey){ticketProtectionKey=key;ticketDraft={};if(key)for(const r of ['tp','sl'])$(r+'-mode').value='price';else if(ticketProtectionState){protectionType=null;loadProtection();}}
+ if(snapshot!==ticketProtectionState){ticketDraft={};ticketProtectionState=snapshot;}
+ for(const r of ['tp','sl']){
+  $(r+'-apply').hidden=!key||!ticketDraft[r];
+  if(!key){$(r).min='0';continue;}
+  $(r+'-enabled').checked=state[r]>0;
+  $(r).min=''; // Signed distance also represents stops moved beyond breakeven.
+  if(!ticketDraft[r])$(r).value=state[r]>0?Number(protectionValue(r).toFixed(8)):'';
+  const editable=enabled()&&priceRoleEditable(r)&&state[r]>0;
+  $(r).disabled=!editable;$(r+'-mode').disabled=!editable;$(r+'-apply').disabled=!editable;
+ }
+}
+for(const r of ['tp','sl']){
+ $(r).addEventListener('input',()=>{if(state.position){ticketDraft[r]=true;$(r+'-apply').hidden=false;}});
+ $(r+'-apply').onclick=()=>{
+  if(!state.position||!ticketDraft[r]||!enabled()||!priceRoleEditable(r))return;
+  const value=Number($(r).value),mode=$(r+'-mode').value,basis=Number(state.entry),direction=state.side*(r==='tp'?1:-1);
+  let price=mode==='price'?value:basis+direction*(mode==='percent'?basis*value/100:value);
+  const rule=(packet.price_rules||[]).filter(x=>x.low<=price).at(-1);
+  if(rule)price=Number((Math.round(price/rule.increment)*rule.increment).toFixed(10));
+  if(!$(r).value||!Number.isFinite(price)||price<=0)return log('Enter a valid target price.');
+  ticketDraft[r]=false;
+  write({action:'amend',role:r,price,expected_ref:state.order_ref});
+ };
+}
 function sync(){$('add').style.setProperty('--order-color',state.position>0?'#315fc4':state.position<0?'#c6384d':'var(--muted)');renderDailyPnL();if(!ready)return;const can=enabled(),ovt=$('tif').value==='OVERNIGHT';$('quantity-label').textContent=state.position?(document.documentElement.lang==='zh'?'持仓数量':'Position size'):(document.documentElement.lang==='zh'?'数量':'Quantity');$('type').options[1].disabled=ovt;$('tif').options[2].disabled=!allowed().includes('OVERNIGHT');
 const config={con_id:cid,entry,quantity:Number($('quantity').value),entryType:$('type').value,dark,priceRules:packet.price_rules||[],multiplier:packet.multiplier||1,holdings:holdingRows(),tpDistance:Number($('tp').value),slDistance:Number($('sl').value),tpEnabled:$('tp-enabled').checked,slEnabled:$('sl-enabled').checked,tpMode:$('tp-mode').value,slMode:$('sl-mode').value,templateRevision:revision,joinSide,joinRevision,display:WheelChartSettings.effective(display,session,emaContext===emaKey()?emaFrames:{}),executions:executionContext===executionsKey()?chartExecutions:[],paper:{...state,trading_block_reason:can?'':tradingBlockReason(),adjustment_quantity:Number($('adjustment-quantity').value),enabled:can,busy,webEntryDrag:true,web_account_epoch:epoch,entry_drag_allowed:entryFlight?.role==='entry'&&canQueueEntry(),entry_target:entryFlight?.role==='entry'?(queuedEntry?.price??entryFlight.price):undefined,protection_drag_role:entryFlight?.role!=='entry'&&canQueueEntry()?entryFlight?.role:null,protection_target:entryFlight?.role!=='entry'?(queuedEntry?.price??entryFlight?.price):undefined,preview_tif:$('tif').value,submit_revision:revision}};
 $('resolve-request').hidden=!localStorage.getItem(pendingKey())||busy||state.known!==true;frame.contentWindow.configure(config);renderPendingAdds(can);$('order-status').textContent=`${enabled()?'Trading · ':''}${state.orders?.some(o=>o.status==='PendingCancel')?'Waiting for IB cancellation':state.status||'View'}${busy?' · Updating…':''}${entryFlight?' · '+entryFlight.role.toUpperCase()+' target '+(queuedEntry?.price??entryFlight.price)+' (pending)':''}${localStorage.getItem(pendingKey())?' · Confirming outcome…':''}`;$('order-status').title=$('order-status').textContent;
 $('order-group').disabled=busy;
 $('new-order').disabled=busy||!cid||profile.selected!=='paper'||!profile.verified;
 for(const id of ['bid','ask','close','be'])$(id).disabled=!can||(id==='close'?(!(state.active||state.position)||state.position_only===true):id==='be'?(!state.position||!state.sl):state.active===true);
-$('preview').disabled=!cid||busy||switchingChart||state.active;for(const id of ['quantity-minus','quantity-plus'])$(id).disabled=busy||state.active===true;const size=Math.abs(state.position||0),adjustment=Number($('adjustment-quantity').value),valid=Number.isInteger(adjustment)&&adjustment>0;$('adjustment-control').hidden=!size;$('adjustment-quantity').disabled=!can||!state.scalable||!size;for(const id of ['add','trim']){$(id).disabled=!can||!state.scalable||!size||!valid||(id==='trim'&&adjustment>=size);$(id).title=id==='trim'&&adjustment>=size?'Trim must leave a position; use Close position':'';}for(const id of ['quantity','type','tif','tp','sl','tp-enabled','sl-enabled','tp-mode','sl-mode'])$(id).disabled=busy||state.active===true;for(const role of ['tp','sl'])$(role).disabled=busy||state.active===true||!$(role+'-enabled').checked;$('manage-protection').hidden=!state.position;$('manage-protection').disabled=!can||!state.protection_manageable;$('manage-protection').title=state.protection_block_reason||'';}
+$('preview').disabled=!cid||busy||switchingChart||state.active;for(const id of ['quantity-minus','quantity-plus'])$(id).disabled=busy||state.active===true;const size=Math.abs(state.position||0),adjustment=Number($('adjustment-quantity').value),valid=Number.isInteger(adjustment)&&adjustment>0;$('adjustment-control').hidden=!size;$('adjustment-quantity').disabled=!can||!state.scalable||!size;for(const id of ['add','trim']){$(id).disabled=!can||!state.scalable||!size||!valid||(id==='trim'&&adjustment>=size);$(id).title=id==='trim'&&adjustment>=size?'Trim must leave a position; use Close position':'';}for(const id of ['quantity','type','tif','tp','sl','tp-enabled','sl-enabled','tp-mode','sl-mode'])$(id).disabled=busy||state.active===true;for(const role of ['tp','sl'])$(role).disabled=busy||state.active===true||!$(role+'-enabled').checked;$('manage-protection').hidden=!state.position;$('manage-protection').disabled=!can||!state.protection_manageable;$('manage-protection').title=state.protection_block_reason||'';syncPositionProtection();}
 const cancelAddButtons=new Map();
 function renderPendingAdds(can){
  let list=$('pending-adds');if(!list){list=document.createElement('div');list.id='pending-adds';list.style.cssText='display:grid;gap:6px;max-height:160px;overflow:auto';$('adjustment-control').after(list);}
@@ -195,7 +228,7 @@ window.addEventListener('blur',()=>closeSessionMenu());
 $('session').onchange=()=>{if(busy){$('session').value=session;return;}session=$('session').value;rememberSession();generation++;marketStream.stop();lastFallback=0;lastPnL=0;chartTransition();refresh();};
 $('toggle-trade').onclick=()=>{const detail=$('chart-detail');detail.hidden=!detail.hidden;$('toggle-trade').textContent='Detail '+(detail.hidden?'▾':'▴');$('toggle-trade').setAttribute('aria-expanded',String(!detail.hidden));};
 for(const [id,delta] of [['quantity-minus',-1],['quantity-plus',1]])$(id).onclick=()=>{if($('quantity').disabled)return;$('quantity').value=Math.min(Number($('quantity').max),Math.max(1,(Number($('quantity').value)||1)+delta));sync();};
-for(const id of ['quantity','type','tif','tp','sl','tp-enabled','sl-enabled','tp-mode','sl-mode'])$(id).onchange=()=>{if(id.startsWith('tp')||id.startsWith('sl')){if(id==='tp-mode')$('tp').value=$('tp-mode').value==='percent'?75:$('tp-mode').value==='price'?(entry||packet.bid||1):.2;if(id==='sl-mode')$('sl').value=$('sl-mode').value==='percent'?10:$('sl-mode').value==='price'?'':protectionType==='FUT'?1:.1;if(protectionType)localStorage.setItem('wheel.web.protection:'+protectionType,JSON.stringify({tp:Number($('tp').value),sl:Number($('sl').value),tpEnabled:$('tp-enabled').checked,slEnabled:$('sl-enabled').checked,tpMode:$('tp-mode').value,slMode:$('sl-mode').value}));}revision++;sync();};
+for(const id of ['quantity','type','tif','tp','sl','tp-enabled','sl-enabled','tp-mode','sl-mode'])$(id).onchange=()=>{if(state.position&&(id.startsWith('tp')||id.startsWith('sl'))){const r=id.slice(0,2);if(id.endsWith('-mode'))ticketDraft[r]=false;sync();return;}if(id.startsWith('tp')||id.startsWith('sl')){if(id==='tp-mode')$('tp').value=$('tp-mode').value==='percent'?75:$('tp-mode').value==='price'?(entry||packet.bid||1):.2;if(id==='sl-mode')$('sl').value=$('sl-mode').value==='percent'?10:$('sl-mode').value==='price'?'':protectionType==='FUT'?1:.1;if(protectionType)localStorage.setItem('wheel.web.protection:'+protectionType,JSON.stringify({tp:Number($('tp').value),sl:Number($('sl').value),tpEnabled:$('tp-enabled').checked,slEnabled:$('sl-enabled').checked,tpMode:$('tp-mode').value,slMode:$('sl-mode').value}));}revision++;sync();};
 const localizeProtection=()=>{for(const node of document.querySelectorAll('[data-en][data-zh]'))node.textContent=document.documentElement.lang==='zh'?node.dataset.zh:node.dataset.en;};
 localizeProtection();new MutationObserver(localizeProtection).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
 let protectionContext=null;

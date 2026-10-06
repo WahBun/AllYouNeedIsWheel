@@ -631,3 +631,8 @@ amendments were not exercised; existing user orders were not modified for tests.
 - Recover per-lot filled quantities and weighted execution prices from deduplicated broker fills when completed-order status fields reset after reconnect. Missing completed entry evidence renders unknown rather than a zero profit.
 - Backend unittest suite: 507 passed; includes reconnect fixtures for stock and option protected lots. Validation uses mocks and read-only broker state, no order writes.
 - Add color verified in sync(): positive position blue, negative position red.
+
+### Position ticket synchronization and Trim controls
+- Filled-position TP/SL cards default to broker target prices, convert distance/percent including signed breakeven stops, preserve unfinished edits through unchanged polling, and submit explicit per-card Apply amendments. Confirmed chart edits refresh the cards. Existing Manage TP/SL handles adding/removing protection.
+- Trim drag now listens for actual document pointer release and tolerates lost capture plus refresh. Added an explicit cancel-plan dialog: amend only that unit back to the current ordinary TP (or its saved original TP), retain SL/OCA, then remove its Trim designation. Unknown restores reconcile without replay.
+- Validation: 511 backend tests; 127 native simulator tests; browser ticket tests across mobile/desktop, language/theme combinations; Trim lost-capture/refresh/cancel checks; full web order lifecycle and Live isolation passed. Device build succeeded. No broker orders changed for testing.

@@ -433,6 +433,47 @@ class ProtectedLotTests(unittest.TestCase):
         self.service.state(self.conn,7)
         self.conn.ib.placeOrder.assert_not_called()
 
+    def test_cancel_trim_restores_tp_without_canceling_protection(self):
+        self.open_four()
+        ref=self.service.group('DU_TEST',7)['ref']
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1,
+            exit_type='LMT',exit_price=10.75,expected_ref=ref,expected_position=4))
+        row=result['state']['pending_exits'][0]
+        self.conn.ib.placeOrder.reset_mock();self.conn.ib.cancelOrder.reset_mock()
+        request=dict(action='amend',role='tp',order_id=row['order_id'],restore_trim=True,
+            price=row['restore_price'],expected_ref=ref,expected_price=row['price'],expected_quantity=row['quantity'])
+        bad=self.service.execute(self.conn,7,dict(request,request_id=str(uuid4()),price=10.8))
+        self.assertFalse(bad['success']);self.conn.ib.placeOrder.assert_not_called()
+        good=self.service.execute(self.conn,7,dict(request,request_id=str(uuid4())))
+        self.assertTrue(good['success'],good)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,1)
+        self.conn.ib.cancelOrder.assert_not_called()
+        self.assertFalse(good['state'].get('pending_exits'))
+        self.assertEqual(good['state']['protection']['status'],'covered')
+        self.assertFalse(any(l.get('closing') for l in self.service.group('DU_TEST',7)['lots']))
+
+    def test_trim_restore_unknown_reconciles_without_replay(self):
+        self.open_four()
+        ref=self.service.group('DU_TEST',7)['ref']
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='trim',quantity=1,
+            exit_type='LMT',exit_price=10.75,expected_ref=ref,expected_position=4))
+        row=result['state']['pending_exits'][0]
+        request=dict(request_id=str(uuid4()),action='amend',role='tp',order_id=row['order_id'],restore_trim=True,
+            price=row['restore_price'],expected_ref=ref,expected_price=row['price'],expected_quantity=row['quantity'])
+        original=self.service.modify_exit
+        def lost(*args):
+            original(*args)
+            raise RuntimeError('ack response lost')
+        with patch.object(self.service,'modify_exit',side_effect=lost):
+            result=self.service.execute(self.conn,7,request)
+        self.assertEqual(result['status'],'unknown')
+        self.conn.ib.placeOrder.reset_mock()
+        self.service.execute(self.conn,7,request)
+        restarted=PaperChart(self.service.path)
+        self.assertTrue(restarted.request_status(self.conn,7,request['request_id'])['confirmed'])
+        self.assertFalse(restarted.state(self.conn,7).get('pending_exits'))
+        self.conn.ib.placeOrder.assert_not_called()
+
     def test_priced_trim_all_and_stale_position(self):
         self.open_four()
         body=dict(request_id=str(uuid4()),action='trim',quantity=4,exit_type='LMT',exit_price=10.75,

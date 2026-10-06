@@ -301,6 +301,11 @@ class PaperChart:
                 quantity=max(0,r['quantity']-r['filled']), status=r['status'], action=adjustment['action'])
                 for r in selected if r.get('order_id') in adjustment.get('acknowledged', [])
                 and r['status'] in ('Submitted','PreSubmitted','PendingCancel') and r.get('quantity',0)>r['filled']]
+            for pending in result['pending_exits']:
+                lot=next((lot for lot in group.get('lots',[]) if lot.get('tp')==pending['order_id']),{})
+                ordinary=[r['price'] for r in rows if r['role'].split('_')[0]=='tp' and r['status'] in ('Submitted','PreSubmitted')
+                          and not any(l.get('tp')==r['order_id'] and l.get('closing') for l in group.get('lots',[]))]
+                pending['restore_price']=ordinary[-1] if ordinary else lot.get('original_tp')
             result['adjustment'] = dict(action=adjustment['action'], requested=len(selected), filled=filled,
                 remaining=max(0, len(selected)-filled), pending=sum(max(0, 1-r['filled']) for r in selected if r.get('order_id') in adjustment.get('acknowledged', []) and r['status'] in ('Submitted','PreSubmitted')), position=result['position'],
                 status='filled' if filled == len(selected) else 'unknown' if any(r['status']=='Unknown' for r in selected) or adjustment.get('outcome') == 'unknown'
@@ -428,6 +433,9 @@ class PaperChart:
             elif role=='tp': target_ids -= {lot['tp'] for lot in group.get('lots',[]) if lot.get('closing')}
 
             rows=[r for r in state['orders'] if r['order_id'] in target_ids]
+            if body.get('restore_trim') and rows and all(r['status']=='Filled' for r in rows):
+                self.finish_trim_restore(account,cid,group,body['order_id'])
+                return resolved('filled')
             if rows and not state['active'] and not state['position']:
                 return resolved('done')
             # Only actual broker snapshot rows can release an uncertain amendment.
@@ -436,6 +444,8 @@ class PaperChart:
             live_rows=[r for r in rows if r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive')]
             if body['action']=='amend' and live_rows and {t.order.orderId for t in working}=={r['order_id'] for r in live_rows} and all(
                     t.orderStatus.status in ('Submitted','PreSubmitted') and getattr(t.order,'auxPrice' if role=='sl' else 'lmtPrice')==body.get('price') for t in working):
+                if body.get('restore_trim'):
+                    self.finish_trim_restore(account,cid,group,body['order_id'])
                 return resolved('reconciled')
         if body.get('action') == 'edit_entry' and state['known']:
             original = group.get('ref') == body.get('expected_ref')
@@ -560,11 +570,24 @@ class PaperChart:
         for lot in lots:
             take=trades[lot['tp']];stop=trades[lot['sl']]
             if take.isDone() or stop.isDone(): raise ValueError('Exit changed before adjustment')
+            lot.setdefault('original_tp',take.order.lmtPrice)
             lot['closing']=True;self.save_group(account,cid,group)
             order=copy.copy(take.order);order.lmtPrice=target;order.transmit=True
             self.modify_exit(conn,take,order,'lmtPrice')
             group['adjustment']['acknowledged'].append(lot['tp'])
             self.save_group(account, cid, group)
+
+    def finish_trim_restore(self, account, cid, group, oid):
+        for lot in group.get('lots',[]):
+            if lot.get('tp')==oid:
+                lot.pop('closing',None);lot.pop('original_tp',None)
+        adjustment=group.get('adjustment',{})
+        pairs=[(o,stop) for o,stop in zip(adjustment.get('orders',[]),adjustment.get('stops',[])) if o!=oid]
+        if pairs:
+            adjustment['orders']=[o for o,_ in pairs];adjustment['stops']=[stop for _,stop in pairs]
+            adjustment['acknowledged']=[o for o in adjustment.get('acknowledged',[]) if o!=oid]
+        else: group.pop('adjustment',None)
+        self.save_group(account,cid,group)
 
     def modify_exit(self, conn, trade, order, field):
         # Keep the broker's parent/OCA fields verbatim. Clearing or rebuilding
@@ -1103,6 +1126,8 @@ class PaperChart:
         if action in ('amend','be'):
             if body.get('expected_ref') is not None and body['expected_ref'] != group.get('ref'):
                 raise ValueError('Order identity changed; refresh before amending protection')
+            if body.get('restore_trim') and (action!='amend' or body.get('role')!='tp' or not isinstance(body.get('order_id'),int)):
+                raise ValueError('Exact trim order required')
             role='sl' if action=='be' else body.get('role')
             if role not in ('tp','sl'): raise ValueError('Only TP and SL can be amended')
             trade=next((trades.get(lot.get(role)) for lot in group.get('lots',[]) if trades.get(lot.get(role)) and not trades[lot[role]].isDone()),None) if group.get('lots') else trades.get(group['ids'].get(role))
@@ -1129,6 +1154,8 @@ class PaperChart:
                     raise ValueError('Exact working trim exit required')
                 if body.get('expected_price')!=row['price'] or body.get('expected_quantity')!=row['quantity']:
                     raise ValueError('Trim changed; refresh before moving')
+                if body.get('restore_trim') and (not row.get('restore_price') or new_price!=row['restore_price']):
+                    raise ValueError('Original TP changed; refresh before canceling trim')
                 targets=[trades.get(wanted)]
             else:
                 targets=[trades.get(lot.get(role)) for lot in group['lots'] if role!='tp' or not lot.get('closing')] if group.get('lots') else [trade]
@@ -1141,6 +1168,8 @@ class PaperChart:
                 if role=='sl': amended.auxPrice=new_price
                 else: amended.lmtPrice=new_price
                 amended.transmit=True;self.modify_exit(conn,target,amended,'auxPrice' if role=='sl' else 'lmtPrice')
+            if body.get('restore_trim'):
+                self.finish_trim_restore(account,cid,group,body['order_id'])
             return
         if action == 'close' and body.get('expected_ref') is not None and body['expected_ref'] != group.get('ref'):
             raise ValueError('Order identity changed; refresh before closing')
