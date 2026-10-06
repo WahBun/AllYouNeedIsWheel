@@ -532,3 +532,7 @@ never create order lines or broker writes. Native labels use series precision.
 
 Verified mobile/desktop price labels, dragging, Fib values and lifecycle cleanup;
 timeframe drawing/edit regression passed. Physical iOS build passed.
+The older drawing-cancel-fib browser fixture still fails its final normal-context-
+menu assertion on both this revision and the unchanged prior drawing script;
+its cancellation/Fib assertions pass before that point. This is not counted as
+a passing regression check.
