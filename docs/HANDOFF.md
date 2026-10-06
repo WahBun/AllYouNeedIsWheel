@@ -536,3 +536,13 @@ The older drawing-cancel-fib browser fixture still fails its final normal-contex
 menu assertion on both this revision and the unchanged prior drawing script;
 its cancellation/Fib assertions pass before that point. This is not counted as
 a passing regression check.
+
+## 2026-10-06 TP/SL ticket visual refresh
+
+Removed the custom latest-price horizontal line from the shared chart while
+retaining the right-axis current price/countdown. Web TP/SL controls and the
+position protection editor now use matching cards, compact switches, and aligned
+mode/value fields. Checkbox sizing overrides the generic full-width trade input
+rule. Existing IDs, optional-exit behavior and submission logic are unchanged.
+Browser optional-exit checks passed across mobile/desktop, English/Chinese and
+light/dark; desktop screenshot reviewed. No broker writes used for validation.
