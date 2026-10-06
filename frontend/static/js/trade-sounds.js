@@ -22,7 +22,7 @@ globalThis.WheelTradeSounds=WheelTradeSounds;
  let context=null,loading=null,next=0;const buffers=new Map(),last=new Map(),sources=new Set();
  const button=document.createElement('button');button.id='trade-sounds';button.type='button';
  document.getElementById('theme').after(button);
- function render(){const zh=document.documentElement.lang==='zh';button.textContent=enabled?(zh?'声音 开':'Sound on'):(zh?'声音 关':'Sound off');button.setAttribute('aria-pressed',String(enabled));button.title=enabled?(zh?'成交、撤单、拒单和断线提示音':'Fill, cancellation, rejection and disconnect sounds'):(zh?'点击开启提示音':'Enable trading sounds');}
+ function render(){const zh=document.documentElement.lang==='zh';button.setAttribute('aria-label',enabled?(zh?'关闭提示音':'Mute trading sounds'):(zh?'开启提示音':'Enable trading sounds'));button.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4Z"/>'+(enabled?'<path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>':'<path d="m16 9 5 6m0-6-5 6"/>')+'</svg>';button.setAttribute('aria-pressed',String(enabled));button.title=enabled?(zh?'成交、撤单、拒单和断线提示音':'Fill, cancellation, rejection and disconnect sounds'):(zh?'点击开启提示音':'Enable trading sounds');}
  async function unlock(){
   if(!enabled)return;
   try{context??=new (window.AudioContext||window.webkitAudioContext)();await context.resume();

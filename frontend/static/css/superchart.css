@@ -94,3 +94,5 @@ input[type=number]{appearance:textfield;-moz-appearance:textfield}
 input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .order-buy{color:#0a84ff}.order-sell{color:#ff453a}
 body.light .order-buy{color:#007aff}body.light .order-sell{color:#d92d20}
+
+header #theme,header #trade-sounds,header #settings{width:42px;height:40px;padding:8px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}header #theme svg,header #trade-sounds svg{width:21px;height:21px}header #settings svg{width:25px;height:25px}
