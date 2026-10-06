@@ -55,11 +55,12 @@ assert.ok(Date.now()-warmingStart<1000,'slow legacy bootstrap does not block rap
 console.log(`Cache-warming recovery with 3-second legacy read: ${Date.now()-warmingStart}ms`);
 console.log(`Foreground recovery with slow account reads: ${restoreMs}ms`);
 const streaming=await page.evaluate(async({base})=>{
- const chart=document.getElementById('chart').contentWindow,old=chart.receive,times=[];let started;
+ const chart=document.getElementById('chart').contentWindow,old=chart.receive,oldConfigure=chart.configure,times=[];let started,configures=0;chart.configure=value=>{configures++;return oldConfigure(value);};
  chart.receive=packet=>{old(packet);if(started!==undefined)times.push(performance.now()-started);};
  for(let i=0;i<100;i++){started=performance.now();streams.at(-1).send({...base,interval:15,server_time:Date.now()/1000,sequence:i+1,mode:i?'delta':'snapshot',bars:[{...base.bars[0],close:110+i/100,high:112}]});await new Promise(r=>setTimeout(r,10));}
- chart.receive=old;return {updates:times.length,max_ms:Math.max(...times)};
+ chart.receive=old;chart.configure=oldConfigure;return {updates:times.length,configures,max_ms:Math.max(...times)};
 },{base});
+assert.ok(streaming.configures<10,'tick delivery does not repeatedly reconfigure the trading panel');
 assert.equal(streaming.updates,100,'all continuous pushed updates reach the renderer without one-second batching');
 assert.equal(await cf.evaluate(()=>previous.at(-1).close),110.99);
 console.log('Continuous push renderer delivery:',streaming);

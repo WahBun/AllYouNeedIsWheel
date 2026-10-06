@@ -46,7 +46,6 @@ class Subscriber:
 class ChartStreams:
     def __init__(self):
         self.clients = {}
-        self.maintenance = {}
 
     def open(self, connection, con_id, minutes, session, include_pnl=False):
         state = stock_chart.states.get(con_id)
@@ -127,17 +126,10 @@ class ChartStreams:
                 state['conn'].get_market_ticker(state['contract'])
             state['conn'].ib.sleep(.005)
             self.publish_changed(state)
-            if not clients: continue
-            generation,retry=self.maintenance.get(cid,(None,0))
-            if (now-min(s.created for s in clients)>2
-                    and (generation!=state['generation'] or
-                         (now>=retry and (not state.get('backfilled') or not state.get('price_rules'))))):
-                self.maintenance[cid]=(state['generation'],now+30)
-                first=clients[0]
-                stock_chart.snapshot(state['conn'],cid,first.minutes,first.session)
-                for sub in clients:
-                    sub.publish(self.with_pnl(stock_chart.packet(state,sub.minutes,sub.session),state['conn'],sub))
-        self.maintenance={cid:value for cid,value in self.maintenance.items() if cid in stock_chart.states}
+            # The live pump must never start historical requests. Initial bars
+            # load in open(); older bars load through explicit history paging.
+            # Retrying a failed 5-day backfill here stalled quotes every 30s.
+
 
 
 streams = ChartStreams()

@@ -105,3 +105,19 @@ class ChartPushTests(unittest.TestCase):
             self.assertEqual(second.queue.get_nowait()['con_id'],8)
             feed.snapshot.assert_not_called()
             conn.ib.placeOrder.assert_not_called()
+
+    def test_live_pump_never_retries_slow_history_maintenance(self):
+        from unittest.mock import Mock, patch
+        from api.services.chart_stream import ChartStreams
+        hub=ChartStreams();conn=Mock();conn.is_connected.return_value=True
+        state=dict(con_id=7,conn=conn,contract=7,ticker=object(),generation='g',ticks=0,quotes={})
+        conn.ib.ticker.return_value=state['ticker']
+        with patch('api.services.chart_stream.stock_chart') as feed:
+            feed.states={7:state};feed.packet.return_value=self.packet()
+            _,sub=hub.open(conn,7,5,'all');sub.created-=120
+            # Missing backfill/rules used to initiate blocking 5-second requests.
+            sub.created+=20
+            for _ in range(3):hub.pulse()
+            feed.snapshot.assert_not_called()
+            conn.ib.reqHistoricalData.assert_not_called()
+            self.assertFalse(sub.closed)

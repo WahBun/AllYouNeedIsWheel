@@ -169,7 +169,7 @@ function mergeHistory(bars){
  historyCaches.set(key,merged);if(historyCaches.size>12)historyCaches.delete(historyCaches.keys().next().value);return {...bars,bars:merged,mode:'snapshot'};
 }
 async function loadHistory(body){if(historyLoading||busy||body.con_id!==cid||body.interval!==interval||body.session!==session||!epoch)return;const token=generation,key=historyKey(),requestKey=key+':'+body.before;if(Date.now()<(historyRetry.get(requestKey)||0))return;if((historyCaches.get(key)?.length||0)>=20000){$('market-status').textContent='History limit reached · use a longer interval';return;}historyLoading=true;historyRetry.set(requestKey,Date.now()+30000);$('market-status').textContent='Loading earlier history…';try{const page=await api(`portfolio/stock-chart-history/${cid}?interval=${interval}&session=${session}&before=${body.before}`);if(token!==generation||key!==historyKey())return;const rows=new Map((page.bars||[]).map(b=>[b.time,b]));for(const b of packet.bars||[])rows.set(b.time,b);packet={...packet,mode:'snapshot',bars:[...rows.values()].sort((a,b)=>a.time-b.time)};historyCaches.set(key,packet.bars);frame.contentWindow.receive(packet);$('market-status').textContent=page.bars?.length?'Earlier history loaded':'No earlier bars returned; retry later';}catch(error){if(token===generation)$('market-status').textContent=error.message;}finally{historyLoading=false;}}
-let marketBusy=null,marketRevision=0,pnlBusy=false,lastFallback=0,lastPnL=0;
+let marketBusy=null,marketRevision=0,pnlBusy=false,lastFallback=0,lastPnL=0,quoteConfigKey="";
 const marketContext=()=>({cid,interval,session,epoch,generation});
 const currentMarket=c=>JSON.stringify(c)===JSON.stringify(marketContext());
 const marketStream=new WheelChartStream({receive:(bars,context)=>{if(currentMarket(context)){marketRevision++;applyMarket(bars,true);}},status:message=>{if(!switchingChart&&!marketReadError)$('market-status').textContent=message;}});
@@ -186,7 +186,10 @@ function applyMarket(bars,push=false){
  frame.contentWindow.receive(bars.mode==='delta'&&!switchingChart?bars:packet);
  switchingChart=false;frame.style.opacity='';frame.style.pointerEvents='';frame.removeAttribute('aria-busy');
  $('market-status').textContent=(bars.message||(bars.status==='waiting'?'Historical bars · waiting for IB last ticks':bars.status)||'')+(push?' · SSE push':' · Snapshot refresh');
- sync();
+ // Quotes update the chart above. Reconfigure orders/indicators only when their
+ // contract metadata changes; order-state and user edits still sync immediately.
+ const nextConfig=JSON.stringify([cid,bars.generation,interval,session,bars.security_type,bars.multiplier,bars.price_rules]);
+ if(nextConfig!==quoteConfigKey){quoteConfigKey=nextConfig;sync();}else if(pushedPnL)renderDailyPnL();
 }
 let legacyMarket=null,legacyStarted=0,legacyContext=null;
 async function refreshLegacyMarket(context){

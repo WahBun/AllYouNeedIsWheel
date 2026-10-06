@@ -671,3 +671,8 @@ amendments were not exercised; existing user orders were not modified for tests.
 - User video and Mini logs showed blank first-load charts after repeated 5-second IB historical-data cancellations. Cold history now has a 15-second budget, coordinated with 20-second initial SSE/bootstrap waits; established-stream watchdog and fast quote reads retain their short recovery intervals.
 - Keep the concrete bootstrap error visible until valid chart data arrives instead of replacing it with a generic reconnect message.
 - 548 backend tests, cold-stream watchdog regression and web quote recovery tests passed. Tests do not submit broker orders.
+
+### Continuous stream stutter follow-up
+- Live capture observed a 4.8-second server emission gap alongside recurring history-request timeouts. Removed automatic historical backfill/retry from the live stream pump; cold initialization and explicit older-history paging remain available.
+- Quote events no longer reconfigure the complete trading/indicator UI unless contract metadata changes. Order updates and user edits still synchronize immediately.
+- 549 backend tests passed. Browser checks cover 100 continuous updates with only one configuration pass, foreground recovery, trading lifecycle, and 1,000 tail updates plus immediate first-trade rollover without a full series reset. Real feed gaps are not disguised with synthetic candles.
