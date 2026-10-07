@@ -89,3 +89,24 @@ Separately, the two-contract AAPL TP amendment using a fresh near-bid exit price
 filled both contracts and canceled the SL counterpart, leaving no test position.
 The earlier extreme-price amendment nonfill is not explained by this successful
 near-market case; it remains separately recorded rather than erased.
+
+## Retained coverage and successful standalone OCA retest
+
+User authorized buying and retaining another 100 QQQ shares in Paper. One Add
+order filled 100; total QQQ coverage is now 200 shares, retained after testing.
+Restored terminal entry history now allows unprotected Add only when its signed
+confirmed fills reconcile with the current position; mismatch remains blocked.
+
+Standalone OCA exits now explicitly transmit each member with common OCA type 2.
+576 backend regressions passed before deployment. Actual QQQ CC test then passed:
+one short call filled, Add one filled (two covered by 200 shares), attach TP/SL
+with quantities two each, cancel both, Trim by buying one, Close by buying one.
+A second one-call CC test attached both exits, amended the TP near current ask,
+and actually filled the TP; the OCA SL was canceled. Both tests ended flat with no
+working option orders and retained QQQ 200 / SGOV 1000. No Live writes occurred.
+
+Standalone protection amount projection fields were absent in these actual CC
+responses; amount display is NOT certified. Protected Trim, actual single-order
+partial fills and isolated in-flight disconnection remain outstanding. Stock and
+option fresh-ticket protection defaults are off; explicit saved user choices are
+preserved. Native source updated only, not built/installed on the phone this run.

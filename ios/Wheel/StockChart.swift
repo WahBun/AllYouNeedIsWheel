@@ -293,8 +293,9 @@ struct StockChartView: View {
     @State private var positionProtectionCID: Int?
     @AppStorage("chartProtectionOptionsV14") private var protectionOptions = "{}"
     private func protectionOption(_ type: String, _ key: String) -> String? {
-        guard let data = protectionOptions.data(using: .utf8), let values = try? JSONDecoder().decode([String: String].self, from: data) else { return nil }
-        return values[type + key]
+        let fallback: String? = ["STK", "OPT"].contains(type) && ["tp", "sl"].contains(key) ? "off" : nil
+        guard let data = protectionOptions.data(using: .utf8), let values = try? JSONDecoder().decode([String: String].self, from: data) else { return fallback }
+        return values[type + key] ?? fallback
     }
     private func saveProtectionOption(_ type: String, _ key: String, _ value: String) {
         var values = (try? JSONDecoder().decode([String: String].self, from: Data(protectionOptions.utf8))) ?? [:]
