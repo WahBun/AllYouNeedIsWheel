@@ -25,6 +25,34 @@ class PaperChartTests(unittest.TestCase):
         self.conn.ib.cancelOrder.side_effect=lambda o:setattr(next(t for t in self.trades if t.order.orderId==o.orderId).orderStatus,'status','Cancelled')
         self.resolve=patch('api.services.paper_chart.contracts.resolve',return_value=self.contract);self.resolve.start()
         self.feed=patch('api.services.paper_chart.stock_chart.active',{'con_id':7,'price_rules':[{'low':0,'increment':.25}]});self.feed.start()
+    def test_missing_historical_fills_uses_whole_broker_position_cost(self):
+        self.submit()
+        self.trades[0].orderStatus.status='Filled'
+        self.trades[0].orderStatus.filled=1
+        self.trades[0].orderStatus.avgFillPrice=10
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=400,avgCost=756.680103)]
+        state=self.service.state(self.conn,7)
+        self.assertAlmostEqual(state['entry'],756.680103)
+        self.assertEqual(state['entry_source'],'broker_average_cost')
+        self.assertFalse(state['add_allowed']) # unrelated holdings are not owned
+
+    def test_missing_option_fills_normalizes_broker_multiplier(self):
+        self.submit()
+        self.contract.secType='OPT';self.contract.multiplier='100'
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=-2,avgCost=145.5)]
+        state=self.service.state(self.conn,7)
+        self.assertEqual(state['entry'],1.455)
+        self.assertEqual(state['entry_source'],'broker_average_cost')
+
+    def test_missing_fills_and_invalid_broker_basis_never_shows_first_entry(self):
+        self.submit()
+        self.trades[0].orderStatus.avgFillPrice=10
+        for invalid in (0,float('nan'),float('inf')):
+            self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=4,avgCost=invalid)]
+            state=self.service.state(self.conn,7)
+            self.assertEqual(state['entry'],0)
+            self.assertEqual(state['entry_source'],'unknown')
+
     def test_warning_waits_for_broker_without_replay(self):
         original=self.conn.ib.placeOrder.side_effect
         def warning(c,o):
@@ -341,7 +369,7 @@ class PaperChartTests(unittest.TestCase):
     def test_be_requires_fill_and_preserves_better_stop(self):
         self.submit()
         self.assertFalse(self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='be'))['success'])
-        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=1)]
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=1,avgCost=10)]
         self.trades[0].orderStatus.avgFillPrice=10;self.trades[0].orderStatus.status='Filled'
         r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='be'));self.assertTrue(r['success'])
         self.assertEqual(self.trades[2].order.auxPrice,10.25)
@@ -371,7 +399,7 @@ class ProtectedLotTests(unittest.TestCase):
         self.submit(quantity=4)
         for t in self.trades:
             if not t.order.parentId:t.orderStatus.status='Filled';t.orderStatus.filled=1;t.orderStatus.avgFillPrice=10
-        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=4)]
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=4,avgCost=50)]
         self.conn.ib.placeOrder.reset_mock();self.conn.ib.cancelOrder.reset_mock()
     def resize_request(self, state, quantity):
         return dict(request_id=str(uuid4()),action='resize_trim',quantity=quantity,

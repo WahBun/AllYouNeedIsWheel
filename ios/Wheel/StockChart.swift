@@ -855,6 +855,13 @@ struct StockChartView: View {
     @State private var adjustmentAction = ""
     @State private var adjustmentQuantity = 1
     @State private var showAdjustment = false
+    @State private var adjustmentRef = ""
+    @State private var adjustmentCID: Int?
+    private var canAdd: Bool { paperState["add_allowed"] as? Bool ?? (paperState["scalable"] as? Bool == true) }
+    private var canTrim: Bool { paperState["trim_allowed"] as? Bool ?? (paperState["scalable"] as? Bool == true) }
+    private var adjustmentAllowed: Bool {
+        paperEnabled && !paperBusy && paperState["known"] as? Bool == true && positionSize > 0 && (adjustmentAction == "trim" ? canTrim : canAdd)
+    }
     private var positionSize: Int { Int(abs(paperState["position"] as? Double ?? 0)) }
     private var adjustmentLimit: Int { adjustmentAction == "trim" ? min(max(0, positionSize - 1), (paperState["trim_available"] as? NSNumber)?.intValue ?? positionSize) : Int.max }
     @State private var showDisplaySettings = false
@@ -1061,9 +1068,9 @@ struct StockChartView: View {
                     }
                     ChartPositionActionsLayout {
                         Menu {
-                            Button("Add contracts") { adjustmentAction = "add"; adjustmentQuantity = 1; showAdjustment = true }
-                            Button("Trim contracts") { adjustmentAction = "trim"; adjustmentQuantity = 1; showAdjustment = true }.disabled(positionSize < 2 || ((paperState["trim_available"] as? NSNumber)?.intValue ?? positionSize) < 1)
-                        } label: { Image(systemName: "plus.forwardslash.minus").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.accessibilityLabel("Add or trim contracts").disabled(!paperEnabled || paperBusy || positionSize == 0 || paperState["known"] as? Bool != true || paperState["scalable"] as? Bool != true)
+                            Button("Add contracts") { adjustmentAction = "add"; adjustmentQuantity = 1; adjustmentRef = paperState["order_ref"] as? String ?? ""; adjustmentCID = chartID; showAdjustment = true }.disabled(!canAdd)
+                            Button("Trim contracts") { adjustmentAction = "trim"; adjustmentQuantity = 1; adjustmentRef = paperState["order_ref"] as? String ?? ""; adjustmentCID = chartID; showAdjustment = true }.disabled(!canTrim || positionSize < 2 || ((paperState["trim_available"] as? NSNumber)?.intValue ?? positionSize) < 1)
+                        } label: { Image(systemName: "plus.forwardslash.minus").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.accessibilityLabel("Add or trim contracts").disabled(!paperEnabled || paperBusy || positionSize == 0 || paperState["known"] as? Bool != true || (!canAdd && !canTrim))
                         Button { if paperEnabled { paperAction(["action": "close"]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.65).frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || paperState["position_only"] as? Bool == true || paperState["closing"] as? Bool == true || (paperEnabled ? !paperActive : validEntry <= 0))
                         Button { if paperEnabled { paperAction(["action": "be"]) } else { beRevision += 1 } } label: { Text("BE").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(paperBusy || (paperEnabled && ((paperState["position"] as? Double ?? 0) == 0 || (paperState["sl"] as? Double ?? 0) <= 0)) || (!paperEnabled && protectionOption(chartType, "sl") == "off") || beApplied || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
                     }
@@ -1181,9 +1188,10 @@ struct StockChartView: View {
                     TextField("Quantity", value: $adjustmentQuantity, format: .number.grouping(.never)).keyboardType(.numberPad)
                     Text("Futures use one protected bracket per contract. Add creates new brackets. Trim exits selected contracts at bid/ask while keeping every other bracket unchanged.").font(.caption)
                     Button(adjustmentAction == "trim" ? "Trim position" : "Add to position") {
+                        guard adjustmentAllowed, adjustmentCID == chartID, adjustmentRef == paperState["order_ref"] as? String else { return }
                         showAdjustment = false
-                        paperAction(["action": adjustmentAction, "quantity": adjustmentQuantity, "expected_ref": paperState["order_ref"] ?? ""])
-                    }.disabled(paperBusy || adjustmentQuantity < 1 || adjustmentLimit < adjustmentQuantity)
+                        paperAction(["action": adjustmentAction, "quantity": adjustmentQuantity, "expected_ref": adjustmentRef, "expected_position": paperState["position"] ?? 0])
+                    }.disabled(!adjustmentAllowed || adjustmentCID != chartID || adjustmentRef != paperState["order_ref"] as? String || adjustmentQuantity < 1 || adjustmentLimit < adjustmentQuantity)
                 }.navigationTitle(adjustmentAction == "trim" ? "Trim" : "Add")
                     .toolbar { Button("Cancel") { showAdjustment = false } }
             }.presentationDetents([.medium])

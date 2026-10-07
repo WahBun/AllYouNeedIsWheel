@@ -267,11 +267,15 @@ class PaperChart:
         if result['position']:
             # Broker avgCost includes commission for futures. Use actual fills for
             # the chart's price basis, retaining average cost through trims.
-            events = {}
+            events = {}; complete = True
             for oid in group['ids'].values():
                 trade = trades.get(oid)
-                if not trade: continue
-                for f in trade_fills(trade):
+                if not trade:
+                    complete = False
+                    continue
+                fills = trade_fills(trade)
+                if sum(float(f.execution.shares) for f in fills) + .000001 < float(trade.orderStatus.filled): complete = False
+                for f in fills:
                     events[f.execution.execId] = (f.time, f.execution.execId, trade.order.action, float(f.execution.shares), float(f.execution.price))
             size = abs(group.get('origin_position',0)); cost = size*group.get('origin_entry',0)
             for _, _, action, quantity, fill_price in sorted(events.values()):
@@ -279,8 +283,22 @@ class PaperChart:
                     size += quantity; cost += quantity * fill_price
                 elif size and quantity <= size:
                     cost -= cost * quantity / size; size -= quantity
-            if size and abs(size - abs(result['position'])) < .000001: result['entry'] = cost / size
-        result['be_applied']=bool(result['position'] and result['sl']>0 and result['side']*(result['sl']-result['entry'])>0)
+            if complete and size and abs(size - abs(result['position'])) < .000001:
+                result['entry'] = cost / size
+                result['entry_source'] = 'executions'
+            else:
+                # Reconnects can retain order totals while historical executions
+                # are no longer available. Never pair the first entry's price
+                # with the whole current position. IB avgCost is authoritative
+                # for that position and includes commissions.
+                try:
+                    multiplier = float(position.contract.multiplier or (1 if position.contract.secType == 'STK' else 0))
+                    basis = abs(float(position.avgCost)) / multiplier if multiplier > 0 else 0
+                except (AttributeError, TypeError, ValueError, ZeroDivisionError):
+                    basis = 0
+                result['entry'] = basis if math.isfinite(basis) and basis > 0 else 0
+                result['entry_source'] = 'broker_average_cost' if result['entry'] else 'unknown'
+        result['be_applied']=bool(result['position'] and result['entry']>0 and result['sl']>0 and result['side']*(result['sl']-result['entry'])>0)
         result['rejected']=any(r['status']=='Inactive' and '_retired_' not in r['role'] for r in rows)
         result['protection'] = self.protection_progress(rows, result['position'], group.get('lots'))
         protective = [r for r in rows if r['role'].split('_')[0] in ('tp', 'sl')]
@@ -1547,6 +1565,7 @@ class PaperChart:
             if not trade or trade.isDone(): raise ValueError('Exit order is no longer working')
             if action=='be':
                 if not current['position']: raise ValueError('BE requires a filled position')
+                if not math.isfinite(current['entry']) or current['entry'] <= 0: raise ValueError('Wait for a valid position cost basis')
                 base=current['entry']; chart_state=stock_chart.states.get(cid) or stock_chart.active
                 rules=chart_state.get('price_rules',[]) if chart_state and chart_state['con_id']==cid else []
                 ticks=[r['increment'] for r in rules if r['low']<=base]
