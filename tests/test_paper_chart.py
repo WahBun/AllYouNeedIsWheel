@@ -68,6 +68,27 @@ class PaperChartTests(unittest.TestCase):
         self.assertFalse(result['success'])
         self.assertEqual(self.conn.ib.placeOrder.call_count,before)
 
+    def test_submit_transport_loss_reconciles_exact_open_order_without_replay(self):
+        body,result=self.submit(tp=None,sl=None)
+        request_id=body['request_id']
+        with self.service.database() as db:
+            db.execute('UPDATE chart_paper_requests SET result=? WHERE id=?', ('{"success":false,"status":"unknown"}',request_id))
+        writes=self.conn.ib.placeOrder.call_count
+        self.assertTrue(self.service.request_status(self.conn,7,request_id)['confirmed'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+
+    def test_submit_loss_missing_bracket_leg_or_changed_price_stays_unknown(self):
+        body,_=self.submit()
+        request_id=body['request_id']
+        with self.service.database() as db:
+            db.execute('UPDATE chart_paper_requests SET result=? WHERE id=?', ('{"success":false,"status":"unknown"}',request_id))
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw:self.trades[:1]
+        self.assertFalse(self.service.request_status(self.conn,7,request_id)['confirmed'])
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw:self.trades
+        self.trades[0].order.lmtPrice+=1
+        self.assertFalse(self.service.request_status(self.conn,7,request_id)['confirmed'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count,3)
+
     def test_warning_waits_for_broker_without_replay(self):
         original=self.conn.ib.placeOrder.side_effect
         def warning(c,o):

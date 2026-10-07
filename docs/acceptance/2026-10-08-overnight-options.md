@@ -50,3 +50,20 @@ position-outside-group reason. Both test executions filled, final option flat,
 no pending orders; QQQ 400 and SGOV 1000 unchanged. This does not certify every
 external fill race. Protected aggregate Trim, sustained partial fills and isolated
 in-flight Gateway interruption remain outstanding.
+
+## In-flight Gateway API TCP interruption
+
+An isolated real Paper client 179 used the production PaperChart service and a
+private journal. A loopback TCP relay forwarded the placeOrder frame to port4002,
+then closed both socket directions before delivering the broker reply. Main
+backend/client71 and Gateway session remained running. One covered far-limit call
+was actually accepted; execute returned unknown as required. After reconnecting
+client179, IB returned exactly one matching order, but request_status incorrectly
+remained unknown: submit lacked a reconciliation branch for transport exceptions.
+The test order was canceled by exact UUID ref, option flat and QQQ400/SGOV1000
+unchanged. No replay. Evidence /tmp/wheel-gateway-cut-4743b670-034d-49e9-961b-1a7fa9685fc9 on Mini.
+
+Fix resolves only a complete fresh working-order snapshot matching stored IDs,
+request ref, account, contract, sides, types, quantities, prices and TIF. Missing
+legs or changed prices remain unknown and no write is sent by recovery. 597
+backend tests passed. Actual post-fix TCP-cut repetition pending.

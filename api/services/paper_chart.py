@@ -557,6 +557,30 @@ class PaperChart:
                 db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
                     (json.dumps(dict(success=status != 'rejected', status=status)), request_id, account))
             return dict(confirmed=True, status=status)
+        if body.get('action') == 'submit' and group.get('ref') == 'WheelPaper:' + request_id:
+            # Transport loss after sending is not broker rejection. Resolve only
+            # a complete, exact fresh broker snapshot; never send missing legs.
+            ids = group.get('ids', {})
+            working = {t.order.orderId:t for t in authoritative
+                if t.order.account == account and t.contract.conId == cid
+                and t.order.orderRef == group['ref']
+                and t.orderStatus.status in ('Submitted','PreSubmitted')}
+            if ids and set(ids.values()) <= set(working):
+                matches = True
+                totals = {}
+                for role, oid in ids.items():
+                    leg = role.split('_')[0]; trade = working[oid]; order = trade.order
+                    totals[leg] = totals.get(leg, 0) + float(order.totalQuantity)
+                    kind = body.get('entry_type','LMT') if leg == 'entry' else 'LMT' if leg == 'tp' else 'STP'
+                    expected_price = body.get('entry') if leg == 'entry' else body.get(leg)
+                    actual_price = order.auxPrice if kind == 'STP' else order.lmtPrice
+                    action = 'BUY' if (body.get('side') == 1) == (leg == 'entry') else 'SELL'
+                    matches = matches and leg in ('entry','tp','sl') and order.action == action and order.orderType == kind
+                    matches = matches and (kind == 'MKT' or actual_price == expected_price)
+                    matches = matches and order.tif == (body.get('tif','DAY') if leg == 'entry' else 'GTC')
+                expected_legs = {'entry'} | {leg for leg in ('tp','sl') if body.get(leg) is not None}
+                if matches and set(totals) == expected_legs and all(q == body.get('quantity') for q in totals.values()):
+                    return resolved('reconciled')
         if result.get('awaiting_broker'):
             original = result.get('state', {})
             expected = {r['order_id'] for r in original.get('orders', [])}
