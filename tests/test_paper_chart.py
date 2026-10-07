@@ -41,6 +41,27 @@ class PaperChartTests(unittest.TestCase):
         self.assertTrue(self.service.request_status(self.conn,7,request_id)['confirmed'])
         self.assertEqual(self.conn.ib.placeOrder.call_count,calls)
 
+    def test_unfilled_stock_protection_is_contingent(self):
+        self.submit()
+        state=self.service.state(self.conn,7)
+        self.assertEqual(state['protection']['tp'],0)
+        self.assertEqual(state['protection']['sl'],0)
+        self.assertEqual(state['protection']['pending_entry_tp'],1)
+        self.assertEqual(state['protection']['pending_entry_sl'],1)
+
+    def test_completed_close_not_rejected_by_historical_inactive_add(self):
+        state=dict(known=True,position=0,active=False,rejected=True,
+                   close_progress=dict(status='completed'))
+        with patch.object(self.service,'perform'), patch.object(self.service,'state',return_value=state):
+            result=self.service.execute(self.conn,7,dict(action='close',request_id=str(uuid4())))
+        self.assertTrue(result['success'])
+        self.assertEqual(result['status'],'acknowledged')
+        self.assertTrue(result['state']['rejected'])
+        state['position']=1
+        with patch.object(self.service,'perform'), patch.object(self.service,'state',return_value=state):
+            result=self.service.execute(self.conn,7,dict(action='close',request_id=str(uuid4())))
+        self.assertFalse(result['success'])
+
     def test_market_order_does_not_expose_unset_price(self):
         self.submit()
         self.trades[0].order.orderType='MKT'

@@ -391,6 +391,12 @@ class PaperChart:
     @staticmethod
     def protection_progress(rows, position, lots=None):
         contingent = {'tp': 0, 'sl': 0}
+        if not lots:
+            # Stock brackets have one parent rather than per-contract lots.
+            parent = next((r for r in rows if r['role'] == 'entry'), None)
+            if parent and parent['filled'] == 0:
+                lots = [dict(entry=parent['order_id'], **{r['role']: r['order_id']
+                    for r in rows if r['role'] in ('tp', 'sl')})]
         if lots:
             by_id = {r['order_id']: r for r in rows}
             held = set()
@@ -594,6 +600,12 @@ class PaperChart:
                 self.save_group(account, cid, group)
             state=self.state(conn,cid)
             result=dict(success=not state.get('rejected',False),status='rejected' if state.get('rejected') else 'acknowledged',message='IB rejected a paper order; review Gateway' if state.get('rejected') else 'Paper request sent; broker status shown on chart',state=state)
+            # A prior rejected Add must not turn a broker-confirmed flat close
+            # into a rejection. Keep the historical rejection visible in state.
+            if (body.get('action') == 'close' and state.get('known')
+                    and not state.get('position') and not state.get('active')
+                    and state.get('close_progress', {}).get('status') == 'completed'):
+                result.update(success=True, status='acknowledged', message='Paper close completed; broker position is flat')
             if state.get('broker_pending') and not state.get('rejected'):
                 result.update(success=False, status='unknown', awaiting_broker=True,
                     message='Request sent; awaiting broker confirmation. Do not resubmit.')
