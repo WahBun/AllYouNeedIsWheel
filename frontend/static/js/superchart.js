@@ -126,7 +126,7 @@ function renderTradingContext(){
  note.textContent=size?(zh?'改价：Enter 或离开输入框 · 增删保护：管理 TP / SL':'Edit: Enter or leave field · Add/remove: Manage TP / SL'):(zh?'独立可选 · GTC 退出单':'Optional · GTC exit orders');
  const progress=state.close_progress;
  const plan=$('exit-plan');plan.hidden=!exits.length&&!progress&&!pendingEntry;plan.replaceChildren();
- if(pendingEntry){const line=document.createElement('div');line.textContent=zh?'有待成交加仓单；减仓仅使用已成交且未分配的持仓。':'Add orders pending; Trim uses only filled, unreserved units.';plan.append(line);}
+ if(pendingEntry){const line=document.createElement('div');line.textContent=zh?'有待成交入场单；减仓仅使用已成交且未分配的持仓。':'Entry orders pending; Trim uses only filled, unreserved units.';plan.append(line);}
  if(progress){const line=document.createElement('strong');line.textContent=(progress.status==='completed'?(zh?'已平仓':'Position closed'):(zh?'平仓进度':'Closing progress'))+' · '+(zh?'已成交 ':'Filled ')+progress.filled+' / '+progress.requested+' · '+(zh?'剩余持仓 ':'Position remaining ')+progress.remaining+' · '+progress.status;plan.append(line);}
 
  if(exits.length){const title=document.createElement('strong');title.textContent=zh?'当前退出安排':'Working exit plan';plan.append(title);
@@ -146,14 +146,14 @@ $('preview').disabled=!cid||busy||switchingChart||state.active;for(const id of [
 const cancelAddButtons=new Map();
 function renderPendingAdds(can){
  let list=$('pending-adds');if(!list){list=document.createElement('div');list.id='pending-adds';list.style.cssText='display:grid;gap:6px;max-height:160px;overflow:auto';$('adjustment-control').after(list);}
- const rows=(state.orders||[]).filter(o=>/^entry_/.test(o.role)&&(o.entry_kind==='add'||state.position)&&!o.filled&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status));
+ const rows=(state.orders||[]).filter(o=>o.role.split('_')[0]==='entry'&&(o.entry_kind==='add'||state.position)&&!o.filled&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status));
  const keys=new Set(rows.map(o=>`${epoch}:${cid}:${state.order_ref}:${o.order_id}`));
  for(const [key,b] of cancelAddButtons)if(!keys.has(key)){b.remove();cancelAddButtons.delete(key);}
  for(const row of rows){const key=`${epoch}:${cid}:${state.order_ref}:${row.order_id}`;let b=cancelAddButtons.get(key);
   if(!b){b=document.createElement('button');const ref=state.order_ref,selected=cid,accountEpoch=epoch;
    b.onclick=()=>{if(selected===cid&&accountEpoch===epoch&&ref===state.order_ref)write({action:'cancel_add',order_id:row.order_id,expected_ref:ref});};list.append(b);cancelAddButtons.set(key,b);}
-  const zh=document.documentElement.lang==='zh';b.textContent=`${row.status==='PendingCancel'?(zh?'撤单确认中':'Canceling'):(row.entry_kind==='entry'?(zh?'入场待成交':'Pending entry'):row.entry_kind==='unknown'?(zh?'撤销待成交单':'Cancel pending entry'):(zh?'撤销加仓':'Cancel add'))} #${row.order_id} · ${row.quantity} @ ${row.price}`;
-  b.disabled=row.entry_kind==='entry'||!can||!['Submitted','PreSubmitted'].includes(row.status);
+  const zh=document.documentElement.lang==='zh';b.textContent=`${row.status==='PendingCancel'?(zh?'撤单确认中':'Canceling'):(row.entry_kind==='entry'?(zh?'撤销剩余入场':'Cancel remaining entry'):row.entry_kind==='unknown'?(zh?'撤销待成交单':'Cancel pending entry'):(zh?'撤销加仓':'Cancel add'))} #${row.order_id} · ${row.quantity} @ ${row.price}`;
+  b.disabled=!can||!['Submitted','PreSubmitted'].includes(row.status);
  }
  list.hidden=!rows.length;
 }
@@ -191,7 +191,7 @@ function applyMarket(bars,push=false){
  // Quotes update the chart above. Reconfigure orders/indicators only when their
  // contract metadata changes; order-state and user edits still sync immediately.
  const nextConfig=JSON.stringify([cid,bars.generation,interval,session,bars.security_type,bars.multiplier,bars.price_rules]);
- if(nextConfig!==quoteConfigKey){quoteConfigKey=nextConfig;sync();}else if(pushedPnL)renderDailyPnL();
+ if(nextConfig!==quoteConfigKey){quoteConfigKey=nextConfig;sync();if($('protection-editor').open&&protectionContext?.cid===cid)estimateProtection();}else if(pushedPnL)renderDailyPnL();
 }
 let legacyMarket=null,legacyStarted=0,legacyContext=null;
 async function refreshLegacyMarket(context){
@@ -294,7 +294,7 @@ $('edit-qty').max=packet.security_type==='STK'?1000:10;$('edit-qty').value=state
 $('edit-tif').replaceChildren(...(state.active?state.allowed_tifs||['DAY','GTC']:allowed()).map(x=>new Option(x==='OVERNIGHT'?'OVT':x,x)));$('edit-tif').value=state.active?state.tif:$('tif').value;$('remove-protection').checked=false;$('editor').showModal();}
 function action(body){if(body.con_id!==cid)return;switch(body.action){case 'cancelProtectionPreview':if(body.expected_ref!==state.order_ref)return;if(confirm((body.role==='tp'?'Cancel ordinary TP exits; keep Trim / Close plans':body.role==='sl'?'Cancel stop-loss protection':'Cancel both TP and SL')+'? Position remains open. Check remaining orders after cancellation.'))write({action:'cancel_protection',role:body.role,expected_ref:body.expected_ref,confirm_remove_protection:true});return;case 'submitBlocked':log(tradingBlockReason());return;case 'indicatorSettings':settings('indicators');return;case 'indicatorCollapse':saveDisplay({...display,indicatorCollapsed:body.collapsed});return;case 'indicatorToggle':saveDisplay({...display,indicatorVisible:display.indicatorVisible===false});return;case 'previewOrder':entry=body.entry;$('type').value=body.entry_type;sync();return;case 'setQuantity':$('quantity').value=body.quantity;sync();return;case 'editQuantity':case 'editOrderSettings':openEditor(body);return;case 'close':close();return;case 'submit':if(state.active)return;if($('tif').value==='OVERNIGHT'){if(body.entry_type!=='LMT'||!allowed().includes('OVERNIGHT'))return log('OVT requires a USD stock limit order.');body={...body,mode:'overnight_entry'};delete body.tp;delete body.sl;}body.tif=$('tif').value;break;}write(body);}
 function close(){write(!state.position&&state.entry_editable?{action:'edit_entry',cancel:true,expected_ref:state.order_ref,expected_snapshot:state.edit_snapshot}:{action:'close',expected_ref:state.order_ref});}
-document.addEventListener('pointerup',event=>{if(ready)frame.contentWindow.finishWebProtectionDrag?.(event.pointerId);},true);
+document.addEventListener('pointerup',event=>{if(ready){frame.contentWindow.finishWebProtectionDrag?.(event.pointerId);frame.contentWindow.finishEntryDrag?.(event.pointerId);}},true);
 document.addEventListener('keydown',event=>{if(!event.repeat&&(event.metaKey||event.ctrlKey)&&event.shiftKey&&!event.altKey&&event.code==='KeyS'){event.preventDefault();frame.contentWindow.copyChartImage?.();return;}if(ready&&!event.repeat&&event.shiftKey&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&event.code==='KeyF'&&!event.target.closest('input,textarea,select,[contenteditable=true]')&&!document.querySelector('dialog[open]')){event.preventDefault();$('fullscreen').click();return;}if(!ready||event.repeat||event.target.closest('input,textarea,select,[contenteditable=true]')||document.querySelector('dialog[open]'))return;});
 window.addEventListener('message',event=>{if(event.origin!==location.origin||event.source!==frame.contentWindow||!event.data?.wheelChart)return;const {name,body}=event.data;if(name==='chartReady'){frame.contentWindow.addEventListener('focus',resumeMarket);ready=true;sync();const id=Number(new URL(location).searchParams.get('con_id'));if(id>0)select(id);else refresh();}else if(name==='historyRequest')loadHistory(body);else if(name==='paperAction')action({...body,clientReleasedAt:event.data.sentAt});else if(name==='chartDiagnostic'){const message=`${body.role?.toUpperCase()||'Order'} drag: ${body.message}`;(body.interrupted?log:trace)(message);}else if(name==='entryChanged'){entry=body;}else if(name==='drawingsChanged'&&cid){const expected=`web:${location.origin}:${cid}`;if(body.key===expected)localStorage.setItem(`wheel.drawings:${cid}`,JSON.stringify(body));}});
 window.installOptionSearch({api,select,symbol:()=>packet.symbol||$('symbol').value,canSelect:()=>!busy});

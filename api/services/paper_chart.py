@@ -441,6 +441,16 @@ class PaperChart:
                 db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
                     (json.dumps(dict(success=status != 'rejected', status=status)), request_id, account))
             return dict(confirmed=True, status=status)
+        if body.get('action')=='close' and state['known']:
+            cancellation=group.get('close_cancellation',{})
+            if cancellation.get('request_id')==request_id:
+                rows={r['order_id']:r for r in state['orders']}
+                if all(rows.get(oid,{}).get('status') in ('Filled','Cancelled','ApiCancelled')
+                       for oid in cancellation['parents']):
+                    # Only the cancellation phase ran. Release the uncertainty lock;
+                    # never send the remaining close writes from a status read.
+                    group.pop('close_cancellation',None);self.save_group(account,cid,group)
+                    return resolved('reconciled')
         if body.get('action')=='resize_trim' and state['known'] and group.get('ref')==body.get('expected_ref'):
             operation=group.get('pending_resize',{})
             if operation.get('id')==request_id:
@@ -481,7 +491,7 @@ class PaperChart:
                     return resolved('reconciled')
         if body.get('action')=='amend_add' and state['known'] and group.get('ref')==body.get('expected_ref'):
             oid=body.get('order_id')
-            lot=next((l for l in group.get('lots',[])[1:] if l['entry']==oid),None)
+            lot=next((l for l in group.get('lots',[]) if l['entry']==oid),None)
             row=next((r for r in state['orders'] if r['order_id']==oid),None)
             if lot and row:
                 if row['filled'] or row['status']=='Filled': return resolved('filled')
@@ -492,7 +502,7 @@ class PaperChart:
                 if len(matches)==1 and getattr(matches[0].order,'lmtPrice' if matches[0].order.orderType=='LMT' else 'auxPrice')==body.get('price'):
                     return resolved('reconciled')
         if body.get('action') == 'cancel_add' and state['known'] and group.get('ref') == body.get('expected_ref'):
-            lot = next((lot for lot in group.get('lots', [])[1:] if lot['entry'] == body.get('order_id')), None)
+            lot = next((lot for lot in group.get('lots', []) if lot['entry'] == body.get('order_id')), None)
             rows = {r['order_id']: r for r in state['orders']}
             parent = rows.get(body.get('order_id'))
             if lot and parent:
@@ -867,7 +877,7 @@ class PaperChart:
         oid = body.get('order_id')
         if isinstance(oid, bool) or not isinstance(oid, int):
             raise ValueError('Exact add order ID required')
-        lot = next((lot for lot in group.get('lots', [])[1:] if lot['entry'] == oid), None)
+        lot = next((lot for lot in group.get('lots', []) if lot['entry'] == oid), None)
         if not lot:
             raise ValueError('This is not an owned add order')
         trades = getattr(self, '_resolved_trades', {})
@@ -875,6 +885,8 @@ class PaperChart:
         if (not parent or parent.contract.conId != cid or parent.order.account != account
                 or parent.order.orderRef != group.get('ref')):
             raise ValueError('Exact add order unavailable')
+        if group.get('entry_kinds',{}).get(str(oid))=='entry' and (parent.orderStatus.filled or parent.orderStatus.status=='Filled'):
+            raise ValueError('Original entry is already filled; protection retained')
         if parent.orderStatus.filled or parent.orderStatus.status == 'Filled':
             return  # Fill won the race; never remove filled-unit protection.
         if parent.orderStatus.status not in ('Cancelled', 'ApiCancelled', 'PendingCancel'):
@@ -1210,7 +1222,7 @@ class PaperChart:
             if not group or not current['known'] or body.get('expected_ref')!=group.get('ref'):
                 raise ValueError('Add identity/status changed; refresh before amending')
             oid=body.get('order_id')
-            lot=next((l for l in group.get('lots',[])[1:] if l['entry']==oid),None)
+            lot=next((l for l in group.get('lots',[]) if l['entry']==oid),None)
             row=next((r for r in current['orders'] if r['order_id']==oid),None)
             trades=getattr(self,'_resolved_trades',{})
             parent=trades.get(oid)
@@ -1386,16 +1398,39 @@ class PaperChart:
         if action == 'close' and body.get('expected_ref') is not None and body['expected_ref'] != group.get('ref'):
             raise ValueError('Order identity changed; refresh before closing')
         if action=='close' and group.get('lots') and current.get('scalable') and current.get('protection', {}).get('status') == 'covered':
+            import time
+            pending_parents=[trades[lot['entry']] for lot in group['lots']
+                             if lot['entry'] in trades and not trades[lot['entry']].isDone()]
+            if pending_parents:
+                group['close_cancellation']=dict(request_id=request_id,parents=[t.order.orderId for t in pending_parents])
+                self.save_group(account,cid,group)
+            for parent in pending_parents:
+                conn.ib.cancelOrder(parent.order)
+            if pending_parents:
+                deadline=time.monotonic()+4
+                while any(not t.isDone() for t in pending_parents) and time.monotonic()<deadline:
+                    conn.ib.sleep(.05)
+                if any(t.orderStatus.status not in ('Filled','Cancelled','ApiCancelled') for t in pending_parents):
+                    raise RuntimeError('Entry cancellation needs reconciliation; protection retained')
+                # A pending Add can fill while its cancellation is in flight.
+                # Re-read the position and protect/exit that unit in this same request.
+                current=self.state(conn,cid)
+                trades=self._resolved_trades
+                if not current['known']:
+                    raise RuntimeError('Entry outcome needs reconciliation; protection retained')
+                group.pop('close_cancellation',None);self.save_group(account,cid,group)
             live=[]
             for lot in group['lots']:
                 parent,take,stop=[trades.get(lot[r]) for r in ('entry','tp','sl')]
-                if not all((parent,take,stop)): raise ValueError('Lot status needs reconciliation')
+                if not all((parent,take,stop)): raise RuntimeError('Lot status needs reconciliation')
                 if take.orderStatus.status=='Filled' or stop.orderStatus.status=='Filled': continue
                 if parent.orderStatus.status=='Filled':
+                    if take.isDone() or stop.isDone(): raise RuntimeError('Protection needs reconciliation')
                     live.append(lot)
                 elif not parent.isDone():
-                    # Cancel only an unfilled unit; never remove filled-unit protection.
-                    conn.ib.cancelOrder(parent.order)
+                    raise RuntimeError('Entry cancellation needs reconciliation')
+            if len(live)!=abs(current['position']):
+                raise RuntimeError('Position changed during close; protection retained')
             if live: self.exit_lots(conn,account,cid,group,live,trades,price,action,request_id)
             return
         if action=='close':

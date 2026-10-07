@@ -656,6 +656,22 @@ function submitEntryEdit(price){if(!canDragEntry())return;
  const identity=rows=>JSON.stringify((rows||[]).map(({order_id,quantity,filled,tif})=>({order_id,quantity,filled,tif})));
  if(paperConfig.webEntryDrag&&entryDragSnapshot?.ref===paperConfig.order_ref&&identity(snapshot)===identity(paperConfig.edit_snapshot))snapshot=paperConfig.edit_snapshot;
  paperAction({action:'edit_entry',price,expected_ref:entryDragSnapshot?.ref||paperConfig.order_ref,expected_snapshot:snapshot});}
+// Entry drags survive refresh/capture retargeting until the actual release.
+function finishEntryDrag(pointerId,cancel=false){
+ const gesture=entryDragSnapshot;if(dragging!=='entry'||gesture?.pointerId!==pointerId)return;
+ const valid=gesture.cid===paperCID&&gesture.ref===paperConfig.order_ref&&gesture.epoch===paperConfig.web_account_epoch;
+ dragging=null;
+ if(entryDragMoved)suppressOrderClickUntil=performance.now()+150;
+ if(cancel||!valid){entry=paperConfig.active?paperConfig.entry:entryDragStart;}
+ else if(paperConfig.active){if(entry!==entryDragStart)submitEntryEdit(entry);}
+ else{window.webkit?.messageHandlers.entryChanged?.postMessage(entry);if(entryPressDirection&&!entryDragMoved)submitPreview();}
+ entryDragSnapshot=null;updateLines();
+}
+window.finishEntryDrag=finishEntryDrag;
+document.addEventListener('pointermove',e=>{const g=entryDragSnapshot;if(dragging==='entry'&&g?.pointerId===e.pointerId&&(e.buttons&1)){if(Math.abs(e.clientY-entryPressY)>3)entryDragMoved=true;if(entryDragMoved)move('entry',e.clientY-g.offset);e.preventDefault();}},true);
+document.addEventListener('pointerup',e=>finishEntryDrag(e.pointerId),true);
+document.addEventListener('pointercancel',e=>finishEntryDrag(e.pointerId,true),true);
+window.addEventListener('blur',()=>{if(entryDragSnapshot?.pointerId!=null)finishEntryDrag(entryDragSnapshot.pointerId,true);});
 // Web protection drags retain their identity until an actual release. Losing
 // pointer capture is not a release: Chrome may retarget the later pointerup.
 let webProtectionDrag=null;
@@ -681,9 +697,9 @@ document.addEventListener('pointercancel',e=>{if(webProtectionDrag?.pointerId===
 window.addEventListener('blur',()=>cancelWebProtectionDrag('Window lost focus; price unchanged.'));
 for(const k of ['tp','sl','entry']){
  const h=document.getElementById(k);
- h.addEventListener('pointerdown',e=>{if(paperConfig.active?(k==='entry'?!canDragEntry():!canDragProtection(k)):paperConfig.busy)return;dragging=k;if(paperConfig.webEntryDrag&&paperConfig.active&&['tp','sl'].includes(k))webProtectionDrag={role:k,pointerId:e.pointerId,cid:paperCID,ref:paperConfig.order_ref,epoch:paperConfig.web_account_epoch,start:levels[k]};if(k==='entry'){if(!paperConfig.active)explicitPreviewSide=side;entryDragMoved=false;entryPressDirection=e.target.id==='order-direction';entryPressY=e.clientY;entryDragStart=entry;entryDragSnapshot={ref:paperConfig.order_ref,snapshot:paperConfig.edit_snapshot};}h.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();});
- h.addEventListener('pointermove',e=>{if(webProtectionDrag?.role===k)return;if(dragging===k){if(k==='entry'&&Math.abs(e.clientY-entryPressY)>3)entryDragMoved=true;move(k,e.clientY);e.preventDefault();}});
- for(const type of ['pointerup','pointercancel','lostpointercapture'])h.addEventListener(type,()=>{if(type==='lostpointercapture'&&webProtectionDrag?.role===k){reportWebDrag(k,'capture lost; awaiting actual release');return;}const role=dragging;if(role!==k)return;dragging=null;
+ h.addEventListener('pointerdown',e=>{if(paperConfig.active?(k==='entry'?!canDragEntry():!canDragProtection(k)):paperConfig.busy)return;dragging=k;if(paperConfig.webEntryDrag&&paperConfig.active&&['tp','sl'].includes(k))webProtectionDrag={role:k,pointerId:e.pointerId,cid:paperCID,ref:paperConfig.order_ref,epoch:paperConfig.web_account_epoch,start:levels[k]};if(k==='entry'){if(!paperConfig.active)explicitPreviewSide=side;entryDragMoved=false;entryPressDirection=e.target.id==='order-direction';entryPressY=e.clientY;entryDragStart=entry;entryDragSnapshot={ref:paperConfig.order_ref,snapshot:paperConfig.edit_snapshot,pointerId:e.pointerId,cid:paperCID,epoch:paperConfig.web_account_epoch,offset:e.clientY-series.priceToCoordinate(entry)};}h.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();});
+ h.addEventListener('pointermove',e=>{if(webProtectionDrag?.role===k||(k==='entry'&&entryDragSnapshot?.pointerId!=null))return;if(dragging===k){if(k==='entry'&&Math.abs(e.clientY-entryPressY)>3)entryDragMoved=true;move(k,e.clientY);e.preventDefault();}});
+ for(const type of ['pointerup','pointercancel','lostpointercapture'])h.addEventListener(type,()=>{if(type==='lostpointercapture'&&k==='entry'&&entryDragSnapshot?.pointerId!=null)return;if(type==='lostpointercapture'&&webProtectionDrag?.role===k){reportWebDrag(k,'capture lost; awaiting actual release');return;}const role=dragging;if(role!==k)return;dragging=null;
   if(type==='pointerup'&&paperConfig.active&&['tp','sl'].includes(role))paperAction({action:'amend',role,price:levels[role],...(paperConfig.webEntryDrag?{expected_ref:paperConfig.order_ref}:{})});
   if(role==='entry'){if(paperConfig.active){if(type==='pointerup'&&entry!==entryDragStart)submitEntryEdit(entry);if(!paperConfig.webEntryDrag)entry=paperConfig.entry;updateLines();}else if(type==='pointerup'){window.webkit?.messageHandlers.entryChanged?.postMessage(entry);if(entryPressDirection&&!entryDragMoved)submitPreview();}else{entry=entryDragStart;updateLines();}entryDragSnapshot=null;}
  });
@@ -694,20 +710,22 @@ let orderHold=null,suppressOrderClickUntil=0;
 function clearOrderHold(){if(orderHold)clearTimeout(orderHold.timer);orderHold=null;}
 for(const target of [document.getElementById('entry'),document.getElementById('cancel')]){
  target.addEventListener('pointerdown',e=>{
+  suppressOrderClickUntil=0;
   if(paperConfig.active?!canDragEntry():paperConfig.busy)return;
   if(target.id==='entry'&&e.target.id==='order-direction')return;
   clearOrderHold();const hold={x:e.clientX,y:e.clientY,id:e.pointerId};orderHold=hold;
-  hold.timer=setTimeout(()=>{
-   if(orderHold!==hold)return;
-   quantityPopup.hidden=true;dragging='entry';entryDragStart=entry;entryPressY=hold.y;entryPressDirection=false;entryDragMoved=true;
+  hold.start=()=>{
+   if(orderHold!==hold||dragging==='entry')return;
+   clearTimeout(hold.timer);quantityPopup.hidden=true;dragging='entry';entryDragStart=entry;entryPressY=hold.y;entryPressDirection=false;entryDragMoved=true;
    if(!paperConfig.active)explicitPreviewSide=side;
-   entryDragSnapshot={ref:paperConfig.order_ref,snapshot:paperConfig.edit_snapshot};
+   entryDragSnapshot={ref:paperConfig.order_ref,snapshot:paperConfig.edit_snapshot,pointerId:hold.id,cid:paperCID,epoch:paperConfig.web_account_epoch,offset:hold.y-series.priceToCoordinate(entry)};
    suppressOrderClickUntil=performance.now()+1000;
    document.getElementById('entry').setPointerCapture(hold.id);
-  },350);
+  };
+  hold.pointerType=e.pointerType;hold.timer=setTimeout(hold.start,350);
  },true);
 }
-document.addEventListener('pointermove',e=>{if(orderHold&&dragging!=='entry'&&Math.hypot(e.clientX-orderHold.x,e.clientY-orderHold.y)>8)clearOrderHold();},true);
+document.addEventListener('pointermove',e=>{if(!orderHold||dragging==='entry')return;const distance=Math.hypot(e.clientX-orderHold.x,e.clientY-orderHold.y);if(orderHold.pointerType==='mouse'&&(e.buttons&1)&&distance>3){orderHold.start();move('entry',e.clientY-entryDragSnapshot.offset);e.preventDefault();}else if(distance>8)clearOrderHold();},true);
 for(const name of ['pointerup','pointercancel'])document.addEventListener(name,()=>{if(orderHold&&dragging==='entry')suppressOrderClickUntil=performance.now()+600;clearOrderHold();},true);
 document.addEventListener('click',e=>{if(performance.now()<suppressOrderClickUntil&&(document.getElementById('entry').contains(e.target)||document.getElementById('cancel').contains(e.target))){e.preventDefault();e.stopImmediatePropagation();}},true);
 document.getElementById('cancel').addEventListener('click',()=>{if(cancelPending)return;if(paperConfig.active){if(!paperConfig.position){if(paperConfig.entry_editable&&paperConfig.enabled&&!paperConfig.busy){cancelPending=true;updateLines();paperAction({action:'edit_entry',cancel:true,expected_ref:paperConfig.order_ref,expected_snapshot:paperConfig.edit_snapshot});}}else paperAction({action:'close'});return;}canceled=true;dragging=null;levels={tp:0,sl:0};updateLines();window.webkit?.messageHandlers.entryChanged?.postMessage(0);});

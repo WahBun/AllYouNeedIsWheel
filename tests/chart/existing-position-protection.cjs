@@ -21,6 +21,7 @@ for(const width of [1440,393])for(const language of ['en','zh'])for(const light 
  assert.equal(await page.locator('#position-tp-mode').inputValue(),'percent');
  assert.equal(await page.locator('#position-tp').inputValue(),'75');
  assert.equal(await page.locator('#position-sl-enabled').isChecked(),false);
+ await page.waitForFunction(()=>document.querySelector('#protection-estimate').textContent.includes('0.53'));
  assert.match(await page.locator('#protection-estimate').textContent(),/0\.53/);
  assert.equal(await page.locator('#protection-remove').isVisible(),false);
  await page.screenshot({path:`/tmp/wheel-existing-${width}-${language}-${light}.png`});

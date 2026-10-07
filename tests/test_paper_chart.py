@@ -54,7 +54,7 @@ class PaperChartTests(unittest.TestCase):
         self.conn.ib.cancelOrder.side_effect=None
         request=dict(request_id=str(uuid4()),action='cancel_protection',
                      expected_ref=self.service.group('DU_TEST',7)['ref'],confirm_remove_protection=True)
-        with patch('api.services.paper_chart.time.monotonic',side_effect=[0,5]):
+        with patch('time.monotonic',side_effect=[0,5]):
             result=self.service.execute(self.conn,7,request)
         self.assertEqual(result['status'],'unknown')
         for t in self.trades[1:]:t.orderStatus.status='Cancelled'
@@ -409,7 +409,7 @@ class ProtectedLotTests(unittest.TestCase):
         request=dict(request_id=str(uuid4()),action='cancel_protection',role='tp',
             expected_ref=self.service.group('DU_TEST',7)['ref'],confirm_remove_protection=True)
         self.conn.ib.cancelOrder.side_effect=None
-        with patch('api.services.paper_chart.time.monotonic',side_effect=[0,5]):
+        with patch('time.monotonic',side_effect=[0,5]):
             result=self.service.execute(self.conn,7,request)
         self.assertEqual(result['status'],'unknown',result)
         ids={c.args[0].orderId for c in self.conn.ib.cancelOrder.call_args_list}
@@ -704,6 +704,27 @@ class ProtectedLotTests(unittest.TestCase):
         parents=[r for r in state['orders'] if r['role'].split('_')[0]=='entry']
         self.assertEqual([r['entry_kind'] for r in parents],['entry']*4+['add'])
 
+    def test_partial_original_first_unit_can_amend_and_cancel(self):
+        self.submit(quantity=2)
+        other=self.trades[3];other.orderStatus.status='Filled';other.orderStatus.filled=1;other.orderStatus.avgFillPrice=10
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=1)]
+        parent=self.trades[0];ref=self.service.group('DU_TEST',7)['ref']
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='amend_add',
+            order_id=parent.order.orderId,expected_ref=ref,expected_price=10,expected_quantity=1,price=10.25))
+        self.assertTrue(result['success'],result)
+        self.assertEqual(parent.order.lmtPrice,10.25)
+        self.conn.ib.cancelOrder.reset_mock()
+        def cancel_unit(order):
+            for trade in self.trades:
+                if trade.order.orderId==order.orderId or trade.order.parentId==order.orderId:
+                    trade.orderStatus.status='Cancelled'
+        self.conn.ib.cancelOrder.side_effect=cancel_unit
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='cancel_add',
+            order_id=parent.order.orderId,expected_ref=ref))
+        self.assertTrue(result['success'],result)
+        self.assertEqual(other.orderStatus.status,'Filled')
+        self.assertTrue(all(t.orderStatus.status=='Submitted' for t in self.trades[4:6]))
+
     def test_amend_one_pending_add_keeps_siblings_and_protection(self):
         for kind in ('STP','LMT'):
             with self.subTest(kind=kind):
@@ -894,6 +915,35 @@ class ProtectedLotTests(unittest.TestCase):
         r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='be'));self.assertTrue(r['success'],r)
         self.assertEqual(self.conn.ib.placeOrder.call_count,4)
         self.assertTrue(all(c.args[1].auxPrice==10.25 for c in self.conn.ib.placeOrder.call_args_list))
+    def test_close_includes_add_that_fills_during_cancel(self):
+        self.open_four();self.priced_add();parent=self.trades[-3]
+        def fill(_):
+            parent.orderStatus.status='Filled';parent.orderStatus.filled=1;parent.orderStatus.avgFillPrice=10.25
+            self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=5)]
+        self.conn.ib.cancelOrder.side_effect=fill;self.conn.ib.placeOrder.reset_mock()
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='close'))
+        self.assertTrue(result['success'],result)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,5)
+        self.assertEqual(len(result['state']['pending_exits']),5)
+        self.assertTrue(all(c.args[1].orderType=='LMT' for c in self.conn.ib.placeOrder.call_args_list))
+
+    def test_close_waits_for_pending_add_cancel_and_never_replays(self):
+        self.open_four();self.priced_add();self.conn.ib.cancelOrder.side_effect=None
+        self.conn.ib.placeOrder.reset_mock()
+        request=dict(request_id=str(uuid4()),action='close')
+        with patch('time.monotonic',side_effect=[0,5]):
+            result=self.service.execute(self.conn,7,request)
+        self.assertEqual(result['status'],'unknown')
+        self.conn.ib.placeOrder.assert_not_called()
+        cancels=self.conn.ib.cancelOrder.call_count
+        self.service.execute(self.conn,7,request)
+        self.assertEqual(self.conn.ib.cancelOrder.call_count,cancels)
+        self.trades[-3].orderStatus.status='Cancelled'
+        recovery=self.service.request_status(self.conn,7,request['request_id'])
+        self.assertTrue(recovery['confirmed'],recovery)
+        self.conn.ib.placeOrder.assert_not_called()
+        self.assertNotIn('close_cancellation',self.service.group('DU_TEST',7))
+
     def test_full_close_of_filled_units_does_not_cancel_protection(self):
         self.open_four();r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='close'));self.assertTrue(r['success'],r)
         self.conn.ib.cancelOrder.assert_not_called();self.assertEqual(self.conn.ib.placeOrder.call_count,4)

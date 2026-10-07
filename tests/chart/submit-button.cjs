@@ -9,7 +9,7 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
  assert.equal((await submissions()).length,0,'Dragging Buy previews only');
  const price=await page.evaluate(()=>entry);assert.notEqual(price,79);
  await page.locator('#order-direction').click();assert.equal((await submissions()).length,1);assert.equal((await submissions())[0].entry,price);
- await page.locator('#order-direction').click();assert.equal((await submissions()).length,1,'Repeat click cannot duplicate pending request');
+ await page.locator('#order-direction').dispatchEvent('click');assert.equal((await submissions()).length,1,'Repeat click cannot duplicate pending request');
  await page.evaluate(()=>configure({...cfg,paper:{enabled:true,active:true,entry_editable:true,entry:79,quantity:100,side:1,order_ref:'a',edit_snapshot:[{order_id:1,filled:0}]}}));
  await page.locator('#order-direction').click();assert.equal((await submissions()).length,1,'Working Buy label cannot resubmit');
  await page.evaluate(()=>{configure({...cfg,entry:0,paper:{enabled:true,submit_revision:1}});cursorOrderPrice=82;priceAdd.click();priceMenu.querySelector('[data-order-choice]').click();});
@@ -28,7 +28,7 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
 
  for(const selector of ['#preview-order-quantity','#order-type','#cancel']){
   await page.evaluate(()=>{sent=[];configure({...cfg,paper:{enabled:true,active:true,entry_editable:true,entry:79,quantity:100,side:1,order_ref:'hold',edit_snapshot:[{order_id:3,filled:0}]}});});
-  const r=await page.locator(selector).boundingBox();await page.mouse.move(r.x+r.width/2,r.y+r.height/2);await page.mouse.down();await page.waitForTimeout(400);await page.mouse.move(r.x+r.width/2,r.y-30);await page.mouse.up();
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));const r=await page.locator(selector).boundingBox();await page.mouse.move(r.x+r.width/2,r.y+r.height/2);await page.mouse.down();await page.waitForTimeout(400);await page.mouse.move(r.x+r.width/2,r.y-30);await page.mouse.up();
   const actions=await page.evaluate(()=>sent);assert.equal(actions.length,1,selector+' hold must only amend');assert.equal(actions[0].action,'edit_entry');assert.ok(actions[0].price);assert.equal(actions[0].cancel,undefined);assert.equal(await page.locator('#order-quantity-popup').isVisible(),false);
   await page.waitForTimeout(650);
  }
