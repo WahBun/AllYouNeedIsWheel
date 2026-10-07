@@ -302,6 +302,18 @@ struct StockChartView: View {
         values[type + key] = value
         if let data = try? JSONEncoder().encode(values), let text = String(data: data, encoding: .utf8) { protectionOptions = text }
     }
+    private func bracketEnabled(_ type: String) -> Bool {
+        protectionOption(type, "bracket") == "on" || (protectionOption(type, "bracket") == nil && type == "FUT")
+    }
+    private func bracketToggle(_ type: String) -> Binding<Bool> {
+        Binding(get: { bracketEnabled(type) }, set: { enabled in
+            saveProtectionOption(type, "bracket", enabled ? "on" : "off")
+            if enabled && protectionOption(type, "tp") == "off" && protectionOption(type, "sl") == "off" {
+                saveProtectionOption(type, "tp", "on"); saveProtectionOption(type, "sl", "on")
+            }
+            templateRevision += 1
+        })
+    }
     private func protectionToggle(_ type: String, _ role: String) -> Binding<Bool> {
         Binding(get: { protectionOption(type, role) != "off" }, set: { saveProtectionOption(type, role, $0 ? "on" : "off"); templateRevision += 1 })
     }
@@ -361,6 +373,12 @@ struct StockChartView: View {
         if let source = body["con_id"] as? Int, source != cid { return }
         if body["action"] as? String == "submit" {
             guard !paperActive else { return }
+            if !bracketEnabled(chartType) {
+                body.removeValue(forKey: "tp"); body.removeValue(forKey: "sl")
+            } else if body["tp"] == nil && body["sl"] == nil {
+                paperMessage = locale.language.languageCode?.identifier == "zh" ? "Bracket 至少开启 TP 或 SL" : "Enable TP or SL for Bracket"
+                return
+            }
             if body["source"] as? String == "join" {
                 guard let revision = body["join_revision"] as? Int, revision == joinRevision, joinSubmissionGate.accept(revision) else { return }
             }
@@ -894,7 +912,9 @@ struct StockChartView: View {
     private var tpDistance: String { distanceBinding(chartType, tp: true).wrappedValue }
     private var slDistance: String { distanceBinding(chartType, tp: false).wrappedValue }
     private var validTemplate: Bool {
-        [true, false].allSatisfy { tp in
+        if !bracketEnabled(templateType) { return true }
+        if protectionOption(templateType, "tp") == "off" && protectionOption(templateType, "sl") == "off" { return false }
+        return [true, false].allSatisfy { tp in
             (protectionOption(templateType, tp ? "tp" : "sl") == "off") || Double(distanceBinding(templateType, tp: tp).wrappedValue).map { $0.isFinite && $0 > 0 } ?? false
         }
     }
@@ -986,7 +1006,7 @@ struct StockChartView: View {
             }
             }
             if let emaHistoryNotice { Text(verbatim: emaHistoryNotice).font(.caption2).foregroundStyle(.secondary) }
-            StockChartWeb(executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: protectionOption(chartType, "tp") != "off", slEnabled: protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
+            StockChartWeb(executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
                 Button { showDisplaySettings = true } label: {
@@ -1211,6 +1231,8 @@ struct StockChartView: View {
                     }.pickerStyle(.segmented)
                     Section("Optional TP / SL · GTC") {
                         Text(verbatim: locale.language.languageCode?.identifier == "zh" ? "新订单默认设置，不会修改当前持仓。当前保护请用管理 TP / SL。" : "Defaults for new orders. Existing positions are unchanged; use Manage TP / SL for current protection.").font(.caption).foregroundStyle(.secondary)
+                        Toggle("Bracket", isOn: bracketToggle(templateType))
+                        Group {
                         Toggle("Enable TP", isOn: protectionToggle(templateType, "tp"))
                         if protectionToggle(templateType, "tp").wrappedValue {
                             Picker("TP input", selection: protectionMode(templateType)) {
@@ -1220,6 +1242,7 @@ struct StockChartView: View {
                         }
                         Toggle("Enable SL", isOn: protectionToggle(templateType, "sl"))
                         if protectionToggle(templateType, "sl").wrappedValue { distanceRow("SL distance", value: distanceBinding(templateType, tp: false)) }
+                        }.disabled(!bracketEnabled(templateType))
                         Text("Profit % uses the entry premium before fees. A short option sold at 2.12 with 75% profit targets 0.53, rounded to the contract tick.").font(.caption)
                     }
                     if validEntry > 0 && templateType == chartType && !paperActive {

@@ -704,3 +704,7 @@ amendments were not exercised; existing user orders were not modified for tests.
 ### Paper confirmation and restart acceptance
 - Normalize MKT unset prices; retain uncertainty for transient broker states and resolve via authoritative reads without write replay. 561 backend tests passed.
 - MNQ Paper stable pending bracket survived a real backend/API restart with identical three order IDs, prices and quantities. New pending-confirmation response also reconciled against IB. Both test brackets cancelled and final flat verified. See docs/acceptance/2026-10-07-mnq-paper.md for evidence and remaining gates. No Live or iPhone Run.
+
+### New-order Bracket master switch
+- Stocks/options default off; futures default on. Per-asset master preference is separate from retained TP/SL leg choices and values. Turning the master off strips protection from new submissions only; existing exits remain managed through Manage TP/SL.
+- Web mock browser checks cover defaults, retained values, one-leg selection, reload, responsive layout, zero writes on toggles and entry-only submit. Native source parsed only; no iPhone Run/install or broker test orders for this UI change.
