@@ -322,11 +322,10 @@ class PaperChart:
             and all(r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive') for r in rows if r['role'].split('_')[0] in ('entry','close','trim')))
         if coverage['status'] != 'covered': result['scalable'] = False
 
-        if group.get('origin_position'):
-            owned=group['origin_position']+group['side']*sum((1 if r['role'].split('_')[0]=='entry' else -1)*r['filled'] for r in rows)
-            result['protection_manageable'] = result['protection_manageable'] and abs(owned-result['position'])<.000001
-            if abs(owned-result['position'])>=.000001:
-                result['protection_block_reason']='Position changed outside this protection group; reconcile orders'
+        owned=group.get('origin_position',0)+group['side']*sum((1 if r['role'].split('_')[0]=='entry' else -1)*r['filled'] for r in rows)
+        result['protection_manageable'] = result['protection_manageable'] and abs(owned-result['position'])<.000001
+        if abs(owned-result['position'])>=.000001:
+            result['protection_block_reason']='Position changed outside this protection group; reconcile orders'
 
         if group.get('lots'):
             projection=dict(realized=0.0,known=True,targets=[])

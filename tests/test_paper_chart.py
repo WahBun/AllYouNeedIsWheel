@@ -53,6 +53,21 @@ class PaperChartTests(unittest.TestCase):
             self.assertEqual(state['entry'],0)
             self.assertEqual(state['entry_source'],'unknown')
 
+    def test_foreign_fill_cannot_enable_old_group_protection(self):
+        self.submit()
+        for trade in self.trades: trade.orderStatus.status='Cancelled'
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=-1,avgCost=10)]
+        state=self.service.state(self.conn,7)
+        self.assertFalse(state['protection_manageable'])
+        self.assertFalse(state['add_allowed'])
+        self.assertFalse(state['trim_allowed'])
+        self.assertIn('outside',state['protection_block_reason'])
+        before=self.conn.ib.placeOrder.call_count
+        result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='set_protection',
+            expected_ref=state['order_ref'],tp=9,sl=11,confirm_replace_protection=True))
+        self.assertFalse(result['success'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count,before)
+
     def test_warning_waits_for_broker_without_replay(self):
         original=self.conn.ib.placeOrder.side_effect
         def warning(c,o):

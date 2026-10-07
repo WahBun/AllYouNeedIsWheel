@@ -34,3 +34,15 @@ cost. Mini deployed GitHub commit 5aa3c02; actual read-only Paper verification r
 QQQ position 400, entry 756.680103, entry_source broker_average_cost, exactly
 matching portfolio avg_cost. No pending orders and no trading writes for this fix. Existing protection projections
 with incomplete execution history remain unknown; no fabricated group P/L.
+
+## External actual fill, 01:40 Beijing continuation
+
+Isolated Paper client 178 sold one covered call and bought that exact one back;
+both were confirmed Filled, all option orders terminal and no option position.
+QQQ 400 / SGOV 1000 retained. Main backend correctly disabled Add/Trim against
+the foreign position, but incorrectly advertised protection_manageable=true on
+an old completed group. Existing write-side ownership validation already rejects
+this mismatch; fixed the state/UI capability to apply ownership checks to all
+groups, not only imported-position groups. 593 backend regressions passed.
+Private evidence on Mini: /tmp/wheel-external-fill-evidence.jsonl. Deployment and
+actual post-fix repetition pending. This does not certify every external fill race.
