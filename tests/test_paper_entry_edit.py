@@ -302,3 +302,20 @@ class EntryEditTests(unittest.TestCase):
             self.assertEqual(result['state']['side'], -1)
             self.assertIn('OVERNIGHT', result['state']['allowed_tifs'])
         self.assertTrue(self.edit(cancel=True)['success'])
+
+    def test_excess_cc_resize_rejected_before_canceling_original(self):
+        from types import SimpleNamespace as S
+        from ib_async import Stock
+        self.contract.secType='OPT';self.contract.right='C';self.contract.multiplier='100';self.contract.tradingClass='TEST'
+        shares=S(account='DU_TEST',contract=Stock('TEST','SMART','USD',conId=8),position=200)
+        self.conn.ib.positions.return_value=[shares]
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw: [shares] if fn==self.conn.ib.reqPositions else self.trades
+        _,r=self.submit(side=-1,quantity=1,tp=None,sl=None)
+        self.assertTrue(r['success'],r)
+        before=self.service.state(self.conn,7)['edit_snapshot']
+        self.conn.ib.placeOrder.reset_mock();self.conn.ib.cancelOrder.reset_mock()
+        r=self.edit(quantity=3)
+        self.assertEqual(r['status'],'rejected')
+        self.assertIn('Insufficient unreserved shares',r['message'])
+        self.conn.ib.cancelOrder.assert_not_called();self.conn.ib.placeOrder.assert_not_called()
+        self.assertEqual(self.service.state(self.conn,7)['edit_snapshot'],before)

@@ -920,6 +920,11 @@ class PaperChart:
             limit = 1000 if contract.secType == 'STK' else 10
             if isinstance(quantity, bool) or not isinstance(quantity, (int, float)) or not math.isfinite(quantity) or quantity != int(quantity) or not 1 <= quantity <= limit:
                 raise ValueError('Invalid order quantity')
+            extra=quantity-sum(t.order.totalQuantity for t in parents)
+            if extra>0 and group['side']==-1:
+                # Existing parents already reserve their shares. Reject excess
+                # before canceling them; replacement rechecks full coverage later.
+                require_call_coverage(conn,account,contract,extra)
             tif = body.get('tif', current['tif'])
             overnight = group.get('mode') == 'overnight_entry'
             if tif not in current.get('allowed_tifs', ['DAY', 'GTC']):
