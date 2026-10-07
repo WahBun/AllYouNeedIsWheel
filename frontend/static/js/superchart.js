@@ -146,14 +146,14 @@ $('preview').disabled=!cid||busy||switchingChart||state.active;for(const id of [
 const cancelAddButtons=new Map();
 function renderPendingAdds(can){
  let list=$('pending-adds');if(!list){list=document.createElement('div');list.id='pending-adds';list.style.cssText='display:grid;gap:6px;max-height:160px;overflow:auto';$('adjustment-control').after(list);}
- const rows=(state.orders||[]).filter(o=>/^entry_/.test(o.role)&&!o.filled&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status));
+ const rows=(state.orders||[]).filter(o=>/^entry_/.test(o.role)&&(o.entry_kind==='add'||state.position)&&!o.filled&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status));
  const keys=new Set(rows.map(o=>`${epoch}:${cid}:${state.order_ref}:${o.order_id}`));
  for(const [key,b] of cancelAddButtons)if(!keys.has(key)){b.remove();cancelAddButtons.delete(key);}
  for(const row of rows){const key=`${epoch}:${cid}:${state.order_ref}:${row.order_id}`;let b=cancelAddButtons.get(key);
   if(!b){b=document.createElement('button');const ref=state.order_ref,selected=cid,accountEpoch=epoch;
    b.onclick=()=>{if(selected===cid&&accountEpoch===epoch&&ref===state.order_ref)write({action:'cancel_add',order_id:row.order_id,expected_ref:ref});};list.append(b);cancelAddButtons.set(key,b);}
-  const zh=document.documentElement.lang==='zh';b.textContent=`${row.status==='PendingCancel'?(zh?'撤单确认中':'Canceling'):(zh?'撤销加仓':'Cancel add')} #${row.order_id} · ${row.quantity} @ ${row.price}`;
-  b.disabled=!can||!['Submitted','PreSubmitted'].includes(row.status);
+  const zh=document.documentElement.lang==='zh';b.textContent=`${row.status==='PendingCancel'?(zh?'撤单确认中':'Canceling'):(row.entry_kind==='entry'?(zh?'入场待成交':'Pending entry'):row.entry_kind==='unknown'?(zh?'撤销待成交单':'Cancel pending entry'):(zh?'撤销加仓':'Cancel add'))} #${row.order_id} · ${row.quantity} @ ${row.price}`;
+  b.disabled=row.entry_kind==='entry'||!can||!['Submitted','PreSubmitted'].includes(row.status);
  }
  list.hidden=!rows.length;
 }

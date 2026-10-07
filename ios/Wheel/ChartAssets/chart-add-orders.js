@@ -128,7 +128,7 @@
  const sharedConfigure=window.configure;
  window.configure=config=>{
   darkAppearance=!!config.dark;sharedConfigure(config);if(addGesture&&(addGesture.cid!==paperCID||addGesture.ref!==paperConfig.order_ref||addGesture.epoch!==paperConfig.web_account_epoch))cancelAddDrag();syncExitLines(config);window.dispatchEvent(new Event('order-configured'));
-  const pending=(config.paper?.orders||[]).filter(o=>/^entry_/.test(o.role)&&!o.filled&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status)&&o.price>0);
+  const pending=(config.paper?.orders||[]).filter(o=>/^entry_/.test(o.role)&&(o.entry_kind==='add'||config.paper.position)&&!o.filled&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status)&&o.price>0);
   const live=new Set(pending.map(o=>`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${o.order_id}`));
   for(const [id,row] of pendingLines)if(!live.has(id)){series.removePriceLine(row.line);row.button.remove();row.cancel?.remove();pendingLines.delete(id);if(addGesture?.id===id)addGesture=null;}
   for(const order of pending){
@@ -149,9 +149,9 @@
     pendingLines.set(id,{line:series.createPriceLine(options),button,cancel});
    }
    const row=pendingLines.get(id);if(addGesture?.id!==id)row.price=order.price;
-   row.button.textContent=`Add ${config.paper.side===1?'Buy':'Sell'} ${order.quantity} @ ${priceText(row.price)}${order.status==='PendingCancel'?' · Canceling…':''}`;
-   row.button.setAttribute('aria-label',`Drag add order ${order.order_id}`);row.button.title='Drag to amend this unfilled add order';
-   row.button.disabled=!config.paper.enabled||config.paper.busy||!['Submitted','PreSubmitted'].includes(order.status);
+   row.button.textContent=`${order.entry_kind==='entry'?'Entry':order.entry_kind==='unknown'?'Pending':'Add'} ${config.paper.side===1?'Buy':'Sell'} ${order.quantity} @ ${priceText(row.price)}${order.status==='PendingCancel'?' · Canceling…':''}`;
+   row.button.setAttribute('aria-label',`${order.entry_kind==='entry'?'Pending entry':'Drag add order'} ${order.order_id}`);row.button.title='Drag to amend this unfilled add order';
+   row.button.disabled=order.entry_kind==='entry'||!config.paper.enabled||config.paper.busy||!['Submitted','PreSubmitted'].includes(order.status);
    row.cancel.disabled=row.button.disabled;positionCancelButton(row);
   }
  };

@@ -688,3 +688,8 @@ amendments were not exercised; existing user orders were not modified for tests.
 - Indicator settings now have a footer Template menu, direct saved-template application, defaults and a focused Save as dialog. Existing browser templates remain compatible; same-name saves explicitly offer Replace. Dark/light and English/Chinese desktop/mobile checks passed.
 - Chart quantity +/- and presets commit immediately; typed values commit on Enter/blur, with unchanged-value deduplication and invalid-input restoration. Working entries retain exact reference/snapshot, editability and busy checks, and close after dispatch. Preview edits stay open. No Apply step or automatic write retry.
 - Entry edit/fill-race checks and settings integration tests passed using mocks. Native source shares the chart change, but no iPhone binary was installed and no broker orders were submitted for validation.
+
+### Original multi-unit entries versus Add overlays
+- Futures/options initial units share entry/entry_N roles with later adds; the chart had incorrectly treated every suffixed entry as Add. Persist entry_kinds by broker ID for newly created groups and expose the intent on order rows. No-position initial units use the aggregate entry control; partially filled original units retain Entry labeling. Legacy unclassified pending units are labeled Pending rather than asserting Add.
+- Pending-entry TP/SL amounts use entry-price projections instead of an empty filled-position aggregate. No broker writes were made during diagnosis; the user's queried two one-unit parents were already Cancelled.
+- 552 backend tests and chart add drag/cancel/fill-race checks passed, including original-unit versus actual Add classification.

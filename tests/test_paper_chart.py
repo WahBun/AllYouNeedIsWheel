@@ -693,6 +693,17 @@ class ProtectedLotTests(unittest.TestCase):
         return self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='add',quantity=quantity,
             entry_type='STP',entry=10.25,side=1,expected_ref=group['ref'],expected_tp=11,expected_sl=9))
 
+    def test_original_units_are_not_add_orders(self):
+        self.open_four()
+        state=self.service.state(self.conn,7)
+        parents=[r for r in state['orders'] if r['role'].split('_')[0]=='entry']
+        self.assertEqual(len(parents),4)
+        self.assertTrue(all(r['entry_kind']=='entry' for r in parents))
+        self.priced_add()
+        state=self.service.state(self.conn,7)
+        parents=[r for r in state['orders'] if r['role'].split('_')[0]=='entry']
+        self.assertEqual([r['entry_kind'] for r in parents],['entry']*4+['add'])
+
     def test_amend_one_pending_add_keeps_siblings_and_protection(self):
         for kind in ('STP','LMT'):
             with self.subTest(kind=kind):

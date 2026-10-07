@@ -10,6 +10,12 @@ window.sent=[];window.webkit={messageHandlers:{paperAction:{postMessage:x=>sent.
 window.fixture={con_id:7,entry:10,quantity:2,priceRules:[{low:0,increment:.25}],paper:{active:true,position:2,side:1,entry:10,tp:12,sl:8,enabled:true,known:true,order_ref:'ref',web_account_epoch:'a',orders:[{role:'entry_2',order_id:123,price:10.5,quantity:1,filled:0,status:'Submitted'}]}};
 receive({con_id:7,generation:'test',interval:5,bars:Array.from({length:30},(_,i)=>({time:1790947800+i*300,open:10,high:12,low:8,close:10.25}))});configure(fixture);
 });
+// Original multi-unit entries must not create an Add overlay, including partial fills.
+await page.evaluate(()=>configure({...fixture,paper:{...fixture.paper,position:0,orders:fixture.paper.orders.map(o=>({...o,entry_kind:'entry'}))}}));
+assert.equal(await page.getByRole('button',{name:'Drag add order 123',exact:true}).count(),0);
+await page.evaluate(()=>configure({...fixture,paper:{...fixture.paper,orders:fixture.paper.orders.map(o=>({...o,entry_kind:'entry'}))}}));
+assert.equal(await page.getByRole('button',{name:'Drag add order 123',exact:true}).count(),0);
+await page.evaluate(()=>configure(fixture));
 const handle=page.getByRole('button',{name:'Drag add order 123',exact:true});
 let b=await handle.boundingBox();
 await page.mouse.move(b.x+15,b.y+16);await page.mouse.down();

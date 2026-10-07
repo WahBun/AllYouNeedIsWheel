@@ -187,6 +187,9 @@ class PaperChart:
                 price=(t.order.auxPrice if role.split('_')[0]=='sl' or (role.split('_')[0]=='entry' and t.order.orderType=='STP') else t.order.lmtPrice) if t and role!='close' else 0,
                 quantity=max(float(t.order.totalQuantity),float(t.orderStatus.filled),sum(float(f.execution.shares) for f in trade_fills(t))) if t else 0,
                 filled=max(float(t.orderStatus.filled),sum(float(f.execution.shares) for f in trade_fills(t))) if t else 0))
+        for row in rows:
+            if row['role'].split('_')[0] == 'entry':
+                row['entry_kind'] = group.get('entry_kinds', {}).get(str(row['order_id']), 'unknown')
         confirmed = {r['role']:r for r in rows if r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive')}
         if confirmed != group.get('terminal'):
             group['terminal'] = confirmed
@@ -603,13 +606,14 @@ class PaperChart:
             else:
                 db.execute('INSERT OR REPLACE INTO chart_paper_groups VALUES(?,?,?)',(account,cid,json.dumps(group)))
 
-    def add_lots(self, conn, account, cid, contract, group, qty, kind, entry, tp, sl):
+    def add_lots(self, conn, account, cid, contract, group, qty, kind, entry, tp, sl, entry_kind="entry"):
         for _ in range(qty):
             index = len(group['lots'])
             values = {r:v for r,v in (('tp',tp),('sl',sl)) if v is not None}
             group['requested_protection'] = list(values)
             ids = {role:conn.ib.client.getReqId() for role in ('entry', *values)}
             for role, oid in ids.items(): group['ids'][role if index==0 else f'{role}_{index}'] = oid
+            group.setdefault('entry_kinds', {})[str(ids['entry'])] = entry_kind
             group['lots'].append(ids); self.save_group(account,cid,group)
             buy = 'BUY' if group['side']==1 else 'SELL'; sell = 'SELL' if group['side']==1 else 'BUY'
             parent = MarketOrder(buy,1) if kind=='MKT' else (LimitOrder if kind=='LMT' else StopOrder)(buy,1,entry)
@@ -1325,7 +1329,7 @@ class PaperChart:
                         raise ValueError('Protection prices changed; reopen the add order')
                     if group['side'] * (tp-target) <= 0 or group['side'] * (sl-target) >= 0:
                         raise ValueError('Add price must lie between the current TP and SL')
-                self.add_lots(conn,account,cid,contract,group,int(qty),kind,target,tp,sl)
+                self.add_lots(conn,account,cid,contract,group,int(qty),kind,target,tp,sl,entry_kind='add')
             else:
                 self.exit_lots(conn,account,cid,group,live[:int(qty)],trades,price,action,request_id,limit_target=target if priced_trim else None)
             return

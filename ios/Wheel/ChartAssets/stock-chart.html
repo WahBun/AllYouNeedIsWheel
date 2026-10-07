@@ -409,14 +409,14 @@ function profitText(price,unit,quantity=qty){
 }
 let trimPricePreview=null;
 function totalTPText(){
- const projection=paperConfig.tp_projection;if(!projection)return null;
+ const projection=paperConfig.tp_projection;if(!projection||(!paperConfig.position&&paperConfig.entry_editable))return null;
  if(!projection.known)return '—';
  let total=projection.realized||0;
  for(const row of projection.targets||[]){const target=trimPricePreview&&trimPricePreview.order_id===row.order_id?trimPricePreview.price:!row.trim?levels.tp:row.price;total+=(target-row.entry)*row.side*row.quantity*row.multiplier;}
  return (total>=0?'+':'−')+'$'+Math.abs(total).toFixed(2);
 }
 function totalSLText(){
- const projection=paperConfig.sl_projection;if(!projection)return null;
+ const projection=paperConfig.sl_projection;if(!projection||(!paperConfig.position&&paperConfig.entry_editable))return null;
  if(!projection.known)return '—';
  let total=projection.realized||0;
  const preview=dragging==='sl'||paperConfig.protection_drag_role==='sl';
