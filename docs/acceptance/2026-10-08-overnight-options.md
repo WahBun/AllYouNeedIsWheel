@@ -30,5 +30,7 @@ complete execution reconstruction is unavailable, use IB position avgCost divide
 by contract multiplier (includes fees), expose entry_source, and never silently
 reuse the first fill. Invalid broker basis yields unknown/zero and rejects BE.
 591 backend tests passed, including stock fallback, option multiplier, and invalid
-cost. Actual Mini verification pending deployment. Existing protection projections
+cost. Mini deployed GitHub commit 5aa3c02; actual read-only Paper verification returned
+QQQ position 400, entry 756.680103, entry_source broker_average_cost, exactly
+matching portfolio avg_cost. No pending orders and no trading writes for this fix. Existing protection projections
 with incomplete execution history remain unknown; no fabricated group P/L.
