@@ -107,3 +107,17 @@ SL1661 Cancelled, option position0. Pending-order read and stock preservation we
 checked separately. No retained test option position now; do not assume -2 remains.
 Evidence on Pro /tmp/wheel-partial-exit.jsonl and /tmp/wheel-partial-exit-latest.json.
 Automation wheel-paper was deleted at user request; continue only in this thread.
+
+## CURRENT: four-contract single-parent partial-fill observation
+
+User explicitly authorized four CC contracts against existing 400 QQQ shares.
+Ref WheelPaper:1e1989a7-e255-4833-9f8e-16b5b9b8d563, conId867924875.
+Parent1665 SELL4 LMT1.62 DAY; TP1666 BUY4 LMT0.50 and SL1667 BUY4 STP3.62
+attached, GTC. Last 60 read observations: parent Submitted/filled0, position0,
+children PreSubmitted/contingent4 each. Initial unknown was reconciled by request
+ID reads; never replayed. Retained this exact pending test order as authorized.
+No additional call capacity remains reserved while all four sells are pending.
+Do not submit another test on this contract or assume the account is flat/clear;
+read broker state first. Partial fill is still NOT observed. User stocks unchanged.
+Private evidence on Pro: /tmp/wheel-four-partial.jsonl and
+/tmp/wheel-four-partial-retained.json. No automation is active.
