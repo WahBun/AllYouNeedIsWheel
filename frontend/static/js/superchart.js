@@ -14,6 +14,24 @@ function canQueueEntry(){return !!entryFlight&&busy&&profile.selected==='paper'&
 
 let ready=false,cid=0,interval=5,session='rth',packet={},state={},profile={},epoch=null,received=0,busy=false,generation=0,polling=false,entry=0,revision=0,joinRevision=0,joinSide=0,editContext=null,packetReceived=0,pnlReceived=0,positions=[];
 function stored(key){try{return JSON.parse(localStorage.getItem(key)||'{}');}catch{return {};}}
+const contractFavoritesKey='wheel.web.favorite-contracts';
+function readContractFavorites(){const items=stored(contractFavoritesKey);return Array.isArray(items)?items.filter(x=>Number.isSafeInteger(x?.id)&&x.id>0&&typeof x.label==='string').slice(0,100):[];}
+let contractFavorites=readContractFavorites();
+function renderContractFavorites(){
+ const saved=contractFavorites.some(x=>x.id===cid),button=$('favorite-contract');button.disabled=!cid;button.textContent=saved?'★':'☆';button.setAttribute('aria-pressed',String(saved));
+ button.title=saved?'取消收藏 / Remove favorite':'收藏当前品种 / Favorite current contract';button.setAttribute('aria-label',button.title);
+ const menu=$('favorite-contracts');menu.replaceChildren(new Option('★ Favorites / 收藏',''),...contractFavorites.map(x=>new Option(x.label,String(x.id))));menu.value='';
+}
+$('favorite-contract').onclick=()=>{
+ if(!cid)return;
+ const label=packet.display_symbol||packet.local_symbol||$('contracts').selectedOptions[0]?.textContent||String(cid);
+ const next=contractFavorites.some(x=>x.id===cid)?contractFavorites.filter(x=>x.id!==cid):[...contractFavorites,{id:cid,label}];
+ if(next.length>100)return log('Favorites limit: 100 / 最多收藏 100 个品种');
+ try{localStorage.setItem(contractFavoritesKey,JSON.stringify(next));contractFavorites=next;renderContractFavorites();}catch{log('Unable to save favorites / 无法保存收藏');}
+};
+$('favorite-contracts').onchange=()=>{const item=contractFavorites.find(x=>String(x.id)===$('favorite-contracts').value);if(item)select(item.id,item.label);$('favorite-contracts').value='';};
+window.addEventListener('storage',event=>{if(event.key===contractFavoritesKey){contractFavorites=readContractFavorites();renderContractFavorites();}});
+renderContractFavorites();
 const savedSession=stored('wheel.web.chart.session'),urlSession=new URL(location).searchParams.get('session');
 session=['all','rth'].includes(urlSession)?urlSession:['all','rth'].includes(savedSession)?savedSession:'all';
 function rememberSession(){
@@ -268,7 +286,7 @@ function stylePositionSymbol(button,row){
  button.setAttribute('aria-label',label);button.replaceChildren(name,document.createTextNode(label.slice(symbol.length)));
 }
 function renderRows(id,rows,isOrder){$(id).replaceChildren();if(!rows.length){$(id).textContent=isOrder?'No pending orders':'No positions';return;}for(const row of rows){const target=row.chart_con_id||row.con_id;const button=document.createElement('button');button.textContent=isOrder?`${row.local_symbol||row.symbol||row.ticker||''} ${row.action||''} ${row.quantity||''}\n${row.order_type||''} ${row.tif||''} @ ${row.premium??row.limit_price??'—'} · ${row.status||''}`:`${row.local_symbol||row.symbol} · ${row.position??row.quantity??''}`;if(!isOrder)stylePositionSymbol(button,row);else{const action=String(row.action||'').toUpperCase();if(['BUY','BOT','SELL','SLD'].includes(action)){const label=button.textContent,at=label.indexOf(' '+row.action+' ');if(at>=0){const badge=document.createElement('span');badge.className=['BUY','BOT'].includes(action)?'order-buy':'order-sell';const sideAndQuantity=String(row.action)+' '+(row.quantity||'');badge.textContent=sideAndQuantity;button.replaceChildren(document.createTextNode(label.slice(0,at+1)),badge,document.createTextNode(label.slice(at+1+sideAndQuantity.length)));}}}button.disabled=!target||busy;button.onclick=()=>{if(isOrder&&('chart_navigation_group_id' in row||row.chart_order_ref))localStorage.setItem('wheel.web.group:'+target,row.chart_navigation_group_id??row.chart_group_id??'');select(Number(target),row.local_symbol||row.symbol||row.ticker);};$(id).append(button);}}
-function select(id,label){if(busy)return;cid=id;groupID=localStorage.getItem('wheel.web.group:'+id)||'';generation++;marketStream.stop();lastFallback=0;lastPnL=0;entry=0;state={};received=0;packet={};$('tif').value='DAY';$('editor').close();const url=new URL(location);url.searchParams.set('con_id',id);history.replaceState(null,'',url);if(![...$('contracts').options].some(o=>o.value===String(id)))$('contracts').append(new Option(label||String(id),String(id)));$('contracts').value=String(id);frame.contentWindow.configureDrawings({key:`web:${location.origin}:${id}`,value:{...stored(`wheel.drawings:${id}`),magnet:'off'}});frame.contentWindow.receive({bars:[],con_id:id,generation:'clear',interval,session});sync();refreshMarket({full:true});refresh();}
+function select(id,label){if(busy)return;cid=id;groupID=localStorage.getItem('wheel.web.group:'+id)||'';generation++;marketStream.stop();lastFallback=0;lastPnL=0;entry=0;state={};received=0;packet={};$('tif').value='DAY';$('editor').close();const url=new URL(location);url.searchParams.set('con_id',id);history.replaceState(null,'',url);if(![...$('contracts').options].some(o=>o.value===String(id)))$('contracts').append(new Option(label||String(id),String(id)));$('contracts').value=String(id);renderContractFavorites();frame.contentWindow.configureDrawings({key:`web:${location.origin}:${id}`,value:{...stored(`wheel.drawings:${id}`),magnet:'off'}});frame.contentWindow.receive({bars:[],con_id:id,generation:'clear',interval,session});sync();refreshMarket({full:true});refresh();}
 function entryPriceOnly(body){return !('order_id' in body)&&( body.action==='edit_entry'||body.action==='amend'&&['tp','sl'].includes(body.role))&&Number.isFinite(body.price)&&body.price>0&&!body.cancel&&!('quantity' in body)&&!('tif' in body);}
 async function write(body){
  const releasedAt=body.clientReleasedAt||Date.now();body={...body};delete body.clientReleasedAt;
