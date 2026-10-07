@@ -51,3 +51,21 @@ User now explicitly prioritizes chart favorites before further acceptance and
 limits future sell-side testing to covered calls (CC), excluding CSP. Existing
 holdings/orders remain out of test scope; establish separate test-owned coverage
 before a CC order and retain coverage until the short option is closed.
+
+## Simultaneous web and iPhone idle recovery
+
+On 2026-10-07 the user kept both clients open. IB logged error 322 (maximum
+account-summary subscriptions), while synchronous option history calls also
+occupied the sole IB owner thread. Version 37d1353 bounds synchronous option
+history waits to two seconds and backs off empty cold history for sixty seconds;
+stock cold initialization retains its prior timeout. Version 40d8155 explicitly
+cancels failed account-summary subscriptions and discards partial summary data.
+Completed summaries retain their existing subscription and account filtering.
+
+573 backend regressions passed, plus two focused tests of actual IB adapter
+cleanup/account filtering. Following deployment, three consecutive profile reads
+were 0.23–0.42 seconds and bootstrap reads 0.21–0.29 seconds. Access logs showed
+both desktop browser and native Wheel requests succeeding concurrently. Startup
+and initial contention still produced isolated 503s; this is short idle recovery
+evidence, not long-duration or concurrent trading acceptance. No trading writes
+were sent by this diagnostic run, and no Gateway logout or phone install occurred.
