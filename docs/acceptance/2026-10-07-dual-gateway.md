@@ -148,3 +148,11 @@ subscriptions. Ordinary same-account idle/reconnect stop retains pacing. Regress
 covers immediate Paper-to-Live subscription, no inherited permission errors, no
 broker writes, same-account throttle retention and the account route calling reset.
 Healthy SSE delivery and dual Gateway lifecycle are unchanged.
+
+
+Repair acceptance: 573 backend tests passed; 88abe2a deployed with a backend-only
+restart (Gateway sessions retained). Repeated the same immediate Paper→Live
+account/quote probe: verified account selection took 0.783s for Paper and 0.949s
+for Live; both returned live MNQ bid/ask, with no HTTP 503 in this probe. Final
+selected account Live, verified. No order endpoint called. This validates the
+cross-account cooldown repair, not every possible queue/outage 503 or RTH load.
