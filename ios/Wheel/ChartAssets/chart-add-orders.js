@@ -191,7 +191,7 @@
  #priced-add-dialog[data-light=true] input{background:#f6f8fb;color:#202731;border-color:#ccd3de}
  `;document.head.append(addStyle);
  const pendingQuantity=()=> (paperConfig.orders||[]).filter(o=>o.role.split('_')[0]==='entry'&&!['Filled','Cancelled','ApiCancelled','Inactive'].includes(o.status)).reduce((n,o)=>n+Math.max(0,o.quantity-o.filled),0);
- function addAllowed(choice){return paperConfig.enabled&&paperConfig.scalable&&paperConfig.position&&choice.side===Math.sign(paperConfig.position)&&!paperConfig.busy&&!paperConfig.orders?.some(o=>['PendingSubmit','PendingCancel','Unknown'].includes(o.status));}
+ function addAllowed(choice){return paperConfig.enabled&&(paperConfig.add_allowed??paperConfig.scalable)&&paperConfig.position&&choice.side===Math.sign(paperConfig.position)&&!paperConfig.busy&&!paperConfig.orders?.some(o=>['PendingSubmit','PendingCancel','Unknown'].includes(o.status));}
  function choosePriceOrder(choice,price){
   if(!paperConfig.position){menuOrderPrice=price;menuOrderCID=paperCID;sendPriceOrder(choice);return;}
   if(choice.side!==Math.sign(paperConfig.position)){if(choice.type==='LMT'&&paperConfig.scalable)chooseExit(true,price);return;}
@@ -213,7 +213,7 @@
    paperAction({action:'add',quantity,entry:price,entry_type:choice.type,side:choice.side,expected_ref:ref,expected_tp:tp,expected_sl:sl});
   };
   const summary=document.createElement('div');summary.className='add-summary';
-  for(const text of [`TP  ${priceText(tp)}`,`SL  ${priceText(sl)}`,`${zh?'已挂':'Pending'}  ${pendingQuantity()}`]){const cell=document.createElement('span');cell.textContent=text;summary.append(cell);}
+  for(const text of [`TP  ${tp?priceText(tp):"—"}`,`SL  ${sl?priceText(sl):"—"}`,`${zh?'已挂':'Pending'}  ${pendingQuantity()}`]){const cell=document.createElement('span');cell.textContent=text;summary.append(cell);}
   const footer=document.createElement('footer');footer.append(cancel,submit);
   addDialog.append(title,detail,label,summary,footer);addDialog.showModal();
  }

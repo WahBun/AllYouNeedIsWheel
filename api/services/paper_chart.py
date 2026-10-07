@@ -386,6 +386,19 @@ class PaperChart:
             result['scalable']=False
             for key in ('tp_projection','sl_projection'):
                 if key in result: result[key]['known']=False
+        result['add_allowed'] = bool(result.get('scalable'))
+        if parent and parent.contract.secType == 'OPT':
+            opposite = 'SELL' if result['position'] > 0 else 'BUY'
+            working = [t for t in conn.ib.openTrades() if t.order.account == account and t.contract.conId == cid]
+            opposite_working = any(t.order.action == opposite for t in working)
+            owned = group.get('origin_position', 0) + sum(
+                (1 if trades[r['order_id']].order.action == 'BUY' else -1) * r['filled']
+                for r in rows if r['order_id'] in trades)
+            result['add_allowed'] = bool(result['known'] and result['position'] and not working
+                and not group.get('pending_resize') and not group.get('pending_protection')
+                and abs(owned - result['position']) < .000001)
+            result['add_block_reason'] = ('option_opposite_orders' if opposite_working
+                else 'orders_need_reconciliation' if not result['add_allowed'] else '')
         return result
 
     @staticmethod
@@ -1308,6 +1321,24 @@ class PaperChart:
         group=self.group(account,cid)
         if not group: raise ValueError('No chart bracket for this contract')
         trades=getattr(self,'_resolved_trades',{})
+        if action == 'add' and contract.secType == 'OPT':
+            if body.get('expected_ref') != group.get('ref'):
+                raise ValueError('Order identity changed; refresh before adding')
+            if not current.get('add_allowed'):
+                raise ValueError('Option Add requires no opposite working orders and reconciled fills; cancel TP/SL/Trim first')
+            qty = body.get('quantity')
+            if isinstance(qty, bool) or not isinstance(qty, (int, float)) or not math.isfinite(qty) or qty != int(qty) or not 1 <= qty <= 10 - abs(current['position']):
+                raise ValueError('Invalid option adjustment quantity; maximum total is 10 contracts')
+            kind = body.get('entry_type', 'MKT')
+            if kind not in ('LMT', 'STP', 'MKT'):
+                raise ValueError('Unsupported add order type')
+            if body.get('side', group['side']) != group['side'] or current['position'] * group['side'] <= 0:
+                raise ValueError('Add direction must match the current position')
+            target = 0 if kind == 'MKT' else price(body.get('entry'))
+            if not group.get('lots'):
+                group['lots'] = [dict(entry=oid) for role, oid in group['ids'].items() if role.split('_')[0] == 'entry']
+            self.add_lots(conn, account, cid, contract, group, int(qty), kind, target, None, None, entry_kind='add')
+            return
         if action in ('add','trim'):
             if body.get('expected_ref') is not None and body['expected_ref'] != group.get('ref'):
                 raise ValueError('Order identity changed; refresh before adjusting')
