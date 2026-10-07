@@ -25,6 +25,29 @@ class PaperChartTests(unittest.TestCase):
         self.conn.ib.cancelOrder.side_effect=lambda o:setattr(next(t for t in self.trades if t.order.orderId==o.orderId).orderStatus,'status','Cancelled')
         self.resolve=patch('api.services.paper_chart.contracts.resolve',return_value=self.contract);self.resolve.start()
         self.feed=patch('api.services.paper_chart.stock_chart.active',{'con_id':7,'price_rules':[{'low':0,'increment':.25}]});self.feed.start()
+    def test_warning_waits_for_broker_without_replay(self):
+        original=self.conn.ib.placeOrder.side_effect
+        def warning(c,o):
+            t=original(c,o);t.orderStatus.status='ValidationError';return t
+        self.conn.ib.placeOrder.side_effect=warning
+        _,result=self.submit()
+        self.assertEqual(result['status'],'unknown')
+        self.assertTrue(result['awaiting_broker'])
+        with self.service.database() as db:
+            request_id=db.execute('SELECT id FROM chart_paper_requests').fetchone()[0]
+        calls=self.conn.ib.placeOrder.call_count
+        self.assertFalse(self.service.request_status(self.conn,7,request_id)['confirmed'])
+        for t in self.trades:t.orderStatus.status='Submitted'
+        self.assertTrue(self.service.request_status(self.conn,7,request_id)['confirmed'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count,calls)
+
+    def test_market_order_does_not_expose_unset_price(self):
+        self.submit()
+        self.trades[0].order.orderType='MKT'
+        self.trades[0].order.lmtPrice=1.7976931348623157e308
+        state=self.service.state(self.conn,7)
+        self.assertEqual(state['orders'][0]['price'],0)
+
     def test_cancel_protection_keeps_position_and_is_idempotent(self):
         self.filled_position(100)
         request=dict(request_id=str(uuid4()),action='cancel_protection',

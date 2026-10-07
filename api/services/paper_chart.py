@@ -184,7 +184,7 @@ class PaperChart:
             if not t and role in terminal and terminal[role]['order_id'] == oid:
                 rows.append(terminal[role]); continue
             rows.append(dict(role=role, order_id=oid, status=t.orderStatus.status if t else 'Unknown',
-                price=(t.order.auxPrice if role.split('_')[0]=='sl' or (role.split('_')[0]=='entry' and t.order.orderType=='STP') else t.order.lmtPrice) if t and role!='close' else 0,
+                price=(0 if t.order.orderType=='MKT' else t.order.auxPrice if role.split('_')[0]=='sl' or (role.split('_')[0]=='entry' and t.order.orderType=='STP') else t.order.lmtPrice) if t and role!='close' else 0,
                 quantity=max(float(t.order.totalQuantity),float(t.orderStatus.filled),sum(float(f.execution.shares) for f in trade_fills(t))) if t else 0,
                 filled=max(float(t.orderStatus.filled),sum(float(f.execution.shares) for f in trade_fills(t))) if t else 0))
         for row in rows:
@@ -195,6 +195,7 @@ class PaperChart:
             group['terminal'] = confirmed
             self.save_group(account,cid,group)
         result.update(orders=rows, side=group['side'], known=all(r['status']!='Unknown' for r in rows))
+        result['broker_pending'] = any(r['status'] in ('Unknown','ValidationError','PendingSubmit','ApiPending','PendingCancel') for r in rows)
         result['active']=any(r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive') for r in rows) or result['position']!=0
         result['status']='working' if result['active'] else 'done'
         for row in rows:
@@ -441,6 +442,17 @@ class PaperChart:
                 db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
                     (json.dumps(dict(success=status != 'rejected', status=status)), request_id, account))
             return dict(confirmed=True, status=status)
+        if result.get('awaiting_broker'):
+            original = result.get('state', {})
+            expected = {r['order_id'] for r in original.get('orders', [])}
+            rows = state.get('orders', [])
+            working = {t.order.orderId for t in authoritative if t.order.account==account
+                       and t.contract.conId==cid and t.order.orderRef==original.get('order_ref')
+                       and t.orderStatus.status in ('Submitted','PreSubmitted')}
+            terminal = {r['order_id'] for r in rows if r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive')}
+            if expected and state.get('order_ref')==original.get('order_ref') and expected <= working | terminal:
+                return resolved('rejected' if state.get('rejected') else 'reconciled')
+            return dict(confirmed=False,status='unknown')
         if body.get('action')=='close' and state['known']:
             cancellation=group.get('close_cancellation',{})
             if cancellation.get('request_id')==request_id:
@@ -582,6 +594,9 @@ class PaperChart:
                 self.save_group(account, cid, group)
             state=self.state(conn,cid)
             result=dict(success=not state.get('rejected',False),status='rejected' if state.get('rejected') else 'acknowledged',message='IB rejected a paper order; review Gateway' if state.get('rejected') else 'Paper request sent; broker status shown on chart',state=state)
+            if state.get('broker_pending') and not state.get('rejected'):
+                result.update(success=False, status='unknown', awaiting_broker=True,
+                    message='Request sent; awaiting broker confirmation. Do not resubmit.')
             if body.get('action') == 'cancel_protection':
                 result.update(success=True, status='canceled', message='Requested protection cancellation confirmed; position and remaining protection reflect broker state')
             if body.get('action') == 'cancel_add':
