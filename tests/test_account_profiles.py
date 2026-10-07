@@ -75,7 +75,7 @@ class AccountProfileTests(unittest.TestCase):
         stack.enter_context(patch.object(connection_manager, '_connection', self.old_connection))
         stack.enter_context(patch.object(connection_manager, '_connection_key', ('old',)))
         stack.enter_context(patch.object(connection_manager, '_retry_after', 0))
-        stack.enter_context(patch.object(stock_chart, 'stop'))
+        self.chart_stop=stack.enter_context(patch.object(stock_chart, 'stop'))
         stack.enter_context(patch.object(streams, 'clients', {}))
         stack.enter_context(patch.object(account, '_epoch', 'before'))
         return stack
@@ -89,6 +89,7 @@ class AccountProfileTests(unittest.TestCase):
         self.assertNotEqual(result['epoch'], 'before')
         self.assertEqual(json.loads(self.connection_path.read_text()), self.config['paper'])
         self.assertIs(self.app.config['database'], self.next_options.db)
+        self.chart_stop.assert_called_once_with(reset_cooldown=True)
         self.old_connection.disconnect.assert_called_once()
         self.assertEqual([call[0] for call in self.old_connection.mock_calls], ['disconnect'])
 

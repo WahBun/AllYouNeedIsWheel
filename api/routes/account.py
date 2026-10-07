@@ -109,7 +109,7 @@ def select_profile():
     for client in streams.clients.values(): client.closed = True
     streams.clients.clear()
     try:
-        stock_chart.stop()
+        stock_chart.stop(reset_cooldown=True)
     except Exception:
         logging.getLogger(__name__).warning('Chart subscription cleanup failed during account switch')
     try:

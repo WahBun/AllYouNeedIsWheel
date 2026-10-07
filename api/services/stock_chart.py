@@ -118,11 +118,18 @@ class StockChart:
         self.request_errors = {}
         self.listeners = set()
 
-    def stop(self):
-        for state in list(self.states.values()):
-            self.stop_state(state)
-        if self.active is not None:
-            self.stop_state(self.active)
+    def stop(self, reset_cooldown=False):
+        try:
+            for state in list(self.states.values()):
+                self.stop_state(state)
+            if self.active is not None:
+                self.stop_state(self.active)
+        finally:
+            if reset_cooldown:
+                # Account handover must not inherit the previous account's pacing or errors.
+                # Normal idle/reconnect cleanup retains pacing within the same account.
+                self.next_request.clear()
+                self.request_errors.clear()
 
     def stop_state(self, state):
         self.states.pop(state['con_id'], None)

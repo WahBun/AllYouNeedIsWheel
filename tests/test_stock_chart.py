@@ -40,6 +40,39 @@ class StockChartTests(unittest.TestCase):
         conn.ib.reqTickByTickData.return_value=ticker
         conn.ib.ticker.return_value=ticker
         return conn,ticker
+    def test_account_handover_does_not_inherit_chart_cooldown_or_errors(self):
+        from unittest.mock import patch
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        feed=StockChart(); paper,_=self.connection(); live,_=self.connection()
+        try:
+            with patch('api.services.stock_chart.time.monotonic', return_value=100):
+                feed.snapshot(paper,7,5,'all',fast=True)
+                feed.request_errors[8]='Previous account permission error'
+                feed.stop(reset_cooldown=True)
+                self.assertEqual(feed.request_errors,{})
+                self.assertEqual(feed.next_request,{})
+                packet=feed.snapshot(live,7,5,'all',fast=True)
+                self.assertTrue(packet['bars'])
+                self.assertIs(feed.states[7]['conn'],live)
+                live.ib.reqHistoricalData.assert_called_once()
+                paper.ib.placeOrder.assert_not_called(); live.ib.placeOrder.assert_not_called()
+        finally:
+            feed.stop();asyncio.get_event_loop().close()
+
+    def test_same_account_stop_keeps_subscription_pacing(self):
+        from unittest.mock import patch
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        feed=StockChart();conn,_=self.connection()
+        try:
+            with patch('api.services.stock_chart.time.monotonic',return_value=100):
+                feed.snapshot(conn,7,5,'all',fast=True)
+                feed.stop()
+                with self.assertRaisesRegex(ValueError,'cooling down'):
+                    feed.snapshot(conn,7,5,'all',fast=True)
+                self.assertEqual(conn.ib.reqHistoricalData.call_count,1)
+        finally:
+            feed.stop();asyncio.get_event_loop().close()
+
     def test_short_background_keeps_subscription_but_idle_eventually_releases(self):
         from unittest.mock import patch
         feed=StockChart();state={'con_id':7,'used':100};feed.states[7]=state

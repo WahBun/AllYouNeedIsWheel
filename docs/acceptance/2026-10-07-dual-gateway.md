@@ -132,3 +132,19 @@ these API measurements are not phone end-to-end or sustained RTH acceptance.
 The known first cold-login connection attempt can time out before a subsequent
 attempt succeeds; this change avoids cold login on ordinary warm switching,
 without broadly rewriting connection/history recovery.
+
+
+## Cross-account chart cooldown repair
+
+StockChart.stop removed subscriptions but retained conId-keyed next_request and
+request_errors. Initial subscriptions set a 15-second deadline even after success.
+A quick Paper-to-Live switch on the same contract therefore returned chart
+subscription cooling-down 503 until the previous account's deadline elapsed.
+This explains the short handover chart failures without requiring a login-order
+change; other queue/read failures are separate and are not certified fixed here.
+
+Account handover now explicitly resets chart pacing/error records after stopping
+subscriptions. Ordinary same-account idle/reconnect stop retains pacing. Regression
+covers immediate Paper-to-Live subscription, no inherited permission errors, no
+broker writes, same-account throttle retention and the account route calling reset.
+Healthy SSE delivery and dual Gateway lifecycle are unchanged.
