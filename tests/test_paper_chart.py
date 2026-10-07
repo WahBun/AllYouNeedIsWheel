@@ -1289,3 +1289,18 @@ class OptionProtectedLotTests(unittest.TestCase):
     test_trim_stop_fill_counts_as_exit_without_another_write = ProtectedLotTests.test_trim_stop_fill_counts_as_exit_without_another_write
     test_partial_trim_rejection_keeps_remaining_and_original_protection = ProtectedLotTests.test_partial_trim_rejection_keeps_remaining_and_original_protection
     test_unknown_trim_is_persisted_and_same_request_never_replays = ProtectedLotTests.test_unknown_trim_is_persisted_and_same_request_never_replays
+
+    def test_unprotected_option_add_amend_and_cancel(self):
+        self.unprotected_position()
+        self.service.execute(self.conn,7,self.add_request())
+        parent=self.trades[-1]
+        ref=self.service.group('DU_TEST',7)['ref']
+        result=self.service.execute(self.conn,7,dict(action='amend_add',request_id=str(uuid4()),
+            order_id=parent.order.orderId,expected_ref=ref,expected_price=10,expected_quantity=1,price=10.25))
+        self.assertTrue(result['success'],result)
+        self.assertEqual(parent.order.lmtPrice,10.25)
+        result=self.service.execute(self.conn,7,dict(action='cancel_add',request_id=str(uuid4()),
+            order_id=parent.order.orderId,expected_ref=ref))
+        self.assertTrue(result['success'],result)
+        self.assertTrue(result['state']['add_allowed'])
+        self.assertEqual(result['state']['position'],1)

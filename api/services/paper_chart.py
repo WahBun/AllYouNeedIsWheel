@@ -388,7 +388,7 @@ class PaperChart:
                 if key in result: result[key]['known']=False
         result['add_allowed'] = bool(result.get('scalable'))
         if parent and parent.contract.secType == 'OPT':
-            opposite = 'SELL' if result['position'] > 0 else 'BUY'
+            opposite = 'SELL' if (result['position'] or group['side']) > 0 else 'BUY'
             working = [t for t in conn.ib.openTrades() if t.order.account == account and t.contract.conId == cid]
             opposite_working = any(t.order.action == opposite for t in working)
             owned = group.get('origin_position', 0) + sum(
@@ -1279,10 +1279,15 @@ class PaperChart:
                 raise ValueError('Add changed; refresh before moving')
             target=price(body.get('price'))
             take,stop=trades.get(lot.get('tp')),trades.get(lot.get('sl'))
-            if not take or not stop or any(t.isDone() or t.orderStatus.status not in ('Submitted','PreSubmitted') for t in (take,stop)):
-                raise ValueError('Add protection needs reconciliation')
-            if group['side']*(take.order.lmtPrice-target)<=0 or group['side']*(stop.order.auxPrice-target)>=0:
-                raise ValueError('Add price must lie between its TP and SL')
+            unprotected_option = contract.secType == 'OPT' and not any(r in lot for r in ('tp','sl'))
+            if unprotected_option:
+                if any(t.order.account == account and t.contract.conId == cid and t.order.action != parent.order.action for t in conn.ib.openTrades()):
+                    raise ValueError('Option Add cannot be amended while opposite orders are working')
+            else:
+                if not take or not stop or any(t.isDone() or t.orderStatus.status not in ('Submitted','PreSubmitted') for t in (take,stop)):
+                    raise ValueError('Add protection needs reconciliation')
+                if group['side']*(take.order.lmtPrice-target)<=0 or group['side']*(stop.order.auxPrice-target)>=0:
+                    raise ValueError('Add price must lie between its TP and SL')
             import copy
             order=copy.copy(parent.order)
             field='lmtPrice' if order.orderType=='LMT' else 'auxPrice'
