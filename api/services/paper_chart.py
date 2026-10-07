@@ -1307,6 +1307,8 @@ class PaperChart:
             entry=price(body.get('entry')); tp=price(body['tp']) if body.get('tp') is not None else None; sl=price(body['sl']) if body.get('sl') is not None else None
             if (tp is not None and side*(tp-entry)<=0) or (sl is not None and side*(sl-entry)>=0): raise ValueError('TP and SL must be on opposite sides of entry')
             if body.get('entry_type') not in ('LMT','STP'): raise ValueError('Unsupported entry type')
+            if contract.secType == 'OPT' and qty > 1 and (tp is not None or sl is not None):
+                raise ValueError('Multi-contract option entry with TP/SL is not supported: IB may reject later unit brackets. Submit without TP/SL or use one contract.')
             if contract.secType in ('FUT','OPT'):
                 group=dict(ids={},lots=[],side=side,ref='WheelPaper:'+request_id,tif=tif)
                 self.add_lots(conn,account,cid,contract,group,int(qty),body['entry_type'],entry,tp,sl)

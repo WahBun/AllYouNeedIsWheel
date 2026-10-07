@@ -20,15 +20,15 @@ class OptionalProtectionTests(PaperChartTests):
 
     def test_optional_option_units_recover_and_amend_only_tp(self):
         self.contract.secType='OPT'
-        _,result=self.submit(side=-1,quantity=2,tp=9,sl=None)
+        _,result=self.submit(side=-1,quantity=1,tp=9,sl=None)
         self.assertTrue(result['success'],result)
-        self.assertEqual(len(self.trades),4)
-        self.assertEqual([t.order.action for t in self.trades],['SELL','BUY','SELL','BUY'])
+        self.assertEqual(len(self.trades),2)
+        self.assertEqual([t.order.action for t in self.trades],['SELL','BUY'])
         self.assertFalse(result['state']['scalable'])
         ref=self.service.group('DU_TEST',7)['ref']
         result=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='amend',role='tp',price=8,expected_ref=ref))
         self.assertTrue(result['success'],result)
-        self.assertEqual([self.trades[i].order.lmtPrice for i in (1,3)],[8,8])
+        self.assertEqual([self.trades[1].order.lmtPrice],[8])
         restarted=PaperChart(self.service.path)
         self.assertTrue(restarted.state(self.conn,7)['known'])
 

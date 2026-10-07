@@ -1181,8 +1181,8 @@ class OptionProtectedLotTests(unittest.TestCase):
         self.resolve.start()
 
     def test_exact_option_and_contract_units(self):
-        self.submit(quantity=2)
-        self.assertEqual(len(self.trades), 6)
+        self.submit(quantity=1)
+        self.assertEqual(len(self.trades), 3)
         for call in self.conn.ib.placeOrder.call_args_list:
             contract, order = call.args
             self.assertIs(contract, self.contract)
@@ -1221,7 +1221,11 @@ class OptionProtectedLotTests(unittest.TestCase):
         self.assertFalse(self.service.state(self.conn,7)['add_allowed'])
 
     def test_protected_option_add_rejected_without_writes(self):
-        self.open_four()
+        self.submit()
+        parent=self.trades[0]
+        parent.orderStatus.status='Filled';parent.orderStatus.filled=1;parent.orderStatus.avgFillPrice=10
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=1)]
+        self.conn.ib.placeOrder.reset_mock()
         self.assertFalse(self.service.state(self.conn,7)['add_allowed'])
         r=self.service.execute(self.conn,7,self.add_request())
         self.assertFalse(r['success']);self.conn.ib.placeOrder.assert_not_called()
@@ -1245,50 +1249,41 @@ class OptionProtectedLotTests(unittest.TestCase):
             self.assertFalse(self.service.execute(self.conn,7,self.add_request(**changes))['success'])
         self.conn.ib.placeOrder.assert_not_called()
 
-    test_partially_filled_group_separates_contingent_protection = ProtectedLotTests.test_partially_filled_group_separates_contingent_protection
-    test_futures_unit_orders_allow_eth_but_options_keep_rth = ProtectedLotTests.test_futures_unit_orders_allow_eth_but_options_keep_rth
-    test_priced_trim_preserves_stop_and_remaining_targets = ProtectedLotTests.test_priced_trim_preserves_stop_and_remaining_targets
-    test_trim_preserves_all_stop_ids_and_other_lots = ProtectedLotTests.test_trim_preserves_all_stop_ids_and_other_lots
+    # These per-unit multi-contract protection scenarios remain covered by
+    # ProtectedLotTests for futures. IB rejected the second protected option
+    # unit in actual Paper acceptance; do not simulate that structure as supported.
 
-    # Retain shared protection, recovery and race coverage that does not assume protected Add.
-    resize_request = ProtectedLotTests.resize_request
-    test_trim_quantity_grow_shrink_and_zero_keep_unit_stops = ProtectedLotTests.test_trim_quantity_grow_shrink_and_zero_keep_unit_stops
-    test_trim_quantity_rejects_stale_position_and_overallocation = ProtectedLotTests.test_trim_quantity_rejects_stale_position_and_overallocation
-    test_trim_quantity_does_not_touch_another_plan_or_price = ProtectedLotTests.test_trim_quantity_does_not_touch_another_plan_or_price
-    test_trim_quantity_short_position_keeps_buy_stops = ProtectedLotTests.test_trim_quantity_short_position_keeps_buy_stops
-    test_trim_quantity_lost_reply_reconciles_without_replay = ProtectedLotTests.test_trim_quantity_lost_reply_reconciles_without_replay
-    test_ordinary_tp_cancel_keeps_trim_and_reconciles_without_replay = ProtectedLotTests.test_ordinary_tp_cancel_keeps_trim_and_reconciles_without_replay
-    test_close_progress_and_per_plan_identity = ProtectedLotTests.test_close_progress_and_per_plan_identity
-    test_futures_trim_uses_eth_quote_but_still_rejects_stale_data = ProtectedLotTests.test_futures_trim_uses_eth_quote_but_still_rejects_stale_data
-    test_futures_close_rejects_stale_eth_quote_without_order_write = ProtectedLotTests.test_futures_close_rejects_stale_eth_quote_without_order_write
-    test_close_uses_current_bidask_when_last_trades_are_quiet = ProtectedLotTests.test_close_uses_current_bidask_when_last_trades_are_quiet
-    test_priced_short_trim_uses_buy_limit_and_preserves_stops = ProtectedLotTests.test_priced_short_trim_uses_buy_limit_and_preserves_stops
-    test_trim_amend_isolated_from_remaining_tp_and_projection = ProtectedLotTests.test_trim_amend_isolated_from_remaining_tp_and_projection
-    test_projection_recovers_completed_parent_execution_after_reconnect = ProtectedLotTests.test_projection_recovers_completed_parent_execution_after_reconnect
-    test_cancel_trim_restores_tp_without_canceling_protection = ProtectedLotTests.test_cancel_trim_restores_tp_without_canceling_protection
-    test_trim_restore_unknown_reconciles_without_replay = ProtectedLotTests.test_trim_restore_unknown_reconciles_without_replay
-    test_priced_trim_all_and_stale_position = ProtectedLotTests.test_priced_trim_all_and_stale_position
-    priced_add = ProtectedLotTests.priced_add
-    test_partial_original_first_unit_can_amend_and_cancel = ProtectedLotTests.test_partial_original_first_unit_can_amend_and_cancel
-    test_cancel_add_rejects_original_protection_or_stale_identity = ProtectedLotTests.test_cancel_add_rejects_original_protection_or_stale_identity
-    test_unresolved_trim_cannot_repeat_or_add = ProtectedLotTests.test_unresolved_trim_cannot_repeat_or_add
-    test_second_trim_unknown_recovery_preserves_first_without_replay = ProtectedLotTests.test_second_trim_unknown_recovery_preserves_first_without_replay
-    test_stop_projection_includes_realized_trim_and_remaining_stops = ProtectedLotTests.test_stop_projection_includes_realized_trim_and_remaining_stops
-    test_all_unit_stops_amend_for_be = ProtectedLotTests.test_all_unit_stops_amend_for_be
-    test_full_close_of_filled_units_does_not_cancel_protection = ProtectedLotTests.test_full_close_of_filled_units_does_not_cancel_protection
-    test_trim_preserves_broker_assigned_oca_fields = ProtectedLotTests.test_trim_preserves_broker_assigned_oca_fields
-    test_rejected_amendment_cannot_report_success_after_status_recovers = ProtectedLotTests.test_rejected_amendment_cannot_report_success_after_status_recovers
-    test_trim_recovers_completed_parents_after_reconnect = ProtectedLotTests.test_trim_recovers_completed_parents_after_reconnect
-    test_trim_uses_reconnected_execution_records_for_owned_quantity = ProtectedLotTests.test_trim_uses_reconnected_execution_records_for_owned_quantity
-    test_execution_groups_follow_requests_not_unit_orders = ProtectedLotTests.test_execution_groups_follow_requests_not_unit_orders
-    test_one_trim_request_groups_selected_units_separately_from_entry = ProtectedLotTests.test_one_trim_request_groups_selected_units_separately_from_entry
-    test_trim_timeout_keeps_every_stop_and_does_not_replay = ProtectedLotTests.test_trim_timeout_keeps_every_stop_and_does_not_replay
-    test_exit_fill_during_trim_validation_never_places_extra_exit = ProtectedLotTests.test_exit_fill_during_trim_validation_never_places_extra_exit
-    test_unsupported_contract_cannot_submit_broker_orders = ProtectedLotTests.test_unsupported_contract_cannot_submit_broker_orders
-    test_trim_progress_survives_partial_fill_and_cancel = ProtectedLotTests.test_trim_progress_survives_partial_fill_and_cancel
-    test_trim_stop_fill_counts_as_exit_without_another_write = ProtectedLotTests.test_trim_stop_fill_counts_as_exit_without_another_write
-    test_partial_trim_rejection_keeps_remaining_and_original_protection = ProtectedLotTests.test_partial_trim_rejection_keeps_remaining_and_original_protection
-    test_unknown_trim_is_persisted_and_same_request_never_replays = ProtectedLotTests.test_unknown_trim_is_persisted_and_same_request_never_replays
+    def test_multi_option_protection_rejected_before_any_broker_write(self):
+        for protection in (dict(tp=11,sl=9),dict(tp=11,sl=None),dict(tp=None,sl=9)):
+            _,result=self.submit(quantity=2,**protection)
+            self.assertFalse(result['success'],result)
+            self.assertIn('Multi-contract option',result['message'])
+        self.conn.ib.placeOrder.assert_not_called()
+        self.assertIsNone(self.service.group('DU_TEST',7))
+
+    def test_cancel_all_option_protection_reenables_add(self):
+        self.submit()
+        parent=self.trades[0]
+        parent.orderStatus.status='Filled';parent.orderStatus.filled=1;parent.orderStatus.avgFillPrice=10
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=1)]
+        self.assertFalse(self.service.state(self.conn,7)['add_allowed'])
+        ref=self.service.group('DU_TEST',7)['ref']
+        for role in ('tp','sl'):
+            r=self.service.execute(self.conn,7,dict(request_id=str(uuid4()),action='cancel_protection',
+                role=role,expected_ref=ref,confirm_remove_protection=True))
+            self.assertTrue(r['success'],r)
+            self.assertEqual(r['state']['add_allowed'],role=='sl')
+        self.conn.ib.placeOrder.reset_mock()
+        result=self.service.execute(self.conn,7,self.add_request())
+        self.assertTrue(result['success'],result)
+        self.conn.ib.placeOrder.assert_called_once()
+        self.assertEqual(self.conn.ib.placeOrder.call_args.args[1].action,'BUY')
+
+    def test_multi_option_without_protection_still_supported(self):
+        _,result=self.submit(quantity=2,tp=None,sl=None)
+        self.assertTrue(result['success'],result)
+        self.assertEqual(len(self.trades),2)
+        self.assertTrue(all(t.order.parentId==0 for t in self.trades))
 
     def test_unprotected_option_add_amend_and_cancel(self):
         self.unprotected_position()
