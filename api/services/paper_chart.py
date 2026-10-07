@@ -388,13 +388,15 @@ class PaperChart:
                 if key in result: result[key]['known']=False
         result['add_allowed'] = bool(result.get('scalable'))
         result['trim_allowed'] = bool(result.get('scalable'))
-        if parent and parent.contract.secType in ('OPT', 'STK'):
+        scaling_contract = parent.contract if parent else position.contract if position else None
+        if scaling_contract and scaling_contract.secType in ('OPT', 'STK'):
             opposite = 'SELL' if (result['position'] or group['side']) > 0 else 'BUY'
             working = [t for t in conn.ib.openTrades() if t.order.account == account and t.contract.conId == cid]
             opposite_working = any(t.order.action == opposite for t in working)
             owned = group.get('origin_position', 0) + sum(
-                (1 if trades[r['order_id']].order.action == 'BUY' else -1) * r['filled']
-                for r in rows if r['order_id'] in trades)
+                ((1 if trades[r['order_id']].order.action == 'BUY' else -1) if r['order_id'] in trades
+                 else group['side'] * (1 if r['role'].split('_')[0] == 'entry' else -1)) * r['filled']
+                for r in rows)
             settled_unprotected = bool(result['known'] and result['position'] and not working
                 and not group.get('pending_resize') and not group.get('pending_protection')
                 and abs(owned - result['position']) < .000001)

@@ -29,6 +29,17 @@ class UnprotectedScalingTests(unittest.TestCase):
         s=self.service.state(self.conn,7)
         return dict(request_id=str(uuid4()),action='trim',quantity=1,expected_ref=s['order_ref'],expected_position=s['position'],**kw)
 
+    def test_confirmed_terminal_entries_survive_missing_session_trades(self):
+        self.filled()
+        self.service.state(self.conn,7)
+        self.trades.clear()
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw:[self.pos] if fn==self.conn.ib.reqPositions else []
+        state=self.service.state(self.conn,7)
+        self.assertTrue(state['known'])
+        self.assertTrue(state['add_allowed'])
+        self.pos.position=4
+        self.assertFalse(self.service.state(self.conn,7)['add_allowed'])
+
     def test_stock_add_is_one_aggregate_order(self):
         self.filled()
         r=self.service.execute(self.conn,7,dict(self.request(),action='add',quantity=100,entry_type='LMT',entry=10))
