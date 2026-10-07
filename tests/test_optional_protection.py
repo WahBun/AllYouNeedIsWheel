@@ -165,6 +165,27 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertTrue(PaperChart(self.service.path).state(self.conn,7)['known'])
 
 
+    def test_standalone_short_option_projection_uses_actual_fills(self):
+        from ib_async import Fill, Execution, CommissionReport
+        from datetime import datetime, timezone
+        self.contract.secType='OPT';self.contract.multiplier='100'
+        self.submit(side=-1,quantity=1,entry=10,tp=None,sl=None)
+        t=self.trades[0];t.orderStatus.status='Filled';t.orderStatus.filled=1;t.orderStatus.avgFillPrice=10
+        now=datetime.now(timezone.utc)
+        t.fills=[Fill(self.contract,Execution(execId='cc-entry',acctNumber='DU_TEST',orderId=t.order.orderId,side='SLD',shares=1,price=10,time=now),CommissionReport(),now)]
+        self.pos=S(account='DU_TEST',contract=self.contract,position=-1,avgCost=1000)
+        self.conn.ib.positions.return_value=[self.pos]
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw:self.trades if fn==self.conn.ib.reqOpenOrders else [self.pos]
+        _,r=self.replace(tp=8,sl=11)
+        self.assertTrue(r['success'],r)
+        for role,amount in [('tp',200),('sl',-100)]:
+            projection=r['state'][role+'_projection']
+            self.assertTrue(projection['known'])
+            self.assertEqual(projection['realized']+sum((x['price']-x['entry'])*x['side']*x['quantity']*x['multiplier'] for x in projection['targets']),amount)
+        t.fills=[]
+        self.assertFalse(self.service.state(self.conn,7)['tp_projection']['known'])
+
 def load_tests(loader, tests, pattern):
     import unittest
     return unittest.TestSuite(OptionalProtectionTests(name) for name in OptionalProtectionTests.__dict__ if name.startswith('test_'))
+

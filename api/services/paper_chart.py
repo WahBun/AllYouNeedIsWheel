@@ -405,7 +405,7 @@ class PaperChart:
             result['trim_allowed'] = bool(result.get('scalable') or settled_unprotected)
             result['add_block_reason'] = ('option_opposite_orders' if opposite_working
                 else 'orders_need_reconciliation' if not result['add_allowed'] else '')
-        if group.get('simple_adjustments'):
+        if group.get('simple_adjustments') or (group.get('protection_request') and not group.get('lots') and scaling_contract and scaling_contract.secType in ('OPT','STK')):
             # Use actual chronological executions across all entries and trims.
             # Missing fills mean unknown P/L, never a fabricated zero.
             events={}; complete=True
@@ -417,7 +417,7 @@ class PaperChart:
                 for f in fills:
                     events[f.execution.execId]=(f.time,f.execution.execId,trade.order.action,float(f.execution.shares),float(f.execution.price))
             held=abs(group.get('origin_position',0));cost=held*group.get('origin_entry',0);realized=0.0
-            multiplier=float(parent.contract.multiplier or 1) if parent else 1
+            multiplier=float(scaling_contract.multiplier or 1) if scaling_contract else 1
             for _,_,action,quantity,fill_price in sorted(events.values()):
                 if action==('BUY' if group['side']==1 else 'SELL'):
                     held+=quantity;cost+=quantity*fill_price
