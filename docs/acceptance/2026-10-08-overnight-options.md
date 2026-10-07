@@ -96,3 +96,14 @@ cover both calls; user stocks preserved. Re-read broker state before any mutatio
 Next: implement safe protected aggregate Trim accounting, then verify against this
 exact group; do not generate more entries just to recreate it. Private evidence:
 /tmp/wheel-partial-observe.jsonl and /tmp/wheel-partial-observe-retained.json on Pro.
+
+## 02:07 Beijing: latest state supersedes retained-position note
+
+User requested immediate real partial-fill acceptance. Used existing aggregate
+BUY2 TP1660 instead of adding exposure. At1.49 it remained unfilled; new explicit
+amendment to current bid1.66 filled both. Observations never showed filled1 /
+remaining1, so single-order partial acceptance remains NOT passed. TP1660 Filled2,
+SL1661 Cancelled, option position0. Pending-order read and stock preservation were
+checked separately. No retained test option position now; do not assume -2 remains.
+Evidence on Pro /tmp/wheel-partial-exit.jsonl and /tmp/wheel-partial-exit-latest.json.
+Automation wheel-paper was deleted at user request; continue only in this thread.
