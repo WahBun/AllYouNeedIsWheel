@@ -81,3 +81,18 @@ accepted-order recovery pass. Evidence /tmp/wheel-gateway-cut-1349aaa9-0ede-45b3
 Scope: real isolated client-to-Gateway transport interruption using production
 PaperChart code/private journal, not a full Gateway process kill or every action
 (amend/cancel/partial bracket transmission). Main backend remained connected.
+
+## CURRENT retained test position (02:00 Beijing)
+
+Do not start another flat-position test or deploy over active order management.
+QQQ call conId867924875 now has -2 test contracts, average execution 1.50,
+ref WheelPaper:eac5a507-84a2-4384-bf74-6c224bbe3924. Entry IDs1658/1659
+both filled one. These are TWO separate parents, not a single parent's partial
+fill; partial-fill acceptance is NOT passed. Initial response uncertainty resolved
+by read-only request status. No original request was replayed.
+Retained for protected aggregate Trim work, as authorized. TP1660 BUY2 at0.50,
+SL1661 BUY2 at3.50, both PreSubmitted and state covered at last read. QQQ400 shares
+cover both calls; user stocks preserved. Re-read broker state before any mutation.
+Next: implement safe protected aggregate Trim accounting, then verify against this
+exact group; do not generate more entries just to recreate it. Private evidence:
+/tmp/wheel-partial-observe.jsonl and /tmp/wheel-partial-observe-retained.json on Pro.
