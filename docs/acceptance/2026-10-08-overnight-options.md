@@ -67,3 +67,17 @@ Fix resolves only a complete fresh working-order snapshot matching stored IDs,
 request ref, account, contract, sides, types, quantities, prices and TIF. Missing
 legs or changed prices remain unknown and no write is sent by recovery. 597
 backend tests passed. Actual post-fix TCP-cut repetition pending.
+
+Post-fix actual TCP-cut verification PASSED on 6e704b4. The relay forwarded the
+single order, withheld broker replies for 150ms, then closed both TCP directions
+while execute was still waiting. execute returned unknown; reconnecting client179
+and request_status (GET-equivalent read path) returned confirmed/reconciled against
+exactly one original broker order. No resubmit. Exact test order canceled, no
+pending orders or option position; QQQ400/SGOV1000 retained. Evidence on Mini:
+/tmp/wheel-gateway-cut-ea38f9d2-b5be-4c12-9602-0ab0bfa914fe.
+An earlier immediate-cut repetition returned no matching open order; it stayed
+unknown with no replay and no position/open orders, correctly not claimed as an
+accepted-order recovery pass. Evidence /tmp/wheel-gateway-cut-1349aaa9-0ede-45b3-954e-c1b9485b0a57.
+Scope: real isolated client-to-Gateway transport interruption using production
+PaperChart code/private journal, not a full Gateway process kill or every action
+(amend/cancel/partial bracket transmission). Main backend remained connected.

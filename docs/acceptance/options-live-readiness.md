@@ -214,3 +214,16 @@ that the remaining stop is preserved. Adding another exit to OCA is not assumed
 to preserve the remaining protection: IB documents proportional OCA reductions
 and block semantics, not the desired application-level trim workflow.
 Reference: https://www.interactivebrokers.com/docs/tws-api/ref/order
+
+## In-flight Gateway transport acceptance (2026-10-08 01:54 Beijing)
+
+Completed a real isolated Paper TCP-link interruption during submission using
+production PaperChart code and a private journal. Fixed submit transport-unknown
+reconciliation (6e704b4); 597 backend regressions passed. With the placeOrder frame
+forwarded and all broker replies withheld, cutting the link returned unknown.
+Reconnect/read-only reconciliation found exactly one matching original order and
+returned reconciled without replay. Test order canceled; option flat, no pending
+orders, QQQ400/SGOV1000 preserved. See overnight ledger for exact evidence paths.
+This closes the isolated in-flight submission transport-loss case, not a Gateway
+process crash or all amend/cancel/partial-bracket failure timings. Protected
+aggregate Trim and sustained actual partial fills still require acceptance.
