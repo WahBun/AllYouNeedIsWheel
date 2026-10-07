@@ -44,5 +44,9 @@ the foreign position, but incorrectly advertised protection_manageable=true on
 an old completed group. Existing write-side ownership validation already rejects
 this mismatch; fixed the state/UI capability to apply ownership checks to all
 groups, not only imported-position groups. 593 backend regressions passed.
-Private evidence on Mini: /tmp/wheel-external-fill-evidence.jsonl. Deployment and
-actual post-fix repetition pending. This does not certify every external fill race.
+Private evidence on Mini: /tmp/wheel-external-fill-evidence.jsonl. Deployed 449c3bc and repeated actual one-call foreign sale/buyback. Main state
+now reports Add=false, Trim=false, protection_manageable=false with an explicit
+position-outside-group reason. Both test executions filled, final option flat,
+no pending orders; QQQ 400 and SGOV 1000 unchanged. This does not certify every
+external fill race. Protected aggregate Trim, sustained partial fills and isolated
+in-flight Gateway interruption remain outstanding.
