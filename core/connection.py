@@ -959,8 +959,28 @@ class IBConnection:
             return value
         return CurrencyHelper.convert_amount(value, currency, 'USD')
 
+    def _read_account_summary(self, account_id):
+        """Bound cold summary reads and release failed broker subscriptions."""
+        # Preserve the public adapter for alternate/test broker implementations.
+        if not isinstance(self.ib, IB):
+            return self._bounded_order_read(self.ib.accountSummary, account_id, timeout_seconds=5)
+        if not self.ib.wrapper.acctSummary:
+            req_id = self.ib.client.getReqId()
+            future = self.ib.wrapper.startReq(req_id)
+            tags = 'AccountType,NetLiquidation,TotalCashValue,SettledCash,BuyingPower,EquityWithLoanValue,InitMarginReq,MaintMarginReq,AvailableFunds,ExcessLiquidity,GrossPositionValue,$LEDGER:ALL'
+            try:
+                self.ib.client.reqAccountSummary(req_id, 'All', tags)
+                util.run(future, timeout=5)
+            except BaseException:
+                self.ib.client.cancelAccountSummary(req_id)
+                self.ib.wrapper._endReq(req_id)
+                # A partial response cannot certify a complete account snapshot.
+                self.ib.wrapper.acctSummary.clear()
+                raise
+        return [v for v in self.ib.wrapper.acctSummary.values() if v.account == account_id]
+
     def _account_info_from_summary(self, account_id, account_fields):
-        account_values = self._bounded_order_read(self.ib.accountSummary, account_id, timeout_seconds=5)
+        account_values = self._read_account_summary(account_id)
         if not account_values:
             return None
 
