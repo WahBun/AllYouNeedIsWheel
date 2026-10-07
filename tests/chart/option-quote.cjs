@@ -2,9 +2,11 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
 (async()=>{const browser=await chromium.launch();try{for(const width of [1440,393]){
  const page=await browser.newPage({viewport:{width,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('http://127.0.0.1:8765/superchart/frame');
- const packet={con_id:7,security_type:'OPT',symbol:'TEST',interval:5,session:'rth',server_time:1000,quote_expires_at:1030,bid:1.10,ask:1.15,bars:[{time:1000,open:1,high:1.2,low:.9,close:1.1}]};
+ const packet={con_id:7,security_type:'OPT',symbol:'TEST',interval:5,session:'rth',server_time:1000,quote_expires_at:1030,iv_percent:25.5,iv_expires_at:1030,bid:1.10,ask:1.15,bars:[{time:1000,open:1,high:1.2,low:.9,close:1.1}]};
  await page.evaluate(p=>receive(p),packet);await page.waitForFunction(()=>document.getElementById('option-mid').textContent==='1.125');
- assert.equal(await page.locator('#option-spread').textContent(),'4.4%');
+ assert.equal(await page.locator('#option-spread').textContent(),'4.4%');assert.equal(await page.locator('#option-iv').textContent(),'25.5%');
+ assert.equal(await page.locator('#option-quote').evaluate(e=>getComputedStyle(e).color),'rgb(23, 25, 25)');
+ assert.equal(await page.locator('#option-spread').evaluate(e=>getComputedStyle(e).color),'rgb(23, 74, 139)');
  const box=await page.locator('#option-quote').boundingBox();assert.ok(box.x>0&&box.x+box.width<width-50);
  await page.screenshot({path:`/tmp/wheel-option-mid-spread-${width}.png`});
  await page.evaluate(p=>receive({...p,bid:1.14,ask:1.18}),packet);await page.waitForFunction(()=>document.getElementById('option-mid').textContent==='1.16');

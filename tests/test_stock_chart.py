@@ -477,7 +477,19 @@ class StockChartTests(unittest.TestCase):
             packet=feed.packet(feed.active,1,'all')
             self.assertEqual(packet['bars'][-1]['close'],12)
             self.assertEqual(packet['status'],'live')
+            ticker.modelGreeks=S(impliedVol=.255)
+            ticker.updateEvent.emit(ticker)
+            self.assertAlmostEqual(feed.packet(feed.active,1,'all')['iv_percent'],25.5)
+            initial_iv_time=feed.active['iv_quote'][0]
+            ticker.updateEvent.emit(ticker)
+            self.assertEqual(feed.active['iv_quote'][0],initial_iv_time,'Other ticker events must not refresh stale IV')
+            feed.active['iv_quote']=(initial_iv_time-31,25.5)
+            self.assertIsNone(feed.packet(feed.active,1,'all')['iv_percent'])
+            ticker.modelGreeks=S(impliedVol=float('nan'));ticker.updateEvent.emit(ticker)
+            self.assertIsNone(feed.packet(feed.active,1,'all')['iv_percent'])
             ticker.marketDataType=3
+            ticker.modelGreeks=S(impliedVol=.3);ticker.updateEvent.emit(ticker)
+            self.assertIsNone(feed.packet(feed.active,1,'all')['iv_percent'])
             self.assertEqual(feed.packet(feed.active,1,'all')['status'],'waiting')
             conn.ib.placeOrder.assert_not_called()
         finally:

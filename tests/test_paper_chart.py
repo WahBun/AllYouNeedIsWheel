@@ -1253,13 +1253,17 @@ class OptionProtectedLotTests(unittest.TestCase):
     # ProtectedLotTests for futures. IB rejected the second protected option
     # unit in actual Paper acceptance; do not simulate that structure as supported.
 
-    def test_multi_option_protection_rejected_before_any_broker_write(self):
-        for protection in (dict(tp=11,sl=9),dict(tp=11,sl=None),dict(tp=None,sl=9)):
-            _,result=self.submit(quantity=2,**protection)
-            self.assertFalse(result['success'],result)
-            self.assertIn('Multi-contract option',result['message'])
-        self.conn.ib.placeOrder.assert_not_called()
-        self.assertIsNone(self.service.group('DU_TEST',7))
+    def test_multi_option_protection_uses_one_parent_with_matching_children(self):
+        _,result=self.submit(quantity=2)
+        self.assertTrue(result['success'],result)
+        self.assertEqual(len(self.trades),3)
+        parent,take,stop=self.trades
+        self.assertEqual([t.order.totalQuantity for t in self.trades],[2,2,2])
+        self.assertEqual([t.order.transmit for t in self.trades],[False,False,True])
+        self.assertEqual([t.order.parentId for t in (take,stop)],[parent.order.orderId]*2)
+        self.assertFalse(result['state'].get('scalable',False))
+        self.assertEqual(result['state']['protection']['pending_entry_sl'],2)
+        self.assertEqual(result['state']['protection']['sl'],0)
 
     def test_cancel_all_option_protection_reenables_add(self):
         self.submit()

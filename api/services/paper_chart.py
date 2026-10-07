@@ -1346,12 +1346,10 @@ class PaperChart:
             if tif not in ('DAY', 'GTC'): raise ValueError('Unsupported bracket TIF')
             side=body.get('side'); qty=body.get('quantity')
             if isinstance(side,bool) or isinstance(qty,bool) or side not in (-1,1) or not isinstance(qty,(int,float)) or not math.isfinite(qty) or qty!=int(qty) or not 1<=qty<=(10 if contract.secType in ('FUT','OPT') else 1000): raise ValueError('Invalid paper order size or side')
-            if contract.secType == 'OPT' and qty > 1 and (body.get('tp') is not None or body.get('sl') is not None):
-                raise ValueError('Multi-contract option entry with TP/SL is not supported: IB may reject later unit brackets. Submit without TP/SL or use one contract.')
             entry=price(body.get('entry')); tp=price(body['tp']) if body.get('tp') is not None else None; sl=price(body['sl']) if body.get('sl') is not None else None
             if (tp is not None and side*(tp-entry)<=0) or (sl is not None and side*(sl-entry)>=0): raise ValueError('TP and SL must be on opposite sides of entry')
             if body.get('entry_type') not in ('LMT','STP'): raise ValueError('Unsupported entry type')
-            if contract.secType in ('FUT','OPT'):
+            if contract.secType == 'FUT' or contract.secType == 'OPT' and (qty == 1 or not (tp is not None or sl is not None)):
                 group=dict(ids={},lots=[],side=side,ref='WheelPaper:'+request_id,tif=tif)
                 self.add_lots(conn,account,cid,contract,group,int(qty),body['entry_type'],entry,tp,sl)
                 return
@@ -1361,7 +1359,7 @@ class PaperChart:
             parent=(LimitOrder if body['entry_type']=='LMT' else StopOrder)(buy,qty,entry,orderId=ids['entry'],transmit=not values)
             orders=[parent]+[(LimitOrder if r=='tp' else StopOrder)(sell,qty,v,orderId=ids[r],parentId=ids['entry'],transmit=False) for r,v in values.items()]
             orders[-1].transmit=True
-            self.save_group(account,cid,dict(ids=ids,side=side,ref='WheelPaper:'+request_id,requested_protection=list(values)))
+            self.save_group(account,cid,dict(ids=ids,side=side,ref='WheelPaper:'+request_id,requested_protection=list(values),entry_kinds={str(ids['entry']):'entry'}))
             for order in orders:
                 order.account=account;order.tif=tif if order is parent else 'GTC';order.orderRef='WheelPaper:'+request_id
                 conn.ib.placeOrder(contract,order)

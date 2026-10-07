@@ -236,10 +236,16 @@ class StockChart:
                     raise
             state = dict(conn=conn, client=conn.ib.client, contract=contract, ticker=ticker,
                 con_id=con_id, bars=bars[-12000:], used=now, last_tick=None, received=None,
-                generation=time.time_ns(), ticks=0, live_bars={}, quotes={},option_bars=option_bars)
+                generation=time.time_ns(), ticks=0, live_bars={}, quotes={},option_bars=option_bars,model_greeks=getattr(ticker,'modelGreeks',None))
             def on_tick(updated):
                 if self.states.get(state['con_id']) is not state:
                     return
+                if option_bars:
+                    greeks=getattr(updated,'modelGreeks',None)
+                    if greeks is not state.get('model_greeks'):
+                        state['model_greeks']=greeks
+                        value=positive(getattr(greeks,'impliedVol',None))
+                        state['iv_quote']=(time.time(),value*100 if value and getattr(updated,'marketDataType',None)==1 else None)
                 # Only actual bid/ask price events establish quote freshness.
                 for quote in getattr(updated, 'ticks', []):
                     side = {1: 'bid', 2: 'ask', 66: 'bid', 67: 'ask'}.get(quote.tickType)
@@ -470,7 +476,9 @@ class StockChart:
         # A known current bar has a scheduled close before the first Last tick.
         # Countdown eligibility is independent of quote freshness/trading eligibility.
         closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time)
-        return dict(data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
+        iv_time,iv=state.get('iv_quote',(0,None))
+        iv_valid=contract.secType=='OPT' and iv is not None and server_time-iv_time<30 and in_session and getattr(ticker,'marketDataType',None)==1
+        return dict(iv_percent=iv if iv_valid else None,iv_expires_at=iv_time+30 if iv_valid else None,data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
             con_id=con_id, symbol=contract.symbol,
             display_symbol=(f"{contract.symbol} {contract.lastTradeDateOrContractMonth} {contract.strike:g} {'CALL' if contract.right == 'C' else 'PUT'}" if contract.secType == 'OPT' else getattr(contract, 'localSymbol', '') or contract.symbol),
             security_type=contract.secType, local_symbol=getattr(contract, "localSymbol", "") or contract.symbol,
