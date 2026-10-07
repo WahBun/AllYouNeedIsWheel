@@ -1112,9 +1112,12 @@ class PaperChart:
             group['ids'].update(ids)
             group['protection_request']=dict(id=request_id,ids=ids)
             self.save_group(account,cid,group)
+            # Standalone OCA exits have no bracket parent: transmit each member.
+            # Both writes are issued on the owner thread without yielding; OCA type 2
+            # retains broker-side overfill protection. Never replay an unknown member.
             for role,value in values.items():
                 order=(LimitOrder if role=='tp' else StopOrder)('SELL' if actual>0 else 'BUY',abs(actual),value,
-                    orderId=ids[role],account=account,tif='GTC',orderRef=group['ref'],transmit=role==next(reversed(values)),
+                    orderId=ids[role],account=account,tif='GTC',orderRef=group['ref'],transmit=True,
                     ocaGroup=('WheelExit:'+request_id) if len(values)==2 else '',ocaType=2 if len(values)==2 else 0)
                 order.outsideRth=contract.secType=='FUT'
                 conn.ib.placeOrder(contract,order)

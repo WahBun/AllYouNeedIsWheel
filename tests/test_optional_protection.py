@@ -64,14 +64,15 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertEqual(len(self.trades),4)
         self.assertTrue(PaperChart(self.service.path).state(self.conn,7)['known'])
 
-    def test_replace_both_groups_oca_and_only_last_transmits(self):
+    def test_replace_both_groups_oca_and_transmits_each_standalone_leg(self):
         self.filled_position(4)
         _,r=self.replace(sl=9)
         self.assertTrue(r['success'],r)
         tp,sl=[t.order for t in self.trades[-2:]]
         self.assertEqual(tp.ocaGroup,sl.ocaGroup);self.assertTrue(tp.ocaGroup)
         self.assertEqual((tp.ocaType,sl.ocaType),(2,2))
-        self.assertFalse(tp.transmit);self.assertTrue(sl.transmit)
+        self.assertTrue(tp.transmit);self.assertTrue(sl.transmit)
+        self.assertEqual((tp.parentId,sl.parentId),(0,0))
 
     def test_stale_snapshot_rejected_before_cancel(self):
         self.filled_position(4)
