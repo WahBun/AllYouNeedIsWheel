@@ -163,9 +163,21 @@ def fetch_flex(config):
     if not token or not query:
         raise PerformanceError('Configure Flex token and query_id on the backend.')
     # Explicit dates avoid reusing an incomplete default-period report at IB.
-    # Keep a full rolling year for bootstrap/corrections; archive retains older days.
+    # Bootstrap a year; overlap recent archived days for corrections without regenerating a year.
     end = datetime.now(ZoneInfo('America/New_York')).date() - timedelta(days=1)
     start = end - timedelta(days=364)
+    if config.get('history_path') and config.get('account_id'):
+        import sqlite3
+        from pathlib import Path
+        try:
+            uri = Path(os.path.expanduser(config['history_path'])).resolve().as_uri() + '?mode=ro'
+            with sqlite3.connect(uri, uri=True, timeout=1) as db:
+                latest = db.execute('SELECT MAX(day) FROM daily_performance WHERE account=?',
+                                    (config['account_id'],)).fetchone()[0]
+            if latest:
+                start = max(start, min(day(latest), end) - timedelta(days=7))
+        except (sqlite3.Error, OSError, PerformanceError):
+            pass  # Missing/unreadable archive falls back to the full bootstrap window.
     def fetch(action, q):
         params = {'t': token, 'q': q, 'v': '3'}
         if action == 'SendRequest':

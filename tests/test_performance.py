@@ -164,3 +164,21 @@ class PerformanceTests(unittest.TestCase):
             self.assertNotIn('fd', second)
             self.assertEqual(second['q'], ['ref'])
             self.assertEqual(str(clock.now.call_args.args[0]), 'America/New_York')
+
+    def test_flex_incremental_window_is_account_scoped(self):
+        import tempfile, sqlite3
+        from unittest.mock import patch
+        from datetime import datetime
+        from urllib.parse import urlsplit, parse_qs
+        from api.services.performance_service import fetch_flex
+        with tempfile.NamedTemporaryFile() as file:
+            with sqlite3.connect(file.name) as db:
+                db.execute('CREATE TABLE daily_performance (account TEXT, day TEXT)')
+                db.executemany('INSERT INTO daily_performance VALUES (?,?)', [('TEST','2026-10-05'),('OTHER','2026-10-06')])
+            with patch('api.services.performance_service.datetime') as clock, patch('api.services.performance_service.time.sleep'), patch('api.services.performance_service.download') as download:
+                clock.now.return_value = datetime(2026,10,7,7)
+                download.side_effect = ['<FlexStatementResponse><Status>Success</Status><ReferenceCode>ref</ReferenceCode></FlexStatementResponse>', 'report']
+                fetch_flex({'token':'secret','query_id':'query','account_id':'TEST','history_path':file.name})
+                params=parse_qs(urlsplit(download.call_args_list[0].args[0]).query)
+                self.assertEqual(params['fd'],['20260928'])
+                self.assertEqual(params['td'],['20261006'])
