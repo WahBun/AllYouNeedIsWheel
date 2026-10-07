@@ -54,3 +54,9 @@ Regression: 22 focused Gateway/account routing tests passed. Phone end-to-end
 Live-to-Paper latency is pending; the earlier 1.84-second probe preconnected the
 Paper API too, while this implementation preserves a single API owner and connects
 it after handover. Do not claim the experimental timing as a phone guarantee.
+
+Deployment verification: 567 backend regression tests passed. Mini updated to
+6d27446; original container retained stopped with restart disabled. Separate Paper
+container started on loopback 4002, account verified, MNQ returned live bid/ask
+with 50 ticks and 404 bars. No broker orders or phone installation. The user's next
+Live-to-Paper phone handover remains the end-to-end latency acceptance step.
