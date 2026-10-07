@@ -724,7 +724,7 @@ class PaperChart:
     def exit_lots(self, conn, account, cid, group, lots, trades, price, action, request_id, limit_target=None):
         import copy
         if limit_target is None:
-            state=stock_chart.active
+            state=stock_chart.states.get(cid) or stock_chart.active
             if not state or state['con_id']!=cid: raise ValueError('Wait for a current quote')
             # Use the chart's quote freshness rules, independently of its interval.
             contract = trades[lots[0]['tp']].contract
@@ -848,7 +848,7 @@ class PaperChart:
     def validate_entry_route_price(self, conn, routed, cid, amount):
         if routed.exchange == 'OVERNIGHT':
             return self.validate_overnight_price(conn, routed, cid, amount)
-        active = stock_chart.active
+        active = stock_chart.states.get(cid) or stock_chart.active
         rules = active.get('price_rules', []) if active and active['con_id'] == cid else []
         ticks = [r['increment'] for r in rules if Decimal(str(r['low'])) <= amount]
         if not ticks or amount % Decimal(str(ticks[-1])):
@@ -887,7 +887,7 @@ class PaperChart:
                 routed = copy.copy(contract); routed.exchange = 'OVERNIGHT'
                 self.validate_overnight_price(conn, routed, cid, amount)
             else:
-                active = stock_chart.active
+                active = stock_chart.states.get(cid) or stock_chart.active
                 rules = active.get('price_rules', []) if active and active['con_id'] == cid else []
                 ticks = [r['increment'] for r in rules if Decimal(str(r['low'])) <= amount]
                 if not ticks or amount % Decimal(str(ticks[-1])): raise ValueError('Invalid contract tick size')
@@ -1489,7 +1489,8 @@ class PaperChart:
             if not trade or trade.isDone(): raise ValueError('Exit order is no longer working')
             if action=='be':
                 if not current['position']: raise ValueError('BE requires a filled position')
-                base=current['entry']; rules=stock_chart.active.get('price_rules',[]) if stock_chart.active and stock_chart.active['con_id']==cid else []
+                base=current['entry']; chart_state=stock_chart.states.get(cid) or stock_chart.active
+                rules=chart_state.get('price_rules',[]) if chart_state and chart_state['con_id']==cid else []
                 ticks=[r['increment'] for r in rules if r['low']<=base]
                 if not ticks: raise ValueError('Wait for contract tick size')
                 tick=Decimal(str(ticks[-1])); sign=1 if current['position']>0 else -1

@@ -63,6 +63,17 @@ class EntryEditTests(unittest.TestCase):
         self.conn.ib.cancelOrder.assert_not_called()
         self.assertEqual(self.conn.ib.placeOrder.call_count, 4)
 
+    def test_option_edit_uses_own_tick_rules_when_another_chart_is_active(self):
+        from unittest.mock import patch
+        from api.services.stock_chart import stock_chart
+        self.submit(quantity=2)
+        self.trades[0].contract.secType = 'OPT'
+        own = dict(stock_chart.active)
+        with patch.object(stock_chart, 'states', {7: own}), patch.object(stock_chart, 'active', {'con_id': 99, 'price_rules': [{'low': 0, 'increment': 1}]}):
+            result = self.edit(price=10.25)
+        self.assertTrue(result['success'], result)
+        self.assertEqual(self.trades[0].order.lmtPrice, 10.25)
+
     def test_quantity_and_tif_replace_all_protective_legs(self):
         self.submit(quantity=100)
         result = self.edit(quantity=50, tif='GTC')
