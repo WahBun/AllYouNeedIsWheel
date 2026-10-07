@@ -69,3 +69,23 @@ both desktop browser and native Wheel requests succeeding concurrently. Startup
 and initial contention still produced isolated 503s; this is short idle recovery
 evidence, not long-duration or concurrent trading acceptance. No trading writes
 were sent by this diagnostic run, and no Gateway logout or phone install occurred.
+
+## 2026-10-08 QQQ covered-call acceptance
+
+User explicitly authorized the currently favorited QQQ 2026-10-16 775 Call and
+existing 100 QQQ shares as coverage. Verified the selected/favorited exact contract
+in the browser and the Paper account before writes. One CC sold and subsequently
+bought back, both with actual fills; no second short contract or stock trade was
+submitted. Adding both standalone exits exposed an unresolved issue: SL was
+PreSubmitted but TP remained PendingSubmit. The replacement response was unknown,
+not certified coverage. Both exits were explicitly canceled, Add became available
+again, then the single call was closed. All test orders terminal and option flat.
+Private evidence: /tmp/wheel-simple-scaling-867924875.jsonl and
+/tmp/wheel-rth-20261007.jsonl. CC Add must also be constrained by remaining share
+coverage before a CC-only Live rollout; current generic Add capability alone does
+not establish that entitlement.
+
+Separately, the two-contract AAPL TP amendment using a fresh near-bid exit price
+filled both contracts and canceled the SL counterpart, leaving no test position.
+The earlier extreme-price amendment nonfill is not explained by this successful
+near-market case; it remains separately recorded rather than erased.
