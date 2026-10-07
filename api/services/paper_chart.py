@@ -26,6 +26,48 @@ def paper_account(conn, write=False):
     return account
 
 
+def require_call_coverage(conn, account, contract, quantity):
+    """Reserve stock coverage conservatively across expiries and API clients.
+
+    Pending stock sales and every remaining short-call sale consume coverage.
+    Pending purchases/buybacks never release it before actual position updates.
+    This guard supports standard USD 100-share equity calls only.
+    """
+    if contract.secType != 'OPT' or contract.right != 'C': return
+    def standard(c):
+        return c.currency == 'USD' and c.multiplier == '100' and c.tradingClass == c.symbol
+    if not standard(contract):
+        raise ValueError('CC coverage requires a standard USD 100-share call')
+    positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
+    orders=conn._bounded_order_read(conn.ib.reqAllOpenOrders,timeout_seconds=3)
+    shares=0.0; reserved=0.0
+    for p in positions:
+        c=p.contract
+        if p.account != account: continue
+        if c.secType == 'BAG': raise ValueError('Combination positions require manual coverage reconciliation')
+        if c.symbol != contract.symbol or c.currency != contract.currency: continue
+        if c.secType == 'STK': shares+=float(p.position)
+        elif c.secType == 'OPT' and c.right == 'C' and p.position < 0:
+            if not standard(c): raise ValueError('Nonstandard short call coverage needs reconciliation')
+            reserved+=abs(float(p.position))*100
+    seen=set()
+    for t in orders:
+        c=t.contract;o=t.order
+        if o.account != account or t.orderStatus.status in ('Filled','Cancelled','ApiCancelled','Inactive'): continue
+        key=(o.clientId,o.orderId,o.permId)
+        if key in seen: continue
+        seen.add(key)
+        if c.secType == 'BAG': raise ValueError('Combination orders require manual coverage reconciliation')
+        if c.symbol != contract.symbol or c.currency != contract.currency or o.action != 'SELL': continue
+        remaining=max(0,float(o.totalQuantity)-float(t.orderStatus.filled))
+        if c.secType == 'STK': shares-=remaining
+        elif c.secType == 'OPT' and c.right == 'C':
+            if not standard(c): raise ValueError('Nonstandard short call coverage needs reconciliation')
+            reserved+=remaining*100
+    if not all(math.isfinite(v) for v in (shares,reserved)) or shares-reserved+1e-8 < quantity*100:
+        raise ValueError('Insufficient unreserved shares for covered call; reconcile stock and call orders')
+
+
 class PaperChart:
     def __init__(self, path, group_id=None):
         self.path = path
@@ -1354,6 +1396,7 @@ class PaperChart:
             entry=price(body.get('entry')); tp=price(body['tp']) if body.get('tp') is not None else None; sl=price(body['sl']) if body.get('sl') is not None else None
             if (tp is not None and side*(tp-entry)<=0) or (sl is not None and side*(sl-entry)>=0): raise ValueError('TP and SL must be on opposite sides of entry')
             if body.get('entry_type') not in ('LMT','STP'): raise ValueError('Unsupported entry type')
+            if side == -1: require_call_coverage(conn,account,contract,int(qty))
             if contract.secType == 'FUT' or contract.secType == 'OPT' and (qty == 1 or not (tp is not None or sl is not None)):
                 group=dict(ids={},lots=[],side=side,ref='WheelPaper:'+request_id,tif=tif)
                 self.add_lots(conn,account,cid,contract,group,int(qty),body['entry_type'],entry,tp,sl)
@@ -1387,6 +1430,7 @@ class PaperChart:
                 raise ValueError('Unsupported add order type')
             if body.get('side', group['side']) != group['side'] or current['position'] * group['side'] <= 0:
                 raise ValueError('Add direction must match the current position')
+            if group['side'] == -1: require_call_coverage(conn,account,contract,int(qty))
             target = 0 if kind == 'MKT' else price(body.get('entry'))
             if not group.get('lots'):
                 group['lots'] = [dict(entry=oid) for role, oid in group['ids'].items() if role.split('_')[0] == 'entry']
@@ -1470,6 +1514,7 @@ class PaperChart:
                 kind = body.get('entry_type', 'MKT')
                 if kind not in ('MKT', 'LMT', 'STP'):
                     raise ValueError('Unsupported add order type')
+                if group['side'] == -1: require_call_coverage(conn,account,contract,int(qty))
                 target = 0 if kind == 'MKT' else price(body.get('entry'))
                 tp, sl = price(current.get('add_tp') or current['tp']), price(current['sl'])
                 if kind != 'MKT':
