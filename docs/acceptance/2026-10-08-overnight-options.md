@@ -121,3 +121,14 @@ Do not submit another test on this contract or assume the account is flat/clear;
 read broker state first. Partial fill is still NOT observed. User stocks unchanged.
 Private evidence on Pro: /tmp/wheel-four-partial.jsonl and
 /tmp/wheel-four-partial-retained.json. No automation is active.
+
+User correction: CC should not have default SL. Removed the mistakenly attached
+SL by canceling the unfilled original group1665/1666/1667 (all canceled, zero fills),
+then replacing at unchanged size/limit with TP ONLY. Current ref
+WheelPaper:d27366ac-c2cd-4502-a78f-a772a48e9fe7: parent1672 SELL4 LMT1.62
+DAY Submitted/filled0; TP1673 BUY4 LMT0.50 PreSubmitted. NO SL. A preceding
+replacement was explicitly rejected for missing market rules, with no broker
+order; fresh metadata was loaded before a new UUID submission. Do not replay
+unknown writes. This state supersedes the prior pending bracket. Keep CC SL off
+unless the user explicitly requests it; protection testing must not be silently
+mixed into CC partial-fill testing.
