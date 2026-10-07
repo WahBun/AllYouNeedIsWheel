@@ -162,8 +162,15 @@ def fetch_flex(config):
     token, query = config.get('token'), config.get('query_id')
     if not token or not query:
         raise PerformanceError('Configure Flex token and query_id on the backend.')
+    # Explicit dates avoid reusing an incomplete default-period report at IB.
+    # Keep a full rolling year for bootstrap/corrections; archive retains older days.
+    end = datetime.now(ZoneInfo('America/New_York')).date() - timedelta(days=1)
+    start = end - timedelta(days=364)
     def fetch(action, q):
-        return download(base + action + '?' + urllib.parse.urlencode({'t': token, 'q': q, 'v': '3'}))
+        params = {'t': token, 'q': q, 'v': '3'}
+        if action == 'SendRequest':
+            params.update(fd=start.strftime('%Y%m%d'), td=end.strftime('%Y%m%d'))
+        return download(base + action + '?' + urllib.parse.urlencode(params))
     root = ET.fromstring(fetch('SendRequest', query))
     reference = root.findtext('ReferenceCode')
     if root.findtext('Status') != 'Success' or not reference:

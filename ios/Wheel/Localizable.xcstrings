@@ -1,6 +1,159 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "IBKR excluded the configured account from this Flex report. Previous history is retained; a complete report is required." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IBKR 本次报表未包含所选账户。已保留历史数据，等待完整报表后更新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IBKR 本次報表未包含所選帳戶。已保留歷史資料，等待完整報表後更新。"
+          }
+        }
+      }
+    },
+    "The configured account is missing from this Flex report. Previous history is retained." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本次 Flex 报表缺少所选账户，已保留历史数据。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本次 Flex 報表缺少所選帳戶，已保留歷史資料。"
+          }
+        }
+      }
+    },
+    "Performance data download failed; check backend connectivity/configuration." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收益数据下载失败，请检查后端网络连接与配置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收益資料下載失敗，請檢查後端網路連線與設定。"
+          }
+        }
+      }
+    },
+    "IBKR could not generate the Flex report; check query and token." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IBKR 未能生成 Flex 报表，请检查查询配置和令牌。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IBKR 未能產生 Flex 報表，請檢查查詢設定和權杖。"
+          }
+        }
+      }
+    },
+    "IBKR rejected the Flex report request." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IBKR 拒绝了 Flex 报表请求。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IBKR 拒絕了 Flex 報表請求。"
+          }
+        }
+      }
+    },
+    "Flex report is still generating; retry later." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flex 报表仍在生成中，请稍后重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flex 報表仍在產生中，請稍後重試。"
+          }
+        }
+      }
+    },
+    "Benchmark history unavailable; account history is retained." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂时无法获取基准历史数据，账户历史数据已保留。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暫時無法取得基準歷史資料，帳戶歷史資料已保留。"
+          }
+        }
+      }
+    },
+    "Performance history could not be parsed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法解析收益历史数据，已保留原有记录。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法解析收益歷史資料，已保留原有紀錄。"
+          }
+        }
+      }
+    },
+    "Flex needs daily Change in NAV with TWR (Breakout by Day)." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flex 报表需要包含按日拆分的净资产变化及时间加权收益率（TWR）。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flex 報表需要包含按日拆分的淨資產變化及時間加權報酬率（TWR）。"
+          }
+        }
+      }
+    },
     "Log in to the selected IB Gateway mode on Mini. Connection will complete automatically.": {
       "localizations": {
         "en": {

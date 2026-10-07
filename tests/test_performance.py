@@ -148,3 +148,19 @@ class PerformanceTests(unittest.TestCase):
             other=PerformanceService()
             other.restore({'history_path':path,'account_id':'OTHER'})
             self.assertIsNone(other.points)
+
+    def test_flex_uses_explicit_ny_dates_only_for_generation(self):
+        from unittest.mock import patch
+        from datetime import datetime
+        from urllib.parse import urlsplit, parse_qs
+        from api.services.performance_service import fetch_flex
+        with patch('api.services.performance_service.datetime') as clock, patch('api.services.performance_service.time.sleep'), patch('api.services.performance_service.download') as download:
+            clock.now.return_value = datetime(2026, 10, 7, 7)
+            download.side_effect = ['<FlexStatementResponse><Status>Success</Status><ReferenceCode>ref</ReferenceCode></FlexStatementResponse>', 'report']
+            self.assertEqual(fetch_flex({'token':'secret','query_id':'query'}), 'report')
+            first, second = [parse_qs(urlsplit(call.args[0]).query) for call in download.call_args_list]
+            self.assertEqual(first['fd'], ['20251007'])
+            self.assertEqual(first['td'], ['20261006'])
+            self.assertNotIn('fd', second)
+            self.assertEqual(second['q'], ['ref'])
+            self.assertEqual(str(clock.now.call_args.args[0]), 'America/New_York')
