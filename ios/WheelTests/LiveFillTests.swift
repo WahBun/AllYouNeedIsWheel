@@ -92,4 +92,36 @@ final class LiveFillTests: XCTestCase {
         store.changeMode()
         XCTAssertNil(store.fillPreview.notice)
     }
+    func testLargeExecutionHistoryKeepsCompleteCountAndBoundedPage() {
+        let now = ISO8601DateFormatter().date(from: "2026-10-08T03:00:00Z")!
+        let rows = (1...10000).map { id in
+            var row = order(id, 2)
+            row.fill_time = "2026-10-07T18:30:00.000Z"
+            return row
+        }
+        let started = Date()
+        let first = ExecutionHistoryPage.build(rows, days: 1, asset: "ALL", search: "", limit: 50, now: now)
+        print("History 10000-row projection seconds: \(Date().timeIntervalSince(started))")
+        XCTAssertEqual(first.total, 10000)
+        XCTAssertEqual(first.orders.count, 50)
+        XCTAssertEqual(first.headings.count, 1)
+        let next = ExecutionHistoryPage.build(rows, days: 1, asset: "OPTION", search: "test", limit: 100, now: now)
+        XCTAssertEqual(next.total, 10000)
+        XCTAssertEqual(next.orders.prefix(50).map(\.id), first.orders.map(\.id))
+        XCTAssertEqual(next.orders.count, 100)
+        XCTAssertTrue(ExecutionHistoryPage.build(rows, days: 1, asset: "STOCK", search: "", limit: 50, now: now).orders.isEmpty)
+    }
+    func testExecutionHistoryNewYorkBoundaryAndDuplicateIdentity() {
+        let now = ISO8601DateFormatter().date(from: "2026-10-08T03:00:00Z")!
+        var today = order(1, 2); today.fill_time = "2026-10-08T02:59:59Z"
+        var yesterday = order(2, 2); yesterday.fill_time = "2026-10-07T03:59:59Z"
+        var invalid = order(3, 2); invalid.fill_time = "invalid"
+        let page = ExecutionHistoryPage.build([today,today,yesterday,invalid], days: 1, asset: "ALL", search: "", limit: 50, now: now)
+        XCTAssertEqual(page.total, 1)
+        XCTAssertEqual(page.orders.map(\.id), [today.id])
+        let week = ExecutionHistoryPage.build([today,yesterday], days: 7, asset: "ALL", search: "", limit: 50, now: now)
+        XCTAssertEqual(week.total, 2)
+        XCTAssertEqual(week.headings.count, 2)
+    }
+
 }

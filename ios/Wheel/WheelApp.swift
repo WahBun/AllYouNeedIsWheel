@@ -172,11 +172,8 @@ struct Order: Decodable, Identifiable {
     }
     var fillDate: Date? {
         guard let fill_time else { return nil }
-        let parser = ISO8601DateFormatter()
-        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let fractional = parser.date(from: fill_time)
-        parser.formatOptions = [.withInternetDateTime]
-        return fractional ?? parser.date(from: fill_time)
+        return (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(fill_time))
+            ?? (try? Date.ISO8601FormatStyle(includingFractionalSeconds: false).parse(fill_time))
     }
     static func latestFillsFirst(_ orders: [Order]) -> [Order] {
         orders.map { ($0, $0.fillDate ?? .distantPast) }.sorted { lhs, rhs in
@@ -1314,6 +1311,45 @@ struct PositionDetail: View {
     }
 }
 
+// Build one linear projection per render; never re-filter the complete history per row.
+struct ExecutionHistoryPage {
+    var orders: [Order]
+    var headings: [OrderID: String]
+    var total: Int
+    static var empty: Self { Self(orders: [], headings: [:], total: 0) }
+    static func build(_ source: [Order], days: Int, asset: String, search: String, limit: Int, now: Date = .now) -> Self {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        let today = calendar.startOfDay(for: now)
+        let start = (days == 0 || days == 30)
+            ? calendar.date(from: calendar.dateComponents([.year, .month], from: today))!
+            : calendar.date(byAdding: .day, value: -(max(1, days) - 1), to: today)!
+        let end = calendar.date(byAdding: .day, value: 1, to: today)!
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+        let integral = Date.ISO8601FormatStyle(includingFractionalSeconds: false)
+        let label = DateFormatter()
+        label.locale = Locale(identifier: "en_US_POSIX")
+        label.timeZone = calendar.timeZone; label.dateFormat = "MMM d, yyyy"
+        var result = Self.empty
+        var seenDays = Set<Date>()
+        var seenIDs = Set<OrderID>()
+        for order in source {
+            guard seenIDs.insert(order.id).inserted, let text = order.fill_time,
+                  let date = (try? fractional.parse(text)) ?? (try? integral.parse(text)), date >= start, date < end else { continue }
+            let kind = (order.option_type ?? "").uppercased()
+            let category = kind == "STOCK" ? "STOCK" : kind == "FUTURE" ? "FUTURE" : ["CALL", "PUT", "C", "P"].contains(kind) ? "OPTION" : "UNKNOWN"
+            guard asset == "ALL" || asset == category else { continue }
+            guard query.isEmpty || [order.name, order.expiration ?? "", order.option_type ?? ""].joined(separator: " ").localizedCaseInsensitiveContains(query) else { continue }
+            result.total += 1
+            guard result.orders.count < max(0, limit) else { continue }
+            result.orders.append(order)
+            if seenDays.insert(calendar.startOfDay(for: date)).inserted { result.headings[order.id] = label.string(from: date) }
+        }
+        return result
+    }
+}
+
 struct OrdersView: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.locale) private var locale
@@ -1325,24 +1361,7 @@ struct OrdersView: View {
     @State private var historySearchExpanded = false
     @AppStorage("executionHistoryAsset") private var historyAsset = "ALL"
     @FocusState private var historySearchFocused: Bool
-    private var filteredHistory: [Order] {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "America/New_York")!
-        let today = calendar.startOfDay(for: Date())
-        let start = (historyDays == 0 || historyDays == 30)
-            ? calendar.date(from: calendar.dateComponents([.year, .month], from: today))!
-            : calendar.date(byAdding: .day, value: -(historyDays - 1), to: today)!
-        let end = calendar.date(byAdding: .day, value: 1, to: today)!
-        let query = historySearch.trimmingCharacters(in: .whitespacesAndNewlines)
-        return store.filledOrders.filter { order in
-            guard let date = order.fillDate, date >= start, date < end else { return false }
-            let kind = (order.option_type ?? "").uppercased()
-            let asset = kind == "STOCK" ? "STOCK" : kind == "FUTURE" ? "FUTURE" : ["CALL", "PUT", "C", "P"].contains(kind) ? "OPTION" : "UNKNOWN"
-            guard historyAsset == "ALL" || historyAsset == asset else { return false }
-            let text = [order.name, order.expiration ?? "", order.option_type ?? ""].joined(separator: " ")
-            return query.isEmpty || text.localizedCaseInsensitiveContains(query)
-        }
-    }
+    @State private var historyLimit = 50
     @State private var cancelAll = false
     @State private var cancelling = false
     @State private var quickOrder: Order?
@@ -1350,6 +1369,8 @@ struct OrdersView: View {
     private var refreshHistory: Bool { RefreshLoop.shouldRefreshHistory(tab: store.selectedTab, showingHistory: true, active: phase == .active) }
     private var cancelable: [Order] { store.orders.filter { TradeRules.cancelable($0) } }
     var body: some View {
+        let page = history ? ExecutionHistoryPage.build(store.filledOrders, days: historyDays, asset: historyAsset, search: historySearch, limit: historyLimit) : ExecutionHistoryPage.empty
+        let displayedOrders = history ? page.orders : store.orders
         List {
             HStack(alignment: .lastTextBaseline) {
                 Text(localizedLabel("Orders", locale: locale)).font(.largeTitle.bold())
@@ -1405,12 +1426,12 @@ struct OrdersView: View {
                     NoticeText(error).font(.caption).textSelection(.enabled)
                 }.disclosureGroupStyle(ArrowlessDisclosureStyle()).foregroundStyle(.orange)
             } else if let error = store.error { NoticeText(error).foregroundStyle(.orange) }
-            if (history ? filteredHistory : store.orders).isEmpty && store.orderError == nil && store.error == nil && (!history || store.filledError == nil) {
+            if displayedOrders.isEmpty && store.orderError == nil && store.error == nil && (!history || store.filledError == nil) {
                 ContentUnavailableView("No orders", systemImage: "checkmark.circle")
             }
-            ForEach(history ? filteredHistory : store.orders) { order in
-                if history, filteredHistory.first(where: { $0.fillDayLabel == order.fillDayLabel })?.id == order.id {
-                    Text(order.fillDayLabel).font(.subheadline.weight(.semibold))
+            ForEach(displayedOrders) { order in
+                if history, let heading = page.headings[order.id] {
+                    Text(heading).font(.subheadline.weight(.semibold))
                         .listRowBackground(Color.secondary.opacity(0.12))
                 }
                 ArrowlessNavigationLink {
@@ -1438,6 +1459,9 @@ struct OrdersView: View {
                     }
                 }
             }
+            if history && page.total > displayedOrders.count {
+                Button(locale.language.languageCode?.identifier == "zh" ? "加载更多（已显示 \(displayedOrders.count) / \(page.total)）" : "Load more (\(displayedOrders.count) / \(page.total))") { historyLimit += 50 }
+            }
             if !history { Button("Cancel all eligible (\(cancelable.count))", role: .destructive) {
                 if confirmExecution || cancelable.contains(where: TradeRules.protectionCancelable) { cancelAll = true } else { performCancelAll() }
             }.disabled(cancelable.isEmpty) }
@@ -1445,8 +1469,9 @@ struct OrdersView: View {
         }.scrollDismissesKeyboard(.immediately)
         .onAppear { if historyDays == 30 { historyDays = 0 } }
         .onChange(of: history) { historySearchFocused = false }
-        .onChange(of: historyDays) { historySearchFocused = false }
-        .onChange(of: historyAsset) { historySearchFocused = false }
+        .onChange(of: historyDays) { historySearchFocused = false; historyLimit = 50 }
+        .onChange(of: historyAsset) { historySearchFocused = false; historyLimit = 50 }
+        .onChange(of: historySearch) { historyLimit = 50 }
         .onDisappear { historySearchFocused = false }
         .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { historySearchFocused = false } } }
         .navigationTitle("").navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .navigationBar).refreshable { if history { await store.loadFilled() } else { await store.refresh() } }

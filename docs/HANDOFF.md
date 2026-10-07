@@ -708,3 +708,16 @@ amendments were not exercised; existing user orders were not modified for tests.
 ### New-order Bracket master switch
 - Stocks/options default off; futures default on. Per-asset master preference is separate from retained TP/SL leg choices and values. Turning the master off strips protection from new submissions only; existing exits remain managed through Manage TP/SL.
 - Web mock browser checks cover defaults, retained values, one-leg selection, reload, responsive layout, zero writes on toggles and entry-only submit. Native source parsed only; no iPhone Run/install or broker test orders for this UI change.
+
+## 2026-10-08 Orders history responsiveness
+
+Executed records previously filtered the full history again inside every row's
+first-day lookup, repeatedly parsing dates and causing quadratic main-thread work.
+ExecutionHistoryPage now creates one linear projection and precomputed headings,
+deduplicates row identities, and displays 50 records per page with Load more.
+Search, date and asset filters still cover all history; no records are deleted.
+ISO8601FormatStyle parsing also replaces per-record formatter construction for
+fill dates used by sorting and display. New tests cover 10,000 records, page
+continuity, filtering, duplicate IDs and New York day boundaries. Simulator suite:
+129 passed. The 10,000-record projection measured approximately 8 ms locally;
+this is not physical-device screen latency. Phone installation remains deferred.
