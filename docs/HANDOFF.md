@@ -700,3 +700,7 @@ amendments were not exercised; existing user orders were not modified for tests.
 - Close first reconciles pending parent cancellation, includes an Add filled during that race, and checks actual position against protected units before exits. Unknown outcomes remain locked; status reconciliation never replays closing writes.
 - Open protection estimates refresh when price rules arrive without overwriting input drafts.
 - Validation: 559 backend tests passed. Mock browser regressions cover fast dragging across four segments, capture loss, focus loss, submit/cancel clicks, latest-intent amendments, independent entries, Add/Trim overlays, protection editing/cancellation and flat recovery. An unrelated legacy mobile drawing-preview fixture still targets an unavailable Horizontal ray button; excluded from order acceptance. No broker orders were submitted, and actual fill/race acceptance remains pending. No iPhone Run/install. Quote delivery behavior was preserved.
+
+### Paper confirmation and restart acceptance
+- Normalize MKT unset prices; retain uncertainty for transient broker states and resolve via authoritative reads without write replay. 561 backend tests passed.
+- MNQ Paper stable pending bracket survived a real backend/API restart with identical three order IDs, prices and quantities. New pending-confirmation response also reconciled against IB. Both test brackets cancelled and final flat verified. See docs/acceptance/2026-10-07-mnq-paper.md for evidence and remaining gates. No Live or iPhone Run.
