@@ -187,3 +187,30 @@ routes need their own audit before an options-only Live release. No Live gate wa
 opened. Protected aggregate Trim remains unsupported, actual partial fills and
 in-flight Gateway interruption still lack evidence, and phone acceptance remains
 deferred. Test holdings remain QQQ 200 / SGOV 1000; test options flat.
+
+## Pending CC resize preflight (2026-10-08)
+
+Fixed another coverage path: an oversized pending-entry quantity amendment was
+only rejected when constructing the replacement, after canceling the original.
+Now the additional shares are checked before canceling any old parent. The
+replacement still rechecks full coverage after reconciliation. Reduction and
+cancellation remain available. Version `8bb5f88`; 585 backend tests passed.
+
+Actual Paper test on the same authorized QQQ call: one pending protected contract
+was amended to three and rejected for insufficient unreserved shares; exact
+original broker IDs, prices, quantities and statuses stayed unchanged. Amending
+to two succeeded. The one two-contract parent was then repriced to the current
+ask and observed 27 times at flat before a direct move to position -2. No sustained
+partial fill was observed. Explicit Close finished, all test orders terminal,
+QQQ 200 / SGOV 1000 retained, and test option flat. No unknown write was replayed.
+Private evidence: `/tmp/wheel-cc-resize-result.json` and
+`/tmp/wheel-oct8-option-matrix.jsonl`.
+
+Protected aggregate Trim is still a release blocker, not a button-unlock fix.
+The present aggregate exits cannot be treated as independently protected unit
+lots. A later implementation needs explicit quantity accounting through exit
+fills, cancellation/replacement and restart recovery, plus actual Paper evidence
+that the remaining stop is preserved. Adding another exit to OCA is not assumed
+to preserve the remaining protection: IB documents proportional OCA reductions
+and block semantics, not the desired application-level trim workflow.
+Reference: https://www.interactivebrokers.com/docs/tws-api/ref/order
