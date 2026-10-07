@@ -115,3 +115,20 @@ No promise of two-second cold startup or permanent login is made.
 Rollback: pause backend, stop dual container and disable its restart policy, rename
 dual-session.json, restart the retained original warm container(s) appropriate to
 the selected profile and resume backend. Do not run competing deployments together.
+
+
+Deployment acceptance: 571 backend tests passed; adfd3aa deployed to Mini.
+Native dual container is active; old separate warm containers remain stopped with
+restart disabled. Current account API permissions were preserved (no relaxation).
+Both logins completed. Actual /api/account/select calls measured Paper 0.694s in
+first pass, then Paper 2.316s and Live 0.992s in the second pass, each verified.
+Container StartedAt remained unchanged with RestartCount=0. No trading endpoints
+were invoked. Selected account was restored to Live.
+
+Live initial chart reads returned transient HTTP 503 during this acceptance;
+subsequent reads returned live bid/ask and 167 ticks. Paper also returned live
+bid/ask. Account-ready latency is distinct from first-chart/history readiness;
+these API measurements are not phone end-to-end or sustained RTH acceptance.
+The known first cold-login connection attempt can time out before a subsequent
+attempt succeeds; this change avoids cold login on ordinary warm switching,
+without broadly rewriting connection/history recovery.
