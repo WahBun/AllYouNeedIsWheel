@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace as S
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, AsyncMock
 from eventkit import Event
 from api.services.stock_chart import StockChart, aggregate, apply_tick, regular_sessions, bar_close_time
 
@@ -273,16 +273,48 @@ class StockChartTests(unittest.TestCase):
         conn,ticker=self.connection();feed=StockChart()
         contract=conn.get_option_position_by_con_id.return_value['contract']
         contract.exchange='SMART'
-        conn.ib.reqContractDetails.return_value=[S(contract=contract,validExchanges='NYSE,SMART',marketRuleIds='1,2')]
-        conn.ib.reqMarketRule.return_value=[S(lowEdge=0,increment=.0001),S(lowEdge=1,increment=.01)]
+        conn.ib.reqContractDetailsAsync=AsyncMock(return_value=[S(contract=contract,validExchanges='NYSE,SMART',marketRuleIds='1,2')])
+        conn.ib.reqMarketRuleAsync=AsyncMock(return_value=[S(lowEdge=0,increment=.0001),S(lowEdge=1,increment=.01)])
         try:
             feed.snapshot(conn,7,5)
-            result=feed.snapshot(conn,7,5)
+            asyncio.get_event_loop().run_until_complete(feed.active['rules_task'])
+            result=feed.snapshot(conn,7,5,fast=True)
             self.assertEqual(result['price_rules'][1],dict(low=1,increment=.01))
-            conn.ib.reqMarketRule.assert_called_once_with(2)
+            conn.ib.reqMarketRuleAsync.assert_awaited_once_with(2)
             feed.snapshot(conn,7,5)
-            conn.ib.reqContractDetails.assert_called_once()
+            conn.ib.reqContractDetailsAsync.assert_awaited_once()
         finally:feed.stop();asyncio.get_event_loop().close()
+
+    def test_price_rules_load_without_blocking_and_ignore_retired_state(self):
+        async def scenario():
+            feed=StockChart();conn=Mock();gate=asyncio.Event()
+            contract=S(conId=7,exchange='CME')
+            async def details(_):
+                await gate.wait()
+                return [S(contract=contract,validExchanges='CME',marketRuleIds='26')]
+            conn.ib.reqContractDetailsAsync=AsyncMock(side_effect=details)
+            conn.ib.reqMarketRuleAsync=AsyncMock(return_value=[S(lowEdge=0,increment=.25)])
+            state={'con_id':7,'contract':contract,'conn':conn}
+            feed.states[7]=state
+            listener=Mock();feed.listeners.add(listener)
+            feed.ensure_price_rules(state)
+            task=state['rules_task']
+            feed.ensure_price_rules(state)
+            self.assertIs(state['rules_task'],task)
+            await asyncio.sleep(.001)
+            self.assertFalse(task.done())
+            self.assertNotIn('price_rules',state)
+            gate.set();await task
+            self.assertEqual(state['price_rules'],[{'low':0,'increment':.25}])
+            listener.assert_called_once_with(state)
+            conn.ib.reqHistoricalData.assert_not_called()
+            conn.ib.placeOrder.assert_not_called()
+            state.pop('price_rules');state['rules_retry']=0
+            feed.ensure_price_rules(state);task=state['rules_task']
+            feed.states.pop(7)
+            await task
+            self.assertNotIn('price_rules',state)
+        asyncio.run(scenario())
 
     def test_backfill_corrects_stale_history_and_preserves_live_extremes(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
@@ -321,16 +353,15 @@ class StockChartTests(unittest.TestCase):
         asyncio.set_event_loop(asyncio.new_event_loop())
         conn,ticker=self.connection();feed=StockChart()
         try:
-            conn._bounded_order_read.side_effect=TimeoutError
-            feed.snapshot(conn,7,1,'all')
-            self.assertEqual(feed.snapshot(conn,7,1,'all')['price_rules'],[])
-            conn._bounded_order_read.assert_called_once_with(conn.ib.reqContractDetails,
-                conn.get_option_position_by_con_id.return_value['contract'],timeout_seconds=3)
-            feed.snapshot(conn,7,1,'all')
-            self.assertEqual(conn._bounded_order_read.call_count,1)
+            conn.ib.reqContractDetailsAsync=AsyncMock(side_effect=TimeoutError)
+            feed.snapshot(conn,7,1,'all',fast=True)
+            asyncio.get_event_loop().run_until_complete(feed.active['rules_task'])
+            self.assertEqual(feed.snapshot(conn,7,1,'all',fast=True)['price_rules'],[])
+            conn.ib.reqContractDetailsAsync.assert_awaited_once()
             feed.active['rules_retry']=0
-            feed.snapshot(conn,7,1,'all')
-            self.assertEqual(conn._bounded_order_read.call_count,2)
+            feed.snapshot(conn,7,1,'all',fast=True)
+            asyncio.get_event_loop().run_until_complete(feed.active['rules_task'])
+            self.assertEqual(conn.ib.reqContractDetailsAsync.await_count,2)
             conn.ib.placeOrder.assert_not_called()
         finally:feed.stop();asyncio.get_event_loop().close()
 

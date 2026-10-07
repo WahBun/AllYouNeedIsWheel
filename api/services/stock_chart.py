@@ -128,6 +128,8 @@ class StockChart:
         self.states.pop(state['con_id'], None)
         if self.active is state: self.active = None
         if state:
+            task = state.pop('rules_task', None)
+            if task is not None: task.cancel()
             if state.get('minute_history') is not None:
                 state['minute_history'].updateEvent -= state['history_handler']
                 state['conn'].ib.cancelHistoricalData(state['minute_history'])
@@ -168,7 +170,7 @@ class StockChart:
             self.stop_state(min(self.states.values(), key=lambda item: item['used']))
         self.active = state
         if fast and state is not None and minutes in (1,3,5,10,15,60,480) and not (minutes==480 and session=='rth'):
-            # Resume quotes first; the stream pump handles deferred history work.
+            # Resume quotes without historical backfill; metadata loads independently.
             state['used']=time.monotonic()
             conn.ib.sleep(.005)
             return self.packet(state,minutes,session)
@@ -389,23 +391,37 @@ class StockChart:
                 if l <= min(o, c) <= max(o, c) <= h:
                     higher_bars.append(dict(time=stamp, open=o, high=h, low=l, close=c))
             higher_bars = sorted({bar['time']: bar for bar in higher_bars}.values(), key=lambda bar: bar['time'])
-        if not initial and not state.get('price_rules') and time.monotonic() >= state.get('rules_retry', 0):
-            state['price_rules'] = []
-            state['rules_retry'] = time.monotonic() + 30
-            try:
-                details = conn._bounded_order_read(conn.ib.reqContractDetails, contract, timeout_seconds=3)
-                detail = next(d for d in details if d.contract.conId == con_id)
-                exchanges = detail.validExchanges.split(',')
-                rule_ids = detail.marketRuleIds.split(',')
-                exchange = contract.exchange or 'SMART'
-                rule_id = int(rule_ids[exchanges.index(exchange)])
-                rules = conn.ib.reqMarketRule(rule_id)
-                state['price_rules'] = [dict(low=float(r.lowEdge), increment=float(r.increment)) for r in rules if r.lowEdge >= 0 and positive(r.increment)]
-            except Exception:
-                pass  # Unknown tick size disables BE; never guess a cent.
         return self.packet(state, minutes, session, higher_bars)
 
+    def ensure_price_rules(self, state):
+        """Load broker increments on the owner loop, independent of history reads."""
+        if (state.get('price_rules') or state.get('rules_task') is not None
+                or time.monotonic() < state.get('rules_retry', 0)):
+            return
+        state['rules_retry'] = time.monotonic() + 5
+        async def load():
+            try:
+                contract, ib = state['contract'], state['conn'].ib
+                details = await asyncio.wait_for(ib.reqContractDetailsAsync(contract), 3)
+                detail = next(d for d in details if d.contract.conId == state['con_id'])
+                exchanges = detail.validExchanges.split(',')
+                rule_ids = detail.marketRuleIds.split(',')
+                rule_id = int(rule_ids[exchanges.index(contract.exchange or 'SMART')])
+                rules = await asyncio.wait_for(ib.reqMarketRuleAsync(rule_id), 3)
+                values = [dict(low=float(r.lowEdge), increment=float(r.increment))
+                          for r in rules if math.isfinite(r.lowEdge) and r.lowEdge >= 0 and positive(r.increment)]
+                if self.states.get(state['con_id']) is state and values:
+                    state['price_rules'] = sorted(values, key=lambda r: r['low'])
+                    for listener in tuple(self.listeners):
+                        listener(state)
+            except Exception:
+                pass  # Keep trading disabled until authoritative increments arrive.
+            finally:
+                state.pop('rules_task', None)
+        state['rules_task'] = asyncio.get_event_loop().create_task(load())
+
     def packet(self, state, minutes, session, higher_bars=None):
+        self.ensure_price_rules(state)
         contract = state['contract']
         con_id = state['con_id']
         last = state['last_tick']

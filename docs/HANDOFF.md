@@ -678,3 +678,8 @@ amendments were not exercised; existing user orders were not modified for tests.
 - 549 backend tests passed. Browser checks cover 100 continuous updates with only one configuration pass, foreground recovery, trading lifecycle, and 1,000 tail updates plus immediate first-trade rollover without a full series reset. Real feed gaps are not disguised with synthetic candles.
 
 - Follow-up live observation still found stalls from ordinary chart reads and multi-timeframe indicator history. Intraday chart GETs now default to the warm read path. Indicator history requests run as bounded tasks on the same IB owner event loop and return cached/partial frames immediately; at most two requests per chart are in flight. They never create another IB connection or trading worker. 550 backend tests passed, including pending-history nonblocking behavior and indicator value/session tests.
+
+### Restore price-order controls after fast chart optimization
+- Root cause: cold chart initialization skipped market rules; subsequent fast reads returned before loading them, while the removed history-maintenance path had previously supplied them. Empty price_rules suppressed both axis and right-click order controls across instruments.
+- Broker contract/market-rule metadata now loads asynchronously on the existing IB owner loop, independently of history, with bounded requests, single-flight per chart, retry and retired-state rejection. Metadata arrival triggers an SSE update even without a new trade. No guessed price increments or trading-write retries.
+- 551 backend tests passed; browser empty-rule-to-valid-rule recovery restores both entry points without reload. Verification uses mocks/read-only state, not broker order submissions.
