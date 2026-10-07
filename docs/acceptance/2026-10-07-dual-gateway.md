@@ -60,3 +60,36 @@ Deployment verification: 567 backend regression tests passed. Mini updated to
 container started on loopback 4002, account verified, MNQ returned live bid/ask
 with 50 ticks and 404 bars. No broker orders or phone installation. The user's next
 Live-to-Paper phone handover remains the end-to-end latency acceptance step.
+
+
+## Same-container dual login experiment
+
+User authorized a read-only test of the same-machine exception, without buying
+another data subscription or mixing Live market data with Paper execution.
+The deployed stable image has native `TRADING_MODE=both`: two Gateway processes
+in one container, independent settings and API ports. Both IBC configurations
+were verified `ReadOnlyApi=yes`. The original backend and Paper container were
+paused; original settings were copied into isolated experiment directories.
+A ten-minute cleanup deadline and finally block restored the original deployment.
+
+Both logins completed. One API probe at a time used the existing client identity
+and checked the exact configured account before requesting MNQ market data.
+Live remained logged in throughout all three stages:
+
+| Stage | API connection | Updates over 10 seconds | Market data type | 10197 |
+| --- | --- | --- | --- | --- |
+| Paper | 0.319 s | 55 | 1 (live) | absent |
+| Live | 0.756 s | 62 | 1 (live) | absent |
+| Paper again | 0.341 s | 86 | 1 (live) | absent |
+
+All stages returned valid bid/ask. Reported farm notifications included
+2104/2106/2119/2158; these are not the competing-session error. These are quote
+updates, not a count of trades. This differs from the earlier separate-container
+experiment, but does not establish exactly how IB identifies a machine.
+
+No order was placed, modified, or cancelled. Temporary container removed and
+original Paper/backend resumed. This is an isolated short-duration experiment,
+not deployed account-switch behavior or phone end-to-end latency acceptance.
+The existing asymmetric warm handover remains installed. Sustained RTH operation,
+reconnects, restart behavior and integration with the account selector still need
+validation before adopting a permanent dual-session deployment.
