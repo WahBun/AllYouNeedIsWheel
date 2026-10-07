@@ -26,6 +26,8 @@ function rememberSession(){
 rememberSession();
 window.addEventListener('pageshow',rememberSession);
 let display=WheelChartSettings.normalize(stored('wheel.chart.display')),dark=localStorage.getItem('theme')!=='light';
+function resetSessionBarCount(){display.barCount=true;display.barCountETH=false;}
+resetSessionBarCount();
 let emaFrames={},emaContext='',emaBusy=false,emaLast=0;
 function indicatorHistoryStatus(message){$('display').dataset.historyStatus=message;const label=$('indicator-history-status');if(label)label.textContent=message;}
 function emaKey(){return JSON.stringify([epoch,cid,session,interval,generation,display.indicatorVisible,WheelChartSettings.requested(display,interval,session)]);}
@@ -324,7 +326,7 @@ $('session-picker').onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();closeS
 document.addEventListener('pointerdown',e=>{if(!$('session-picker').contains(e.target))closeSessionMenu();});
 document.addEventListener('focusin',e=>{if(!$('session-picker').contains(e.target))closeSessionMenu();});
 window.addEventListener('blur',()=>closeSessionMenu());
-$('session').onchange=()=>{if(busy){$('session').value=session;return;}session=$('session').value;rememberSession();generation++;marketStream.stop();lastFallback=0;lastPnL=0;chartTransition();refresh();};
+$('session').onchange=()=>{if(busy){$('session').value=session;return;}session=$('session').value;resetSessionBarCount();rememberSession();generation++;marketStream.stop();lastFallback=0;lastPnL=0;chartTransition();refresh();};
 $('toggle-trade').onclick=()=>{const detail=$('chart-detail');detail.hidden=!detail.hidden;$('toggle-trade').textContent='Detail '+(detail.hidden?'▾':'▴');$('toggle-trade').setAttribute('aria-expanded',String(!detail.hidden));};
 for(const [id,delta] of [['quantity-minus',-1],['quantity-plus',1]])$(id).onclick=()=>{if($('quantity').disabled)return;$('quantity').value=Math.min(Number($('quantity').max),Math.max(1,(Number($('quantity').value)||1)+delta));sync();};
 for(const id of ['quantity','type','tif','tp','sl','tp-enabled','sl-enabled','tp-mode','sl-mode'])$(id).onchange=()=>{if(state.position&&(id.startsWith('tp')||id.startsWith('sl'))){const r=id.slice(0,2);if(id.endsWith('-mode')){ticketDraft[r]=false;sync();}return;}if(id.startsWith('tp')||id.startsWith('sl')){if(id==='tp-mode')$('tp').value=$('tp-mode').value==='percent'?75:$('tp-mode').value==='price'?(entry||packet.bid||1):.2;if(id==='sl-mode')$('sl').value=$('sl-mode').value==='percent'?10:$('sl-mode').value==='price'?'':protectionType==='FUT'?1:.1;if(protectionType)localStorage.setItem('wheel.web.protection:'+protectionType,JSON.stringify({tp:Number($('tp').value),sl:Number($('sl').value),tpEnabled:$('tp-enabled').checked,slEnabled:$('sl-enabled').checked,tpMode:$('tp-mode').value,slMode:$('sl-mode').value}));}revision++;sync();};
