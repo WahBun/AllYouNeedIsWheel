@@ -107,3 +107,41 @@ class GatewayLoginTests(unittest.TestCase):
     def test_invalid_opt_in_fails_before_account_switch(self):
         (self.root/'warm-paper.json').write_text('{"image":"latest"}')
         with self.assertRaises(ValueError): gateway.preflight('paper')
+
+    def enable_dual(self):
+        (self.root/'dual-session.json').write_text(json.dumps({'image':'ghcr.io/gnzsnz/ib-gateway@sha256:'+'a'*64}))
+
+    def test_running_dual_handover_never_stops_or_recreates_gateway(self):
+        self.enable_dual(); self.enable_warm()
+        with patch.object(gateway, '_dual_running', return_value=True), patch.object(gateway, '_warm_compose') as warm, patch.object(gateway, '_dual_compose') as dual, patch.object(gateway.threading, 'Thread') as thread:
+            for mode in ('paper','live','paper'):
+                self.assertFalse(gateway.start(mode))
+                self.assertEqual(gateway.state()['target'], mode)
+                self.assertFalse(gateway.state()['starting'])
+            gateway.prepare_paper('live',True)
+            thread.assert_not_called(); warm.assert_not_called(); dual.assert_not_called()
+
+    def test_stopped_dual_starts_once_and_does_not_stop_live(self):
+        self.enable_dual()
+        with patch.object(gateway, '_dual_running', return_value=False), patch.object(gateway, '_dual_compose') as dual, patch.object(gateway, '_warm_compose') as warm, patch.object(gateway.threading, 'Thread') as thread:
+            self.assertTrue(gateway.start('paper'))
+            thread.call_args.kwargs['target']()
+            dual.assert_called_once(); warm.assert_not_called()
+            self.assertIsNone(gateway.state()['error'])
+
+    def test_dual_rejects_permission_change_and_bad_image(self):
+        self.enable_dual()
+        p=self.root/'live.json';data=json.loads(p.read_text()); data['READ_ONLY_API']='no';p.write_text(json.dumps(data))
+        with self.assertRaises(ValueError): gateway.preflight('paper')
+        (self.root/'dual-session.json').write_text('[]')
+        with self.assertRaises(ValueError): gateway.preflight('live')
+
+    def test_dual_compose_credentials_are_environment_only(self):
+        self.enable_dual()
+        with patch.object(gateway.subprocess,'run',return_value=Mock(returncode=0)) as run:
+            gateway._dual_compose()
+        args,kw=run.call_args
+        self.assertNotIn('test-pass',str(args))
+        self.assertEqual(kw['env']['TRADING_MODE'],'both')
+        self.assertEqual(kw['env']['TWS_PASSWORD_PAPER'],'test-pass')
+        self.assertEqual(kw['stdout'],subprocess.DEVNULL)

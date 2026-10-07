@@ -50,6 +50,50 @@ def warm_config():
     return data
 
 
+def dual_config():
+    path = root() / 'dual-session.json'
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        image = data.get('image', '') if isinstance(data, dict) else ''
+        digest = image.removeprefix('ghcr.io/gnzsnz/ib-gateway@sha256:')
+        if digest == image or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest):
+            raise ValueError()
+        live, paper = credentials('live'), credentials('paper')
+        if live.get('READ_ONLY_API', 'yes') != paper.get('READ_ONLY_API', 'yes'):
+            raise ValueError()
+        return data
+    except (OSError, ValueError):
+        raise ValueError('Invalid dual Gateway configuration or unequal API permissions.') from None
+
+
+def _dual_running():
+    result = subprocess.run([os.environ.get('WHEEL_DOCKER_CLI', '/usr/local/bin/docker'),
+                             'inspect', '--format', '{{.State.Running}}', 'wheel-gateway-dual'],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=3)
+    return result.returncode == 0 and result.stdout.strip() == 'true'
+
+
+def _dual_compose():
+    config = dual_config()
+    if config is None:
+        raise ValueError('Dual Gateway is not configured.')
+    live, paper = credentials('live'), credentials('paper')
+    directory = root() / 'dual-settings'
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    env = {**os.environ, **live, 'TRADING_MODE': 'both',
+           'TWS_USERID_PAPER': paper['TWS_USERID'], 'TWS_PASSWORD_PAPER': paper['TWS_PASSWORD'],
+           'WHEEL_GATEWAY_IMAGE': config['image'], 'WHEEL_DUAL_SETTINGS': str(directory)}
+    compose = Path(__file__).resolve().parents[2] / 'ops/dual-gateway.yml'
+    result = subprocess.run([os.environ.get('WHEEL_DOCKER_CLI', '/usr/local/bin/docker'),
+                             'compose', '-p', 'wheel-gateway-dual', '-f', str(compose),
+                             'up', '-d', '--no-deps', '--pull', 'never', 'gateway'],
+                            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
+    if result.returncode:
+        raise RuntimeError('Dual Gateway startup failed')
+
+
 def _warm_compose(mode, values, action):
     config = warm_config()
     if config is None:
@@ -75,7 +119,7 @@ def prepare_paper(mode, verified):
     if mode != 'live' or not verified or not enabled():
         return
     try:
-        if warm_config() is None:
+        if dual_config() is not None or warm_config() is None:
             return
         values = credentials('paper')
     except (ValueError, OSError):
@@ -105,6 +149,7 @@ def prepare_paper(mode, verified):
 def preflight(mode):
     if not enabled(): return
     credentials(mode)
+    dual_config()
     if warm_config() is not None:
         credentials("live")
         credentials("paper")
@@ -123,15 +168,29 @@ def start(mode):
     global _running, _mode, _error, _warm_attempted
     if not enabled(): return False
     values = credentials(mode)
-    warm = warm_config() is not None
+    dual = dual_config() is not None
+    warm = not dual and warm_config() is not None
     with _lock:
         if _running: raise ValueError('Gateway is already switching.')
         _running, _mode, _error = True, mode, None
         if mode == "live":
             _warm_attempted = False
+    if dual:
+        try:
+            if _dual_running():
+                # The sessions stay logged in. Connect on the existing serialized API owner now.
+                with _lock:
+                    _running = False
+                return False
+        except (OSError, subprocess.TimeoutExpired):
+            pass
     def run():
         global _running, _error
         try:
+            if dual:
+                with _operations:
+                    _dual_compose()
+                return
             if warm:
                 with _operations:
                     if mode == 'paper':

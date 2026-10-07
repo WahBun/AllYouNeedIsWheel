@@ -1,0 +1,25 @@
+# Native image dual mode: one machine environment, two isolated broker sessions.
+services:
+  gateway:
+    image: ${WHEEL_GATEWAY_IMAGE}
+    container_name: wheel-gateway-dual
+    restart: unless-stopped
+    environment:
+      TWS_USERID: ${TWS_USERID}
+      TWS_PASSWORD: ${TWS_PASSWORD}
+      TWS_USERID_PAPER: ${TWS_USERID_PAPER}
+      TWS_PASSWORD_PAPER: ${TWS_PASSWORD_PAPER}
+      TRADING_MODE: both
+      READ_ONLY_API: ${READ_ONLY_API:-yes}
+      VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD}
+      TWOFA_DEVICE: "IB Key"
+      TWOFA_TIMEOUT_ACTION: exit
+      RELOGIN_AFTER_TWOFA_TIMEOUT: "no"
+      EXISTING_SESSION_DETECTED_ACTION: secondary
+      TWS_SETTINGS_PATH: /sessions/settings
+      TIME_ZONE: America/New_York
+    ports:
+      - "127.0.0.1:4001:4003"
+      - "127.0.0.1:4002:4004"
+    volumes:
+      - "${WHEEL_DUAL_SETTINGS}:/sessions"

@@ -93,3 +93,25 @@ not deployed account-switch behavior or phone end-to-end latency acceptance.
 The existing asymmetric warm handover remains installed. Sustained RTH operation,
 reconnects, restart behavior and integration with the account selector still need
 validation before adopting a permanent dual-session deployment.
+
+
+## Permanent dual-session selector integration
+
+Opt-in `gateway/dual-session.json` (same pinned-image format as warm-paper.json)
+takes precedence over the asymmetric warm mode. `ops/dual-gateway.yml` uses the
+image's native both mode, separate settings and loopback ports 4001/4002. Both
+profile API permission values must match; provisioning never relaxes either.
+
+When the shared container is running, selecting an account leaves both Gateway
+sessions intact and immediately connects the existing serialized API owner to the
+selected profile. Account identity verification, separate databases, unresolved
+submission guards and epoch rotation are unchanged. Standby prelogin is disabled
+in dual mode. If the container is stopped, one bounded compose startup starts both;
+initial authentication and the image's Paper startup delay still apply. Container
+running does not imply either broker session is authenticated: existing verification
+continues to gate readiness. An expired login may require fresh IB Key authentication.
+No promise of two-second cold startup or permanent login is made.
+
+Rollback: pause backend, stop dual container and disable its restart policy, rename
+dual-session.json, restart the retained original warm container(s) appropriate to
+the selected profile and resume backend. Do not run competing deployments together.
