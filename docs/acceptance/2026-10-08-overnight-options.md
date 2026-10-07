@@ -132,3 +132,12 @@ order; fresh metadata was loaded before a new UUID submission. Do not replay
 unknown writes. This state supersedes the prior pending bracket. Keep CC SL off
 unless the user explicitly requests it; protection testing must not be silently
 mixed into CC partial-fill testing.
+
+User correction clarified: options default to NEITHER TP NOR SL. Keeping TP was
+also unauthorized scope drift. Canceled pending1672/1673 before replacing at
+same total4 and price1.62 with no exits. Latest ref
+WheelPaper:6b880a6a-c4c2-4d51-94d6-4e6dcb6063cc, entry IDs1674/1675/1676/1677,
+one each (legacy unprotected OPT path splits units). No TP/SL. This is NOT the
+single-parent partial-fill test; fix the unprotected initial-order aggregation
+before claiming that acceptance. Do not attach protection to force aggregation.
+Read current broker state before any further write; no unknown replay.
