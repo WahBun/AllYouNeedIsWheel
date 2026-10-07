@@ -51,16 +51,20 @@ Executed records 默认 **Today**，可切换 **7 Days** 或 **MTD**（美东本
 <img src="docs/screenshots/settings.png" width="280" alt="Wheel Settings：Demo、Live、Paper；Demo 隐藏后端地址和连接按钮">
 
 - **Demo**：使用本地合成数据，不连接 IB。隐藏地址和 Connect，已保存的后端地址仍保留。
-- **Paper**：使用 IBKR 模拟账户。配置好自动登录后，选择即切换后端连接并启动对应 Paper Gateway，核对实际账户后自动恢复数据。
-- **Live**：同样联动 Gateway；自动选择 IB Key 验证设备，收到通知后需本人在手机确认。App 等待验证完成，不会仅凭选中 Live 就显示实盘已连接。
+- **Paper**：使用 IBKR 模拟账户。配置好自动登录后，选择即切换后端连接，复用已登录的 Paper 会话或启动 Gateway，核对实际账户后自动恢复数据。
+- **Live**：复用已登录的 Live 会话；需要重新认证时自动选择 IB Key 验证设备，收到通知后需本人在手机确认。App 核对实际账户，不会仅凭选中 Live 就显示实盘已连接。
 
-首次使用需在后端主机配置 `paper`／`live` 两份连接配置、独立数据库及本机私有登录凭据；凭据不进入 GitHub，也不发送到 iPhone。自动登录是可选功能，未配置时仍需手动登录 Gateway。具体配置见[账户切换与自动登录](docs/MAC_MINI_TAILSCALE.md#ios-account-selector)。自动登录控制器默认使用 `~/Docker/ib-gateway/docker-compose.yml`；若采用下方的 `~/Services/wheel-gateway`，请设置 `WHEEL_GATEWAY_COMPOSE_DIR` 指向该目录。
+首次使用需在后端主机配置 `paper`／`live` 两份连接配置、独立数据库及本机私有登录凭据；凭据不进入 GitHub，也不发送到 iPhone。自动登录是可选功能，未配置时仍需手动登录 Gateway。具体配置见[账户切换与自动登录](docs/MAC_MINI_TAILSCALE.md#ios-account-selector)。单 Gateway 自动登录控制器默认使用 `~/Docker/ib-gateway/docker-compose.yml`；若采用下方的 `~/Services/wheel-gateway`，请设置 `WHEEL_GATEWAY_COMPOSE_DIR` 指向该目录。
 
 后端只有一个当前账户，所有客户端共享这个选择。切换不平仓、不撤单；App 清理旧账户画面，后端拒绝旧会话的写入请求。启用账户配置后，不支持账户会话标识的旧网页客户端只能读取。
 
-**切换耗时**：当前采用单 Gateway，Live／Paper 互换需要重建对应会话，经过 Gateway 启动、IB 登录／验证和 API 连接、账户核对，因此不会即时完成。Gateway 窗口显示登录成功后，App 仍可能需要等待 API 就绪。实际耗时随网络、IB 服务响应和 IB Key 确认时间变化，不承诺固定秒数。切换期间已缩短状态检查与连接重试间隔；本项目保留单 Gateway 方案，不依赖 Live／Paper 双开或额外行情订阅来加速。
+**Live ⇄ Paper 快速切换**：可选的同容器双会话模式让 Live 和 Paper 保持后台登录。切换时只更换 Wheel 的账户连接，不重启 Gateway；会话有效时无需反复进行 IB Key 验证。两边使用各自的账户连接、数据库和行情，订单仍归属经过核对的当前账户。
 
-**已验证范围（2026-10-03）**：完成 3 轮 Paper／Live 往返，覆盖 App 入口、IB Key、账户及持仓核对、Demo 地址隐藏与恢复、旧会话拦截。全程未下单、改单或撤单；连接测试不替代开市后的交易流程验收。
+**已验证体验（2026-10-07）**：用户已在手机确认双向切换流畅；后端正式接口最近一轮测得 Live → Paper 约 **0.78 秒**、Paper → Live 约 **0.95 秒**，两边均恢复实时行情。此为账户核对完成的接口耗时，不等于手机整页或首次图表加载时间。已修复旧账户的图表订阅冷却影响新账户首次加载的问题；本轮复测未出现该场景的 503。
+
+首次启动、会话失效或 IB 要求重新认证时，仍需等待登录及本人确认，不能保证固定秒数。当前部署已验证同一容器内的双会话可共享现有行情订阅，无需为这次优化另购 Paper 行情；这不代表两个独立容器或任意设备组合都支持共享。双会话模式需显式配置，原单 Gateway 与单向预热方案保留作回退；下方首次部署示例仍是 Paper／只读单实例。实现、启用配置与验证记录见[双 Gateway 会话与切换验收](docs/acceptance/2026-10-07-dual-gateway.md)。
+
+本轮连接与行情验收未下单、改单或撤单，不替代交易流程及开市负载验收。
 
 ### 数据与订单的含义
 
