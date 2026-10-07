@@ -41,6 +41,7 @@ def parse_flex(text, account):
     if not account:
         raise PerformanceError('Configure the performance account on the backend.')
     rows = []
+    excluded = False
     if text.lstrip().startswith('<'):
         root = ET.fromstring(text)
         for statement in root.iter('FlexStatement'):
@@ -53,12 +54,19 @@ def parse_flex(text, account):
         for values in csv.reader(io.StringIO(text.lstrip('\ufeff'))):
             if len(values) < 2:
                 continue
+            if values[0] == 'MSG' and 'excluded' in ' '.join(values[1:]).lower():
+                import re
+                excluded = excluded or bool(re.search(r'(?<![A-Za-z0-9])' + re.escape(account) + r'(?![A-Za-z0-9])', ' '.join(values[1:])))
             if values[0] == 'HEADER':
                 headers[values[1]] = values[2:]
             elif values[0] == 'DATA' and values[1] == 'CNAV':
                 row = {k.lower(): v.strip() for k, v in zip(headers.get('CNAV', []), values[2:])}
                 if row.get('clientaccountid') == account:
                     rows.append(row)
+    if excluded:
+        raise PerformanceError('IBKR excluded the configured account from this Flex report. Previous history is retained; a complete report is required.')
+    if not rows:
+        raise PerformanceError('The configured account is missing from this Flex report. Previous history is retained.')
     points = {}
     for row in sorted(rows, key=lambda item: item.get('todate', '')):
         start, end = day(row.get('fromdate', '')), day(row.get('todate', ''))

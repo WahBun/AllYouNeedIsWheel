@@ -7,6 +7,16 @@ class PerformanceTests(unittest.TestCase):
     def report(self, rows):
         return 'HEADER,CNAV,ClientAccountID,FromDate,ToDate,TWR,EndingValue\n' + '\n'.join('DATA,CNAV,' + row for row in rows)
 
+    def test_excluded_account_has_specific_error_without_exposing_id(self):
+        text=self.report(['OTHER,20261006,20261006,1,100'])+'\nMSG,The following accounts were excluded from this statement: TEST'
+        with self.assertRaisesRegex(PerformanceError,'IBKR excluded the configured account') as error:
+            parse_flex(text,'TEST')
+        self.assertNotIn('TEST',str(error.exception))
+
+    def test_other_excluded_account_does_not_block_requested_account(self):
+        text=self.report(['TEST,20261005,20261005,0,100','TEST,20261006,20261006,1,101'])+'\nMSG,The following accounts were excluded from this statement: TEST2'
+        self.assertEqual(parse_flex(text,'TEST')[-1]['date'],'2026-10-06')
+
     def test_cash_deposit_does_not_become_return(self):
         rows = parse_flex(self.report(['TEST,20260928,20260928,1,1010', 'TEST,20260929,20260929,0,11010']), 'TEST')
         points = curves(rows, {'2026-09-28':100,'2026-09-29':101}, {'2026-09-28':200,'2026-09-29':202})
