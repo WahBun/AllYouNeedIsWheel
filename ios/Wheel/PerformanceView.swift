@@ -60,8 +60,8 @@ private struct ReturnSegment: Identifiable {
 private enum BenchmarkSelection: String, CaseIterable, Identifiable {
     case none = "Portfolio only"
     case spx = "SPX"
-    case nq100 = "NQ100"
-    case both = "SPX + NQ100"
+    case nq100 = "NDX"
+    case both = "SPX + NDX"
     var id: String { rawValue }
     var showsSPX: Bool { self == .spx || self == .both }
     var showsNQ100: Bool { self == .nq100 || self == .both }
@@ -87,7 +87,7 @@ struct PerformanceView: View {
         HStack(spacing: 6) {
             Text("● Portfolio").foregroundStyle(gain)
             if benchmarks.showsSPX { Text("● SPX").foregroundStyle(PerformanceColors.spx) }
-            if benchmarks.showsNQ100 { Text("● NQ100").foregroundStyle(.orange) }
+            if benchmarks.showsNQ100 { Text("● NDX").foregroundStyle(.orange) }
         }
     }
     private var gain: Color { palette.color("gain", scheme: scheme, fallback: FinancialColors.gain) }
@@ -162,7 +162,7 @@ struct PerformanceView: View {
                                 .foregroundStyle(PerformanceColors.spx).lineStyle(StrokeStyle(lineWidth: 1.5))
                             }
                             if benchmarks.showsNQ100 {
-                            LineMark(x: .value("Date", point.day), y: .value("Return", point.nq100), series: .value("Series", "NQ100"))
+                            LineMark(x: .value("Date", point.day), y: .value("Return", point.nq100), series: .value("Series", "NDX"))
                                 .foregroundStyle(.orange).lineStyle(StrokeStyle(lineWidth: 1.5))
                             }
                         }
@@ -226,7 +226,7 @@ struct PerformanceView: View {
             }
             Section {
                 Button("Refresh") { revision += 1 }
-                Text("History: compounded daily IBKR TWR. SPX and NQ100: FRED daily price indices, excluding reinvested dividends. Intraday estimate uses daily P&L / last reported NAV; deposits, withdrawals and IB reset times may affect comparability. Final returns follow the next Flex report.")
+                Text("History: compounded daily IBKR TWR. SPX and NDX: FRED daily price indices, excluding reinvested dividends. Intraday estimate uses daily P&L / last reported NAV; deposits, withdrawals and IB reset times may affect comparability. Final returns follow the next Flex report.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }.navigationTitle("Performance")
@@ -369,7 +369,7 @@ private struct PerformanceSelectionOverlay: View {
             tooltipRow("SPX", value: point.spx, color: PerformanceColors.spx)
             }
             if benchmarks.showsNQ100 {
-            tooltipRow("NQ100", value: point.nq100, color: .orange)
+            tooltipRow("NDX", value: point.nq100, color: .orange)
             }
         }
         .font(.caption).monospacedDigit().padding(10)
