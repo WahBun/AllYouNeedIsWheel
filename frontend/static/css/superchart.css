@@ -96,3 +96,14 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 body.light .order-buy{color:#007aff}body.light .order-sell{color:#d92d20}
 
 header #theme,header #trade-sounds,header #settings{width:42px;height:40px;padding:8px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}header #theme svg,header #trade-sounds svg{width:21px;height:21px}header #settings svg{width:25px;height:25px}
+
+/* Compact indicator template picker and focused save dialog. */
+#display.indicator-settings .settings-body{max-height:calc(88dvh - 250px)}
+.template-footer{position:relative;padding:12px 22px;border-top:1px solid var(--border)}
+.template-menu{position:absolute;bottom:calc(100% - 6px);left:22px;min-width:220px;max-width:calc(100% - 44px);max-height:40dvh;overflow:auto;padding:6px;background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:0 10px 30px #0005;z-index:5}
+.template-menu button{display:block;text-align:left;border:0;background:transparent;width:100%;border-radius:5px;padding:10px 12px;overflow-wrap:anywhere}
+.template-menu button:hover,.template-menu button:focus-visible{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.template-menu hr{border:0;border-top:1px solid var(--border);margin:6px}
+.template-row{display:flex;align-items:center}.template-row button:last-child{width:34px;flex-shrink:0;color:var(--muted);text-align:center;padding:8px}
+.template-save{width:min(440px,92vw);padding:24px}.template-save-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.template-save h2{font-size:20px;margin:0}.template-save-head button{border:0;background:transparent;font-size:26px;padding:0 4px;color:var(--muted)}
+.template-save label{color:var(--muted);font-size:13px;margin:20px 0 24px}.template-save input{width:100%;color:var(--fg);font-size:15px}.template-save input:focus{outline:2px solid var(--accent);outline-offset:1px}.template-save-actions{display:flex;justify-content:flex-end;gap:10px}.template-save-actions button{min-width:74px}.template-save-actions button[type=submit]:not(:disabled){background:#315fc4;color:white;border-color:#315fc4}

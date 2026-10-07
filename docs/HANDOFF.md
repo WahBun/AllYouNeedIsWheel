@@ -683,3 +683,8 @@ amendments were not exercised; existing user orders were not modified for tests.
 - Root cause: cold chart initialization skipped market rules; subsequent fast reads returned before loading them, while the removed history-maintenance path had previously supplied them. Empty price_rules suppressed both axis and right-click order controls across instruments.
 - Broker contract/market-rule metadata now loads asynchronously on the existing IB owner loop, independently of history, with bounded requests, single-flight per chart, retry and retired-state rejection. Metadata arrival triggers an SSE update even without a new trade. No guessed price increments or trading-write retries.
 - 551 backend tests passed; browser empty-rule-to-valid-rule recovery restores both entry points without reload. Verification uses mocks/read-only state, not broker order submissions.
+
+### Compact templates and immediate quantity edits
+- Indicator settings now have a footer Template menu, direct saved-template application, defaults and a focused Save as dialog. Existing browser templates remain compatible; same-name saves explicitly offer Replace. Dark/light and English/Chinese desktop/mobile checks passed.
+- Chart quantity +/- and presets commit immediately; typed values commit on Enter/blur, with unchanged-value deduplication and invalid-input restoration. Working entries retain exact reference/snapshot, editability and busy checks, and close after dispatch. Preview edits stay open. No Apply step or automatic write retry.
+- Entry edit/fill-race checks and settings integration tests passed using mocks. Native source shares the chart change, but no iPhone binary was installed and no broker orders were submitted for validation.

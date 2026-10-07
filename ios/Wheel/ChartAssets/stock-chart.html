@@ -515,11 +515,27 @@ function openQuantityPopup(){
  quantityPopup.replaceChildren();const title=document.createElement('div');title.textContent='Quantity';title.style.marginBottom='6px';quantityPopup.append(title);
  const input=document.createElement('input');input.type='text';input.inputMode='numeric';input.value=String(initial);input.setAttribute('aria-label','Order quantity');input.style.cssText='width:100%;font:20px -apple-system;background:#202020;color:white;border:2px solid #315fc4;border-radius:7px;padding:7px';quantityPopup.append(input);
  const grid=document.createElement('div');grid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:10px';quantityPopup.append(grid);
- const button=(label,fn)=>{const b=document.createElement('button');b.textContent=label;b.style.cssText='min-height:32px;border:1px solid #555;border-radius:6px;background:#202020;color:#eee;font:16px -apple-system';b.onclick=fn;grid.append(b);return b;};
- button('−',()=>input.value=String(Math.max(1,(Number(input.value)||1)-1)));button('+',()=>input.value=String(Math.min(limit,(Number(input.value)||0)+1)));
- for(const n of limit===1000?[1,5,25,100,500,1000]:[1,2,3,5,8,10])button(String(n),()=>input.value=String(n));
- button('C',()=>input.value='');button('↶',()=>input.value=String(initial));button('Cancel',()=>quantityPopup.hidden=true);
- button('Apply',()=>{const value=Number(input.value);if(!Number.isInteger(value)||value<1||value>limit){input.focus();return;}quantityPopup.hidden=true;if(cid!==paperCID)return;if(active){if(!paperConfig.enabled||paperConfig.busy)return;paperAction({action:'edit_entry',quantity:value,expected_ref:ref,expected_snapshot:snapshot});}else{qty=value;paperAction({action:'setQuantity',quantity:value});updateLines();}});
+ let committed=initial,canceled=false;
+ const commit=()=>{
+  if(canceled)return;
+  const value=Number(input.value);
+  if(!Number.isInteger(value)||value<1||value>limit){input.value=String(committed);return;}
+  if(value===committed)return;
+  if(cid!==paperCID||!!active!==!!paperConfig.active)return;
+  if(active){
+   if(!paperConfig.enabled||paperConfig.busy||!paperConfig.entry_editable||paperConfig.order_ref!==ref||JSON.stringify(paperConfig.edit_snapshot)!==JSON.stringify(snapshot))return;
+   quantityPopup.hidden=true;committed=value;
+   paperAction({action:'edit_entry',quantity:value,expected_ref:ref,expected_snapshot:snapshot});
+  }else{committed=value;qty=value;paperAction({action:'setQuantity',quantity:value});updateLines();}
+ };
+ const button=(label,fn)=>{const b=document.createElement('button');b.textContent=label;b.style.cssText='min-height:32px;border:1px solid #555;border-radius:6px;background:#202020;color:#eee;font:16px -apple-system';b.onpointerdown=e=>e.preventDefault();b.onclick=fn;grid.append(b);return b;};
+ const setQuantity=value=>{input.value=String(value);commit();};
+ button('−',()=>setQuantity(Math.max(1,(Number(input.value)||1)-1)));button('+',()=>setQuantity(Math.min(limit,(Number(input.value)||0)+1)));
+ for(const n of limit===1000?[1,5,25,100,500,1000]:[1,2,3,5,8,10])button(String(n),()=>setQuantity(n));
+ button('C',()=>{input.value='';input.focus();});button('↶',()=>setQuantity(initial));
+ const done=button('Done',()=>{commit();quantityPopup.hidden=true;});done.style.gridColumn='1 / -1';
+ input.onblur=commit;
+ input.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();commit();quantityPopup.hidden=true;}else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();canceled=true;input.value=String(committed);quantityPopup.hidden=true;}};
  const rect=document.getElementById('entry').getBoundingClientRect();quantityPopup.hidden=false;quantityPopup.style.left=Math.max(8,Math.min(innerWidth-218,rect.left))+'px';quantityPopup.style.top=Math.max(8,Math.min(innerHeight-quantityPopup.offsetHeight-35,rect.bottom))+'px';
 }
 quantityPopup.addEventListener('pointerdown',e=>e.stopPropagation());
