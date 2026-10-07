@@ -110,3 +110,49 @@ responses; amount display is NOT certified. Protected Trim, actual single-order
 partial fills and isolated in-flight disconnection remain outstanding. Stock and
 option fresh-ticket protection defaults are off; explicit saved user choices are
 preserved. Native source updated only, not built/installed on the phone this run.
+
+## 2026-10-08 additional RTH option matrix
+
+Actual Paper tests used only the explicitly authorized QQQ 2026-10-16 775 Call,
+with at most two short calls covered by the retained 200 QQQ shares. Current
+backend repair is `e717153`; 577 backend regressions passed before deployment.
+No Live trades, Gateway logout, or physical-phone installation occurred.
+
+- Pending unprotected Add: one limit Add amended at the broker, then canceled;
+  original one-call position retained and Add became available again.
+- TP-only and SL-only: each actual standalone exit had quantity one, blocked an
+  attempted Add before a broker write, and allowed Add after confirmed removal.
+- Client response loss: a test-only local proxy forwarded one actual submission
+  while its downstream socket was closed. Original request-ID GET reconciled the
+  one broker order; no unknown write was replayed. This is client-response-loss
+  evidence, NOT a Gateway interruption during an in-flight write.
+- Standalone CC projection bug fixed: replacement removed per-unit lot metadata,
+  bypassing the old projection branch. Standalone exits now use chronological
+  actual fills, side and multiplier, and mark incomplete fill histories unknown.
+  Actual one-call TP/SL totals were +91 / -159 USD before fees in this run.
+- Add/cancel competition: the marketable Add actually filled first; cancel returned
+  filled, retained position -2, and did not treat the fill as cancellation. Trim
+  bought one back; later protection had one remaining unit and realized -0.50 USD
+  carried into both projections. BE amendment was confirmed at 1.39 with a 1.405
+  average entry. This proves a profitable stop target, not guaranteed profit or
+  the eventual BE fill price. Explicit Close completed cleanup.
+- One two-contract aggregate parent actually filled both contracts. Stale order
+  reference, stale edit snapshot and off-tick amendment were rejected with the
+  original broker snapshot unchanged. An explicit SL amendment then triggered an
+  actual buy fill for two and TP counterpart cancellation; final option flat.
+- A confirmed one-contract GTC bracket survived a backend/API restart with all
+  three broker IDs, prices, quantities and TIF unchanged. Deliberately sending the
+  already-confirmed original request ID again created no additional broker order.
+  This controlled idempotency test does not authorize automatic unknown retries.
+- All test orders terminal, no pending orders, option position zero. QQQ 200 and
+  SGOV 1000 preserved. Private request/state evidence is in
+  `/tmp/wheel-oct8-option-matrix.jsonl`, `/tmp/wheel-response-loss-evidence.json`,
+  `/tmp/wheel-option-restart.json`, and `/tmp/wheel-oct8-final-state.json`.
+
+Remaining gates: no sustained partial fill of one broker order was observed
+(the two-contract parent went directly to -2 in observations); aggregate protected
+Trim remains unsupported; no actual external-client ownership-conflict test or
+Gateway disconnect during a write; physical-phone acceptance remains deferred.
+CC share-coverage enforcement and a separately authorized options-only Live gate
+are still required before release. Pending Add cancel-before-fill and fill-before-
+cancel outcomes are now both observed, but not every possible callback ordering.
