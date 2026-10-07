@@ -227,3 +227,47 @@ orders, QQQ400/SGOV1000 preserved. See overnight ledger for exact evidence paths
 This closes the isolated in-flight submission transport-loss case, not a Gateway
 process crash or all amend/cancel/partial-bracket failure timings. Protected
 aggregate Trim and sustained actual partial fills still require acceptance.
+
+## 2026-10-08 — options capability preparation (not enabled)
+
+User postponed physical iPhone installation until waking; do not install or Run
+without the renewed go-ahead. CC and CSP are requested for both clients; naked
+calls remain prohibited. No Live trade was placed during this preparation.
+
+Local draft adds an explicit default-off Live option capability, account/port
+verification, no attached TP/SL, conservative settled USD cash reservation for
+CSP, and a restricted first release (one standard USD short option limit entry,
+entry edit/cancel and quote-limit close). This is not full Add/Trim parity.
+Gateway read-only inspection returned multiple linked Live accounts including
+the configured account: membership is required while the exact configured
+account remains the order destination; mixed Paper sessions are rejected.
+Read-only cash inspection confirmed the selected account exposes settled USD
+cash. This does not certify CSP execution or every cash-update race.
+
+Validation: 610 Python tests passed; 40 JavaScript unit tests passed; iOS simulator
+build and 127 simulator tests passed. These are automated/mock checks, not actual
+Live or CSP fills. Physical installation, dedicated Live chart interaction checks,
+full unknown-close recovery review and deployment remain pending. The backend
+capability has NOT been provisioned/enabled and this draft is NOT deployed.
+
+### Follow-up — close recovery and client controls
+
+Fixed the unprotected close path to persist the intended broker order before
+sending. Status reconciliation matches account, contract, reference, direction,
+quantity, order type, TIF and limit price. Working orders require a fresh broker
+snapshot; completed orders can be recovered through the exact recorded identity
+or a unique matching reference after temporary order IDs reset. Missing or
+mismatched results remain unknown; no status read resends a write. The cancellation
+phase is also recorded before any cancellation is sent.
+
+Added five focused close-recovery tests (working, filled, missing, mismatched
+quantity, completed order with reset ID). Final Python suite: 615 passed.
+Mocked browser tests passed for bracket defaults/persistence/responsive layout
+and Live single-contract/limit-only/no-protection controls surviving refresh.
+Fixed a later UI update that could re-enable the Live bracket toggle. Native
+quantity/type controls now reflect the same initial scope; final simulator suite:
+127 passed. No physical-device installation or broker writes occurred.
+
+Live remains disabled and Mini remains on its prior deployed version. Actual
+broker Live/CSP fills, real partial fills, and physical-device acceptance are not
+certified by these tests. The user explicitly deferred Live release and phone Run.

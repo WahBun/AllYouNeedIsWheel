@@ -959,6 +959,32 @@ class IBConnection:
             return value
         return CurrencyHelper.convert_amount(value, currency, 'USD')
 
+    def fresh_csp_cash(self, account_id):
+        """A new bounded subscription, never a cached buying-power figure."""
+        if not self.is_connected() or self._order_account()!=account_id:
+            raise ValueError('CSP account is not verified')
+        req_id=self.ib.client.getReqId(); future=self.ib.wrapper.startReq(req_id)
+        values=[]
+        def collect(value):
+            if value.account==account_id: values.append(value)
+        self.ib.accountSummaryEvent += collect
+        try:
+            self.ib.client.reqAccountSummary(req_id,'All','SettledCash,TotalCashValue,$LEDGER:USD')
+            util.run(future,timeout=5)
+        finally:
+            self.ib.client.cancelAccountSummary(req_id)
+            self.ib.accountSummaryEvent -= collect
+            self.ib.wrapper._endReq(req_id)
+        # Only explicitly USD-denominated settled/current cash may certify CSP.
+        data={v.tag:float(v.value) for v in values if v.currency=='USD'
+              and v.tag in ('SettledCash','TotalCashValue','CashBalance')}
+        if 'SettledCash' not in data or not any(k in data for k in ('TotalCashValue','CashBalance')):
+            raise ValueError('Fresh settled USD cash is unavailable; CSP is blocked')
+        import math
+        if any(not math.isfinite(v) or v<0 for v in data.values()):
+            raise ValueError('USD cash is unavailable or negative')
+        return min(data.values())
+
     def _read_account_summary(self, account_id):
         """Bound cold summary reads and release failed broker subscriptions."""
         # Preserve the public adapter for alternate/test broker implementations.

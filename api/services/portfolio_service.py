@@ -192,9 +192,10 @@ class PortfolioService:
         mode = ('paper' if account.startswith('DU') else 'live' if account.startswith('U') else 'unknown') if verified else 'unknown'
         enabled = verified and mode != 'unknown' and conn.readonly is False
         from api.routes.account import epoch
+        from api.services.live_options import allowed
         return dict(mode=mode, account_epoch=epoch(), execution_enabled=enabled,
-                    chart_execution_enabled=enabled and mode == 'paper' and conn.port == 4002
-                    and conn.ib.managedAccounts() == [account])
+                    chart_execution_enabled=(enabled and mode == 'paper' and conn.port == 4002
+                    and conn.ib.managedAccounts() == [account]) or allowed(conn))
 
     def get_portfolio_bootstrap(self):
         """Return summary and positions from one Gateway portfolio read."""

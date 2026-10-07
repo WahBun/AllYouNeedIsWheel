@@ -37,6 +37,10 @@ def epoch():
     return _epoch if profile_path().exists() else None
 
 def write_guard():
+    from api.routes.portfolio import portfolio_service
+    configured=str(portfolio_service.config.get('account_id',''))
+    if profiles().get('live',{}).get('chart_options_live_enabled') is True and configured.startswith('U') and request.method in {'POST','PUT','PATCH','DELETE'} and request.path.startswith('/api/options/'):
+        return jsonify(status='rejected',error='Initial Live options use the chart execution path; legacy write endpoints are disabled.'),403
     token = epoch()
     if token and request.method in {'POST','PUT','PATCH','DELETE'} and request.headers.get('X-Wheel-Account-Epoch') != token:
         return jsonify(status='rejected', code='ACCOUNT_EPOCH_CHANGED', error='Account connection changed. Refresh and verify the account before continuing.'), 409
@@ -60,7 +64,7 @@ def status():
     else:
         message = 'Log in to the selected IB Gateway mode on Mini. Connection will complete automatically.'
     return dict(selected=target, verified=verified, epoch=_epoch,
-                available=list(profiles()), gateway=gateway, message=message)
+                available=list(profiles()), gateway=gateway, message=message, chart_execution_enabled=actual.get('chart_execution_enabled',False))
 
 @bp.get('/profiles')
 def get_profiles():

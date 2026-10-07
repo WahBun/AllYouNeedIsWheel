@@ -20,6 +20,8 @@ def paper_account(conn, write=False):
     if not conn or not conn.is_connected(): raise ValueError('Gateway disconnected')
     account = conn.account_id
     accounts = conn.ib.managedAccounts()
+    from api.services.live_options import allowed
+    if account and not account.startswith('DU') and allowed(conn): return account
     if not account or not account.startswith('DU') or accounts != [account] or conn.port != 4002:
         raise ValueError('Chart execution requires the configured single paper account on port 4002')
     if write and conn.readonly is not False: raise ValueError('Paper trading is read-only')
@@ -33,6 +35,9 @@ def require_call_coverage(conn, account, contract, quantity):
     Pending purchases/buybacks never release it before actual position updates.
     This guard supports standard USD 100-share equity calls only.
     """
+    if contract.secType == 'OPT' and contract.right == 'P':
+        from api.services.csp_coverage import require_put_cash
+        return require_put_cash(conn,account,contract,quantity)
     if contract.secType != 'OPT' or contract.right != 'C': return
     def standard(c):
         return c.currency == 'USD' and c.multiplier == '100' and c.tradingClass == c.symbol
@@ -139,8 +144,12 @@ class PaperChart:
         group = self.group(account,cid)
         trades = {t.order.orderId:t for t in conn.ib.trades() if t.order.account==account and t.contract.conId==cid}
         position = next((p for p in conn.ib.positions() if p.account==account and p.contract.conId==cid),None)
-        result = dict(paper=True, enabled=conn.readonly is False, position=float(position.position) if position else 0,
+        result = dict(paper=account.startswith('DU'), account_mode='paper' if account.startswith('DU') else 'live', enabled=conn.readonly is False, position=float(position.position) if position else 0,
                       active=False, known=True, orders=[], entry=0, tp=0, sl=0, side=1, status='idle', group_id=self.group_id or '', group_choices=self.group_choices(account,cid))
+        if not account.startswith('DU'):
+            from api.services.live_options import standard_option
+            result['enabled'] = standard_option(contracts.resolve(conn,cid))
+            result['live_initial_scope'] = True
         executions = {}
         execution_groups=self.execution_groups(account,cid)
         for fill in conn.ib.fills():
@@ -170,6 +179,8 @@ class PaperChart:
                     protection=self.protection_progress([],size),
                     protection_block_reason='Use the existing order group to manage this position' if result['group_choices'] else 'Existing working orders need reconciliation' if working else '' if valid else 'Wait for a valid whole position and cost basis')
                 result['protection']['status']='not_requested'
+            if not account.startswith('DU'):
+                result.update(add_allowed=False,trim_allowed=False,protection_manageable=False,protection_cancelable=False)
             return result
         # Completed IB orders can lose their temporary orderId after reconnect.
         # Recover only by exact recorded permId or a unique bracket reference/role.
@@ -196,7 +207,13 @@ class PaperChart:
                             matches = t.order.orderRef == ref and (
                                 role == 'entry' and t.order.action == entry_action or
                                 role == 'tp' and t.order.action != entry_action and t.order.orderType == 'LMT' or
-                                role == 'sl' and t.order.action != entry_action and t.order.orderType == 'STP')
+                                role == 'sl' and t.order.action != entry_action and t.order.orderType == 'STP' or
+                                role == 'close' and group.get('close_request', {}).get('order_id') == group['ids'][role]
+                                and t.order.action == group['close_request']['action']
+                                and t.order.orderType == group['close_request']['kind']
+                                and float(t.order.totalQuantity) == group['close_request']['quantity']
+                                and t.order.tif == group['close_request']['tif']
+                                and (t.order.orderType != 'LMT' or t.order.lmtPrice == group['close_request']['price']))
                         if matches: candidates.append(t)
                 if len(candidates) == 1: trades[group['ids'][role]] = candidates[0]
         self._resolved_trades = trades
@@ -495,6 +512,8 @@ class PaperChart:
                     entry=basis,side=group['side'],multiplier=multiplier) for r in rows
                     if r['role'].split('_')[0]==role and r['status'] in ('Submitted','PreSubmitted')]
                 result[role+'_projection']=dict(known=complete and bool(targets),realized=realized,targets=targets)
+        if not account.startswith('DU'):
+            result.update(add_allowed=False,trim_allowed=False,protection_manageable=False,protection_cancelable=False)
         return result
 
     @staticmethod
@@ -599,6 +618,27 @@ class PaperChart:
                 return resolved('rejected' if row['status']=='Inactive' else 'reconciled')
             if any(t.order.orderId==oid and t.order.account==account and t.contract.conId==cid and t.order.orderRef==group['ref'] and t.orderStatus.status in ('Submitted','PreSubmitted') for t in authoritative):
                 return resolved('reconciled')
+        if body.get('action') == 'close':
+            operation = group.get('close_request', {})
+            if operation.get('request_id') == request_id:
+                oid = operation['order_id']
+                candidates = [(t.order.orderId, t) for t in authoritative] + list(getattr(self, '_resolved_trades', {}).items())
+                for resolved_id, trade in candidates:
+                    order = trade.order
+                    if (resolved_id != oid or order.account != account or trade.contract.conId != cid
+                            or order.orderRef != group.get('ref')):
+                        continue
+                    if (order.action != operation['action'] or order.orderType != operation['kind']
+                            or float(order.totalQuantity) != operation['quantity']
+                            or order.tif != operation['tif']
+                            or operation['kind'] == 'LMT' and order.lmtPrice != operation['price']):
+                        continue
+                    status = trade.orderStatus.status
+                    if status in ('Filled','Cancelled','ApiCancelled','Inactive'):
+                        return resolved('rejected' if status == 'Inactive' else 'reconciled')
+                    if trade in authoritative and status in ('Submitted','PreSubmitted'):
+                        return resolved('reconciled')
+                return dict(confirmed=False, status='unknown')
         if body.get('action')=='close' and state['known']:
             cancellation=group.get('close_cancellation',{})
             if cancellation.get('request_id')==request_id:
@@ -730,6 +770,9 @@ class PaperChart:
                 return json.loads(old[2]) if old[2] else dict(success=False,status='unknown',message='Previous request needs broker reconciliation; not replayed')
             db.execute('INSERT INTO chart_paper_requests VALUES(?,?,?,NULL)',(request_id,account,encoded))
         try:
+            if not account.startswith('DU'):
+                from api.services.live_options import validate
+                validate(conn,contracts.resolve(conn,cid),body,self.state(conn,cid))
             previous_rejections = {t.order.orderId for t in conn.ib.trades()
                 if t.order.account == account and t.contract.conId == cid and t.orderStatus.status == "Inactive"}
             self.perform(conn,account,cid,body,request_id)
@@ -1671,6 +1714,9 @@ class PaperChart:
             pending_close = trades.get(group['ids'].get('close'))
             if pending_close and not pending_close.isDone(): raise ValueError('Close order already working')
             working=[t for t in trades.values() if t.order.orderId in group['ids'].values() and not t.isDone()]
+            if working:
+                group['close_cancellation'] = dict(request_id=request_id, parents=[t.order.orderId for t in working])
+                self.save_group(account,cid,group)
             for trade in working: conn.ib.cancelOrder(trade.order)
             import time
             deadline=time.monotonic()+4
@@ -1687,7 +1733,18 @@ class PaperChart:
             if position and position.position:
                 if any(t.contract.conId==cid and t.order.account==account for t in conn.ib.openTrades()): raise ValueError('Other working orders exist; review Gateway')
                 order=MarketOrder('SELL' if position.position>0 else 'BUY',abs(position.position),account=account,tif='DAY',orderRef=group.get('ref','WheelPaper:'+request_id))
+                if not account.startswith('DU'):
+                    chart_state=stock_chart.states.get(cid) or stock_chart.active
+                    quote=stock_chart.packet(chart_state,5,'rth') if chart_state and chart_state.get('con_id')==cid else {}
+                    target=quote.get('bid' if position.position>0 else 'ask') if quote else None
+                    if not target: raise ValueError('Fresh executable quote required for Live limit close')
+                    target=price(target)
+                    order=LimitOrder('SELL' if position.position>0 else 'BUY',abs(position.position),target,account=account,tif='DAY',orderRef=group.get('ref','WheelPaper:'+request_id))
                 order.orderId=conn.ib.client.getReqId();group['ids']['close']=order.orderId
+                group.pop('close_cancellation', None)
+                group['close_request'] = dict(request_id=request_id, order_id=order.orderId,
+                    action=order.action, kind=order.orderType, quantity=float(order.totalQuantity),
+                    tif=order.tif, price=order.lmtPrice if order.orderType == 'LMT' else None)
                 self.save_group(account,cid,group)
                 if group.get('mode') == 'overnight_entry':
                     import copy

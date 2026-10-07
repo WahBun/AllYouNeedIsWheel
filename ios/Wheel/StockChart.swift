@@ -274,7 +274,8 @@ struct StockChartView: View {
         confirmRemoveProtection = false
         editPrice = String(paperState["entry"] as? Double ?? validEntry)
     }
-    private var quantityLimit: Int { chartType == "STK" ? 1000 : 10 }
+    private var liveInitialScope: Bool { paperState["live_initial_scope"] as? Bool == true }
+    private var quantityLimit: Int { liveInitialScope ? 1 : chartType == "STK" ? 1000 : 10 }
     private var validQuantityDraft: Int? {
         guard let value = Int(quantityDraft), (1...quantityLimit).contains(value) else { return nil }
         return value
@@ -327,8 +328,10 @@ struct StockChartView: View {
     private var hasOrderPreview: Bool { !paperActive && validEntry > 0 && validQuantity > 0 }
     private var paperEnabled: Bool { !store.trading.paperPending(base: store.address, conID: chartID ?? 0) && !store.trading.busy && Date().timeIntervalSince(paperReceived ?? .distantPast) < 3 && store.chartTradingAvailable && paperState["sync_error"] as? Bool != true && paperState["known"] as? Bool != false && paperState["enabled"] as? Bool == true }
     private var paperActive: Bool { paperState["active"] as? Bool == true }
+    private var tradingAccountLabel: String { paperState["account_mode"] as? String == "live" ? "Live" : "Paper" }
     private func applyPaperState(_ state: [String: Any]) {
         paperState = state
+        if liveInitialScope { quantity = "1"; entryType = "LMT" }
         paperReceived = .now
         if state["active"] as? Bool == true, let price = state["entry"] as? Double, price > 0 { entry = String(price) }
         let rows = state["orders"] as? [[String: Any]] ?? []
@@ -373,7 +376,7 @@ struct StockChartView: View {
         if let source = body["con_id"] as? Int, source != cid { return }
         if body["action"] as? String == "submit" {
             guard !paperActive else { return }
-            if !bracketEnabled(chartType) {
+            if paperState["live_initial_scope"] as? Bool == true || !bracketEnabled(chartType) {
                 body.removeValue(forKey: "tp"); body.removeValue(forKey: "sl")
             } else if body["tp"] == nil && body["sl"] == nil {
                 paperMessage = locale.language.languageCode?.identifier == "zh" ? "Bracket 至少开启 TP 或 SL" : "Enable TP or SL for Bracket"
@@ -895,15 +898,15 @@ struct StockChartView: View {
         if hasOrderPreview { return "\(store.accountModeLabel) · Preview · \(previewTIF == "OVERNIGHT" ? "OVT" : previewTIF)" }
         if paperState["rejected"] as? Bool == true { return "Order rejected · verify Gateway" }
         if let progress = paperState["adjustment"] as? [String: Any] {
-            return "\(localizedLabel("Paper", locale: locale)) · \(localizedLabel(progress["action"] as? String ?? "close", locale: locale)) · \(localizedLabel(progress["status"] as? String ?? "unknown", locale: locale))"
+            return "\(localizedLabel(tradingAccountLabel, locale: locale)) · \(localizedLabel(progress["action"] as? String ?? "close", locale: locale)) · \(localizedLabel(progress["status"] as? String ?? "unknown", locale: locale))"
         }
-        if paperState["closing"] as? Bool == true { return "Paper · Closing position · \(paperState["close_status"] as? String ?? "Pending")" }
-        if let size = paperState["position"] as? Double, size != 0 { return "Paper · \(size > 0 ? "Long" : "Short") \(abs(size).formatted()) filled" }
+        if paperState["closing"] as? Bool == true { return "\(tradingAccountLabel) · Closing position · \(paperState["close_status"] as? String ?? "Pending")" }
+        if let size = paperState["position"] as? Double, size != 0 { return "\(tradingAccountLabel) · \(size > 0 ? "Long" : "Short") \(abs(size).formatted()) filled" }
         if paperState["status"] as? String == "done" {
             let exit = rows.first { ["tp", "sl", "close"].contains($0["role"] as? String ?? "") && ($0["filled"] as? Double ?? 0) > 0 }
-            return exit.map { "Paper · \(($0["role"] as? String ?? "").uppercased()) filled · Flat" } ?? "Paper · Orders finished · Flat"
+            return exit.map { "\(tradingAccountLabel) · \(($0["role"] as? String ?? "").uppercased()) filled · Flat" } ?? "\(tradingAccountLabel) · Orders finished · Flat"
         }
-        if let row = rows.first(where: { $0["role"] as? String == "entry" }) { return "Paper · \(row["status"] as? String ?? "Unknown") · Filled \((row["filled"] as? Double ?? 0).formatted())" }
+        if let row = rows.first(where: { $0["role"] as? String == "entry" }) { return "\(tradingAccountLabel) · \(row["status"] as? String ?? "Unknown") · Filled \((row["filled"] as? Double ?? 0).formatted())" }
         return ""
     }
     @State private var templateType = "STK"
@@ -1013,7 +1016,7 @@ struct StockChartView: View {
             }
             }
             if let emaHistoryNotice { Text(verbatim: emaHistoryNotice).font(.caption2).foregroundStyle(.secondary) }
-            StockChartWeb(executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
+            StockChartWeb(executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
                 Button { showDisplaySettings = true } label: {
@@ -1046,14 +1049,14 @@ struct StockChartView: View {
             if !fullScreen && !tradingPanelCollapsed {
             HStack(spacing: 8) {
                 TextField(chartType == "STK" ? "Shares" : "Contracts", text: $quantity).keyboardType(chartType == "STK" ? .decimalPad : .numberPad)
-                    .multilineTextAlignment(.center).textFieldStyle(.roundedBorder).frame(width: 48)
-                Stepper(chartType == "STK" ? "Shares" : "Contracts", value: Binding(get: { max(1, Int(validQuantity)) }, set: { quantity = String($0) }), in: 1...1_000_000).labelsHidden()
+                    .multilineTextAlignment(.center).textFieldStyle(.roundedBorder).frame(width: 48).disabled(liveInitialScope)
+                Stepper(chartType == "STK" ? "Shares" : "Contracts", value: Binding(get: { max(1, Int(validQuantity)) }, set: { quantity = String($0) }), in: 1...1_000_000).labelsHidden().disabled(liveInitialScope)
                 Spacer(minLength: 0)
                 if validEntry == 0 {
                     Button { entry = String(((packet["bars"] as? [[String: Any]])?.last?["close"] as? Double) ?? position.market_price ?? 0) } label: { Image(systemName: "plus.circle").frame(minWidth: 32, minHeight: 44) }.accessibilityLabel("Entry reference")
                 }
                 Picker("Entry type", selection: $entryType) {
-                    Text("LMT").tag("LMT"); Text("STP").tag("STP").disabled(previewTIF == "OVERNIGHT" || paperState["tif"] as? String == "OVERNIGHT")
+                    Text("LMT").tag("LMT"); Text("STP").tag("STP").disabled(liveInitialScope || previewTIF == "OVERNIGHT" || paperState["tif"] as? String == "OVERNIGHT")
                 }.pickerStyle(.segmented).frame(maxWidth: 140)
             }
             HStack(spacing: 10) {
