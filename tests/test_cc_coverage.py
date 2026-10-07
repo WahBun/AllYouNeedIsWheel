@@ -37,3 +37,13 @@ class CoverageTests(unittest.TestCase):
     def test_reads_failure_never_allows_submission(self):
         self.conn._bounded_order_read.side_effect=TimeoutError('read failed')
         with self.assertRaises(TimeoutError):self.check(1)
+
+    def test_fill_between_reads_cannot_release_coverage(self):
+        t=self.order(self.call,1);self.orders=[t]
+        def read(fn,**kw):
+            if fn==self.conn.ib.reqAllOpenOrders:return self.orders
+            # Broker fills the pending sell during the following position read.
+            t.orderStatus.filled=1;t.orderStatus.status='Filled'
+            return self.positions+[S(account='DU_TEST',contract=self.call,position=-1)]
+        self.conn._bounded_order_read.side_effect=read
+        with self.assertRaisesRegex(ValueError,'Insufficient'):self.check(1)

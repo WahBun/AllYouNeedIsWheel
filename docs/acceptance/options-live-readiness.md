@@ -156,3 +156,34 @@ Gateway disconnect during a write; physical-phone acceptance remains deferred.
 CC share-coverage enforcement and a separately authorized options-only Live gate
 are still required before release. Pending Add cancel-before-fill and fill-before-
 cancel outcomes are now both observed, but not every possible callback ordering.
+
+## CC coverage guard and foreign-client acceptance
+
+Chart short-call submissions and Adds now check unreserved underlying shares
+server-side before allocating broker orders. Scope is standard USD calls with
+100-share multipliers and matching trading class; nonstandard calls and ambiguous
+combination exposure fail closed. Existing short calls across expiries, working
+call sales from every API client and pending stock sales reserve shares. Pending
+stock buys and call buybacks never release coverage before positions update.
+Pending quantities are frozen before the position read so an intervening fill
+cannot disappear between snapshots; temporary double reservation is conservative.
+584 backend regressions passed, including that inter-read fill case.
+
+Actual Paper: 200 QQQ shares rejected an initial three-call request; one short call
+rejected Add two, allowed Add one with an actual fill, then rejected a third call.
+Two-call protection remained intact after an unsupported protected Trim rejection;
+only TP status advanced PreSubmitted to Submitted, with unchanged IDs/size/prices.
+Both calls were explicitly closed and all test orders terminal.
+
+A temporary isolated Paper API client placed one uniquely marked unfilled QQQ call
+sale. The main backend rejected an additional two-call submission for insufficient
+unreserved coverage. Broker read showed only the foreign test order, which its own
+client then canceled; that client disconnected. This certifies pending foreign-
+client coverage conflict, not external fills or every position-ownership race.
+
+This is a chart submission-time guard, not an account-wide reservation lock:
+external trading can change coverage after validation, and other order-entry
+routes need their own audit before an options-only Live release. No Live gate was
+opened. Protected aggregate Trim remains unsupported, actual partial fills and
+in-flight Gateway interruption still lack evidence, and phone acceptance remains
+deferred. Test holdings remain QQQ 200 / SGOV 1000; test options flat.

@@ -38,8 +38,12 @@ def require_call_coverage(conn, account, contract, quantity):
         return c.currency == 'USD' and c.multiplier == '100' and c.tradingClass == c.symbol
     if not standard(contract):
         raise ValueError('CC coverage requires a standard USD 100-share call')
+    # Freeze pending quantities before reading positions: an intervening fill may
+    # reserve twice briefly, but must never disappear between the two snapshots.
+    orders=[(t.contract,t.order.account,t.order.action,t.orderStatus.status,
+        (t.order.clientId,t.order.orderId,t.order.permId),float(t.order.totalQuantity),float(t.orderStatus.filled))
+        for t in conn._bounded_order_read(conn.ib.reqAllOpenOrders,timeout_seconds=3)]
     positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
-    orders=conn._bounded_order_read(conn.ib.reqAllOpenOrders,timeout_seconds=3)
     shares=0.0; reserved=0.0
     for p in positions:
         c=p.contract
@@ -51,15 +55,14 @@ def require_call_coverage(conn, account, contract, quantity):
             if not standard(c): raise ValueError('Nonstandard short call coverage needs reconciliation')
             reserved+=abs(float(p.position))*100
     seen=set()
-    for t in orders:
-        c=t.contract;o=t.order
-        if o.account != account or t.orderStatus.status in ('Filled','Cancelled','ApiCancelled','Inactive'): continue
-        key=(o.clientId,o.orderId,o.permId)
+    for c,order_account,action,status,key,total,filled in orders:
+        if order_account != account or status in ('Filled','Cancelled','ApiCancelled','Inactive'): continue
         if key in seen: continue
         seen.add(key)
         if c.secType == 'BAG': raise ValueError('Combination orders require manual coverage reconciliation')
-        if c.symbol != contract.symbol or c.currency != contract.currency or o.action != 'SELL': continue
-        remaining=max(0,float(o.totalQuantity)-float(t.orderStatus.filled))
+        if c.symbol != contract.symbol or c.currency != contract.currency or action != 'SELL': continue
+        if not math.isfinite(total) or not math.isfinite(filled): raise ValueError('Unknown pending quantity; reconcile coverage')
+        remaining=max(0,total-filled)
         if c.secType == 'STK': shares-=remaining
         elif c.secType == 'OPT' and c.right == 'C':
             if not standard(c): raise ValueError('Nonstandard short call coverage needs reconciliation')
