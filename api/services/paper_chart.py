@@ -590,6 +590,8 @@ class PaperChart:
                 return json.loads(old[2]) if old[2] else dict(success=False,status='unknown',message='Previous request needs broker reconciliation; not replayed')
             db.execute('INSERT INTO chart_paper_requests VALUES(?,?,?,NULL)',(request_id,account,encoded))
         try:
+            previous_rejections = {t.order.orderId for t in conn.ib.trades()
+                if t.order.account == account and t.contract.conId == cid and t.orderStatus.status == "Inactive"}
             self.perform(conn,account,cid,body,request_id)
             confirmed_price_edit = body.get('action') in ('amend', 'be', 'amend_add') or (body.get('action') == 'edit_entry'
                 and 'price' in body and not any(k in body for k in ('quantity', 'tif', 'cancel')))
@@ -599,14 +601,17 @@ class PaperChart:
                 group['adjustment']['outcome'] = 'acknowledged'
                 self.save_group(account, cid, group)
             state=self.state(conn,cid)
-            result=dict(success=not state.get('rejected',False),status='rejected' if state.get('rejected') else 'acknowledged',message='IB rejected a paper order; review Gateway' if state.get('rejected') else 'Paper request sent; broker status shown on chart',state=state)
+            request_rejected = state.get('rejected', False) and (not state.get('orders') or any(
+                r['status'] == 'Inactive' and r['order_id'] not in previous_rejections
+                and '_retired_' not in r['role'] for r in state['orders']))
+            result=dict(success=not request_rejected,status='rejected' if request_rejected else 'acknowledged',message='IB rejected a paper order; review Gateway' if request_rejected else 'Paper request sent; broker status shown on chart',state=state)
             # A prior rejected Add must not turn a broker-confirmed flat close
             # into a rejection. Keep the historical rejection visible in state.
             if (body.get('action') == 'close' and state.get('known')
                     and not state.get('position') and not state.get('active')
                     and state.get('close_progress', {}).get('status') == 'completed'):
                 result.update(success=True, status='acknowledged', message='Paper close completed; broker position is flat')
-            if state.get('broker_pending') and not state.get('rejected'):
+            if state.get('broker_pending') and not request_rejected:
                 result.update(success=False, status='unknown', awaiting_broker=True,
                     message='Request sent; awaiting broker confirmation. Do not resubmit.')
             if body.get('action') == 'cancel_protection':

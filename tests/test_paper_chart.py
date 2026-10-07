@@ -62,6 +62,25 @@ class PaperChartTests(unittest.TestCase):
             result=self.service.execute(self.conn,7,dict(action='close',request_id=str(uuid4())))
         self.assertFalse(result['success'])
 
+    def test_old_inactive_order_does_not_reject_new_pending_close(self):
+        self.submit()
+        self.trades[0].orderStatus.status='Inactive'
+        oid=self.trades[0].order.orderId
+        state=dict(known=True,position=1,active=True,rejected=True,broker_pending=True,
+                   orders=[dict(order_id=oid,role='entry',status='Inactive')])
+        with patch.object(self.service,'perform'), patch.object(self.service,'state',return_value=state):
+            result=self.service.execute(self.conn,7,dict(action='close',request_id=str(uuid4())))
+        self.assertEqual(result['status'],'unknown')
+        self.assertTrue(result['awaiting_broker'])
+        state['broker_pending']=False
+        with patch.object(self.service,'perform'), patch.object(self.service,'state',return_value=state):
+            result=self.service.execute(self.conn,7,dict(action='close',request_id=str(uuid4())))
+        self.assertEqual(result['status'],'acknowledged')
+        state['orders'].append(dict(order_id=999,role='close',status='Inactive'))
+        with patch.object(self.service,'perform'), patch.object(self.service,'state',return_value=state):
+            result=self.service.execute(self.conn,7,dict(action='close',request_id=str(uuid4())))
+        self.assertEqual(result['status'],'rejected')
+
     def test_market_order_does_not_expose_unset_price(self):
         self.submit()
         self.trades[0].order.orderType='MKT'
