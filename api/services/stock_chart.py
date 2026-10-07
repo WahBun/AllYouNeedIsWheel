@@ -201,7 +201,7 @@ class StockChart:
             if event is not None: event += history_error
             try:
                 historical = conn.ib.reqHistoricalData(contract, '', '2 D', '1 min', 'TRADES',
-                    useRTH=False, formatDate=2, keepUpToDate=option_bars, timeout=15)
+                    useRTH=False, formatDate=2, keepUpToDate=option_bars, timeout=2 if option_bars else 15)
             finally:
                 if event is not None: event -= history_error
             bars = []
@@ -218,6 +218,8 @@ class StockChart:
             bars = list({b['time']: b for b in bars}.values())
             bars.sort(key=lambda b: b['time'])
             if not bars:
+                # Failed history must not monopolize the serialized account/order lane.
+                self.next_request[con_id] = time.monotonic() + 60
                 if option_bars: conn.ib.cancelHistoricalData(historical)
                 self.request_errors[con_id] = 'Option market data permission unavailable; verify this contract entitlement in Gateway' if permission_errors else 'No historical trades returned for this contract; check history range and market data permissions'
                 raise ValueError(self.request_errors[con_id])
@@ -305,7 +307,7 @@ class StockChart:
         if not initial and not state.get('backfilled') and time.monotonic() >= state.get('backfill_retry', 0):
             state['backfill_retry'] = time.monotonic() + 30
             history = conn.ib.reqHistoricalData(contract, '', '5 D', '1 min', 'TRADES',
-                useRTH=False, formatDate=2, keepUpToDate=False, timeout=5)
+                useRTH=False, formatDate=2, keepUpToDate=False, timeout=2 if contract.secType == 'OPT' else 5)
             older = []
             for bar in history:
                 if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
@@ -336,7 +338,7 @@ class StockChart:
             if time.monotonic() >= state.get('option_hourly_retry', 0):
                 state['option_hourly_retry'] = time.monotonic() + 60
                 history = conn.ib.reqHistoricalData(contract, '', '1 M', '1 hour', 'TRADES',
-                    useRTH=True, formatDate=2, keepUpToDate=False, timeout=8)
+                    useRTH=True, formatDate=2, keepUpToDate=False, timeout=2)
                 older = []
                 for bar in history:
                     if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
@@ -379,7 +381,7 @@ class StockChart:
                 if contract.secType == 'OPT' and history_minutes == 1440:
                     duration = '1 M'
                 history = conn.ib.reqHistoricalData(contract, '', duration, size, 'TRADES',
-                    useRTH=session == 'rth', formatDate=2, keepUpToDate=True, timeout=5)
+                    useRTH=session == 'rth', formatDate=2, keepUpToDate=True, timeout=2 if contract.secType == 'OPT' else 5)
                 if not history:
                     conn.ib.cancelHistoricalData(history)
                     if option_eight_hour and state['bars']:
