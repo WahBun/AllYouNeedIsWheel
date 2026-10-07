@@ -96,6 +96,21 @@ function updateExecutionMarks(){
  const fingerprint=JSON.stringify(marks);if(fingerprint!==executionFingerprint){executionFingerprint=fingerprint;executionMarkers.setMarkers(marks);}
 }
 let countdownPacket=null, countdownReceived=0;
+const optionQuote=document.createElement('div');optionQuote.id='option-quote';optionQuote.hidden=true;
+optionQuote.setAttribute('aria-label','Option midpoint and bid-ask spread');
+optionQuote.innerHTML='<span>Mid <strong id="option-mid">—</strong></span><span>Spread <strong id="option-spread">—</strong></span>';
+document.body.append(optionQuote);
+const quoteStyle=document.createElement('style');quoteStyle.textContent='#option-quote{position:absolute;top:20px;right:80px;z-index:3;display:flex;gap:18px;pointer-events:none;font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums;color:#353938}#option-quote[hidden]{display:none}#option-quote strong{font-weight:600;margin-left:4px}@media(max-width:600px){#option-quote{top:66px;right:66px;gap:12px;font-size:11px}}';document.head.append(quoteStyle);
+const optionQuoteFormat=new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
+function updateOptionQuote(){
+ const p=countdownPacket;optionQuote.hidden=p?.security_type!=='OPT';if(optionQuote.hidden)return;
+ const now=p.server_time+Math.max(0,(Date.now()-countdownReceived)/1000);
+ const valid=Number.isFinite(p.bid)&&Number.isFinite(p.ask)&&p.bid>=0&&p.ask>0&&p.ask>=p.bid&&Number.isFinite(now)&&Number.isFinite(p.quote_expires_at)&&p.quote_expires_at>now;
+ const mid=valid?optionQuoteFormat.format((p.bid+p.ask)/2):'—',spread=valid?optionQuoteFormat.format(p.ask-p.bid):'—';
+ for(const [id,value] of [['option-mid',mid],['option-spread',spread]]){const el=document.getElementById(id);if(el.textContent!==value)el.textContent=value;}
+ optionQuote.style.opacity=valid?'1':'.55';
+}
+
 let key='', previous=[], entry=0, qty=1, contractMultiplier=1, levels={tp:0,sl:0}, lines={}, entryLine=null, dragging=null, entryType='LMT', side=1, sideReady=false, canceled=false, lastJoinRevision=0, lastBERevision=0, breakEven=false, template={tp:0,sl:0,tpEnabled:true,slEnabled:true,tpMode:'distance',slMode:'distance'}, templateVersion=0, appliedTemplate=0, lastBEState=null;
 let priceRules=[];
 function tickAt(p){return priceRules.filter(r=>Number.isFinite(r.low)&&r.low<=p&&r.increment>0).sort((a,b)=>b.low-a.low)[0]?.increment;}
@@ -729,7 +744,7 @@ document.addEventListener('pointermove',e=>{if(!orderHold||dragging==='entry')re
 for(const name of ['pointerup','pointercancel'])document.addEventListener(name,()=>{if(orderHold&&dragging==='entry')suppressOrderClickUntil=performance.now()+600;clearOrderHold();},true);
 document.addEventListener('click',e=>{if(performance.now()<suppressOrderClickUntil&&(document.getElementById('entry').contains(e.target)||document.getElementById('cancel').contains(e.target))){e.preventDefault();e.stopImmediatePropagation();}},true);
 document.getElementById('cancel').addEventListener('click',()=>{if(cancelPending)return;if(paperConfig.active){if(!paperConfig.position){if(paperConfig.entry_editable&&paperConfig.enabled&&!paperConfig.busy){cancelPending=true;updateLines();paperAction({action:'edit_entry',cancel:true,expected_ref:paperConfig.order_ref,expected_snapshot:paperConfig.edit_snapshot});}}else paperAction({action:'close'});return;}canceled=true;dragging=null;levels={tp:0,sl:0};updateLines();window.webkit?.messageHandlers.entryChanged?.postMessage(0);});
-function updateCountdown(){const el=document.getElementById('countdown'),bar=previous.at(-1);el.hidden=!bar;if(!bar)return;const down=bar.close<bar.open;el.style.background=down?series.options().downColor:'#e0e0e0';el.style.color=down?'#f4f5f3':'#242424';const y=series.priceToCoordinate(bar.close);el.hidden=y===null||y<9||y>innerHeight-50;if(el.hidden)return;el.style.top=(y-9)+'px';el.style.width=axisBadgeWidth()+'px';document.getElementById('countdown-price').textContent=priceText(bar.close);const p=countdownPacket,elapsed=Math.max(0,(Date.now()-countdownReceived)/1000),left=p?.bar_closes_at-(p?.server_time+elapsed),timer=document.getElementById('countdown-time');timer.hidden=!(Number.isFinite(left)&&left>0);timer.textContent=timer.hidden?'':formatCountdown(Math.ceil(left));}
+function updateCountdown(){updateOptionQuote();const el=document.getElementById('countdown'),bar=previous.at(-1);el.hidden=!bar;if(!bar)return;const down=bar.close<bar.open;el.style.background=down?series.options().downColor:'#e0e0e0';el.style.color=down?'#f4f5f3':'#242424';const y=series.priceToCoordinate(bar.close);el.hidden=y===null||y<9||y>innerHeight-50;if(el.hidden)return;el.style.top=(y-9)+'px';el.style.width=axisBadgeWidth()+'px';document.getElementById('countdown-price').textContent=priceText(bar.close);const p=countdownPacket,elapsed=Math.max(0,(Date.now()-countdownReceived)/1000),left=p?.bar_closes_at-(p?.server_time+elapsed),timer=document.getElementById('countdown-time');timer.hidden=!(Number.isFinite(left)&&left>0);timer.textContent=timer.hidden?'':formatCountdown(Math.ceil(left));}
 function formatCountdown(s){const days=Math.floor(s/86400);const hours=Math.floor(s%86400/3600);const mins=Math.floor(s%3600/60);const secs=s%60;return days?days+'d '+hours+'h':hours?hours+':'+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0'):String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0');}
 // WebKit suspends animation frames in the background. Reconcile immediately on
 // return using wall time, without waiting for transport or inventing another bar.
