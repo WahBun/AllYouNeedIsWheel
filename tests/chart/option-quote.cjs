@@ -9,6 +9,10 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
  await page.screenshot({path:`/tmp/wheel-option-mid-spread-${width}.png`});
  await page.evaluate(p=>receive({...p,bid:1.14,ask:1.18}),packet);await page.waitForFunction(()=>document.getElementById('option-mid').textContent==='1.16');
  assert.equal(await page.locator('#option-spread').textContent(),'3.4%');
+ assert.equal(await page.locator('#option-mid').getAttribute('data-direction'),'1');
+ await page.evaluate(p=>receive({...p,bid:1.08,ask:1.12}),packet);await page.waitForFunction(()=>document.getElementById('option-mid').dataset.direction==='-1');
+ await page.evaluate(p=>receive({...p,bid:1.08,ask:1.12,quote_time:1001}),packet);await page.waitForFunction(()=>document.getElementById('option-mid').dataset.direction==='0');
+
  assert.equal(await page.locator('#option-quote').getAttribute('data-band'),'low');
  await page.evaluate(p=>receive({...p,bid:1,ask:1.2}),packet);await page.waitForFunction(()=>document.getElementById('option-quote').dataset.band==='medium');
  await page.evaluate(p=>receive({...p,bid:1,ask:1.4}),packet);await page.waitForFunction(()=>document.getElementById('option-quote').dataset.band==='high');
