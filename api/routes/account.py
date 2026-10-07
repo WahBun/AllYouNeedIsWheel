@@ -49,6 +49,7 @@ def status():
     conn = portfolio_service.connection
     actual = portfolio_service.connection_status(conn) if conn and conn.is_connected() else {'mode':'unknown'}
     verified = actual.get('mode') == target
+    gateway_login.prepare_paper(target, verified)
     gateway = gateway_login.state()
     if verified:
         message = None

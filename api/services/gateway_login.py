@@ -9,6 +9,10 @@ _lock = threading.Lock()
 _running = False
 _mode = None
 _error = None
+_operations = threading.Lock()
+_warm_attempted = False
+_warming = False
+_warm_error = None
 
 
 def root():
@@ -34,29 +38,107 @@ def credentials(mode):
         raise ValueError('Save the selected Gateway login profile on Mini first.') from None
 
 
+def warm_config():
+    """Explicit local opt-in; the original single-container path stays available."""
+    path = root() / 'warm-paper.json'
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text())
+    image = data.get('image', '')
+    if not image.startswith('ghcr.io/gnzsnz/ib-gateway@sha256:') or len(image.rsplit(':', 1)[-1]) != 64:
+        raise ValueError('Warm Gateway requires a pinned image digest.')
+    return data
+
+
+def _warm_compose(mode, values, action):
+    config = warm_config()
+    if config is None:
+        raise ValueError('Warm Gateway is not configured.')
+    directory = root() / ('settings-' + mode)
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    env = {**os.environ, **values, 'WHEEL_GATEWAY_IMAGE': config['image'],
+           'WHEEL_GATEWAY_MODE': mode, 'WHEEL_GATEWAY_PORT': '4002' if mode == 'paper' else '4001',
+           'WHEEL_GATEWAY_INTERNAL_PORT': '4004' if mode == 'paper' else '4003',
+           'WHEEL_GATEWAY_SETTINGS': str(directory)}
+    compose = Path(__file__).resolve().parents[2] / 'ops/warm-gateway.yml'
+    result = subprocess.run([os.environ.get('WHEEL_DOCKER_CLI', '/usr/local/bin/docker'),
+                             'compose', '-p', 'wheel-gateway-' + mode, '-f', str(compose),
+                             *action, 'gateway'], env=env, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, timeout=45)
+    if result.returncode:
+        raise RuntimeError('Warm Gateway operation failed')
+
+
+def prepare_paper(mode, verified):
+    """Prelogin only after verified Live. No second API client or subscriptions."""
+    global _warm_attempted, _warming, _warm_error
+    if mode != 'live' or not verified or not enabled():
+        return
+    try:
+        if warm_config() is None:
+            return
+        values = credentials('paper')
+    except (ValueError, OSError):
+        return
+    with _lock:
+        if _running or _warm_attempted:
+            return
+        _warm_attempted, _warming, _warm_error = True, True, None
+    def run():
+        global _warming, _warm_error
+        try:
+            with _operations:
+                # A newer Paper selection owns startup; never restart it behind its back.
+                with _lock:
+                    if _mode == 'paper' or _running:
+                        return
+                _warm_compose('paper', values, ['up', '-d', '--no-deps', '--pull', 'never'])
+        except Exception:
+            with _lock:
+                _warm_error = 'Paper prelogin failed; selecting Paper will try a normal startup.'
+        finally:
+            with _lock:
+                _warming = False
+    threading.Thread(target=run, name='gateway-paper-prelogin', daemon=True).start()
+
+
 def preflight(mode):
     if not enabled(): return
     credentials(mode)
+    if warm_config() is not None:
+        credentials("live")
+        credentials("paper")
     with _lock:
         if _running: raise ValueError('Gateway is already switching. Wait for it to finish.')
 
 
 def state():
     with _lock:
-        return dict(managed=enabled(), starting=_running, target=_mode, error=_error)
+        return dict(managed=enabled(), starting=_running, target=_mode, error=_error,
+                    paper_prelogin_starting=_warming, paper_prelogin_error=_warm_error)
 
 
 def start(mode):
     """One bounded compose job, no credential output and no automatic retry."""
-    global _running, _mode, _error
+    global _running, _mode, _error, _warm_attempted
     if not enabled(): return False
     values = credentials(mode)
+    warm = warm_config() is not None
     with _lock:
         if _running: raise ValueError('Gateway is already switching.')
         _running, _mode, _error = True, mode, None
+        if mode == "live":
+            _warm_attempted = False
     def run():
         global _running, _error
         try:
+            if warm:
+                with _operations:
+                    if mode == 'paper':
+                        # Full Live logout releases shared market data. API disconnect alone does not.
+                        _warm_compose('live', credentials('live'), ['stop', '-t', '5'])
+                    _warm_compose(mode, values, ['up', '-d', '--no-deps', '--pull', 'never'])
+                return
             docker = os.environ.get('WHEEL_DOCKER_CLI', '/usr/local/bin/docker')
             directory = os.environ.get('WHEEL_GATEWAY_COMPOSE_DIR', str(Path.home() / 'Docker/ib-gateway'))
             # Compose recreates only this named service if its login/mode changed.

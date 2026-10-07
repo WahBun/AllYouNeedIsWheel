@@ -24,3 +24,33 @@ User prepared verified Live and authorized a read-only warm-Paper experiment aft
 - Before stopping Live, the 3-second observation window had no quote. This short window did not reproduce a 10197 message; the earlier experiment documents that conflict.
 - This is one first-quote observation, not a tick-by-tick latency claim, controlled repeated benchmark, sustained-feed test, or end-to-end phone/account-switch acceptance. Paper was already connected for measurement, so production API reconnection/UI latency is additional.
 - Temporary Paper stopped and removed; original Live container and Wheel backend restored, with selected Live and verified account. Formal account-switch implementation remains unchanged. Consider opt-in prewarming only after further lifecycle/recovery testing; switching back to Live still requires authentication.
+
+
+## Opt-in application integration
+
+The account selector now supports a local `gateway/warm-paper.json` containing
+`{"image":"ghcr.io/gnzsnz/ib-gateway@sha256:<verified registry digest>"}`.
+Without that file the original single-service controller is unchanged.
+With it, `ops/warm-gateway.yml` provisions separate Live/Paper containers, loopback
+4001/4002 and separate settings directories under the private credential root.
+Existing profile API permissions, account checks, databases and write epochs remain.
+There is still only one application API client; standby is Gateway login only.
+
+A verified Live status requests Paper prelogin once per Live selection/process.
+Failed prelogin is reported separately and does not make Live unavailable. Selecting
+Paper stops Live completely, then runs idempotent Paper compose up (no forced
+recreate). Startup operations serialize; an obsolete queued prelogin cannot run
+after a newer selection. Stop failure aborts handover. Selecting Live starts its
+session and still requires IB authentication. No broker writes are added.
+
+Provisioning must stop the original container and disable its auto-restart before
+using the same host ports; retain it and its settings for rollback. Pin the tested
+image, copy current Paper settings while stopped, and verify Paper account and
+quotes after backend restart. To roll back: pause backend, stop both new containers,
+rename the opt-in file, restore the original container restart policy/start it,
+and resume backend. Never allow both deployments to compete for ports/sessions.
+
+Regression: 22 focused Gateway/account routing tests passed. Phone end-to-end
+Live-to-Paper latency is pending; the earlier 1.84-second probe preconnected the
+Paper API too, while this implementation preserves a single API owner and connects
+it after handover. Do not claim the experimental timing as a phone guarantee.

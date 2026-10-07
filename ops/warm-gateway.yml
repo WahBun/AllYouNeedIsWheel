@@ -1,0 +1,21 @@
+# Separate sessions and settings; credentials remain process environment on Mini.
+services:
+  gateway:
+    image: ${WHEEL_GATEWAY_IMAGE}
+    container_name: wheel-gateway-${WHEEL_GATEWAY_MODE}
+    restart: unless-stopped
+    environment:
+      TWS_USERID: ${TWS_USERID}
+      TWS_PASSWORD: ${TWS_PASSWORD}
+      TRADING_MODE: ${TRADING_MODE}
+      READ_ONLY_API: ${READ_ONLY_API:-yes}
+      VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD}
+      TWOFA_DEVICE: "IB Key"
+      TWOFA_TIMEOUT_ACTION: exit
+      RELOGIN_AFTER_TWOFA_TIMEOUT: "no"
+      EXISTING_SESSION_DETECTED_ACTION: secondary
+      TIME_ZONE: America/New_York
+    ports:
+      - "127.0.0.1:${WHEEL_GATEWAY_PORT}:${WHEEL_GATEWAY_INTERNAL_PORT}"
+    volumes:
+      - "${WHEEL_GATEWAY_SETTINGS}:/home/ibgateway/tws_settings"
