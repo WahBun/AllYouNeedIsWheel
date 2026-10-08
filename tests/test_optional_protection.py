@@ -199,6 +199,33 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertEqual(self.service.execute(self.conn,7,body),result)
         self.assertEqual(len(self.trades),count)
 
+    def test_unprotected_trim_uses_only_free_cc_shares(self):
+        from ib_async import Option, Trade, LimitOrder, OrderStatus
+        _,result=self.submit(quantity=400,tp=None,sl=None)
+        self.assertTrue(result['success'],result)
+        parent=self.trades[0];parent.orderStatus.status='Filled';parent.orderStatus.filled=400;parent.orderStatus.avgFillPrice=10
+        stock=S(account='DU_TEST',contract=self.contract,position=400)
+        option=Option(symbol=self.contract.symbol,right='C',currency='USD',multiplier='100',tradingClass=self.contract.symbol)
+        call=S(account='DU_TEST',contract=option,position=-3)
+        self.conn.ib.positions.return_value=[stock,call]
+        pending=[]
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw: [stock,call] if fn==self.conn.ib.reqPositions else self.trades+pending
+        state=self.service.state(self.conn,7)
+        def trim(qty):
+            return self.service.execute(self.conn,7,dict(action='trim',quantity=qty,request_id=str(uuid4()),expected_ref=state['order_ref'],expected_position=400))
+        before=self.conn.ib.placeOrder.call_count
+        self.assertFalse(trim(101)['success'])
+        self.assertEqual(before,self.conn.ib.placeOrder.call_count)
+        sell=Trade(option,LimitOrder('SELL',1,1,account='DU_TEST',orderId=999),OrderStatus(status='PendingCancel'))
+        pending.append(sell)
+        self.assertFalse(trim(1)['success'])
+        self.assertEqual(before,self.conn.ib.placeOrder.call_count)
+        pending.clear()
+        result=trim(100)
+        self.assertTrue(result['success'],result)
+        self.assertEqual(self.trades[-1].order.totalQuantity,100)
+        self.assertEqual(self.trades[-1].order.action,'SELL')
+
     def test_stock_close_and_trim_reject_call_reservations_before_any_write(self):
         self.filled_position(4)
         from ib_async import Option, Trade, LimitOrder, OrderStatus

@@ -13,7 +13,7 @@ class CloseRecoveryTests(unittest.TestCase):
         t=self.trades[0];t.orderStatus.status='Filled';t.orderStatus.filled=1;t.orderStatus.avgFillPrice=10
         p=S(account='DU_TEST',contract=self.contract,position=1,avgCost=10)
         self.conn.ib.positions.return_value=[p]
-        self.conn._bounded_order_read.side_effect=lambda fn,*a,**k:self.trades if fn==self.conn.ib.reqOpenOrders else [p]
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**k:self.trades if fn in (self.conn.ib.reqOpenOrders,self.conn.ib.reqAllOpenOrders) else [p]
         original=self.conn.ib.placeOrder.side_effect
         def lose(c,o):
             original(c,o)
@@ -42,7 +42,7 @@ class CloseRecoveryTests(unittest.TestCase):
         self.assertEqual(self.conn.ib.placeOrder.call_count,2)
     def test_missing_close_stays_unknown(self):
         b=self.lost_close();self.trades.pop()
-        self.conn._bounded_order_read.side_effect=lambda fn,*a,**k:self.trades if fn==self.conn.ib.reqOpenOrders else []
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**k:self.trades if fn in (self.conn.ib.reqOpenOrders,self.conn.ib.reqAllOpenOrders) else []
         self.assertFalse(self.service.request_status(self.conn,7,b['request_id'])['confirmed'])
         self.assertEqual(self.conn.ib.placeOrder.call_count,2)
 
@@ -52,6 +52,6 @@ class CloseRecoveryTests(unittest.TestCase):
         completed.order.orderId=0;completed.order.permId=999
         completed.orderStatus.status='Filled';completed.orderStatus.filled=1
         self.trades.pop();self.conn.ib.positions.return_value=[]
-        self.conn._bounded_order_read.side_effect=lambda fn,*a,**k:self.trades if fn==self.conn.ib.reqOpenOrders else [completed]
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**k:self.trades if fn in (self.conn.ib.reqOpenOrders,self.conn.ib.reqAllOpenOrders) else [completed]
         self.assertTrue(PaperChart(self.service.path).request_status(self.conn,7,b['request_id'])['confirmed'])
         self.assertEqual(self.conn.ib.placeOrder.call_count,2)

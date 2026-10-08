@@ -39,10 +39,16 @@ def require_call_coverage(conn, account, contract, quantity):
         from api.services.csp_coverage import require_put_cash
         return require_put_cash(conn,account,contract,quantity)
     if contract.secType != 'OPT' or contract.right != 'C': return
+    if contract.currency != 'USD' or contract.multiplier != '100' or contract.tradingClass != contract.symbol:
+        raise ValueError('CC coverage requires a standard USD 100-share call')
+    if unreserved_stock_shares(conn, account, contract)+1e-8 < quantity*100:
+        raise ValueError('Insufficient unreserved shares for covered call; reconcile stock and call orders')
+
+
+def unreserved_stock_shares(conn, account, contract):
+    """Conservative shared budget for new CC sales and unprotected stock trims."""
     def standard(c):
         return c.currency == 'USD' and c.multiplier == '100' and c.tradingClass == c.symbol
-    if not standard(contract):
-        raise ValueError('CC coverage requires a standard USD 100-share call')
     # Freeze pending quantities before reading positions: an intervening fill may
     # reserve twice briefly, but must never disappear between the two snapshots.
     orders=[(t.contract,t.order.account,t.order.action,t.orderStatus.status,
@@ -73,8 +79,9 @@ def require_call_coverage(conn, account, contract, quantity):
         elif c.secType == 'OPT' and c.right == 'C':
             if not standard(c): raise ValueError('Nonstandard short call coverage needs reconciliation')
             reserved+=remaining*100
-    if not all(math.isfinite(v) for v in (shares,reserved)) or shares-reserved+1e-8 < quantity*100:
-        raise ValueError('Insufficient unreserved shares for covered call; reconcile stock and call orders')
+    if not all(math.isfinite(v) for v in (shares,reserved)):
+        raise ValueError('Unknown stock coverage; reconcile positions and orders')
+    return max(0.0, shares-reserved)
 
 
 class PaperChart:
@@ -1452,7 +1459,7 @@ class PaperChart:
             conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
         current=self.state(conn,cid)
         action=body.get('action')
-        if contract.secType == 'STK' and current.get('position', 0) > 0 and action in ('close', 'trim', 'resize_trim'):
+        if contract.secType == 'STK' and current.get('position', 0) > 0 and (action in ('close', 'resize_trim') or action == 'trim' and not current.get('unprotected_scaling')):
             # Shared by native and web: reject before canceling exits or selling coverage.
             self.require_no_call_reservation(conn, account, contract)
         if body.get('mode') == 'overnight_entry':
@@ -1645,6 +1652,10 @@ class PaperChart:
             fresh=self.state(conn,cid)
             if actual!=current['position'] or fresh['position']!=actual or not fresh.get('unprotected_scaling') or fresh['edit_snapshot']!=current['edit_snapshot']:
                 raise ValueError('Position/orders changed before Trim; reconcile first')
+            if contract.secType == 'STK' and actual > 0:
+                available=unreserved_stock_shares(conn,account,contract)
+                if qty > available+1e-8:
+                    raise ValueError(f'Trim exceeds unreserved shares ({available:g}); shares are reserved for covered CALLs or stock sell orders')
             oid=conn.ib.client.getReqId()
             order=MarketOrder('SELL' if actual>0 else 'BUY',int(qty),orderId=oid,account=account,tif='DAY',orderRef=group['ref'])
             group['ids']['trim_'+str(oid)]=oid

@@ -22,7 +22,7 @@ class UnprotectedScalingTests(unittest.TestCase):
             t.orderStatus.status='Filled';t.orderStatus.filled=t.order.totalQuantity;t.orderStatus.avgFillPrice=10
         self.pos=S(account='DU_TEST',contract=self.contract,position=3*side)
         self.conn.ib.positions.side_effect=lambda:[self.pos]
-        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw:self.trades if fn==self.conn.ib.reqOpenOrders else [self.pos]
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw:self.trades if fn in (self.conn.ib.reqOpenOrders,self.conn.ib.reqAllOpenOrders) else [self.pos]
         self.conn.ib.placeOrder.reset_mock()
 
     def request(self,**kw):
