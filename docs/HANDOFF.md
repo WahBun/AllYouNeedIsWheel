@@ -744,7 +744,17 @@ remains stock-only. Shared action hints disable Add at exhausted call coverage,
 limit stock Trim to free shares, and block covered-stock Close/BE. Hints use the
 existing broker cache; fresh authoritative checks remain on writes.
 Web and native consume these hints and quantity bounds. A BE-only aggregate
-option position still cannot Trim: stop resizing after trim is not implemented.
+option position can now Trim using a retained stop plus an equal-quantity OCA
+stop/exit slice. IB type-2 blocked OCA reduces the slice on partial fills; a full
+Trim cancels only its paired stop. Stop replacement first confirms cancellation
+and unchanged actual position. Missing members stay unknown and never replay.
+Cancellation-only recovery releases the request without submitting replacement
+orders. Concurrent Trim is disabled until the active exit resolves.
 Validation: 651 backend tests, including full-coverage CC BE creation and request
 deduplication; native simulator build and JS syntax passed. No new broker order,
 physical iPhone install, or native runtime interaction acceptance for this change.
+
+Protected Trim follow-up: 656 backend mock tests passed, covering equal-quantity
+OCA construction, partial/full fill snapshots, stop-first and cancel outcomes,
+old-stop cancellation races, missing members and read-only restart recovery.
+Actual IB OCA execution remains pending Paper acceptance; no real fill is claimed.

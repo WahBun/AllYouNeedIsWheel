@@ -319,6 +319,89 @@ class OptionalProtectionTests(PaperChartTests):
         call.position=-4
         self.assertFalse(self.service.state(self.conn,7)['trim_allowed'])
 
+    def setup_cc_be(self):
+        self.test_cc_full_coverage_disables_add_but_be_creates_buy_stop()
+        return self.service.state(self.conn,7)
+
+    def test_be_trim_splits_equal_oca_and_keeps_remaining_stop(self):
+        state=self.setup_cc_be()
+        self.assertTrue(state['trim_allowed'])
+        body=dict(action='trim',quantity=2,request_id=str(uuid4()),expected_ref=state['order_ref'],expected_position=-4)
+        r=self.service.execute(self.conn,7,body)
+        self.assertTrue(r['success'],r)
+        keep,stop,trim=self.trades[-3:]
+        self.assertEqual([t.order.totalQuantity for t in (keep,stop,trim)],[2,2,2])
+        self.assertFalse(keep.order.ocaGroup)
+        self.assertEqual(stop.order.ocaGroup,trim.order.ocaGroup)
+        self.assertEqual((stop.order.ocaType,trim.order.ocaType),(2,2))
+        self.assertEqual((stop.order.transmit,trim.order.transmit),(False,True))
+        self.assertEqual((keep.order.auxPrice,stop.order.auxPrice),(9.75,9.75))
+        self.assertFalse(r['state']['trim_allowed'])
+        # Model broker OCA partial reduction, then full fill: no writes on reads.
+        writes=self.conn.ib.placeOrder.call_count
+        trim.orderStatus.filled=1;stop.order.totalQuantity=1
+        self.conn.ib.positions.return_value[-1].position=-3
+        state=self.service.state(self.conn,7)
+        self.assertEqual(state['protection']['sl'],3)
+        trim.orderStatus.filled=2;trim.orderStatus.status='Filled';stop.orderStatus.status='Cancelled'
+        self.conn.ib.positions.return_value[-1].position=-2
+        state=self.service.state(self.conn,7)
+        self.assertEqual(state['protection']['sl'],2)
+        self.assertTrue(state['trim_allowed']);self.assertEqual(state['sl'],9.75)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+        self.service.execute(self.conn,7,body);self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+
+    def test_be_trim_old_stop_fill_aborts_replacement(self):
+        state=self.setup_cc_be();old=self.trades[-1]
+        def raced(order):
+            old.orderStatus.status='Filled';old.orderStatus.filled=4
+            self.conn.ib.positions.return_value[-1].position=0
+        self.conn.ib.cancelOrder.side_effect=raced
+        writes=self.conn.ib.placeOrder.call_count
+        r=self.service.execute(self.conn,7,dict(action='trim',quantity=1,request_id=str(uuid4()),expected_ref=state['order_ref'],expected_position=-4))
+        self.assertFalse(r['success']);self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+
+    def test_be_trim_unknown_member_is_not_replayed(self):
+        state=self.setup_cc_be();original=self.conn.ib.placeOrder.side_effect
+        def lost(c,o):
+            original(c,o)
+            if o.orderType=='MKT': raise TimeoutError('lost acknowledgement')
+        self.conn.ib.placeOrder.side_effect=lost
+        body=dict(action='trim',quantity=1,request_id=str(uuid4()),expected_ref=state['order_ref'],expected_position=-4)
+        r=self.service.execute(self.conn,7,body)
+        self.assertEqual(r['status'],'unknown',r)
+        writes=self.conn.ib.placeOrder.call_count
+        r=PaperChart(self.service.path).request_status(self.conn,7,body['request_id'])
+        self.assertTrue(r['confirmed'],r);self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+
+    def test_be_trim_stop_wins_and_trim_cancel_preserves_protection(self):
+        state=self.setup_cc_be()
+        body=dict(action='trim',quantity=1,request_id=str(uuid4()),expected_ref=state['order_ref'],expected_position=-4)
+        r=self.service.execute(self.conn,7,body);self.assertTrue(r['success'],r)
+        keep,stop,trim=self.trades[-3:]
+        trim.orderStatus.status='Cancelled'
+        state=self.service.state(self.conn,7)
+        self.assertEqual(state['protection']['sl'],4)
+        stop.orderStatus.status='Filled';stop.orderStatus.filled=1
+        self.conn.ib.positions.return_value[-1].position=-3
+        state=self.service.state(self.conn,7)
+        self.assertEqual(state['protection']['sl'],3)
+        self.assertTrue(state['trim_allowed'])
+
+    def test_be_trim_missing_member_blocks_new_action_and_replay(self):
+        state=self.setup_cc_be();original=self.conn.ib.placeOrder.side_effect
+        def lost(c,o):
+            if o.orderType=='MKT': raise TimeoutError('not observed at broker')
+            return original(c,o)
+        self.conn.ib.placeOrder.side_effect=lost
+        body=dict(action='trim',quantity=1,request_id=str(uuid4()),expected_ref=state['order_ref'],expected_position=-4)
+        r=self.service.execute(self.conn,7,body);self.assertEqual(r['status'],'unknown')
+        writes=self.conn.ib.placeOrder.call_count
+        self.assertFalse(PaperChart(self.service.path).request_status(self.conn,7,body['request_id'])['confirmed'])
+        another=dict(body,request_id=str(uuid4()))
+        self.assertFalse(self.service.execute(self.conn,7,another)['success'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+
 def load_tests(loader, tests, pattern):
     import unittest
     return unittest.TestSuite(OptionalProtectionTests(name) for name in OptionalProtectionTests.__dict__ if name.startswith('test_'))

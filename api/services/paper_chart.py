@@ -271,15 +271,15 @@ class PaperChart:
         result['status']='working' if result['active'] else 'done'
         for row in rows:
             if row['role'] in ('entry','tp','sl'): result[row['role']]=row['price']
-        if group.get('lots'):
+        if group.get('lots') or group.get('split_stop_trim'):
             for role in ('tp','sl'):
                 live_rows=[r for r in rows if r['role'].split('_')[0]==role and r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive')]
                 if role=='tp':
-                    ordinary=[r for r in live_rows if not any(l.get('closing') and l.get('tp')==r['order_id'] for l in group['lots'])]
+                    ordinary=[r for r in live_rows if not any(l.get('closing') and l.get('tp')==r['order_id'] for l in group.get('lots',[]))]
                     result[role]=ordinary[-1]['price'] if ordinary else 0
-                    result['add_tp']=result[role] or group.get('ordinary_tp') or next((l.get('original_tp') for l in group['lots'] if l.get('original_tp')),0)
+                    result['add_tp']=result[role] or group.get('ordinary_tp') or next((l.get('original_tp') for l in group.get('lots',[]) if l.get('original_tp')),0)
                 elif live_rows: result[role]=live_rows[-1]['price']
-            result['scalable']=all('tp' in lot and 'sl' in lot for lot in group['lots'])
+            result['scalable']=bool(group.get('lots')) and all('tp' in lot and 'sl' in lot for lot in group['lots'])
             result['quantity']=sum(max(0,r['quantity']-r['filled']) for r in rows if r['role'].split('_')[0]=='entry' and r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive'))
         parent=trades.get(group['ids'].get('entry'))
         if parent and parent.orderStatus.avgFillPrice>0: result['entry']=parent.orderStatus.avgFillPrice
@@ -493,6 +493,19 @@ class PaperChart:
             result['trim_allowed'] = bool(result.get('scalable') or settled_unprotected)
             result['add_block_reason'] = ('option_opposite_orders' if opposite_working
                 else 'orders_need_reconciliation' if not result['add_allowed'] else '')
+        # A settled standalone stop can be split into retained protection and
+        # an equal-sized broker OCA stop/Trim pair. No client-side fill resizing.
+        active_rows = [r for r in rows if r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive')]
+        standalone_stops = [r for r in active_rows if r['role'].split('_')[0] == 'sl']
+        result['stop_trim_allowed'] = bool(scaling_contract and scaling_contract.secType == 'OPT'
+            and result.get('protection_manageable') and not group.get('lots')
+            and not group.get('pending_stop_trim') and len(active_rows) == len(standalone_stops)
+            and standalone_stops and all(r['status'] in ('Submitted','PreSubmitted') for r in standalone_stops)
+            and sum(r['quantity']-r['filled'] for r in standalone_stops) == abs(result['position'])
+            and len({r['price'] for r in standalone_stops}) == 1)
+        result['trim_allowed'] = bool(result.get('trim_allowed') or result['stop_trim_allowed'])
+        if group.get('pending_stop_trim'):
+            result['sync_error'] = 'Protected Trim needs broker reconciliation'
         if group.get('simple_adjustments') or (group.get('protection_request') and not group.get('lots') and scaling_contract and scaling_contract.secType in ('OPT','STK')):
             # Use actual chronological executions across all entries and trims.
             # Missing fills mean unknown P/L, never a fabricated zero.
@@ -656,6 +669,20 @@ class PaperChart:
             terminal = {r['order_id'] for r in rows if r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive')}
             if expected and state.get('order_ref')==original.get('order_ref') and expected <= working | terminal:
                 return resolved('rejected' if state.get('rejected') else 'reconciled')
+            return dict(confirmed=False,status='unknown')
+        if body.get('action') == 'trim' and group.get('pending_stop_trim', {}).get('id') == request_id:
+            operation = group['pending_stop_trim']
+            rows_by_id = {r['order_id']:r for r in state['orders']}
+            ids = operation.get('ids', [])
+            # Cancellation-only recovery ends the request without submitting exits.
+            old_ids=operation.get('old_ids',[])
+            if not ids and old_ids and all(rows_by_id.get(oid,{}).get('status') in ('Filled','Cancelled','ApiCancelled','Inactive') for oid in old_ids):
+                group.pop('pending_stop_trim',None);group.pop('pending_protection',None);self.save_group(account,cid,group)
+                return resolved('canceled')
+            # Missing or unsent members remain unknown; reads never replay them.
+            if ids and all(rows_by_id.get(oid, {}).get('status') in ('Submitted','PreSubmitted','Filled','Cancelled','ApiCancelled','Inactive') for oid in ids):
+                group.pop('pending_stop_trim', None);self.save_group(account,cid,group)
+                return resolved('rejected' if any(rows_by_id[oid]['status']=='Inactive' for oid in ids) else 'reconciled')
             return dict(confirmed=False,status='unknown')
         if body.get('action')=='trim' and group.get('simple_trim',{}).get('request_id')==request_id and group.get('ref')==body.get('expected_ref'):
             oid=group['simple_trim']['order_id']
@@ -1380,6 +1407,55 @@ class PaperChart:
         except Exception as error:
             raise RuntimeError('Protection replacement needs broker reconciliation; do not resubmit') from error
 
+    def trim_standalone_stop(self, conn, account, cid, contract, current, group, body, request_id, price):
+        if body.get('expected_ref') != group['ref'] or body.get('expected_position') != current['position']:
+            raise ValueError('Position changed; reopen Trim')
+        qty = body.get('quantity')
+        size = abs(current['position'])
+        if isinstance(qty,bool) or not isinstance(qty,(int,float)) or not math.isfinite(qty) or qty != int(qty) or not 1 <= qty < size:
+            raise ValueError('Trim must leave a whole position')
+        target = price(body['exit_price']) if 'exit_price' in body else None
+        if target is not None and (body.get('exit_type') != 'LMT' or group['side']*(target-current['sl']) <= 0):
+            raise ValueError('Trim limit cannot cross the stop')
+        # Persist intent before retiring the old stop. A raced fill aborts inside
+        # set_protection before any replacement or Trim order can be submitted.
+        group['pending_stop_trim'] = dict(id=request_id, ids=[], old_ids=[r['order_id'] for r in current['orders'] if r['role'].split('_')[0]=='sl' and r['status'] in ('Submitted','PreSubmitted')])
+        self.save_group(account,cid,group)
+        self.set_protection(conn,account,cid,contract,current,group,
+            dict(expected_ref=group['ref'],expected_snapshot=current['edit_snapshot'],confirm_replace_protection=True),request_id,price)
+        group=self.group(account,cid)
+        fresh=self.state(conn,cid)
+        positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
+        actual=next((float(p.position) for p in positions if p.account==account and p.contract.conId==cid),0)
+        verified=self.state(conn,cid)
+        if actual != current['position'] or fresh['position'] != actual or verified['position'] != actual or verified['edit_snapshot'] != fresh['edit_snapshot']:
+            raise RuntimeError('Position changed during protected Trim; reconcile')
+        if any(t.order.account==account and t.contract.conId==cid for t in conn.ib.openTrades()):
+            raise RuntimeError('Working orders appeared during protected Trim; reconcile')
+        action='SELL' if actual>0 else 'BUY'
+        keep_id,stop_id,trim_id=[conn.ib.client.getReqId() for _ in range(3)]
+        oca='WheelTrim:'+request_id
+        keep=StopOrder(action,size-qty,current['sl'],orderId=keep_id,transmit=True)
+        stop=StopOrder(action,qty,current['sl'],orderId=stop_id,ocaGroup=oca,ocaType=2,transmit=False)
+        trim=(LimitOrder(action,qty,target) if target is not None else MarketOrder(action,qty))
+        trim.orderId=trim_id;trim.ocaGroup=oca;trim.ocaType=2;trim.transmit=True
+        group['ids'].update(sl=keep_id,**{'sl_trim_'+str(stop_id):stop_id,'trim_'+str(trim_id):trim_id})
+        group['requested_protection']=['sl'];group['split_stop_trim']=True;group['simple_adjustments']=True
+        group['pending_stop_trim']=dict(id=request_id,ids=[keep_id,stop_id,trim_id])
+        self.save_group(account,cid,group)
+        # Equal-sized OCA members let IB reduce the stop on partial Trim fills;
+        # the retained stop is outside that group and cannot be canceled by Trim.
+        for order in (keep,stop,trim):
+            order.account=account;order.orderRef=group['ref'];order.tif='GTC'
+            conn.ib.placeOrder(contract,order)
+        snapshot=conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
+        confirmed={t.order.orderId for t in snapshot if t.order.account==account and t.contract.conId==cid
+            and t.order.orderRef==group['ref'] and t.orderStatus.status in ('Submitted','PreSubmitted','Filled','Cancelled','ApiCancelled','Inactive')}
+        terminal={r['order_id'] for r in self.state(conn,cid)['orders'] if r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive')}
+        if not {keep_id,stop_id,trim_id} <= confirmed | terminal:
+            raise RuntimeError('Protected Trim awaiting broker confirmation; do not resubmit')
+        group=self.group(account,cid);group.pop('pending_stop_trim',None);self.save_group(account,cid,group)
+
     def resize_trim(self, conn, account, cid, current, group, body, request_id, price):
         import copy
         if not group or not current['known'] or not current.get('scalable') or body.get('expected_ref')!=group['ref']:
@@ -1489,6 +1565,8 @@ class PaperChart:
             # Refresh canonical broker fields before copying an active order.
             conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
         current=self.state(conn,cid)
+        if self.group(account,cid) and self.group(account,cid).get('pending_stop_trim'):
+            raise ValueError('Previous protected Trim needs reconciliation; do not submit another action')
         action=body.get('action')
         if contract.secType == 'STK' and current.get('position', 0) > 0 and (action in ('close', 'resize_trim') or action == 'trim' and not current.get('unprotected_scaling')):
             # Shared by native and web: reject before canceling exits or selling coverage.
@@ -1670,6 +1748,8 @@ class PaperChart:
             group['simple_add'] = dict(request_id=request_id)
             self.add_lots(conn, account, cid, contract, group, 1, kind, target, None, None, entry_kind='add', unit_quantity=int(qty))
             return
+        if action == 'trim' and current.get('stop_trim_allowed'):
+            return self.trim_standalone_stop(conn,account,cid,contract,current,group,body,request_id,price)
         if action == 'trim' and contract.secType in ('OPT','STK') and current.get('unprotected_scaling'):
             if body.get('expected_ref') != group.get('ref') or body.get('expected_position') != current['position']:
                 raise ValueError('Position changed; reopen Trim')
@@ -1773,7 +1853,7 @@ class PaperChart:
                 raise ValueError('Exact trim order required')
             role='sl' if action=='be' else body.get('role')
             if role not in ('tp','sl'): raise ValueError('Only TP and SL can be amended')
-            trade=next((trades.get(lot.get(role)) for lot in group.get('lots',[]) if trades.get(lot.get(role)) and not trades[lot[role]].isDone()),None) if group.get('lots') else trades.get(group['ids'].get(role))
+            trade=next((trades.get(lot.get(role)) for lot in group.get('lots',[]) if trades.get(lot.get(role)) and not trades[lot[role]].isDone()),None) if group.get('lots') else next((trades.get(r['order_id']) for r in current['orders'] if r['role'].split('_')[0]==role and r['status'] in ('Submitted','PreSubmitted')),None)
             if not trade or trade.isDone(): raise ValueError('Exit order is no longer working')
             if action=='be':
                 if not current['position']: raise ValueError('BE requires a filled position')
@@ -1802,7 +1882,7 @@ class PaperChart:
                     raise ValueError('Original TP changed; refresh before canceling trim')
                 targets=[trades.get(wanted)]
             else:
-                targets=[trades.get(lot.get(role)) for lot in group['lots'] if role!='tp' or not lot.get('closing')] if group.get('lots') else [trade]
+                targets=[trades.get(lot.get(role)) for lot in group['lots'] if role!='tp' or not lot.get('closing')] if group.get('lots') else [trades.get(r['order_id']) for r in current['orders'] if r['role'].split('_')[0]==role and r['status'] in ('Submitted','PreSubmitted')]
             if not any(t and not t.isDone() for t in targets): raise ValueError('No remaining exit at this level')
             for target in targets:
                 if not target or target.isDone(): continue
