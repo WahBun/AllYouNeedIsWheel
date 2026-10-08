@@ -1558,6 +1558,19 @@ class PaperChart:
         if body.get('expected_position')!=current['position'] or isinstance(qty,bool) or not isinstance(qty,int) or not 0<=qty<size:
             raise ValueError('Invalid remaining Trim quantity or changed position')
         if qty==row['quantity']:return
+        if qty==0:
+            return self.perform(conn,account,cid,dict(action='cancel_trim',order_id=oid,expected_ref=group['ref']),request_id)
+        if not trade.order.ocaGroup and not trade.order.parentId:
+            import copy
+            reserved=sum(r['quantity'] for r in current.get('pending_exits',[]) if r['order_id']!=oid)
+            if qty+reserved>size:raise ValueError('Trim exceeds unallocated position')
+            positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
+            actual=sum(float(p.position) for p in positions if p.account==account and p.contract.conId==cid)
+            fresh=self.state(conn,cid)
+            if actual!=current['position'] or fresh['edit_snapshot']!=current['edit_snapshot']:
+                raise ValueError('Orders changed; reopen Trim quantity editor')
+            order=copy.copy(trade.order);order.totalQuantity=qty+float(trade.orderStatus.filled)
+            return self.modify_exit(conn,trade,order,'totalQuantity')
         active=[r for r in current['orders'] if r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive')]
         if any(r['role'].split('_')[0] not in ('trim','sl') for r in active) or any(r['status'] not in ('Submitted','PreSubmitted') for r in active):
             raise ValueError('Wait for other orders to reconcile')

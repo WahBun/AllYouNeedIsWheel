@@ -60,7 +60,7 @@
    const apply=document.createElement('button');apply.textContent=current.action==='close'?(zh?'确认撤销平仓':'Confirm cancel close'):(zh?'确认撤销减仓':'Confirm cancel trim');
    apply.onclick=()=>{addDialog.close();const fresh=paperConfig.pending_exits?.find(r=>r.order_id===current.order_id);
     if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||!paperConfig.enabled||paperConfig.busy||JSON.stringify(fresh)!==JSON.stringify(current))return validation('Order changed; reopen trim cancellation.');
-    paperAction(current.standalone?{action:'resize_trim',quantity:0,expected_orders:[{order_id:current.order_id,price:current.price,quantity:current.quantity}],expected_ref:ref,expected_position:paperConfig.position}:{action:'amend',role:'tp',order_id:current.order_id,price:current.restore_price,restore_trim:true,expected_ref:ref,expected_price:current.price,expected_quantity:current.quantity});
+    paperAction(current.standalone?{action:'cancel_trim',order_id:current.order_id,expected_ref:ref}:{action:'amend',role:'tp',order_id:current.order_id,price:current.restore_price,restore_trim:true,expected_ref:ref,expected_price:current.price,expected_quantity:current.quantity});
    };
    const footer=document.createElement('footer');footer.append(back,apply);addDialog.append(title,detail,footer);addDialog.showModal();
   };

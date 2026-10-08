@@ -580,6 +580,25 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertFalse(result['success']);self.assertEqual(self.conn.ib.placeOrder.call_count,count)
 
 
+    def test_cancel_one_of_three_manual_trims_preserves_other_orders(self):
+        self.test_cc_full_coverage_disables_add_but_be_creates_buy_stop()
+        group=self.service.group('DU_TEST',7);group['manual_stop_quantity']=True;self.service.save_group('DU_TEST',7,group)
+        stop=self.trades[-1]
+        for limit in (8.5,8,7):
+            state=self.service.state(self.conn,7)
+            r=self.service.execute(self.conn,7,dict(action='trim',quantity=1,exit_type='LMT',exit_price=limit,expected_ref=state['order_ref'],expected_position=-4,request_id=str(uuid4())))
+            self.assertTrue(r['success'],r)
+        selected=self.trades[-1];others=self.trades[-3:-1]
+        writes=self.conn.ib.placeOrder.call_count;cancels=self.conn.ib.cancelOrder.call_count
+        r=self.service.execute(self.conn,7,dict(action='resize_trim',quantity=0,expected_orders=[dict(order_id=selected.order.orderId,price=7,quantity=1)],expected_position=-4,expected_ref=group['ref'],request_id=str(uuid4())))
+        self.assertTrue(r['success'],r)
+        self.assertEqual(self.conn.ib.cancelOrder.call_count,cancels+1)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+        self.assertEqual(selected.orderStatus.status,'Cancelled')
+        self.assertTrue(all(t.orderStatus.status=='Submitted' for t in [stop,*others]))
+        self.assertEqual(stop.order.totalQuantity,4)
+
+
 def load_tests(loader, tests, pattern):
     import unittest
     return unittest.TestSuite(OptionalProtectionTests(name) for name in OptionalProtectionTests.__dict__ if name.startswith('test_'))
