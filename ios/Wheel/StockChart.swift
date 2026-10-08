@@ -280,6 +280,13 @@ struct StockChartView: View {
         guard let value = Int(quantityDraft), (1...quantityLimit).contains(value) else { return nil }
         return value
     }
+    @State private var selectedOrderGroup = ""
+    private func selectOrderGroup(_ id: String) {
+        guard !paperBusy, !store.trading.busy else { return }
+        selectedOrderGroup = id; paperState = [:]; paperReceived = nil
+        entry = "0"; beApplied = false; paperMessage = nil
+        showAdjustment = false; showPositionProtection = false; showQuantityEditor = false
+    }
     @State private var paperReceived: Date?
     @State private var paperBusy = false
     @State private var submitRevision = 0
@@ -325,14 +332,19 @@ struct StockChartView: View {
             templateRevision += 1
         })
     }
-    private var hasOrderPreview: Bool { !paperActive && validEntry > 0 && validQuantity > 0 }
-    private var paperEnabled: Bool { !store.trading.paperPending(base: store.address, conID: chartID ?? 0) && !store.trading.busy && Date().timeIntervalSince(paperReceived ?? .distantPast) < 3 && store.chartTradingAvailable && paperState["sync_error"] as? Bool != true && paperState["known"] as? Bool != false && paperState["enabled"] as? Bool == true }
+    private var hasOrderPreview: Bool { paperReceived != nil && paperState["known"] as? Bool == true && paperState["sync_error"] as? Bool != true && !paperActive && validEntry > 0 && validQuantity > 0 }
+    private var paperEnabled: Bool { !store.trading.paperPending(base: store.address, conID: chartID ?? 0, groupID: selectedOrderGroup) && !store.trading.busy && Date().timeIntervalSince(paperReceived ?? .distantPast) < 3 && store.chartTradingAvailable && paperState["sync_error"] as? Bool != true && paperState["known"] as? Bool != false && paperState["enabled"] as? Bool == true }
     private var paperActive: Bool { paperState["active"] as? Bool == true }
     private var tradingAccountLabel: String { paperState["account_mode"] as? String == "live" ? "Live" : "Paper" }
     private func applyPaperState(_ state: [String: Any]) {
         paperState = state
         if liveInitialScope { quantity = "1"; entryType = "LMT" }
         paperReceived = .now
+        if state["active"] as? Bool == true {
+            if let size = state["position"] as? Double, size != 0 { quantity = String(Int(abs(size))) }
+            if let type = state["entry_type"] as? String { entryType = type }
+            if let tif = state["tif"] as? String { previewTIF = tif }
+        }
         if state["active"] as? Bool == true, let price = state["entry"] as? Double, price > 0 { entry = String(price) }
         let rows = state["orders"] as? [[String: Any]] ?? []
         if state["status"] as? String == "done",
@@ -388,6 +400,8 @@ struct StockChartView: View {
             if let type = body["entry_type"] as? String, ["LMT", "STP"].contains(type) { entryType = type }
             if let price = body["entry"] as? Double { entry = String(price) }
         }
+        body["group_id"] = selectedOrderGroup
+        let requestGroup = selectedOrderGroup
         pendingActionLabel = body["cancel"] as? Bool == true ? "Canceling order…" : body["action"] as? String == "submit" ? "Submitting order…" : body["action"] as? String == "close" ? "Closing position…" : "Updating order…"
         paperMessage = nil
         paperBusy = true
@@ -403,7 +417,7 @@ struct StockChartView: View {
                     }
                 }
                 let result = try await store.trading.paperChartWrite(base: store.address, conID: cid, body: request)
-                guard chartID == cid else { return }
+                guard chartID == cid, selectedOrderGroup == requestGroup else { return }
                 paperMessage = result["message"] as? String
                 if let state = result["state"] as? [String: Any] { applyPaperState(state) }
                 Task { await store.refreshOrders() }
@@ -892,9 +906,10 @@ struct StockChartView: View {
     private var paperStatusText: String {
         let rows = paperState["orders"] as? [[String: Any]] ?? []
         if paperBusy { return pendingActionLabel }
-        if store.trading.paperPending(base: store.address, conID: chartID ?? 0) { return "Confirming this order with IB…" }
+        if store.trading.paperPending(base: store.address, conID: chartID ?? 0, groupID: selectedOrderGroup) { return "Confirming this order with IB…" }
         if paperState["sync_error"] as? Bool == true { return "Order updates paused · verify Gateway" }
         if paperState["known"] as? Bool == false { return "Order status unknown · verify Gateway" }
+        if store.chartTradingAvailable && paperReceived == nil { return localizedLabel("Loading account…", locale: locale) }
         if hasOrderPreview { return "\(store.accountModeLabel) · Preview · \(previewTIF == "OVERNIGHT" ? "OVT" : previewTIF)" }
         if paperState["rejected"] as? Bool == true { return "Order rejected · verify Gateway" }
         if let progress = paperState["adjustment"] as? [String: Any] {
@@ -1038,6 +1053,23 @@ struct StockChartView: View {
                     Color.clear.frame(width: 36, height: 32).accessibilityHidden(true)
                 }
             }
+            if !fullScreen && !tradingPanelCollapsed && store.chartTradingAvailable {
+                HStack {
+                    Picker("Orders", selection: Binding(get: { selectedOrderGroup }, set: selectOrderGroup)) {
+                        Text(locale.language.languageCode?.identifier == "zh" ? "原始订单" : "Original order").tag("")
+                        ForEach((paperState["group_choices"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }.filter { !$0.isEmpty }, id: \.self) { id in
+                            Text("Order · " + String(id.suffix(6))).tag(id)
+                        }
+                        if !selectedOrderGroup.isEmpty && !(paperState["group_choices"] as? [[String: Any]] ?? []).contains(where: { $0["id"] as? String == selectedOrderGroup }) {
+                            Text(locale.language.languageCode?.identifier == "zh" ? "新订单草稿" : "New order draft").tag(selectedOrderGroup)
+                        }
+                    }.labelsHidden()
+                    Spacer()
+                    Button { selectOrderGroup(UUID().uuidString.lowercased()) } label: {
+                        Label(locale.language.languageCode?.identifier == "zh" ? "新订单" : "New order", systemImage: "plus")
+                    }
+                }.disabled(paperBusy || store.trading.busy)
+            }
             if !hasOrderPreview { ChartOrderProgressView(state: paperState) }
             if positionSize > 0 {
                 Button("Manage TP / SL") {
@@ -1049,8 +1081,8 @@ struct StockChartView: View {
             if !fullScreen && !tradingPanelCollapsed {
             HStack(spacing: 8) {
                 TextField(chartType == "STK" ? "Shares" : "Contracts", text: $quantity).keyboardType(chartType == "STK" ? .decimalPad : .numberPad)
-                    .multilineTextAlignment(.center).textFieldStyle(.roundedBorder).frame(width: 48).disabled(liveInitialScope)
-                Stepper(chartType == "STK" ? "Shares" : "Contracts", value: Binding(get: { max(1, Int(validQuantity)) }, set: { quantity = String($0) }), in: 1...1_000_000).labelsHidden().disabled(liveInitialScope)
+                    .multilineTextAlignment(.center).textFieldStyle(.roundedBorder).frame(width: 48).disabled(liveInitialScope || paperActive)
+                Stepper(chartType == "STK" ? "Shares" : "Contracts", value: Binding(get: { max(1, Int(validQuantity)) }, set: { quantity = String($0) }), in: 1...1_000_000).labelsHidden().disabled(liveInitialScope || paperActive)
                 Spacer(minLength: 0)
                 if validEntry == 0 {
                     Button { entry = String(((packet["bars"] as? [[String: Any]])?.last?["close"] as? Double) ?? position.market_price ?? 0) } label: { Image(systemName: "plus.circle").frame(minWidth: 32, minHeight: 44) }.accessibilityLabel("Entry reference")
@@ -1069,13 +1101,15 @@ struct StockChartView: View {
                         Button { join("bid") } label: { Text("Join Bid").frame(maxWidth: .infinity, minHeight: 30) }.tint(.green).disabled(joinPrice("bid") == nil || paperBusy || paperActive)
                         Button { join("ask") } label: { Text("Join Ask").frame(maxWidth: .infinity, minHeight: 30) }.tint(.red).disabled(joinPrice("ask") == nil || paperBusy || paperActive)
                     }
-                    ChartPositionActionsLayout {
-                        Menu {
-                            Button("Add contracts") { adjustmentAction = "add"; adjustmentQuantity = 1; adjustmentRef = paperState["order_ref"] as? String ?? ""; adjustmentCID = chartID; showAdjustment = true }.disabled(!canAdd)
-                            Button("Trim contracts") { adjustmentAction = "trim"; adjustmentQuantity = 1; adjustmentRef = paperState["order_ref"] as? String ?? ""; adjustmentCID = chartID; showAdjustment = true }.disabled(!canTrim || positionSize < 2 || ((paperState["trim_available"] as? NSNumber)?.intValue ?? positionSize) < 1)
-                        } label: { Image(systemName: "plus.forwardslash.minus").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.accessibilityLabel("Add or trim contracts").disabled(!paperEnabled || paperBusy || positionSize == 0 || paperState["known"] as? Bool != true || (!canAdd && !canTrim))
-                        Button { if paperEnabled { paperAction(["action": "close"]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.65).frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || paperState["position_only"] as? Bool == true || paperState["closing"] as? Bool == true || (paperEnabled ? !paperActive : validEntry <= 0))
-                        Button { if paperEnabled { paperAction(["action": "be", "expected_ref": paperState["order_ref"] ?? "", "expected_snapshot": paperState["edit_snapshot"] ?? ""]) } else { beRevision += 1 } } label: { Text("BE").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(paperBusy || (paperEnabled && ((paperState["position"] as? Double ?? 0) == 0 || ((paperState["sl"] as? Double ?? 0) <= 0 && !(chartType == "STK" && paperState["protection_manageable"] as? Bool == true)))) || (!paperEnabled && protectionOption(chartType, "sl") == "off") || beApplied || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
+                    HStack(spacing: 8) {
+                        Button("Add") { adjustmentAction = "add"; adjustmentQuantity = 1; adjustmentRef = paperState["order_ref"] as? String ?? ""; adjustmentCID = chartID; showAdjustment = true }
+                            .frame(maxWidth: .infinity).tint(.blue).disabled(!paperEnabled || paperBusy || !canAdd || positionSize == 0)
+                        Button("Trim") { adjustmentAction = "trim"; adjustmentQuantity = 1; adjustmentRef = paperState["order_ref"] as? String ?? ""; adjustmentCID = chartID; showAdjustment = true }
+                            .frame(maxWidth: .infinity).tint(.purple).disabled(!paperEnabled || paperBusy || !canTrim || positionSize < 2)
+                    }
+                    HStack(spacing: 8) {
+                        Button { if paperEnabled { paperAction(["action": "close", "expected_ref": paperState["order_ref"] ?? ""]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.65).frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || paperState["position_only"] as? Bool == true || paperState["closing"] as? Bool == true || (store.chartTradingAvailable ? (!paperEnabled || !paperActive) : validEntry <= 0))
+                        Button { if paperEnabled { paperAction(["action": "be", "expected_ref": paperState["order_ref"] ?? "", "expected_snapshot": paperState["edit_snapshot"] ?? ""]) } else { beRevision += 1 } } label: { Text("BE").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(paperBusy || (store.chartTradingAvailable && !paperEnabled) || (paperEnabled && ((paperState["position"] as? Double ?? 0) == 0 || ((paperState["sl"] as? Double ?? 0) <= 0 && !(chartType == "STK" && paperState["protection_manageable"] as? Bool == true)))) || (!paperEnabled && protectionOption(chartType, "sl") == "off") || beApplied || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
                     }
                 }.font(.system(size: 13, weight: .semibold))
             }.buttonStyle(.bordered)
@@ -1189,7 +1223,8 @@ struct StockChartView: View {
                 Form {
                     Text("Current position: \(positionSize)")
                     TextField("Quantity", value: $adjustmentQuantity, format: .number.grouping(.never)).keyboardType(.numberPad)
-                    Text("Futures use one protected bracket per contract. Add creates new brackets. Trim exits selected contracts at bid/ask while keeping every other bracket unchanged.").font(.caption)
+                    if chartType == "FUT" { Text("Futures use one protected bracket per contract. Add creates new brackets. Trim exits selected contracts at bid/ask while keeping every other bracket unchanged.").font(.caption) }
+                    else { Text(locale.language.languageCode?.identifier == "zh" ? "加仓使用市价单；减仓使用买卖报价限价单。不会自动添加止盈止损。" : "Add uses a market order; Trim uses a quote-limit order. TP/SL is not added automatically.").font(.caption) }
                     Button(adjustmentAction == "trim" ? "Trim position" : "Add to position") {
                         guard adjustmentAllowed, adjustmentCID == chartID, adjustmentRef == paperState["order_ref"] as? String else { return }
                         showAdjustment = false
@@ -1378,15 +1413,19 @@ struct StockChartView: View {
                 do { try await Task.sleep(for: .seconds(15)) } catch { return }
             }
         }
-        .task(id: "paper-" + context + String(store.chartTradingAvailable)) {
+        .onChange(of: chartID) { _, _ in selectOrderGroup("") }
+        .onChange(of: store.accountModeLabel) { _, _ in selectOrderGroup("") }
+        .task(id: "paper-" + context + selectedOrderGroup + String(store.chartTradingAvailable)) {
             paperState = [:]; paperReceived = nil
             guard visible, phase == .active, store.chartTradingAvailable, let cid = chartID else { return }
+            let requestedGroup = selectedOrderGroup
             while !Task.isCancelled {
                 do {
-                    await store.trading.reconcilePaper(base: store.address, conID: cid)
-                    let state = try await store.trading.get("api/portfolio/paper-chart/\(cid)", base: store.address)
+                    await store.trading.reconcilePaper(base: store.address, conID: cid, groupID: requestedGroup)
+                    let state = try await store.trading.get("api/portfolio/paper-chart/\(cid)", base: store.address, query: requestedGroup.isEmpty ? [] : [URLQueryItem(name: "group_id", value: requestedGroup)])
                     try Task.checkCancellation()
                     guard chartID == cid else { return }
+                    guard selectedOrderGroup == requestedGroup else { return }
                     if !paperBusy { applyPaperState(state) }
                 } catch {
                     if Task.isCancelled { return }
