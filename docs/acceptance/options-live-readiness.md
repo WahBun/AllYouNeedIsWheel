@@ -1,10 +1,23 @@
 # Options-first Live readiness
 
-User priority (2026-10-07): validate single-leg options first; stocks and futures
-remain deferred. This document does not authorize Live execution. The current
-chart execution path still requires the exact single Paper account and port 4002.
-Future activation needs an explicit option-only server-side product gate, separate
-approval, and must not incidentally enable stocks or futures.
+## Current status — 2026-10-08 pre-market
+
+Use [tonight's RTH plan](2026-10-08-rth-plan.md) as the current remaining checklist.
+The sections below are a chronological evidence ledger; older outstanding items
+may have been resolved by later entries. They do not override the current plan.
+
+Options are the priority. CC and CSP are requested, with no TP/SL by default and
+naked calls prohibited. An explicit default-off options-only Live capability now
+exists; it has NOT been enabled. Paper tests must verify DU account and port4002.
+The currently prepared initial Live scope is one standard USD short option limit
+entry, entry edit/cancel and quote-limit close, not unrestricted Add/Trim/protection.
+
+Pre-market checks passed: 635 backend, 40 JavaScript, 129 native simulator tests,
+and isolated desktop/phone-viewport browser state-synchronization checks. These
+are automated evidence, not a real native-phone/web simultaneous-fill acceptance.
+Real partial fills, actual CSP fills and remaining broker failure timings still
+need the RTH evidence specified in the linked plan. Protected aggregate Trim is
+separate unsupported scope. Keep Live disabled until explicit release approval.
 
 ## Coverage ledger
 
