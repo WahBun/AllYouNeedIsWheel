@@ -695,6 +695,23 @@ class PaperChart:
                     adjustment['acknowledged']=list(set(adjustment.get('acknowledged',[]))|ids)
                     adjustment['outcome']='acknowledged';self.save_group(account,cid,group)
                     return resolved('reconciled')
+        if body.get('action') == 'add' and group.get('ref') == body.get('expected_ref'):
+            operation = group.get('simple_add', {})
+            if operation.get('request_id') == request_id and operation.get('order_id'):
+                oid = operation['order_id']
+                candidates = [(t.order.orderId,t) for t in authoritative] + list(getattr(self,'_resolved_trades',{}).items())
+                for resolved_id, trade in candidates:
+                    order=trade.order
+                    if (resolved_id!=oid or order.account!=account or trade.contract.conId!=cid
+                        or order.orderRef!=group.get('ref') or order.action!=operation['action']
+                        or order.orderType!=operation['kind'] or order.totalQuantity!=operation['quantity']
+                        or order.tif!=operation['tif']): continue
+                    if order.orderType!='MKT' and getattr(order,'auxPrice' if order.orderType=='STP' else 'lmtPrice')!=operation['price']: continue
+                    if trade.orderStatus.status in ('Filled','Cancelled','ApiCancelled','Inactive'):
+                        return resolved('rejected' if trade.orderStatus.status=='Inactive' else 'reconciled')
+                    if trade in authoritative and trade.orderStatus.status in ('Submitted','PreSubmitted'):
+                        return resolved('reconciled')
+                return dict(confirmed=False,status='unknown')
         if body.get('action')=='amend_add' and state['known'] and group.get('ref')==body.get('expected_ref'):
             oid=body.get('order_id')
             lot=next((l for l in group.get('lots',[]) if l['entry']==oid),None)
@@ -712,7 +729,7 @@ class PaperChart:
             rows = {r['order_id']: r for r in state['orders']}
             parent = rows.get(body.get('order_id'))
             if lot and parent:
-                if parent['filled'] or parent['status'] == 'Filled':
+                if parent['status'] == 'Filled' or (parent['filled'] and any(r in lot for r in ('tp','sl'))):
                     return resolved('filled')
                 if parent['status'] in ('Cancelled','ApiCancelled') and all(
                         rows.get(lot[r], {}).get('status') in ('Cancelled','ApiCancelled','Inactive') for r in ('tp','sl') if r in lot):
@@ -859,6 +876,9 @@ class PaperChart:
             ids = {role:conn.ib.client.getReqId() for role in ('entry', *values)}
             for role, oid in ids.items(): group['ids'][role if index==0 else f'{role}_{index}'] = oid
             group.setdefault('entry_kinds', {})[str(ids['entry'])] = entry_kind
+            if entry_kind == 'add' and group.get('simple_add') and not values:
+                group['simple_add'].update(order_id=ids['entry'],kind=kind,price=entry,
+                    quantity=unit_quantity,action='BUY' if group['side']==1 else 'SELL',tif=group.get('tif','DAY'))
             group['lots'].append(ids); self.save_group(account,cid,group)
             buy = 'BUY' if group['side']==1 else 'SELL'; sell = 'SELL' if group['side']==1 else 'BUY'
             parent = MarketOrder(buy,unit_quantity) if kind=='MKT' else (LimitOrder if kind=='LMT' else StopOrder)(buy,unit_quantity,entry)
@@ -1146,7 +1166,7 @@ class PaperChart:
             raise ValueError('Exact add order unavailable')
         if group.get('entry_kinds',{}).get(str(oid))=='entry' and (parent.orderStatus.filled or parent.orderStatus.status=='Filled'):
             raise ValueError('Original entry is already filled; protection retained')
-        unprotected_stock = parent.contract.secType == 'STK' and not any(r in lot for r in ('tp','sl'))
+        unprotected_stock = parent.contract.secType in ('STK','OPT') and not any(r in lot for r in ('tp','sl'))
         if parent.orderStatus.status == 'Filled' or (parent.orderStatus.filled and not unprotected_stock):
             return  # Fill won the race; never remove filled-unit protection.
         if parent.orderStatus.status not in ('Cancelled', 'ApiCancelled', 'PendingCancel'):
@@ -1563,8 +1583,15 @@ class PaperChart:
                 raise ValueError('Add direction must match the current position')
             if group['side'] == -1: require_call_coverage(conn,account,contract,int(qty))
             target = 0 if kind == 'MKT' else price(body.get('entry'))
+            # Cash/coverage reads can pump fills and external order callbacks.
+            fresh=self.state(conn,cid)
+            if fresh.get('position')!=current['position'] or fresh.get('edit_snapshot')!=current['edit_snapshot'] or not fresh.get('unprotected_scaling'):
+                raise ValueError('Position/orders changed while checking collateral; refresh before adding')
+            if body.get('expected_position') is not None and body['expected_position']!=fresh['position']:
+                raise ValueError('Position changed; reopen Add')
             if not group.get('lots'):
                 group['lots'] = [dict(entry=oid) for role, oid in group['ids'].items() if role.split('_')[0] == 'entry']
+            group['simple_add'] = dict(request_id=request_id)
             self.add_lots(conn, account, cid, contract, group, 1, kind, target, None, None, entry_kind='add', unit_quantity=int(qty))
             return
         if action == 'trim' and contract.secType in ('OPT','STK') and current.get('unprotected_scaling'):

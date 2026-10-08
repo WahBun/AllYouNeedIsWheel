@@ -349,3 +349,25 @@ external client submitting after the snapshot. Wheel serializes its own requests
 IB remains authoritative. Actual CSP fills and real partial fills remain untested.
 No real order was submitted, amended, canceled or closed in this pass. Live gate
 remains disabled. No iOS source changed; no new phone installation is needed.
+
+## 2026-10-08 CSP lifecycle integration
+
+User clarified CSP actual Paper fills are unavailable due to account permissions;
+remove them as a mandatory Paper gate. Actual CSP validation will be user-driven
+Live small-size work after a separate release decision. Existing legacy-app CSP
+experience is not evidence for the new chart Add/Trim path.
+
+Production chart-service mocked CSP lifecycle now covers opening one short Put,
+aggregate Add, partial Add fill, remaining Add cancellation, buy-to-cover Trim,
+weighted average retained through Trim, insufficient cash, duplicate Add requests,
+lost Add acknowledgement/restart, partial cancel unknown until terminal, and a
+position change while reading collateral. Six new integration tests; total641
+backend tests passed. Fixed option partial Add cancellation (previously treated
+any fill as a completed one-unit add), persisted exact Add intent before sending
+for read-only recovery, and rechecked position/order state after collateral reads.
+Unknown pending cancellation no longer resolves merely because a partial fill exists.
+
+Live gate remains off; initial Live action policy STILL excludes Add/Trim. The
+shared lifecycle is tested, but these tests do not themselves activate Live Add,
+prove real CSP fills, or certify every broker restart/identity-reset timing.
+No actual orders were placed, changed, canceled or closed in this pass.
