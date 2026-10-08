@@ -185,6 +185,60 @@ class OptionalProtectionTests(PaperChartTests):
         t.fills=[]
         self.assertFalse(self.service.state(self.conn,7)['tp_projection']['known'])
 
+    def test_be_creates_stock_stop_without_default_protection_and_deduplicates(self):
+        self.filled_position(4)
+        for t in self.trades[1:]: t.orderStatus.status='Cancelled'
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw: ([self.pos] if fn==self.conn.ib.reqPositions else self.trades)
+        state=self.service.state(self.conn,7)
+        body=dict(action='be',request_id=str(uuid4()),expected_ref=state['order_ref'],expected_snapshot=state['edit_snapshot'])
+        result=self.service.execute(self.conn,7,body)
+        self.assertTrue(result['success'],result)
+        stop=self.trades[-1].order
+        self.assertEqual((stop.orderType,stop.action,stop.totalQuantity,stop.auxPrice),('STP','SELL',4,10.25))
+        count=len(self.trades)
+        self.assertEqual(self.service.execute(self.conn,7,body),result)
+        self.assertEqual(len(self.trades),count)
+
+    def test_be_rejects_covered_stock_and_stale_snapshot(self):
+        self.filled_position(4)
+        for t in self.trades[1:]: t.orderStatus.status='Cancelled'
+        from ib_async import Option
+        call=S(account='DU_TEST',contract=Option(symbol=self.contract.symbol,right='C'),position=-1)
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw: ([self.pos,call] if fn==self.conn.ib.reqPositions else self.trades)
+        state=self.service.state(self.conn,7)
+        count=self.conn.ib.placeOrder.call_count
+        result=self.service.execute(self.conn,7,dict(action='be',request_id=str(uuid4()),expected_ref=state['order_ref'],expected_snapshot=state['edit_snapshot']))
+        self.assertFalse(result['success'],result)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,count)
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw: ([self.pos] if fn==self.conn.ib.reqPositions else self.trades)
+        result=self.service.execute(self.conn,7,dict(action='be',request_id=str(uuid4()),expected_ref=state['order_ref'],expected_snapshot='stale'))
+        self.assertFalse(result['success'],result)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,count)
+
+    def test_be_pending_call_and_unknown_recovery(self):
+        self.filled_position(4)
+        for t in self.trades[1:]: t.orderStatus.status='Cancelled'
+        from ib_async import Option, Trade, LimitOrder, OrderStatus
+        call=Trade(Option(symbol=self.contract.symbol,right='C'),LimitOrder('SELL',1,1,account='DU_TEST'),OrderStatus(status='PendingCancel'))
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw: ([self.pos] if fn==self.conn.ib.reqPositions else self.trades+[call])
+        state=self.service.state(self.conn,7)
+        body=dict(action='be',request_id=str(uuid4()),expected_ref=state['order_ref'],expected_snapshot=state['edit_snapshot'])
+        count=len(self.trades)
+        self.assertFalse(self.service.execute(self.conn,7,body)['success'])
+        self.assertEqual(len(self.trades),count)
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw: ([self.pos] if fn==self.conn.ib.reqPositions else self.trades)
+        body['request_id']=str(uuid4())
+        original=self.conn.ib.placeOrder.side_effect
+        def lost(c,o):
+            original(c,o)
+            raise TimeoutError('reply lost')
+        self.conn.ib.placeOrder.side_effect=lost
+        self.assertEqual(self.service.execute(self.conn,7,body)['status'],'unknown')
+        writes=self.conn.ib.placeOrder.call_count
+        result=PaperChart(self.service.path).request_status(self.conn,7,body['request_id'])
+        self.assertTrue(result['confirmed'],result)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+
 def load_tests(loader, tests, pattern):
     import unittest
     return unittest.TestSuite(OptionalProtectionTests(name) for name in OptionalProtectionTests.__dict__ if name.startswith('test_'))

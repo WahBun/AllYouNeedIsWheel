@@ -675,7 +675,7 @@ class PaperChart:
                 group['requested_protection']=[r for r in group.get('requested_protection',['tp','sl']) if body.get('role') and r!=body['role']]
                 self.save_group(account,cid,group)
                 return resolved('canceled')
-        if body.get('action') == 'set_protection' and state['known'] and group.get('ref') == body.get('expected_ref'):
+        if (body.get('action') == 'set_protection' or body.get('action') == 'be' and group.get('protection_request', {}).get('id') == request_id) and state['known'] and group.get('ref') == body.get('expected_ref'):
             operation=group.get('protection_request', {})
             if operation.get('id')==request_id:
                 targets=[r for r in state['orders'] if r['order_id'] in operation['ids'].values()]
@@ -1228,6 +1228,18 @@ class PaperChart:
         group['requested_protection']=[r for r in group.get('requested_protection',['tp','sl']) if role and r!=role]
         self.save_group(account,cid,group)
 
+    @staticmethod
+    def require_no_call_reservation(conn, account, contract):
+        positions = conn._bounded_order_read(conn.ib.reqPositions, timeout_seconds=3)
+        orders = conn._bounded_order_read(conn.ib.reqAllOpenOrders, timeout_seconds=3)
+        def related(c):
+            return c.secType == 'OPT' and c.symbol == contract.symbol and c.right == 'C'
+        if any(p.account == account and related(p.contract) and (not math.isfinite(float(p.position)) or p.position < 0) for p in positions):
+            raise ValueError('Close covered CALLs before selling shares.')
+        if any(t.order.account == account and (t.contract.secType == 'BAG' or
+               related(t.contract) and t.order.action == 'SELL') and not t.isDone() for t in orders):
+            raise ValueError('Close covered CALLs before selling shares.')
+
     def set_protection(self, conn, account, cid, contract, current, group, body, request_id, price):
         """Explicit replacement for a settled, fully owned position. Never replay writes.
 
@@ -1289,6 +1301,11 @@ class PaperChart:
                 raise RuntimeError('Orders changed during position reconciliation')
             if any(t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades() if t.order.account==account and t.contract.conId==cid):
                 raise RuntimeError('Other working orders appeared during reconciliation')
+            if body.get('be_create'):
+                self.require_no_call_reservation(conn, account, contract)
+                checked = self.state(conn, cid)
+                if checked['edit_snapshot'] != verified['edit_snapshot'] or checked['position'] != actual:
+                    raise RuntimeError('Position changed while validating')
             # Archive old IDs to retain fills and reconnect history; new roles own the new exits.
             for role in list(group['ids']):
                 if role.split('_')[0] in ('tp','sl') and '_retired_' not in role:
@@ -1532,6 +1549,23 @@ class PaperChart:
             setattr(order,field,target);order.transmit=True
             self.modify_exit(conn,parent,order,field)
             return
+        if action == 'be' and contract.secType == 'STK':
+            self.require_no_call_reservation(conn, account, contract)
+            if not current.get('sl'):
+                if not current.get('known') or not current.get('protection_manageable') or current.get('position', 0) <= 0:
+                    raise ValueError('Wait for settled entries and a known owned position')
+                if body.get('expected_ref') != current.get('order_ref') or body.get('expected_snapshot') != current.get('edit_snapshot'):
+                    raise ValueError('Orders changed; reopen protection settings')
+                base = current['entry']
+                if not math.isfinite(base) or base <= 0: raise ValueError('Wait for a valid position cost basis')
+                chart = stock_chart.states.get(cid) or stock_chart.active
+                rules = chart.get('price_rules', []) if chart and chart['con_id'] == cid else []
+                ticks = [r['increment'] for r in rules if r['low'] <= base]
+                if not ticks: raise ValueError('Wait for contract tick size')
+                tick = Decimal(str(ticks[-1]))
+                target = price(float((Decimal(str(base))/tick).to_integral_value(rounding=ROUND_CEILING)*tick + tick))
+                request = dict(body, sl=target, tp=current.get('tp') or None, confirm_replace_protection=True, be_create=True)
+                return self.set_protection(conn,account,cid,contract,current,group,request,request_id,price)
         if action=='set_protection':
             return self.set_protection(conn,account,cid,contract,current,group,body,request_id,price)
         if action=='submit':
