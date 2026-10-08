@@ -411,6 +411,7 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertTrue(r['success'],r)
         o=self.trades[-1].order
         self.assertEqual((o.orderType,o.action,o.totalQuantity,o.lmtPrice),('LMT','BUY',1,8.5))
+        self.assertEqual([(x['order_id'],x['price'],x['quantity']) for x in r['state']['pending_exits']],[(o.orderId,8.5,1)])
         self.assertFalse(r['state']['trim_allowed'])
         writes=self.conn.ib.placeOrder.call_count
         self.service.execute(self.conn,7,body)

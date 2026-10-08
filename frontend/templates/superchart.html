@@ -22,7 +22,7 @@
 <button id="manage-protection" hidden data-en="Manage TP / SL" data-zh="管理 TP / SL">Manage TP / SL</button>
 <button id="preview">＋ Preview</button>
 <div class="trade-pair join-actions"><button id="bid">Join Bid</button><button id="ask">Join Ask</button></div>
-<label id="adjustment-control" hidden><span data-en="Add / Trim quantity" data-zh="加仓／减仓数量">Add / Trim quantity</span><input id="adjustment-quantity" type="number" min="1" step="1" value="1"></label>
+<label id="adjustment-control" hidden><span data-en="Add / Trim quantity" data-zh="加仓／减仓数量">Add / Trim quantity</span><div class="quantity-controls"><input id="adjustment-quantity" type="number" min="1" step="1" value="1"><button id="adjustment-minus" type="button" aria-label="Decrease adjustment quantity">−</button><button id="adjustment-plus" type="button" aria-label="Increase adjustment quantity">＋</button></div></label>
 <div class="position-actions"><button id="add">Add<small data-en="Market" data-zh="市价加仓">Market</small></button><button id="trim">Trim<small data-en="Quote limit" data-zh="报价限价">Quote limit</small></button><button id="be">BE<small data-en="Entry ± 1 tick" data-zh="入场价 ± 1 跳">Entry ± 1 tick</small></button></div>
 <p id="position-action-reason" class="trade-hint" role="status" hidden></p><div id="exit-plan" hidden></div><button id="close">Close position</button><button id="resolve-request" hidden>Verify unresolved request…</button><p id="trade-feedback" role="status" aria-live="polite"></p></aside></main>
 <dialog id="protection-editor"><form id="protection-form"><h2 data-en="Position TP / SL" data-zh="持仓 TP / SL">Position TP / SL</h2>

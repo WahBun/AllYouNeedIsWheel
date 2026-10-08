@@ -114,7 +114,7 @@
    const id=`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${row.order_id}`;live.add(id);
    const options={price:row.price,color:'#b27bcd',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:''};
    if(exitLines.has(id)){if(exitGesture?.id!==id)exitLines.get(id).applyOptions(options);}else exitLines.set(id,series.createPriceLine(options));
-   if(!exitHandles.has(id))exitHandles.set(id,{button:createExitHandle(id,row),cancel:createExitCancel(row),edit:createPlanEditor(row),row});const handle=exitHandles.get(id);handle.row=row;const label=row.action==='close'?'Close':'Trim';handle.button.textContent=`${label} ×${row.quantity} @ ${priceText(row.price)}`;handle.edit.disabled=row.action!=='trim'||config.paper.busy||!config.paper.enabled||row.status!=='Submitted'&&row.status!=='PreSubmitted';handle.button.setAttribute('aria-label',`Drag ${label.toLowerCase()} limit price`);handle.button.title=`Drag to amend this ${label.toLowerCase()} order`;handle.cancel.setAttribute('aria-label',`Cancel ${label.toLowerCase()} plan`);handle.cancel.disabled=config.paper.busy||!config.paper.enabled||!row.restore_price||row.status==='PendingCancel';handle.button.disabled=config.paper.busy||!config.paper.enabled||row.status==='PendingCancel';
+   if(!exitHandles.has(id))exitHandles.set(id,{button:createExitHandle(id,row),cancel:createExitCancel(row),edit:createPlanEditor(row),row});const handle=exitHandles.get(id);handle.row=row;const label=row.action==='close'?'Close':'Trim';handle.button.textContent=`${label} ×${row.quantity} @ ${priceText(row.price)}`;handle.edit.disabled=row.editable===false||row.action!=='trim'||config.paper.busy||!config.paper.enabled||row.status!=='Submitted'&&row.status!=='PreSubmitted';handle.button.setAttribute('aria-label',`Drag ${label.toLowerCase()} limit price`);handle.button.title=`Drag to amend this ${label.toLowerCase()} order`;handle.cancel.setAttribute('aria-label',`Cancel ${label.toLowerCase()} plan`);handle.cancel.disabled=config.paper.busy||!config.paper.enabled||!row.restore_price||row.status==='PendingCancel';handle.button.disabled=row.editable===false||config.paper.busy||!config.paper.enabled||row.status==='PendingCancel';
   }
   for(const [id,line] of exitLines)if(!live.has(id)){series.removePriceLine(line);exitLines.delete(id);exitHandles.get(id)?.button.remove();exitHandles.get(id)?.cancel.remove();exitHandles.get(id)?.edit.remove();exitHandles.delete(id);if(exitGesture?.id===id)clearExitGesture();}
  }
@@ -194,7 +194,7 @@
  function addAllowed(choice){return paperConfig.enabled&&(paperConfig.add_allowed??paperConfig.scalable)&&paperConfig.position&&choice.side===Math.sign(paperConfig.position)&&!paperConfig.busy&&!paperConfig.orders?.some(o=>['PendingSubmit','PendingCancel','Unknown'].includes(o.status));}
  function choosePriceOrder(choice,price){
   if(!paperConfig.position){menuOrderPrice=price;menuOrderCID=paperCID;sendPriceOrder(choice);return;}
-  if(choice.side!==Math.sign(paperConfig.position)){if(choice.type==='LMT'&&paperConfig.scalable)chooseExit(true,price);return;}
+  if(choice.side!==Math.sign(paperConfig.position)){if(choice.type==='LMT')chooseExit(true,price);return;}
   if(!addAllowed(choice))return;
   const cid=paperCID,ref=paperConfig.order_ref,epoch=paperConfig.web_account_epoch,tp=paperConfig.add_tp||paperConfig.tp,sl=paperConfig.sl;
   addDialog.replaceChildren();const zh=parent.document.documentElement.lang.startsWith('zh');addDialog.dataset.light=String(!darkAppearance);

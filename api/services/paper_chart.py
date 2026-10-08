@@ -421,6 +421,16 @@ class PaperChart:
                 else 'rejected' if adjustment.get('outcome') == 'rejected' or any(r['status']=='Inactive' for r in selected)
                 else 'canceled' if any(r['status'] in ('Cancelled','ApiCancelled') for r in selected)
                 else 'working')
+        # Standalone limit Trims are not legacy TP replacements, but still need
+        # an explicit chart line. Do not attach unsupported TP-edit controls.
+        standalone_exits = [dict(order_id=r['order_id'], price=r['price'],
+            quantity=max(0,r['quantity']-r['filled']), status=r['status'],
+            action='trim', editable=False, plan_id=str(r['order_id']))
+            for r in rows if r['role'].startswith('trim_') and r['price']>0
+            and r['status'] in ('Submitted','PreSubmitted','PendingSubmit','PendingCancel')
+            and r['quantity']>r['filled']]
+        if standalone_exits:
+            result['pending_exits'] = result.get('pending_exits',[]) + standalone_exits
         if adjustment and adjustment.get('action')=='close':
             closing_ids=set(adjustment.get('latest_orders',[]))
             closing_pairs=[(oid,sl) for oid,sl in zip(adjustment['orders'],adjustment.get('stops',[])) if oid in closing_ids]

@@ -765,3 +765,15 @@ is unchanged. BE-only priced Trim uses the OCA path. Whole-position exits remain
 Close actions for these paths. 657 backend tests passed; direct execution of the
 menu availability function covers unprotected, BE-only, paired, blocked and busy
 states. JS syntax passed; no broker write or physical-device installation.
+
+Trim click/display follow-up: the menu was enabled but choosePriceOrder still
+silently required scalable paired protection. Route every reducing LMT click
+through chooseExit, where current availability is rechecked. Standalone limit
+Trim rows now populate pending_exits and display on the shared chart; legacy
+TP-plan edit/restore controls are disabled for these distinct order rows.
+Add/Trim quantity now reuses Position's minus/input/plus layout and respects the
+largest currently allowed adjustment bound. 657 backend tests passed. Isolated
+Playwright actual menu-click, confirmation, limit request bridge and pending-line
+checks passed for unprotected and BE-only states (standalone-trim.cjs).
+Read-only Paper snapshot showed short 3 with SL 3 at 1.59 and no pending Trim;
+no user request was replayed and no broker write was sent for this fix.
