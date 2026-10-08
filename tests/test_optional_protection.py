@@ -563,21 +563,15 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertTrue(r['success'],r);self.assertEqual(stop.order.totalQuantity,3)
 
 
-    def test_cc_add_with_stop_uses_remaining_coverage_without_touching_stop(self):
+    def test_cc_add_with_stop_blocked_by_broker_rule(self):
         self.test_cc_full_coverage_disables_add_but_be_creates_buy_stop()
         self.conn.ib.positions.return_value[0].position=500
         state=self.service.state(self.conn,7)
-        self.assertTrue(state['add_allowed']);self.assertEqual(state['add_available'],1)
-        stop=self.trades[-1];before=(stop.order.orderId,stop.order.totalQuantity,stop.order.auxPrice)
-        result=self.service.execute(self.conn,7,dict(action='add',quantity=1,expected_ref=state['order_ref'],request_id=str(uuid4())))
-        self.assertTrue(result['success'],result)
-        self.assertEqual((stop.order.orderId,stop.order.totalQuantity,stop.order.auxPrice),before)
-        self.assertEqual(stop.orderStatus.status,'Submitted')
-        self.assertEqual(self.trades[-1].order.action,'SELL')
-        self.assertEqual(result['state']['add_available'],0)
+        self.assertFalse(state['add_allowed']);self.assertEqual(state['add_available'],1)
         count=self.conn.ib.placeOrder.call_count
         result=self.service.execute(self.conn,7,dict(action='add',quantity=1,expected_ref=state['order_ref'],request_id=str(uuid4())))
-        self.assertFalse(result['success']);self.assertEqual(self.conn.ib.placeOrder.call_count,count)
+        self.assertFalse(result['success']);self.assertIn('IB forbids',result['message'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count,count)
 
 
     def test_cancel_one_of_three_manual_trims_preserves_other_orders(self):
@@ -597,6 +591,23 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertEqual(selected.orderStatus.status,'Cancelled')
         self.assertTrue(all(t.orderStatus.status=='Submitted' for t in [stop,*others]))
         self.assertEqual(stop.order.totalQuantity,4)
+
+
+    def test_stop_flat_cleanup_only_trims_once(self):
+        self.setup_limit_trim()
+        group=self.service.group('DU_TEST',7);group['manual_stop_quantity']=True;self.service.save_group('DU_TEST',7,group)
+        stop=next(t for t in self.trades if t.order.orderId==group['ids']['sl'])
+        trim=self.trades[-1];trim.order.clientId=self.conn.ib.client.clientId
+        stop.orderStatus.status='Filled';stop.orderStatus.filled=stop.order.totalQuantity
+        count=self.conn.ib.cancelOrder.call_count
+        self.service.cancel_trims_after_stop(self.conn)
+        self.assertEqual(self.conn.ib.cancelOrder.call_count,count)
+        self.conn.ib.positions.return_value[-1].position=0
+        self.service.cancel_trims_after_stop(self.conn)
+        self.assertEqual(self.conn.ib.cancelOrder.call_count,count+1)
+        self.assertEqual(trim.orderStatus.status,'Cancelled')
+        self.service.cancel_trims_after_stop(self.conn)
+        self.assertEqual(self.conn.ib.cancelOrder.call_count,count+1)
 
 
 def load_tests(loader, tests, pattern):

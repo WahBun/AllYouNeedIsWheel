@@ -49,6 +49,11 @@ def install_api_dispatcher(app):
                 def synchronize():
                     try:
                         with app.app_context():
+                            from api.routes.portfolio import portfolio_service
+                            from api.services.paper_chart import PaperChart
+                            conn=portfolio_service.connection
+                            if conn and conn.is_connected() and str(conn.account_id).startswith('DU') and not conn.readonly:
+                                PaperChart(portfolio_service.config.get('db_path')).cancel_trims_after_stop(conn)
                             app.extensions['ib_background_sync']()
                     except Exception as error:
                         logging.getLogger('autotrader.api').warning(

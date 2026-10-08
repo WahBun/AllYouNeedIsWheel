@@ -523,6 +523,7 @@ class PaperChart:
                 all(t.order.orderRef==group.get('ref') and t.orderStatus.status in ('Submitted','PreSubmitted') and
                     any(r['order_id']==t.order.orderId and r['role'].split('_')[0] in ('sl','tp','trim') for r in rows) for t in working))
             if result['independent_add']:result['add_allowed']=True
+            if opposite_working and scaling_contract.secType=='OPT':result['add_allowed']=False
             result['add_block_reason'] = ('option_opposite_orders' if opposite_working
                 else 'orders_need_reconciliation' if not result['add_allowed'] else '')
         # A settled standalone stop can be split into retained protection and
@@ -1699,6 +1700,30 @@ class PaperChart:
             if oid not in adjustment['acknowledged']:adjustment['acknowledged'].append(oid)
             self.save_group(account,cid,group)
 
+    def cancel_trims_after_stop(self, conn):
+        """Explicit Paper policy: stop-filled flat groups cancel only their Trim orders."""
+        account=paper_account(conn,True)
+        if not account.startswith('DU'):return
+        with self.database() as db:
+            groups=db.execute('SELECT con_id,orders FROM chart_paper_groups WHERE account=?',(account,)).fetchall()
+        for cid,encoded in groups:
+            group=json.loads(encoded)
+            if not group.get('manual_stop_quantity'):continue
+            cached={t.order.orderId:t for t in conn.ib.trades() if t.order.account==account and t.contract.conId==cid and t.order.orderRef==group.get('ref')}
+            stop_id=group['ids'].get('sl')
+            recorded=group.get('terminal',{}).get('sl',{})
+            if not (stop_id in cached and cached[stop_id].orderStatus.status=='Filled' or recorded.get('order_id')==stop_id and recorded.get('status')=='Filled'):continue
+            positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
+            if any(p.account==account and p.contract.conId==cid and p.position for p in positions):continue
+            opened=conn._bounded_order_read(conn.ib.reqAllOpenOrders,timeout_seconds=3)
+            sent=group.setdefault('stop_cleanup_sent',[])
+            for role,oid in group['ids'].items():
+                if not role.startswith('trim_') or oid in sent:continue
+                trade=next((t for t in opened if t.order.orderId==oid and t.order.account==account and t.contract.conId==cid and t.order.orderRef==group['ref'] and t.order.clientId==conn.ib.client.clientId and t.orderStatus.status in ('Submitted','PreSubmitted')),None)
+                if not trade:continue
+                sent.append(oid);self.save_group(account,cid,group)
+                conn.ib.cancelOrder(trade.order)
+
     def perform(self, conn, account, cid, body, request_id):
         if body.get('action')=='release_stale_lock':
             if not account.startswith('DU') or body.get('acknowledge_unknown') is not True:
@@ -1984,6 +2009,8 @@ class PaperChart:
         if action == 'add' and (contract.secType == 'OPT' or contract.secType == 'STK' and not current.get('scalable')):
             if body.get('expected_ref') != group.get('ref'):
                 raise ValueError('Order identity changed; refresh before adding')
+            if contract.secType=='OPT' and any(t.order.account==account and t.contract.conId==cid and t.order.action!=('BUY' if current['position']>0 else 'SELL') for t in conn.ib.openTrades()):
+                raise ValueError('IB forbids opposite working orders on this US option: cancel TP/SL/Trim and wait for cancellation before Add')
             if not (current.get('unprotected_scaling') or current.get('independent_add')):
                 raise ValueError('Wait for reconciled position and owned working orders before Add')
             qty = body.get('quantity')
