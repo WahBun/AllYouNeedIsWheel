@@ -58,7 +58,7 @@ async function refreshExecutions(){if(document.hidden||Date.now()<marketPriority
 const activity=[],terminal=new Set(['acknowledged','rejected','working','filled','canceled','pending','done','released']);
 const pendingKey=()=>`wheel.web.pending:${profile.selected}:${cid}${groupID?':'+groupID:''}`;
 const orderPath=(id=cid)=>`portfolio/paper-chart/${id}${groupID?'?group_id='+encodeURIComponent(groupID):''}`;
-function log(message){$('trade-feedback').textContent=String(message).replace(/;\s*| · /g,'\n').replace(/(^|\n)([ \t]*)([a-z])/g,(_,line,space,letter)=>line+space+letter.toUpperCase());trace(message);}
+function log(message){if(/IB requests are busy|Request expired before execution/i.test(String(message))){const note=$('trade-connection-feedback');note.hidden=false;note.textContent=document.documentElement.lang==='zh'?'连接暂时繁忙，正在等待恢复。':'Connection temporarily busy. Waiting to recover.';trace(message);return;}$('trade-feedback').textContent=String(message).replace(/;\s*| · /g,'\n').replace(/(^|\n)([ \t]*)([a-z])/g,(_,line,space,letter)=>line+space+letter.toUpperCase());trace(message);}
 function trace(message){activity.unshift(`${new Date().toLocaleTimeString()} ${message}`);activity.splice(100);$('activity').textContent=activity.join('\n');}
 async function api(path,body,signal){const response=await fetch('/api/'+path,{method:body?'POST':'GET',cache:'no-store',headers:body?{'Content-Type':'application/json','X-All-You-Need-Is-Wheel':'1','X-Wheel-Account-Epoch':epoch||''}:{},body:body?JSON.stringify(body):undefined,signal:signal||AbortSignal.timeout(body?35000:12000)}).catch(error=>{error.network=error instanceof TypeError;throw error;});const data=await response.json();if(!response.ok){const error=new Error(data.message||data.error||`HTTP ${response.status}`);error.confirmed=data.status==='rejected'||(response.status===503&&['IB requests are busy; please retry shortly','Request expired before execution; no operation was started'].includes(data.error))||(response.status===409&&data.error==='Account connection changed. Refresh and verify the account before continuing.');throw error;}return data;}
 let protectionType=null;
@@ -123,6 +123,10 @@ for(const r of ['tp','sl']){
 function renderTradingContext(){
  if(!$('position-scope'))return;
  const zh=document.documentElement.lang==='zh',size=Math.abs(state.position||0),rows=state.orders||[];
+ document.querySelector('.position-actions').hidden=!size;
+ $('close').hidden=!size;
+ $('manage-protection').hidden=!size;
+ document.querySelector('.protection-settings').hidden=!size&&!$('bracket-enabled').checked&&!state.active;
  const exits=state.pending_exits||[],reserved=exits.reduce((n,r)=>n+r.quantity,0);
  const group=$('order-group').selectedOptions[0]?.textContent||'';
  $('position-scope').hidden=!size;
@@ -144,8 +148,8 @@ function renderTradingContext(){
  const note=$('protection-note');note.removeAttribute('data-en');note.removeAttribute('data-zh');
  note.textContent=size?(zh?'改价：Enter 或离开输入框 · 增删保护：管理 TP / SL':'Edit: Enter or leave field · Add/remove: Manage TP / SL'):(zh?'独立可选 · GTC 退出单':'Optional · GTC exit orders');
  const progress=state.close_progress;
- const plan=$('exit-plan');plan.hidden=!exits.length&&!progress&&!pendingEntry&&!state.manual_stop_quantity;plan.replaceChildren();
- if(state.manual_stop_quantity){const line=document.createElement('div');const q=state.protection?.sl||0;line.textContent=zh?`止损数量手动管理：${q} · 持仓 ${size}。Trim 成交后请调整止损数量。`:`Manual stop quantity: ${q} · Position ${size}. Adjust stop quantity after Trim fills.`;plan.append(line);}
+ const plan=$('exit-plan');plan.hidden=!exits.length&&!progress&&!pendingEntry&&!(size&&state.manual_stop_quantity);plan.replaceChildren();
+ if(size&&state.manual_stop_quantity){const line=document.createElement('div');const q=state.protection?.sl||0;line.textContent=zh?`止损数量手动管理：${q} · 持仓 ${size}。Trim 成交后请调整止损数量。`:`Manual stop quantity: ${q} · Position ${size}. Adjust stop quantity after Trim fills.`;plan.append(line);}
  if(pendingEntry){const line=document.createElement('div');line.textContent=zh?'有待成交入场单；减仓仅使用已成交且未分配的持仓。':'Entry orders pending; Trim uses only filled, unreserved units.';plan.append(line);}
  if(progress){const line=document.createElement('strong');line.textContent=(progress.status==='completed'?(zh?'已平仓':'Position closed'):(zh?'平仓进度':'Closing progress'))+' · '+(zh?'已成交 ':'Filled ')+progress.filled+' / '+progress.requested+' · '+(zh?'剩余持仓 ':'Position remaining ')+progress.remaining+' · '+progress.status;plan.append(line);}
 
@@ -275,7 +279,7 @@ if(selected){
 if((profile.selected==='paper'||profile.chart_execution_enabled===true)&&profile.verified){const pending=localStorage.getItem(pendingKey());if(pending){const r=await api(orderPath(selected)+(groupID?'&':'?')+'request_id='+encodeURIComponent(pending));if(token!==generation||readVersion!==writeVersion)return;if(r.confirmed===true&&(terminal.has(r.status)||r.status==='reconciled')){localStorage.removeItem(pendingKey());log(`Reconciled: ${r.status}`);}}
 const s=await api(orderPath(selected));if(token!==generation||readVersion!==writeVersion)return;applyState(s);stateRead=true;}else{state={};received=0;}}
 const [orders,portfolio]=await Promise.all([api('options/pending-orders'),api('portfolio/bootstrap')]);if(token!==generation||readVersion!==writeVersion)return;
-renderRows('orders',orders.orders||[],true);positions=portfolio.positions||portfolio.portfolio?.positions||[];renderRows('positions',positions,false);
+renderRows('orders',orders.orders||[],true);positions=portfolio.positions||portfolio.portfolio?.positions||[];renderRows('positions',positions,false);$('trade-connection-feedback').hidden=true;
 }catch(error){if(error.network)window.wheelTradeSounds?.connection(false);if(!stateRead)received=0;$('market-status').textContent=error.message;log(error.message);}finally{polling=false;sync();}}
 function holdingRows(){return positions.flatMap(p=>{const exact=p.con_id===cid&&p.security_type===packet.security_type,strike=packet.security_type==='STK'&&p.security_type==='OPT'&&p.symbol===packet.symbol;if(!(p.position&&p.con_id&&(exact||strike)))return [];const report=p.reported_cost;let price=strike?p.strike:p.security_type==='STK'&&report&&Math.abs(report.quantity-p.position)<.000001?report.average:p.entry_fill_price;if(!(price>0))price=null;if(strike&&!price)return [];return [{id:(strike?'strike-':'holding-')+p.con_id,kind:strike?'strike':'holding',price,title:strike?`${p.position} ${p.strike}${p.option_type==='CALL'?'C':'P'}@${p.entry_fill_price??'—'}`:`${p.position} · Avg${price?'':' —'}`,side:p.position>0?1:-1,pnl:p.unrealized_pnl,basis:Math.abs(p.avg_cost*p.position),marketPrice:p.market_price}];});}
 // Match native CoreAssetStyle / SymbolText without changing contract identity.
