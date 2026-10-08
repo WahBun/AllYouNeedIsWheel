@@ -518,6 +518,24 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertFalse(result['success']);self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
 
 
+    def test_operator_release_preserves_unknown_and_never_sends_orders(self):
+        self.setup_limit_trim();missing=self.trades[-2];self.trades.remove(missing)
+        for t in self.trades:
+            if t.orderStatus.status!='Filled':t.orderStatus.status='Cancelled'
+        state=self.service.state(self.conn,7)
+        self.conn.ib.reqAllOpenOrders.return_value=[]
+        writes=self.conn.ib.placeOrder.call_count
+        result=self.service.execute(self.conn,7,dict(action='release_stale_lock',acknowledge_unknown=True,order_ids=[missing.order.orderId],expected_ref=state['order_ref'],expected_position=-4,request_id=str(uuid4())))
+        self.assertTrue(result['success'],result)
+        self.assertTrue(result['state']['known'])
+        self.assertTrue(result['state']['trim_allowed'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+        group=self.service.group('DU_TEST',7)
+        self.assertEqual(group['operator_releases'][0]['orders'][0]['status'],'Unknown')
+        self.trades.append(missing)
+        self.assertFalse(self.service.state(self.conn,7)['known'])
+
+
 def load_tests(loader, tests, pattern):
     import unittest
     return unittest.TestSuite(OptionalProtectionTests(name) for name in OptionalProtectionTests.__dict__ if name.startswith('test_'))

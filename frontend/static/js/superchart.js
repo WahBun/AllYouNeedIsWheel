@@ -55,7 +55,7 @@ let chartExecutions=[],executionContext='',executionBusy=false,executionLast=0;
 const executionsKey=()=>JSON.stringify([epoch,cid,generation]);
 async function refreshExecutions(){if(document.hidden||Date.now()<marketPriorityUntil||!ready||!cid||!epoch||!profile.verified||executionBusy)return;const key=executionsKey();if(key===executionContext&&Date.now()-executionLast<5000)return;
  if(key!==executionContext){chartExecutions=[];executionContext=key;}executionBusy=true;executionLast=Date.now();try{const result=await api(`portfolio/chart-executions/${cid}`);if(key!==executionsKey()||result.con_id!==cid)return;chartExecutions=result.executions||[];sync();}catch(error){if(key===executionsKey())trace('Execution marks: '+error.message);}finally{executionBusy=false;}}
-const activity=[],terminal=new Set(['acknowledged','rejected','working','filled','canceled','pending','done']);
+const activity=[],terminal=new Set(['acknowledged','rejected','working','filled','canceled','pending','done','released']);
 const pendingKey=()=>`wheel.web.pending:${profile.selected}:${cid}${groupID?':'+groupID:''}`;
 const orderPath=(id=cid)=>`portfolio/paper-chart/${id}${groupID?'?group_id='+encodeURIComponent(groupID):''}`;
 function log(message){$('trade-feedback').textContent=String(message).replace(/;\s*| · /g,'\n').replace(/(^|\n)([ \t]*)([a-z])/g,(_,line,space,letter)=>line+space+letter.toUpperCase());trace(message);}

@@ -267,6 +267,8 @@ class PaperChart:
             group['terminal'] = confirmed
             self.save_group(account,cid,group)
         result.update(orders=rows, side=group['side'], known=all(r['status']!='Unknown' for r in rows))
+        reappeared=any(r['order_id'] in trades for release in group.get('operator_releases',[]) for r in release['orders'])
+        if reappeared:result.update(known=False,sync_error='Operator-released order reappeared; reconcile before trading')
         result['broker_pending'] = any(r['status'] in ('Unknown','ValidationError','PendingSubmit','ApiPending','PendingCancel') for r in rows)
         result['active']=any(r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive') for r in rows) or result['position']!=0
         result['status']='working' if result['active'] else 'done'
@@ -636,6 +638,8 @@ class PaperChart:
         if body.get('group_id') != self.group_id: raise ValueError('Request order group mismatch')
         if body.get('con_id') != cid: raise ValueError('Request contract mismatch')
         result = json.loads(row[1]) if row[1] else {}
+        if result.get('operator_release'):
+            return dict(confirmed=True,status='released',message='Operator released the lock; original outcome remains unknown')
         if result.get('status') in ('acknowledged','rejected','working','filled','canceled','pending','done','reconciled'):
             return dict(confirmed=True, status=result['status'])
         authoritative = conn._bounded_order_read(conn.ib.reqOpenOrders, timeout_seconds=3)
@@ -1660,6 +1664,36 @@ class PaperChart:
             self.save_group(account,cid,group)
 
     def perform(self, conn, account, cid, body, request_id):
+        if body.get('action')=='release_stale_lock':
+            if not account.startswith('DU') or body.get('acknowledge_unknown') is not True:
+                raise ValueError('Explicit Paper recovery acknowledgement required')
+            opened=conn._bounded_order_read(conn.ib.reqAllOpenOrders,timeout_seconds=3)
+            positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
+            if any(t.order.account==account and t.contract.conId==cid and not t.isDone() for t in opened):
+                raise ValueError('Working orders remain; resolve them before manual recovery')
+            current=self.state(conn,cid);group=self.group(account,cid) or {}
+            actual=sum(float(p.position) for p in positions if p.account==account and p.contract.conId==cid)
+            missing=[r for r in current['orders'] if r['status']=='Unknown']
+            if (body.get('expected_ref')!=group.get('ref') or actual!=body.get('expected_position') or actual!=current['position'] or
+                not missing or sorted(r['order_id'] for r in missing)!=sorted(body.get('order_ids',[])) or
+                any(r['role'].split('_')[0]!='sl' or r['filled'] or group.get('perms',{}).get(r['role']) for r in missing) or
+                any(r['status'] not in ('Unknown','Filled','Cancelled','ApiCancelled','Inactive') for r in current['orders'])):
+                raise ValueError('Recovery snapshot changed or unresolved order has broker identity')
+            owned=group.get('origin_position',0)+sum(group['side']*(1 if r['role'].split('_')[0]=='entry' else -1)*r['filled'] for r in current['orders'])
+            if owned!=actual:raise ValueError('Fills and position do not reconcile')
+            # Explicit operator waiver, NOT a broker cancellation. Preserve all evidence.
+            group.setdefault('operator_releases',[]).append(dict(request_id=request_id,position=actual,orders=missing,time=time.time()))
+            for r in missing:group['ids'].pop(r['role'])
+            for key in ('pending_stop_trim','pending_trim_edit','pending_protection','pending_edit'):
+                group.pop(key,None)
+            self.save_group(account,cid,group)
+            with self.database() as db:
+                for rid,encoded,result in db.execute('SELECT id,body,result FROM chart_paper_requests WHERE account=?',(account,)).fetchall():
+                    original=json.loads(encoded);outcome=json.loads(result) if result else {}
+                    if rid!=request_id and original.get('con_id')==cid and original.get('group_id')==self.group_id and outcome.get('status')=='unknown':
+                        outcome['operator_release']=request_id
+                        db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',(json.dumps(outcome),rid,account))
+            return
         if body.get('action')=='resize_stop':
             import copy
             conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
