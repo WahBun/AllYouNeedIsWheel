@@ -1375,7 +1375,6 @@ struct OrdersView: View {
             HStack(alignment: .lastTextBaseline) {
                 Text(localizedLabel("Orders", locale: locale)).font(.largeTitle.bold())
                 Spacer(minLength: 12)
-                OrdersDailyProfit(days: history ? historyDays : 1)
                 if !history {
                     Menu {
                         Toggle("Confirm execution and cancellation", isOn: $confirmExecution)
@@ -1390,6 +1389,7 @@ struct OrdersView: View {
                     .accessibilityLabel("Confirm execution and cancellation")
                     .accessibilityValue(confirmExecution ? Text("On") : Text("Off"))
                 }
+                OrdersDailyProfit(days: history ? historyDays : 1)
             }.listRowBackground(Color.clear).listRowSeparator(.hidden)
             StatusView(orders: true)
             Picker("Orders", selection: $history) { Text("Pending").tag(false); Text("Executed records").tag(true) }.pickerStyle(.segmented)
