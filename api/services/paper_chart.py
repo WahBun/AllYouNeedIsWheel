@@ -536,6 +536,14 @@ class PaperChart:
             and len({r['price'] for r in free_stops})==1)
         if result['stop_trim_allowed']:result['trim_available']=free_stop_quantity
         result['trim_allowed'] = bool(result.get('trim_allowed') or result['stop_trim_allowed'])
+        if group.get('manual_stop_quantity'):
+            result['manual_stop_quantity']=True
+            active=[r for r in rows if r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive')]
+            if result['known'] and active and all(r['status'] in ('Submitted','PreSubmitted') and r['role'].split('_')[0] in ('sl','trim') for r in active):
+                result['unprotected_trim']=True
+                result['stop_trim_allowed']=False
+                result['trim_available']=max(0,abs(result['position'])-sum(r['quantity']-r['filled'] for r in active if r['role'].startswith('trim_')))
+                result['trim_allowed']=result['trim_available']>=1
         if group.get('pending_trim_edit'):
             result['sync_error'] = 'Trim edit needs broker reconciliation'
         if group.get('pending_stop_trim'):
@@ -581,7 +589,7 @@ class PaperChart:
         ready = bool(result.get('known') and result.get('enabled') and not result.get('closing') and not result.get('sync_error'))
         result['close_allowed'] = bool(ready and result.get('active') and not result.get('position_only'))
         result['be_allowed'] = bool(ready and size and result.get('entry', 0) > 0 and not result.get('be_applied') and
-            (result.get('sl') or contract and contract.secType in ('STK', 'OPT') and result.get('protection_manageable')))
+            (result.get('sl') or contract and contract.secType in ('STK', 'OPT') and (result.get('protection_manageable') or result.get('unprotected_trim'))))
         if not account.startswith('DU'): result['be_allowed'] = False
         if not contract: return
         result['add_available'] = max(0, (10 if contract.secType in ('OPT','FUT') else 1000) - size)
@@ -1889,7 +1897,7 @@ class PaperChart:
         if action == 'be' and contract.secType in ('STK', 'OPT'):
             if contract.secType == 'STK': self.require_no_call_reservation(conn, account, contract)
             if not current.get('sl'):
-                if not current.get('known') or not current.get('protection_manageable') or not current.get('position', 0):
+                if not current.get('known') or not (current.get('protection_manageable') or current.get('unprotected_trim')) or not current.get('position', 0):
                     raise ValueError('Wait for settled entries and a known owned position')
                 if body.get('expected_ref') != current.get('order_ref') or body.get('expected_snapshot') != current.get('edit_snapshot'):
                     raise ValueError('Orders changed; reopen protection settings')
@@ -1902,6 +1910,23 @@ class PaperChart:
                 tick = Decimal(str(ticks[-1]))
                 sign = 1 if current['position'] > 0 else -1
                 target = price(float((Decimal(str(base))/tick).to_integral_value(rounding=ROUND_CEILING if sign > 0 else ROUND_FLOOR)*tick + sign*tick))
+                if current.get('unprotected_trim') and body.get('manual_stop_quantity') is True:
+                    positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
+                    opened=conn._bounded_order_read(conn.ib.reqAllOpenOrders,timeout_seconds=3)
+                    actual=sum(float(p.position) for p in positions if p.account==account and p.contract.conId==cid)
+                    fresh=self.state(conn,cid)
+                    if actual!=current['position'] or fresh['edit_snapshot']!=current['edit_snapshot'] or not fresh.get('unprotected_trim') or any(t.order.account==account and t.contract.conId==cid and t.order.orderId not in group['ids'].values() and not t.isDone() for t in opened):
+                        raise ValueError('Position or orders changed before BE')
+                    oid=conn.ib.client.getReqId()
+                    order=StopOrder('SELL' if actual>0 else 'BUY',abs(actual),target,orderId=oid,account=account,orderRef=group['ref'],tif='GTC',transmit=True)
+                    if 'sl' in group['ids']:
+                        old=group['ids'].pop('sl');group['ids']['sl_retired_'+str(old)]=old
+                        if 'sl' in group.get('terminal',{}):group['terminal']['sl_retired_'+str(old)]=dict(group['terminal'].pop('sl'),role='sl_retired_'+str(old))
+                        if 'sl' in group.get('perms',{}):group['perms']['sl_retired_'+str(old)]=group['perms'].pop('sl')
+                    group['ids']['sl']=oid;group['manual_stop_quantity']=True;group['requested_protection']=['sl']
+                    self.save_group(account,cid,group)
+                    conn.ib.placeOrder(contract,order)
+                    return
                 request = dict(body, sl=target, tp=current.get('tp') or None, confirm_replace_protection=True, be_create=True)
                 return self.set_protection(conn,account,cid,contract,current,group,request,request_id,price)
         if action=='set_protection':

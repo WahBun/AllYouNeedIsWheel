@@ -543,6 +543,26 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertFalse(self.service.state(self.conn,7)['known'])
 
 
+    def test_manual_be_with_working_trim_does_not_resize_on_fill(self):
+        self.test_cc_full_coverage_disables_add_but_be_creates_buy_stop()
+        for t in self.trades[1:]:t.orderStatus.status='Cancelled'
+        state=self.service.state(self.conn,7)
+        r=self.service.execute(self.conn,7,dict(action='trim',quantity=1,exit_type='LMT',exit_price=8.5,request_id=str(uuid4()),expected_ref=state['order_ref'],expected_position=-4))
+        self.assertTrue(r['success'],r);self.assertTrue(r['state']['be_allowed'])
+        trim=self.trades[-1]
+        r=self.service.execute(self.conn,7,dict(action='be',manual_stop_quantity=True,request_id=str(uuid4()),expected_ref=state['order_ref'],expected_snapshot=r['state']['edit_snapshot']))
+        self.assertTrue(r['success'],r)
+        stop=self.trades[-1];self.assertEqual(stop.order.totalQuantity,4)
+        self.assertEqual(stop.order.ocaGroup,'');self.assertEqual(trim.orderStatus.status,'Submitted')
+        self.assertTrue(r['state']['trim_allowed'])
+        trim.orderStatus.status='Filled';trim.orderStatus.filled=1
+        self.conn.ib.positions.return_value[-1].position=-3
+        state=self.service.state(self.conn,7)
+        self.assertEqual(stop.order.totalQuantity,4)
+        r=self.service.execute(self.conn,7,dict(action='resize_stop',order_id=stop.order.orderId,quantity=3,expected_quantity=4,expected_price=stop.order.auxPrice,expected_ref=state['order_ref'],request_id=str(uuid4())))
+        self.assertTrue(r['success'],r);self.assertEqual(stop.order.totalQuantity,3)
+
+
 def load_tests(loader, tests, pattern):
     import unittest
     return unittest.TestSuite(OptionalProtectionTests(name) for name in OptionalProtectionTests.__dict__ if name.startswith('test_'))

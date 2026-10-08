@@ -144,7 +144,8 @@ function renderTradingContext(){
  const note=$('protection-note');note.removeAttribute('data-en');note.removeAttribute('data-zh');
  note.textContent=size?(zh?'改价：Enter 或离开输入框 · 增删保护：管理 TP / SL':'Edit: Enter or leave field · Add/remove: Manage TP / SL'):(zh?'独立可选 · GTC 退出单':'Optional · GTC exit orders');
  const progress=state.close_progress;
- const plan=$('exit-plan');plan.hidden=!exits.length&&!progress&&!pendingEntry;plan.replaceChildren();
+ const plan=$('exit-plan');plan.hidden=!exits.length&&!progress&&!pendingEntry&&!state.manual_stop_quantity;plan.replaceChildren();
+ if(state.manual_stop_quantity){const line=document.createElement('div');const q=state.protection?.sl||0;line.textContent=zh?`止损数量手动管理：${q} · 持仓 ${size}。Trim 成交后请调整止损数量。`:`Manual stop quantity: ${q} · Position ${size}. Adjust stop quantity after Trim fills.`;plan.append(line);}
  if(pendingEntry){const line=document.createElement('div');line.textContent=zh?'有待成交入场单；减仓仅使用已成交且未分配的持仓。':'Entry orders pending; Trim uses only filled, unreserved units.';plan.append(line);}
  if(progress){const line=document.createElement('strong');line.textContent=(progress.status==='completed'?(zh?'已平仓':'Position closed'):(zh?'平仓进度':'Closing progress'))+' · '+(zh?'已成交 ':'Filled ')+progress.filled+' / '+progress.requested+' · '+(zh?'剩余持仓 ':'Position remaining ')+progress.remaining+' · '+progress.status;plan.append(line);}
 
@@ -393,7 +394,7 @@ for(const id of ['add','trim'])$(id).onclick=()=>{if(!$(id).disabled)write({acti
 $('resolve-request').textContent='Check order status';
 $('resolve-request').onclick=async()=>{const key=pendingKey(),id=localStorage.getItem(key),token=generation;if(busy||!id)return;log('Checking order status…');try{const result=await api(orderPath()+(groupID?'&':'?')+'request_id='+encodeURIComponent(id));if(token!==generation||localStorage.getItem(key)!==id)return;if(result.confirmed){localStorage.removeItem(key);revision++;log(result.status==='rejected'?'Previous request did not complete; ready for a new order':'Previous request resolved');}else log('IB outcome is still unknown; no order resent');sync();refresh();}catch(error){log(error.message);}};
 
-$('close').onclick=close;$('be').onclick=()=>write({action:'be',expected_ref:state.order_ref,expected_snapshot:state.edit_snapshot});
+$('close').onclick=close;$('be').onclick=()=>write({action:'be',manual_stop_quantity:true,expected_ref:state.order_ref,expected_snapshot:state.edit_snapshot});
 $('edit-cancel').onclick=()=>$('editor').close();$('edit-form').onsubmit=event=>{event.preventDefault();if(!editContext||editContext.cid!==cid||editContext.generation!==generation)return log('Chart changed; reopen the editor.');const quantity=Number($('edit-qty').value),price=Number($('edit-price').value),tif=$('edit-tif').value;if(!Number.isInteger(quantity)||quantity<1||price<=0)return;if(editContext.active)write({action:'edit_entry',quantity,price,tif,expected_ref:editContext.ref,expected_snapshot:editContext.snapshot,confirm_remove_protection:$('remove-protection').checked});else{$('quantity').value=quantity;entry=price;$('tif').value=tif;sync();}$('editor').close();};
 function saveDisplay(value){display={...value,barCount:session==='rth'?value.barCount:display.barCount,barCountETH:session==='rth'?display.barCountETH:value.barCount};localStorage.setItem('wheel.chart.display',JSON.stringify(display));sync();refreshEMA();}
 const settingsPanel=WheelChartSettings.mount({read:()=>({...display,barCount:session==='rth'?display.barCount:display.barCountETH}),change:saveDisplay,getSession:()=>session});
