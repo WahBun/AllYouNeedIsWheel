@@ -425,7 +425,7 @@ class PaperChart:
         # an explicit chart line. Do not attach unsupported TP-edit controls.
         standalone_exits = [dict(order_id=r['order_id'], price=r['price'],
             quantity=max(0,r['quantity']-r['filled']), status=r['status'],
-            action='trim', editable=False, plan_id=str(r['order_id']))
+            action='trim', editable=True, standalone=True, plan_id=str(r['order_id']))
             for r in rows if r['role'].startswith('trim_') and r['price']>0
             and r['status'] in ('Submitted','PreSubmitted','PendingSubmit','PendingCancel')
             and r['quantity']>r['filled']]
@@ -507,13 +507,19 @@ class PaperChart:
         # an equal-sized broker OCA stop/Trim pair. No client-side fill resizing.
         active_rows = [r for r in rows if r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive')]
         standalone_stops = [r for r in active_rows if r['role'].split('_')[0] == 'sl']
+        free_stops=[r for r in standalone_stops if r['order_id'] in trades and not trades[r['order_id']].order.ocaGroup]
+        free_stop_quantity=sum(r['quantity']-r['filled'] for r in free_stops)
         result['stop_trim_allowed'] = bool(scaling_contract and scaling_contract.secType == 'OPT'
-            and result.get('protection_manageable') and not group.get('lots')
-            and not group.get('pending_stop_trim') and len(active_rows) == len(standalone_stops)
-            and standalone_stops and all(r['status'] in ('Submitted','PreSubmitted') for r in standalone_stops)
-            and sum(r['quantity']-r['filled'] for r in standalone_stops) == abs(result['position'])
-            and len({r['price'] for r in standalone_stops}) == 1)
+            and result['known'] and abs(owned-result['position'])<.000001 and not group.get('lots')
+            and not group.get('pending_stop_trim') and not group.get('pending_protection')
+            and active_rows and all(r['role'].split('_')[0] in ('sl','trim') and r['status'] in ('Submitted','PreSubmitted') for r in active_rows)
+            and free_stop_quantity>=1
+            and sum(r['quantity']-r['filled'] for r in standalone_stops)==abs(result['position'])
+            and len({r['price'] for r in free_stops})==1)
+        if result['stop_trim_allowed']:result['trim_available']=free_stop_quantity
         result['trim_allowed'] = bool(result.get('trim_allowed') or result['stop_trim_allowed'])
+        if group.get('pending_trim_edit'):
+            result['sync_error'] = 'Trim edit needs broker reconciliation'
         if group.get('pending_stop_trim'):
             result['sync_error'] = 'Protected Trim needs broker reconciliation'
         if group.get('simple_adjustments') or (group.get('protection_request') and not group.get('lots') and scaling_contract and scaling_contract.secType in ('OPT','STK')):
@@ -679,6 +685,14 @@ class PaperChart:
             terminal = {r['order_id'] for r in rows if r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive')}
             if expected and state.get('order_ref')==original.get('order_ref') and expected <= working | terminal:
                 return resolved('rejected' if state.get('rejected') else 'reconciled')
+            return dict(confirmed=False,status='unknown')
+        if body.get('action')=='resize_trim' and group.get('pending_trim_edit',{}).get('id')==request_id:
+            operation=group['pending_trim_edit'];ids=operation.get('replacement_ids') or operation['ids']
+            by_id={r['order_id']:r for r in state['orders']}
+            allowed=('Submitted','PreSubmitted','Filled','Cancelled','ApiCancelled','Inactive') if operation.get('replacement_ids') else ('Filled','Cancelled','ApiCancelled','Inactive')
+            if ids and all(by_id.get(oid,{}).get('status') in allowed for oid in ids):
+                group.pop('pending_trim_edit',None);group.pop('pending_protection',None);group.pop('pending_stop_trim',None);self.save_group(account,cid,group)
+                return resolved('reconciled')
             return dict(confirmed=False,status='unknown')
         if body.get('action') == 'trim' and group.get('pending_stop_trim', {}).get('id') == request_id:
             operation = group['pending_stop_trim']
@@ -1393,6 +1407,7 @@ class PaperChart:
             group['requested_protection']=list(values)
             ids={r:conn.ib.client.getReqId() for r in values}
             group['ids'].update(ids)
+            if group.get('pending_trim_edit'):group['pending_trim_edit'].setdefault('replacement_ids',[]).extend(ids.values())
             group['protection_request']=dict(id=request_id,ids=ids)
             self.save_group(account,cid,group)
             # Standalone OCA exits have no bracket parent: transmit each member.
@@ -1427,44 +1442,128 @@ class PaperChart:
         target = price(body['exit_price']) if 'exit_price' in body else None
         if target is not None and (body.get('exit_type') != 'LMT' or group['side']*(target-current['sl']) <= 0):
             raise ValueError('Trim limit cannot cross the stop')
-        # Persist intent before retiring the old stop. A raced fill aborts inside
-        # set_protection before any replacement or Trim order can be submitted.
-        group['pending_stop_trim'] = dict(id=request_id, ids=[], old_ids=[r['order_id'] for r in current['orders'] if r['role'].split('_')[0]=='sl' and r['status'] in ('Submitted','PreSubmitted')])
-        self.save_group(account,cid,group)
-        self.set_protection(conn,account,cid,contract,current,group,
-            dict(expected_ref=group['ref'],expected_snapshot=current['edit_snapshot'],confirm_replace_protection=True),request_id,price)
-        group=self.group(account,cid)
+        # Only repartition unallocated stops; existing Trim/OCA slices remain intact.
+        active=[r for r in current['orders'] if r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive')]
+        free=[r for r in active if r['role'].split('_')[0]=='sl' and r['order_id'] in self._resolved_trades and not self._resolved_trades[r['order_id']].order.ocaGroup]
+        free_size=sum(r['quantity']-r['filled'] for r in free)
+        if qty>free_size or not free or any(r['status'] not in ('Submitted','PreSubmitted') for r in free):raise ValueError('Trim exceeds unallocated stop quantity')
+        stop_price=free[0]['price']
+        if any(r['price']!=stop_price for r in free):raise ValueError('Unallocated stop prices differ')
+        targets=[self._resolved_trades[r['order_id']] for r in free]
+        group['pending_stop_trim']=dict(id=request_id,ids=[],old_ids=[r['order_id'] for r in free]);self.save_group(account,cid,group)
+        for t in targets:conn.ib.cancelOrder(t.order)
+        deadline=time.monotonic()+3
+        while any(not t.isDone() for t in targets):
+            if time.monotonic()>=deadline:raise RuntimeError('Stop cancellation unconfirmed')
+            conn.ib.sleep(.05)
         fresh=self.state(conn,cid)
         positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
         actual=next((float(p.position) for p in positions if p.account==account and p.contract.conId==cid),0)
-        verified=self.state(conn,cid)
-        if actual != current['position'] or fresh['position'] != actual or verified['position'] != actual or verified['edit_snapshot'] != fresh['edit_snapshot']:
-            raise RuntimeError('Position changed during protected Trim; reconcile')
-        if any(t.order.account==account and t.contract.conId==cid for t in conn.ib.openTrades()):
-            raise RuntimeError('Working orders appeared during protected Trim; reconcile')
+        checked=self.state(conn,cid);by_id={r['order_id']:r for r in checked['orders']}
+        if actual!=current['position'] or checked['position']!=actual or any(by_id[r['order_id']]['filled']!=r['filled'] for r in current['orders']):
+            raise RuntimeError('Fill raced stop repartition; reconcile')
+        if any(t.order.account==account and t.contract.conId==cid and t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades()):raise RuntimeError('Other orders appeared')
+        group=self.group(account,cid)
+        for r in free:
+            role=r['role'];group['ids'][role+'_retired_'+str(r['order_id'])]=group['ids'].pop(role)
+            if role in group.get('perms',{}):group['perms'][role+'_retired_'+str(r['order_id'])]=group['perms'].pop(role)
+            if role in group.get('terminal',{}):group['terminal'][role+'_retired_'+str(r['order_id'])]=dict(group['terminal'].pop(role),role=role+'_retired_'+str(r['order_id']))
         action='SELL' if actual>0 else 'BUY'
         keep_id,stop_id,trim_id=[conn.ib.client.getReqId() for _ in range(3)]
         oca='WheelTrim:'+request_id
-        keep=StopOrder(action,size-qty,current['sl'],orderId=keep_id,transmit=True)
-        stop=StopOrder(action,qty,current['sl'],orderId=stop_id,ocaGroup=oca,ocaType=2,transmit=False)
+        keep=StopOrder(action,free_size-qty,stop_price,orderId=keep_id,transmit=True)
+        stop=StopOrder(action,qty,stop_price,orderId=stop_id,ocaGroup=oca,ocaType=2,transmit=True)
         trim=(LimitOrder(action,qty,target) if target is not None else MarketOrder(action,qty))
         trim.orderId=trim_id;trim.ocaGroup=oca;trim.ocaType=2;trim.transmit=True
-        group['ids'].update(sl=keep_id,**{'sl_trim_'+str(stop_id):stop_id,'trim_'+str(trim_id):trim_id})
+        group['ids'].update({'sl_trim_'+str(stop_id):stop_id,'trim_'+str(trim_id):trim_id})
+        if free_size>qty:group['ids']['sl']=keep_id
+        sent_ids=([keep_id] if free_size>qty else [])+[stop_id,trim_id]
         group['requested_protection']=['sl'];group['split_stop_trim']=True;group['simple_adjustments']=True
-        group['pending_stop_trim']=dict(id=request_id,ids=[keep_id,stop_id,trim_id])
+        group['pending_stop_trim']=dict(id=request_id,ids=sent_ids)
+        if group.get('pending_trim_edit'):group['pending_trim_edit'].setdefault('replacement_ids',[]).extend(sent_ids)
         self.save_group(account,cid,group)
         # Equal-sized OCA members let IB reduce the stop on partial Trim fills;
         # the retained stop is outside that group and cannot be canceled by Trim.
-        for order in (keep,stop,trim):
+        for order in ((keep,stop,trim) if free_size>qty else (stop,trim)):
             order.account=account;order.orderRef=group['ref'];order.tif='GTC'
             conn.ib.placeOrder(contract,order)
         snapshot=conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
         confirmed={t.order.orderId for t in snapshot if t.order.account==account and t.contract.conId==cid
             and t.order.orderRef==group['ref'] and t.orderStatus.status in ('Submitted','PreSubmitted','Filled','Cancelled','ApiCancelled','Inactive')}
         terminal={r['order_id'] for r in self.state(conn,cid)['orders'] if r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive')}
-        if not {keep_id,stop_id,trim_id} <= confirmed | terminal:
+        if not set(sent_ids) <= confirmed | terminal:
             raise RuntimeError('Protected Trim awaiting broker confirmation; do not resubmit')
         group=self.group(account,cid);group.pop('pending_stop_trim',None);self.save_group(account,cid,group)
+
+    def edit_standalone_trim(self, conn, account, cid, contract, current, group, body, request_id, price):
+        expected=body.get('expected_orders',[])
+        oid=body.get('order_id') or (expected[0].get('order_id') if len(expected)==1 else None)
+        row=next((r for r in current.get('pending_exits',[]) if r['order_id']==oid and r.get('standalone')),None)
+        if not row or body.get('expected_ref')!=group['ref'] or row['status'] not in ('Submitted','PreSubmitted'):
+            raise ValueError('Exact working Trim unavailable; refresh')
+        check=expected[0] if expected else dict(price=body.get('expected_price'),quantity=body.get('expected_quantity'))
+        if check.get('price')!=row['price'] or check.get('quantity')!=row['quantity']:
+            raise ValueError('Trim changed; reopen editor')
+        trade=self._resolved_trades.get(oid)
+        if not trade or trade.order.account!=account or trade.order.orderRef!=group['ref'] or trade.contract.conId!=cid:
+            raise ValueError('Trim ownership mismatch')
+        if body['action']=='amend':
+            import copy
+            target=price(body.get('price'))
+            if current.get('sl') and group['side']*(target-current['sl'])<=0: raise ValueError('Trim limit cannot cross the stop')
+            order=copy.copy(trade.order);order.lmtPrice=target;order.transmit=True
+            return self.modify_exit(conn,trade,order,'lmtPrice')
+        qty=body.get('quantity');size=abs(current['position'])
+        if body.get('expected_position')!=current['position'] or isinstance(qty,bool) or not isinstance(qty,int) or not 0<=qty<size:
+            raise ValueError('Invalid remaining Trim quantity or changed position')
+        if qty==row['quantity']:return
+        active=[r for r in current['orders'] if r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive')]
+        if any(r['role'].split('_')[0] not in ('trim','sl') for r in active) or any(r['status'] not in ('Submitted','PreSubmitted') for r in active):
+            raise ValueError('Wait for other orders to reconcile')
+        if any(t.order.account==account and t.contract.conId==cid and t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades()):
+            raise ValueError('Other working orders need reconciliation')
+        plans=[(r['quantity']-r['filled'],r['price']) for r in active if r['role'].split('_')[0]=='trim' and r['order_id']!=oid]
+        if qty+sum(q for q,_ in plans)>size:raise ValueError('Trim exceeds unallocated position')
+        if qty:plans.append((qty,row['price']))
+        stop_prices={r['price'] for r in active if r['role'].split('_')[0]=='sl'}
+        if len(stop_prices)>1:raise ValueError('Stop prices differ; reconcile protection first')
+        stop_price=next(iter(stop_prices),None)
+        if stop_price and sum(r['quantity']-r['filled'] for r in active if r['role'].split('_')[0]=='sl')!=size:
+            raise ValueError('Stop coverage needs reconciliation')
+        if contract.secType=='STK' and current['position']>0 and stop_price:self.require_no_call_reservation(conn,account,contract)
+        group['pending_trim_edit']=dict(id=request_id,ids=[r['order_id'] for r in active])
+        self.save_group(account,cid,group)
+        for r in active:
+            t=self._resolved_trades.get(r['order_id'])
+            if not t or t.isDone():raise RuntimeError('Order changed before cancellation')
+            conn.ib.cancelOrder(t.order)
+        deadline=time.monotonic()+3
+        while any(not self._resolved_trades[r['order_id']].isDone() for r in active):
+            if time.monotonic()>=deadline:raise RuntimeError('Trim cancellation unconfirmed; do not replay')
+            conn.ib.sleep(.05)
+        fresh=self.state(conn,cid)
+        positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
+        actual=next((float(p.position) for p in positions if p.account==account and p.contract.conId==cid),0)
+        by_id={r['order_id']:r for r in fresh['orders']}
+        if actual!=current['position'] or fresh['position']!=actual or any(by_id[r['order_id']]['filled']!=r['filled'] for r in active):
+            raise RuntimeError('Fill raced Trim edit; reconcile before replacement')
+        group=self.group(account,cid)
+        if stop_price:
+            self.set_protection(conn,account,cid,contract,fresh,group,dict(expected_ref=group['ref'],expected_snapshot=fresh['edit_snapshot'],confirm_replace_protection=True,sl=stop_price),request_id,price)
+        group=self.group(account,cid)
+        for qty,limit in plans:
+            fresh=self.state(conn,cid)
+            group=self.group(account,cid)
+            replacement=dict(action='trim',quantity=qty,exit_type='LMT',exit_price=limit,expected_ref=group['ref'],expected_position=actual)
+            if stop_price:
+                self.trim_standalone_stop(conn,account,cid,contract,fresh,group,replacement,request_id,price)
+            else:
+                if contract.secType=='STK' and actual>0 and qty>unreserved_stock_shares(conn,account,contract):raise RuntimeError('Stock coverage changed during Trim edit')
+                new_id=conn.ib.client.getReqId()
+                group['ids']['trim_'+str(new_id)]=new_id
+                group['pending_trim_edit']['replacement_ids']=[new_id];self.save_group(account,cid,group)
+                conn.ib.placeOrder(contract,LimitOrder('SELL' if actual>0 else 'BUY',qty,limit,orderId=new_id,account=account,orderRef=group['ref'],tif='DAY'))
+        group=self.group(account,cid);group.pop('pending_trim_edit',None);self.save_group(account,cid,group)
 
     def resize_trim(self, conn, account, cid, current, group, body, request_id, price):
         import copy
@@ -1548,6 +1647,7 @@ class PaperChart:
 
     def perform(self, conn, account, cid, body, request_id):
         pending=self.group(account,cid) or {}
+        if pending.get('pending_trim_edit'): raise ValueError('Previous Trim edit needs broker reconciliation')
         if pending.get('pending_resize'): raise ValueError('Previous quantity change needs broker reconciliation')
         if body.get('action') == 'cancel_protection':
             return self.cancel_protection(conn, account, cid, body)
@@ -1645,6 +1745,9 @@ class PaperChart:
             tick=Decimal(str(increments[-1])); amount=Decimal(str(number))
             if abs(amount/tick-(amount/tick).to_integral_value())>Decimal('0.000001'): raise ValueError('Price does not match contract tick size')
             return number
+        standalone_id=body.get('order_id') or ((body.get('expected_orders') or [{}])[0].get('order_id'))
+        if action in ('amend','resize_trim') and any(r['order_id']==standalone_id and r.get('standalone') for r in current.get('pending_exits',[])):
+            return self.edit_standalone_trim(conn,account,cid,contract,current,group,body,request_id,price)
         if action=='resize_trim':
             return self.resize_trim(conn,account,cid,current,group,body,request_id,price)
         if action=='amend_add':

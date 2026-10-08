@@ -777,3 +777,16 @@ Playwright actual menu-click, confirmation, limit request bridge and pending-lin
 checks passed for unprotected and BE-only states (standalone-trim.cjs).
 Read-only Paper snapshot showed short 3 with SL 3 at 1.59 and no pending Trim;
 no user request was replayed and no broker write was sent for this fix.
+
+## Standalone Trim editing and multiple plans (2026-10-08)
+
+Standalone limit Trim supports exact-identity price amendment, quantity editing,
+and cancellation via zero quantity. Quantity edits reconcile cancellation and
+unchanged fills/position before rebuilding owned exit plans; preserve other plan
+prices and full stop quantity. Unknown writes remain locked and reads never replay.
+New protected Trims consume only unallocated standalone stop quantity, preserving
+existing OCA slices. Stops are explicitly transmitted (the earlier transmit=False
+member was observed stuck PendingSubmit in Paper). The existing unknown Paper
+request was NOT retransmitted, canceled or rebuilt during this code change.
+660 backend tests and browser menu/quantity-editor interaction passed. Actual IB
+multi-plan and edit fill/race acceptance remains outstanding. No phone install.

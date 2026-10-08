@@ -334,9 +334,9 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertFalse(keep.order.ocaGroup)
         self.assertEqual(stop.order.ocaGroup,trim.order.ocaGroup)
         self.assertEqual((stop.order.ocaType,trim.order.ocaType),(2,2))
-        self.assertEqual((stop.order.transmit,trim.order.transmit),(False,True))
+        self.assertEqual((stop.order.transmit,trim.order.transmit),(True,True))
         self.assertEqual((keep.order.auxPrice,stop.order.auxPrice),(9.75,9.75))
-        self.assertFalse(r['state']['trim_allowed'])
+        self.assertTrue(r['state']['trim_allowed'])
         # Model broker OCA partial reduction, then full fill: no writes on reads.
         writes=self.conn.ib.placeOrder.call_count
         trim.orderStatus.filled=1;stop.order.totalQuantity=1
@@ -416,6 +416,54 @@ class OptionalProtectionTests(PaperChartTests):
         writes=self.conn.ib.placeOrder.call_count
         self.service.execute(self.conn,7,body)
         self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+
+    def setup_limit_trim(self):
+        state=self.setup_cc_be()
+        r=self.service.execute(self.conn,7,dict(action='trim',quantity=1,exit_type='LMT',exit_price=8.5,request_id=str(uuid4()),expected_ref=state['order_ref'],expected_position=-4))
+        self.assertTrue(r['success'],r)
+        return r['state']
+
+    def test_standalone_trim_price_and_quantity_edit_then_cancel(self):
+        state=self.setup_limit_trim();row=state['pending_exits'][0]
+        r=self.service.execute(self.conn,7,dict(action='amend',role='tp',order_id=row['order_id'],price=8.25,expected_price=row['price'],expected_quantity=1,expected_ref=state['order_ref'],request_id=str(uuid4())))
+        self.assertTrue(r['success'],r)
+        row=r['state']['pending_exits'][0];self.assertEqual(row['price'],8.25)
+        body=dict(action='resize_trim',quantity=2,expected_orders=[dict(order_id=row['order_id'],price=row['price'],quantity=row['quantity'])],expected_position=-4,expected_ref=state['order_ref'],request_id=str(uuid4()))
+        r=self.service.execute(self.conn,7,body);self.assertTrue(r['success'],r)
+        self.assertEqual(r['state']['pending_exits'][0]['quantity'],2)
+        self.assertEqual(r['state']['protection']['sl'],4)
+        writes=self.conn.ib.placeOrder.call_count;self.service.execute(self.conn,7,body);self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+        row=r['state']['pending_exits'][0]
+        body.update(quantity=0,request_id=str(uuid4()),expected_orders=[dict(order_id=row['order_id'],price=row['price'],quantity=row['quantity'])])
+        r=self.service.execute(self.conn,7,body);self.assertTrue(r['success'],r)
+        self.assertFalse(r['state'].get('pending_exits'));self.assertEqual(r['state']['protection']['sl'],4)
+
+    def test_standalone_trim_edit_fill_race_never_replaces(self):
+        state=self.setup_limit_trim();row=state['pending_exits'][0];before=self.conn.ib.placeOrder.call_count
+        original=self.conn.ib.cancelOrder.side_effect
+        def raced(o):
+            original(o)
+            if o.orderId==row['order_id']:
+                t=next(t for t in self.trades if t.order.orderId==o.orderId);t.orderStatus.filled=1;t.orderStatus.status='Filled'
+                self.conn.ib.positions.return_value[-1].position=-3
+        self.conn.ib.cancelOrder.side_effect=raced
+        r=self.service.execute(self.conn,7,dict(action='resize_trim',quantity=2,expected_orders=[dict(order_id=row['order_id'],price=row['price'],quantity=row['quantity'])],expected_position=-4,expected_ref=state['order_ref'],request_id=str(uuid4())))
+        self.assertFalse(r['success']);self.assertEqual(self.conn.ib.placeOrder.call_count,before)
+
+    def test_multiple_trim_plans_reserve_free_stops(self):
+        state=self.setup_limit_trim();first=state['pending_exits'][0]['order_id']
+        self.assertTrue(state['trim_allowed']);self.assertEqual(state['trim_available'],3)
+        r=self.service.execute(self.conn,7,dict(action='trim',quantity=2,exit_type='LMT',exit_price=8,expected_ref=state['order_ref'],expected_position=-4,request_id=str(uuid4())))
+        self.assertTrue(r['success'],r)
+        self.assertEqual([(x['price'],x['quantity']) for x in r['state']['pending_exits']],[(8.5,1),(8,2)])
+        self.assertEqual(r['state']['trim_available'],1)
+        self.assertEqual(r['state']['protection']['sl'],4)
+        self.assertEqual(next(t for t in self.trades if t.order.orderId==first).orderStatus.status,'Submitted')
+        row=r['state']['pending_exits'][1]
+        result=self.service.execute(self.conn,7,dict(action='resize_trim',quantity=1,expected_orders=[dict(order_id=row['order_id'],price=row['price'],quantity=row['quantity'])],expected_position=-4,expected_ref=state['order_ref'],request_id=str(uuid4())))
+        self.assertTrue(result['success'],result)
+        self.assertEqual(sorted((x['price'],x['quantity']) for x in result['state']['pending_exits']),[(8,1),(8.5,1)])
+        self.assertEqual(result['state']['protection']['sl'],4)
 
 def load_tests(loader, tests, pattern):
     import unittest

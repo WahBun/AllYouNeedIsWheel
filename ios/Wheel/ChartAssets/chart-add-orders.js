@@ -51,16 +51,16 @@
   const button=document.createElement('button');button.textContent='×';button.setAttribute('aria-label','Cancel trim plan');document.body.append(button);
   button.style.cssText='position:absolute;height:28px;width:29px;padding:0;background:#f4f5f3;color:#825095;border:1px solid #b27bcd;border-radius:3px;z-index:7;touch-action:manipulation';
   button.onpointerdown=e=>e.stopPropagation();
-  button.onclick=()=>{const current=paperConfig.pending_exits?.find(r=>r.order_id===row.order_id);if(!current?.restore_price||!paperConfig.enabled||paperConfig.busy)return;
+  button.onclick=()=>{const current=paperConfig.pending_exits?.find(r=>r.order_id===row.order_id);if((!current?.restore_price&&!current?.standalone)||!paperConfig.enabled||paperConfig.busy)return;
    const cid=paperCID,ref=paperConfig.order_ref,epoch=paperConfig.web_account_epoch,zh=parent.document.documentElement.lang.startsWith('zh');
    addDialog.replaceChildren();addDialog.dataset.light=String(!darkAppearance);
    const title=document.createElement('strong');title.textContent=current.action==='close'?(zh?'撤销平仓计划':'Cancel close plan'):(zh?'撤销减仓计划':'Cancel trim plan');
-   const detail=document.createElement('p');detail.textContent=(zh?'这部分数量回归 TP @ ':'Return this quantity to TP @ ')+priceText(current.restore_price)+(zh?'，保留 SL。':' and keep SL.');
+   const detail=document.createElement('p');detail.textContent=current.standalone?(zh?'撤销此减仓挂单，保留剩余持仓的止损。':'Cancel this Trim order and preserve remaining stop protection.'):(zh?'这部分数量回归 TP @ ':'Return this quantity to TP @ ')+priceText(current.restore_price)+(zh?'，保留 SL。':' and keep SL.');
    const back=document.createElement('button');back.textContent=zh?'返回':'Back';back.onclick=()=>addDialog.close();
    const apply=document.createElement('button');apply.textContent=current.action==='close'?(zh?'确认撤销平仓':'Confirm cancel close'):(zh?'确认撤销减仓':'Confirm cancel trim');
    apply.onclick=()=>{addDialog.close();const fresh=paperConfig.pending_exits?.find(r=>r.order_id===current.order_id);
     if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||!paperConfig.enabled||paperConfig.busy||JSON.stringify(fresh)!==JSON.stringify(current))return validation('Order changed; reopen trim cancellation.');
-    paperAction({action:'amend',role:'tp',order_id:current.order_id,price:current.restore_price,restore_trim:true,expected_ref:ref,expected_price:current.price,expected_quantity:current.quantity});
+    paperAction(current.standalone?{action:'resize_trim',quantity:0,expected_orders:[{order_id:current.order_id,price:current.price,quantity:current.quantity}],expected_ref:ref,expected_position:paperConfig.position}:{action:'amend',role:'tp',order_id:current.order_id,price:current.restore_price,restore_trim:true,expected_ref:ref,expected_price:current.price,expected_quantity:current.quantity});
    };
    const footer=document.createElement('footer');footer.append(back,apply);addDialog.append(title,detail,footer);addDialog.showModal();
   };
@@ -95,8 +95,8 @@
    const total=rows.reduce((n,r)=>n+r.quantity,0),cid=paperCID,ref=paperConfig.order_ref,epoch=paperConfig.web_account_epoch,position=paperConfig.position;
    const zh=parent.document.documentElement.lang.startsWith('zh');addDialog.replaceChildren();addDialog.dataset.light=String(!darkAppearance);
    const title=document.createElement('strong');title.textContent=(zh?'修改 Trim 数量 @ ':'Edit Trim quantity @ ')+priceText(current.price);
-   const note=document.createElement('p');note.textContent=zh?'增加：分配可用持仓。减少：退回普通 TP，保留 SL。0 = 撤销本计划。':'Increase: allocate unreserved units. Decrease: return units to ordinary TP, keeping SL. 0 cancels this plan.';
-   const input=document.createElement('input');input.type='number';input.min='0';input.max=String(total+(paperConfig.trim_available||0));input.step='1';input.value=String(total);input.setAttribute('aria-label','Trim plan quantity');
+   const note=document.createElement('p');note.textContent=current.standalone?(zh?'修改剩余减仓数量，止损随之调整。0 = 撤销减仓。':'Edit remaining Trim quantity with matching stop protection. 0 cancels Trim.') : zh?'增加：分配可用持仓。减少：退回普通 TP，保留 SL。0 = 撤销本计划。':'Increase: allocate unreserved units. Decrease: return units to ordinary TP, keeping SL. 0 cancels this plan.';
+   const input=document.createElement('input');input.type='number';input.min='0';input.max=String(current.standalone?Math.max(0,Math.abs(position)-1):total+(paperConfig.trim_available||0));input.step='1';input.value=String(total);input.setAttribute('aria-label','Trim plan quantity');
    const cancel=document.createElement('button');cancel.textContent=zh?'返回':'Back';cancel.onclick=()=>addDialog.close();
    const save=document.createElement('button');save.textContent=zh?'确认数量':'Confirm quantity';save.onclick=()=>{
     const quantity=Number(input.value);if(!input.value||!Number.isSafeInteger(quantity)||quantity<0||quantity>Number(input.max))return input.reportValidity();
@@ -114,7 +114,7 @@
    const id=`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${row.order_id}`;live.add(id);
    const options={price:row.price,color:'#b27bcd',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:''};
    if(exitLines.has(id)){if(exitGesture?.id!==id)exitLines.get(id).applyOptions(options);}else exitLines.set(id,series.createPriceLine(options));
-   if(!exitHandles.has(id))exitHandles.set(id,{button:createExitHandle(id,row),cancel:createExitCancel(row),edit:createPlanEditor(row),row});const handle=exitHandles.get(id);handle.row=row;const label=row.action==='close'?'Close':'Trim';handle.button.textContent=`${label} ×${row.quantity} @ ${priceText(row.price)}`;handle.edit.disabled=row.editable===false||row.action!=='trim'||config.paper.busy||!config.paper.enabled||row.status!=='Submitted'&&row.status!=='PreSubmitted';handle.button.setAttribute('aria-label',`Drag ${label.toLowerCase()} limit price`);handle.button.title=`Drag to amend this ${label.toLowerCase()} order`;handle.cancel.setAttribute('aria-label',`Cancel ${label.toLowerCase()} plan`);handle.cancel.disabled=config.paper.busy||!config.paper.enabled||!row.restore_price||row.status==='PendingCancel';handle.button.disabled=row.editable===false||config.paper.busy||!config.paper.enabled||row.status==='PendingCancel';
+   if(!exitHandles.has(id))exitHandles.set(id,{button:createExitHandle(id,row),cancel:createExitCancel(row),edit:createPlanEditor(row),row});const handle=exitHandles.get(id);handle.row=row;const label=row.action==='close'?'Close':'Trim';handle.button.textContent=`${label} ×${row.quantity} @ ${priceText(row.price)}`;handle.edit.disabled=row.editable===false||row.action!=='trim'||config.paper.busy||!config.paper.enabled||row.status!=='Submitted'&&row.status!=='PreSubmitted';handle.button.setAttribute('aria-label',`Drag ${label.toLowerCase()} limit price`);handle.button.title=`Drag to amend this ${label.toLowerCase()} order`;handle.cancel.setAttribute('aria-label',`Cancel ${label.toLowerCase()} plan`);handle.cancel.disabled=config.paper.busy||!config.paper.enabled||(!row.restore_price&&!row.standalone)||row.status==='PendingCancel';handle.button.disabled=row.editable===false||config.paper.busy||!config.paper.enabled||row.status==='PendingCancel';
   }
   for(const [id,line] of exitLines)if(!live.has(id)){series.removePriceLine(line);exitLines.delete(id);exitHandles.get(id)?.button.remove();exitHandles.get(id)?.cancel.remove();exitHandles.get(id)?.edit.remove();exitHandles.delete(id);if(exitGesture?.id===id)clearExitGesture();}
  }
