@@ -20,7 +20,7 @@ let contractFavorites=readContractFavorites();
 function renderContractFavorites(){
  const saved=contractFavorites.some(x=>x.id===cid),button=$('favorite-contract');button.disabled=!cid;button.textContent=saved?'★':'☆';button.setAttribute('aria-pressed',String(saved));
  button.title=saved?'取消收藏 / Remove favorite':'收藏当前品种 / Favorite current contract';button.setAttribute('aria-label',button.title);
- const menu=$('favorite-contracts');menu.replaceChildren(new Option('★ Favorites / 收藏',''),...contractFavorites.map(x=>new Option(x.label,String(x.id))));menu.value='';
+ const menu=$('favorite-contracts');menu.replaceChildren(new Option('★ Favorites',''),...contractFavorites.map(x=>new Option(x.label,String(x.id))));menu.value='';
 }
 $('favorite-contract').onclick=()=>{
  if(!cid)return;
