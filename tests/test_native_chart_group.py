@@ -63,6 +63,9 @@ class NativeChartGroupTests(unittest.TestCase):
         group['perms']={role:5000+oid for role,oid in group['ids'].items()}
         f.service.save_group('DU_TEST',7,group)
         f.trades.clear()
+        with f.service.database() as db:
+            db.execute('UPDATE orders SET con_id=NULL WHERE ib_order_id=?', ('2054',))
+            db.execute('INSERT INTO chart_paper_requests VALUES(?,?,?,?)',(str(uuid4()),'DU_TEST',json.dumps({'con_id':7}),json.dumps({'status':'unknown','operator_release':'already-confirmed-release'})))
         execution=NS(permId=9001,acctNumber='DU_TEST',clientId=8,orderId=2054,execId='native-fill',side='BOT',shares=3,price=10,orderRef=self.native.order.orderRef)
         from datetime import datetime, timezone
         f.conn.ib.fills.return_value=[NS(contract=f.contract,execution=execution,time=datetime.now(timezone.utc))]

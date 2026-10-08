@@ -148,12 +148,18 @@ def can_retire_empty_group(path, conn, account, cid, group, position):
             if not db.execute("SELECT 1 FROM sqlite_master WHERE name='orders'").fetchone():
                 return False
             locals_by_perm = {str(r['perm_id']): dict(r) for r in db.execute(
-                'SELECT * FROM orders WHERE account_id=? AND con_id=? AND perm_id IS NOT NULL', (account,cid))}
+                'SELECT * FROM orders WHERE account_id=? AND (con_id=? OR con_id IS NULL) AND perm_id IS NOT NULL', (account,cid))}
         executions = {}
         for fill in conn.ib.fills():
             e = fill.execution
             local = locals_by_perm.get(str(e.permId))
-            if (local and e.acctNumber == account and fill.contract.conId == cid and e.clientId == conn.client_id
+            c = fill.contract
+            exact_contract = bool(local and c.symbol == local['ticker'] and
+                (c.secType == 'STK' and local['option_type'] == 'STOCK' or
+                 c.secType == 'OPT' and local['option_type'] in {'CALL','PUT'} and
+                 c.right == ('C' if local['option_type'] == 'CALL' else 'P') and
+                 c.lastTradeDateOrContractMonth == local['expiration'] and abs(c.strike-local['strike']) < 1e-8))
+            if (exact_contract and e.acctNumber == account and fill.contract.conId == cid and e.clientId == conn.client_id
                     and str(e.orderId) == str(local.get('ib_order_id')) and e.execId
                     and e.side == ('BOT' if local['action'] == 'BUY' else 'SLD')):
                 executions[e.execId] = float(e.shares) * (1 if e.side == 'BOT' else -1)
@@ -165,6 +171,7 @@ def can_retire_empty_group(path, conn, account, cid, group, position):
         rows = db.execute('SELECT body,result FROM chart_paper_requests WHERE account=?', (account,)).fetchall()
     for encoded, outcome in rows:
         body = json.loads(encoded)
-        if body.get('con_id') == cid and (not outcome or json.loads(outcome).get('status') == 'unknown'):
+        result = json.loads(outcome) if outcome else {}
+        if body.get('con_id') == cid and not result.get('operator_release') and (not outcome or result.get('status') == 'unknown'):
             return False
     return True
