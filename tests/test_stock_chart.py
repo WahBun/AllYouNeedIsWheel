@@ -189,6 +189,32 @@ class StockChartTests(unittest.TestCase):
         with self.assertRaises(ValueError):feed.snapshot(conn,7,5)
         conn.ib.reqTickByTickData.assert_not_called()
 
+    def test_option_empty_history_retries_after_pacing_not_one_minute(self):
+        from unittest.mock import patch
+        conn,_=self.connection(); feed=StockChart()
+        conn.get_option_position_by_con_id.return_value['contract'].secType='OPT'
+        conn.get_option_position_by_con_id.return_value['contract'].exchange='SMART'
+        resolver=patch('api.services.chart_contracts.contracts.resolve',return_value=conn.get_option_position_by_con_id.return_value['contract'])
+        resolver.start(); self.addCleanup(resolver.stop)
+        conn.ib.reqHistoricalData.return_value=[]
+        conn.ib.errorEvent=Event()
+        with patch('api.services.stock_chart.time.monotonic',return_value=100):
+            with self.assertRaises(ValueError): feed.snapshot(conn,7,5)
+            self.assertEqual(feed.next_request[7],115)
+            with self.assertRaises(ValueError): feed.snapshot(conn,7,5)
+            self.assertEqual(conn.ib.reqHistoricalData.call_count,1)
+        with patch('api.services.stock_chart.time.monotonic',return_value=116):
+            with self.assertRaises(ValueError): feed.snapshot(conn,7,5)
+            self.assertEqual(conn.ib.reqHistoricalData.call_count,2)
+        def denied(*args,**kwargs):
+            conn.ib.errorEvent.emit(1,354,'Not subscribed',conn.get_option_position_by_con_id.return_value['contract'])
+            return []
+        conn.ib.reqHistoricalData.side_effect=denied
+        with patch('api.services.stock_chart.time.monotonic',return_value=132):
+            with self.assertRaisesRegex(ValueError,'permission'): feed.snapshot(conn,7,5)
+            self.assertEqual(feed.next_request[7],192)
+        conn.ib.placeOrder.assert_not_called()
+
     def test_join_quotes_require_recent_live_uncrossed_market(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
         conn,ticker=self.connection();feed=StockChart()

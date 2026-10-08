@@ -252,6 +252,8 @@ function resumeMarket(){
  refreshMarket({full:true});ensureMarket();refresh();
 }
 async function refreshPnL(){
+ // First chart history gets the broker lane before optional P&L reads.
+ if(!packet.bars?.length)return;
  if(document.hidden||Date.now()<marketPriorityUntil||pnlBusy||Date.now()-lastPnL<5000)return;pnlBusy=true;lastPnL=Date.now();const context=marketContext(),started=Date.now();
  try{const result=await api(`portfolio/chart-pnl/${context.cid}`);if(currentMarket(context)&&pnlReceived<=started){packet={...packet,...result};pnlReceived=Date.now();renderDailyPnL();}}
  catch{if(currentMarket(context)&&pnlReceived<=started){packet.daily_pnl=null;renderDailyPnL();}}finally{pnlBusy=false;}

@@ -219,7 +219,9 @@ class StockChart:
             bars.sort(key=lambda b: b['time'])
             if not bars:
                 # Failed history must not monopolize the serialized account/order lane.
-                self.next_request[con_id] = time.monotonic() + 60
+                # Transient option history timeouts should not impose a full minute
+                # of blank chart. Keep IB's identical-request pacing floor.
+                self.next_request[con_id] = time.monotonic() + (15 if option_bars and not permission_errors else 60)
                 if option_bars: conn.ib.cancelHistoricalData(historical)
                 self.request_errors[con_id] = 'Option market data permission unavailable; verify this contract entitlement in Gateway' if permission_errors else 'No historical trades returned for this contract; check history range and market data permissions'
                 raise ValueError(self.request_errors[con_id])
