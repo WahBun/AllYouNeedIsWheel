@@ -1753,8 +1753,9 @@ class PaperChart:
         if action == 'trim' and contract.secType in ('OPT','STK') and current.get('unprotected_scaling'):
             if body.get('expected_ref') != group.get('ref') or body.get('expected_position') != current['position']:
                 raise ValueError('Position changed; reopen Trim')
-            if 'exit_price' in body or 'exit_type' in body:
-                raise ValueError('Unprotected Trim currently supports market exits only')
+            target = price(body['exit_price']) if 'exit_price' in body and body.get('exit_type') == 'LMT' else None
+            if ('exit_price' in body or 'exit_type' in body) and target is None:
+                raise ValueError('Priced Trim requires a valid limit price')
             qty=body.get('quantity')
             if isinstance(qty,bool) or not isinstance(qty,(int,float)) or not math.isfinite(qty) or qty!=int(qty) or not 1<=qty<abs(current['position']):
                 raise ValueError('Trim must leave a whole position; use Close for a full exit')
@@ -1769,7 +1770,8 @@ class PaperChart:
                 if qty > available+1e-8:
                     raise ValueError(f'Trim exceeds unreserved shares ({available:g}); shares are reserved for covered CALLs or stock sell orders')
             oid=conn.ib.client.getReqId()
-            order=MarketOrder('SELL' if actual>0 else 'BUY',int(qty),orderId=oid,account=account,tif='DAY',orderRef=group['ref'])
+            order=(LimitOrder('SELL' if actual>0 else 'BUY',int(qty),target) if target is not None else MarketOrder('SELL' if actual>0 else 'BUY',int(qty)))
+            order.orderId=oid;order.account=account;order.tif='DAY';order.orderRef=group['ref']
             group['ids']['trim_'+str(oid)]=oid
             group['simple_adjustments']=True
             group['simple_trim']=dict(request_id=request_id,order_id=oid)

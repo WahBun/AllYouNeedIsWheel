@@ -71,7 +71,7 @@ class UnprotectedScalingTests(unittest.TestCase):
 
     def test_invalid_stale_and_priced_trim_do_not_write(self):
         self.filled(option=True)
-        for change in (dict(quantity=3),dict(quantity=0),dict(quantity=True),dict(quantity=1.5),dict(expected_position=2),dict(expected_ref='stale'),dict(exit_price=11,exit_type='LMT')):
+        for change in (dict(quantity=3),dict(quantity=0),dict(quantity=True),dict(quantity=1.5),dict(expected_position=2),dict(expected_ref='stale'),dict(exit_price=11,exit_type='STP')):
             self.assertFalse(self.service.execute(self.conn,7,dict(self.request(),**change))['success'])
         self.conn.ib.placeOrder.assert_not_called()
 

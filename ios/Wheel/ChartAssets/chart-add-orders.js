@@ -222,10 +222,10 @@
   if(!paperConfig.enabled)return paperConfig.trading_block_reason||'Waiting for verified order status';
   if(paperConfig.busy)return 'Order request in progress';
   if(!paperConfig.position)return 'No remaining position';
-  if(trim&&!priced&&Math.abs(paperConfig.position)<=1)return 'Only 1 remains; use Close position';
+  if(trim&&(!priced||!paperConfig.scalable)&&Math.abs(paperConfig.position)<=1)return 'Only 1 remains; use Close position';
   if(trim&&availableTrim()<1)return 'All remaining units already have exit plans; move or cancel a plan first';
   if(trim&&!(paperConfig.trim_allowed??paperConfig.scalable))return 'Partial exit requires reconciled paired protection; use Close position';
-  if(priced&&!paperConfig.scalable)return 'Unprotected Trim supports market exits only';
+  if(priced&&!(paperConfig.scalable||paperConfig.unprotected_scaling||paperConfig.stop_trim_allowed))return 'Wait for reconciled position and exits';
   return '';
  }
  function chooseExit(trim,price=null){
@@ -237,11 +237,11 @@
   const title=document.createElement('strong');title.textContent=priced?(zh?'限价减仓 / 平仓':'Limit trim / close'):trim?(zh?'减仓':'Trim position'):(zh?'全部平仓':'Close position');
   const detail=document.createElement('p');detail.textContent=`${countdownPacket?.local_symbol||countdownPacket?.symbol||''} · ${position>0?'Long':'Short'} ${size} · `+(paperConfig.scalable?(zh?'按当前买卖价调整退出限价单，不保证立即成交。':'Exit limit at current bid/ask; immediate fill is not guaranteed.'):(trim?(zh?'核对持仓后市价减仓，不保证成交价格。':'Market trim after position reconciliation; execution price is not guaranteed.'):(zh?'核验撤单与剩余仓位后市价平仓。':'Market close after cancellation and position reconciliation.')));
   if(priced)detail.textContent=`${countdownPacket?.local_symbol||countdownPacket?.symbol||''} · ${position>0?'Sell':'Buy'} Limit @ ${priceText(price)} · ${zh?'现有持仓':'Position'} ${size}`;
-  const input=document.createElement('input');input.type='number';input.min='1';input.max=String(trim?Math.min(availableTrim(),priced?size:size-1):size);input.step='1';input.value=String(trim?Math.min(Number(input.max),paperConfig.adjustment_quantity||1):size);input.disabled=!trim;input.setAttribute('aria-label','Exit quantity');
+  const input=document.createElement('input');input.type='number';input.min='1';input.max=String(trim?Math.min(availableTrim(),priced&&paperConfig.scalable?size:size-1):size);input.step='1';input.value=String(trim?Math.min(Number(input.max),paperConfig.adjustment_quantity||1):size);input.disabled=!trim;input.setAttribute('aria-label','Exit quantity');
   const remaining=document.createElement('p');const updateRemaining=()=>{remaining.textContent=(zh?'成交后剩余：':'Remaining after fill: ')+Math.max(0,size-Number(input.value));};input.oninput=updateRemaining;updateRemaining();
   const cancel=document.createElement('button');cancel.textContent=zh?'返回':'Cancel';cancel.onclick=()=>addDialog.close();
   const submit=document.createElement('button');submit.textContent=priced?(zh?'挂限价退出单':'Place limit exit'):trim?(zh?'确认减仓':'Confirm trim'):(zh?'确认平仓':'Confirm close');
-  submit.onclick=()=>{const quantity=Number(input.value);if(!Number.isSafeInteger(quantity)||quantity<1||(trim&&!priced&&quantity>=size)||quantity>size||(trim&&quantity>availableTrim()))return input.reportValidity();
+  submit.onclick=()=>{const quantity=Number(input.value);if(!Number.isSafeInteger(quantity)||quantity<1||(trim&&(!priced||!paperConfig.scalable)&&quantity>=size)||quantity>size||(trim&&quantity>availableTrim()))return input.reportValidity();
    if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||position!==paperConfig.position||exitReason(trim,priced)){addDialog.close();return validation('Position changed; reopen exit menu');}
    addDialog.close();paperAction({action:trim?'trim':'close',quantity,expected_ref:ref,expected_position:position,...(priced?{exit_type:'LMT',exit_price:price,expected_position:position}:{})});
   };

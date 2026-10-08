@@ -758,3 +758,10 @@ Protected Trim follow-up: 656 backend mock tests passed, covering equal-quantity
 OCA construction, partial/full fill snapshots, stop-first and cancel outcomes,
 old-stop cancellation races, missing members and read-only restart recovery.
 Actual IB OCA execution remains pending Paper acceptance; no real fill is claimed.
+
+Right-click Trim follow-up: remove the stale paired-protection-only UI restriction.
+Unprotected stock/option Trim now accepts an explicit LMT exit_price; market Trim
+is unchanged. BE-only priced Trim uses the OCA path. Whole-position exits remain
+Close actions for these paths. 657 backend tests passed; direct execution of the
+menu availability function covers unprotected, BE-only, paired, blocked and busy
+states. JS syntax passed; no broker write or physical-device installation.

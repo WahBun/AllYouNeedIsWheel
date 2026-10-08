@@ -402,6 +402,20 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertFalse(self.service.execute(self.conn,7,another)['success'])
         self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
 
+    def test_unprotected_cc_priced_trim_uses_exact_limit(self):
+        self.test_cc_full_coverage_disables_add_but_be_creates_buy_stop()
+        for t in self.trades[1:]: t.orderStatus.status='Cancelled'
+        state=self.service.state(self.conn,7)
+        body=dict(action='trim',quantity=1,exit_type='LMT',exit_price=8.5,request_id=str(uuid4()),expected_ref=state['order_ref'],expected_position=-4)
+        r=self.service.execute(self.conn,7,body)
+        self.assertTrue(r['success'],r)
+        o=self.trades[-1].order
+        self.assertEqual((o.orderType,o.action,o.totalQuantity,o.lmtPrice),('LMT','BUY',1,8.5))
+        self.assertFalse(r['state']['trim_allowed'])
+        writes=self.conn.ib.placeOrder.call_count
+        self.service.execute(self.conn,7,body)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+
 def load_tests(loader, tests, pattern):
     import unittest
     return unittest.TestSuite(OptionalProtectionTests(name) for name in OptionalProtectionTests.__dict__ if name.startswith('test_'))
