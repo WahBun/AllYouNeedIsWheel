@@ -8,7 +8,7 @@ import hashlib
 import math
 import time
 import sqlite3
-from decimal import Decimal, ROUND_CEILING
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from uuid import UUID
 from ib_async import LimitOrder, StopOrder, MarketOrder
 from api.services.chart_contracts import contracts
@@ -45,7 +45,7 @@ def require_call_coverage(conn, account, contract, quantity):
         raise ValueError('Insufficient unreserved shares for covered call; reconcile stock and call orders')
 
 
-def unreserved_stock_shares(conn, account, contract):
+def unreserved_stock_shares(conn, account, contract, *, cached=False):
     """Conservative shared budget for new CC sales and unprotected stock trims."""
     def standard(c):
         return c.currency == 'USD' and c.multiplier == '100' and c.tradingClass == c.symbol
@@ -53,8 +53,8 @@ def unreserved_stock_shares(conn, account, contract):
     # reserve twice briefly, but must never disappear between the two snapshots.
     orders=[(t.contract,t.order.account,t.order.action,t.orderStatus.status,
         (t.order.clientId,t.order.orderId,t.order.permId),float(t.order.totalQuantity),float(t.orderStatus.filled))
-        for t in conn._bounded_order_read(conn.ib.reqAllOpenOrders,timeout_seconds=3)]
-    positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
+        for t in (conn.ib.openTrades() if cached else conn._bounded_order_read(conn.ib.reqAllOpenOrders,timeout_seconds=3))]
+    positions=conn.ib.positions() if cached else conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
     shares=0.0; reserved=0.0
     for p in positions:
         c=p.contract
@@ -189,6 +189,7 @@ class PaperChart:
                 result['protection']['status']='not_requested'
             if not account.startswith('DU'):
                 result.update(add_allowed=False,trim_allowed=False,protection_manageable=False,protection_cancelable=False)
+            self.action_availability(conn, account, position.contract if position else None, result)
             return result
         # Completed IB orders can lose their temporary orderId after reconnect.
         # Recover only by exact recorded permId or a unique bracket reference/role.
@@ -522,7 +523,37 @@ class PaperChart:
                 result[role+'_projection']=dict(known=complete and bool(targets),realized=realized,targets=targets)
         if not account.startswith('DU'):
             result.update(add_allowed=False,trim_allowed=False,protection_manageable=False,protection_cancelable=False)
+        self.action_availability(conn, account, scaling_contract, result)
         return result
+
+    @staticmethod
+    def action_availability(conn, account, contract, result):
+        # UI hints use the already synchronized broker cache: never block chart
+        # updates on collateral reads. Execution still performs fresh validation.
+        size = abs(result.get('position', 0))
+        ready = bool(result.get('known') and result.get('enabled') and not result.get('closing') and not result.get('sync_error'))
+        result['close_allowed'] = bool(ready and result.get('active') and not result.get('position_only'))
+        result['be_allowed'] = bool(ready and size and result.get('entry', 0) > 0 and not result.get('be_applied') and
+            (result.get('sl') or contract and contract.secType in ('STK', 'OPT') and result.get('protection_manageable')))
+        if not account.startswith('DU'): result['be_allowed'] = False
+        if not contract: return
+        result['add_available'] = max(0, (10 if contract.secType in ('OPT','FUT') else 1000) - size)
+        result['trim_available'] = result.get('trim_available', size)
+        try:
+            if contract.secType == 'OPT' and contract.right == 'C' and result.get('position', 0) < 0:
+                standard = contract.currency == 'USD' and contract.multiplier == '100' and contract.tradingClass == contract.symbol
+                result['add_available'] = min(result['add_available'], math.floor(unreserved_stock_shares(conn, account, contract, cached=True) / 100)) if standard else 0
+            if contract.secType == 'STK' and result.get('position', 0) > 0:
+                free = unreserved_stock_shares(conn, account, contract, cached=True)
+                reserved = any(p.account == account and p.contract.secType == 'OPT' and p.contract.symbol == contract.symbol and p.contract.right == 'C' and p.position < 0 for p in conn.ib.positions()) or any(t.order.account == account and (t.contract.secType == 'BAG' or t.contract.secType == 'OPT' and t.contract.symbol == contract.symbol and t.contract.right == 'C' and t.order.action == 'SELL') for t in conn.ib.openTrades())
+                if reserved:
+                    result['be_allowed'] = result['close_allowed'] = False
+                    result['trim_available'] = min(result['trim_available'], free) if result.get('unprotected_scaling') else 0
+        except (ValueError, TypeError, AttributeError):
+            result['add_available'] = result['trim_available'] = 0
+            if contract.secType == 'STK': result['be_allowed'] = result['close_allowed'] = False
+        result['add_allowed'] = bool(ready and result.get('add_allowed') and result['add_available'] >= 1)
+        result['trim_allowed'] = bool(ready and result.get('trim_allowed') and size > 1 and result['trim_available'] >= 1)
 
     @staticmethod
     def protection_progress(rows, position, lots=None):
@@ -1308,7 +1339,7 @@ class PaperChart:
                 raise RuntimeError('Orders changed during position reconciliation')
             if any(t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades() if t.order.account==account and t.contract.conId==cid):
                 raise RuntimeError('Other working orders appeared during reconciliation')
-            if body.get('be_create'):
+            if body.get('be_create') and contract.secType == 'STK':
                 self.require_no_call_reservation(conn, account, contract)
                 checked = self.state(conn, cid)
                 if checked['edit_snapshot'] != verified['edit_snapshot'] or checked['position'] != actual:
@@ -1559,10 +1590,10 @@ class PaperChart:
             setattr(order,field,target);order.transmit=True
             self.modify_exit(conn,parent,order,field)
             return
-        if action == 'be' and contract.secType == 'STK':
-            self.require_no_call_reservation(conn, account, contract)
+        if action == 'be' and contract.secType in ('STK', 'OPT'):
+            if contract.secType == 'STK': self.require_no_call_reservation(conn, account, contract)
             if not current.get('sl'):
-                if not current.get('known') or not current.get('protection_manageable') or current.get('position', 0) <= 0:
+                if not current.get('known') or not current.get('protection_manageable') or not current.get('position', 0):
                     raise ValueError('Wait for settled entries and a known owned position')
                 if body.get('expected_ref') != current.get('order_ref') or body.get('expected_snapshot') != current.get('edit_snapshot'):
                     raise ValueError('Orders changed; reopen protection settings')
@@ -1573,7 +1604,8 @@ class PaperChart:
                 ticks = [r['increment'] for r in rules if r['low'] <= base]
                 if not ticks: raise ValueError('Wait for contract tick size')
                 tick = Decimal(str(ticks[-1]))
-                target = price(float((Decimal(str(base))/tick).to_integral_value(rounding=ROUND_CEILING)*tick + tick))
+                sign = 1 if current['position'] > 0 else -1
+                target = price(float((Decimal(str(base))/tick).to_integral_value(rounding=ROUND_CEILING if sign > 0 else ROUND_FLOOR)*tick + sign*tick))
                 request = dict(body, sl=target, tp=current.get('tp') or None, confirm_replace_protection=True, be_create=True)
                 return self.set_protection(conn,account,cid,contract,current,group,request,request_id,price)
         if action=='set_protection':
@@ -1751,7 +1783,6 @@ class PaperChart:
                 ticks=[r['increment'] for r in rules if r['low']<=base]
                 if not ticks: raise ValueError('Wait for contract tick size')
                 tick=Decimal(str(ticks[-1])); sign=1 if current['position']>0 else -1
-                from decimal import ROUND_FLOOR
                 rounded=(Decimal(str(base))/tick).to_integral_value(rounding=ROUND_CEILING if sign>0 else ROUND_FLOOR)*tick
                 new_price=price(float(rounded+sign*tick))
             else: new_price=price(body.get('price'))

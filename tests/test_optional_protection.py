@@ -285,6 +285,40 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertTrue(result['confirmed'],result)
         self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
 
+    def test_cc_full_coverage_disables_add_but_be_creates_buy_stop(self):
+        from ib_async import Stock
+        self.contract.secType='OPT';self.contract.right='C';self.contract.multiplier='100';self.contract.tradingClass=self.contract.symbol
+        stock=S(account='DU_TEST',contract=Stock(self.contract.symbol,'SMART','USD',conId=99),position=400)
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw: self.conn.ib.positions.return_value if fn==self.conn.ib.reqPositions else self.trades
+        self.conn.ib.positions.return_value=[stock]
+        _,r=self.submit(side=-1,quantity=4,tp=None,sl=None)
+        self.assertTrue(r['success'],r)
+        parent=self.trades[0];parent.orderStatus.status='Filled';parent.orderStatus.filled=4;parent.orderStatus.avgFillPrice=10
+        option=S(account='DU_TEST',contract=self.contract,position=-4,avgCost=1000)
+        self.conn.ib.positions.return_value=[stock,option]
+        state=self.service.state(self.conn,7)
+        self.assertFalse(state['add_allowed']);self.assertEqual(state['add_available'],0)
+        self.assertTrue(state['be_allowed']);self.assertTrue(state['trim_allowed'])
+        body=dict(action='be',request_id=str(uuid4()),expected_ref=state['order_ref'],expected_snapshot=state['edit_snapshot'])
+        r=self.service.execute(self.conn,7,body)
+        self.assertTrue(r['success'],r)
+        stop=self.trades[-1].order
+        self.assertEqual((stop.orderType,stop.action,stop.totalQuantity,stop.auxPrice),('STP','BUY',4,9.75))
+        count=len(self.trades);self.service.execute(self.conn,7,body);self.assertEqual(len(self.trades),count)
+
+    def test_stock_cc_action_hints_keep_free_trim_only(self):
+        from ib_async import Option
+        _,r=self.submit(quantity=400,tp=None,sl=None)
+        parent=self.trades[0];parent.orderStatus.status='Filled';parent.orderStatus.filled=400;parent.orderStatus.avgFillPrice=10
+        stock=S(account='DU_TEST',contract=self.contract,position=400,avgCost=10)
+        call=S(account='DU_TEST',contract=Option(symbol=self.contract.symbol,right='C',currency='USD',multiplier='100',tradingClass=self.contract.symbol),position=-3)
+        self.conn.ib.positions.return_value=[stock,call]
+        state=self.service.state(self.conn,7)
+        self.assertFalse(state['be_allowed']);self.assertFalse(state['close_allowed'])
+        self.assertTrue(state['trim_allowed']);self.assertEqual(state['trim_available'],100)
+        call.position=-4
+        self.assertFalse(self.service.state(self.conn,7)['trim_allowed'])
+
 def load_tests(loader, tests, pattern):
     import unittest
     return unittest.TestSuite(OptionalProtectionTests(name) for name in OptionalProtectionTests.__dict__ if name.startswith('test_'))

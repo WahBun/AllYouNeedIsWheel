@@ -734,3 +734,17 @@ Confirmed write rejection and connection-loss transitions also provide feedback.
 Settings and chart controls share a persisted sound preference. Backgrounding stops
 queued playback; the iPhone silent switch is respected. Background push delivery
 is not implemented, and no broker order was sent to verify audio.
+
+## CC BE and action availability (2026-10-08)
+
+Explicit BE can now create a standalone stop for a settled owned option position,
+using broker basis and directional tick rounding; short calls buy back on the stop.
+Default option entries still have no protection. The stock CC reservation guard
+remains stock-only. Shared action hints disable Add at exhausted call coverage,
+limit stock Trim to free shares, and block covered-stock Close/BE. Hints use the
+existing broker cache; fresh authoritative checks remain on writes.
+Web and native consume these hints and quantity bounds. A BE-only aggregate
+option position still cannot Trim: stop resizing after trim is not implemented.
+Validation: 651 backend tests, including full-coverage CC BE creation and request
+deduplication; native simulator build and JS syntax passed. No new broker order,
+physical iPhone install, or native runtime interaction acceptance for this change.
