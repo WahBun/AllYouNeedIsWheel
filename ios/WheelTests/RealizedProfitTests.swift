@@ -35,6 +35,18 @@ final class RealizedProfitTests: XCTestCase {
         XCTAssertEqual(DailyClosedProfit.calculate([], now: now).amount, 0)
     }
 
+    func testSevenDaysAndMonthUseHistoryBoundaries() throws {
+        let now = ISO8601DateFormatter().date(from: "2026-10-08T15:00:00Z")!
+        let dates = ["2026-10-01T16:00:00Z", "2026-10-02T03:59:59Z", "2026-10-02T04:00:00Z", "2026-10-08T16:00:00Z", "2026-10-09T04:00:00Z"]
+        let orders = try dates.enumerated().map { index, date in
+            try JSONDecoder().decode(Order.self, from: Data("{\"id\":\(index),\"status\":\"filled\",\"intent\":\"CLOSE\",\"filled\":1,\"fill_time\":\"\(date)\",\"net_pnl\":10}".utf8))
+        }
+        XCTAssertEqual(DailyClosedProfit.calculate(orders, days: 1, now: now).amount, 10)
+        XCTAssertEqual(DailyClosedProfit.calculate(orders + [orders[2]], days: 7, now: now).amount, 20)
+        XCTAssertEqual(DailyClosedProfit.calculate(orders, days: 0, now: now).amount, 40)
+        XCTAssertEqual(DailyClosedProfit.calculate(orders, days: 30, now: now).amount, 40)
+    }
+
     func testLatePnlUpdatesSameBannerWithoutNewNotification() {
         let preview = FillPreview()
         var order = Order(id: 1, quantity: 2, status: "executed", intent: "CLOSE", filled: 2)

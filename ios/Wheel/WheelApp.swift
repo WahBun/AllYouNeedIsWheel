@@ -1375,7 +1375,7 @@ struct OrdersView: View {
             HStack(alignment: .lastTextBaseline) {
                 Text(localizedLabel("Orders", locale: locale)).font(.largeTitle.bold())
                 Spacer(minLength: 12)
-                OrdersDailyProfit()
+                OrdersDailyProfit(days: history ? historyDays : 1)
             }.listRowBackground(Color.clear).listRowSeparator(.hidden)
             StatusView(orders: true)
             Picker("Orders", selection: $history) { Text("Pending").tag(false); Text("Executed records").tag(true) }.pickerStyle(.segmented)

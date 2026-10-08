@@ -7682,6 +7682,54 @@
           }
         }
       }
+    },
+    "7-Day P&L" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7天盈亏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7天盈虧"
+          }
+        }
+      }
+    },
+    "Month-to-date P&L" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本月盈亏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本月盈虧"
+          }
+        }
+      }
+    },
+    "Confirmed closed-order net P&L for the selected period · New York dates" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所选期间已确认的平仓净盈亏 · 按纽约日期统计"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所選期間已確認的平倉淨盈虧 · 按紐約日期統計"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

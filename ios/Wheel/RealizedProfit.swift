@@ -57,14 +57,19 @@ struct FuturesProfit: View {
 struct DailyClosedProfit {
     let amount: Double
     let pending: Int
-    static func calculate(_ orders: [Order], now: Date = .now) -> DailyClosedProfit {
+    static func calculate(_ orders: [Order], days: Int = 1, now: Date = .now) -> DailyClosedProfit {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        let today = calendar.startOfDay(for: now)
+        let start = (days == 0 || days == 30)
+            ? calendar.date(from: calendar.dateComponents([.year, .month], from: today))!
+            : calendar.date(byAdding: .day, value: -(max(1, days) - 1), to: today)!
+        let end = calendar.date(byAdding: .day, value: 1, to: today)!
         var seen: Set<OrderID> = []
         var amount = 0.0, pending = 0
         for order in orders where order.intent == "CLOSE" && order.hasFill {
             guard seen.insert(order.id).inserted, let date = order.fillDate,
-                  calendar.isDate(date, inSameDayAs: now) else { continue }
+                  date >= start, date < end else { continue }
             if let net = order.closedNetProfit { amount += net }
             else { pending += 1 }
         }
@@ -73,15 +78,16 @@ struct DailyClosedProfit {
 }
 
 struct OrdersDailyProfit: View {
+    var days: Int = 1
     @Environment(WheelStore.self) private var store
     @Environment(\.customPalette) private var palette
     @Environment(\.colorScheme) private var scheme
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { clock in
-            let total = DailyClosedProfit.calculate(store.filledOrders, now: clock.date)
+            let total = DailyClosedProfit.calculate(store.filledOrders, days: days, now: clock.date)
             let ready = store.filledError == nil && store.filledUpdated != nil
             VStack(alignment: .trailing, spacing: 3) {
-                Text("Daily P&L").font(.caption).foregroundStyle(.secondary)
+                Text(days == 7 ? "7-Day P&L" : (days == 0 || days == 30) ? "Month-to-date P&L" : "Daily P&L").font(.caption).foregroundStyle(.secondary)
                 Text(ready ? (total.amount > 0 ? "+" : "") + money(total.amount) : "—")
                     .font(.title3.weight(.semibold)).monospacedDigit()
                     .foregroundStyle(!ready || total.amount == 0 ? Color.secondary : palette.color(total.amount > 0 ? "gain" : "loss", scheme: scheme, fallback: total.amount > 0 ? FinancialColors.gain : FinancialColors.loss))
@@ -89,7 +95,7 @@ struct OrdersDailyProfit: View {
                     Text("\(total.pending) awaiting P&L").font(.caption2).foregroundStyle(.secondary)
                 }
             }.accessibilityElement(children: .combine)
-                .help("Today's confirmed closed-order net P&L · New York date")
+                .help("Confirmed closed-order net P&L for the selected period · New York dates")
         }
     }
 }
