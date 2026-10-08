@@ -373,8 +373,6 @@ private struct PerformanceSelectionOverlay: View {
             }
         }
         .font(.caption).monospacedDigit().padding(10)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.secondary.opacity(0.25)))
         .allowsHitTesting(false)
     }
     private func tooltipRow(_ title: String, value: Double, color: Color) -> some View {
