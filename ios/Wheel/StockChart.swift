@@ -1102,15 +1102,13 @@ struct StockChartView: View {
                         Button { join("ask") } label: { Text("Join Ask").frame(maxWidth: .infinity, minHeight: 30) }.tint(.red).disabled(joinPrice("ask") == nil || paperBusy || paperActive)
                     }
                     HStack(spacing: 8) {
-                        Button("Add") { adjustmentAction = "add"; adjustmentQuantity = 1; adjustmentRef = paperState["order_ref"] as? String ?? ""; adjustmentCID = chartID; showAdjustment = true }
-                            .frame(maxWidth: .infinity).tint(.blue).disabled(!paperEnabled || paperBusy || !canAdd || positionSize == 0)
-                        Button("Trim") { adjustmentAction = "trim"; adjustmentQuantity = 1; adjustmentRef = paperState["order_ref"] as? String ?? ""; adjustmentCID = chartID; showAdjustment = true }
-                            .frame(maxWidth: .infinity).tint(.purple).disabled(!paperEnabled || paperBusy || !canTrim || positionSize < 2)
-                    }
-                    HStack(spacing: 8) {
-                        Button { if paperEnabled { paperAction(["action": "close", "expected_ref": paperState["order_ref"] ?? ""]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.65).frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || paperState["position_only"] as? Bool == true || paperState["closing"] as? Bool == true || (store.chartTradingAvailable ? (!paperEnabled || !paperActive) : validEntry <= 0))
+                        Button { adjustmentAction = "add"; adjustmentQuantity = 1; adjustmentRef = paperState["order_ref"] as? String ?? ""; adjustmentCID = chartID; showAdjustment = true } label: { Text("Add").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }
+                            .tint(.blue).disabled(!paperEnabled || paperBusy || !canAdd || positionSize == 0)
+                        Button { adjustmentAction = "trim"; adjustmentQuantity = 1; adjustmentRef = paperState["order_ref"] as? String ?? ""; adjustmentCID = chartID; showAdjustment = true } label: { Text("Trim").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }
+                            .tint(.purple).disabled(!paperEnabled || paperBusy || !canTrim || positionSize < 2)
                         Button { if paperEnabled { paperAction(["action": "be", "expected_ref": paperState["order_ref"] ?? "", "expected_snapshot": paperState["edit_snapshot"] ?? ""]) } else { beRevision += 1 } } label: { Text("BE").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(paperBusy || (store.chartTradingAvailable && !paperEnabled) || (paperEnabled && ((paperState["position"] as? Double ?? 0) == 0 || ((paperState["sl"] as? Double ?? 0) <= 0 && !(chartType == "STK" && paperState["protection_manageable"] as? Bool == true)))) || (!paperEnabled && protectionOption(chartType, "sl") == "off") || beApplied || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
                     }
+                    Button { if paperEnabled { paperAction(["action": "close", "expected_ref": paperState["order_ref"] ?? ""]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.65).frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || paperState["position_only"] as? Bool == true || paperState["closing"] as? Bool == true || (store.chartTradingAvailable ? (!paperEnabled || !paperActive) : validEntry <= 0))
                 }.font(.system(size: 13, weight: .semibold))
             }.buttonStyle(.bordered)
             }
