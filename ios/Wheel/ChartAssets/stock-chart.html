@@ -161,7 +161,7 @@ function calculateATR(bars,length){
  return value;
 }
 const atrBadge=document.createElement('div');atrBadge.id='atr-value';atrBadge.hidden=true;
-atrBadge.style.cssText='position:absolute;top:20px;right:80px;z-index:3;background:#000c;border:1px solid #808080;color:white;padding:3px 7px;white-space:nowrap;pointer-events:none;font:18px -apple-system;font-variant-numeric:tabular-nums';
+atrBadge.style.cssText='position:absolute;top:20px;right:80px;z-index:3;background:#000c;border:1px solid #808080;color:white;padding:3px 7px;white-space:nowrap;pointer-events:none;font:14px -apple-system;font-variant-numeric:tabular-nums';
 atrBadge.setAttribute('aria-label','Average true range');document.body.append(atrBadge);
 function updateATR(){
  atrBadge.dataset.option=String(countdownPacket?.security_type==='OPT');
