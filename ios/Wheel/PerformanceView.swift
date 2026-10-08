@@ -2,11 +2,11 @@ import SwiftUI
 import Charts
 
 enum PerformanceColors {
-    // Sky blue on dark backgrounds; deeper blue for light-mode contrast.
+    // Nasdaq-inspired cyan blue from the reference; deeper on light backgrounds.
     static let ndx = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 92.0 / 255, green: 190.0 / 255, blue: 245.0 / 255, alpha: 1)
-            : UIColor(red: 0, green: 112.0 / 255, blue: 173.0 / 255, alpha: 1)
+            ? UIColor(red: 0, green: 153.0 / 255, blue: 187.0 / 255, alpha: 1)
+            : UIColor(red: 0, green: 120.0 / 255, blue: 147.0 / 255, alpha: 1)
     })
     // Lavender in dark mode; deeper violet keeps thin lines legible on white.
     static let spx = Color(uiColor: UIColor { traits in
