@@ -300,3 +300,20 @@ Remaining RTH evidence: sustained real partial fill of a single parent, actual
 CSP fills where broker permissions allow, and additional broker amend/cancel
 failure timings. Protected aggregate Trim remains separate unsupported scope;
 CC/CSP without TP/SL does not require silently attaching protection for tests.
+
+### Deployment audit completed
+
+Follow-up read-only audit: 60 of the 69 unknown records reference historical
+superseded groups; the other nine reference groups with recorded Filled/Cancelled
+terminal states and no pending_edit for those requests. Independently connected
+to verified DU Paper on 4002 in readonly mode: no open orders; holdings QQQ400,
+SGOV1000, and QQQ short options4 retained. No trades or journal results rewritten.
+The four short contracts are earlier retained test positions, not new trades or
+proof of a single-parent partial fill.
+
+Deployed GitHub commit 8a12b3d to Mini by fast-forward and graceful backend restart.
+Gateway unchanged. Health returned healthy; selected Live remained verified and
+chart_execution_enabled=false. New epoch issued normally after backend restart.
+This supersedes the deployment deferral above. No further phone install needed
+for this backend repair. Historical unknown-result cleanup remains read-only;
+never replay old requests merely to clear their journal statuses.
