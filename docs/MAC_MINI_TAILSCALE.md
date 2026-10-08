@@ -275,3 +275,20 @@ Demo hides connection controls without erasing the stored backend address.
 
 The checked-in Gateway compose override selects `IB Key` automatically when IB
 offers multiple authentication devices. Approval still happens on your phone.
+
+### Preserve Gateway preferences during upgrades
+
+All checked-in Gateway Compose paths explicitly set `AUTO_RESTART_TIME` to
+`11:45 PM` and leave `AUTO_LOGOFF_TIME` empty. IBC reapplies automatic restart
+at startup, including after image replacement. Time follows the Gateway time
+zone (America/New_York in the dual and warm profiles), not the Pro clock.
+This is daily automatic restart, not daily logoff. IB may still require weekly
+or exceptional authentication; image upgrades can also require a fresh login.
+
+Before an upgrade, privately back up the active settings directory and Compose
+configuration. Retain the dual bind mount `/sessions` and its separate
+`settings_live` / `settings_paper` directories. Never replace these with empty
+folders or restore old authentication files into an active session. After the
+upgrade, verify Lock and Exit in both sessions and the effective IBC
+`AutoRestartTime`, as well as the existing API permissions. Do not restart a
+running Gateway merely to apply this deployment preference.

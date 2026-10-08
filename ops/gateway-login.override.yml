@@ -3,3 +3,6 @@ services:
   ib-gateway:
     environment:
       TWOFA_DEVICE: "IB Key"
+      # Reapply the saved restart preference after image/container upgrades.
+      AUTO_RESTART_TIME: "11:45 PM"
+      AUTO_LOGOFF_TIME: ""
