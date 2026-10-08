@@ -199,6 +199,25 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertEqual(self.service.execute(self.conn,7,body),result)
         self.assertEqual(len(self.trades),count)
 
+    def test_stock_close_and_trim_reject_call_reservations_before_any_write(self):
+        self.filled_position(4)
+        from ib_async import Option, Trade, LimitOrder, OrderStatus
+        call_contract=Option(symbol=self.contract.symbol,right='C')
+        held=S(account='DU_TEST',contract=call_contract,position=-1)
+        pending=Trade(call_contract,LimitOrder('SELL',1,1,account='DU_TEST'),OrderStatus(status='PendingCancel'))
+        state=self.service.state(self.conn,7)
+        for action in ('close','trim','resize_trim'):
+            for reservation in ('held','pending'):
+                with self.subTest(action=action,reservation=reservation):
+                    self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw: ([self.pos]+([held] if reservation=='held' else []) if fn==self.conn.ib.reqPositions else self.trades+([pending] if reservation=='pending' else []))
+                    writes=self.conn.ib.placeOrder.call_count
+                    cancels=self.conn.ib.cancelOrder.call_count
+                    result=self.service.execute(self.conn,7,dict(action=action,quantity=1,request_id=str(uuid4()),expected_ref=state['order_ref']))
+                    self.assertFalse(result['success'],result)
+                    self.assertIn('covered CALLs',str(result))
+                    self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+                    self.assertEqual(self.conn.ib.cancelOrder.call_count,cancels)
+
     def test_be_rejects_covered_stock_and_stale_snapshot(self):
         self.filled_position(4)
         for t in self.trades[1:]: t.orderStatus.status='Cancelled'

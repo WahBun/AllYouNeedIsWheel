@@ -1452,6 +1452,9 @@ class PaperChart:
             conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
         current=self.state(conn,cid)
         action=body.get('action')
+        if contract.secType == 'STK' and current.get('position', 0) > 0 and action in ('close', 'trim', 'resize_trim'):
+            # Shared by native and web: reject before canceling exits or selling coverage.
+            self.require_no_call_reservation(conn, account, contract)
         if body.get('mode') == 'overnight_entry':
             if action != 'submit': raise ValueError('Overnight entry mode only supports submit')
             return self.submit_overnight_entry(conn, account, cid, contract, current, body, request_id)
