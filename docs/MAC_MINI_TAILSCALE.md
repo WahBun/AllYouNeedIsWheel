@@ -292,3 +292,16 @@ folders or restore old authentication files into an active session. After the
 upgrade, verify Lock and Exit in both sessions and the effective IBC
 `AutoRestartTime`, as well as the existing API permissions. Do not restart a
 running Gateway merely to apply this deployment preference.
+
+### Dual Gateway window layout
+
+Install `ops/com.wahbun.gateway-window-layout.plist` into the Mini user's
+`~/Library/LaunchAgents/` and bootstrap it with launchctl. The job runs
+`ops/gateway-window-layout.py` every 30 seconds while the user is logged in.
+It uses Docker's existing socat/X11 socket, requiring no extra image packages.
+Only when exactly two visible Gateway main windows exist does it place them
+side by side. It records the container start, window IDs and screen size locally;
+existing windows are not continually repositioned. New windows after a restart
+or container replacement are automatically arranged. Login/configuration dialogs
+are excluded. It never submits input or touches broker/API settings.
+Disable with `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.wahbun.gateway-window-layout.plist`.
