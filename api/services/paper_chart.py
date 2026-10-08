@@ -152,8 +152,43 @@ class PaperChart:
         group = self.group(account,cid)
         trades = {t.order.orderId:t for t in conn.ib.trades() if t.order.account==account and t.contract.conId==cid}
         position = next((p for p in conn.ib.positions() if p.account==account and p.contract.conId==cid),None)
+        from api.services.chart_broker_orders import can_retire_empty_group
+        if not self.group_id and group and can_retire_empty_group(self.path, conn, account, cid, group, float(position.position) if position else 0):
+            try:
+                multiplier = float(position.contract.multiplier or (1 if position.contract.secType == 'STK' else 0))
+                basis = abs(float(position.avgCost)) / multiplier if multiplier > 0 else 0
+            except (TypeError, ValueError):
+                basis = 0
+            if math.isfinite(basis) and basis > 0 and account.startswith('DU') and len(self.group_choices(account,cid)) == 1:
+                # Preserve the old record; only the selected management group changes.
+                with self.database() as db:
+                    db.execute('CREATE TABLE IF NOT EXISTS chart_paper_archived (account TEXT, con_id INTEGER, ref TEXT, orders TEXT, PRIMARY KEY(account,con_id,ref))')
+                    db.execute('INSERT OR IGNORE INTO chart_paper_archived VALUES(?,?,?,?)', (account,cid,group['ref'],json.dumps(group)))
+                signature=hashlib.sha256(json.dumps([account,cid,float(position.position),basis,group['ref']]).encode()).hexdigest()[:32]
+                group=dict(ids={}, side=1 if position.position>0 else -1, ref='WheelPaper:position:'+signature,
+                    origin_position=float(position.position),origin_entry=basis,requested_protection=[],manual_stop_quantity=True)
+                self.save_group(account,cid,group)
         result = dict(paper=account.startswith('DU'), account_mode='paper' if account.startswith('DU') else 'live', enabled=conn.readonly is False, position=float(position.position) if position else 0,
                       active=False, known=True, orders=[], entry=0, tp=0, sl=0, side=1, status='idle', group_id=self.group_id or '', group_choices=self.group_choices(account,cid))
+        # Orders submitted outside this chart group still belong on its chart.
+        # Exact native-order identity enables the same management lifecycle on either UI.
+        owned_ids = set((group or {}).get('ids', {}).values())
+        result['broker_pending_orders'] = []
+        for trade in trades.values():
+            order, status = trade.order, trade.orderStatus
+            if order.orderId in owned_ids or status.status not in ('PendingSubmit', 'PreSubmitted', 'Submitted', 'PendingCancel'):
+                continue
+            kind = order.orderType
+            price = order.lmtPrice if kind == 'LMT' else order.auxPrice if kind in ('STP', 'STP LMT') else None
+            if price is None or not math.isfinite(price) or not 0 < price < 1e100:
+                continue
+            remaining = max(0, float(order.totalQuantity) - float(status.filled or 0))
+            if remaining <= 0:
+                continue
+            from api.services.chart_broker_orders import describe
+            result['broker_pending_orders'].append(dict(order_id=order.orderId, price=price,
+                quantity=remaining, action=order.action, order_type=kind, status=status.status,
+                **describe(self.path, conn, trade)))
         if not account.startswith('DU'):
             from api.services.live_options import standard_option
             result['enabled'] = standard_option(contracts.resolve(conn,cid))
@@ -677,6 +712,10 @@ class PaperChart:
                 db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
                     (json.dumps(dict(success=status != 'rejected', status=status)), request_id, account))
             return dict(confirmed=True, status=status)
+        if body.get('action') == 'manage_broker_order':
+            from api.services.chart_broker_orders import reconcile
+            status = reconcile(self.path, conn, cid, body)
+            return resolved(status) if status != 'unknown' else dict(confirmed=False, status='unknown')
         if body.get('action') in ('cancel_trim','cancel_exit') and body.get('expected_ref') == group.get('ref'):
             roles=('trim',) if body['action']=='cancel_trim' else ('tp','sl')
             target=next((r for r in state['orders'] if r['order_id']==body.get('order_id') and r['role'].split('_')[0] in roles),None)
@@ -937,7 +976,7 @@ class PaperChart:
                 validate(conn,contracts.resolve(conn,cid),body,self.state(conn,cid))
             previous_rejections = {t.order.orderId for t in conn.ib.trades()
                 if t.order.account == account and t.contract.conId == cid and t.orderStatus.status == "Inactive"}
-            self.perform(conn,account,cid,body,request_id)
+            operation_result = self.perform(conn,account,cid,body,request_id)
             confirmed_price_edit = body.get('action') in ('amend', 'be', 'amend_add') or (body.get('action') == 'edit_entry'
                 and 'price' in body and not any(k in body for k in ('quantity', 'tif', 'cancel')))
             if body.get('cancel') is not True and not confirmed_price_edit: conn.ib.sleep(.2)
@@ -980,6 +1019,8 @@ class PaperChart:
                     message=(('Paper close order is ' if body.get('action') == 'close' else 'Paper limit order is ') + status +
                              ('. ' + '; '.join(state.get('broker_messages', [])) if status == 'rejected'
                               else '; verify broker status before any further action')))
+            if isinstance(operation_result, dict):
+                result.update(operation_result)
         except ValueError as error:
             result=dict(success=False,status='rejected',message=str(error))
         except Exception:
@@ -1725,6 +1766,9 @@ class PaperChart:
                 conn.ib.cancelOrder(trade.order)
 
     def perform(self, conn, account, cid, body, request_id):
+        if body.get('action') == 'manage_broker_order':
+            from api.services.chart_broker_orders import manage
+            return manage(self.path, conn, account, cid, body)
         if body.get('action')=='release_stale_lock':
             if not account.startswith('DU') or body.get('acknowledge_unknown') is not True:
                 raise ValueError('Explicit Paper recovery acknowledgement required')

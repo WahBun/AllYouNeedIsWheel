@@ -142,9 +142,47 @@
  document.addEventListener('pointermove',repositionCancels,{passive:true});
  window.addEventListener('chart-viewport-resized',repositionCancels);
 
+ const brokerLines=new Map();
+ function brokerIdentity(o){return `${paperConfig.web_account_epoch}:${paperCID}:${o.client_id}:${o.perm_id}:${o.order_id}`;}
+ function brokerEdit(order,cancel=false){
+  if(!paperConfig.enabled||paperConfig.busy||!(cancel?order.cancelable:order.editable))return;
+  const identity=brokerIdentity(order),snapshot=JSON.stringify(order),zh=parent.document.documentElement.lang.startsWith('zh');
+  addDialog.replaceChildren();addDialog.dataset.light=String(!darkAppearance);
+  const title=document.createElement('strong');title.textContent=cancel?(zh?'撤销挂单':'Cancel order'):(zh?'修改挂单':'Edit order');
+  const description=document.createElement('p');description.textContent=`${order.action} ${order.quantity} @ ${priceText(order.price)}`;
+  const price=document.createElement('input');price.type='number';price.min='0';price.step='any';price.value=order.price;price.setAttribute('aria-label','Order limit price');
+  const quantity=document.createElement('input');quantity.type='number';quantity.min='1';quantity.step='1';quantity.value=order.terms.quantity;quantity.disabled=!order.quantity_editable;quantity.setAttribute('aria-label','Order total quantity');
+  const tif=document.createElement('select');tif.setAttribute('aria-label','Order time in force');
+  for(const value of order.terms.tif==='OVERNIGHT'?['OVERNIGHT']:['DAY','GTC']){const option=document.createElement('option');option.value=option.textContent=value;tif.append(option);}tif.value=order.terms.tif;
+  const note=document.createElement('p');note.textContent=order.quantity_editable?(zh?'数量为含已成交部分的总手数。':'Quantity includes already filled contracts.'):(zh?'此订单数量固定；可修改价格和有效期。':'This order has a fixed quantity; price and time in force can change.');
+  const back=document.createElement('button');back.textContent=zh?'返回':'Back';back.onclick=()=>addDialog.close();
+  const apply=document.createElement('button');apply.textContent=cancel?(zh?'确认撤单':'Confirm cancel order'):(zh?'确认修改':'Confirm order changes');
+  apply.onclick=()=>{
+   const current=paperConfig.broker_pending_orders?.find(o=>brokerIdentity(o)===identity);
+   if(!current||JSON.stringify(current)!==snapshot||paperConfig.busy||!paperConfig.enabled){addDialog.close();return validation('Order changed; reopen the editor.');}
+   if(!cancel&&(!(Number(price.value)>0)||!Number.isInteger(Number(quantity.value))||Number(quantity.value)<1))return validation('Enter a valid price and whole quantity.');
+   addDialog.close();paperAction({action:'manage_broker_order',operation:cancel?'cancel':'amend',local_order_id:order.local_order_id,order_id:order.order_id,perm_id:order.perm_id,client_id:order.client_id,expected:order.terms,price:Number(price.value),quantity:Number(quantity.value),tif:tif.value});
+  };
+  const footer=document.createElement('footer');footer.append(back,apply);addDialog.append(title,description);if(!cancel)addDialog.append(price,quantity,tif,note);addDialog.append(footer);addDialog.showModal();
+ }
+ function syncBrokerLines(config){
+  const rows=config.paper?.broker_pending_orders||[],ids=new Set(rows.map(brokerIdentity));
+  for(const [id,row] of brokerLines)if(!ids.has(id)){series.removePriceLine(row.line);row.badge.remove();brokerLines.delete(id);}
+  for(const order of rows){
+   const id=brokerIdentity(order),color=order.action==='BUY'?'#315fc4':'#c6384d';
+   const options={price:order.price,color,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:''};
+   let row=brokerLines.get(id);
+   if(!row){const badge=document.createElement('div');badge.className='broker-order-label';badge.style.cssText='position:absolute;z-index:6;padding:0;border:1px solid;border-radius:3px;font:600 12px -apple-system;display:flex;align-items:center';document.body.append(badge);row={line:series.createPriceLine(options),badge};brokerLines.set(id,row);}
+   row.line.applyOptions(options);row.price=order.price;row.badge.style.color=color;row.badge.style.background=darkAppearance?'#20242a':'#f4f5f3';row.badge.replaceChildren();
+   const label=document.createElement('span');label.textContent=`${order.action} ${order.quantity} @ ${priceText(order.price)} · ${order.status}`;label.style.padding='5px 7px';row.badge.append(label);
+   for(const [cancel,allowed] of [[false,order.editable],[true,order.cancelable]])if(allowed){const button=document.createElement('button');button.textContent=cancel?'×':'…';button.setAttribute('aria-label',cancel?'Cancel pending order':'Edit pending order');button.style.cssText='color:inherit;background:transparent;border:0;border-left:1px solid;padding:5px 9px;cursor:pointer';button.disabled=!paperConfig.enabled||paperConfig.busy;button.onpointerdown=e=>e.stopPropagation();button.onclick=()=>brokerEdit(order,cancel);row.badge.append(button);}
+  }
+ }
+ function positionBrokerLines(){for(const row of brokerLines.values()){const y=series.priceToCoordinate(row.price);row.badge.hidden=y===null||y<15||y>chart.paneSize().height-15;row.badge.style.right=(chart.priceScale('right').width()+7)+'px';if(y!==null)row.badge.style.top=(y-14)+'px';}requestAnimationFrame(positionBrokerLines);}
+ positionBrokerLines();
  const sharedConfigure=window.configure;
  window.configure=config=>{
-  darkAppearance=!!config.dark;sharedConfigure(config);if(addGesture&&(addGesture.cid!==paperCID||addGesture.ref!==paperConfig.order_ref||addGesture.epoch!==paperConfig.web_account_epoch))cancelAddDrag();syncExitLines(config);window.dispatchEvent(new Event('order-configured'));
+  darkAppearance=!!config.dark;sharedConfigure(config);syncBrokerLines(config);if(addGesture&&(addGesture.cid!==paperCID||addGesture.ref!==paperConfig.order_ref||addGesture.epoch!==paperConfig.web_account_epoch))cancelAddDrag();syncExitLines(config);window.dispatchEvent(new Event('order-configured'));
   const pending=(config.paper?.orders||[]).filter(o=>o.role.split('_')[0]==='entry'&&(o.entry_kind==='add'||config.paper.position)&&!o.filled&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status)&&o.price>0);
   const live=new Set(pending.map(o=>`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${o.order_id}`));
   for(const [id,row] of pendingLines)if(!live.has(id)){series.removePriceLine(row.line);row.button.remove();row.cancel?.remove();pendingLines.delete(id);if(addGesture?.id===id)addGesture=null;}
