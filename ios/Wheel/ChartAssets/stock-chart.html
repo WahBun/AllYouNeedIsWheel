@@ -102,13 +102,19 @@ optionQuote.innerHTML='<span>Mid <strong id="option-mid">—</strong></span><spa
 document.body.append(optionQuote);
 const quoteStyle=document.createElement('style');quoteStyle.textContent='#option-quote{position:absolute;bottom:32px;left:50%;transform:translateX(-50%);white-space:nowrap;z-index:3;display:flex;gap:18px;pointer-events:none;font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums;color:#353938}#option-quote[hidden]{display:none}#option-quote strong{font-weight:600;margin-left:4px}@media(max-width:600px){#option-quote{gap:12px;font-size:12px}}';quoteStyle.textContent+=' #option-quote[data-band=high] #option-spread,#option-iv[data-band=high]{background:linear-gradient(105deg,currentColor 25%,#d62117 40%,#ffd652 50%,#944d0d 60%,currentColor 75%);background-size:250% 100%;background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:option-quote-flow 5s linear infinite}@keyframes option-quote-flow{from{background-position:150% 0}to{background-position:-150% 0}}@media(prefers-reduced-motion:reduce){#option-quote[data-band=high] #option-spread,#option-iv[data-band=high]{animation:none;background:none;-webkit-text-fill-color:currentColor}}';quoteStyle.textContent+=' @media(max-width:600px){#atr-value[data-option="true"]{top:6px!important;right:44px!important;font-size:12px!important;padding:3px 5px!important}}';quoteStyle.textContent+=' #atr-value:not([data-option="true"]){top:auto!important;right:auto!important;bottom:32px;left:50%;transform:translateX(-50%)}';document.head.append(quoteStyle);
 let optionQuoteDark=false,optionQuoteIdentity='',optionQuoteKey='',optionPreviousMid=null,optionMidDirection=0;
+let optionDisplayIdentity='',optionLastQuote=null,optionLastIV=null;
+const optionStale=document.createElement('small');optionStale.id='option-quote-status';optionStale.style.cssText='font-size:.7em;color:#666';optionQuote.append(optionStale);
 const optionQuoteFormat=new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
 function updateOptionQuote(){
  const p=countdownPacket;optionQuote.hidden=p?.security_type!=='OPT';if(optionQuote.hidden){optionPreviousMid=null;optionQuoteKey='';return;}
  const now=p.server_time+Math.max(0,(Date.now()-countdownReceived)/1000);
  const valid=Number.isFinite(p.bid)&&Number.isFinite(p.ask)&&p.bid>=0&&p.ask>0&&p.ask>=p.bid&&Number.isFinite(now)&&Number.isFinite(p.quote_expires_at)&&p.quote_expires_at>now;
- const percentage=valid?(p.ask-p.bid)/((p.bid+p.ask)/2)*100:null;
- const mid=valid?optionQuoteFormat.format((p.bid+p.ask)/2):'—',spread=valid?percentage.toFixed(1)+'%':'—';
+ const displayIdentity=String(p.con_id)+':'+String(p.generation);
+ if(displayIdentity!==optionDisplayIdentity){optionDisplayIdentity=displayIdentity;optionLastQuote=null;optionLastIV=null;}
+ if(valid)optionLastQuote={bid:p.bid,ask:p.ask};
+ const displayQuote=valid?p:optionLastQuote;
+ const percentage=displayQuote?(displayQuote.ask-displayQuote.bid)/((displayQuote.bid+displayQuote.ask)/2)*100:null;
+ const mid=displayQuote?optionQuoteFormat.format((displayQuote.bid+displayQuote.ask)/2):'—',spread=displayQuote?percentage.toFixed(1)+'%':'—';
  const band=valid?(percentage<=10?'low':percentage<20?'medium':'high'):'unavailable';
  const colors={low:'#174A8B',medium:'#FFB87A',high:optionQuoteDark?'#AD6417':'#854A0F'};
  optionQuote.dataset.band=band;optionQuote.style.color='#171919';
@@ -120,7 +126,10 @@ function updateOptionQuote(){
  midElement.style.color=!valid?'#666':optionMidDirection>0?(optionQuoteDark?'#B3FF4D':'#477505'):optionMidDirection<0?'#FF5E5E':'#353938';
  for(const [id,value] of [['option-mid',mid],['option-spread',spread]]){const el=document.getElementById(id);if(el.textContent!==value)el.textContent=value;}
  const iv=p.iv_percent,ivValid=Number.isFinite(iv)&&iv>0&&Number.isFinite(p.iv_expires_at)&&p.iv_expires_at>now;
- const ivElement=document.getElementById('option-iv'),ivText=ivValid?iv.toFixed(1)+'%':'—';
+ if(ivValid)optionLastIV=iv;
+ const displayIV=ivValid?iv:optionLastIV;
+ const ivElement=document.getElementById('option-iv'),ivText=displayIV!==null?displayIV.toFixed(1)+'%':'—';
+ optionStale.textContent=(!valid&&displayQuote)||(!ivValid&&displayIV!==null)?' · Last quote · waiting for update':'';
  if(ivElement.textContent!==ivText)ivElement.textContent=ivText;
  ivElement.style.color=ivValid?colors[iv<=30?'low':iv<=70?'medium':'high']:'#666';
  ivElement.dataset.band=ivValid?(iv<=30?'low':iv<=70?'medium':'high'):'unavailable';
