@@ -271,3 +271,32 @@ quantity/type controls now reflect the same initial scope; final simulator suite
 Live remains disabled and Mini remains on its prior deployed version. Actual
 broker Live/CSP fills, real partial fills, and physical-device acceptance are not
 certified by these tests. The user explicitly deferred Live release and phone Run.
+
+## 2026-10-08 pre-RTH aggregate order repair
+
+Unprotected OPT submissions and Adds now send one parent carrying the requested
+quantity instead of one parent per contract. Protected/futures lot behavior is
+unchanged; persisted legacy groups remain readable. Partial unprotected entry
+cancellation checks exact reference/snapshot and preserves fills; cancellation
+uncertainty is persisted and reconciled read-only. A submit that filled before
+reconnect can reconcile against an exactly identified terminal trade instead of
+remaining locked merely because it disappeared from open orders.
+
+623 Python regressions passed, including eight new aggregate-order cases:
+four-unit single parent/idempotency, partial entry cancellation, response loss,
+quantity replacement, multi-unit Add, lost cancel response, cancel/fill race,
+and submit already filled at reconnect. These are mocks, not actual partial-fill
+acceptance. No broker order was submitted/modified/canceled in this pass.
+
+Deployment preflight found Mini still at 6e704b4 with verified Live selected and
+Live capability disabled. Generic order journals have no unresolved writes, but
+the Paper chart journal contains 69 records with missing/unknown outcomes.
+Do not treat these as 69 currently working orders: they need read-only audit
+against journal identities and broker evidence. No restart/deployment or account
+switch was performed; preserve the runtime until that audit identifies which
+requests are historical/resolved versus genuinely pending. Do not replay them.
+
+Remaining RTH evidence: sustained real partial fill of a single parent, actual
+CSP fills where broker permissions allow, and additional broker amend/cancel
+failure timings. Protected aggregate Trim remains separate unsupported scope;
+CC/CSP without TP/SL does not require silently attaching protection for tests.

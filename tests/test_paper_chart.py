@@ -1350,7 +1350,8 @@ class OptionProtectedLotTests(unittest.TestCase):
     def test_multi_option_without_protection_still_supported(self):
         _,result=self.submit(quantity=2,tp=None,sl=None)
         self.assertTrue(result['success'],result)
-        self.assertEqual(len(self.trades),2)
+        self.assertEqual(len(self.trades),1)
+        self.assertEqual(self.trades[0].order.totalQuantity,2)
         self.assertTrue(all(t.order.parentId==0 for t in self.trades))
 
     def test_unprotected_option_add_amend_and_cancel(self):

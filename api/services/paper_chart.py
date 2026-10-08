@@ -584,6 +584,13 @@ class PaperChart:
                 if t.order.account == account and t.contract.conId == cid
                 and t.order.orderRef == group['ref']
                 and t.orderStatus.status in ('Submitted','PreSubmitted')}
+            # A fast fill can finish before reconnection: absence from open orders
+            # is not rejection. Include only terminal trades resolved by state().
+            for oid, trade in getattr(self, '_resolved_trades', {}).items():
+                if (trade.order.account == account and trade.contract.conId == cid
+                        and trade.order.orderRef == group['ref']
+                        and trade.orderStatus.status in ('Filled','Cancelled','ApiCancelled','Inactive')):
+                    working.setdefault(oid, trade)
             if ids and set(ids.values()) <= set(working):
                 matches = True
                 totals = {}
@@ -732,6 +739,10 @@ class PaperChart:
                 return resolved('reconciled')
         if body.get('action') == 'edit_entry' and state['known']:
             original = group.get('ref') == body.get('expected_ref')
+            if original and body.get('cancel') is True and group.get('pending_edit') == request_id:
+                rows = state.get('orders', [])
+                if rows and all(r['role'].split('_')[0] == 'entry' and r['status'] in ('Filled','Cancelled','ApiCancelled') for r in rows):
+                    return resolved('reconciled')
             if original and state['orders'] and not state['position'] and all(
                     r['status'] in ('Cancelled', 'ApiCancelled') and not r['filled'] for r in state['orders']):
                 # A delayed cancellation can finish after the replacement timed out.
@@ -989,6 +1000,25 @@ class PaperChart:
         """Edit only a wholly unfilled, exactly identified Paper order group."""
         import copy
         import time
+        if body.get('cancel') is True and current.get('position') and current.get('known'):
+            if body.get('expected_ref') != group.get('ref') or body.get('expected_snapshot') != current.get('edit_snapshot'):
+                raise ValueError('Order changed; refresh before canceling remaining quantity')
+            owned = getattr(self, '_resolved_trades', {})
+            rows = current.get('orders', [])
+            if not rows or any(r['role'].split('_')[0] != 'entry' for r in rows):
+                raise ValueError('Partial protected entry requires separate reconciliation')
+            parents = [owned.get(r['order_id']) for r in rows if r['status'] in ('Submitted','PreSubmitted')]
+            if not parents or any(t is None or t.order.account != account or t.contract.conId != cid or t.order.orderRef != group.get('ref') for t in parents):
+                raise ValueError('Exact remaining entry unavailable')
+            group['pending_edit'] = request_id
+            self.save_group(account,cid,group)
+            for trade in parents: conn.ib.cancelOrder(trade.order)
+            deadline = time.monotonic()+4
+            while any(not t.isDone() for t in parents) and time.monotonic()<deadline: conn.ib.sleep(.05)
+            if any(t.orderStatus.status not in ('Filled','Cancelled','ApiCancelled') for t in parents):
+                raise RuntimeError('Remaining entry cancellation needs reconciliation')
+            group.pop('pending_edit',None);self.save_group(account,cid,group)
+            return
         if not current.get('entry_editable') or body.get('expected_ref') != group.get('ref'):
             raise ValueError('Entry is no longer editable; refresh chart')
         if body.get('expected_snapshot') != current.get('edit_snapshot'):
@@ -1491,7 +1521,9 @@ class PaperChart:
             if side == -1: require_call_coverage(conn,account,contract,int(qty))
             if contract.secType == 'FUT' or contract.secType == 'OPT' and (qty == 1 or not (tp is not None or sl is not None)):
                 group=dict(ids={},lots=[],side=side,ref='WheelPaper:'+request_id,tif=tif)
-                self.add_lots(conn,account,cid,contract,group,int(qty),body['entry_type'],entry,tp,sl)
+                aggregate = contract.secType == 'OPT' and tp is None and sl is None
+                self.add_lots(conn,account,cid,contract,group,1 if aggregate else int(qty),body['entry_type'],entry,tp,sl,
+                              unit_quantity=int(qty) if aggregate else 1)
                 return
             buy='BUY' if side==1 else 'SELL'; sell='SELL' if side==1 else 'BUY'
             values = {r:v for r,v in (('tp',tp),('sl',sl)) if v is not None}
@@ -1526,7 +1558,7 @@ class PaperChart:
             target = 0 if kind == 'MKT' else price(body.get('entry'))
             if not group.get('lots'):
                 group['lots'] = [dict(entry=oid) for role, oid in group['ids'].items() if role.split('_')[0] == 'entry']
-            self.add_lots(conn, account, cid, contract, group, 1 if contract.secType=='STK' else int(qty), kind, target, None, None, entry_kind='add', unit_quantity=int(qty) if contract.secType=='STK' else 1)
+            self.add_lots(conn, account, cid, contract, group, 1, kind, target, None, None, entry_kind='add', unit_quantity=int(qty))
             return
         if action == 'trim' and contract.secType in ('OPT','STK') and current.get('unprotected_scaling'):
             if body.get('expected_ref') != group.get('ref') or body.get('expected_position') != current['position']:

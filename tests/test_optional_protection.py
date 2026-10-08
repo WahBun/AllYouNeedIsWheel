@@ -139,7 +139,7 @@ class OptionalProtectionTests(PaperChartTests):
         self.contract.secType='OPT'
         _,result=self.submit(quantity=2,tp=None,sl=None)
         for t in self.trades:
-            t.orderStatus.status='Filled';t.orderStatus.filled=1;t.orderStatus.avgFillPrice=10
+            t.orderStatus.status='Filled';t.orderStatus.filled=t.order.totalQuantity;t.orderStatus.avgFillPrice=10
         self.pos=S(account='DU_TEST',contract=self.contract,position=2)
         self.conn.ib.positions.return_value=[self.pos]
         self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw:self.trades if fn==self.conn.ib.reqOpenOrders else [self.pos]
