@@ -98,13 +98,13 @@ function updateAccountSummary() {
     // Initial Margin
     const initialMarginElement = document.getElementById('initial-margin');
     if (initialMarginElement) {
-        initialMarginElement.textContent = formatCurrency(accountData.initial_margin || 0);
+        initialMarginElement.textContent = accountData.initial_margin == null ? '—' : formatCurrency(accountData.initial_margin);
     }
     
     // Leverage Percentage
     const leveragePercentageElement = document.getElementById('leverage-percentage');
     if (leveragePercentageElement) {
-        leveragePercentageElement.textContent = formatPercentage(accountData.leverage_percentage || 0);
+        leveragePercentageElement.textContent = accountData.leverage_percentage == null ? '—' : formatPercentage(accountData.leverage_percentage);
     }
     
     // Update the leverage progress bar

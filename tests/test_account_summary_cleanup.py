@@ -32,3 +32,30 @@ class AccountSummaryCleanupTests(unittest.TestCase):
         conn.ib.wrapper.acctSummary.update(one=row, other=SimpleNamespace(account='OTHER'))
         self.assertEqual(conn._read_account_summary('DU_TEST'), [row])
         conn.ib.client.reqAccountSummary.assert_not_called()
+
+    def test_subscription_includes_display_margin_tag(self):
+        conn = self.connection()
+        with patch('core.connection.util.run'):
+            conn._read_account_summary('DU_TEST')
+        self.assertIn('FullInitMarginReq', conn.ib.client.reqAccountSummary.call_args.args[2].split(','))
+
+    def test_margin_fallback_precedence_missing_and_zero(self):
+        conn = self.connection()
+        conn._convert_to_usd = lambda value, currency: value
+        fields = {'NetLiquidation':'account_value', 'InitMarginReq':'initial_margin', 'FullInitMarginReq':'initial_margin'}
+        nav = SimpleNamespace(tag='NetLiquidation', value='20000', currency='USD')
+        def result(rows):
+            with patch.object(conn, '_read_account_summary', return_value=[nav]+rows):
+                return conn._account_info_from_summary('DU_TEST',fields)
+        current = SimpleNamespace(tag='InitMarginReq',value='2000',currency='USD')
+        full = SimpleNamespace(tag='FullInitMarginReq',value='3000',currency='USD')
+        self.assertEqual(result([current])['leverage_percentage'],10)
+        for rows in ([full,current],[current,full]):
+            self.assertEqual(result(rows)['initial_margin'],3000)
+            self.assertEqual(result(rows)['leverage_percentage'],15)
+        self.assertIsNone(result([])['initial_margin'])
+        self.assertIsNone(result([])['leverage_percentage'])
+        current.value='0'
+        self.assertEqual(result([current])['leverage_percentage'],0)
+        current.value='nan'
+        self.assertIsNone(result([current])['initial_margin'])

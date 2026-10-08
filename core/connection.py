@@ -993,7 +993,7 @@ class IBConnection:
         if not self.ib.wrapper.acctSummary:
             req_id = self.ib.client.getReqId()
             future = self.ib.wrapper.startReq(req_id)
-            tags = 'AccountType,NetLiquidation,TotalCashValue,SettledCash,BuyingPower,EquityWithLoanValue,InitMarginReq,MaintMarginReq,AvailableFunds,ExcessLiquidity,GrossPositionValue,$LEDGER:ALL'
+            tags = 'AccountType,NetLiquidation,TotalCashValue,SettledCash,BuyingPower,EquityWithLoanValue,InitMarginReq,FullInitMarginReq,MaintMarginReq,AvailableFunds,ExcessLiquidity,GrossPositionValue,$LEDGER:ALL'
             try:
                 self.ib.client.reqAccountSummary(req_id, 'All', tags)
                 util.run(future, timeout=5)
@@ -1015,10 +1015,13 @@ class IBConnection:
             'available_cash': 0,
             'account_value': 0,
             'excess_liquidity': 0,
-            'initial_margin': 0,
-            'leverage_percentage': 0
+            'initial_margin': None,
+            'leverage_percentage': None
         }
 
+        # Prefer the full-session requirement when both tags are returned.
+        # Process the current requirement first as a compatible fallback.
+        account_values = sorted(account_values, key=lambda av: av.tag == 'FullInitMarginReq')
         for av in account_values:
             try:
                 if av.tag not in account_fields:
@@ -1026,11 +1029,14 @@ class IBConnection:
 
                 currency = av.currency if hasattr(av, 'currency') and av.currency else 'USD'
                 value = float(av.value)
+                import math
+                if not math.isfinite(value) or (account_fields[av.tag] == 'initial_margin' and value < 0):
+                    continue
                 account_info[account_fields[av.tag]] = self._convert_to_usd(value, currency)
             except Exception as e:
                 logger.error(f"Error processing account value {av.tag}: {str(e)}")
 
-        if account_info['account_value'] > 0 and account_info['initial_margin'] > 0:
+        if account_info['account_value'] > 0 and account_info['initial_margin'] is not None:
             account_info['leverage_percentage'] = (account_info['initial_margin'] / account_info['account_value']) * 100
 
         return account_info
@@ -1470,6 +1476,7 @@ class IBConnection:
                 'TotalCashValue': 'available_cash',
                 'NetLiquidation': 'account_value',
                 'ExcessLiquidity': 'excess_liquidity',
+                'InitMarginReq': 'initial_margin',
                 'FullInitMarginReq': 'initial_margin'
             }
 
