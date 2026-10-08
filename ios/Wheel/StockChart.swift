@@ -1055,15 +1055,28 @@ struct StockChartView: View {
             }
             if !fullScreen && !tradingPanelCollapsed && store.chartTradingAvailable {
                 HStack {
-                    Picker("Orders", selection: Binding(get: { selectedOrderGroup }, set: selectOrderGroup)) {
-                        Text(locale.language.languageCode?.identifier == "zh" ? "原始订单" : "Original order").tag("")
-                        ForEach((paperState["group_choices"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }.filter { !$0.isEmpty }, id: \.self) { id in
-                            Text("Order · " + String(id.suffix(6))).tag(id)
+                    Menu {
+                        Picker("Orders", selection: Binding(get: { selectedOrderGroup }, set: selectOrderGroup)) {
+                            Text(locale.language.languageCode?.identifier == "zh" ? "原始订单" : "Original order").tag("")
+                            ForEach((paperState["group_choices"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }.filter { !$0.isEmpty }, id: \.self) { id in
+                                Text("Order · " + String(id.suffix(6))).tag(id)
+                            }
+                            if !selectedOrderGroup.isEmpty && !(paperState["group_choices"] as? [[String: Any]] ?? []).contains(where: { $0["id"] as? String == selectedOrderGroup }) {
+                                Text(locale.language.languageCode?.identifier == "zh" ? "新订单草稿" : "New order draft").tag(selectedOrderGroup)
+                            }
+                        }.labelsHidden()
+                        if positionSize > 0 {
+                            Divider()
+                            Button("Manage TP / SL") {
+                                positionProtectionState = paperState; positionProtectionCID = chartID; showPositionProtection = true
+                            }.disabled(!paperEnabled || paperBusy || paperState["protection_manageable"] as? Bool != true)
                         }
-                        if !selectedOrderGroup.isEmpty && !(paperState["group_choices"] as? [[String: Any]] ?? []).contains(where: { $0["id"] as? String == selectedOrderGroup }) {
-                            Text(locale.language.languageCode?.identifier == "zh" ? "新订单草稿" : "New order draft").tag(selectedOrderGroup)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(selectedOrderGroup.isEmpty ? (locale.language.languageCode?.identifier == "zh" ? "原始订单" : "Original order") : "Order · " + String(selectedOrderGroup.suffix(6)))
+                            Image(systemName: "chevron.down").font(.caption)
                         }
-                    }.labelsHidden()
+                    }
                     Spacer()
                     Button { selectOrderGroup(UUID().uuidString.lowercased()) } label: {
                         Label(locale.language.languageCode?.identifier == "zh" ? "新订单" : "New order", systemImage: "plus")
@@ -1071,12 +1084,7 @@ struct StockChartView: View {
                 }.disabled(paperBusy || store.trading.busy)
             }
             if !hasOrderPreview { ChartOrderProgressView(state: paperState) }
-            if positionSize > 0 {
-                Button("Manage TP / SL") {
-                    positionProtectionState = paperState; positionProtectionCID = chartID; showPositionProtection = true
-                }.disabled(!paperEnabled || paperBusy || paperState["protection_manageable"] as? Bool != true)
-                if let reason = paperState["protection_block_reason"] as? String, !reason.isEmpty { Text(reason).font(.caption).foregroundStyle(.secondary) }
-            }
+            if positionSize > 0, let reason = paperState["protection_block_reason"] as? String, !reason.isEmpty { Text(reason).font(.caption).foregroundStyle(.secondary) }
             if let paperMessage, !paperMessage.isEmpty { NoticeText(paperMessage).font(.caption).foregroundStyle(.secondary) }
             if !fullScreen && !tradingPanelCollapsed {
             HStack(spacing: 8) {
