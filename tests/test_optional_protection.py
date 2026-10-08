@@ -465,6 +465,16 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertEqual(sorted((x['price'],x['quantity']) for x in result['state']['pending_exits']),[(8,1),(8.5,1)])
         self.assertEqual(result['state']['protection']['sl'],4)
 
+    def test_exact_trim_cancel_preserves_stops_with_pending_reconciliation(self):
+        state=self.setup_limit_trim();row=state['pending_exits'][0]
+        group=self.service.group('DU_TEST',7);group['pending_stop_trim']=dict(id='old',ids=[row['order_id']]);self.service.save_group('DU_TEST',7,group)
+        writes=self.conn.ib.placeOrder.call_count
+        r=self.service.execute(self.conn,7,dict(action='cancel_trim',order_id=row['order_id'],expected_ref=state['order_ref'],request_id=str(uuid4())))
+        self.assertTrue(r['success'],r)
+        self.assertEqual(next(t for t in self.trades if t.order.orderId==row['order_id']).orderStatus.status,'Cancelled')
+        self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+        self.assertEqual(r['state']['protection']['sl'],4)
+
 def load_tests(loader, tests, pattern):
     import unittest
     return unittest.TestSuite(OptionalProtectionTests(name) for name in OptionalProtectionTests.__dict__ if name.startswith('test_'))

@@ -2031,7 +2031,6 @@ class PaperChart:
         if action == 'close' and body.get('expected_ref') is not None and body['expected_ref'] != group.get('ref'):
             raise ValueError('Order identity changed; refresh before closing')
         if action=='close' and group.get('lots') and current.get('scalable') and current.get('protection', {}).get('status') == 'covered':
-            import time
             pending_parents=[trades[lot['entry']] for lot in group['lots']
                              if lot['entry'] in trades and not trades[lot['entry']].isDone()]
             if pending_parents:
@@ -2074,7 +2073,6 @@ class PaperChart:
                 group['close_cancellation'] = dict(request_id=request_id, parents=[t.order.orderId for t in working])
                 self.save_group(account,cid,group)
             for trade in working: conn.ib.cancelOrder(trade.order)
-            import time
             deadline=time.monotonic()+4
             while any(not t.isDone() for t in working) and time.monotonic()<deadline: conn.ib.sleep(.05)
             if any(not t.isDone() for t in working): raise RuntimeError('Cancellation not confirmed')
