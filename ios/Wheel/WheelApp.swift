@@ -1629,9 +1629,6 @@ struct SettingsView: View {
     var body: some View {
         @Bindable var store = store
         Form {
-                Toggle(locale.language.languageCode?.identifier == "zh" ? "交易提示音" : "Trading sounds", isOn: $tradingSoundsEnabled)
-                    .onChange(of: tradingSoundsEnabled) { _, enabled in if !enabled { ChartTradeSounds.shared.stop() } }
-
             Section("Connection") {
                 HStack(spacing: 3) {
                     ForEach(["demo", "live", "paper"], id: \.self) { mode in
@@ -1702,6 +1699,10 @@ struct SettingsView: View {
                 NavigationLink { MetricPalettePreview() } label: {
                     Label("Custom colors", systemImage: "paintpalette")
                 }
+                Toggle(isOn: $tradingSoundsEnabled) {
+                    Label(locale.language.languageCode?.identifier == "zh" ? "交易提示音" : "Trading sounds", systemImage: "speaker.wave.2")
+                }
+                .onChange(of: tradingSoundsEnabled) { _, enabled in if !enabled { ChartTradeSounds.shared.stop() } }
             }.tint(.teal)
             if store.trading.uncertain {
                 Section("Unconfirmed request") {
