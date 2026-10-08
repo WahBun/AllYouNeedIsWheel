@@ -1136,7 +1136,7 @@ struct StockChartView: View {
                     }.disabled(paperBusy || paperActive)
                     HStack(spacing: 8) {
                         Button { join("bid") } label: { Text("Join Bid").frame(maxWidth: .infinity, minHeight: 30) }.tint(.green).disabled(joinPrice("bid") == nil || paperBusy || paperActive)
-                        Button { join("ask") } label: { Text("Join Ask").frame(maxWidth: .infinity, minHeight: 30) }.tint(.red).disabled(joinPrice("ask") == nil || paperBusy || paperActive)
+                        Button { join("ask") } label: { Text("Join Ask").frame(maxWidth: .infinity, minHeight: 30) }.tint(Color(red: 239.0 / 255, green: 144.0 / 255, blue: 144.0 / 255)).disabled(joinPrice("ask") == nil || paperBusy || paperActive)
                     }
                     }
                     if positionSize > 0 {
