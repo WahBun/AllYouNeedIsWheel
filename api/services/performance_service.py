@@ -162,22 +162,11 @@ def fetch_flex(config):
     token, query = config.get('token'), config.get('query_id')
     if not token or not query:
         raise PerformanceError('Configure Flex token and query_id on the backend.')
-    # Explicit dates avoid reusing an incomplete default-period report at IB.
-    # Bootstrap a year; overlap recent archived days for corrections without regenerating a year.
+    # Match the complete annual Flex window used by AnalyticsStudio. IB may
+    # exclude an account from short incremental reports even when the full
+    # report contains that account's latest daily NAV/TWR.
     end = datetime.now(ZoneInfo('America/New_York')).date() - timedelta(days=1)
     start = end - timedelta(days=364)
-    if config.get('history_path') and config.get('account_id'):
-        import sqlite3
-        from pathlib import Path
-        try:
-            uri = Path(os.path.expanduser(config['history_path'])).resolve().as_uri() + '?mode=ro'
-            with sqlite3.connect(uri, uri=True, timeout=1) as db:
-                latest = db.execute('SELECT MAX(day) FROM daily_performance WHERE account=?',
-                                    (config['account_id'],)).fetchone()[0]
-            if latest:
-                start = max(start, min(day(latest), end) - timedelta(days=7))
-        except (sqlite3.Error, OSError, PerformanceError):
-            pass  # Missing/unreadable archive falls back to the full bootstrap window.
     def fetch(action, q):
         params = {'t': token, 'q': q, 'v': '3'}
         if action == 'SendRequest':
@@ -187,7 +176,9 @@ def fetch_flex(config):
     reference = root.findtext('ReferenceCode')
     if root.findtext('Status') != 'Success' or not reference:
         raise PerformanceError('IBKR could not generate the Flex report; check query and token.')
-    for wait in (1, 2, 4, 8, 10):
+    # Keep polling the same reference: full multi-account reports can take
+    # over a minute. This runs off the Gateway thread and preserves old data.
+    for wait in (1, 2, 4, 8, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10):
         time.sleep(wait)
         text = fetch('GetStatement', reference)
         if not text.lstrip().startswith('<FlexStatementResponse'):

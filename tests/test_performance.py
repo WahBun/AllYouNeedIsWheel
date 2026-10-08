@@ -165,7 +165,7 @@ class PerformanceTests(unittest.TestCase):
             self.assertEqual(second['q'], ['ref'])
             self.assertEqual(str(clock.now.call_args.args[0]), 'America/New_York')
 
-    def test_flex_incremental_window_is_account_scoped(self):
+    def test_flex_cached_history_keeps_complete_annual_window(self):
         import tempfile, sqlite3
         from unittest.mock import patch
         from datetime import datetime
@@ -180,5 +180,28 @@ class PerformanceTests(unittest.TestCase):
                 download.side_effect = ['<FlexStatementResponse><Status>Success</Status><ReferenceCode>ref</ReferenceCode></FlexStatementResponse>', 'report']
                 fetch_flex({'token':'secret','query_id':'query','account_id':'TEST','history_path':file.name})
                 params=parse_qs(urlsplit(download.call_args_list[0].args[0]).query)
-                self.assertEqual(params['fd'],['20260928'])
+                self.assertEqual(params['fd'],['20251007'])
                 self.assertEqual(params['td'],['20261006'])
+
+    def test_slow_flex_generation_reuses_reference_until_ready(self):
+        from unittest.mock import patch
+        from urllib.parse import urlsplit, parse_qs
+        from api.services.performance_service import fetch_flex
+        pending = '<FlexStatementResponse><ErrorCode>1019</ErrorCode></FlexStatementResponse>'
+        with patch('api.services.performance_service.time.sleep') as sleep, patch('api.services.performance_service.download') as download:
+            download.side_effect = ['<FlexStatementResponse><Status>Success</Status><ReferenceCode>same-ref</ReferenceCode></FlexStatementResponse>'] + [pending] * 9 + ['report']
+            self.assertEqual(fetch_flex({'token':'secret','query_id':'query'}), 'report')
+            urls = [urlsplit(c.args[0]) for c in download.call_args_list]
+            self.assertEqual(sum(u.path.endswith('/SendRequest') for u in urls), 1)
+            self.assertTrue(all(parse_qs(u.query)['q'] == ['same-ref'] for u in urls[1:]))
+            self.assertGreater(sum(c.args[0] for c in sleep.call_args_list), 60)
+
+    def test_flex_generation_wait_is_bounded(self):
+        from unittest.mock import patch
+        from api.services.performance_service import fetch_flex
+        pending = '<FlexStatementResponse><ErrorCode>1019</ErrorCode></FlexStatementResponse>'
+        with patch('api.services.performance_service.time.sleep'), patch('api.services.performance_service.download') as download:
+            download.side_effect = ['<FlexStatementResponse><Status>Success</Status><ReferenceCode>same-ref</ReferenceCode></FlexStatementResponse>'] + [pending] * 14
+            with self.assertRaisesRegex(PerformanceError, 'still generating'):
+                fetch_flex({'token':'secret','query_id':'query'})
+            self.assertEqual(download.call_count, 15)
