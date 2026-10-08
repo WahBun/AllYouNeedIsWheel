@@ -331,6 +331,7 @@ class PaperChart:
         result['rejected']=any(r['status']=='Inactive' and '_retired_' not in r['role'] for r in rows)
         result['protection'] = self.protection_progress(rows, result['position'], group.get('lots'))
         protective = [r for r in rows if r['role'].split('_')[0] in ('tp', 'sl')]
+        result['editable_stop_ids'] = [r['order_id'] for r in protective if r['role']=='sl' and r['status'] in ('Submitted','PreSubmitted') and r['order_id'] in trades and not trades[r['order_id']].order.ocaGroup and not trades[r['order_id']].order.parentId]
         result['cancelable_exits'] = [dict(order_id=r['order_id'],role=r['role'].split('_')[0],quantity=r['quantity'],price=r['price']) for r in protective if '_retired_' not in r['role'] and r['status'] in ('Submitted','PreSubmitted','PendingCancel')]
         result['protection_cancelable'] = bool(result['known'] and result['position'] and protective
             and all(r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive') for r in rows if r['role'].split('_')[0]=='entry')
