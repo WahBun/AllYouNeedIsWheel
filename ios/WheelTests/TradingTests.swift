@@ -1610,3 +1610,25 @@ extension TradingTests {
         XCTAssertEqual(Set(identities).count, 2)
     }
 }
+
+final class OptionAveragePriceTests: XCTestCase {
+    func testBrokerFallbackUsesActualMultiplierAndKeepsFillPriority() {
+        var p = Position(symbol: "QQQ", position: -3, security_type: "OPT", avg_cost: 161, multiplier: 100)
+        XCTAssertEqual(p.optionAveragePrice, 1.61)
+        XCTAssertTrue(p.optionAverageUsesBrokerCost)
+        p.position = -2
+        XCTAssertEqual(p.optionAveragePrice, 1.61)
+        p.multiplier = 10
+        XCTAssertEqual(p.optionAveragePrice, 16.1)
+        p.entry_fill_price = 1.6
+        XCTAssertEqual(p.optionAveragePrice, 1.6)
+        XCTAssertFalse(p.optionAverageUsesBrokerCost)
+        p.entry_fill_price = .nan
+        p.multiplier = nil
+        XCTAssertNil(p.optionAveragePrice)
+        p.multiplier = 0
+        XCTAssertNil(p.optionAveragePrice)
+        p.multiplier = 100; p.avg_cost = .infinity
+        XCTAssertNil(p.optionAveragePrice)
+    }
+}

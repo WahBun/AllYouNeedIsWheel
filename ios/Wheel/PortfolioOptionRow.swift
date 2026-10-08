@@ -3,6 +3,7 @@ import SwiftUI
 /// Uses Trade's information hierarchy with held-position data, not entry estimates.
 struct PortfolioOptionRow: View {
     let position: Position
+    @Environment(\.locale) private var locale
     @Environment(WheelStore.self) private var store
     @Environment(\.scenePhase) private var phase
     @State private var quote: ContractQuote?
@@ -13,11 +14,11 @@ struct PortfolioOptionRow: View {
     private var contractSummary: String {
         let code = ["PUT": "P", "CALL": "C", "P": "P", "C": "C"][position.option_type?.uppercased() ?? ""] ?? "—"
         let strike = position.strike.map { $0.formatted(.number.grouping(.never).precision(.fractionLength(0...4))) } ?? "—"
-        let entry = position.entry_fill_price.flatMap { value -> String? in
+        let entry = position.optionAveragePrice.flatMap { value -> String? in
             guard value.isFinite, value > 0 else { return nil }
             return String(format: "%.2f", value)
         } ?? "—"
-        var parts = ["\(strike)\(code)@\(entry)"]
+        var parts = ["\(strike)\(code)@\(entry)\(position.optionAverageUsesBrokerCost ? "*" : "")"]
         if let expiration = position.expiration, let days = TradingMath.daysToExpiration(expiration) {
             parts.append(String(max(0, days)))
         }
@@ -43,6 +44,10 @@ struct PortfolioOptionRow: View {
                 PositionPnLMeter(position: position)
                     .accessibilityLabel(Text("Unrealized P&L"))
             }.font(.caption)
+            if position.optionAverageUsesBrokerCost {
+                Text(locale.language.languageCode?.identifier == "zh" ? "* IB 平均成本，可能含手续费" : "* IB average cost; may include fees")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
             if frozen { Text("Frozen").font(.caption2).foregroundStyle(.secondary) }
         }.padding(.vertical, 4)
         .onAppear { visible = true }

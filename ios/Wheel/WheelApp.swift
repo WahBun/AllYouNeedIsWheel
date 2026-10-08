@@ -75,6 +75,17 @@ struct Position: Decodable, Identifiable {
     var avg_cost: Double?
     var multiplier: Double?
     var id: String { "\(symbol)-\(security_type)-\(con_id ?? 0)-\(expiration ?? "")-\(strike ?? 0)" }
+    var optionAveragePrice: Double? {
+        guard security_type == "OPT" else { return nil }
+        if let fill = entry_fill_price, fill.isFinite, fill > 0 { return fill }
+        guard let cost = avg_cost, cost.isFinite, cost > 0,
+              let multiplier, multiplier.isFinite, multiplier > 0 else { return nil }
+        let value = cost / multiplier
+        return value.isFinite && value > 0 ? value : nil
+    }
+    var optionAverageUsesBrokerCost: Bool {
+        optionAveragePrice != nil && !(entry_fill_price.map { $0.isFinite && $0 > 0 } ?? false)
+    }
     var hasChart: Bool { ["STK", "OPT", "FUT"].contains(security_type) && position != 0 && (con_id ?? 0) > 0 }
     var chartLabel: String { security_type == "OPT" ? "\(symbol) \(expiration ?? "") \((strike ?? 0).formatted()) \(option_type ?? "")" : symbol }
     var detail: String {
