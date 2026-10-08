@@ -487,6 +487,21 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertEqual(state['sl'],9.75)
         self.assertEqual(state['protection']['sl'],3)
 
+    def test_exact_stop_cancel_despite_missing_sibling(self):
+        state=self.setup_limit_trim()
+        missing=self.trades[-2];self.trades.remove(missing)
+        state=self.service.state(self.conn,7)
+        self.assertFalse(state['known'])
+        stop=next(r for r in state['orders'] if r['role']=='sl')
+        writes=self.conn.ib.placeOrder.call_count
+        body=dict(action='cancel_exit',order_id=stop['order_id'],expected_ref=state['order_ref'],confirm_remove_protection=True,request_id=str(uuid4()))
+        result=self.service.execute(self.conn,7,body)
+        self.assertTrue(result['success'],result)
+        self.assertEqual(next(t for t in self.trades if t.order.orderId==stop['order_id']).orderStatus.status,'Cancelled')
+        self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+        self.assertFalse(result['state']['known'])
+
+
 def load_tests(loader, tests, pattern):
     import unittest
     return unittest.TestSuite(OptionalProtectionTests(name) for name in OptionalProtectionTests.__dict__ if name.startswith('test_'))

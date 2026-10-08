@@ -330,6 +330,7 @@ class PaperChart:
         result['rejected']=any(r['status']=='Inactive' and '_retired_' not in r['role'] for r in rows)
         result['protection'] = self.protection_progress(rows, result['position'], group.get('lots'))
         protective = [r for r in rows if r['role'].split('_')[0] in ('tp', 'sl')]
+        result['cancelable_exits'] = [dict(order_id=r['order_id'],role=r['role'].split('_')[0],quantity=r['quantity'],price=r['price']) for r in protective if '_retired_' not in r['role'] and r['status'] in ('Submitted','PreSubmitted','PendingCancel')]
         result['protection_cancelable'] = bool(result['known'] and result['position'] and protective
             and all(r['status'] in ('Filled','Cancelled','ApiCancelled','Inactive') for r in rows if r['role'].split('_')[0]=='entry')
             and any(r['status'] in ('Submitted','PreSubmitted') for r in protective))
@@ -646,6 +647,11 @@ class PaperChart:
                 db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
                     (json.dumps(dict(success=status != 'rejected', status=status)), request_id, account))
             return dict(confirmed=True, status=status)
+        if body.get('action') in ('cancel_trim','cancel_exit') and body.get('expected_ref') == group.get('ref'):
+            roles=('trim',) if body['action']=='cancel_trim' else ('tp','sl')
+            target=next((r for r in state['orders'] if r['order_id']==body.get('order_id') and r['role'].split('_')[0] in roles),None)
+            if target and target['status'] in ('Cancelled','ApiCancelled','Filled'):
+                return resolved('filled' if target['status']=='Filled' else 'canceled')
         if body.get('action') == 'submit' and group.get('ref') == 'WheelPaper:' + request_id:
             # Transport loss after sending is not broker rejection. Resolve only
             # a complete, exact fresh broker snapshot; never send missing legs.
@@ -923,6 +929,10 @@ class PaperChart:
             if state.get('broker_pending') and not request_rejected:
                 result.update(success=False, status='unknown', awaiting_broker=True,
                     message='Request sent; awaiting broker confirmation. Do not resubmit.')
+            if body.get('action') in ('cancel_trim','cancel_exit'):
+                target=next((r for r in state['orders'] if r['order_id']==body.get('order_id')), {})
+                if target.get('status') in ('Cancelled','ApiCancelled','Filled'):
+                    result.update(success=True,status='filled' if target['status']=='Filled' else 'canceled',awaiting_broker=False,message='Exact exit cancellation resolved by broker')
             if body.get('action') == 'cancel_protection':
                 result.update(success=True, status='canceled', message='Requested protection cancellation confirmed; position and remaining protection reflect broker state')
             if body.get('action') == 'cancel_add':
@@ -1541,7 +1551,7 @@ class PaperChart:
             conn.ib.cancelOrder(t.order)
         deadline=time.monotonic()+3
         while any(not self._resolved_trades[r['order_id']].isDone() for r in active):
-            if time.monotonic()>=deadline:raise RuntimeError('Trim cancellation unconfirmed; do not replay')
+            if time.monotonic()>=deadline:raise RuntimeError('Exit cancellation unconfirmed; do not replay')
             conn.ib.sleep(.05)
         fresh=self.state(conn,cid)
         positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
@@ -1648,20 +1658,23 @@ class PaperChart:
             self.save_group(account,cid,group)
 
     def perform(self, conn, account, cid, body, request_id):
-        if body.get('action')=='cancel_trim':
+        if body.get('action') in ('cancel_trim','cancel_exit'):
             conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
             current=self.state(conn,cid);group=self.group(account,cid) or {}
             oid=body.get('order_id')
-            row=next((r for r in current['orders'] if r['order_id']==oid and r['role'].startswith('trim_')),None)
+            allowed_roles=('trim',) if body['action']=='cancel_trim' else ('tp','sl')
+            if body['action']=='cancel_exit' and body.get('confirm_remove_protection') is not True:
+                raise ValueError('Confirm removal of this protection order')
+            row=next((r for r in current['orders'] if r['order_id']==oid and r['role'].split('_')[0] in allowed_roles and '_retired_' not in r['role']),None)
             trade=getattr(self,'_resolved_trades',{}).get(oid)
             if not row or not trade or body.get('expected_ref')!=group.get('ref') or trade.order.account!=account or trade.contract.conId!=cid or trade.order.orderRef!=group.get('ref'):
-                raise ValueError('Exact owned Trim required')
+                raise ValueError('Exact owned exit required')
             if trade.orderStatus.status in ('Cancelled','ApiCancelled','Filled'):return
-            if trade.orderStatus.status not in ('Submitted','PreSubmitted','PendingCancel'):raise ValueError('Trim status needs reconciliation')
+            if trade.orderStatus.status not in ('Submitted','PreSubmitted','PendingCancel'):raise ValueError('Exit status needs reconciliation')
             if trade.orderStatus.status!='PendingCancel':conn.ib.cancelOrder(trade.order)
             deadline=time.monotonic()+4
             while trade.orderStatus.status not in ('Cancelled','ApiCancelled','Filled'):
-                if time.monotonic()>=deadline:raise RuntimeError('Trim cancellation unconfirmed; do not replay')
+                if time.monotonic()>=deadline:raise RuntimeError('Exit cancellation unconfirmed; do not replay')
                 conn.ib.sleep(.05)
             return
         pending=self.group(account,cid) or {}
