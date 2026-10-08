@@ -278,7 +278,9 @@ class PaperChart:
                     ordinary=[r for r in live_rows if not any(l.get('closing') and l.get('tp')==r['order_id'] for l in group.get('lots',[]))]
                     result[role]=ordinary[-1]['price'] if ordinary else 0
                     result['add_tp']=result[role] or group.get('ordinary_tp') or next((l.get('original_tp') for l in group.get('lots',[]) if l.get('original_tp')),0)
-                elif live_rows: result[role]=live_rows[-1]['price']
+                elif live_rows:
+                    confirmed_levels=[r for r in live_rows if r['status'] in ('Submitted','PreSubmitted','PendingCancel') and r['price']>0]
+                    result[role]=confirmed_levels[-1]['price'] if confirmed_levels else 0
             result['scalable']=bool(group.get('lots')) and all('tp' in lot and 'sl' in lot for lot in group['lots'])
             result['quantity']=sum(max(0,r['quantity']-r['filled']) for r in rows if r['role'].split('_')[0]=='entry' and r['status'] not in ('Filled','Cancelled','ApiCancelled','Inactive'))
         parent=trades.get(group['ids'].get('entry'))

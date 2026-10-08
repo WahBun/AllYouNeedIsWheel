@@ -475,6 +475,18 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
         self.assertEqual(r['state']['protection']['sl'],4)
 
+    def test_unknown_split_stop_does_not_hide_confirmed_stop_price(self):
+        state=self.setup_limit_trim()
+        missing=self.trades[-2]
+        self.trades.remove(missing)
+        group=self.service.group('DU_TEST',7)
+        group.get('terminal',{}).pop('sl_trim_'+str(missing.order.orderId),None)
+        self.service.save_group('DU_TEST',7,group)
+        state=self.service.state(self.conn,7)
+        self.assertFalse(state['known'])
+        self.assertEqual(state['sl'],9.75)
+        self.assertEqual(state['protection']['sl'],3)
+
 def load_tests(loader, tests, pattern):
     import unittest
     return unittest.TestSuite(OptionalProtectionTests(name) for name in OptionalProtectionTests.__dict__ if name.startswith('test_'))
