@@ -533,7 +533,13 @@ final class TradingSession {
         let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         guard (200..<300).contains(http.statusCode), let payload else {
             let source = http.value(forHTTPHeaderField: "X-Wheel-Response-Origin") == "application" ? "application" : "unverified origin"
+            if request.httpMethod != "GET", source == "application", [400, 403, 409, 422].contains(http.statusCode) {
+                ChartTradeSounds.shared.play("rejected", enabled: ChartTradeSounds.shared.enabled)
+            }
             throw BackendHTTPError(status: http.statusCode, message: "\(payload?["error"] as? String ?? "Request failed.") [HTTP \(http.statusCode) · \(source) · \(diagnostic)]", confirmedRejection: source == "application" && [400, 403, 409, 422].contains(http.statusCode))
+        }
+        if request.httpMethod != "GET", payload["status"] as? String == "rejected" {
+            ChartTradeSounds.shared.play("rejected", enabled: ChartTradeSounds.shared.enabled)
         }
         if let error = payload["error"] as? String { throw AppError.message("\(error) [\(diagnostic)]") }
         return payload

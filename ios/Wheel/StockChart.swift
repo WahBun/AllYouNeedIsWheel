@@ -253,6 +253,8 @@ struct StockChartView: View {
     @State private var accountExecutions: [[String: Any]] = []
     @State private var executionCID: Int?
     @State private var paperState: [String: Any] = [:]
+    private var tradeSounds: ChartTradeSounds { .shared }
+    @AppStorage("wheel.native.sounds") private var tradingSoundsEnabled = true
     @State private var completedPaperOrders: Set<String> = []
     @State private var showQuantityEditor = false
     @State private var quantityDraft = "1"
@@ -1037,6 +1039,9 @@ struct StockChartView: View {
                 Button { showDisplaySettings = true } label: {
                     Image(systemName: "gearshape").frame(width: 36, height: 32)
                 }.buttonStyle(.plain).accessibilityLabel("Chart display")
+                Button { tradingSoundsEnabled.toggle(); if !tradingSoundsEnabled { tradeSounds.stop() } } label: {
+                    Image(systemName: tradingSoundsEnabled ? "speaker.wave.2" : "speaker.slash").frame(width: 36, height: 32)
+                }.buttonStyle(.plain).accessibilityLabel(locale.language.languageCode?.identifier == "zh" ? (tradingSoundsEnabled ? "关闭提示音" : "开启提示音") : (tradingSoundsEnabled ? "Mute trading sounds" : "Enable trading sounds"))
                 Text(verbatim: chartStatusText)
                     .font(.caption).foregroundStyle(paperEnabled ? .orange : .secondary)
                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity)

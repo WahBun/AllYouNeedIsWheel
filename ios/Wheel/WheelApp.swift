@@ -425,6 +425,7 @@ final class WheelStore {
                 fillPreview.updateMetadata(fillSnapshot + orders)
                 fillPreview.enqueue(fillTracker.ingest(fillSnapshot + orders))
             }
+            ChartTradeSounds.shared.observeOrders(scope: "\(address):\(trading.accountEpoch ?? "")", orders: Array(completedOrders.values) + orders)
             opportunities.synchronizeEntries(orders: orders)
             trading.ordersDidRefresh()
         } catch {
@@ -458,7 +459,7 @@ final class WheelStore {
             if token == revision, version == trading.version, !Task.isCancelled { filledError = connectionMessage(error) }
         }
     }
-    func changeMode() { connectingEpoch = nil; connectingMode = nil; completedOrders = [:]; performanceHistoryCache = [:]; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; filledUpdated = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
+    func changeMode() { ChartTradeSounds.shared.reset(); connectingEpoch = nil; connectingMode = nil; completedOrders = [:]; performanceHistoryCache = [:]; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; filledUpdated = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
 }
 
 func connectionMessage(_ error: Error) -> String {
@@ -568,6 +569,17 @@ struct RootView: View {
             }.tabItem { Label(localizedLabel("Trade", locale: appLocale), systemImage: "arrow.left.arrow.right") }.tag("trade")
             NavigationStack(path: $ordersPath) { OrdersView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Orders", locale: appLocale), systemImage: "list.bullet.rectangle") }.tag("orders")
             NavigationStack { SettingsView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Settings", locale: appLocale), systemImage: "gearshape") }.tag("settings")
+        }
+        .onChange(of: phase, initial: true) { _, phase in
+            ChartTradeSounds.shared.reset()
+            ChartTradeSounds.shared.active = phase == .active && !store.demo
+        }
+        .onChange(of: store.demo) { _, demo in
+            ChartTradeSounds.shared.reset()
+            ChartTradeSounds.shared.active = phase == .active && !demo
+        }
+        .onChange(of: store.isConnected(to: store.address)) { _, connected in
+            ChartTradeSounds.shared.connection(connected, enabled: ChartTradeSounds.shared.enabled)
         }
         .onChange(of: store.requestedTradeChart) {
             guard let destination = store.requestedTradeChart else { return }
@@ -1542,6 +1554,7 @@ struct OrdersView: View {
 }
 
 struct SettingsView: View {
+    @AppStorage("wheel.native.sounds") private var tradingSoundsEnabled = true
     private static let appVersion: String = {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
@@ -1616,6 +1629,9 @@ struct SettingsView: View {
     var body: some View {
         @Bindable var store = store
         Form {
+                Toggle(locale.language.languageCode?.identifier == "zh" ? "交易提示音" : "Trading sounds", isOn: $tradingSoundsEnabled)
+                    .onChange(of: tradingSoundsEnabled) { _, enabled in if !enabled { ChartTradeSounds.shared.stop() } }
+
             Section("Connection") {
                 HStack(spacing: 3) {
                     ForEach(["demo", "live", "paper"], id: \.self) { mode in

@@ -721,3 +721,16 @@ fill dates used by sorting and display. New tests cover 10,000 records, page
 continuity, filtering, duplicate IDs and New York day boundaries. Simulator suite:
 129 passed. The 10,000-record projection measured approximately 8 ms locally;
 this is not physical-device screen latency. Phone installation remains deferred.
+
+## Native trading sounds (2026-10-08)
+
+The iOS foreground app now bundles the same four WAV files as the web chart.
+A single app-wide observer consumes the existing synchronized orders/history;
+page changes do not create duplicate observers. Confirmed fills use FillTracker's
+monotonic quantities and broker identity handling. Cancellations/rejections require
+confirmed state, never disappearance. Initial/account-switch snapshots and resume
+history are silent. Fills take priority over cancellation in the same snapshot.
+Confirmed write rejection and connection-loss transitions also provide feedback.
+Settings and chart controls share a persisted sound preference. Backgrounding stops
+queued playback; the iPhone silent switch is respected. Background push delivery
+is not implemented, and no broker order was sent to verify audio.
