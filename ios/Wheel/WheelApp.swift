@@ -1376,6 +1376,20 @@ struct OrdersView: View {
                 Text(localizedLabel("Orders", locale: locale)).font(.largeTitle.bold())
                 Spacer(minLength: 12)
                 OrdersDailyProfit(days: history ? historyDays : 1)
+                if !history {
+                    Menu {
+                        Toggle("Confirm execution and cancellation", isOn: $confirmExecution)
+                    } label: {
+                        Image(systemName: confirmExecution ? "checkmark.shield.fill" : "shield.slash")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(confirmExecution ? Color.primary : Color.secondary)
+                            .frame(width: 44, height: 44)
+                            .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Confirm execution and cancellation")
+                    .accessibilityValue(confirmExecution ? Text("On") : Text("Off"))
+                }
             }.listRowBackground(Color.clear).listRowSeparator(.hidden)
             StatusView(orders: true)
             Picker("Orders", selection: $history) { Text("Pending").tag(false); Text("Executed records").tag(true) }.pickerStyle(.segmented)
@@ -1418,7 +1432,6 @@ struct OrdersView: View {
             if history, let error = store.filledError {
                 NoticeText(error).font(.caption).foregroundStyle(.orange)
             }
-            if !history { Toggle("Confirm execution and cancellation", isOn: $confirmExecution) }
             if store.ordersRetrying {
                 Text("Connection interrupted. Retrying…").font(.caption).foregroundStyle(.orange)
             } else if let error = store.orderError {
