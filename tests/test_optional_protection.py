@@ -502,6 +502,22 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertFalse(result['state']['known'])
 
 
+    def test_standalone_stop_quantity_keeps_identity_and_price(self):
+        state=self.setup_limit_trim()
+        group=self.service.group('DU_TEST',7)
+        for t in self.trades:
+            if t.order.orderId!=group['ids']['sl'] and t.orderStatus.status!='Filled':t.orderStatus.status='Cancelled'
+        state=self.service.state(self.conn,7);r=next(r for r in state['orders'] if r['role']=='sl')
+        result=self.service.execute(self.conn,7,dict(action='resize_stop',order_id=r['order_id'],quantity=2,expected_quantity=r['quantity'],expected_price=r['price'],expected_ref=state['order_ref'],request_id=str(uuid4())))
+        self.assertTrue(result['success'],result)
+        stop=next(t for t in self.trades if t.order.orderId==r['order_id'])
+        self.assertEqual(stop.order.totalQuantity,2)
+        self.assertEqual(stop.order.auxPrice,r['price'])
+        writes=self.conn.ib.placeOrder.call_count
+        result=self.service.execute(self.conn,7,dict(action='resize_stop',order_id=r['order_id'],quantity=5,expected_quantity=2,expected_price=r['price'],expected_ref=state['order_ref'],request_id=str(uuid4())))
+        self.assertFalse(result['success']);self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
+
+
 def load_tests(loader, tests, pattern):
     import unittest
     return unittest.TestSuite(OptionalProtectionTests(name) for name in OptionalProtectionTests.__dict__ if name.startswith('test_'))

@@ -214,6 +214,7 @@ class PaperChart:
                         else:
                             entry_action = 'BUY' if group['side'] == 1 else 'SELL'
                             matches = t.order.orderRef == ref and (
+                                (t.order.orderId == group['ids'][role] and t.order.clientId == conn.ib.client.clientId and role.startswith(('sl_trim_', 'trim_')) and t.order.action != entry_action and t.order.orderType == ('STP' if role.startswith('sl_') else 'LMT')) or
                                 role == 'entry' and t.order.action == entry_action or
                                 role == 'tp' and t.order.action != entry_action and t.order.orderType == 'LMT' or
                                 role == 'sl' and t.order.action != entry_action and t.order.orderType == 'STP' or
@@ -1658,6 +1659,33 @@ class PaperChart:
             self.save_group(account,cid,group)
 
     def perform(self, conn, account, cid, body, request_id):
+        if body.get('action')=='resize_stop':
+            import copy
+            conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
+            current=self.state(conn,cid);group=self.group(account,cid) or {}
+            oid=body.get('order_id');trade=getattr(self,'_resolved_trades',{}).get(oid)
+            if (not trade or group.get('ref')!=body.get('expected_ref') or
+                not any(r['order_id']==oid and r['role']=='sl' for r in current['orders']) or
+                trade.order.account!=account or trade.contract.conId!=cid or trade.order.orderRef!=group.get('ref') or
+                trade.order.orderType!='STP' or trade.order.ocaGroup or trade.order.parentId or
+                trade.orderStatus.status not in ('Submitted','PreSubmitted')):
+                raise ValueError('Exact working standalone stop required')
+            qty=body.get('quantity');old=float(trade.order.totalQuantity);filled=float(trade.orderStatus.filled)
+            if isinstance(qty,bool) or not isinstance(qty,(int,float)) or not math.isfinite(qty) or qty!=int(qty) or qty<=filled:
+                raise ValueError('Stop total quantity must be a whole number above filled quantity')
+            if body.get('expected_quantity')!=old or body.get('expected_price')!=trade.order.auxPrice:
+                raise ValueError('Stop changed; refresh quantity editor')
+            positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
+            position=sum(float(p.position) for p in positions if p.account==account and p.contract.conId==cid)
+            if not position or (trade.order.action=='SELL')!=(position>0) or qty-filled>abs(position):
+                raise ValueError('Stop quantity exceeds remaining position')
+            if qty>old:
+                others=conn._bounded_order_read(conn.ib.reqAllOpenOrders,timeout_seconds=3)
+                if not current['known'] or current.get('sync_error') or any(t.order.account==account and t.contract.conId==cid and t.order.orderId!=oid for t in others):
+                    raise ValueError('Reconcile other exits before increasing stop quantity')
+            order=copy.copy(trade.order);order.totalQuantity=qty
+            self.modify_exit(conn,trade,order,'totalQuantity')
+            return
         if body.get('action') in ('cancel_trim','cancel_exit'):
             conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
             current=self.state(conn,cid);group=self.group(account,cid) or {}
