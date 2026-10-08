@@ -76,8 +76,16 @@ struct ChartOrderProgressView: View {
                 Text(verbatim: "\(label("Filled")) \(number(progress, "filled"))/\(number(progress, "requested")) · \(label("Awaiting fill")) \(number(progress, "pending")) · \(label("Remaining")) \(number(progress, "remaining"))")
             }
             if let protection = state["protection"] as? [String: Any], state["active"] as? Bool == true {
-                Text(verbatim: "\(label("Position")) \(number(protection, "remaining_position")) · TP \(number(protection, "tp")) · SL \(number(protection, "sl"))")
-                Text(verbatim: label(state["sync_error"] as? Bool == true ? "unknown" : protection["status"] as? String ?? "unknown"))
+                if protection["status"] as? String == "not_requested" {
+                    Text(locale.language.languageCode?.identifier == "zh" ? "未设止盈止损" : "No TP / SL set")
+                } else {
+                    Text(verbatim: "TP \(number(protection, "tp")) · SL \(number(protection, "sl"))")
+                    if state["sync_error"] as? Bool == true {
+                        Text(verbatim: label("unknown"))
+                    } else if let status = protection["status"] as? String, !["covered", "tp_only", "sl_only"].contains(status) {
+                        Text(verbatim: label(status))
+                    }
+                }
             }
         }.font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity)
@@ -898,7 +906,7 @@ struct StockChartView: View {
     private var adjustmentLimit: Int { adjustmentAction == "trim" ? min(positionSize, (paperState["trim_available"] as? NSNumber)?.intValue ?? positionSize) : ((paperState["add_available"] as? NSNumber)?.intValue ?? 0) }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
+        ["nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
          "emaDynamic": emaDynamic, "emaColor": emaColor + "ab", "emaWidth": emaWidth, "emaStyle": emaStyle,
          "atr": showATR && indicatorVisible, "atrLength": atrLength, "profit": showHoldings && showProfit, "positions": showHoldings && showPositionProfit, "brackets": showHoldings && showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
@@ -913,7 +921,7 @@ struct StockChartView: View {
         default: chartName = chinese ? "股票图表" : "Stock chart"
         }
         if !paperStatusText.isEmpty {
-            return chartName + " · " + localizedNotice(paperStatusText, locale: locale)
+            return localizedNotice(paperStatusText, locale: locale)
         }
         let state = paperEnabled ? (chinese ? "交易" : "Trading") : (chinese ? "查看" : "View")
         return localizedLabel(store.accountModeLabel, locale: locale) + " · " + chartName + " · " + state
@@ -1101,9 +1109,9 @@ struct StockChartView: View {
                     }
                 }.disabled(paperBusy || store.trading.busy)
             }
-            if !hasOrderPreview { ChartOrderProgressView(state: paperState) }
+            if !hasOrderPreview && !fullScreen && !tradingPanelCollapsed { ChartOrderProgressView(state: paperState) }
             if positionSize > 0, let reason = paperState["protection_block_reason"] as? String, !reason.isEmpty { Text(reason).font(.caption).foregroundStyle(.secondary) }
-            if positionSize > 0 && paperState["manual_stop_quantity"] as? Bool == true {
+            if positionSize > 0 && paperState["manual_stop_quantity"] as? Bool == true && (paperState["sl"] as? Double ?? 0) > 0 {
                 Text(locale.language.languageCode?.identifier == "zh" ? "止损数量手动管理；Trim 成交后请点 SL 数量调整。" : "Adjust SL quantity manually after Trim fills.").font(.caption).foregroundStyle(.secondary)
             }
             if positionSize > 0 && paperState["add_block_reason"] as? String == "option_opposite_orders" {
