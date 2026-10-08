@@ -55,6 +55,7 @@ def require_call_coverage(conn, account, contract, quantity):
         if p.account != account: continue
         if c.secType == 'BAG': raise ValueError('Combination positions require manual coverage reconciliation')
         if c.symbol != contract.symbol or c.currency != contract.currency: continue
+        if not math.isfinite(float(p.position)): raise ValueError('Unknown position quantity; reconcile coverage')
         if c.secType == 'STK': shares+=float(p.position)
         elif c.secType == 'OPT' and c.right == 'C' and p.position < 0:
             if not standard(c): raise ValueError('Nonstandard short call coverage needs reconciliation')
@@ -66,7 +67,7 @@ def require_call_coverage(conn, account, contract, quantity):
         seen.add(key)
         if c.secType == 'BAG': raise ValueError('Combination orders require manual coverage reconciliation')
         if c.symbol != contract.symbol or c.currency != contract.currency or action != 'SELL': continue
-        if not math.isfinite(total) or not math.isfinite(filled): raise ValueError('Unknown pending quantity; reconcile coverage')
+        if not math.isfinite(total) or not math.isfinite(filled) or total < 0 or filled < 0 or filled > total: raise ValueError('Unknown pending quantity; reconcile coverage')
         remaining=max(0,total-filled)
         if c.secType == 'STK': shares-=remaining
         elif c.secType == 'OPT' and c.right == 'C':
@@ -739,6 +740,12 @@ class PaperChart:
                 return resolved('reconciled')
         if body.get('action') == 'edit_entry' and state['known']:
             original = group.get('ref') == body.get('expected_ref')
+            if original and group.get('pending_edit') == request_id:
+                rows = state.get('orders', [])
+                if rows and all(r['role'].split('_')[0] == 'entry' and r['status'] in ('Filled','Cancelled','ApiCancelled') for r in rows) and any(r['filled'] for r in rows):
+                    # An amendment/replacement can race with a fill. Terminal
+                    # original parents resolve uncertainty, never authorize replay.
+                    return resolved('reconciled')
             if original and body.get('cancel') is True and group.get('pending_edit') == request_id:
                 rows = state.get('orders', [])
                 if rows and all(r['role'].split('_')[0] == 'entry' and r['status'] in ('Filled','Cancelled','ApiCancelled') for r in rows):

@@ -319,3 +319,21 @@ class EntryEditTests(unittest.TestCase):
         self.assertIn('Insufficient unreserved shares',r['message'])
         self.conn.ib.cancelOrder.assert_not_called();self.conn.ib.placeOrder.assert_not_called()
         self.assertEqual(self.service.state(self.conn,7)['edit_snapshot'],before)
+
+    def test_price_edit_fill_during_disconnect_recovers_without_replay(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace as S
+        from api.services.paper_chart import PaperChart
+        self.submit(tp=None,sl=None)
+        def filled(*args, **kw):
+            t=self.trades[0];t.orderStatus.status='Filled';t.orderStatus.filled=1
+            self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=1,avgCost=10)]
+            raise ConnectionError('reply lost')
+        with patch.object(self.service,'modify_exit',side_effect=filled):
+            result=self.edit(price=10.25)
+        self.assertEqual(result['status'],'unknown')
+        identity=self.service.group('DU_TEST',7)['pending_edit']
+        count=self.conn.ib.placeOrder.call_count
+        self.assertTrue(PaperChart(self.service.path).request_status(self.conn,7,identity)['confirmed'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count,count)
+        self.conn.ib.cancelOrder.assert_not_called()

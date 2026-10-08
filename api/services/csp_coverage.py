@@ -20,16 +20,21 @@ def require_put_cash(conn, account, contract, quantity):
     cash=number(conn.fresh_csp_cash(account))
     reserve=Decimal(0)
     for p in positions:
-        if p.account != account or not p.position: continue
+        if p.account != account: continue
+        position=Decimal(str(p.position))
+        if not position.is_finite(): raise ValueError('Invalid CSP position quantity')
+        if not position: continue
         c=p.contract
         if c.secType=='BAG': raise ValueError('Combination exposure needs cash reconciliation')
-        if c.secType=='OPT' and c.right=='P' and p.position<0:
+        if c.secType=='OPT' and c.right=='P' and position<0:
             if not standard(c): raise ValueError('Nonstandard short put cash needs reconciliation')
-            reserve+=number(c.strike)*100*number(-p.position)
+            reserve+=number(c.strike)*100*number(-position)
     seen=set()
     for c,a,action,kind,price,key,status,total,filled in orders:
         if a!=account or status in ('Filled','Cancelled','ApiCancelled','Inactive') or key in seen: continue
-        seen.add(key); remaining=max(Decimal(0),number(total)-number(filled))
+        seen.add(key)
+        if number(filled) > number(total): raise ValueError('Invalid CSP pending quantity')
+        remaining=number(total)-number(filled)
         if not remaining: continue
         if c.secType=='BAG': raise ValueError('Combination orders need cash reconciliation')
         if c.secType=='OPT' and c.right=='P' and action=='SELL':
@@ -39,7 +44,9 @@ def require_put_cash(conn, account, contract, quantity):
             # Pending purchases/buybacks do not release cash or short obligations.
             if c.currency!='USD' or kind!='LMT' or c.secType not in ('STK','OPT'):
                 raise ValueError('Pending purchase has uncertain cash requirement')
-            reserve+=number(price)*number(c.multiplier or 1)*remaining
+            if c.secType == 'OPT' and not standard(c):
+                raise ValueError('Pending option purchase has uncertain cash requirement')
+            reserve+=number(price)*(100 if c.secType == 'OPT' else 1)*remaining
     required=number(contract.strike)*100*number(quantity)
     # Retain a small execution-cost buffer rather than spending the last dollar.
     if cash-reserve < required+Decimal('10')*number(quantity):

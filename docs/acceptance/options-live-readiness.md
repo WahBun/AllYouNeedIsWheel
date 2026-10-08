@@ -317,3 +317,22 @@ chart_execution_enabled=false. New epoch issued normally after backend restart.
 This supersedes the deployment deferral above. No further phone install needed
 for this backend repair. Historical unknown-result cleanup remains read-only;
 never replay old requests merely to clear their journal statuses.
+
+## 2026-10-08 amendment recovery and collateral boundaries
+
+635 backend regressions passed, all new cases broker-mocked. Fixed an unprotected
+entry amendment racing with a fill and lost response: exact terminal original
+parents now release the uncertainty lock without replaying amendments or sending
+replacement orders. Added a restart recovery test asserting no extra writes.
+
+CSP pending option purchases now require a known standard multiplier instead of
+silently defaulting a missing multiplier to one. CC/CSP reject nonfinite position
+quantities and invalid pending quantities. Tested external-client put orders plus
+stock purchases, pending buybacks retaining assignment reservation, PendingCancel
+retaining CC reservation, other-account isolation, and malformed quantity data.
+
+These checks do not provide an atomic broker-wide reservation against another
+external client submitting after the snapshot. Wheel serializes its own requests;
+IB remains authoritative. Actual CSP fills and real partial fills remain untested.
+No real order was submitted, amended, canceled or closed in this pass. Live gate
+remains disabled. No iOS source changed; no new phone installation is needed.

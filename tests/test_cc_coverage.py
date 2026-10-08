@@ -47,3 +47,16 @@ class CoverageTests(unittest.TestCase):
             return self.positions+[S(account='DU_TEST',contract=self.call,position=-1)]
         self.conn._bounded_order_read.side_effect=read
         with self.assertRaisesRegex(ValueError,'Insufficient'):self.check(1)
+
+    def test_invalid_pending_quantities_cannot_free_coverage(self):
+        for total,filled in ((-1,0),(1,-1),(1,2),(float('nan'),0)):
+            self.orders=[self.order(self.call,total,filled=filled)]
+            with self.assertRaisesRegex(ValueError,'Unknown pending'):self.check(1)
+    def test_pending_cancel_reserves_until_terminal(self):
+        t=self.order(self.call,2);t.orderStatus.status='PendingCancel';self.orders=[t]
+        with self.assertRaisesRegex(ValueError,'Insufficient'):self.check(1)
+        t.orderStatus.status='Cancelled';self.check(2)
+
+    def test_nonfinite_short_call_position_is_not_ignored(self):
+        self.positions.append(S(account='DU_TEST',contract=self.call,position=float('nan')))
+        with self.assertRaisesRegex(ValueError,'position quantity'): self.check(1)
