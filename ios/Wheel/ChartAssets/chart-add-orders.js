@@ -84,6 +84,23 @@
   }
   requestAnimationFrame(positionExitHandles);
  }positionExitHandles();
+ window.editStopQuantity=(oid)=>{
+  const row=paperConfig.orders?.find(r=>r.order_id===oid);
+  if(!row||!paperConfig.enabled||paperConfig.busy||!paperConfig.editable_stop_ids?.includes(oid))return;
+  const cid=paperCID,ref=paperConfig.order_ref,epoch=paperConfig.web_account_epoch,position=paperConfig.position;
+  const zh=parent.document.documentElement.lang.startsWith('zh');addDialog.replaceChildren();addDialog.dataset.light=String(!darkAppearance);
+  const title=document.createElement('strong');title.textContent=(zh?'修改 SL 数量 @ ':'Edit SL quantity @ ')+priceText(row.price);
+  const note=document.createElement('p');note.textContent=zh?'仅修改这张止损单的总数量，价格保持不变。':'Edit this stop order’s total quantity. Its price stays unchanged.';
+  const input=document.createElement('input');input.type='number';input.min=String(Math.floor(row.filled||0)+1);input.max=String(Math.abs(position)+(row.filled||0));input.step='1';input.value=String(row.quantity);input.setAttribute('aria-label','Stop quantity');
+  const back=document.createElement('button');back.textContent=zh?'返回':'Back';back.onclick=()=>addDialog.close();
+  const save=document.createElement('button');save.textContent=zh?'确认数量':'Confirm quantity';save.onclick=()=>{
+   const quantity=Number(input.value);if(!input.value||!Number.isSafeInteger(quantity)||!input.reportValidity())return;
+   const now=paperConfig.orders?.find(r=>r.order_id===oid);
+   if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||position!==paperConfig.position||!now||now.quantity!==row.quantity||now.price!==row.price||paperConfig.busy||!paperConfig.enabled)return validation('Order changed; reopen quantity editor.');
+   addDialog.close();if(quantity!==row.quantity)paperAction({action:'resize_stop',order_id:oid,quantity,expected_quantity:row.quantity,expected_price:row.price,expected_ref:ref});
+  };
+  const footer=document.createElement('footer');footer.append(back,save);addDialog.append(title,note,input,footer);addDialog.showModal();input.focus();input.select();
+ };
  function createPlanEditor(row){
   const button=document.createElement('button');button.textContent='⋯';button.setAttribute('aria-label','Edit trim quantity');
   button.style.cssText='position:absolute;height:28px;width:29px;padding:0;background:#f4f5f3;color:#825095;border:1px solid #b27bcd;border-radius:3px;z-index:7;touch-action:manipulation';
