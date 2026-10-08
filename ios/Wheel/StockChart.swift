@@ -71,7 +71,7 @@ struct ChartOrderProgressView: View {
     var body: some View {
         VStack(spacing: 3) {
             if let progress = state["close_progress"] as? [String: Any] {
-                Text(verbatim: "Close · \(label("Filled")) \(number(progress, "filled"))/\(number(progress, "requested")) · \(label("Position")) \(number(progress, "remaining")) · \(progress["status"] as? String ?? "unknown")")
+                Text(verbatim: "\(label("Close")) · \(label("Filled")) \(number(progress, "filled"))/\(number(progress, "requested")) · \(label("Position")) \(number(progress, "remaining")) · \(label(progress["status"] as? String ?? "unknown"))")
             } else if let progress = state["adjustment"] as? [String: Any] {
                 Text(verbatim: "\(label("Filled")) \(number(progress, "filled"))/\(number(progress, "requested")) · \(label("Awaiting fill")) \(number(progress, "pending")) · \(label("Remaining")) \(number(progress, "remaining"))")
             }
@@ -1015,7 +1015,7 @@ struct StockChartView: View {
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             }
             }
-            if let emaHistoryNotice { Text(verbatim: emaHistoryNotice).font(.caption2).foregroundStyle(.secondary) }
+            if let emaHistoryNotice { NoticeText(emaHistoryNotice).font(.caption2).foregroundStyle(.secondary) }
             StockChartWeb(executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
