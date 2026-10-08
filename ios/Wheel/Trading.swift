@@ -1100,3 +1100,22 @@ struct SpreadValue: View {
             .modifier(MetricHighFinish(active: SpreadBand.classify(percentage) == .wide, color: Self.color(for: percentage, scheme: scheme, palette: customPalette)))
     }
 }
+
+
+/// A confirmed flat lifecycle clears the old chart order, including native
+/// holdings whose chart group never had an entry leg.
+enum ChartOrderCompletion {
+    static func key(_ state: [String: Any]) -> String? {
+        guard state["known"] as? Bool == true,
+              state["active"] as? Bool == false,
+              (state["position"] as? NSNumber)?.doubleValue == 0,
+              let reference = state["order_ref"] as? String, !reference.isEmpty else { return nil }
+        let status = state["status"] as? String ?? ""
+        let closed = (state["close_progress"] as? [String: Any])?["status"] as? String == "completed"
+        guard ["done", "canceled"].contains(status) || closed else { return nil }
+        let rows = state["orders"] as? [[String: Any]] ?? []
+        guard rows.allSatisfy({ ["Filled", "Cancelled", "ApiCancelled", "Inactive"].contains($0["status"] as? String ?? "") }) else { return nil }
+        let ids = rows.compactMap { ($0["order_id"] as? NSNumber)?.stringValue }.sorted().joined(separator: ",")
+        return reference + ":" + ids
+    }
+}

@@ -359,9 +359,10 @@ struct StockChartView: View {
         }
         if state["active"] as? Bool == true, let price = state["entry"] as? Double, price > 0 { entry = String(price) }
         let rows = state["orders"] as? [[String: Any]] ?? []
-        if state["status"] as? String == "done",
-           let id = rows.first(where: { $0["role"] as? String == "entry" })?["order_id"] as? Int,
-           completedPaperOrders.insert("\(store.address)-\(chartID ?? 0)-\(id)").inserted { entry = "0"; beApplied = false }
+        if let completion = ChartOrderCompletion.key(state) {
+            let identity = "\(store.address)-\(chartID ?? 0)-\(completion)"
+            if completedPaperOrders.insert(identity).inserted { entry = "0"; beApplied = false }
+        }
     }
     private func paperAction(_ incoming: [String: Any]) {
         var body = incoming

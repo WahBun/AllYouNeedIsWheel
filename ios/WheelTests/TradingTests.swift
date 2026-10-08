@@ -1632,3 +1632,25 @@ final class OptionAveragePriceTests: XCTestCase {
         XCTAssertNil(p.optionAveragePrice)
     }
 }
+
+
+final class ChartOrderCompletionTests: XCTestCase {
+    func testNativeCloseWithoutEntryLegClearsAndPartialFillDoesNot() {
+        var state: [String: Any] = ["known": true, "active": false, "position": 0,
+            "status": "done", "order_ref": "native-position", "orders": [["role": "close", "order_id": 12, "status": "Filled"]]]
+        XCTAssertNotNil(ChartOrderCompletion.key(state))
+        state["position"] = -1; state["active"] = true
+        XCTAssertNil(ChartOrderCompletion.key(state))
+        state["position"] = 0; state["active"] = false; state["known"] = false
+        XCTAssertNil(ChartOrderCompletion.key(state))
+    }
+    func testWorkingExitPreventsClearAndNewLifecycleGetsNewKey() {
+        var state: [String: Any] = ["known": true, "active": false, "position": 0,
+            "status": "done", "order_ref": "position", "orders": [["order_id": 12, "status": "Submitted"]]]
+        XCTAssertNil(ChartOrderCompletion.key(state))
+        state["orders"] = [["order_id": 12, "status": "Filled"]]
+        let old = ChartOrderCompletion.key(state)
+        state["orders"] = [["order_id": 13, "status": "Filled"]]
+        XCTAssertNotEqual(old, ChartOrderCompletion.key(state))
+    }
+}
