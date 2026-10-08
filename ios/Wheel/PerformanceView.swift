@@ -336,7 +336,7 @@ private struct PerformanceSelectionOverlay: View {
                         if benchmarks.showsNQ100 {
                         marker(point.nq100, color: .orange, x: x, plot: plot)
                         }
-                        let width = min(CGFloat(190), plot.width)
+                        let width = min(CGFloat(150), plot.width)
                         let preferredX = x + 16 + width <= plot.maxX ? x + 16 : x - width - 16
                         let left = max(plot.minX, min(preferredX, plot.maxX - width))
                         let top = max(plot.minY, min(touch.y - 120, plot.maxY - 108))
