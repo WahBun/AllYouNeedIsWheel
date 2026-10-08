@@ -2,6 +2,12 @@ import SwiftUI
 import Charts
 
 enum PerformanceColors {
+    // Sky blue on dark backgrounds; deeper blue for light-mode contrast.
+    static let ndx = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 92.0 / 255, green: 190.0 / 255, blue: 245.0 / 255, alpha: 1)
+            : UIColor(red: 0, green: 112.0 / 255, blue: 173.0 / 255, alpha: 1)
+    })
     // Lavender in dark mode; deeper violet keeps thin lines legible on white.
     static let spx = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
@@ -87,7 +93,7 @@ struct PerformanceView: View {
         HStack(spacing: 6) {
             Text("● Portfolio").foregroundStyle(gain)
             if benchmarks.showsSPX { Text("● SPX").foregroundStyle(PerformanceColors.spx) }
-            if benchmarks.showsNQ100 { Text("● NDX").foregroundStyle(.orange) }
+            if benchmarks.showsNQ100 { Text("● NDX").foregroundStyle(PerformanceColors.ndx) }
         }
     }
     private var gain: Color { palette.color("gain", scheme: scheme, fallback: FinancialColors.gain) }
@@ -163,7 +169,7 @@ struct PerformanceView: View {
                             }
                             if benchmarks.showsNQ100 {
                             LineMark(x: .value("Date", point.day), y: .value("Return", point.nq100), series: .value("Series", "NDX"))
-                                .foregroundStyle(.orange).lineStyle(StrokeStyle(lineWidth: 1.5))
+                                .foregroundStyle(PerformanceColors.ndx).lineStyle(StrokeStyle(lineWidth: 1.5))
                             }
                         }
                         if let estimate, let last = history.points.last {
@@ -334,7 +340,7 @@ private struct PerformanceSelectionOverlay: View {
                         marker(point.spx, color: PerformanceColors.spx, x: x, plot: plot)
                         }
                         if benchmarks.showsNQ100 {
-                        marker(point.nq100, color: .orange, x: x, plot: plot)
+                        marker(point.nq100, color: PerformanceColors.ndx, x: x, plot: plot)
                         }
                         let width = min(CGFloat(150), plot.width)
                         let preferredX = x + 16 + width <= plot.maxX ? x + 16 : x - width - 16
@@ -369,7 +375,7 @@ private struct PerformanceSelectionOverlay: View {
             tooltipRow("SPX", value: point.spx, color: PerformanceColors.spx)
             }
             if benchmarks.showsNQ100 {
-            tooltipRow("NDX", value: point.nq100, color: .orange)
+            tooltipRow("NDX", value: point.nq100, color: PerformanceColors.ndx)
             }
         }
         .font(.caption).monospacedDigit().padding(10)
