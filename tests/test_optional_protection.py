@@ -563,6 +563,23 @@ class OptionalProtectionTests(PaperChartTests):
         self.assertTrue(r['success'],r);self.assertEqual(stop.order.totalQuantity,3)
 
 
+    def test_cc_add_with_stop_uses_remaining_coverage_without_touching_stop(self):
+        self.test_cc_full_coverage_disables_add_but_be_creates_buy_stop()
+        self.conn.ib.positions.return_value[0].position=500
+        state=self.service.state(self.conn,7)
+        self.assertTrue(state['add_allowed']);self.assertEqual(state['add_available'],1)
+        stop=self.trades[-1];before=(stop.order.orderId,stop.order.totalQuantity,stop.order.auxPrice)
+        result=self.service.execute(self.conn,7,dict(action='add',quantity=1,expected_ref=state['order_ref'],request_id=str(uuid4())))
+        self.assertTrue(result['success'],result)
+        self.assertEqual((stop.order.orderId,stop.order.totalQuantity,stop.order.auxPrice),before)
+        self.assertEqual(stop.orderStatus.status,'Submitted')
+        self.assertEqual(self.trades[-1].order.action,'SELL')
+        self.assertEqual(result['state']['add_available'],0)
+        count=self.conn.ib.placeOrder.call_count
+        result=self.service.execute(self.conn,7,dict(action='add',quantity=1,expected_ref=state['order_ref'],request_id=str(uuid4())))
+        self.assertFalse(result['success']);self.assertEqual(self.conn.ib.placeOrder.call_count,count)
+
+
 def load_tests(loader, tests, pattern):
     import unittest
     return unittest.TestSuite(OptionalProtectionTests(name) for name in OptionalProtectionTests.__dict__ if name.startswith('test_'))

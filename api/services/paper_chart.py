@@ -519,6 +519,10 @@ class PaperChart:
                 result['trim_available']=max(0,abs(result['position'])-reserved)
                 result['trim_allowed']=result['trim_available']>=1
 
+            result['independent_add']=bool(scaling_contract.secType=='OPT' and scaling_contract.right=='C' and result['position']<0 and result['known'] and abs(owned-result['position'])<.000001 and
+                all(t.order.orderRef==group.get('ref') and t.orderStatus.status in ('Submitted','PreSubmitted') and
+                    any(r['order_id']==t.order.orderId and r['role'].split('_')[0] in ('sl','tp','trim') for r in rows) for t in working))
+            if result['independent_add']:result['add_allowed']=True
             result['add_block_reason'] = ('option_opposite_orders' if opposite_working
                 else 'orders_need_reconciliation' if not result['add_allowed'] else '')
         # A settled standalone stop can be split into retained protection and
@@ -1967,8 +1971,8 @@ class PaperChart:
         if action == 'add' and (contract.secType == 'OPT' or contract.secType == 'STK' and not current.get('scalable')):
             if body.get('expected_ref') != group.get('ref'):
                 raise ValueError('Order identity changed; refresh before adding')
-            if not current.get('unprotected_scaling'):
-                raise ValueError('Option Add requires no opposite working orders and reconciled fills; cancel TP/SL/Trim first')
+            if not (current.get('unprotected_scaling') or current.get('independent_add')):
+                raise ValueError('Wait for reconciled position and owned working orders before Add')
             qty = body.get('quantity')
             maximum = 10 if contract.secType == 'OPT' else 1000
             if isinstance(qty, bool) or not isinstance(qty, (int, float)) or not math.isfinite(qty) or qty != int(qty) or not 1 <= qty <= maximum - abs(current['position']):
@@ -1982,10 +1986,19 @@ class PaperChart:
             target = 0 if kind == 'MKT' else price(body.get('entry'))
             # Cash/coverage reads can pump fills and external order callbacks.
             fresh=self.state(conn,cid)
-            if fresh.get('position')!=current['position'] or fresh.get('edit_snapshot')!=current['edit_snapshot'] or not fresh.get('unprotected_scaling'):
+            if fresh.get('position')!=current['position'] or fresh.get('edit_snapshot')!=current['edit_snapshot'] or not (fresh.get('unprotected_scaling') or fresh.get('independent_add')):
                 raise ValueError('Position/orders changed while checking collateral; refresh before adding')
             if body.get('expected_position') is not None and body['expected_position']!=fresh['position']:
                 raise ValueError('Position changed; reopen Add')
+            if current.get('independent_add'):
+                oid=conn.ib.client.getReqId()
+                order=MarketOrder('SELL',int(qty)) if kind=='MKT' else (LimitOrder if kind=='LMT' else StopOrder)('SELL',int(qty),target)
+                order.orderId=oid;order.account=account;order.orderRef=group['ref'];order.tif=group.get('tif','DAY');order.transmit=True
+                group['ids']['entry_'+str(oid)]=oid;group.setdefault('entry_kinds',{})[str(oid)]='add'
+                group['simple_add']=dict(request_id=request_id,order_id=oid,kind=kind,price=target,quantity=int(qty),action='SELL',tif=order.tif)
+                self.save_group(account,cid,group)
+                conn.ib.placeOrder(contract,order)
+                return
             if not group.get('lots'):
                 group['lots'] = [dict(entry=oid) for role, oid in group['ids'].items() if role.split('_')[0] == 'entry']
             group['simple_add'] = dict(request_id=request_id)
