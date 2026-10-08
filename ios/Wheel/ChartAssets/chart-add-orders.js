@@ -225,7 +225,7 @@
   if(trim&&(!priced||!paperConfig.scalable)&&Math.abs(paperConfig.position)<=1)return 'Only 1 remains; use Close position';
   if(trim&&availableTrim()<1)return 'All remaining units already have exit plans; move or cancel a plan first';
   if(trim&&!(paperConfig.trim_allowed??paperConfig.scalable))return 'Partial exit requires reconciled paired protection; use Close position';
-  if(priced&&!(paperConfig.scalable||paperConfig.unprotected_scaling||paperConfig.stop_trim_allowed))return 'Wait for reconciled position and exits';
+  if(priced&&!(paperConfig.scalable||paperConfig.unprotected_trim||paperConfig.unprotected_scaling||paperConfig.stop_trim_allowed))return 'Wait for reconciled position and exits';
   return '';
  }
  function chooseExit(trim,price=null){

@@ -508,6 +508,17 @@ class PaperChart:
             result['unprotected_scaling'] = settled_unprotected
             result['add_allowed'] = settled_unprotected
             result['trim_allowed'] = bool(result.get('scalable') or settled_unprotected)
+            standalone_working=bool(working) and all(t.order.orderRef==group.get('ref') and
+                any(r['order_id']==t.order.orderId and r['role'].startswith('trim_') for r in rows) and
+                t.order.orderType=='LMT' and t.order.action==opposite and not t.order.ocaGroup and not t.order.parentId and
+                t.orderStatus.status in ('Submitted','PreSubmitted') for t in working)
+            reserved=sum(max(0,float(t.order.totalQuantity)-float(t.orderStatus.filled)) for t in working)
+            result['unprotected_trim']=bool(result['known'] and result['position'] and abs(owned-result['position'])<.000001 and
+                (not working or standalone_working) and not any(group.get(k) for k in ('pending_resize','pending_protection','pending_stop_trim','pending_trim_edit')))
+            if result['unprotected_trim']:
+                result['trim_available']=max(0,abs(result['position'])-reserved)
+                result['trim_allowed']=result['trim_available']>=1
+
             result['add_block_reason'] = ('option_opposite_orders' if opposite_working
                 else 'orders_need_reconciliation' if not result['add_allowed'] else '')
         # A settled standalone stop can be split into retained protection and
@@ -584,7 +595,7 @@ class PaperChart:
                 reserved = any(p.account == account and p.contract.secType == 'OPT' and p.contract.symbol == contract.symbol and p.contract.right == 'C' and p.position < 0 for p in conn.ib.positions()) or any(t.order.account == account and (t.contract.secType == 'BAG' or t.contract.secType == 'OPT' and t.contract.symbol == contract.symbol and t.contract.right == 'C' and t.order.action == 'SELL') for t in conn.ib.openTrades())
                 if reserved:
                     result['be_allowed'] = result['close_allowed'] = False
-                    result['trim_available'] = min(result['trim_available'], free) if result.get('unprotected_scaling') else 0
+                    result['trim_available'] = min(result['trim_available'], free) if result.get('unprotected_trim') else 0
         except (ValueError, TypeError, AttributeError):
             result['add_available'] = result['trim_available'] = 0
             if contract.secType == 'STK': result['be_allowed'] = result['close_allowed'] = False
@@ -1772,7 +1783,7 @@ class PaperChart:
         if self.group(account,cid) and self.group(account,cid).get('pending_stop_trim'):
             raise ValueError('Previous protected Trim needs reconciliation; do not submit another action')
         action=body.get('action')
-        if contract.secType == 'STK' and current.get('position', 0) > 0 and (action in ('close', 'resize_trim') or action == 'trim' and not current.get('unprotected_scaling')):
+        if contract.secType == 'STK' and current.get('position', 0) > 0 and (action in ('close', 'resize_trim') or action == 'trim' and not current.get('unprotected_trim')):
             # Shared by native and web: reject before canceling exits or selling coverage.
             self.require_no_call_reservation(conn, account, contract)
         if body.get('mode') == 'overnight_entry':
@@ -1957,7 +1968,7 @@ class PaperChart:
             return
         if action == 'trim' and current.get('stop_trim_allowed'):
             return self.trim_standalone_stop(conn,account,cid,contract,current,group,body,request_id,price)
-        if action == 'trim' and contract.secType in ('OPT','STK') and current.get('unprotected_scaling'):
+        if action == 'trim' and contract.secType in ('OPT','STK') and current.get('unprotected_trim'):
             if body.get('expected_ref') != group.get('ref') or body.get('expected_position') != current['position']:
                 raise ValueError('Position changed; reopen Trim')
             target = price(body['exit_price']) if 'exit_price' in body and body.get('exit_type') == 'LMT' else None
@@ -1970,8 +1981,9 @@ class PaperChart:
             positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
             actual=next((float(p.position) for p in positions if p.account==account and p.contract.conId==cid),0)
             fresh=self.state(conn,cid)
-            if actual!=current['position'] or fresh['position']!=actual or not fresh.get('unprotected_scaling') or fresh['edit_snapshot']!=current['edit_snapshot']:
+            if actual!=current['position'] or fresh['position']!=actual or not fresh.get('unprotected_trim') or fresh['edit_snapshot']!=current['edit_snapshot']:
                 raise ValueError('Position/orders changed before Trim; reconcile first')
+            if qty>fresh.get('trim_available',0):raise ValueError('Trim exceeds unreserved position quantity')
             if contract.secType == 'STK' and actual > 0:
                 available=unreserved_stock_shares(conn,account,contract)
                 if qty > available+1e-8:

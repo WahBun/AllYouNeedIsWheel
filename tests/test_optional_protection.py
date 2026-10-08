@@ -412,7 +412,14 @@ class OptionalProtectionTests(PaperChartTests):
         o=self.trades[-1].order
         self.assertEqual((o.orderType,o.action,o.totalQuantity,o.lmtPrice),('LMT','BUY',1,8.5))
         self.assertEqual([(x['order_id'],x['price'],x['quantity']) for x in r['state']['pending_exits']],[(o.orderId,8.5,1)])
-        self.assertFalse(r['state']['trim_allowed'])
+        self.assertTrue(r['state']['trim_allowed'])
+        self.assertEqual(r['state']['trim_available'],3)
+        second=dict(body,quantity=2,exit_price=8,request_id=str(uuid4()))
+        added=self.service.execute(self.conn,7,second)
+        self.assertTrue(added['success'],added)
+        self.assertEqual(added['state']['trim_available'],1)
+        rejected=self.service.execute(self.conn,7,dict(second,request_id=str(uuid4())))
+        self.assertFalse(rejected['success'])
         writes=self.conn.ib.placeOrder.call_count
         self.service.execute(self.conn,7,body)
         self.assertEqual(self.conn.ib.placeOrder.call_count,writes)
