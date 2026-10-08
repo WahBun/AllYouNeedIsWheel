@@ -1646,6 +1646,22 @@ class PaperChart:
             self.save_group(account,cid,group)
 
     def perform(self, conn, account, cid, body, request_id):
+        if body.get('action')=='cancel_trim':
+            conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
+            current=self.state(conn,cid);group=self.group(account,cid) or {}
+            oid=body.get('order_id')
+            row=next((r for r in current['orders'] if r['order_id']==oid and r['role'].startswith('trim_')),None)
+            trade=getattr(self,'_resolved_trades',{}).get(oid)
+            if not row or not trade or body.get('expected_ref')!=group.get('ref') or trade.order.account!=account or trade.contract.conId!=cid or trade.order.orderRef!=group.get('ref'):
+                raise ValueError('Exact owned Trim required')
+            if trade.orderStatus.status in ('Cancelled','ApiCancelled','Filled'):return
+            if trade.orderStatus.status not in ('Submitted','PreSubmitted','PendingCancel'):raise ValueError('Trim status needs reconciliation')
+            if trade.orderStatus.status!='PendingCancel':conn.ib.cancelOrder(trade.order)
+            deadline=time.monotonic()+4
+            while trade.orderStatus.status not in ('Cancelled','ApiCancelled','Filled'):
+                if time.monotonic()>=deadline:raise RuntimeError('Trim cancellation unconfirmed; do not replay')
+                conn.ib.sleep(.05)
+            return
         pending=self.group(account,cid) or {}
         if pending.get('pending_trim_edit'): raise ValueError('Previous Trim edit needs broker reconciliation')
         if pending.get('pending_resize'): raise ValueError('Previous quantity change needs broker reconciliation')
