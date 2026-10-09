@@ -4,7 +4,8 @@
 
 Distance table is shown only in the main layout pane (right in 3/4-pane layouts,
 first in 1/2-pane layouts). Focus changes do not enable tables in small panes.
-The auxiliary gauge is also hidden; channel lines keep their existing settings.
+Auxiliary gauges and channel lines are also hidden. All volatility channel
+content remains confined to the main layout pane, including after focus changes.
 
 ## 2026-10-09 responsive symbol changes
 
