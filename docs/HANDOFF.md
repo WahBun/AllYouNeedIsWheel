@@ -1,5 +1,11 @@
 # Project Handoff
 
+## 2026-10-09 auxiliary channel table
+
+Distance table is shown only in the main layout pane (right in 3/4-pane layouts,
+first in 1/2-pane layouts). Focus changes do not enable tables in small panes.
+Channel lines and gauge keep their existing settings.
+
 ## 2026-10-09 responsive symbol changes
 
 Symbol and interval/session transitions cancel outstanding main-pane finite market

@@ -53,7 +53,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
    const bars=p.mode==='delta'?[...new Map([...(this.data.bars||[]),...p.bars].map(b=>[b.time,b])).values()].sort((a,b)=>a.time-b.time):p.bars;this.data={...p,bars};this.frame.contentWindow.receive(p);this.render();
   }
   render(){if(!this.loaded||this.index===active)return;const c=configs[this.index],root=current(),display=WheelChartSettings.effective({...root.display,atr:this.data.security_type==='OPT'?localStorage.getItem('wheel.chart.optionATR')==='true':root.display.atr},c.session,this.ema||{});
-   this.frame.contentWindow.configurePriceAxis?.(c.axis);this.frame.contentWindow.configure({con_id:c.cid,entry:0,quantity:0,paper:{enabled:false},holdings:holdings(c.cid,this.data),executions:c.cid===root.cid?executions():[],dark:root.dark,display,priceRules:this.data.price_rules||[]});const o={...display.volatility};if(!display.indicatorVisible){o.channels=false;o.gauge=false;}this.frame.contentWindow.configureVolatility?.(this.data,this.volatility,o);
+   this.frame.contentWindow.configurePriceAxis?.(c.axis);this.frame.contentWindow.configure({con_id:c.cid,entry:0,quantity:0,paper:{enabled:false},holdings:holdings(c.cid,this.data),executions:c.cid===root.cid?executions():[],dark:root.dark,display,priceRules:this.data.price_rules||[]});const o={...display.volatility,distance:display.volatility.distance&&showTable(this.frame)};if(!display.indicatorVisible){o.channels=false;o.gauge=false;}this.frame.contentWindow.configureVolatility?.(this.data,this.volatility,o);
   }
   async tick(){if(this.dead||!this.loaded||this.index===active||document.hidden)return;const c=this.context();if(!c.cid)return;const key=JSON.stringify(c);if(key!==this.key){const old=this.key?JSON.parse(this.key):null;const accountOnly=old&&old.cid===c.cid&&old.interval===c.interval&&old.session===c.session;this.key=key;this.seq++;this.controller?.abort();this.inflight=false;this.data={};this.ema={};this.volatility=null;this.lastRead=0;this.lastExtras=0;this.stream.stop();if(accountOnly)this.frame.contentWindow.prepareAccountChart?.();else this.frame.contentWindow.receive({bars:[],generation:'clear',con_id:c.cid,interval:c.interval,session:c.session});this.drawingKey=`web:${location.origin}:${c.cid}`;let value={};try{value=JSON.parse(localStorage.getItem('wheel.drawings:'+c.cid)||'{}')}catch{}this.frame.contentWindow.configureDrawings({key:this.drawingKey,value});}
    this.render();if(!c.epoch)return;if(this.data.bars?.length)this.stream.ensure(c);
@@ -70,5 +70,6 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
   const canvas=document.createElement('canvas');canvas.width=Math.round(bounds.width*scale);canvas.height=Math.round(bounds.height*scale);const ctx=canvas.getContext('2d');ctx.scale(scale,scale);ctx.fillStyle=getComputedStyle(grid).backgroundColor;ctx.fillRect(0,0,bounds.width,bounds.height);
   visible.forEach(({rect},i)=>ctx.drawImage(images[i],rect.left-bounds.left,rect.top-bounds.top,rect.width,rect.height));return canvas;
  };
- return {tick,readInitial,follow};
+ function showTable(target){return panes.get(count>=3?count-1:0)?.frame===target;}
+ return {tick,readInitial,follow,showTable};
 };
