@@ -523,7 +523,15 @@ struct StockChartView: View {
     @AppStorage("chartShowExecutionLabels") private var showExecutionLabels = true
     @AppStorage("chartPositionProfitUnit") private var positionProfitUnit = "money"
     @AppStorage("chartBracketProfitUnit") private var bracketProfitUnit = "money"
-    @AppStorage("chartShowATR") private var showATR = true
+    @AppStorage("chartShowATR") private var showStandardATR = true
+    @AppStorage("chartOptionShowATR") private var showOptionATR = false
+    private var showATR: Bool {
+        get { chartType == "OPT" ? showOptionATR : showStandardATR }
+        nonmutating set {
+            if chartType == "OPT" { showOptionATR = newValue }
+            else { showStandardATR = newValue }
+        }
+    }
     @AppStorage("chartATRLength") private var atrLength = 4
     @AppStorage("chartIndicatorCollapsedV2") private var indicatorCollapsed = true
     @AppStorage("chartIndicatorVisible") private var indicatorVisible = true
@@ -698,7 +706,7 @@ struct StockChartView: View {
                         showBarCount = session == "rth"; barCountFrame = 1440; barCountSize = "tiny"; barCountColor = "#521c6e"; barCountOpacity = 66; barCountLimit = true; barCountBars = 162
                         indicatorVisible = true; showEMA = true; emaLength = 20; emaSource = "close"; emaOffset = 0
                         emaDynamic = true; emaColor = "#f9f1db"; emaWidth = 1; emaStyle = 0
-                        showATR = true; atrLength = 4
+                        showATR = chartType != "OPT"; atrLength = 4
 
     }
     private var indicatorTemplateSection: some View {
@@ -848,7 +856,7 @@ struct StockChartView: View {
                 } else {
                     Section("Indicators") {
                         Toggle("EMA", isOn: $showEMA)
-                        Toggle("ATR", isOn: $showATR)
+                        Toggle("ATR", isOn: Binding(get: { showATR }, set: { showATR = $0 }))
                     }
                 }
                 Section("Bar Count") {
