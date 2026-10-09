@@ -135,6 +135,7 @@ class StockChart:
         self.states.pop(state['con_id'], None)
         if self.active is state: self.active = None
         if state:
+            for task in state.get('volatility_pending', {}).values(): task.cancel()
             task = state.pop('rules_task', None)
             if task is not None: task.cancel()
             if state.get('minute_history') is not None:

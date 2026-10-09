@@ -845,3 +845,23 @@ narrow layout and zero writes. No chart data loading or execution logic changed.
 Toolbar follow-up: center primary instrument/favorites/interval controls across the
 chart toolbar using equal side tracks; keep RTH/fullscreen right. Favorites closed
 width 125px, native menu retained. Narrow layouts wrap to prevent overlap.
+
+## Volatility channels and intraday extreme gauge (web first)
+Ported the newly supplied Pine channel formula, fixed per-RTH-session levels,
+TQQQ 3x leverage, first-hit memory/distance display, and exact ES/NQ probability
+arrays. Four settings groups: Volatility Channels, Volatility Symbols, Intraday
+Extreme Gauge, Gauge Colors. Explicit asset families gate rendering; option
+contracts and unrelated stock symbols are excluded. Broad Pine substring matches
+are narrowed to exact supported ticker/root names to avoid unrelated symbols.
+Gauge uses New York bar time and only ES/NQ families. Channel session is the
+source default 09:30-16:00 NY; partial-day data never substitutes for opening.
+
+Optional index history starts asynchronously after primary bars, uses the same
+IB owner event loop, caches for 60 seconds, has bounded waits, and is canceled
+when its chart expires. Current-day intraday close falls back only to a prior
+daily close. Unavailable index data is labeled, never fabricated. Canvas overlays
+do not affect price autoscale. Hit alerts are in-chart only, not external pushes.
+Native phone installation/settings integration deferred per web-first preference.
+Formula and browser tests cover mappings, leverage, arrays, DST, partial sessions,
+no daily lookahead, render/cleanup, zero writes; backend tests cover async cache.
+Live broker index availability is separate from mock calculation/render tests.

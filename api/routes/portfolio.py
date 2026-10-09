@@ -290,3 +290,12 @@ def chart_history_page(con_id):
         return _no_store_json({'error': str(error)}, 400)
     except Exception:
         return _no_store_json({'error': 'Earlier history unavailable; try again shortly'}, 503)
+
+
+@bp.get('/chart-volatility/<int:con_id>')
+def get_chart_volatility(con_id):
+    from api.services.chart_volatility import snapshot
+    try:
+        return _no_store_json(snapshot(portfolio_service._ensure_connection(),con_id,request.args.get('source')))
+    except Exception:
+        return _no_store_json({'error':'Volatility index history unavailable'},503)

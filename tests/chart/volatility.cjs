@@ -1,0 +1,15 @@
+const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');const c={window:{},Intl,Date};vm.createContext(c);vm.runInContext(fs.readFileSync('frontend/static/js/chart-volatility.js','utf8'),c);const V=c.window.WheelVolatility;
+const t=Date.parse('2026-10-08T13:30:00Z')/1000,p={con_id:1,symbol:'QQQ',security_type:'STK',interval:5,bars:[{time:t,open:100,high:101,low:99,close:100}]},o={channels:true,gauge:true,curve:'Auto',inner:.5,outer:.8};
+const d={intraday:[{time:t,close:20}],daily:[{day:'2026-10-07',close:10}]};let m=V.calculate(p,d,o);assert.equal(m.gauge.value,16.08);assert.ok(Math.abs(m.sessions[0].levels[0]-(100+100*.2/Math.sqrt(252)*.5))<1e-10);
+assert.ok(Math.abs(V.calculate({...p,symbol:'TQQQ'},d,o).sessions[0].levels[0]-100-3*(m.sessions[0].levels[0]-100))<1e-10);
+assert.equal(V.calculate({...p,symbol:'SPY'},d,o).gauge.value,15.43);
+for(const symbol of ['TSLL','TSLA','SGOV'])assert.equal(V.family({...p,symbol}),undefined);
+assert.equal(V.family({...p,security_type:'OPT'}),null);
+assert.equal(V.family({...p,security_type:'FUT',symbol:'MNQ'}),'ndx');
+assert.equal(V.calculate({...p,symbol:'GLD'},d,o).gauge,null);
+assert.equal(V.calculate(p,{daily:[{day:'2026-10-08',close:90}]},o).sessions.length,0,'no current-day daily lookahead');
+assert.equal(V.calculate({...p,bars:[{...p.bars[0],time:t+300}]},d,o).sessions.length,0,'partial day cannot supply opening');
+assert.equal(V.calculate({...p,bars:[{...p.bars[0],time:t+91*60}]},d,o).gauge.after,true);
+assert.equal(V.calculate({...p,bars:[{...p.bars[0],time:t+390*60}]},d,o).gauge,null);
+assert.equal(V.calculate({...p,bars:[{...p.bars[0],time:Date.parse('2026-11-02T14:30:00Z')/1000}]},d,o).gauge.value,16.08);
+console.log('Volatility formulas, leverage, symbol isolation, arrays, RTH/DST, fallback and no lookahead PASS');

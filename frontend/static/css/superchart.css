@@ -133,3 +133,5 @@ header #theme,header #trade-sounds,header #settings{width:42px;height:40px;paddi
 
 
 #option-search{text-align:center}
+
+#interval{font-size:0;display:flex;align-items:center;justify-content:center}#interval::after{content:"";width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:translateY(-2px) rotate(45deg)}
