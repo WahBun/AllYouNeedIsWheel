@@ -1,5 +1,14 @@
 # Project Handoff
 
+## 2026-10-09 SVG screenshot coordinates
+
+Before html2canvas capture, direct-body SVG overlays are rasterized using live
+viewport dimensions and original viewBox, then substituted only in the clone.
+This prevents left-axis FVG/PV/drawing overlays shifting during SVG image export.
+Pixel regression covers 535/1100px charts and both price-axis sides. Previous
+capture fails the compact left-axis case (background at expected FVG center);
+new capture passes all four. Live drawings and chart data are not modified.
+
 ## 2026-10-09 split chart image capture and ATR alignment
 
 Copy image (including Cmd/Ctrl+Shift+S) composites all visible chart frames at
