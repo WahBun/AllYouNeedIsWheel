@@ -1,5 +1,13 @@
 # Project Handoff
 
+## 2026-10-09 responsive symbol changes
+
+Symbol and interval/session transitions cancel outstanding main-pane finite market
+reads before requesting the new context. Retired responses remain context-guarded.
+The symbol sync label is English-only. Mock symbol-switch-speed delays the old
+contract by four seconds and verifies the next contract renders within 1.5 seconds
+and is not overwritten afterward. Account/layout-link regression passes.
+
 ## 2026-10-09 account transition and optional pane links
 
 Layout menu now persists independent opt-in symbol and RTH/ETH links. Explicit
