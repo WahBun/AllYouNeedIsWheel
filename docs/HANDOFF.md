@@ -833,3 +833,11 @@ User reported slower chart loading after viewport polish. Restored web initial
 range to 50 recent bars plus 10-bar right margin. Retained CC quantity fix and
 other unrelated changes. The reverted change only adjusted rendering bounds;
 no causal claim that it caused broker/network latency. No backend restart needed.
+
+
+## Unified web instrument picker
+Toolbar search, Options and contract dropdown now share one dialog launcher.
+Existing stock/futures search and option dates/strikes/resolve handlers are reused;
+favorites, intervals, session and fullscreen remain outside. Contract label is
+compact with full title tooltip. Browser mock covers stock and option flows,
+narrow layout and zero writes. No chart data loading or execution logic changed.

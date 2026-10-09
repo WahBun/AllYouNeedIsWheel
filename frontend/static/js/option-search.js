@@ -1,6 +1,20 @@
 /* Read-only contract discovery. No order requests originate here. */
 window.installOptionSearch=({api,select,symbol,canSelect})=>{
  const $=id=>document.getElementById(id),dialog=$('option-picker'),underlying=$('option-symbol'),expiry=$('option-expiration'),right=$('option-right'),strike=$('option-strike'),open=$('option-open'),status=$('option-status');
+ // Reuse existing search and contract controls inside one picker.
+ const launcher=$('option-search'),form=$('option-form'),heading=dialog.querySelector('.option-heading');
+ dialog.prepend(heading);$('option-title').textContent=document.documentElement.lang==='zh'?'选择标的':'Select instrument';
+ const tabs=document.createElement('div');tabs.className='instrument-tabs';
+ const stockTab=document.createElement('button'),optionTab=document.createElement('button');
+ stockTab.type=optionTab.type='button';stockTab.textContent=document.documentElement.lang==='zh'?'股票／期货':'Stocks / Futures';optionTab.textContent=document.documentElement.lang==='zh'?'期权':'Options';
+ tabs.append(stockTab,optionTab);heading.after(tabs);
+ const stockPanel=document.createElement('div');stockPanel.id='instrument-search';tabs.after(stockPanel);
+ stockPanel.append($('search'),$('contracts'));
+ function mode(options){form.hidden=!options;stockPanel.hidden=options;stockTab.classList.toggle('active',!options);optionTab.classList.toggle('active',options);stockTab.setAttribute('aria-pressed',String(!options));optionTab.setAttribute('aria-pressed',String(options));}
+ stockTab.onclick=()=>{mode(false);$('symbol').focus();};optionTab.onclick=()=>{mode(true);if(!loaded)dates();};
+ function label(){const full=$('contracts').selectedOptions[0]?.textContent||'Select instrument';const compact=full.replace(/^(\S+) (\d{4})(\d{2})(\d{2}) ([\d.]+) (CALL|PUT)$/,(m,t,y,mo,d,k,r)=>`${t} · ${mo}/${d}/${y.slice(2)} · ${k}${r==='CALL'?'C':'P'}`);launcher.textContent=compact+' ▾';launcher.title=full;}
+ new MutationObserver(label).observe($('contracts'),{childList:true,subtree:true,characterData:true});$('contracts').addEventListener('change',()=>{label();dialog.close();});label();
+ launcher.setAttribute('aria-haspopup','dialog');launcher.setAttribute('aria-controls','option-picker');
  let revision=0,loaded='';
  const ticker=()=>underlying.value.trim().toUpperCase();
  function invalidate(){revision++;loaded='';expiry.replaceChildren();strike.replaceChildren();expiry.disabled=strike.disabled=open.disabled=true;}
@@ -31,7 +45,7 @@ window.installOptionSearch=({api,select,symbol,canSelect})=>{
    }else status.textContent=values.length?'Underlying price unavailable. Choose a strike.':'No contracts for this expiration and type.';
   }catch(e){if(token===revision)status.textContent=e.message;}
  }
- $('option-search').onclick=()=>{if(!canSelect())return;underlying.value=symbol()||'QQQ';dialog.showModal();dates();};
+ $('option-search').onclick=()=>{if(!canSelect())return;underlying.value=symbol()||'QQQ';mode(/CALL|PUT/.test(launcher.title));dialog.showModal();if(!form.hidden)dates();else $('symbol').focus();};
  $('option-dismiss').onclick=()=>dialog.close();dialog.addEventListener('close',()=>{revision++;});
  underlying.oninput=()=>{invalidate();status.textContent='Load dates for the new underlying.';};
  underlying.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();dates();}};
