@@ -14,6 +14,15 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
  button.onclick=()=>{menu.hidden=!menu.hidden;button.setAttribute('aria-expanded',String(!menu.hidden));};document.addEventListener('pointerdown',e=>{if(!picker.contains(e.target))close();});picker.onkeydown=e=>{if(e.key==='Escape'){close();button.focus();}};
  const configs=Array.from({length:4},(_,i)=>({...saved.panes?.[i],interval:saved.panes?.[i]?.interval||[5,1,15,60][i],session:saved.panes?.[i]?.session||'rth'}));const panes=new Map();
  let persisted='';function persist(){const value=JSON.stringify({count,active,panes:configs});if(value===persisted)return;try{localStorage.setItem('wheel.chart-layout',value);persisted=value;}catch{}}
+ async function readInitial(c,signal){
+  if(c.epoch&&[1,3,5,10,15,60,480].includes(c.interval)&&!(c.interval===480&&c.session==='rth')){
+   try{
+    const p=await api(`portfolio/stock-chart-latest/${c.cid}?interval=${c.interval}&session=${c.session}&epoch=${encodeURIComponent(c.epoch)}`,undefined,AbortSignal.any([signal,AbortSignal.timeout(800)]));
+    if(p.con_id===c.cid&&p.interval===c.interval&&p.session===c.session&&p.bars?.length&&Number.isFinite(p.server_time))return p;
+   }catch(error){if(signal.aborted)throw error;}
+  }
+  return api(`portfolio/stock-chart/${c.cid}?interval=${c.interval}&session=${c.session}&fast=1`,undefined,signal);
+ }
  function position(el,index){if(count<=2){el.style.gridColumn=String(index+1);el.style.gridRow='1';}else if(index===count-1){el.style.gridColumn='2';el.style.gridRow='1 / -1';}else{el.style.gridColumn='1';el.style.gridRow=String(index+1);}}
  function captureActive(){const c=current(),pane=panes.get(active);if(!pane)return;configs[active]={cid:c.cid,interval:c.interval,session:c.session,label:c.label,axis:c.axis};pane.drawingKey=`web:${location.origin}:${c.cid}`;pane.lastRead=Date.now();pane.data=c.packet;pane.ema=c.emaFrames;pane.volatility=c.volatility;pane.key=JSON.stringify(pane.context());pane.loaded=c.ready;}
  function choose(index){const target=configs[index],next=panes.get(index);if(!target?.cid||index===active||!next?.loaded||!next.data.bars?.length)return;captureActive();const old=panes.get(active);if(!activate(target,next.frame,{packet:next.data,ema:next.ema,volatility:next.volatility}))return;next.stream.stop();next.controller?.abort();next.seq++;next.inflight=false;old.frame.removeAttribute('id');next.frame.id='chart';active=index;old.render();arrange();tick();persist();}
@@ -36,11 +45,11 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
   }
   async tick(){if(this.dead||!this.loaded||this.index===active||document.hidden)return;const c=this.context();if(!c.cid||!c.epoch)return;const key=JSON.stringify(c);if(key!==this.key){this.key=key;this.seq++;this.controller?.abort();this.inflight=false;this.data={};this.ema={};this.volatility=null;this.lastRead=0;this.lastExtras=0;this.stream.stop();this.frame.contentWindow.receive({bars:[],generation:'clear',con_id:c.cid,interval:c.interval,session:c.session});this.drawingKey=`web:${location.origin}:${c.cid}`;let value={};try{value=JSON.parse(localStorage.getItem('wheel.drawings:'+c.cid)||'{}')}catch{}this.frame.contentWindow.configureDrawings({key:this.drawingKey,value});}
    this.render();if(this.data.bars?.length)this.stream.ensure(c);
-   if(!this.inflight&&!this.stream.healthy()&&Date.now()-this.lastRead>5000){this.inflight=true;this.lastRead=Date.now();const seq=this.seq;this.controller=new AbortController();try{const p=await api(`portfolio/stock-chart/${c.cid}?interval=${c.interval}&session=${c.session}&fast=1`,undefined,this.controller.signal);if(!this.dead&&seq===this.seq)this.receive(p);}catch{}finally{if(seq===this.seq)this.inflight=false;}}
+   if(!this.inflight&&!this.stream.healthy()&&Date.now()-this.lastRead>5000){this.inflight=true;this.lastRead=Date.now();const seq=this.seq;this.controller=new AbortController();try{const p=await readInitial(c,this.controller.signal);if(!this.dead&&seq===this.seq)this.receive(p);}catch{}finally{if(seq===this.seq)this.inflight=false;}}
    if(this.data.bars?.length&&!this.extraBusy&&Date.now()-this.lastExtras>10000){this.extraBusy=true;this.lastExtras=Date.now();const seq=this.seq,display=current().display;try{const frames=WheelChartSettings.requested(display,c.interval,c.session),family=WheelVolatility.family(this.data);const results=await Promise.allSettled([frames.length?api(`portfolio/chart-ema/${c.cid}?frames=${frames.join(',')}&session=${c.session}`):Promise.resolve(null),family&&display.indicatorVisible&&display.volatility.channels?api(`portfolio/chart-volatility/${c.cid}?source=${display.volatility[family]}`):Promise.resolve(null)]);if(!this.dead&&seq===this.seq){if(results[0].status==='fulfilled')this.ema=results[0].value?.frames||{};if(results[1].status==='fulfilled')this.volatility=results[1].value;this.render();}}finally{this.extraBusy=false;}}
   }
  }
  function tick(){const c=current();if(!c.cid||!c.ready)return;if(!started){started=true;for(let i=0;i<4;i++)configs[i]={...configs[i],cid:configs[i].cid||c.cid,label:configs[i].label||c.label,session:configs[i].cid?configs[i].session:c.session};arrange();}captureActive();for(const other of panes.values())if(other.index!==active)void other.tick();persist();}
  panes.set(active,new Pane(active,frame));arrange();setInterval(tick,2000);window.addEventListener('pagehide',()=>{for(const p of panes.values())p.stream.stop();});window.addEventListener('pageshow',tick);document.addEventListener('visibilitychange',()=>{if(document.hidden)for(const p of panes.values())p.stream.stop();else tick();});
- return {tick};
+ return {tick,readInitial};
 };

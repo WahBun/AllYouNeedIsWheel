@@ -1,5 +1,16 @@
 # Project Handoff
 
+## 2026-10-09 multi-pane startup
+
+Verified account discovery immediately starts all ready panes instead of waiting
+for the auxiliary two-second timer. Initial reads prefer epoch-scoped immutable
+latest packets (800ms timeout), falling back to finite history requests on cache
+miss. The main initial request also waits for a verified epoch. Healthy SSE
+behavior is unchanged. Mock browser tests cover warm startup with zero history
+requests and cold concurrent history fallback plus existing focus regression.
+Network/broker responses may still complete at different times; no loaded chart
+is hidden while another pane waits for data.
+
 ## 2026-10-09 linked crosshairs
 
 Desktop panes of the same contract share cursor price and time, mapped to the

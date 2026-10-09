@@ -252,13 +252,13 @@ async function refreshLegacyMarket(context){
  legacyContext=context;
  const request=legacyMarket=new AbortController();legacyStarted=Date.now();
  const timeout=setTimeout(()=>request.abort(),20000);
- try{const bars=await api(`portfolio/stock-chart/${context.cid}?interval=${context.interval}&session=${context.session}&fast=1`,undefined,request.signal);if(currentMarket(context)&&!marketStream.healthy())applyMarket(bars);}
+ try{const bars=await chartLayout.readInitial(context,request.signal);if(currentMarket(context)&&!marketStream.healthy())applyMarket(bars);}
  catch(error){if(currentMarket(context)&&!marketStream.healthy()&&Date.now()-packetReceived>2000){marketReadError=request.signal.aborted?'History request timed out · retrying automatically':error.message;$('market-status').textContent=marketReadError;}}
  finally{clearTimeout(timeout);if(legacyMarket===request)legacyMarket=null;}
 }
 const streamSupported=()=>[1,3,5,10,15,60,480].includes(interval)&&!(interval===480&&session==='rth');
 async function refreshMarket({full=false}={}){
- if(marketBusy||!ready||!cid||document.hidden)return;
+ if(marketBusy||!ready||!cid||!epoch||document.hidden)return;
  const request=marketBusy=new AbortController();lastFallback=Date.now();const context=marketContext(),revision=marketRevision;
  const timeout=setTimeout(()=>request.abort(),12000);
  try{
@@ -304,7 +304,7 @@ async function refresh(){if(document.hidden||Date.now()<marketPriorityUntil||pol
 const p=await api('account/profiles');if(token!==generation||readVersion!==writeVersion)return;
 if(epoch&&p.epoch!==epoch){resetNewQuantity();marketStream.stop();historyCaches.clear();packet={};state={};received=0;entry=0;log('Account changed; chart trading state cleared.');}
 window.wheelTradeSounds?.connection(p.verified===true);profile=p;epoch=p.verified?p.epoch:null;$('connection').textContent=`${p.selected||'Disconnected'} · ${p.verified?'Connected':'Not verified'}`;$('connection').className=p.selected||'';
-ensureMarket();
+chartLayout.tick();ensureMarket();
 if(selected){
 if((profile.selected==='paper'||profile.chart_execution_enabled===true)&&profile.verified){const pending=localStorage.getItem(pendingKey());if(pending){const r=await api(orderPath(selected)+(groupID?'&':'?')+'request_id='+encodeURIComponent(pending));if(token!==generation||readVersion!==writeVersion)return;if(r.confirmed===true&&(terminal.has(r.status)||r.status==='reconciled')){localStorage.removeItem(pendingKey());log(`Reconciled: ${r.status}`);}}
 const s=await api(orderPath(selected));if(token!==generation||readVersion!==writeVersion)return;applyState(s);stateRead=true;}else{state={};received=0;}}
