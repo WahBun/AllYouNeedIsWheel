@@ -807,9 +807,9 @@ struct PortfolioView: View {
             }, id: \.self) { type in
                 Section(LocalizedStringKey(type == "STK" ? "Stocks" : "Options")) {
                     ForEach(heldPositions.filter { $0.security_type == type }) { position in
-                        ArrowlessNavigationLink { PositionDetail(position: position) } label: {
+                        ExpandablePositionRow(position: position) { expanded in
                             if position.security_type == "OPT" {
-                                PortfolioOptionRow(position: position)
+                                PortfolioOptionRow(position: position, showsRange: expanded)
                             } else {
                             VStack(alignment: .leading, spacing: 8) {
                             HStack(alignment: .top) {
@@ -826,7 +826,7 @@ struct PortfolioView: View {
                                     PositionPnLMeter(position: position)
                                 }
                             }
-                            PositionDayRange(position: position)
+                            if expanded { PositionDayRange(position: position) }
                             }.padding(.vertical, 6)
                             }
                         }
@@ -1914,6 +1914,32 @@ enum AccountConnectionRules {
     }
 }
 
+
+/// First tap reveals the range; the next tap anywhere in the row opens details.
+struct ExpandablePositionRow<Content: View>: View {
+    let position: Position
+    @ViewBuilder let content: (Bool) -> Content
+    @State private var expanded = false
+    @State private var showDetails = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        Button {
+            if expanded { showDetails = true }
+            else { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { expanded = true } }
+        } label: {
+            content(expanded)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(Text(verbatim: locale.language.languageCode?.identifier == "zh"
+            ? (expanded ? "打开持仓详情" : "展开当日价格区间")
+            : (expanded ? "Open position details" : "Show daily price range")))
+        .navigationDestination(isPresented: $showDetails) { PositionDetail(position: position) }
+    }
+}
 
 struct PositionDayRange: View {
     let position: Position

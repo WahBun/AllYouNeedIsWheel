@@ -3,6 +3,7 @@ import SwiftUI
 /// Uses Trade's information hierarchy with held-position data, not entry estimates.
 struct PortfolioOptionRow: View {
     let position: Position
+    var showsRange = true
     @Environment(\.locale) private var locale
     @Environment(WheelStore.self) private var store
     @Environment(\.scenePhase) private var phase
@@ -44,7 +45,7 @@ struct PortfolioOptionRow: View {
                 PositionPnLMeter(position: position)
                     .accessibilityLabel(Text("Unrealized P&L"))
             }.font(.caption)
-            PositionDayRange(position: position)
+            if showsRange { PositionDayRange(position: position) }
             if frozen && position.day_range_status != "frozen" { Text("Frozen").font(.caption2).foregroundStyle(.secondary) }
         }.padding(.vertical, 4)
         .onAppear { visible = true }
