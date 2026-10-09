@@ -93,7 +93,7 @@ struct Position: Decodable, Identifiable {
     var hasChart: Bool { ["STK", "OPT", "FUT"].contains(security_type) && position != 0 && (con_id ?? 0) > 0 }
     var chartLabel: String { security_type == "OPT" ? "\(symbol) \(expiration ?? "") \((strike ?? 0).formatted()) \(option_type ?? "")" : symbol }
     var detail: String {
-        security_type == "OPT" ? "\(expiration ?? "") · \((strike ?? 0).formatted()) · \(option_type ?? "")" : "\(Int(position)) shares"
+        security_type == "OPT" ? "\(expiration ?? "") · \((strike ?? 0).formatted()) · \(option_type ?? "")" : security_type == "FUT" ? "\(position.formatted()) contracts" : "\(Int(position)) shares"
     }
 }
 
@@ -802,14 +802,14 @@ struct PortfolioView: View {
             }
             if let error = store.error { Section { Label { NoticeText(error) } icon: { Image(systemName: "wifi.exclamationmark") }.foregroundStyle(.orange) } }
             let heldPositions = (store.portfolio?.positions ?? []).filter { $0.position != 0 }
-            ForEach(["OPT", "STK"].filter { type in
+            ForEach(["OPT", "STK", "FUT"].filter { type in
                 heldPositions.contains { $0.security_type == type }
             }, id: \.self) { type in
-                Section(LocalizedStringKey(type == "STK" ? "Stocks" : "Options")) {
+                Section(LocalizedStringKey(type == "STK" ? "Stocks" : type == "FUT" ? "Futures" : "Options")) {
                     ForEach(heldPositions.filter { $0.security_type == type }) { position in
                         ExpandablePositionRow(position: position) { expanded in
                             if position.security_type == "OPT" {
-                                PortfolioOptionRow(position: position, showsRange: expanded)
+                                PortfolioOptionRow(position: position, showsRange: false)
                             } else {
                             VStack(alignment: .leading, spacing: 8) {
                             HStack(alignment: .top) {
@@ -826,13 +826,12 @@ struct PortfolioView: View {
                                     PositionPnLMeter(position: position)
                                 }
                             }
-                            if expanded { PositionDayRange(position: position) }
                             }.padding(.vertical, 6)
                             }
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if let conID = position.con_id, conID > 0, position.position != 0,
-                               position.security_type == "OPT" || position.position > 0 {
+                               position.security_type == "OPT" || (position.security_type == "STK" && position.position > 0) {
                                 Button("Close") {
                                     positionDestination = PositionDestination(conID: conID, rollover: false)
                                 }.tint(.orange).disabled(stockHasCall(position))
@@ -1915,7 +1914,7 @@ enum AccountConnectionRules {
 }
 
 
-/// First tap reveals the range; the next tap anywhere in the row opens details.
+/// The header opens details after expansion; the separate range button collapses it.
 struct ExpandablePositionRow<Content: View>: View {
     let position: Position
     @ViewBuilder let content: (Bool) -> Content
@@ -1925,18 +1924,31 @@ struct ExpandablePositionRow<Content: View>: View {
     @Environment(\.locale) private var locale
 
     var body: some View {
-        Button {
-            if expanded { showDetails = true }
-            else { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { expanded = true } }
-        } label: {
-            content(expanded)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                if expanded { showDetails = true }
+                else { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { expanded = true } }
+            } label: {
+                content(expanded)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(Text(verbatim: locale.language.languageCode?.identifier == "zh"
+                ? (expanded ? "打开持仓详情" : "展开当日价格区间")
+                : (expanded ? "Open position details" : "Show daily price range")))
+            if expanded {
+                Button {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { expanded = false }
+                } label: {
+                    PositionDayRange(position: position)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(verbatim: locale.language.languageCode?.identifier == "zh" ? "收起价格区间" : "Hide daily price range"))
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityHint(Text(verbatim: locale.language.languageCode?.identifier == "zh"
-            ? (expanded ? "打开持仓详情" : "展开当日价格区间")
-            : (expanded ? "Open position details" : "Show daily price range")))
         .navigationDestination(isPresented: $showDetails) { PositionDetail(position: position) }
     }
 }
