@@ -1,0 +1,14 @@
+const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('frontend/static/js/superchart.js','utf8');
+const input={value:'400'},context={state:{},packet:{},quantityEdited:false,$:()=>input};vm.createContext(context);
+for(const name of ['resetNewQuantity','defaultNewQuantity'])vm.runInContext(source.match(new RegExp('function '+name+'\\(\\)[^\\n]+'))[0],context);
+const apply=()=>context.defaultNewQuantity();
+context.resetNewQuantity();assert.equal(input.value,'1');
+context.packet={security_type:'OPT',option_right:'C',covered_call_capacity:4};apply();assert.equal(Number(input.value),4);
+context.packet.covered_call_capacity=2;apply();assert.equal(Number(input.value),2);
+context.quantityEdited=true;input.value='3';apply();assert.equal(input.value,'3');
+context.state={active:true};context.quantityEdited=false;input.value='400';apply();assert.equal(input.value,'400');
+context.resetNewQuantity();context.state={};context.packet.covered_call_capacity=0;apply();assert.equal(Number(input.value),0);
+context.packet={security_type:'FUT'};apply();assert.equal(input.value,'1');
+context.packet={security_type:'OPT',option_right:'P'};apply();assert.equal(input.value,'1');
+console.log('Quantity defaults: stock isolation, CC capacity, reservations, zero, manual draft and active orders PASS');

@@ -1,0 +1,12 @@
+const {chromium}=require('playwright'),assert=require('node:assert/strict');
+(async()=>{const browser=await chromium.launch();try{const page=await browser.newPage();let posts=0;const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.addInitScript(()=>{window.EventSource=class{close(){}}});
+await page.route('**/api/**',async r=>{const u=new URL(r.request().url()),id=Number(u.pathname.split('/').at(-1));let d={};if(r.request().method()!=='GET')posts++;
+if(u.pathname.endsWith('/profiles'))d={selected:'paper',verified:true,epoch:'e'};
+else if(u.pathname.includes('stock-chart'))d={con_id:id,generation:'g',interval:5,session:'rth',security_type:id===1?'STK':'OPT',symbol:'QQQ',option_right:id===1?'':'C',covered_call_capacity:id===1?null:4,multiplier:id===1?1:100,bars:[{time:1790947800,open:1,high:2,low:.5,close:1}],price_rules:[]};
+else if(u.pathname.includes('paper-chart'))d={known:true,enabled:true,active:id===1,position:id===1?400:0,entry:id===1?1:0,status:id===1?'filled':'idle'};
+else if(u.pathname.endsWith('/bootstrap'))d={positions:[]};
+await r.fulfill({json:d});});
+await page.goto('http://127.0.0.1:8765/superchart?con_id=1&session=rth');await page.waitForFunction(()=>document.querySelector('#quantity').value==='400');
+await page.locator('#contracts').evaluate(el=>{el.append(new Option('QQQ CALL','2'));el.value='2';el.dispatchEvent(new Event('change'));});
+await page.waitForFunction(()=>document.querySelector('#quantity').value==='4');await page.locator('#quantity').fill('2');await page.waitForTimeout(2300);assert.equal(await page.locator('#quantity').inputValue(),'2');assert.equal(posts,0);assert.deepEqual(errors,[]);console.log('Browser: stock 400 -> CC 4, manual 2 survives polling, zero writes PASS');
+}finally{await browser.close()}})().catch(e=>{console.error(e);process.exit(1)});

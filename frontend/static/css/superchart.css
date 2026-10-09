@@ -114,3 +114,7 @@ header #theme,header #trade-sounds,header #settings{width:42px;height:40px;paddi
 
 #trade .position-actions[hidden],#trade .protection-settings[hidden],#trade #close[hidden],#trade #manage-protection[hidden],#trade #trade-connection-feedback[hidden]{display:none}
 #trade-connection-feedback{font-size:12px;color:var(--muted);margin:0}
+
+/* Separate instrument selection from chart controls without changing trade layout. */
+#intervals{margin-left:18px}#market-status[hidden]{display:none}
+@media(max-width:800px){#intervals{margin-left:0}}

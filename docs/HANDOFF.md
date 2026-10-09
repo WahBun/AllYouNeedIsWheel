@@ -811,3 +811,18 @@ arrow/price badge for active positions, shared by Paper and enabled Live; no
 trading capability or autoscale changes. Browser regression covers long/short
 offscreen cues, return into range, hidden holdings and flat cleanup, zero writes.
 Web and native share the chart asset; phone installation remains deferred.
+
+## CC quantity isolation and chart polish
+Reset new-ticket quantity on contract/group/account changes and after completion.
+Call defaults use backend cached unreserved standard-CC capacity (stock shares
+minus short calls and pending sell reservations); 400 free shares defaults to 4.
+Zero/unknown coverage defaults to zero rather than inheriting stock size. Manual
+input survives polling; active-order quantities and Live scope limits are retained.
+Execution still revalidates coverage. Quote snapshots expose capacity without new
+broker requests. Web preview/Join require positive quantity.
+Web default viewport shows 40 recent bars with 5-bar right margin; manual view
+updates remain preserved. Toolbar spacing separates controls, normal status moves
+to connection tooltip, and fully missing option quotes show one empty-state label.
+Trade panel layout unchanged. 30 history tests plus quantity unit/browser and
+holding browser checks passed; browser verified 400 -> 4 and manual 2 retention,
+zero order writes. Native shared chart source changed; phone installation deferred.

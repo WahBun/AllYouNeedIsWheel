@@ -491,7 +491,19 @@ class StockChart:
         closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time)
         iv_time,iv=state.get('iv_quote',(0,None))
         iv_valid=contract.secType=='OPT' and iv is not None and server_time-iv_time<30 and in_session and getattr(ticker,'marketDataType',None)==1
-        return dict(iv_percent=iv if iv_valid else None,iv_expires_at=iv_time+30 if iv_valid else None,data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
+        cc_capacity = None
+        if contract.secType == 'OPT' and contract.right == 'C':
+            cc_capacity = 0
+            try:
+                from api.services.paper_chart import unreserved_stock_shares
+                conn = state['conn']
+                if (contract.currency == 'USD' and contract.multiplier == '100'
+                        and contract.tradingClass == contract.symbol
+                        and conn.account_id in conn.ib.managedAccounts()):
+                    cc_capacity = math.floor(unreserved_stock_shares(conn, conn.account_id, contract, cached=True) / 100)
+            except (ValueError, TypeError, AttributeError):
+                pass
+        return dict(covered_call_capacity=cc_capacity,option_right=getattr(contract, 'right', ''),iv_percent=iv if iv_valid else None,iv_expires_at=iv_time+30 if iv_valid else None,data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
             con_id=con_id, symbol=contract.symbol,
             display_symbol=(f"{contract.symbol} {contract.lastTradeDateOrContractMonth} {contract.strike:g} {'CALL' if contract.right == 'C' else 'PUT'}" if contract.secType == 'OPT' else getattr(contract, 'localSymbol', '') or contract.symbol),
             security_type=contract.secType, local_symbol=getattr(contract, "localSymbol", "") or contract.symbol,

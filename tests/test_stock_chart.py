@@ -570,3 +570,28 @@ class MultiChartTests(unittest.TestCase):
                 self.assertEqual(first['ticks'],1)
                 self.assertEqual(second['ticks'],0)
             finally:feed.stop();asyncio.get_event_loop().close()
+
+
+class CoveredCallDefaultTests(unittest.TestCase):
+    connection = StockChartTests.connection
+    def test_packet_capacity_uses_reserved_shares(self):
+        from unittest.mock import patch
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        feed=StockChart();conn,_=self.connection()
+        conn.account_id='DU_TEST';conn.ib.managedAccounts.return_value=['DU_TEST']
+        conn.ib.openTrades.return_value=[]
+        try:
+            feed.snapshot(conn,7,5,'all')
+            state=feed.states[7]
+            state['contract']=S(conId=7,secType='OPT',currency='USD',symbol='TEST',right='C',multiplier='100',tradingClass='TEST',lastTradeDateOrContractMonth='20261120',strike=10,exchange='SMART')
+            stock=S(account='DU_TEST',position=400,contract=S(secType='STK',symbol='TEST',currency='USD'))
+            conn.ib.positions.return_value=[stock]
+            self.assertEqual(feed.packet(state,5,'all')['covered_call_capacity'],4)
+            conn.ib.positions.return_value=[stock,S(account='DU_TEST',position=-1,contract=state['contract'])]
+            self.assertEqual(feed.packet(state,5,'all')['covered_call_capacity'],3)
+            conn.ib.openTrades.return_value=[S(contract=state['contract'],order=S(account='DU_TEST',action='SELL',clientId=1,orderId=1,permId=1,totalQuantity=2),orderStatus=S(status='Submitted',filled=0))]
+            self.assertEqual(feed.packet(state,5,'all')['covered_call_capacity'],1)
+            stock.position=100
+            self.assertEqual(feed.packet(state,5,'all')['covered_call_capacity'],0)
+        finally:
+            feed.stop();asyncio.get_event_loop().close()
