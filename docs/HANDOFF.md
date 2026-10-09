@@ -841,3 +841,7 @@ Existing stock/futures search and option dates/strikes/resolve handlers are reus
 favorites, intervals, session and fullscreen remain outside. Contract label is
 compact with full title tooltip. Browser mock covers stock and option flows,
 narrow layout and zero writes. No chart data loading or execution logic changed.
+
+Toolbar follow-up: center primary instrument/favorites/interval controls across the
+chart toolbar using equal side tracks; keep RTH/fullscreen right. Favorites closed
+width 125px, native menu retained. Narrow layouts wrap to prevent overlap.
