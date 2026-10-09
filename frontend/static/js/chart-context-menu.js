@@ -31,9 +31,9 @@
  };
  document.addEventListener('keydown',event=>{if(!event.repeat&&(event.metaKey||event.ctrlKey)&&event.shiftKey&&!event.altKey&&event.code==='KeyS'){event.preventDefault();window.copyChartImage();return;}if(!event.repeat&&event.shiftKey&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&event.code==='KeyF'&&!event.target.closest('input,textarea,select,[contenteditable=true]')){event.preventDefault();parent.document.fullscreenElement?parent.document.exitFullscreen():parent.document.querySelector('.workspace').requestFullscreen();return;}if(event.repeat||event.target.closest('input,textarea,select,[contenteditable=true]'))return;});
  function item(label,run,disabled=false){const b=document.createElement('button');b.textContent=label;b.setAttribute('role','menuitem');b.disabled=disabled;b.style.cssText='display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:12px;font:13px system-ui;cursor:pointer';if(disabled)b.style.opacity='.4';b.onmouseenter=()=>b.style.background='#ffffff15';b.onmouseleave=()=>b.style.background='transparent';b.onclick=()=>{close();run();};menu.append(b);return b;}
- document.addEventListener('contextmenu',event=>{
+ function openChartMenu(event,forceAxis=false){
   if(event.target.closest('input,textarea,button,#draw-toolbar,#draw-menu,#draw-properties,#price-order-menu'))return;
-  const size=chart.paneSize();if(event.clientY>size.height)return;const onAxis=event.clientX<plotLeft()||event.clientX>=plotRight();
+  const size=chart.paneSize();if(event.clientY>size.height)return;const onAxis=forceAxis||event.clientX<plotLeft()||event.clientX>=plotRight();
   event.preventDefault();event.stopPropagation();closePriceMenu();hideExecutionPopup();
   const price=snapPrice(series.coordinateToPrice(event.clientY)),contract=paperCID;
   menu.replaceChildren();
@@ -48,7 +48,11 @@
   const n=window.chartDrawingActions?.count()||0;item(`Remove ${n} drawings`,()=>window.chartDrawingActions?.removeAll(),n===0);
   }
   menu.hidden=false;menu.style.left=Math.max(6,Math.min(event.clientX,innerWidth-menu.offsetWidth-6))+'px';menu.style.top=Math.max(6,Math.min(event.clientY,innerHeight-menu.offsetHeight-6))+'px';
- },true);
+ }
+ document.addEventListener('contextmenu',event=>openChartMenu(event),true);
+ const axisButton=document.createElement('button');axisButton.id='price-axis-settings';axisButton.textContent='⚙';axisButton.title='Price axis settings / 价格轴设置';axisButton.setAttribute('aria-label',axisButton.title);axisButton.style.cssText='position:fixed;right:2px;bottom:2px;width:22px;height:22px;padding:0;border:0;border-radius:3px;background:#b8b8b8cc;color:#444;font:16px system-ui;z-index:25';document.body.append(axisButton);
+ const axisStyle=document.createElement('style');axisStyle.textContent='body.axis-left #price-axis-settings{left:2px;right:auto!important}';document.head.append(axisStyle);
+ axisButton.onclick=()=>{const r=axisButton.getBoundingClientRect();openChartMenu({target:document.body,clientX:r.left,clientY:Math.min(r.top,chart.paneSize().height-1),preventDefault(){},stopPropagation(){}},true);};
  document.addEventListener('pointerdown',e=>{if(!menu.contains(e.target))close();},true);
  chart.timeScale().subscribeVisibleLogicalRangeChange(()=>{const range=chart.timeScale().getVisibleRange();if(previous.length&&range&&range.from<=previous[Math.min(5,previous.length-1)].time)window.webkit?.messageHandlers.historyRequest?.postMessage({con_id:paperCID,before:previous[0].time,interval:countdownPacket?.interval,session:countdownPacket?.session});});
  document.addEventListener('wheel',close,{passive:true});window.addEventListener('resize',close);

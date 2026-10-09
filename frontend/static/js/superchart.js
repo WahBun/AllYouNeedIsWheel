@@ -1,6 +1,6 @@
 /* Browser host only. Chart geometry and gestures are shared with iOS verbatim. */
 (()=>{'use strict';
-const $=id=>document.getElementById(id),frame=$('chart');
+const $=id=>document.getElementById(id);let frame=$('chart');
 const updateSymbolClear=()=>{$('clear-symbol').hidden=!$('symbol').value;};
 $('symbol').addEventListener('input',updateSymbolClear);
 $('clear-symbol').onclick=()=>{$('symbol').value='';updateSymbolClear();$('symbol').focus();};
@@ -62,8 +62,19 @@ function volatilityContext(){return JSON.stringify([epoch,cid,generation,WheelVo
 function syncVolatility(){const status=volatilityKey===volatilityContext()?volatilityData?.status:null;if(status&&status!==volatilityDiagnostic){volatilityDiagnostic=status;if(status==='unavailable')trace('Volatility index unavailable; awaiting a later refresh');else if(status==='ready')trace('Volatility index ready');}const o={...display.volatility};if(!display.indicatorVisible){o.channels=false;o.gauge=false;}frame.contentWindow.configureVolatility?.(packet,volatilityKey===volatilityContext()?volatilityData:null,o);}
 async function refreshVolatility(){syncVolatility();const family=WheelVolatility.family(packet);if(!family||!packet.bars?.length||!display.indicatorVisible||!display.volatility.channels||document.hidden||Date.now()<marketPriorityUntil||volatilityBusy||!epoch)return;const key=volatilityContext();if(key===volatilityKey&&Date.now()-volatilityLast<(volatilityData?.status==='waiting'?1000:10000))return;volatilityBusy=true;volatilityLast=Date.now();if(volatilityKey!==key)volatilityData=null;volatilityKey=key;try{const value=await api(`portfolio/chart-volatility/${cid}?source=${encodeURIComponent(display.volatility[family])}`);if(key!==volatilityContext())return;volatilityData=value;syncVolatility();}catch{if(key===volatilityContext()){volatilityData={...volatilityData,status:'unavailable'};syncVolatility();}}finally{volatilityBusy=false;}}
 const chartLayout=window.installChartLayout({frame,api,
- current:()=>({cid,interval,session,epoch,packet,display,dark,ready,busy,axis:frame.contentWindow.priceAxisSide||'right',label:packet.display_symbol||packet.local_symbol||packet.symbol||$('contracts').selectedOptions[0]?.textContent||''}),
- activate:target=>{if(busy||switchingChart)return false;frame.contentWindow.configurePriceAxis?.(target.axis);interval=target.interval;session=target.session;rememberSession();renderIntervals();select(target.cid,target.label);return true;},
+ current:()=>({cid,interval,session,epoch,packet,display,dark,ready,busy,emaFrames:emaContext===emaKey()?emaFrames:{},volatility:volatilityKey===volatilityContext()?volatilityData:null,axis:frame.contentWindow.priceAxisSide||'right',label:packet.display_symbol||packet.local_symbol||packet.symbol||$('contracts').selectedOptions[0]?.textContent||''}),
+ activate:(target,nextFrame,seed)=>{
+  if(busy||switchingChart||document.querySelector('dialog[open]'))return false;
+  frame.contentWindow.removeEventListener('focus',resumeMarket);marketStream.stop();generation++;marketReadError='';quoteConfigKey='';
+  frame=nextFrame;cid=target.cid;interval=target.interval;session=target.session;packet=seed.packet;
+  groupID=localStorage.getItem('wheel.web.group:'+cid)||'';state={};received=0;entry=0;resetNewQuantity();
+  emaFrames=seed.ema||{};emaContext=emaKey();volatilityData=seed.volatility;volatilityKey=volatilityContext();
+  executionContext='';chartExecutions=[];packetReceived=Date.now();lastFallback=Date.now();
+  if(![...$('contracts').options].some(o=>o.value===String(cid)))$('contracts').append(new Option(target.label,String(cid)));
+  $('contracts').value=String(cid);rememberSession();renderIntervals();renderContractFavorites();
+  const url=new URL(location);url.searchParams.set('con_id',cid);history.replaceState(null,'',url);
+  frame.contentWindow.addEventListener('focus',resumeMarket);sync();ensureMarket();void refresh();return true;
+ },
  holdings:(id,data)=>holdingRows(id,data),
  executions:()=>executionContext===executionsKey()?chartExecutions:[]
 });

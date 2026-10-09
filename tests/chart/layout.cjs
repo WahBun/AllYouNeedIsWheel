@@ -10,6 +10,14 @@ for(const n of [2,3,4]){await page.locator('#layout-button').click();await page.
 await page.waitForFunction(()=>[...document.querySelectorAll('.chart-pane iframe')].every(f=>f.contentDocument.querySelector('#chart-title').textContent.includes('TSLL')));
 for(const chart of page.frames().filter(f=>f.url().includes('/superchart/frame')))await chart.waitForFunction(()=>previous.length===55);
 await page.screenshot({path:'/tmp/wheel-four-layout.png'});
+// Focus must not navigate, clear, replace, or change the timeframe of any pane.
+await page.evaluate(()=>{window.paneWindows=[...document.querySelectorAll('.chart-pane iframe')].map(f=>f.contentWindow);for(const w of paneWindows){w.emptyReceives=0;const receive=w.receive;w.receive=p=>{if(!p.bars?.length)w.emptyReceives++;return receive(p);};}});
+for(const f of page.frames().filter(f=>f.url().includes('/superchart/frame')))await f.evaluate(()=>activePriceScale().setVisibleRange({from:97,to:110}));await page.waitForTimeout(200);
+const beforeFocus=await Promise.all(page.frames().filter(f=>f.url().includes('/superchart/frame')).map(f=>f.evaluate(()=>({interval:countdownPacket.interval,range:chart.timeScale().getVisibleLogicalRange(),prices:activePriceScale().getVisibleRange()}))));
+for(const label of ['1m','15m','1h','5m']){await page.getByRole('button',{name:'TSLL · '+label,exact:true}).click();await page.waitForTimeout(100);}
+assert.ok(await page.evaluate(()=>paneWindows.every(w=>[...document.querySelectorAll('.chart-pane iframe')].some(f=>f.contentWindow===w)&&w.emptyReceives===0)));
+const afterFocus=await Promise.all(page.frames().filter(f=>f.url().includes('/superchart/frame')).map(f=>f.evaluate(()=>({interval:countdownPacket.interval,range:chart.timeScale().getVisibleLogicalRange(),prices:activePriceScale().getVisibleRange()}))));assert.deepEqual(afterFocus,beforeFocus);
+
 const boxes=await page.locator('.chart-pane').evaluateAll(es=>es.map(e=>({active:e.classList.contains('active'),x:e.offsetLeft,y:e.offsetTop,w:e.offsetWidth,h:e.offsetHeight})));assert.equal(boxes.length,4);assert.ok(boxes.some(b=>b.h>500));
 await page.locator('#contracts').evaluate(el=>{el.append(new Option('QQQ CALL','8'));el.value='8';el.dispatchEvent(new Event('change'));});await page.waitForFunction(()=>document.querySelector('#quantity').value==='4');
 await page.getByRole('button',{name:/TSLL · 1m$/}).click();await page.waitForTimeout(2200);assert.equal(await page.locator('.chart-pane.active').count(),1);assert.equal(await page.locator('#intervals .active').getAttribute('data-interval'),'1');assert.equal(await page.locator('#contracts').inputValue(),'7');assert.equal(await page.locator('#quantity').inputValue(),'1');

@@ -1,5 +1,17 @@
 # Project Handoff
 
+## 2026-10-09 layout focus follow-up
+
+Pane activation now rebinds the host to the existing iframe; it never swaps or
+recreates panes or clears candle data. The old pane becomes read-only and keeps
+its bars, drawing context and viewport. Focus regression cycles all four panes,
+asserting unchanged iframe windows, no empty packets, and preserved timeframe,
+time range and manual price range; contract/quantity routing remains covered.
+RTH-only volatility channels are filtered on ETH charts and when the latest bar
+is outside RTH, including historical sessions in longer-timeframe side panes.
+The price-axis menu also has a visible gear button beside the time/price corner.
+Browser checks remain mocked and do not constitute broker execution acceptance.
+
 ## 2026-10-09 web chart layouts and price-axis side
 
 The RTH toolbar now has a four-choice layout picker: single, equal columns,

@@ -13,7 +13,7 @@ function calculate(p,data,o){
  const gauge=o.gauge&&['spx','ndx'].includes(g)&&rth?{value:PROBS[curve][idx],after:lc.minute-570>90}:null;
  const sessions=[],byDay=new Map();
  for(const b of bars){const c=clock(b.time);if(c.minute<570||c.minute>=960)continue;if(!byDay.has(c.day))byDay.set(c.day,[]);byDay.get(c.day).push(b);}
- if(o.channels&&p.interval<1440)for(const [day,rows] of byDay){
+ if(o.channels&&p.interval<1440&&(!o.rthOnly||(rth&&p.session!=='all')))for(const [day,rows] of byDay){
   // Do not substitute a mid-session first visible candle for the RTH opening.
   if(clock(rows[0].time).minute!==570)continue;
   let levels=null,seed=null;const hits=[false,false,false,false],marks=[];
