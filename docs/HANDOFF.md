@@ -1,5 +1,15 @@
 # Project Handoff
 
+## 2026-10-09 pending-entry cancel visibility / Live option gate
+
+The Close control remains visible for active groups with zero filled position.
+Editable pending entries use the existing guarded edit_entry cancel path; filled
+positions retain Close. Browser mock checks cover visibility and cancellation.
+User explicitly requested activation of the existing option-only Live capability.
+Keep the current standard USD option, one-contract CC/CSP limit-entry scope; do
+not widen assets/actions or place verification trades. Mini profile provisioning
+is local-only and must not enter Git. Real Live fills remain unverified.
+
 ## 2026-10-09 independent pane indicators and weekly history
 
 Each layout pane now stores its own display configuration, including option ATR.

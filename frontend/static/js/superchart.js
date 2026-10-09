@@ -152,7 +152,7 @@ function renderTradingContext(){
  if(!$('position-scope'))return;
  const zh=document.documentElement.lang==='zh',size=Math.abs(state.position||0),rows=state.orders||[];
  document.querySelector('.position-actions').hidden=!size;
- $('close').hidden=!size;
+ $('close').hidden=!size&&!state.active;
  $('manage-protection').hidden=!size;
  document.querySelector('.protection-settings').hidden=!size&&!$('bracket-enabled').checked&&!state.active;
  const exits=state.pending_exits||[],reserved=exits.reduce((n,r)=>n+r.quantity,0);
@@ -170,7 +170,7 @@ function renderTradingContext(){
  if(size&&quantity>(state.trim_available??Math.max(0,size-reserved)))$('trim').disabled=true;
  if(size&&reason){for(const r of ['add','trim'])if($(r).disabled)$(r).title=reason;}
  const protectedClose=state.scalable&&state.protection?.status==='covered';
- $('close').textContent=!size&&state.entry_editable?(zh?'撤销入场单':'Cancel entry order'):size?(zh?'Close · 全部退出':'Close · All remaining')+' · '+((protectedClose||state.live_initial_scope)?(zh?'报价限价':'Quote limit'):(zh?'撤单后市价':'Market after cancel')):'Close position';
+ $('close').textContent=!size&&state.entry_editable?(zh?'撤销入场单':'Cancel entry order'):size?(zh?'Close · 全部退出':'Close · All remaining')+' · '+((protectedClose||state.live_initial_scope)?(zh?'报价限价':'Quote limit'):(zh?'撤单后市价':'Market after cancel')):state.active?(zh?'撤销挂单':'Cancel orders'):'Close position';
  $('close').title=protectedClose?(zh?'多仓按 Bid、空仓按 Ask 挂限价退出，仍需等待成交。':'Limit exit at Bid for longs / Ask for shorts; may remain working.'):(zh?'核对撤单和剩余持仓后提交退出。':'Exit after reconciling cancellations and remaining position.');
  $('new-order').title=zh?'新建独立订单组；不会加到当前组，也不取消原订单。':'Start an independent group; existing orders remain.';
  const note=$('protection-note');note.removeAttribute('data-en');note.removeAttribute('data-zh');
