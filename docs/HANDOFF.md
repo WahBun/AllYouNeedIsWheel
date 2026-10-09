@@ -826,3 +826,10 @@ to connection tooltip, and fully missing option quotes show one empty-state labe
 Trade panel layout unchanged. 30 history tests plus quantity unit/browser and
 holding browser checks passed; browser verified 400 -> 4 and manual 2 retention,
 zero order writes. Native shared chart source changed; phone installation deferred.
+
+
+## Default viewport rollback
+User reported slower chart loading after viewport polish. Restored web initial
+range to 50 recent bars plus 10-bar right margin. Retained CC quantity fix and
+other unrelated changes. The reverted change only adjusted rendering bounds;
+no causal claim that it caused broker/network latency. No backend restart needed.
