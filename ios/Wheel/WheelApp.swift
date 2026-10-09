@@ -1950,6 +1950,9 @@ struct ExpandablePositionRow<Content: View>: View {
             }
         }
         .navigationDestination(isPresented: $showDetails) { PositionDetail(position: position) }
+        .onChange(of: showDetails) { wasPresented, isPresented in
+            if wasPresented && !isPresented { expanded = false }
+        }
     }
 }
 
