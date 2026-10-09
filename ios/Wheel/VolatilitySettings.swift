@@ -10,7 +10,7 @@ struct VolatilitySettings: Codable, Equatable {
     var width: Double = 1
     var labelOffset: Double = 2
     var alerts: Bool = true
-    var distance: Bool = true
+    var distance: Bool = false
     var priceScale: Bool = true
     var markHits: Bool = false
     var up1: String = "#c8e6c9"

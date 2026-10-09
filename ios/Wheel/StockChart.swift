@@ -539,6 +539,7 @@ struct StockChartView: View {
     @AppStorage("chartEMAFrame") private var emaFrame = 0
     @AppStorage("chartExtraEMAsV1") private var extraEMAJSON = ""
     @AppStorage("chartVolatilityV1") private var volatilityJSON = ""
+    @AppStorage("chartVolatilityMobileDefaultV2") private var volatilityMobileDefaultApplied = false
     @State private var volatilityData: [String: Any] = [:]
     @State private var volatilityContext = ""
     private var volatilitySettings: VolatilitySettings {
@@ -1413,6 +1414,12 @@ struct StockChartView: View {
             }.presentationDetents([.medium, .large])
         }
         .onAppear {
+            if !volatilityMobileDefaultApplied {
+                var settings = volatilitySettings
+                settings.distance = false
+                volatilityBinding.wrappedValue = settings
+                volatilityMobileDefaultApplied = true
+            }
             if !barCountOpacityMigrated {
                 if barCountColor.lowercased() == "#351044" { barCountColor = "#521c6e" }
                 barCountOpacityMigrated = true
