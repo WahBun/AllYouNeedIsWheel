@@ -893,11 +893,13 @@ window.setNativeViewport=(width,height)=>{
  applyViewport(width,height);
  if(pendingNativeState){const state=pendingNativeState;pendingNativeState=null;window.applyChartState({...state,width,height});}
 };
+let nativeVolatilityPacket={};
 window.applyChartState=state=>{
  if(!(state.width>0&&state.height>0)){pendingNativeState=state;return;}
  window.setNativeViewport(state.width,state.height);
  if(state.config&&Object.keys(state.config).length)window.configure(state.config);
- if(state.packet&&Object.keys(state.packet).length)window.receive(state.packet);
+ if(state.packet&&Object.keys(state.packet).length){window.receive(state.packet);nativeVolatilityPacket={...nativeVolatilityPacket,...state.packet};}
+ if(window.configureVolatility&&state.config?.display){const d=state.config.display;window.configureVolatility({...nativeVolatilityPacket,bars:previous},d.volatilityData,d.volatility||{});}
 };
 function resizeViewport(){
  cancelAnimationFrame(viewportFrame);viewportFrame=requestAnimationFrame(()=>{

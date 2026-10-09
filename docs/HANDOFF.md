@@ -888,3 +888,15 @@ Channel axis numbers use grouping separators and right alignment. Gauge segments
 are contiguous with Pine-like dimensions. No history requests or viewport changes.
 Formula and browser layout/cleanup checks passed. Screenshot-derived channel
 centers differ by 34.75 between MNQ1! and MNQZ6; do not hard-code TV prices.
+
+
+## Native volatility synchronization
+Added bundled volatility module identical to web, native bridge using complete
+merged chart bars, account/context-scoped optional index reads after main bars,
+and four persisted settings groups plus template save/restore. Symbol gating
+matches web; options/unrelated stocks do not request index history. No plot-level
+unavailable banner. Recent badge, table and logo/gauge placement fixes included.
+Small screens use compact gauge and lower table to avoid header/ATR overlaps;
+the same responsive behavior is included on web. Simulator build and 390px
+browser bridge/render checks pass; asset verified in built app. User will Run
+manually: no installation, launch, physical-device or broker trade test performed.

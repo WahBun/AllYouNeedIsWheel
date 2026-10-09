@@ -163,6 +163,7 @@ struct IndicatorTemplate: Codable, Identifiable {
 }
 
 struct IndicatorSettingsSnapshot: Codable, Equatable {
+    var volatilityJSON: String? = nil
     var fvg: FVGSettings? = nil
     var previousValues: PreviousValuesSettings? = nil
     var showEMA: Bool
@@ -537,6 +538,26 @@ struct StockChartView: View {
     @AppStorage("chartIndicatorVisible") private var indicatorVisible = true
     @AppStorage("chartEMAFrame") private var emaFrame = 0
     @AppStorage("chartExtraEMAsV1") private var extraEMAJSON = ""
+    @AppStorage("chartVolatilityV1") private var volatilityJSON = ""
+    @State private var volatilityData: [String: Any] = [:]
+    @State private var volatilityContext = ""
+    private var volatilitySettings: VolatilitySettings {
+        guard let data = volatilityJSON.data(using: .utf8), let value = try? JSONDecoder().decode(VolatilitySettings.self, from: data) else { return VolatilitySettings() }
+        return value
+    }
+    private var volatilityBinding: Binding<VolatilitySettings> {
+        Binding(get: { volatilitySettings }, set: { value in
+            if let data = try? JSONEncoder().encode(value), let text = String(data: data, encoding: .utf8) { volatilityJSON = text }
+        })
+    }
+    private var volatilityFamily: String? { VolatilitySettings.family(symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType) }
+    private var volatilitySource: String { volatilitySettings.dictionary[volatilityFamily ?? ""] as? String ?? "" }
+    private var volatilityRequestKey: String { context + (store.trading.accountEpoch ?? "") + volatilitySource + String(indicatorVisible && volatilitySettings.channels) }
+    private var volatilityDisplay: [String: Any] {
+        var value = volatilitySettings.dictionary
+        if !indicatorVisible { value["channels"] = false; value["gauge"] = false }
+        return value
+    }
     @State private var emaFrames: [String: Any] = [:]
     @State private var emaFrameContext = ""
     @State private var emaHistoryNotice: String?
@@ -617,7 +638,7 @@ struct StockChartView: View {
         return rows
     }
     private var indicatorSnapshot: IndicatorSettingsSnapshot {
-        IndicatorSettingsSnapshot(fvg: fvgSettings, previousValues: pvSettings, showEMA: showEMA, emaLength: emaLength, emaSource: emaSource, emaOffset: emaOffset, emaFrame: emaFrame, emaDynamic: emaDynamic, emaColor: emaColor, emaWidth: emaWidth, emaStyle: emaStyle, extraEMAJSON: extraEMAJSON, showATR: showATR, atrLength: atrLength, showBarCount: showBarCount, barCountFrame: barCountFrame, barCountSize: barCountSize, barCountColor: barCountColor, barCountOpacity: barCountOpacity, barCountLimit: barCountLimit, barCountBars: barCountBars, indicatorVisible: indicatorVisible)
+        IndicatorSettingsSnapshot(volatilityJSON: volatilityJSON, fvg: fvgSettings, previousValues: pvSettings, showEMA: showEMA, emaLength: emaLength, emaSource: emaSource, emaOffset: emaOffset, emaFrame: emaFrame, emaDynamic: emaDynamic, emaColor: emaColor, emaWidth: emaWidth, emaStyle: emaStyle, extraEMAJSON: extraEMAJSON, showATR: showATR, atrLength: atrLength, showBarCount: showBarCount, barCountFrame: barCountFrame, barCountSize: barCountSize, barCountColor: barCountColor, barCountOpacity: barCountOpacity, barCountLimit: barCountLimit, barCountBars: barCountBars, indicatorVisible: indicatorVisible)
     }
     private func saveIndicatorTemplates(_ rows: [IndicatorTemplate]) {
         if let data = try? JSONEncoder().encode(rows), let text = String(data: data, encoding: .utf8) {
@@ -625,6 +646,7 @@ struct StockChartView: View {
         }
     }
     private func applyIndicatorTemplate(_ settings: IndicatorSettingsSnapshot) {
+        volatilityJSON = settings.volatilityJSON ?? ""
         saveFVG(settings.fvg ?? FVGSettings())
         savePV(settings.previousValues ?? PreviousValuesSettings())
         showEMA = settings.showEMA
@@ -836,6 +858,7 @@ struct StockChartView: View {
                     Text("Inputs").tag("Inputs"); Text("Style").tag("Style"); Text("Visibility").tag("Visibility")
                 }.pickerStyle(.segmented)
                 if indicatorTab == "Inputs" {
+                    VolatilitySettingsSections(settings: volatilityBinding)
                     Section("EMA") {
                         Stepper("Length: \(emaLength)", value: $emaLength, in: 1...500)
                         Picker("Source", selection: $emaSource) {
@@ -915,7 +938,7 @@ struct StockChartView: View {
     private var adjustmentLimit: Int { adjustmentAction == "trim" ? min(positionSize, (paperState["trim_available"] as? NSNumber)?.intValue ?? positionSize) : ((paperState["add_available"] as? NSNumber)?.intValue ?? 0) }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
+        ["volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
          "emaDynamic": emaDynamic, "emaColor": emaColor + "ab", "emaWidth": emaWidth, "emaStyle": emaStyle,
          "atr": showATR && indicatorVisible, "atrLength": atrLength, "profit": showHoldings && showProfit, "positions": showHoldings && showPositionProfit, "brackets": showHoldings && showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
@@ -1418,6 +1441,27 @@ struct StockChartView: View {
         }
         .onChange(of: cacheKey) { rememberChart() }
         .onDisappear { rememberChart(); visible = false; store.chartVisible = false }
+        .task(id: "volatility-" + volatilityRequestKey) {
+            volatilityData = [:]; volatilityContext = ""
+            guard visible, phase == .active, !store.demo, indicatorVisible, volatilitySettings.channels, volatilityFamily != nil, let cid = chartID else { return }
+            let key = volatilityRequestKey
+            while !Task.isCancelled {
+                var delay = 2.0
+                if !(packet["bars"] as? [[String: Any]] ?? []).isEmpty {
+                    do {
+                        let result = try await store.trading.get("api/portfolio/chart-volatility/\(cid)", base: store.address, query: [URLQueryItem(name: "source", value: volatilitySource)])
+                        try Task.checkCancellation()
+                        guard key == volatilityRequestKey, result["con_id"] as? Int == cid else { return }
+                        volatilityData = result; volatilityContext = key
+                        delay = result["status"] as? String == "waiting" ? 2 : 10
+                    } catch {
+                        if Task.isCancelled { return }
+                        delay = 10
+                    }
+                }
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            }
+        }
         .task(id: "ema-" + emaRequestKey) {
             emaFrames = [:]; emaFrameContext = ""; emaHistoryNotice = nil
             guard visible, phase == .active, !store.demo, let cid = chartID else { return }
@@ -1629,8 +1673,9 @@ private struct StockChartWeb: UIViewRepresentable {
            let template = try? String(contentsOf: html, encoding: .utf8), let js = try? String(contentsOf: library, encoding: .utf8) {
             let drawingJS = resource("chart-drawings", "js").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
             let addJS = resource("chart-add-orders", "js").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+            let volatilityJS = resource("chart-volatility", "js").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
             let html = template.replacingOccurrences(of: "/*LIBRARY*/", with: js)
-                .replacingOccurrences(of: "</body>", with: "<script>" + drawingJS + "</script><script>" + addJS + "</script></body>")
+                .replacingOccurrences(of: "</body>", with: "<script>" + drawingJS + "</script><script>" + addJS + "</script><script>" + volatilityJS + "</script></body>")
             web.loadHTMLString(html, baseURL: nil)
         } else { web.loadHTMLString("<p>Chart resources unavailable</p>", baseURL: nil) }
         return web
