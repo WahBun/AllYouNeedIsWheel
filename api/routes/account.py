@@ -39,7 +39,8 @@ def epoch():
 def write_guard():
     from api.routes.portfolio import portfolio_service
     configured=str(portfolio_service.config.get('account_id',''))
-    if profiles().get('live',{}).get('chart_options_live_enabled') is True and configured.startswith('U') and request.method in {'POST','PUT','PATCH','DELETE'} and request.path.startswith('/api/options/'):
+    status_refresh = request.method == 'POST' and request.path == '/api/options/check-orders'
+    if not status_refresh and profiles().get('live',{}).get('chart_options_live_enabled') is True and configured.startswith('U') and request.method in {'POST','PUT','PATCH','DELETE'} and request.path.startswith('/api/options/'):
         return jsonify(status='rejected',error='Initial Live options use the chart execution path; legacy write endpoints are disabled.'),403
     token = epoch()
     if token and request.method in {'POST','PUT','PATCH','DELETE'} and request.headers.get('X-Wheel-Account-Epoch') != token:

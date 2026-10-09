@@ -1,5 +1,12 @@
 # Project Handoff
 
+## 2026-10-09 Live Orders refresh guard
+
+Allow only POST /api/options/check-orders through the option-only Live legacy
+endpoint guard: this reconciles broker status and does not submit/cancel orders.
+Account epoch validation still applies. Other legacy mutations remain blocked.
+Account-profile and Live-policy tests pass (16 tests).
+
 ## 2026-10-09 pending-entry cancel visibility / Live option gate
 
 The Close control remains visible for active groups with zero filled position.

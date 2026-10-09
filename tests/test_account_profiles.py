@@ -37,6 +37,20 @@ class AccountProfileTests(unittest.TestCase):
             self.assertIsNone(account.write_guard())
         with self.app.test_request_context('/api/account/profiles'):
             self.assertIsNone(account.write_guard())
+    def test_live_chart_gate_allows_only_status_refresh(self):
+        from api.routes import portfolio
+        self.config['live']['chart_options_live_enabled'] = True
+        self.path.write_text(json.dumps(self.config))
+        with patch.object(portfolio.portfolio_service, 'config', {'account_id':'U_TEST'}):
+            for path,headers,expected in [
+                ('/api/options/check-orders', {'X-Wheel-Account-Epoch':account.epoch()}, None),
+                ('/api/options/check-orders', {'X-Wheel-Account-Epoch':'old'}, 409),
+                ('/api/options/execute', {'X-Wheel-Account-Epoch':account.epoch()}, 403),
+                ('/api/options/cancel-order', {'X-Wheel-Account-Epoch':account.epoch()}, 403)]:
+                with self.app.test_request_context(path,method='POST',headers=headers):
+                    result=account.write_guard()
+                    self.assertEqual(result[1] if result else None,expected)
+
     def test_unconfigured_install_keeps_existing_behavior(self):
         self.path.unlink()
         with self.app.test_request_context('/api/options/execute',method='POST'):
