@@ -274,7 +274,7 @@ async function refreshMarket({full=false}={}){
   }
   const bars=await api(`portfolio/stock-chart/${context.cid}?interval=${context.interval}&session=${context.session}&fast=1`,undefined,request.signal);
   if(marketBusy===request&&currentMarket(context)&&revision===marketRevision&&!marketStream.healthy())applyMarket(bars);
- }catch(error){if(marketBusy===request&&!request.signal.aborted&&currentMarket(context)&&revision===marketRevision&&!marketStream.healthy())$('market-status').hidden=false;$('market-status').textContent=error.message;}finally{clearTimeout(timeout);if(marketBusy===request)marketBusy=null;}
+ }catch(error){if(marketBusy===request&&!request.signal.aborted&&currentMarket(context)&&revision===marketRevision&&!marketStream.healthy()){$('market-status').hidden=false;$('market-status').textContent=error.message;}}finally{clearTimeout(timeout);if(marketBusy===request)marketBusy=null;}
 }
 // Foreground events often arrive together. Restart only reads, never trading writes.
 let resumedAt=0,marketPriorityUntil=0;
@@ -300,11 +300,15 @@ function ensureMarket(){
  if((!supported||!marketStream.healthy())&&Date.now()-lastFallback>=(supported?(Date.now()<marketPriorityUntil?250:1000):2000))refreshMarket();
  refreshPnL();
 }
-async function refresh(){if(document.hidden||Date.now()<marketPriorityUntil||polling||busy||!ready)return;polling=true;const token=generation,selected=cid,readVersion=writeVersion;let stateRead=false;try{
+async function refresh(){if(document.hidden||Date.now()<marketPriorityUntil||polling||busy||!ready)return;polling=true;let token=generation;const selected=cid,readVersion=writeVersion;let stateRead=false;try{
 const p=await api('account/profiles');if(token!==generation||readVersion!==writeVersion)return;
-if(epoch&&p.epoch!==epoch){resetNewQuantity();marketStream.stop();historyCaches.clear();packet={};state={};received=0;entry=0;log('Account changed; chart trading state cleared.');}
+if(profile.selected&&(p.selected!==profile.selected||p.epoch!==profile.epoch||(profile.verified&&!p.verified))){
+ resetNewQuantity();token=++generation;marketStream.stop();marketBusy?.abort();marketBusy=null;legacyMarket?.abort();legacyMarket=null;legacyStarted=0;lastFallback=0;lastPnL=0;marketReadError='';quoteConfigKey='';
+ frame.contentWindow.prepareAccountChart?.();switchingChart=true;historyCaches.clear();packet={};state={};received=0;entry=0;positions=[];chartExecutions=[];executionContext='';emaFrames={};volatilityData=null;
+ renderRows('orders',[],true);renderRows('positions',[],false);log('Account changed; chart trading state cleared.');
+}
 window.wheelTradeSounds?.connection(p.verified===true);profile=p;epoch=p.verified?p.epoch:null;$('connection').textContent=`${p.selected||'Disconnected'} · ${p.verified?'Connected':'Not verified'}`;$('connection').className=p.selected||'';
-chartLayout.tick();ensureMarket();
+sync();chartLayout.tick();ensureMarket();
 if(selected){
 if((profile.selected==='paper'||profile.chart_execution_enabled===true)&&profile.verified){const pending=localStorage.getItem(pendingKey());if(pending){const r=await api(orderPath(selected)+(groupID?'&':'?')+'request_id='+encodeURIComponent(pending));if(token!==generation||readVersion!==writeVersion)return;if(r.confirmed===true&&(terminal.has(r.status)||r.status==='reconciled')){localStorage.removeItem(pendingKey());log(`Reconciled: ${r.status}`);}}
 const s=await api(orderPath(selected));if(token!==generation||readVersion!==writeVersion)return;applyState(s);stateRead=true;}else{state={};received=0;}}
@@ -323,7 +327,7 @@ function stylePositionSymbol(button,row){
  button.setAttribute('aria-label',label);button.replaceChildren(name,document.createTextNode(label.slice(symbol.length)));
 }
 function renderRows(id,rows,isOrder){$(id).replaceChildren();if(!rows.length){$(id).textContent=isOrder?'No pending orders':'No positions';return;}for(const row of rows){const target=row.chart_con_id||row.con_id;const button=document.createElement('button');button.textContent=isOrder?`${row.local_symbol||row.symbol||row.ticker||''} ${row.action||''} ${row.quantity||''}\n${row.order_type||''} ${row.tif||''} @ ${row.premium??row.limit_price??'—'} · ${row.status||''}`:`${row.local_symbol||row.symbol} · ${row.position??row.quantity??''}`;if(!isOrder)stylePositionSymbol(button,row);else{const action=String(row.action||'').toUpperCase();if(['BUY','BOT','SELL','SLD'].includes(action)){const label=button.textContent,at=label.indexOf(' '+row.action+' ');if(at>=0){const badge=document.createElement('span');badge.className=['BUY','BOT'].includes(action)?'order-buy':'order-sell';const sideAndQuantity=String(row.action)+' '+(row.quantity||'');badge.textContent=sideAndQuantity;button.replaceChildren(document.createTextNode(label.slice(0,at+1)),badge,document.createTextNode(label.slice(at+1+sideAndQuantity.length)));}}}button.disabled=!target||busy;button.onclick=()=>{if(isOrder&&('chart_navigation_group_id' in row||row.chart_order_ref))localStorage.setItem('wheel.web.group:'+target,row.chart_navigation_group_id??row.chart_group_id??'');select(Number(target),row.local_symbol||row.symbol||row.ticker);};$(id).append(button);}}
-function select(id,label){if(busy)return;resetNewQuantity();cid=id;groupID=localStorage.getItem('wheel.web.group:'+id)||'';generation++;marketStream.stop();lastFallback=0;lastPnL=0;entry=0;state={};received=0;packet={};$('tif').value='DAY';$('editor').close();const url=new URL(location);url.searchParams.set('con_id',id);history.replaceState(null,'',url);if(![...$('contracts').options].some(o=>o.value===String(id)))$('contracts').append(new Option(label&&!/^\d+$/.test(label)?label:(contractFavorites.find(x=>x.id===id&&!/^\d+$/.test(x.label))?.label||'Loading contract…'),String(id)));$('contracts').value=String(id);renderContractFavorites();frame.contentWindow.configureDrawings({key:`web:${location.origin}:${id}`,value:{...stored(`wheel.drawings:${id}`),magnet:'off'}});frame.contentWindow.receive({bars:[],con_id:id,generation:'clear',interval,session});sync();refreshMarket({full:true});refresh();}
+function select(id,label){if(busy)return;resetNewQuantity();cid=id;groupID=localStorage.getItem('wheel.web.group:'+id)||'';generation++;marketStream.stop();lastFallback=0;lastPnL=0;entry=0;state={};received=0;packet={};$('tif').value='DAY';$('editor').close();const url=new URL(location);url.searchParams.set('con_id',id);history.replaceState(null,'',url);if(![...$('contracts').options].some(o=>o.value===String(id)))$('contracts').append(new Option(label&&!/^\d+$/.test(label)?label:(contractFavorites.find(x=>x.id===id&&!/^\d+$/.test(x.label))?.label||'Loading contract…'),String(id)));$('contracts').value=String(id);renderContractFavorites();chartLayout.follow('symbol');frame.contentWindow.configureDrawings({key:`web:${location.origin}:${id}`,value:{...stored(`wheel.drawings:${id}`),magnet:'off'}});frame.contentWindow.receive({bars:[],con_id:id,generation:'clear',interval,session});sync();refreshMarket({full:true});refresh();}
 function entryPriceOnly(body){return !('order_id' in body)&&( body.action==='edit_entry'||body.action==='amend'&&['tp','sl'].includes(body.role))&&Number.isFinite(body.price)&&body.price>0&&!body.cancel&&!('quantity' in body)&&!('tif' in body);}
 async function write(body){
  const releasedAt=body.clientReleasedAt||Date.now();body={...body};delete body.clientReleasedAt;
@@ -400,7 +404,7 @@ $('session-picker').onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();closeS
 document.addEventListener('pointerdown',e=>{if(!$('session-picker').contains(e.target))closeSessionMenu();});
 document.addEventListener('focusin',e=>{if(!$('session-picker').contains(e.target))closeSessionMenu();});
 window.addEventListener('blur',()=>closeSessionMenu());
-$('session').onchange=()=>{if(busy){$('session').value=session;return;}session=$('session').value;resetSessionBarCount();rememberSession();generation++;marketStream.stop();lastFallback=0;lastPnL=0;chartTransition();refresh();};
+$('session').onchange=()=>{if(busy){$('session').value=session;return;}session=$('session').value;resetSessionBarCount();rememberSession();chartLayout.follow('session');generation++;marketStream.stop();lastFallback=0;lastPnL=0;chartTransition();refresh();};
 $('toggle-trade').onclick=()=>{const detail=$('chart-detail');detail.hidden=!detail.hidden;$('toggle-trade').textContent='Detail '+(detail.hidden?'▾':'▴');$('toggle-trade').setAttribute('aria-expanded',String(!detail.hidden));};
 for(const [id,delta] of [['quantity-minus',-1],['quantity-plus',1]])$(id).onclick=()=>{if($('quantity').disabled)return;quantityEdited=true;$('quantity').value=Math.min(Number($('quantity').max),Math.max(1,(Number($('quantity').value)||1)+delta));sync();};
 $('bracket-enabled').onchange=()=>{if(state.active||busy)return;if($('bracket-enabled').checked&&!$('tp-enabled').checked&&!$('sl-enabled').checked){$('tp-enabled').checked=true;$('sl-enabled').checked=true;}if(protectionType)localStorage.setItem('wheel.web.bracket:'+protectionType,JSON.stringify({enabled:$('bracket-enabled').checked}));revision++;sync();};

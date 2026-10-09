@@ -1,5 +1,18 @@
 # Project Handoff
 
+## 2026-10-09 account transition and optional pane links
+
+Layout menu now persists independent opt-in symbol and RTH/ETH links. Explicit
+changes in the active chart propagate only the enabled property; pane intervals
+stay independent. Enabling a link immediately aligns the other panes.
+Account identity/verification changes abort old reads, invalidate account state
+and clear holdings/executions while retaining dimmed candles until replacement.
+Auxiliary reads restart concurrently without empty snapshots. Desktop rendering
+retains time anchors and manual price bounds for same-chart generation changes.
+Mock account-layout-sync covers Paper/Live/unverified recovery, concurrent reads,
+retained viewports, independent defaults, on/off links and persisted settings.
+No broker account switching or trading writes were used for verification.
+
 ## 2026-10-09 immediate same-page drawing operations
 
 Drawing-change messages forward idempotent pending operations directly to loaded

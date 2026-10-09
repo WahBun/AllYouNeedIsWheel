@@ -1,5 +1,20 @@
 // Desktop-only menu; use the shared chart's price-choice and preview path.
 (()=>{
+ // An account reconnect replaces data, not the user's chart view.
+ let accountTransition=false;
+ window.prepareAccountChart=()=>{accountTransition=true;document.body.style.opacity='.65';};
+ const receiveChart=window.receive;
+ window.receive=packet=>{
+  const preserve=(accountTransition||countdownPacket?.generation!==packet.generation)&&packet.bars?.length&&previous.length&&countdownPacket?.con_id===packet.con_id&&countdownPacket?.interval===packet.interval&&countdownPacket?.session===packet.session;
+  const range=preserve?chart.timeScale().getVisibleLogicalRange():null;
+  const auto=activePriceScale().options().autoScale,prices=preserve&&!auto?activePriceScale().getVisibleRange():null;
+  let offset=null;
+  if(range){const next=new Map(packet.bars.map((b,i)=>[b.time,i]));const index=previous.findIndex(b=>next.has(b.time));if(index>=0)offset=next.get(previous[index].time)-index;}
+  receiveChart(packet);
+  if(range&&offset!==null)chart.timeScale().setVisibleLogicalRange({from:range.from+offset,to:range.to+offset});
+  if(prices)activePriceScale().setVisibleRange(prices);
+  if(packet.bars?.length||packet.generation==='clear'){accountTransition=false;document.body.style.opacity='';}
+ };
  // Keep the shared price button in the plot, but never over the price axis.
  let overPriceAxis=false,pointerInPlot=false;
  chart.unsubscribeCrosshairMove(updatePriceCursor);
