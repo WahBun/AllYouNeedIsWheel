@@ -44,11 +44,8 @@ struct PortfolioOptionRow: View {
                 PositionPnLMeter(position: position)
                     .accessibilityLabel(Text("Unrealized P&L"))
             }.font(.caption)
-            if position.optionAverageUsesBrokerCost {
-                Text(locale.language.languageCode?.identifier == "zh" ? "* IB 平均成本，可能含手续费" : "* IB average cost; may include fees")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            if frozen { Text("Frozen").font(.caption2).foregroundStyle(.secondary) }
+            PositionDayRange(position: position)
+            if frozen && position.day_range_status != "frozen" { Text("Frozen").font(.caption2).foregroundStyle(.secondary) }
         }.padding(.vertical, 4)
         .onAppear { visible = true }
         .onDisappear { visible = false }

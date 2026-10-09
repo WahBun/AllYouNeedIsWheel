@@ -74,6 +74,10 @@ struct Position: Decodable, Identifiable {
     var reported_cost: ReportedStockCost? = nil
     var avg_cost: Double?
     var multiplier: Double?
+    var day_low: Double? = nil
+    var day_high: Double? = nil
+    var day_range_price: Double? = nil
+    var day_range_status: String? = nil
     var id: String { "\(symbol)-\(security_type)-\(con_id ?? 0)-\(expiration ?? "")-\(strike ?? 0)" }
     var optionAveragePrice: Double? {
         guard security_type == "OPT" else { return nil }
@@ -807,6 +811,7 @@ struct PortfolioView: View {
                             if position.security_type == "OPT" {
                                 PortfolioOptionRow(position: position)
                             } else {
+                            VStack(alignment: .leading, spacing: 8) {
                             HStack(alignment: .top) {
                                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                                     SymbolText(symbol: position.symbol).font(.headline)
@@ -820,6 +825,8 @@ struct PortfolioView: View {
                                     PositionMarketPrice(position: position)
                                     PositionPnLMeter(position: position)
                                 }
+                            }
+                            PositionDayRange(position: position)
                             }.padding(.vertical, 6)
                             }
                         }
@@ -1285,6 +1292,7 @@ struct LeverageMeter: View {
 
 struct PositionDetail: View {
     let position: Position
+    @Environment(\.locale) private var locale
     @Environment(WheelStore.self) private var store
     private var latest: Position { store.portfolio?.positions.first { $0.id == position.id } ?? position }
     private var stockHasCall: Bool {
@@ -1317,6 +1325,10 @@ struct PositionDetail: View {
             Section(position.detail) {
                 LabeledContent("Quantity", value: latest.position.formatted())
                 LabeledContent("Gateway average cost", value: money(latest.avg_cost))
+                if latest.optionAverageUsesBrokerCost {
+                    Text(locale.language.languageCode?.identifier == "zh" ? "* IB 平均成本，可能含手续费" : "* IB average cost; may include fees")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 LabeledContent("Current price", value: money(latest.market_price))
                 LabeledContent("Market value", value: money(latest.market_value))
                 LabeledContent("Unrealized P&L", value: money(latest.unrealized_pnl))
@@ -1899,5 +1911,51 @@ enum AccountConnectionRules {
             throw AppError.message("Account verification is incomplete. Retry connection.")
         }
         return epoch
+    }
+}
+
+
+struct PositionDayRange: View {
+    let position: Position
+    @Environment(\.locale) private var locale
+    private var chinese: Bool { locale.language.languageCode?.identifier == "zh" }
+    private var bounds: (Double, Double)? {
+        guard let low = position.day_low, let high = position.day_high,
+              low.isFinite, high.isFinite, low > 0, high >= low else { return nil }
+        return (low, high)
+    }
+    private var status: String {
+        switch position.day_range_status {
+        case "live": return chinese ? "今日波动" : "Today's range"
+        case "delayed": return chinese ? "日内区间 · 延迟" : "Session range · Delayed"
+        case "frozen": return chinese ? "日内区间 · 冻结" : "Session range · Frozen"
+        default: return chinese ? "日内区间 · 暂无行情" : "Session range · Unavailable"
+        }
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(verbatim: status).font(.caption2).foregroundStyle(.secondary)
+            if let (low, high) = bounds {
+                GeometryReader { geometry in
+                    let width = geometry.size.width
+                    let price = position.day_range_price
+                    let valid = price.map { $0.isFinite && $0 > 0 } ?? false
+                    let fraction = valid ? (high > low ? min(1, max(0, (price! - low) / (high - low))) : 0.5) : 0
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.secondary.opacity(0.2)).frame(height: 5)
+                        if valid {
+                            Capsule().fill(Color.green).frame(width: width * fraction, height: 5)
+                            Image(systemName: "arrowtriangle.down.fill").font(.system(size: 8))
+                                .foregroundStyle(.primary).offset(x: min(max(0, width * fraction - 4), max(0, width - 8)), y: -8)
+                        }
+                    }.frame(height: 14, alignment: .bottom)
+                }.frame(height: 14)
+                HStack {
+                    Text(verbatim: low.formatted(.number.precision(.fractionLength(2...4))))
+                    Spacer()
+                    Text(verbatim: high.formatted(.number.precision(.fractionLength(2...4))))
+                }.font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+            }
+        }.accessibilityElement(children: .combine)
     }
 }

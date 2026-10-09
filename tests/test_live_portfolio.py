@@ -116,6 +116,29 @@ class LivePortfolioTests(unittest.TestCase):
         self.assertEqual(self.fake_ib.market_data_requests, [1, 2])
         self.assertEqual(self.fake_ib.sleep_calls, [0.25, 0.01])
 
+    @patch('core.connection.is_market_hours', return_value=True)
+    def test_day_range_reuses_ticks_and_rejects_invalid_bounds(self, _hours):
+        ticker = FakeTicker(9.5)
+        ticker.low, ticker.high, ticker.marketDataType = 9., 10., 1
+        with patch.object(self.connection, 'get_market_ticker', return_value=ticker):
+            row = self.connection.get_live_portfolio()['positions']['TSLL']
+            self.assertEqual((row['day_low'], row['day_high'], row['day_range_price'], row['day_range_status']), (9., 10., 9.5, 'live'))
+            ticker.marketDataType = 3
+            self.assertEqual(self.connection.get_live_portfolio()['positions']['TSLL']['day_range_status'], 'delayed')
+            for low, high in [(float('nan'), 10.), (11., 10.), (0., 10.)]:
+                ticker.low, ticker.high = low, high
+                row = self.connection.get_live_portfolio()['positions']['TSLL']
+                self.assertIsNone(row['day_low'])
+                self.assertIsNone(row['day_high'])
+                self.assertEqual(row['day_range_status'], 'unavailable')
+
+    @patch('core.connection.is_market_hours', return_value=False)
+    def test_closed_market_range_is_not_labeled_live(self, _hours):
+        ticker = FakeTicker(9.5)
+        ticker.low, ticker.high, ticker.marketDataType = 9., 10., 1
+        with patch.object(self.connection, 'get_market_ticker', return_value=ticker):
+            self.assertEqual(self.connection.get_live_portfolio()['positions']['TSLL']['day_range_status'], 'frozen')
+
 
 if __name__ == '__main__':
     unittest.main()

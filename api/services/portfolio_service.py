@@ -102,6 +102,7 @@ class PortfolioService:
                 'symbol': contract.symbol if hasattr(contract, 'symbol') else '',
                 'position': pos.get('shares', 0),
                 'market_price': pos.get('market_price'),
+                **{key: pos.get(key) for key in ('day_low', 'day_high', 'day_range_price', 'day_range_status')},
                 'market_value': pos.get('market_value'),
                 'avg_cost': pos.get('avg_cost', 0),
                 'unrealized_pnl': pos.get('unrealized_pnl'),

@@ -1406,7 +1406,20 @@ class IBConnection:
                     )
                     position_key = symbol
 
+                day_low = self._valid_price(getattr(ticker, 'low', None))
+                day_high = self._valid_price(getattr(ticker, 'high', None))
+                day_last = self._valid_price(getattr(ticker, 'last', None))
+                range_kind = getattr(ticker, 'marketDataType', None)
+                range_status = ('delayed' if range_kind in (3, 4) else 'frozen' if is_frozen or range_kind == 2 else 'live' if range_kind == 1 else 'unavailable')
+                if day_low is None or day_high is None or day_high < day_low:
+                    day_low = day_high = day_last = None
+                    range_status = 'unavailable'
+
                 positions[position_key] = {
+                    'day_low': self._convert_to_usd(day_low, currency) if day_low is not None else None,
+                    'day_high': self._convert_to_usd(day_high, currency) if day_high is not None else None,
+                    'day_range_price': self._convert_to_usd(day_last, currency) if day_last is not None else None,
+                    'day_range_status': range_status,
                     'shares': quantity,
                     'avg_cost': self._convert_to_usd(avg_cost, currency),
                     'market_price': (
