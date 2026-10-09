@@ -900,3 +900,18 @@ Small screens use compact gauge and lower table to avoid header/ATR overlaps;
 the same responsive behavior is included on web. Simulator build and 390px
 browser bridge/render checks pass; asset verified in built app. User will Run
 manually: no installation, launch, physical-device or broker trade test performed.
+
+
+## Cross-device analysis drawings
+Web and native share contract-ID-scoped annotations via /api/chart-drawings, stored
+in ignored chart_drawings.db on the backend. No IB calls or order endpoints.
+Both clients use the same drawing module and poll every three seconds while
+visible and idle; native uses a dedicated HTTPS session/bridge. Existing local
+drawings import once when opened, local preferences remain local, pending edits
+persist locally across failures. Idempotent per-object operations preserve unrelated
+edits; deletion tombstones prevent stale imports resurrecting lines. Concurrent
+edits retain a conflict copy; stale deletion cannot erase a newer edit. Same conId
+shares across Paper/Live and intervals, different expiries/conIds stay separate.
+Python tests cover merge, replay, deletion, conflict and validation; two-browser
+clients cover web/native-message transport, merge and delete propagation. Native
+Simulator build passes and unused rows warning removed. User installs/Runs phone.

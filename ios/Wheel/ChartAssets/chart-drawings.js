@@ -35,15 +35,44 @@ function lockButton(isLocked,title,fn){
  return b;
 }
 function button(text,title,fn){const b=document.createElement('button');b.textContent=text;b.title=title;b.setAttribute('aria-label',title);b.onclick=e=>{e.stopPropagation();if(b.dataset.dragged==='1'){b.dataset.dragged='0';return;}fn()};return b;}
+let syncState={revision:0,pending:[],migrated:false},syncBaseline=[],syncBusy=false,syncGeneration=0;
+const drawingOperationID=()=>Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('');
+const clone=v=>JSON.parse(JSON.stringify(v));
+const syncCID=()=>Number(String(loadedKey||'').match(/(?:-|:)(\d+)$/)?.[1]);
+function queueDrawingChanges(){
+ const before=new Map(syncBaseline.map(d=>[d.id,d])),after=new Map(drawings.map(d=>[d.id,d]));
+ for(const id of new Set([...before.keys(),...after.keys()]))if(JSON.stringify(before.get(id))!==JSON.stringify(after.get(id)))syncState.pending.push({op:drawingOperationID(),id,base:syncState.revision,kind:after.has(id)?'put':'delete',value:after.get(id)});
+ syncBaseline=clone(drawings);
+}
+const nativeRequests=new Map();
+window.receiveDrawingSync=message=>{const pending=nativeRequests.get(message.requestID);if(!pending)return;nativeRequests.delete(message.requestID);clearTimeout(pending.timer);message.error?pending.reject(Error(message.error)):pending.resolve(message.value);};
+function drawingRequest(cid,operations){
+ if(window.webkit?.messageHandlers.drawingSync)return new Promise((resolve,reject)=>{const requestID=drawingOperationID(),timer=setTimeout(()=>{nativeRequests.delete(requestID);reject(Error('Drawing sync timeout'));},15000);nativeRequests.set(requestID,{resolve,reject,timer});window.webkit.messageHandlers.drawingSync.postMessage({requestID,cid,operations});});
+ return fetch('/api/chart-drawings/'+cid,{method:operations.length?'POST':'GET',cache:'no-store',headers:{'Content-Type':'application/json','X-All-You-Need-Is-Wheel':'1'},body:operations.length?JSON.stringify({operations}):undefined,signal:AbortSignal.timeout(15000)}).then(r=>{if(!r.ok)throw Error('Drawing sync '+r.status);return r.json();});
+}
+async function syncDrawings(){
+ const cid=syncCID();if(!cid||syncBusy||document.hidden||drag||draft||gesture||editor.style.display==='block')return;
+ const generation=syncGeneration,sent=clone(syncState.pending);syncBusy=true;
+ try{const result=await drawingRequest(cid,sent);if(generation!==syncGeneration||result.con_id!==cid)return;
+ const sentIDs=new Set(sent.map(o=>o.op));syncState.pending=syncState.pending.filter(o=>!sentIDs.has(o.op));
+ // Remote changes wait until a local gesture finishes; never overwrite a dragged line.
+ if(drag||draft||gesture){save(false);return;}
+ syncState.revision=result.revision;
+ const merged=new Map((result.drawings||[]).map(d=>[d.id,d]));for(const op of syncState.pending){if(op.kind==='delete')merged.delete(op.id);else merged.set(op.id,op.value);}
+ drawings=[...merged.values()];syncBaseline=clone(drawings);if(selected&&!merged.has(selected))selected=null;revision++;save(false);renderToolbar();
+ }catch(error){console.debug('Drawing sync pending',error.message);}finally{syncBusy=false;}
+}
+setInterval(syncDrawings,3000);
 let drawingSaveTimer=null,pendingDrawingSave=null;
 function flushDrawingSave(){
  clearTimeout(drawingSaveTimer);drawingSaveTimer=null;
  if(pendingDrawingSave){window.webkit?.messageHandlers.drawingsChanged?.postMessage(pendingDrawingSave);pendingDrawingSave=null;}
 }
-function save(){
+function save(track=true){
+ if(track)queueDrawingChanges();
  revision++;if(!loadedKey)return;
  // Freeze both payload and originating key; a later chart switch must not mix them.
- pendingDrawingSave=JSON.parse(JSON.stringify({key:loadedKey,drawings,favorites,collapsed,order,magnet,toolsVisible,toolStyles,locked,hidden}));
+ pendingDrawingSave=JSON.parse(JSON.stringify({key:loadedKey,drawings,favorites,collapsed,order,magnet,toolsVisible,toolStyles,locked,hidden,syncState}));
  window.webkit?.messageHandlers.drawingsChanged?.postMessage(pendingDrawingSave);
  clearTimeout(drawingSaveTimer);drawingSaveTimer=setTimeout(flushDrawingSave,2000);
 }
@@ -287,7 +316,7 @@ document.addEventListener('contextmenu',e=>{
 },true);
 editor.querySelector('#draw-save').onclick=()=>{const existing=drawings.find(d=>d.id===editor.dataset.drawing);if(existing&&!existing.locked&&!locked){remember();existing.text=editor.querySelector('input').value.trim()||'Text';save();}delete editor.dataset.drawing;if(draft){draft.text=editor.querySelector('input').value.trim()||'Text';commit();}editor.style.display='none';};editor.querySelector('#draw-cancel').onclick=()=>{editor.style.display='none';delete editor.dataset.drawing;choose(null);};
 window.chartDrawingActions={count:()=>drawings.length,removeAll:()=>{if(!drawings.length)return;remember();drag=null;drawings=[];selected=null;choose(null);save();renderToolbar();}};
-window.configureDrawings=(config)=>{if(config.key===loadedKey)return;flushDrawingSave();loadedKey=config.key;revision++;const value=config.value||{};toolStyles={};for(const t of tools){const v=value.toolStyles?.[t[0]];if(!v)continue;const clean={};if(/^#[0-9a-f]{6}$/i.test(v.color))clean.color=v.color;if([1,2,3,4].includes(v.width))clean.width=v.width;if(typeof v.dash==='boolean')clean.dash=v.dash;toolStyles[t[0]]=clean;}order=Array.isArray(value.order)?[...new Set([...value.order.filter(id=>referenceOrder.includes(id)),...referenceOrder])]:[...referenceOrder];magnet=['off','weak','strong'].includes(value.magnet)?value.magnet:'weak';drawings=Array.isArray(value.drawings)?value.drawings.filter(d=>tools.some(t=>t[0]===d.type)&&Array.isArray(d.p)&&d.p.length<=400&&d.p.every(p=>Number.isFinite(p.time)&&Number.isFinite(p.price)&&p.price>0)).slice(0,200):[];for(const d of drawings){if(!value.toolStyles?.[d.type]&&(d.color||d.width||d.dash!==undefined))toolStyles[d.type]=JSON.parse(JSON.stringify({color:d.color,width:d.width,dash:d.dash}));}favorites=Array.isArray(value.favorites)?value.favorites.filter(id=>tools.some(t=>t[0]===id)):tools.map(t=>t[0]);collapsed=value.collapsed!==false;locked=value.locked===true;hidden=value.hidden===true;toolsVisible=false;syncToolVisibility();selected=null;undo=[];choose(null);renderToolbar();};
+window.configureDrawings=(config)=>{if(config.key===loadedKey)return;flushDrawingSave();syncGeneration++;loadedKey=config.key;revision++;const value=config.value||{};toolStyles={};for(const t of tools){const v=value.toolStyles?.[t[0]];if(!v)continue;const clean={};if(/^#[0-9a-f]{6}$/i.test(v.color))clean.color=v.color;if([1,2,3,4].includes(v.width))clean.width=v.width;if(typeof v.dash==='boolean')clean.dash=v.dash;toolStyles[t[0]]=clean;}order=Array.isArray(value.order)?[...new Set([...value.order.filter(id=>referenceOrder.includes(id)),...referenceOrder])]:[...referenceOrder];magnet=['off','weak','strong'].includes(value.magnet)?value.magnet:'weak';drawings=Array.isArray(value.drawings)?value.drawings.filter(d=>tools.some(t=>t[0]===d.type)&&Array.isArray(d.p)&&d.p.length<=400&&d.p.every(p=>Number.isFinite(p.time)&&Number.isFinite(p.price)&&p.price>0)).slice(0,200):[];for(const d of drawings){if(!value.toolStyles?.[d.type]&&(d.color||d.width||d.dash!==undefined))toolStyles[d.type]=JSON.parse(JSON.stringify({color:d.color,width:d.width,dash:d.dash}));}favorites=Array.isArray(value.favorites)?value.favorites.filter(id=>tools.some(t=>t[0]===id)):tools.map(t=>t[0]);collapsed=value.collapsed!==false;locked=value.locked===true;hidden=value.hidden===true;toolsVisible=false;syncToolVisibility();selected=null;undo=[];choose(null);renderToolbar();syncState=clone(value.syncState||{revision:0,pending:[],migrated:false});syncBaseline=clone(drawings);if(!syncState.migrated){for(const d of drawings)syncState.pending.push({op:drawingOperationID(),id:d.id,base:0,kind:'import',value:clone(d)});syncState.migrated=true;save(false);}void syncDrawings();};
 touch.addEventListener('dblclick',e=>{if(active==='path'){e.preventDefault();if(draft?.p.length>2){const last=draft.p.at(-1),prev=draft.p.at(-2);const a=xy(last),b=xy(prev);if(a&&b&&Math.hypot(a.x-b.x,a.y-b.y)<10)draft.p.pop();}finish();}});
  document.addEventListener('keydown',e=>{if(e.target instanceof HTMLInputElement)return;if(e.key==='Escape'){selected=null;choose(null);revision++;}else if(['Delete','Backspace'].includes(e.key)&&selected){e.preventDefault();deleteSelected();}else if(e.key==='Enter'&&active==='path')finish();});
 // Capture the gesture before the chart library consumes touch events. A chart

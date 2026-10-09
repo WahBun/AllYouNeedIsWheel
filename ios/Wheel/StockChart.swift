@@ -359,7 +359,6 @@ struct StockChartView: View {
             if let tif = state["tif"] as? String { previewTIF = tif }
         }
         if state["active"] as? Bool == true, let price = state["entry"] as? Double, price > 0 { entry = String(price) }
-        let rows = state["orders"] as? [[String: Any]] ?? []
         if let completion = ChartOrderCompletion.key(state) {
             let identity = "\(store.address)-\(chartID ?? 0)-\(completion)"
             if completedPaperOrders.insert(identity).inserted { entry = "0"; beApplied = false }
@@ -1087,7 +1086,7 @@ struct StockChartView: View {
             }
             }
             if let emaHistoryNotice { NoticeText(emaHistoryNotice).font(.caption2).foregroundStyle(.secondary) }
-            StockChartWeb(executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, previewSide: previewSide, previewRevision: previewRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "webEntryDrag": true, "web_account_epoch": store.trading.accountEpoch ?? "", "adjustment_quantity": adjustmentQuantity, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
+            StockChartWeb(backendAddress: store.address, executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, previewSide: previewSide, previewRevision: previewRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "webEntryDrag": true, "web_account_epoch": store.trading.accountEpoch ?? "", "adjustment_quantity": adjustmentQuantity, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
                 Button { showDisplaySettings = true } label: {
@@ -1634,6 +1633,7 @@ final class ChartViewportWebView: WKWebView {
 }
 
 private struct StockChartWeb: UIViewRepresentable {
+    var backendAddress: String
     var executions: [[String: Any]]
     var holdings: [[String: Any]]
     var display: [String: Any]
@@ -1664,6 +1664,7 @@ private struct StockChartWeb: UIViewRepresentable {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
         config.userContentController.add(context.coordinator, name: "drawingsChanged")
+        config.userContentController.add(context.coordinator, name: "drawingSync")
         config.userContentController.add(context.coordinator, name: "chartReady")
         config.userContentController.add(context.coordinator, name: "entryChanged")
         config.userContentController.add(context.coordinator, name: "beState")
@@ -1690,6 +1691,7 @@ private struct StockChartWeb: UIViewRepresentable {
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.packet = packet.isEmpty ? ["bars": [], "generation": "clear", "interval": 0, "session": ""] : packet
         context.coordinator.drawingKey = drawingKey
+        context.coordinator.backendAddress = backendAddress
         context.coordinator.onEntry = onEntry
         context.coordinator.onBE = onBE
         context.coordinator.onPaper = onPaper
@@ -1698,6 +1700,7 @@ private struct StockChartWeb: UIViewRepresentable {
     }
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {
         web.configuration.userContentController.removeScriptMessageHandler(forName: "drawingsChanged")
+        web.configuration.userContentController.removeScriptMessageHandler(forName: "drawingSync")
         web.configuration.userContentController.removeScriptMessageHandler(forName: "chartReady")
         web.configuration.userContentController.removeScriptMessageHandler(forName: "entryChanged")
         web.configuration.userContentController.removeScriptMessageHandler(forName: "beState")
@@ -1707,6 +1710,8 @@ private struct StockChartWeb: UIViewRepresentable {
     class Coordinator: NSObject, WKScriptMessageHandler {
         weak var web: WKWebView?
         var ready = false
+        var backendAddress = ""
+        private let drawingSession = URLSession(configuration: .ephemeral, delegate: NoRedirect(), delegateQueue: nil)
         var drawingKey = ""
         var loadedDrawingKey = ""
         var bridgeBusy = false
@@ -1719,6 +1724,22 @@ private struct StockChartWeb: UIViewRepresentable {
         var onBE: ((Bool) -> Void)?
         var onPaper: (([String: Any]) -> Void)?
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            if message.name == "drawingSync", let body = message.body as? [String: Any], let requestID = body["requestID"] as? String, let cid = body["cid"] as? Int, cid > 0,
+               let operations = body["operations"] as? [[String: Any]], let base = URL(string: backendAddress), base.scheme == "https", base.host != nil {
+                var request = URLRequest(url: base.appendingPathComponent("api/chart-drawings/\(cid)"), cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 12)
+                request.httpMethod = operations.isEmpty ? "GET" : "POST"
+                request.setValue("1", forHTTPHeaderField: "X-All-You-Need-Is-Wheel")
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                if !operations.isEmpty { request.httpBody = try? JSONSerialization.data(withJSONObject: ["operations": operations]) }
+                drawingSession.dataTask(with: request) { [weak self] data, response, error in
+                    var reply: [String: Any] = ["requestID": requestID]
+                    if error == nil, (response as? HTTPURLResponse)?.statusCode == 200, let data, let value = try? JSONSerialization.jsonObject(with: data) { reply["value"] = value }
+                    else { reply["error"] = "Drawing sync will retry" }
+                    guard let data = try? JSONSerialization.data(withJSONObject: reply), let json = String(data: data, encoding: .utf8) else { return }
+                    DispatchQueue.main.async { self?.web?.evaluateJavaScript("window.receiveDrawingSync?.(\(json))", completionHandler: nil) }
+                }.resume()
+                return
+            }
             if message.name == "drawingsChanged", let value = message.body as? [String: Any],
                let data = try? JSONSerialization.data(withJSONObject: value), data.count < 2_000_000 {
                 // A queued WebKit message may arrive after the native chart has switched.

@@ -1,6 +1,6 @@
 """Web host for the exact chart assets shipped in the native app."""
 from pathlib import Path
-from flask import Blueprint, Response, render_template
+from flask import Blueprint, Response, render_template, request, jsonify
 
 bp = Blueprint('superchart', __name__)
 ASSETS = Path(__file__).resolve().parents[2] / 'ios' / 'Wheel' / 'ChartAssets'
@@ -22,3 +22,16 @@ def index():
 @bp.get('/superchart/frame')
 def frame():
     return Response(chart_document(), mimetype='text/html', headers={'Cache-Control': 'no-store', 'Content-Security-Policy': "frame-ancestors 'self'"})
+
+
+@bp.route('/api/chart-drawings/<int:cid>', methods=['GET','POST'])
+def drawings(cid):
+    from api.services.chart_drawings import exchange
+    if request.content_length and request.content_length > 2_000_000:
+        return jsonify(error='Drawing payload too large'),413
+    try:
+        body=request.get_json(silent=True) if request.method=='POST' else {}
+        if not isinstance(body,dict): raise ValueError('Invalid drawing payload')
+        return jsonify(exchange(cid,body.get('operations',[]))),200,{'Cache-Control':'no-store'}
+    except ValueError as error:
+        return jsonify(error=str(error)),400
