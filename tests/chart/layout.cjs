@@ -10,6 +10,12 @@ for(const n of [2,3,4]){await page.locator('#layout-button').click();await page.
 await page.waitForFunction(()=>[...document.querySelectorAll('.chart-pane iframe')].every(f=>f.contentDocument.querySelector('#chart-title').textContent.includes('TSLL')));
 for(const chart of page.frames().filter(f=>f.url().includes('/superchart/frame')))await chart.waitForFunction(()=>previous.length===55);
 await page.screenshot({path:'/tmp/wheel-four-layout.png'});
+for(const f of page.frames().filter(f=>f.url().includes('/superchart/frame')))await f.evaluate(()=>{window.captureCount=0;const render=renderChartImage;window.renderChartImage=()=>{captureCount++;return render();};});
+const capture=await page.evaluate(async()=>{const c=await renderChartLayoutImage(),r=document.querySelector('#chart-grid').getBoundingClientRect();return {width:c.width,height:c.height,expected:[Math.round(r.width*devicePixelRatio),Math.round(r.height*devicePixelRatio)],png:c.toDataURL()};});
+assert.deepEqual([capture.width,capture.height],capture.expected);
+require('node:fs').writeFileSync('/tmp/wheel-layout-capture.png',Buffer.from(capture.png.split(',')[1],'base64'));
+for(const f of page.frames().filter(f=>f.url().includes('/superchart/frame'))){assert.equal(await f.evaluate(()=>captureCount),1);assert.equal(await f.locator('#atr-value').evaluate(e=>getComputedStyle(e).bottom),await f.evaluate(()=>innerWidth<=600?'36px':'32px'));}
+
 const chartFrames=page.frames().filter(f=>f.url().includes('/superchart/frame'));
 for(const f of chartFrames)await f.evaluate(()=>{window.synced=[];const set=chart.setCrosshairPosition.bind(chart),clear=chart.clearCrosshairPosition.bind(chart);chart.setCrosshairPosition=(p,t,s)=>{synced.push({price:p,time:t});return set(p,t,s);};chart.clearCrosshairPosition=()=>{synced.push(null);return clear();};});
 const hostBefore=await page.locator('#intervals .active').getAttribute('data-interval');

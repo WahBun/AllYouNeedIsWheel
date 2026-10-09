@@ -61,5 +61,12 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
  }
  function tick(){const c=current();if(!c.cid||!c.ready)return;if(!started){started=true;for(let i=0;i<4;i++)configs[i]={...configs[i],cid:configs[i].cid||c.cid,label:configs[i].label||c.label,session:configs[i].cid?configs[i].session:c.session};arrange();}captureActive();for(const other of panes.values())if(other.index!==active)void other.tick();persist();}
  panes.set(active,new Pane(active,frame));arrange();setInterval(tick,2000);window.addEventListener('pagehide',()=>{for(const p of panes.values())p.stream.stop();});window.addEventListener('pageshow',tick);document.addEventListener('visibilitychange',()=>{if(document.hidden)for(const p of panes.values())p.stream.stop();else tick();});
+ window.renderChartLayoutImage=async()=>{
+  const bounds=grid.getBoundingClientRect(),scale=devicePixelRatio||1;
+  const visible=[...panes.values()].filter(p=>getComputedStyle(p.el).visibility!=='hidden').map(p=>({pane:p,rect:p.frame.getBoundingClientRect()}));
+  const images=await Promise.all(visible.map(({pane})=>pane.frame.contentWindow.renderChartImage()));
+  const canvas=document.createElement('canvas');canvas.width=Math.round(bounds.width*scale);canvas.height=Math.round(bounds.height*scale);const ctx=canvas.getContext('2d');ctx.scale(scale,scale);ctx.fillStyle=getComputedStyle(grid).backgroundColor;ctx.fillRect(0,0,bounds.width,bounds.height);
+  visible.forEach(({rect},i)=>ctx.drawImage(images[i],rect.left-bounds.left,rect.top-bounds.top,rect.width,rect.height));return canvas;
+ };
  return {tick,readInitial};
 };

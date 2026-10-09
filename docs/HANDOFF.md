@@ -1,5 +1,15 @@
 # Project Handoff
 
+## 2026-10-09 split chart image capture and ATR alignment
+
+Copy image (including Cmd/Ctrl+Shift+S) composites all visible chart frames at
+the current grid geometry and device scale. A maximized view excludes hidden
+peers. Existing clipboard permissions and success/error UI remain in the source
+frame. Desktop compact ATR keeps the main chart bottom-center anchor with smaller
+type instead of inheriting the native mobile raised position. Native unchanged.
+Browser capture checks assert all four renderers contribute and PNG dimensions
+match the grid; composed PNG inspected and layout regression passes.
+
 ## 2026-10-09 crosshair feedback guard
 
 Only crosshair events with a native sourceEvent are broadcast to peers. A pane
