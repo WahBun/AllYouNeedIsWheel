@@ -46,7 +46,6 @@ struct PortfolioOptionRow: View {
                     .accessibilityLabel(Text("Unrealized P&L"))
             }.font(.caption)
             if showsRange { PositionDayRange(position: position) }
-            if frozen && position.day_range_status != "frozen" { Text("Frozen").font(.caption2).foregroundStyle(.secondary) }
         }.padding(.vertical, 4)
         .onAppear { visible = true }
         .onDisappear { visible = false }
