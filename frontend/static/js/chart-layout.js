@@ -4,11 +4,19 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
  let count=[1,2,3,4].includes(saved.count)?saved.count:1,active=0,started=false;
  if(Number.isInteger(saved.active)&&saved.active>=0&&saved.active<count)active=saved.active;
  const grid=document.getElementById('chart-grid');
+ let maximized=false;
+ const maximize=document.createElement('button');maximize.id='maximize-chart';maximize.setAttribute('aria-controls','chart-grid');document.getElementById('toggle-trade').before(maximize);
+ function paintMaximize(){
+  grid.classList.toggle('pane-maximized',maximized);maximize.hidden=count===1;
+  maximize.title=maximized?'Restore layout / 恢复分屏':'Maximize selected chart / 放大选中图表';maximize.setAttribute('aria-label',maximize.title);maximize.setAttribute('aria-pressed',String(maximized));
+  maximize.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">'+(maximized?'<path d="M4 9h5V4m6 0v5h5M4 15h5v5m6 0v-5h5"/>':'<path d="M9 4H4v5m11-5h5v5M4 15v5h5m6 0h5v-5"/>')+'</svg>';
+ }
+ maximize.onclick=()=>{if(count===1)return;maximized=!maximized;paintMaximize();};
  const picker=document.createElement('div');picker.id='layout-picker';const button=document.createElement('button');button.id='layout-button';button.title='Chart layout';button.setAttribute('aria-label','Chart layout');button.setAttribute('aria-expanded','false');
  const paths={1:'',2:'M12 3v18',3:'M12 3v18M3 12h9',4:'M12 3v18M3 9h9M3 15h9'},names={1:'Single chart',2:'Two columns',3:'Two left, one right',4:'Three left, one right'};
  const icon=n=>`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="${paths[n]}"/></svg>`;
  const menu=document.createElement('div');menu.id='layout-menu';menu.hidden=true;menu.setAttribute('role','menu');
- for(const n of [1,2,3,4]){const b=document.createElement('button');b.innerHTML=icon(n);b.title=names[n];b.setAttribute('aria-label',names[n]);b.setAttribute('role','menuitemradio');b.dataset.layout=n;b.onclick=()=>{if(current().busy)return;captureActive();const selected=panes.get(active),config=configs[active],others=[...panes.values()].sort((a,b)=>a.index-b.index).filter(p=>p!==selected),remaining=configs.filter((_,i)=>i!==active);active=n>=3?n-1:0;remaining.splice(active,0,config);configs.splice(0,4,...remaining);others.splice(Math.min(active,others.length),0,selected);panes.clear();for(const pane of others){const index=pane===selected?active:[...Array(4).keys()].find(i=>i!==active&&!panes.has(i));pane.index=index;panes.set(index,pane);}count=n;close();arrange();tick();persist();};menu.append(b);}
+ for(const n of [1,2,3,4]){const b=document.createElement('button');b.innerHTML=icon(n);b.title=names[n];b.setAttribute('aria-label',names[n]);b.setAttribute('role','menuitemradio');b.dataset.layout=n;b.onclick=()=>{if(current().busy)return;captureActive();const selected=panes.get(active),config=configs[active],others=[...panes.values()].sort((a,b)=>a.index-b.index).filter(p=>p!==selected),remaining=configs.filter((_,i)=>i!==active);active=n>=3?n-1:0;remaining.splice(active,0,config);configs.splice(0,4,...remaining);others.splice(Math.min(active,others.length),0,selected);panes.clear();for(const pane of others){const index=pane===selected?active:[...Array(4).keys()].find(i=>i!==active&&!panes.has(i));pane.index=index;panes.set(index,pane);}count=n;maximized=false;close();arrange();tick();persist();};menu.append(b);}
  picker.append(button,menu);document.getElementById('session-picker').before(picker);
  function close(){menu.hidden=true;button.setAttribute('aria-expanded','false');}
  button.onclick=()=>{menu.hidden=!menu.hidden;button.setAttribute('aria-expanded',String(!menu.hidden));};document.addEventListener('pointerdown',e=>{if(!picker.contains(e.target))close();});picker.onkeydown=e=>{if(e.key==='Escape'){close();button.focus();}};
@@ -26,7 +34,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
  function position(el,index){if(count<=2){el.style.gridColumn=String(index+1);el.style.gridRow='1';}else if(index===count-1){el.style.gridColumn='2';el.style.gridRow='1 / -1';}else{el.style.gridColumn='1';el.style.gridRow=String(index+1);}}
  function captureActive(){const c=current(),pane=panes.get(active);if(!pane)return;configs[active]={cid:c.cid,interval:c.interval,session:c.session,label:c.label,axis:c.axis};pane.drawingKey=`web:${location.origin}:${c.cid}`;pane.lastRead=Date.now();pane.data=c.packet;pane.ema=c.emaFrames;pane.volatility=c.volatility;pane.key=JSON.stringify(pane.context());pane.loaded=c.ready;}
  function choose(index){const target=configs[index],next=panes.get(index);if(!target?.cid||index===active||!next?.loaded||!next.data.bars?.length)return;captureActive();const old=panes.get(active);if(!activate(target,next.frame,{packet:next.data,ema:next.ema,volatility:next.volatility}))return;next.stream.stop();next.controller?.abort();next.seq++;next.inflight=false;old.frame.removeAttribute('id');next.frame.id='chart';active=index;old.render();arrange();tick();persist();}
- function arrange(){grid.dataset.layout=count;button.innerHTML=icon(count);for(const b of menu.children)b.setAttribute('aria-checked',String(Number(b.dataset.layout)===count));
+ function arrange(){paintMaximize();grid.dataset.layout=count;button.innerHTML=icon(count);for(const b of menu.children)b.setAttribute('aria-checked',String(Number(b.dataset.layout)===count));
   for(const [index,pane] of panes)if(index>=count){pane.dispose();panes.delete(index);}
   for(let i=0;i<count;i++){if(!panes.has(i))panes.set(i,new Pane(i));const pane=panes.get(i);position(pane.el,i);pane.el.classList.toggle('active',i===active);}
  }

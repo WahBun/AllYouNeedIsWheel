@@ -31,6 +31,18 @@ for(const interval of [1,15,60,5]){await focusInterval(interval);await page.wait
 assert.ok(await page.evaluate(()=>paneWindows.every(w=>[...document.querySelectorAll('.chart-pane iframe')].some(f=>f.contentWindow===w)&&w.emptyReceives===0)));
 const afterFocus=await Promise.all(page.frames().filter(f=>f.url().includes('/superchart/frame')).map(f=>f.evaluate(()=>({interval:countdownPacket.interval,range:chart.timeScale().getVisibleLogicalRange(),prices:activePriceScale().getVisibleRange()}))));assert.deepEqual(afterFocus,beforeFocus);
 
+// Maximize every pane without destroying peers, then restore the same layout.
+for(const interval of [1,15,60,5]){
+ await focusInterval(interval);await page.waitForTimeout(100);
+ const bounds=await page.locator('.chart-pane').evaluateAll(es=>es.map(e=>({x:e.offsetLeft,y:e.offsetTop,w:e.offsetWidth,h:e.offsetHeight})));
+ await page.locator('#maximize-chart').click();await page.waitForTimeout(150);
+ assert.equal(await page.locator('#maximize-chart').getAttribute('aria-pressed'),'true');
+ assert.ok(await page.locator('#chart-grid').evaluate(g=>{const p=g.querySelector('.active');return p.clientWidth===g.clientWidth&&p.clientHeight===g.clientHeight;}));
+ assert.ok(await page.locator('.chart-pane:not(.active)').evaluateAll(es=>es.every(e=>getComputedStyle(e).visibility==='hidden')));
+ await page.locator('#maximize-chart').click();await page.waitForTimeout(150);
+ assert.deepEqual(await page.locator('.chart-pane').evaluateAll(es=>es.map(e=>({x:e.offsetLeft,y:e.offsetTop,w:e.offsetWidth,h:e.offsetHeight}))),bounds);
+ assert.ok(await page.evaluate(()=>paneWindows.every(w=>[...document.querySelectorAll('.chart-pane iframe')].some(f=>f.contentWindow===w)&&w.emptyReceives===0)));
+}
 const boxes=await page.locator('.chart-pane').evaluateAll(es=>es.map(e=>({active:e.classList.contains('active'),x:e.offsetLeft,y:e.offsetTop,w:e.offsetWidth,h:e.offsetHeight})));assert.equal(boxes.length,4);assert.ok(boxes.some(b=>b.h>500));
 await page.locator('#contracts').evaluate(el=>{el.append(new Option('QQQ CALL','8'));el.value='8';el.dispatchEvent(new Event('change'));});await page.waitForFunction(()=>document.querySelector('#quantity').value==='4');
 await focusInterval(1);await page.waitForTimeout(2200);assert.equal(await page.locator('.chart-pane.active').count(),1);assert.equal(await page.locator('#intervals .active').getAttribute('data-interval'),'1');assert.equal(await page.locator('#contracts').inputValue(),'7');assert.equal(await page.locator('#quantity').inputValue(),'1');

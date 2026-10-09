@@ -1,5 +1,13 @@
 # Project Handoff
 
+## 2026-10-09 selected pane maximize
+
+Footer expand/restore button temporarily fills the chart grid with the selected
+pane. Peer iframes retain their dimensions and data while hidden; restore returns
+to the same layout. Layout selection exits maximize; single-chart mode hides the
+button. No iframe recreation or trading writes. Four-pane browser regression
+checks each pane fills the grid and restores geometry with unchanged instances.
+
 ## 2026-10-09 multi-pane startup
 
 Verified account discovery immediately starts all ready panes instead of waiting
