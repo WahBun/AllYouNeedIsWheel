@@ -89,7 +89,9 @@ def install_api_dispatcher(app):
         Thread(target=chart_loop, name='chart-event-pump', daemon=True).start()
 
     def dispatch():
-        if request.endpoint in ('portfolio.get_stock_chart_stream','portfolio.get_stock_chart_latest'):
+        # Annotation storage never accesses IB or depends on a trading-account epoch.
+        # Match the exact endpoint, not a broad URL prefix; trading guards stay intact.
+        if request.endpoint in ('portfolio.get_stock_chart_stream','portfolio.get_stock_chart_latest','superchart.drawings'):
             return original_dispatch()
         if not request.path.startswith('/api/') or (request.method == 'GET' and request.path in {'/api/options/market-session', '/api/performance/history'}):
             return original_dispatch()

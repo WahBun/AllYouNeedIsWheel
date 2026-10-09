@@ -16,3 +16,20 @@ class DrawingsTests(unittest.TestCase):
  def test_invalid_atomic_batch(self):
   with self.assertRaises(ValueError):self.call([self.op('good'),self.op('bad',price=float('nan'))])
   self.assertEqual(self.call()['drawings'],[])
+
+ def test_full_app_dispatcher_keeps_annotations_separate_from_trading(self):
+  from api import create_app
+  from unittest.mock import patch
+  with patch('api.services.chart_drawings.DB',self.path), patch('api.routes.account.epoch',return_value='active-epoch'):
+   app=create_app({'TESTING':True})
+   try:
+    with app.test_client() as client:
+     headers={'X-All-You-Need-Is-Wheel':'1'}
+     result=client.post('/api/chart-drawings/1',json={'operations':[self.op('native-import',kind='import')]},headers=headers)
+     self.assertEqual(result.status_code,200,result.json)
+     self.assertEqual(len(client.get('/api/chart-drawings/1').json['drawings']),1)
+     self.assertEqual(client.post('/api/chart-drawings/1',json={'operations':[]}).status_code,403)
+     self.assertEqual(client.post('/api/options/nonexistent-test',json={},headers=headers).status_code,409)
+   finally:
+    app.extensions['ib_background_stop'].set()
+    app.extensions['ib_api_executor'].shutdown(wait=True)
