@@ -164,3 +164,12 @@ header #theme,header #trade-sounds,header #settings{width:42px;height:40px;paddi
 /* Transient refresh status must not change any pane's height. */
 .workspace{position:relative}
 #market-status{position:absolute;left:10px;bottom:60px;z-index:30;max-width:calc(100% - 20px);min-height:0;padding:5px 8px;border-radius:4px;background:var(--panel);pointer-events:none}
+
+.toolbar-instrument{display:flex;align-items:center;gap:0;border:1px solid var(--border);border-radius:7px;background:var(--panel)}
+.toolbar-instrument #option-search{border:0;background:transparent;min-width:0}
+.toolbar-instrument #favorite-contract{border:0;border-left:1px solid var(--border);border-radius:0 6px 6px 0;background:transparent;width:34px;height:34px;padding:4px;font-size:19px}
+.toolbar-views{display:flex;align-items:center;gap:5px;padding-left:10px;border-left:1px solid var(--border)}
+.toolbar-end #maximize-chart{margin:0;width:36px;height:36px}
+.toolbar-end #fullscreen,.toolbar-end #session-button{height:36px}
+.toolbar-end #fullscreen{width:36px;padding:7px}
+@media(max-width:700px){.toolbar-end{width:100%;justify-content:flex-end}.toolbar-instrument{max-width:100%}.toolbar-instrument #option-search{max-width:calc(100vw - 70px)}}

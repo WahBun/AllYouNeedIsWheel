@@ -1,5 +1,12 @@
 # Project Handoff
 
+## 2026-10-09 toolbar grouping
+
+Favorite toggle joins the instrument control. Toolbar right side orders session,
+then layout / selected-pane maximize / workspace fullscreen, with a separator
+between session and view controls. Maximize moves out of the footer; behavior
+and shortcuts stay unchanged. Layout and narrow instrument-picker checks pass.
+
 ## 2026-10-09 refresh status layout stability
 
 Transient market-status messages now overlay the workspace rather than adding
