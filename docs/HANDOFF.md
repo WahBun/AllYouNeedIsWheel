@@ -1,5 +1,16 @@
 # Project Handoff
 
+## 2026-10-09 independent pane indicators and weekly history
+
+Each layout pane now stores its own display configuration, including option ATR.
+Indicator controls in inactive panes select that pane before handling the action.
+Defaults hide auxiliary volatility content; individual settings may enable it.
+15m/1h auxiliary panes asynchronously backfill when their span is under seven
+days. History is retained across snapshots and live deltas; auxiliary pan-to-load
+is supported. Failed or short history responses retry with a 30-second cooldown.
+Mock checks cover per-pane visibility, settings dialog routing, reload persistence
+and at least seven days of backfilled data; layout regression also passes.
+
 ## 2026-10-09 auxiliary channel table
 
 Distance table is shown only in the main layout pane (right in 3/4-pane layouts,
