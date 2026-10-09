@@ -13,12 +13,11 @@ window.installOptionSearch=({api,select,symbol,canSelect})=>{
  const nav=launcher.closest('nav'),center=document.createElement('div'),end=document.createElement('div');
  center.className='toolbar-center';end.className='toolbar-end';nav.append(center,end);
  center.append(launcher,$('favorite-contract'),$('favorite-contracts'),$('intervals'),nav.querySelector('.interval-picker'));
- const start=document.createElement('div');start.className='toolbar-start';nav.prepend(start);start.append($('fullscreen'));
- end.append($('session-picker'));
+ end.append($('session-picker'),$('fullscreen'));
 
  function mode(options){form.hidden=!options;stockPanel.hidden=options;stockTab.classList.toggle('active',!options);optionTab.classList.toggle('active',options);stockTab.setAttribute('aria-pressed',String(!options));optionTab.setAttribute('aria-pressed',String(options));}
  stockTab.onclick=()=>{mode(false);$('symbol').focus();};optionTab.onclick=()=>{mode(true);if(!loaded)dates();};
- function label(){const full=$('contracts').selectedOptions[0]?.textContent||'Select instrument';const compact=full.replace(/^(\S+) (\d{4})(\d{2})(\d{2}) ([\d.]+) (CALL|PUT)$/,(m,t,y,mo,d,k,r)=>`${t} · ${mo}/${d}/${y.slice(2)} · ${k}${r==='CALL'?'C':'P'}`);launcher.textContent=compact+' ▾';launcher.title=full;}
+ function label(){const full=$('contracts').selectedOptions[0]?.textContent||'Select instrument';const compact=full.replace(/^(\S+) (\d{4})(\d{2})(\d{2}) ([\d.]+) (CALL|PUT)$/,(m,t,y,mo,d,k,r)=>`${t} · ${mo}/${d}/${y.slice(2)} · ${k}${r==='CALL'?'C':'P'}`);launcher.textContent=compact;launcher.title=full;}
  new MutationObserver(label).observe($('contracts'),{childList:true,subtree:true,characterData:true});$('contracts').addEventListener('change',()=>{label();dialog.close();});label();
  launcher.setAttribute('aria-haspopup','dialog');launcher.setAttribute('aria-controls','option-picker');
  let revision=0,loaded='';

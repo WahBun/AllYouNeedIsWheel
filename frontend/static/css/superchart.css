@@ -131,5 +131,5 @@ header #theme,header #trade-sounds,header #settings{width:42px;height:40px;paddi
 #favorite-contracts{width:125px;min-width:125px;max-width:125px}#favorite-contracts option{min-width:210px}
 @media(max-width:1450px){.workspace>nav{display:flex;justify-content:center}.toolbar-center{flex-wrap:wrap;justify-content:center}.toolbar-end{margin-left:auto}}
 
-.toolbar-start{grid-column:1;grid-row:1;justify-self:start;display:flex}.toolbar-center,.toolbar-end{grid-row:1}
-@media(max-width:1450px){.toolbar-start{margin-right:auto}}
+
+#option-search{text-align:center}
