@@ -1,5 +1,32 @@
 # Project Handoff
 
+## 2026-10-09 web chart layouts and price-axis side
+
+The RTH toolbar now has a four-choice layout picker: single, equal columns,
+two stacked left plus a large right pane, and three stacked left plus a large
+right pane. Stacked layouts use 1:2 column widths. New panes start with the same
+instrument; the four-pane defaults are 1m/15m/1h left and the current 5m chart
+right. Clicking a pane transfers the existing trading host to that pane's
+contract/session/timeframe. Auxiliary renderers cannot submit trading actions.
+Each pane can subsequently select its own contract. Layout, pane intervals and
+price-axis sides persist in browser storage. Closed auxiliary panes stop SSE.
+
+Right-clicking a price axis offers Auto and Move scale to left/right. This uses
+the library's actual series scale, with plot-to-document coordinate conversion
+for drawings, indicator overlays and labels. Switching sides preserves the time
+range and a manually set price range. Shared native assets retain the existing
+right-axis default; the menu and layout controls are web-only. No phone install.
+
+Mock browser checks passed for four layouts, candle rendering, active-pane
+contract/CC quantity, restoration, narrow toolbar, read-only auxiliary panes,
+axis side/labels/drawing anchors, fractional Fib across timeframes, channel
+rendering, holding labels, and existing picker/CC quantity behavior. The older
+web-stream.cjs test still times out looking for #order-direction; the same failure
+was reproduced with the pre-change host JS, so it is not a passing regression
+check. No broker orders were placed, amended or canceled. Real multi-pane live
+market throughput remains to be observed during trading hours.
+
+
 ## Workflow
 
 The native iOS app is the primary user interface and the MacBook Pro is the

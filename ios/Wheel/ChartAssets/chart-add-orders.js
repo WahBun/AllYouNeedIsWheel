@@ -67,7 +67,7 @@
   return button;
  }
  function positionExitHandles(){
-  const height=chart.paneSize().height,right=chart.priceScale('right').width(),items=[];
+  const height=chart.paneSize().height,right=priceAxisWidth(window.priceAxisSide||'right'),items=[];
   for(const [id,h] of exitHandles){const price=exitGesture?.id===id&&trimPricePreview?trimPricePreview.price:h.row.price;items.push({h,y:series.priceToCoordinate(price),exit:true});}
   for(const h of pendingLines.values())items.push({h,y:series.priceToCoordinate(h.price),exit:false});
   const visible=items.filter(x=>x.y!==null&&x.y>=20&&x.y<=height-20).sort((a,b)=>a.y-b.y);
@@ -78,9 +78,9 @@
    let y=item.y;
    for(let step=0;step<Math.ceil(height/34);step++){const candidates=step?[item.y+step*34,item.y-step*34]:[item.y];const free=candidates.find(v=>v>=20&&v<=height-20&&occupied.every(other=>Math.abs(other-v)>=32));if(free!==undefined){y=free;break;}}
    occupied.push(y);
-   h.button.style.transform='none';h.button.style.top=(y-14)+'px';h.button.style.right=(right+(item.exit?74:40))+'px';
-   h.cancel.style.transform='none';h.cancel.style.top=(y-14)+'px';h.cancel.style.right=(right+7)+'px';
-   if(h.edit){h.edit.style.top=(y-14)+'px';h.edit.style.right=(right+40)+'px';}
+   h.button.style.transform='none';h.button.style.top=(y-14)+'px';placeByPriceAxis(h.button,right+(item.exit?74:40));
+   h.cancel.style.transform='none';h.cancel.style.top=(y-14)+'px';placeByPriceAxis(h.cancel,right+7);
+   if(h.edit){h.edit.style.top=(y-14)+'px';placeByPriceAxis(h.edit,right+40);}
   }
   requestAnimationFrame(positionExitHandles);
  }positionExitHandles();
@@ -136,7 +136,7 @@
   for(const [id,line] of exitLines)if(!live.has(id)){series.removePriceLine(line);exitLines.delete(id);exitHandles.get(id)?.button.remove();exitHandles.get(id)?.cancel.remove();exitHandles.get(id)?.edit.remove();exitHandles.delete(id);if(exitGesture?.id===id)clearExitGesture();}
  }
 
- function positionCancelButton(row){const y=series.priceToCoordinate(row.price);row.button.hidden=y===null||y<35||y>chart.paneSize().height-5;if(!row.button.hidden)row.button.style.top=y+'px';if(row.cancel){row.cancel.hidden=row.button.hidden;row.cancel.style.top=y+'px';row.cancel.style.right=(chart.priceScale('right').width()+7)+'px';row.button.style.right=(chart.priceScale('right').width()+40)+'px';}}
+ function positionCancelButton(row){const y=series.priceToCoordinate(row.price);row.button.hidden=y===null||y<35||y>chart.paneSize().height-5;if(!row.button.hidden)row.button.style.top=y+'px';if(row.cancel){row.cancel.hidden=row.button.hidden;row.cancel.style.top=y+'px';placeByPriceAxis(row.cancel,priceAxisWidth(window.priceAxisSide||'right')+7);placeByPriceAxis(row.button,priceAxisWidth(window.priceAxisSide||'right')+40);}}
  const repositionCancels=()=>{for(const row of pendingLines.values())positionCancelButton(row);};
  chart.timeScale().subscribeVisibleLogicalRangeChange(repositionCancels);
  document.addEventListener('pointermove',repositionCancels,{passive:true});
@@ -178,7 +178,7 @@
    for(const [cancel,allowed] of [[false,order.editable],[true,order.cancelable]])if(allowed){const button=document.createElement('button');button.textContent=cancel?'×':'…';button.setAttribute('aria-label',cancel?'Cancel pending order':'Edit pending order');button.style.cssText='color:inherit;background:transparent;border:0;border-left:1px solid;padding:5px 9px;cursor:pointer';button.disabled=!paperConfig.enabled||paperConfig.busy;button.onpointerdown=e=>e.stopPropagation();button.onclick=()=>brokerEdit(order,cancel);row.badge.append(button);}
   }
  }
- function positionBrokerLines(){for(const row of brokerLines.values()){const y=series.priceToCoordinate(row.price);row.badge.hidden=y===null||y<15||y>chart.paneSize().height-15;row.badge.style.right=(chart.priceScale('right').width()+7)+'px';if(y!==null)row.badge.style.top=(y-14)+'px';}requestAnimationFrame(positionBrokerLines);}
+ function positionBrokerLines(){for(const row of brokerLines.values()){const y=series.priceToCoordinate(row.price);row.badge.hidden=y===null||y<15||y>chart.paneSize().height-15;placeByPriceAxis(row.badge,priceAxisWidth(window.priceAxisSide||'right')+7);if(y!==null)row.badge.style.top=(y-14)+'px';}requestAnimationFrame(positionBrokerLines);}
  positionBrokerLines();
  const sharedConfigure=window.configure;
  window.configure=config=>{

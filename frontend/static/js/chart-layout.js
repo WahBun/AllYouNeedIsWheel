@@ -1,0 +1,48 @@
+/* Auxiliary panes are read-only chart renderers. Only the existing main host trades. */
+window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
+ const saved=(()=>{try{return JSON.parse(localStorage.getItem('wheel.chart-layout')||'{}')}catch{return {}}})();
+ let count=[1,2,3,4].includes(saved.count)?saved.count:1,active=0,started=false;
+ if(Number.isInteger(saved.active)&&saved.active>=0&&saved.active<count)active=saved.active;
+ const grid=document.getElementById('chart-grid'),primary=frame.parentElement;
+ const primaryTitle=document.createElement('button');primaryTitle.className='pane-select';primaryTitle.disabled=true;primary.append(primaryTitle);
+ const picker=document.createElement('div');picker.id='layout-picker';const button=document.createElement('button');button.id='layout-button';button.title='Chart layout';button.setAttribute('aria-label','Chart layout');button.setAttribute('aria-expanded','false');
+ const paths={1:'',2:'M12 3v18',3:'M12 3v18M3 12h9',4:'M12 3v18M3 9h9M3 15h9'},names={1:'Single chart',2:'Two columns',3:'Two left, one right',4:'Three left, one right'};
+ const icon=n=>`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="${paths[n]}"/></svg>`;
+ const menu=document.createElement('div');menu.id='layout-menu';menu.hidden=true;menu.setAttribute('role','menu');
+ for(const n of [1,2,3,4]){const b=document.createElement('button');b.innerHTML=icon(n);b.title=names[n];b.setAttribute('aria-label',names[n]);b.setAttribute('role','menuitemradio');b.dataset.layout=n;b.onclick=()=>{if(current().busy)return;const c=current();configs[active]={cid:c.cid,interval:c.interval,session:c.session,label:c.label,axis:c.axis};const selected=configs[active],others=configs.filter((_,i)=>i!==active);active=n>=3?n-1:0;others.splice(active,0,selected);configs.splice(0,4,...others);count=n;close();arrange();tick();persist();};menu.append(b);}
+ picker.append(button,menu);document.getElementById('session-picker').before(picker);
+ function close(){menu.hidden=true;button.setAttribute('aria-expanded','false');}
+ button.onclick=()=>{menu.hidden=!menu.hidden;button.setAttribute('aria-expanded',String(!menu.hidden));};document.addEventListener('pointerdown',e=>{if(!picker.contains(e.target))close();});picker.onkeydown=e=>{if(e.key==='Escape'){close();button.focus();}};
+ const configs=Array.from({length:4},(_,i)=>({...saved.panes?.[i],interval:saved.panes?.[i]?.interval||[5,1,15,60][i],session:saved.panes?.[i]?.session||'rth'}));const extras=new Map();
+ let persisted='';function persist(){const value=JSON.stringify({count,active,panes:configs});if(value===persisted)return;try{localStorage.setItem('wheel.chart-layout',value);persisted=value;}catch{}}
+ const period=n=>n<60?n+'m':n<1440?n/60+'h':n===1440?'D':n===10080?'W':'M';
+ function position(el,index){if(count<=2){el.style.gridColumn=String(index+1);el.style.gridRow='1';}else if(index===count-1){el.style.gridColumn='2';el.style.gridRow='1 / -1';}else{el.style.gridColumn='1';el.style.gridRow=String(index+1);}}
+ function choose(index){const target=configs[index];if(!target?.cid||index===active)return;const previous=current();if(!activate(target))return;const old=active;active=index;configs[old]={cid:previous.cid,interval:previous.interval,session:previous.session,label:previous.label,axis:previous.axis};arrange();persist();}
+ function arrange(){grid.dataset.layout=count;button.innerHTML=icon(count);for(const b of menu.children)b.setAttribute('aria-checked',String(Number(b.dataset.layout)===count));position(primary,active);
+  for(const [index,pane] of extras)if(index===active||index>=count){pane.dispose();extras.delete(index);}
+  for(let i=0;i<count;i++)if(i!==active){if(!extras.has(i))extras.set(i,new Pane(i));position(extras.get(i).el,i);}
+ }
+ let lastPrimary={};
+ class Pane{
+  constructor(index){this.index=index;this.el=document.createElement('div');this.el.className='chart-pane';this.frame=document.createElement('iframe');this.frame.title='Chart '+(index+1);this.frame.src='/superchart/frame';this.title=document.createElement('button');this.title.className='pane-select';this.title.onclick=()=>choose(index);this.el.append(this.frame,this.title);grid.append(this.el);this.data={};this.loaded=false;this.dead=false;this.seq=0;this.lastRead=0;this.lastExtras=0;
+   this.stream=new WheelChartStream({receive:p=>this.receive(p),status:()=>{}});
+   this.listener=e=>{if(e.origin!==location.origin||e.source!==this.frame.contentWindow||!e.data?.wheelChart)return;const {name,body}=e.data;if(name==='chartReady'){this.loaded=true;this.frame.contentDocument.addEventListener('click',e=>{if(!e.target.closest('button,input,select,textarea,#draw-svg,#tv-attr-logo'))choose(index);},true);this.tick();}else if(name==='priceAxisChanged'){configs[index].axis=body.side;persist();}else if(name==='drawingsChanged'&&body.key===this.drawingKey)localStorage.setItem('wheel.drawings:'+configs[index].cid,JSON.stringify(body));};window.addEventListener('message',this.listener);
+  }
+  dispose(){this.dead=true;this.stream.stop();this.controller?.abort();window.removeEventListener('message',this.listener);this.el.remove();}
+  context(){const c=configs[this.index];return {cid:c.cid,interval:c.interval,session:c.session,epoch:current().epoch};}
+  receive(p){const c=this.context();if(p.con_id!==c.cid||p.interval!==c.interval||p.session!==c.session)return;
+   const bars=p.mode==='delta'?[...new Map([...(this.data.bars||[]),...p.bars].map(b=>[b.time,b])).values()].sort((a,b)=>a.time-b.time):p.bars;this.data={...p,bars};this.frame.contentWindow.receive(p);this.render();
+  }
+  render(){if(!this.loaded)return;const c=configs[this.index],root=current(),display=WheelChartSettings.effective({...root.display,atr:this.data.security_type==='OPT'?localStorage.getItem('wheel.chart.optionATR')==='true':root.display.atr},c.session,this.ema||{});this.title.textContent=(this.data.display_symbol||c.label||'Chart')+' · '+period(c.interval);this.title.title='Activate this chart';
+   this.frame.contentWindow.configurePriceAxis?.(c.axis);this.frame.contentWindow.configure({con_id:c.cid,entry:0,quantity:0,paper:{enabled:false},holdings:holdings(c.cid,this.data),executions:c.cid===root.cid?executions():[],dark:root.dark,display,priceRules:this.data.price_rules||[]});const o={...display.volatility};if(!display.indicatorVisible){o.channels=false;o.gauge=false;}this.frame.contentWindow.configureVolatility?.(this.data,this.volatility,o);
+  }
+  async tick(){if(this.dead||!this.loaded||document.hidden)return;const c=this.context();if(!c.cid||!c.epoch)return;const key=JSON.stringify(c);if(key!==this.key){this.key=key;this.seq++;this.controller?.abort();this.inflight=false;this.data={};this.ema={};this.volatility=null;this.lastRead=0;this.lastExtras=0;this.stream.stop();this.frame.contentWindow.receive({bars:[],generation:'clear',...c});this.drawingKey=`web:${location.origin}:${c.cid}`;let value={};try{value=JSON.parse(localStorage.getItem('wheel.drawings:'+c.cid)||'{}')}catch{}this.frame.contentWindow.configureDrawings({key:this.drawingKey,value});}
+   this.render();if(this.data.bars?.length)this.stream.ensure(c);
+   if(!this.inflight&&!this.stream.healthy()&&Date.now()-this.lastRead>5000){this.inflight=true;this.lastRead=Date.now();const seq=this.seq;this.controller=new AbortController();try{const p=await api(`portfolio/stock-chart/${c.cid}?interval=${c.interval}&session=${c.session}&fast=1`,undefined,this.controller.signal);if(!this.dead&&seq===this.seq)this.receive(p);}catch{}finally{if(seq===this.seq)this.inflight=false;}}
+   if(this.data.bars?.length&&!this.extraBusy&&Date.now()-this.lastExtras>10000){this.extraBusy=true;this.lastExtras=Date.now();const seq=this.seq,display=current().display;try{const frames=WheelChartSettings.requested(display,c.interval,c.session),family=WheelVolatility.family(this.data);const results=await Promise.allSettled([frames.length?api(`portfolio/chart-ema/${c.cid}?frames=${frames.join(',')}&session=${c.session}`):Promise.resolve(null),family&&display.indicatorVisible&&display.volatility.channels?api(`portfolio/chart-volatility/${c.cid}?source=${display.volatility[family]}`):Promise.resolve(null)]);if(!this.dead&&seq===this.seq){if(results[0].status==='fulfilled')this.ema=results[0].value?.frames||{};if(results[1].status==='fulfilled')this.volatility=results[1].value;this.render();}}finally{this.extraBusy=false;}}
+  }
+ }
+ function tick(){const c=current();if(!c.cid||!c.ready)return;if(!started){started=true;for(let i=0;i<4;i++)configs[i]={...configs[i],cid:configs[i].cid||c.cid,label:configs[i].label||c.label,session:configs[i].cid?configs[i].session:c.session};arrange();}lastPrimary={cid:c.cid,interval:c.interval,session:c.session,label:c.label,axis:c.axis};configs[active]={...lastPrimary};primaryTitle.textContent=c.label+' · '+period(c.interval);for(const pane of extras.values())void pane.tick();persist();}
+ arrange();setInterval(tick,2000);window.addEventListener('pagehide',()=>{for(const p of extras.values())p.stream.stop();});window.addEventListener('pageshow',tick);document.addEventListener('visibilitychange',()=>{if(document.hidden)for(const p of extras.values())p.stream.stop();else tick();});
+ return {tick};
+};

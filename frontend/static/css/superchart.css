@@ -135,3 +135,26 @@ header #theme,header #trade-sounds,header #settings{width:42px;height:40px;paddi
 #option-search{text-align:center}
 
 #interval{font-size:0;display:flex;align-items:center;justify-content:center}#interval::after{content:"";width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:translateY(-2px) rotate(45deg)}
+
+/* Four chart layouts; the trading chart stays in one DOM node while CSS moves it. */
+#chart-grid{flex:1;min-height:0;display:grid;gap:3px;background:var(--border);overflow:hidden}
+#chart-grid[data-layout="1"]{grid-template: minmax(0,1fr)/minmax(0,1fr)}
+#chart-grid:not([data-layout="1"]){grid-template-columns:repeat(2,minmax(0,1fr))}
+#chart-grid[data-layout="2"]{grid-template-rows:minmax(0,1fr)}
+#chart-grid[data-layout="3"]{grid-template-rows:repeat(2,minmax(0,1fr))}
+#chart-grid[data-layout="4"]{grid-template-rows:repeat(3,minmax(0,1fr))}
+.chart-pane{position:relative;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+.chart-pane iframe{flex:1;width:100%;height:100%;min-height:0;border:0;border-radius:0}
+.chart-pane.active{outline:2px solid #517ce0;outline-offset:-2px}
+#chart-grid[data-layout="1"] .chart-pane.active{outline:0}
+.pane-select{position:absolute;right:70px;top:3px;z-index:8;padding:2px 6px!important;min-height:22px!important;font-size:11px!important;opacity:.85}
+#chart-grid[data-layout="1"] .pane-select{display:none}
+#layout-picker{position:relative}#layout-button{width:36px;height:36px;display:grid;place-items:center;padding:7px}
+#layout-picker svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.2}
+#layout-menu{position:absolute;right:0;top:calc(100% + 7px);z-index:40;background:var(--panel);border:1px solid var(--border);padding:8px;border-radius:8px;box-shadow:0 6px 22px #0005}
+#layout-menu:not([hidden]){display:flex;gap:6px}#layout-menu button{display:grid;place-items:center;width:40px;height:36px;padding:7px}#layout-menu button[aria-checked="true"]{background:#315fc4;color:white}
+
+#chart-grid .pane-select{position:static;order:-1;align-self:stretch;text-align:left;border:0;border-radius:0;padding:2px 7px!important;flex:none;font-size:11px!important;line-height:18px;min-height:22px!important;opacity:1}
+#chart-grid[data-layout="1"] .pane-select{display:none}
+
+#chart-grid[data-layout="3"],#chart-grid[data-layout="4"]{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}

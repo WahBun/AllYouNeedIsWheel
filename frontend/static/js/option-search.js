@@ -13,7 +13,7 @@ window.installOptionSearch=({api,select,symbol,canSelect})=>{
  const nav=launcher.closest('nav'),center=document.createElement('div'),end=document.createElement('div');
  center.className='toolbar-center';end.className='toolbar-end';nav.append(center,end);
  center.append(launcher,$('favorite-contract'),$('favorite-contracts'),$('intervals'),nav.querySelector('.interval-picker'));
- end.append($('session-picker'),$('fullscreen'));
+ if($('layout-picker'))end.append($('layout-picker'));end.append($('session-picker'),$('fullscreen'));
 
  function mode(options){form.hidden=!options;stockPanel.hidden=options;stockTab.classList.toggle('active',!options);optionTab.classList.toggle('active',options);stockTab.setAttribute('aria-pressed',String(!options));optionTab.setAttribute('aria-pressed',String(options));}
  stockTab.onclick=()=>{mode(false);$('symbol').focus();};optionTab.onclick=()=>{mode(true);if(!loaded)dates();};
