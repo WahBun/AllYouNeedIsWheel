@@ -1956,6 +1956,7 @@ struct PositionDayRange: View {
                     Text(verbatim: high.formatted(.number.precision(.fractionLength(2...4))))
                 }.font(.caption2).monospacedDigit().foregroundStyle(.secondary)
             }
-        }.accessibilityElement(children: .combine)
+        }.frame(maxWidth: 160, alignment: .leading)
+            .accessibilityElement(children: .combine)
     }
 }
