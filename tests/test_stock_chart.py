@@ -189,6 +189,30 @@ class StockChartTests(unittest.TestCase):
         with self.assertRaises(ValueError):feed.snapshot(conn,7,5)
         conn.ib.reqTickByTickData.assert_not_called()
 
+    def test_option_cold_history_can_arrive_after_two_seconds(self):
+        from unittest.mock import patch
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection(); feed=StockChart()
+        contract=conn.get_option_position_by_con_id.return_value['contract']
+        contract.secType='OPT'; contract.exchange='SMART'
+        contract.lastTradeDateOrContractMonth='20261120'; contract.strike=11; contract.right='C'
+        conn.ib.errorEvent=Event()
+        conn.get_market_ticker.return_value=ticker
+        from ib_async import BarDataList
+        bars=BarDataList()
+        bars.extend(conn.ib.reqHistoricalData.return_value)
+        conn.ib.reqHistoricalData.side_effect=lambda *args,**kwargs: bars if kwargs['timeout'] >= 5 else []
+        try:
+            with patch('api.services.chart_contracts.contracts.resolve',return_value=contract):
+                self.assertTrue(feed.snapshot(conn,7,5,'all',fast=True)['bars'])
+                self.assertEqual(conn.ib.reqHistoricalData.call_count,1)
+                self.assertLess(conn.ib.reqHistoricalData.call_args.kwargs['timeout'],10)
+                self.assertTrue(feed.snapshot(conn,7,5,'all',fast=True)['bars'])
+                self.assertEqual(conn.ib.reqHistoricalData.call_count,1)
+                conn.ib.placeOrder.assert_not_called()
+        finally:
+            feed.stop(); asyncio.get_event_loop().close()
+
     def test_option_empty_history_retries_after_pacing_not_one_minute(self):
         from unittest.mock import patch
         conn,_=self.connection(); feed=StockChart()
