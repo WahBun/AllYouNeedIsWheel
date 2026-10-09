@@ -1,5 +1,11 @@
 # Project Handoff
 
+## 2026-10-09 remove duplicate pane headers
+
+Removed the extra symbol/timeframe strip above each pane. The chart retains its
+own title and selected-pane outline; clicking inside the chart selects it.
+Layout regression uses actual chart clicks and checks full-height frames.
+
 ## 2026-10-09 layout focus follow-up
 
 Pane activation now rebinds the host to the existing iframe; it never swaps or

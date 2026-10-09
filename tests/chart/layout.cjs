@@ -14,14 +14,17 @@ await page.screenshot({path:'/tmp/wheel-four-layout.png'});
 await page.evaluate(()=>{window.paneWindows=[...document.querySelectorAll('.chart-pane iframe')].map(f=>f.contentWindow);for(const w of paneWindows){w.emptyReceives=0;const receive=w.receive;w.receive=p=>{if(!p.bars?.length)w.emptyReceives++;return receive(p);};}});
 for(const f of page.frames().filter(f=>f.url().includes('/superchart/frame')))await f.evaluate(()=>activePriceScale().setVisibleRange({from:97,to:110}));await page.waitForTimeout(200);
 const beforeFocus=await Promise.all(page.frames().filter(f=>f.url().includes('/superchart/frame')).map(f=>f.evaluate(()=>({interval:countdownPacket.interval,range:chart.timeScale().getVisibleLogicalRange(),prices:activePriceScale().getVisibleRange()}))));
-for(const label of ['1m','15m','1h','5m']){await page.getByRole('button',{name:'TSLL · '+label,exact:true}).click();await page.waitForTimeout(100);}
+async function focusInterval(interval){for(const f of page.frames().filter(f=>f.url().includes('/superchart/frame')))if(await f.evaluate(()=>countdownPacket.interval)===interval){await f.locator('body').click({position:{x:120,y:100}});return;}throw new Error('Missing chart '+interval);}
+assert.equal(await page.locator('.pane-select').count(),0);
+assert.ok(await page.locator('.chart-pane iframe').evaluateAll(fs=>fs.every(f=>Math.abs(f.getBoundingClientRect().top-f.parentElement.getBoundingClientRect().top)<1)));
+for(const interval of [1,15,60,5]){await focusInterval(interval);await page.waitForTimeout(100);}
 assert.ok(await page.evaluate(()=>paneWindows.every(w=>[...document.querySelectorAll('.chart-pane iframe')].some(f=>f.contentWindow===w)&&w.emptyReceives===0)));
 const afterFocus=await Promise.all(page.frames().filter(f=>f.url().includes('/superchart/frame')).map(f=>f.evaluate(()=>({interval:countdownPacket.interval,range:chart.timeScale().getVisibleLogicalRange(),prices:activePriceScale().getVisibleRange()}))));assert.deepEqual(afterFocus,beforeFocus);
 
 const boxes=await page.locator('.chart-pane').evaluateAll(es=>es.map(e=>({active:e.classList.contains('active'),x:e.offsetLeft,y:e.offsetTop,w:e.offsetWidth,h:e.offsetHeight})));assert.equal(boxes.length,4);assert.ok(boxes.some(b=>b.h>500));
 await page.locator('#contracts').evaluate(el=>{el.append(new Option('QQQ CALL','8'));el.value='8';el.dispatchEvent(new Event('change'));});await page.waitForFunction(()=>document.querySelector('#quantity').value==='4');
-await page.getByRole('button',{name:/TSLL · 1m$/}).click();await page.waitForTimeout(2200);assert.equal(await page.locator('.chart-pane.active').count(),1);assert.equal(await page.locator('#intervals .active').getAttribute('data-interval'),'1');assert.equal(await page.locator('#contracts').inputValue(),'7');assert.equal(await page.locator('#quantity').inputValue(),'1');
-await page.locator('#intervals [data-interval="15"]').click();await page.waitForTimeout(2200);assert.ok((await page.locator('.chart-pane.active .pane-select').textContent()).includes('15m'));
+await focusInterval(1);await page.waitForTimeout(2200);assert.equal(await page.locator('.chart-pane.active').count(),1);assert.equal(await page.locator('#intervals .active').getAttribute('data-interval'),'1');assert.equal(await page.locator('#contracts').inputValue(),'7');assert.equal(await page.locator('#quantity').inputValue(),'1');
+await page.locator('#intervals [data-interval="15"]').click();await page.waitForTimeout(2200);assert.equal(await page.locator('#chart').elementHandle().then(h=>h.contentFrame()).then(f=>f.evaluate(()=>countdownPacket.interval)),15);
 const primary=await page.locator('#chart').elementHandle().then(h=>h.contentFrame());
 await primary.evaluate(()=>{configurePriceAxis('left');parent.postMessage({wheelChart:true,name:'priceAxisChanged',body:{side:'left'}},location.origin);});await page.waitForTimeout(100);
 await page.reload();await page.waitForFunction(()=>document.querySelectorAll('.chart-pane').length===4);assert.equal(await page.locator('#intervals .active').getAttribute('data-interval'),'15');
