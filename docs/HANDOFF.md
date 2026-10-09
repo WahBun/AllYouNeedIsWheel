@@ -790,3 +790,14 @@ member was observed stuck PendingSubmit in Paper). The existing unknown Paper
 request was NOT retransmitted, canceled or rebuilt during this code change.
 660 backend tests and browser menu/quantity-editor interaction passed. Actual IB
 multi-plan and edit fill/race acceptance remains outstanding. No phone install.
+
+
+## 2026-10-09 Paper history recovery
+Paper account/API stayed online while US history requests timed out across QQQ
+stock, option and MNQ. Backend reconnect did not recover it; Paper-only IBC cold
+restart restored bars without restarting Live. Exact IB internal cause is unknown.
+Added passive timeout evidence and bounded Paper-only watchdog; no quote polling
+or order retries. Live, permission/empty results and uncertain local writes are
+excluded. Recovery is latched until successful fresh history; 30-minute cooldown,
+maximum two attempts per rolling day. Mock tests cover guards. Do not deliberately
+break the working Gateway for fault-injection acceptance.

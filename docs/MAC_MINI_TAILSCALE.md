@@ -305,3 +305,30 @@ existing windows are not continually repositioned. New windows after a restart
 or container replacement are automatically arranged. Login/configuration dialogs
 are excluded. It never submits input or touches broker/API settings.
 Disable with `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.wahbun.gateway-window-layout.plist`.
+
+
+## Paper historical-data recovery
+
+`ops/paper_gateway_watchdog.py` passively watches actual cold-history results;
+it creates no extra market-data polling. Only a verified sole DU account on
+4002 records evidence. At least three timeout-shaped results across two contracts,
+spanning three minutes within ten minutes, with a failure in the last two minutes,
+are required. Fast empty results, explicit IB errors, HTTP 503 alone and idle
+markets do not trigger recovery. Fresh historical bars clear the failure evidence.
+
+The local LaunchAgent checks every minute. It targets only the Java child of
+`/tmp/pid_paper` inside `wheel-gateway-dual`, verifies the settings_paper path,
+and uses IBC's COLDRESTART marker. Live and the Docker container stay running.
+Uncertain local orders or unreadable order DB block recovery. No orders are
+replayed. One attempt per outage remains latched until fresh history succeeds;
+cooldown is 30 minutes and the rolling daily maximum is two attempts. Authentication
+or an unconfirmed restart requires manual attention, not a restart loop.
+This detects cold-history stalls, not every possible stale streaming condition.
+
+Install on Mini after GitHub push/pull:
+```
+.venv/bin/python ops/install_paper_gateway_watchdog.py --project "$PWD"
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.wahbun.wheel.paper-gateway-watchdog.plist"
+```
+State: `~/Library/Application Support/Wheel/PaperGatewayWatchdog/state.json`.
+Logs: `logs/paper-gateway-watchdog.log`. No phone push notification is provided.

@@ -192,13 +192,17 @@ class StockChart:
             self.next_request[con_id] = now + 15
             option_bars=contract.secType=='OPT'
             permission_errors = []
+            other_history_errors = []
             def history_error(req_id, code, message, error_contract=None):
                 if getattr(error_contract, 'conId', None) != con_id: return
                 lowered = str(message).lower()
+                if 'query cancelled' not in lowered:
+                    other_history_errors.append(code)
                 if any(term in lowered for term in ('no market data permission', 'not subscribed', 'subscription required')):
                     permission_errors.append(str(message))
-            event = getattr(conn.ib, 'errorEvent', None) if option_bars else None
+            event = getattr(conn.ib, 'errorEvent', None)
             if event is not None: event += history_error
+            history_started = time.monotonic()
             try:
                 historical = conn.ib.reqHistoricalData(contract, '', '2 D', '1 min', 'TRADES',
                     useRTH=False, formatDate=2, keepUpToDate=option_bars, timeout=6 if option_bars else 15)
@@ -217,6 +221,11 @@ class StockChart:
                 bars.append(dict(time=int(bar.date.timestamp()), open=o, high=h, low=l, close=c))
             bars = list({b['time']: b for b in bars}.values())
             bars.sort(key=lambda b: b['time'])
+            from api.services.history_health import record as record_history_health
+            if bars:
+                record_history_health(conn, con_id, 'success')
+            elif not other_history_errors and time.monotonic()-history_started >= (6 if option_bars else 15)*0.95:
+                record_history_health(conn, con_id, 'timeout')
             if not bars:
                 # Failed history must not monopolize the serialized account/order lane.
                 # Transient option history timeouts should not impose a full minute

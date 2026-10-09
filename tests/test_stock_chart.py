@@ -31,6 +31,7 @@ class StockChartTests(unittest.TestCase):
         self.assertIn((stamp('2026-10-02T13:30:00+00:00'),stamp('2026-10-02T20:00:00+00:00')),regular_sessions('2026-10-02'))
     def connection(self):
         conn=Mock()
+        conn.ib.errorEvent=Event()
         conn.is_connected.return_value=True
         contract=S(conId=7,secType='STK',currency='USD',symbol='TEST')
         conn.get_option_position_by_con_id.return_value=dict(position=3,contract=contract)
