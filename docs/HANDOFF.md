@@ -801,3 +801,13 @@ or order retries. Live, permission/empty results and uncertain local writes are
 excluded. Recovery is latched until successful fresh history; 30-minute cooldown,
 maximum two attempts per rolling day. Mock tests cover guards. Do not deliberately
 break the working Gateway for fault-injection acceptance.
+
+
+## Trading holding edge cue parity
+Read-only holdings already clamped an offscreen average-price badge to the pane
+edge. Active trading holdings suppress that overlay and previously hid their
+controls outside the viewport without an edge cue. Added an independent passive
+arrow/price badge for active positions, shared by Paper and enabled Live; no
+trading capability or autoscale changes. Browser regression covers long/short
+offscreen cues, return into range, hidden holdings and flat cleanup, zero writes.
+Web and native share the chart asset; phone installation remains deferred.

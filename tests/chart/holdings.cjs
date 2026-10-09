@@ -47,6 +47,23 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
  assert.equal(await page.evaluate(()=>countAppearance(3,'#521c6e','tiny').color),'#521c6ea8');
  assert.equal(await page.evaluate(()=>countAppearance(3,'#521c6e','tiny',0).color),'#521c6e00');
  assert.equal(await page.evaluate(()=>countAppearance(3,'#521c6e','tiny',50).color),'#521c6e80');
+ // Trading holdings (Paper or enabled Live) must retain the same edge cue.
+ for(const [price,position,arrow] of [[2,1,'↑'],[.1,-1,'↓']]){
+  await page.evaluate(({price,position})=>configure({...cfg,entry:price,paper:{active:true,enabled:true,position,entry:price,side:Math.sign(position),quantity:1,orders:[]},display:{holdingsVisible:true}}),{price,position});
+  await page.waitForTimeout(60);
+  assert.equal(await page.locator('#position-edge').evaluate(el=>el.hidden),false);
+  assert.ok((await page.locator('#position-edge').textContent()).startsWith(arrow));
+ }
+ await page.evaluate(()=>configure({...cfg,entry:.75,paper:{active:true,enabled:true,position:1,entry:.75,side:1,quantity:1,orders:[]},display:{holdingsVisible:true}}));
+ await page.waitForTimeout(60);
+ assert.equal(await page.locator('#position-edge').evaluate(el=>el.hidden),true);
+ assert.equal(await page.locator('#entry').evaluate(el=>getComputedStyle(el).visibility),'visible');
+ await page.evaluate(()=>configure({...cfg,entry:2,paper:{active:true,position:1,entry:2,side:1,quantity:1,orders:[]},display:{holdingsVisible:false}}));
+ await page.waitForTimeout(60);
+ assert.equal(await page.locator('#position-edge').evaluate(el=>el.hidden),true);
+ await page.evaluate(()=>configure({...cfg,entry:0,paper:{active:false,position:0},holdings:[]}));
+ await page.waitForTimeout(60);
+ assert.equal(await page.locator('#position-edge').evaluate(el=>el.hidden),true);
  assert.equal(await page.evaluate(()=>sent.length),0);
  console.log('Read-only holding lines: exact cost, quantity update, reuse, switch, close, no trading writes PASS');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1)});

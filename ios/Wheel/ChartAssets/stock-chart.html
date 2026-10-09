@@ -13,7 +13,7 @@ html[data-background=true] #order-direction.preview-flow::after{animation-play-s
 @media(prefers-reduced-motion:reduce){#order-direction.preview-flow::after{display:none}}
 @media(min-width:768px){#chart-header{min-height:22px;column-gap:12px}#chart-title{flex:0 0 auto;font-size:16px;line-height:22px}#readout{flex:1 1 420px;font-size:14px;line-height:22px;min-height:22px}}
 @media(max-width:330px){#chart-title{font-size:9px}#chart-header{gap:4px}}
-.holding-axis{position:absolute;right:1px;z-index:3;pointer-events:none;text-align:center;font:500 11px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums;line-height:14px;padding:2px 3px;white-space:nowrap;border-radius:1px;color:white}.holding-axis[hidden]{display:none}
+.holding-axis,.position-edge{position:absolute;right:1px;z-index:3;pointer-events:none;text-align:center;font:500 11px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums;line-height:14px;padding:2px 3px;white-space:nowrap;border-radius:1px;color:white}.holding-axis[hidden],.position-edge[hidden]{display:none}
 body.native-compact #chart-title{display:none}
 body.native-compact #chart-header{min-height:14px}
 body.native-compact #entry span{font-size:11px;padding:0 5px;height:24px}
@@ -857,7 +857,20 @@ function separateHoldingLabels(){
  }
 }
 
-function position(){updateVisibleExtrema();updateCountdown();positionExtremaLabels();document.getElementById('chart-header').style.right=(chart.priceScale('right').width()+7)+'px';updateLatestBarButton();drawPV();drawFVG();drawBarCount();for(const badge of holdingAxisBadges.values()){const price=Number(badge.dataset.price),y=series.priceToCoordinate(price);badge.hidden=y===null;badge.textContent=(y!==null&&y<16?'↑ ':y!==null&&y>chart.paneSize().height-16?'↓ ':'')+priceText(price);badge.style.width=axisBadgeWidth()+'px';if(y!==null)badge.style.top=(Math.min(chart.paneSize().height-16,Math.max(16,y))-9)+'px';}const axisRight=Math.ceil(chart.priceScale('right').width())+7;for(const badge of holdingBadges.values()){const y=badge.dataset.price===''?innerHeight-65:series.priceToCoordinate(Number(badge.dataset.price));badge.hidden=y===null;badge.style.right=axisRight+'px';if(y!==null)badge.style.top=Math.min(chart.paneSize().height-16,Math.max(16,y))+'px';}for(const id of ['tp','sl','cancel'])document.getElementById(id).style.right=axisRight+'px';document.getElementById('entry').style.right=(axisRight+35)+'px';for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}separateHoldingLabels();requestAnimationFrame(position);}position();
+const positionEdgeBadge=document.createElement('div');
+positionEdgeBadge.id='position-edge';positionEdgeBadge.className='position-edge';positionEdgeBadge.hidden=true;document.body.append(positionEdgeBadge);
+function positionHoldingEdge(){
+ const y=entry>0?series.priceToCoordinate(entry):null,limit=chart.paneSize().height;
+ const visible=!!paperConfig.active&&!!paperConfig.position&&!canceled&&displayOptions.holdingsVisible!==false&&previous.length>0&&y!==null&&(y<16||y>limit-16);
+ positionEdgeBadge.hidden=!visible;
+ if(!visible)return;
+ positionEdgeBadge.textContent=(y<16?'↑ ':'↓ ')+priceText(entry);
+ positionEdgeBadge.style.background=paperConfig.position>0?'#315fc4':'#c6384d';
+ positionEdgeBadge.style.width=axisBadgeWidth()+'px';
+ positionEdgeBadge.style.top=(Math.min(limit-16,Math.max(16,y))-9)+'px';
+ positionEdgeBadge.title='Position '+priceText(entry);
+}
+function position(){positionHoldingEdge();updateVisibleExtrema();updateCountdown();positionExtremaLabels();document.getElementById('chart-header').style.right=(chart.priceScale('right').width()+7)+'px';updateLatestBarButton();drawPV();drawFVG();drawBarCount();for(const badge of holdingAxisBadges.values()){const price=Number(badge.dataset.price),y=series.priceToCoordinate(price);badge.hidden=y===null;badge.textContent=(y!==null&&y<16?'↑ ':y!==null&&y>chart.paneSize().height-16?'↓ ':'')+priceText(price);badge.style.width=axisBadgeWidth()+'px';if(y!==null)badge.style.top=(Math.min(chart.paneSize().height-16,Math.max(16,y))-9)+'px';}const axisRight=Math.ceil(chart.priceScale('right').width())+7;for(const badge of holdingBadges.values()){const y=badge.dataset.price===''?innerHeight-65:series.priceToCoordinate(Number(badge.dataset.price));badge.hidden=y===null;badge.style.right=axisRight+'px';if(y!==null)badge.style.top=Math.min(chart.paneSize().height-16,Math.max(16,y))+'px';}for(const id of ['tp','sl','cancel'])document.getElementById(id).style.right=axisRight+'px';document.getElementById('entry').style.right=(axisRight+35)+'px';for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}separateHoldingLabels();requestAnimationFrame(position);}position();
 // A WKWebView changes size in place when native full-screen controls appear.
 // Resize the canvas and restore the time window together; stale manual Y scaling
 // must not carry the full-screen pixel range into the shorter chart.
