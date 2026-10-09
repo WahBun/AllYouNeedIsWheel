@@ -9,7 +9,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
  function paintMaximize(){
   grid.classList.toggle('pane-maximized',maximized);maximize.hidden=count===1;
   maximize.title=(maximized?'Restore chart / 恢复图表':'Maximize chart / 放大图表')+' · '+(/Mac/.test(navigator.platform)?'⌥':'Alt')+' + Enter';maximize.setAttribute('aria-label',maximize.title);maximize.setAttribute('aria-pressed',String(maximized));
-  maximize.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">'+(maximized?'<path d="M4 9h5V4M20 15h-5v5"/>':'<path d="M9 4H4v5M15 20h5v-5"/>')+'</svg>';
+  maximize.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">'+(maximized?'<path d="M20 9h-5V4M4 15h5v5"/>':'<path d="M15 4h5v5M4 15v5h5"/>')+'</svg>';
  }
  maximize.onclick=()=>{if(count===1)return;maximized=!maximized;paintMaximize();};
  function maximizeKeys(doc,pane){doc.addEventListener('keydown',e=>{if(e.code!=='Enter'||!e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||e.repeat||e.target.closest('input,textarea,select,[contenteditable=true]')||document.querySelector('dialog[open]'))return;if(count===1)return;e.preventDefault();if(pane&&pane.index!==active)choose(pane.index);if(!pane||pane.index===active)maximize.click();});}

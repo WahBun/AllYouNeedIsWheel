@@ -1,17 +1,19 @@
 // Desktop-only menu; use the shared chart's price-choice and preview path.
 (()=>{
  // Keep the shared price button in the plot, but never over the price axis.
- let overPriceAxis=false;
+ let overPriceAxis=false,pointerInPlot=false;
  chart.unsubscribeCrosshairMove(updatePriceCursor);
  chart.subscribeCrosshairMove(p=>{if(overPriceAxis||applyingCrosshair){priceAdd.hidden=true;return;}updatePriceCursor(p);});
  document.addEventListener('pointermove',e=>{
   if(e.pointerType!=='mouse')return;
-  overPriceAxis=e.clientX>=chart.paneSize().width;
+  overPriceAxis=e.clientX<plotLeft()||e.clientX>=plotRight();
+  pointerInPlot=!overPriceAxis&&e.clientY>=0&&e.clientY<chart.paneSize().height;
   if(overPriceAxis){priceAdd.hidden=true;cursorOrderPrice=null;}
  },true);
  // Programmatic crosshair moves must never echo back into the pane group.
  let applyingCrosshair=false;
  window.syncPaneCrosshair=point=>{
+  if(pointerInPlot)return;
   applyingCrosshair=true;
   try{
    if(!point||!previous.length){chart.clearCrosshairPosition();return;}
@@ -22,11 +24,12 @@
   }finally{applyingCrosshair=false;}
  };
  chart.subscribeCrosshairMove(p=>{
-  if(applyingCrosshair)return;
+  if(applyingCrosshair||!p.sourceEvent)return;
   const size=chart.paneSize(),valid=p.point&&p.time!=null&&p.point.x>=0&&p.point.x<=size.width&&p.point.y>=0&&p.point.y<=size.height;
   const price=valid?series.coordinateToPrice(p.point.y):null;
   parent.postMessage({wheelChart:true,name:'paneCrosshair',body:valid&&Number.isFinite(price)?{time:p.time,price}:null},location.origin);
  });
+ document.documentElement.addEventListener('pointerleave',()=>{pointerInPlot=false;parent.postMessage({wheelChart:true,name:'paneCrosshair',body:null},location.origin);});
  let refreshOrderMenu=()=>{};
  window.addEventListener('order-configured',()=>refreshOrderMenu());
  const orderItems=(...args)=>window.wheelOrderItems(...args);

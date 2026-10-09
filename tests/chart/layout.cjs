@@ -16,6 +16,13 @@ const hostBefore=await page.locator('#intervals .active').getAttribute('data-int
 await chartFrames[0].locator('body').hover({position:{x:200,y:100}});await page.waitForTimeout(150);
 for(const f of chartFrames.slice(1)){const calls=await f.evaluate(()=>synced);assert.ok(calls.some(p=>p&&Number.isFinite(p.price)&&Number.isFinite(p.time)));}
 assert.equal(await page.locator('#intervals .active').getAttribute('data-interval'),hostBefore);
+// Redraw events in follower panes must never move the stationary source cursor.
+await chartFrames[0].evaluate(()=>{window.cursorEvents=[];chart.subscribeCrosshairMove(p=>{if(p.point)cursorEvents.push({...p.point});});});
+for(const f of chartFrames.slice(1))await f.evaluate(async()=>{chart.setCrosshairPosition(100,previous[10].time,series);const b=previous.at(-1);series.update({...b,close:b.close+.01});await new Promise(requestAnimationFrame);});
+await page.waitForTimeout(150);
+assert.equal(await chartFrames[0].evaluate(()=>synced.length),0,'Follower redraw echoed to source');
+assert.equal(await chartFrames[0].evaluate(()=>cursorEvents.length),0,'Stationary source moved');
+
 await page.locator('#layout-button').hover();await page.waitForTimeout(150);
 for(const f of chartFrames.slice(1))assert.equal(await f.evaluate(()=>synced.at(-1)),null);
 for(const f of chartFrames){const geometry=await f.evaluate(()=>{const r=document.querySelector('#price-axis-settings').getBoundingClientRect(),width=priceAxisWidth(window.priceAxisSide||'right');return {size:r.width,error:Math.abs(r.left+r.width/2-(window.priceAxisSide==='left'?width/2:innerWidth-width/2))};});assert.equal(geometry.size,28);assert.ok(geometry.error<1);}

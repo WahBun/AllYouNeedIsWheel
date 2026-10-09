@@ -1,5 +1,14 @@
 # Project Handoff
 
+## 2026-10-09 crosshair feedback guard
+
+Only crosshair events with a native sourceEvent are broadcast to peers. A pane
+with the actual pointer inside its plot rejects peer coordinates; pointer exit
+clears peer cursors. Regression holds the source pointer stationary while follower
+programmatic crosshair changes and quote updates occur, asserting no source
+callback or peer position assignment. Maximize/restore icons match the requested
+top-right and bottom-left orientation.
+
 ## 2026-10-09 toolbar grouping
 
 Favorite toggle joins the instrument control. Toolbar right side orders session,
