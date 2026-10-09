@@ -24,6 +24,8 @@ def snapshot(conn,cid,source=None):
     state=stock_chart.states.get(cid)
     if not state or state['conn'] is not conn or not conn.is_connected():
         raise ValueError('Waiting for primary chart')
+    # Progress pending IB callbacks even when this is the only visible reader.
+    conn.ib.sleep(.005)
     family=group(state['contract'])
     if not family: return dict(con_id=cid,supported=False)
     source=source or SOURCES[family]
@@ -54,4 +56,5 @@ def snapshot(conn,cid,source=None):
             finally: state['volatility_pending'].pop(source,None)
         # Bound qualification too; all work remains on the existing IB event loop.
         state['volatility_pending'][source]=asyncio.get_event_loop().create_task(load())
+    conn.ib.sleep(.005)
     return dict(con_id=cid,supported=True,group=family,source=source,**{k:item[k] for k in ('status','intraday','daily')})
