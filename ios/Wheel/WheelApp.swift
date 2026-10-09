@@ -1917,6 +1917,7 @@ enum AccountConnectionRules {
 
 struct PositionDayRange: View {
     let position: Position
+    @State private var movementColor: Color = .secondary
     @Environment(\.locale) private var locale
     private var chinese: Bool { locale.language.languageCode?.identifier == "zh" }
     private var bounds: (Double, Double)? {
@@ -1944,7 +1945,7 @@ struct PositionDayRange: View {
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.secondary.opacity(0.2)).frame(height: 5)
                         if valid {
-                            Capsule().fill(Color.green).frame(width: width * fraction, height: 5)
+                            Capsule().fill(movementColor).frame(width: width * fraction, height: 5)
                             Image(systemName: "arrowtriangle.down.fill").font(.system(size: 8))
                                 .foregroundStyle(.primary).offset(x: min(max(0, width * fraction - 4), max(0, width - 8)), y: -8)
                         }
@@ -1957,6 +1958,16 @@ struct PositionDayRange: View {
                 }.font(.caption2).monospacedDigit().foregroundStyle(.secondary)
             }
         }.frame(maxWidth: 160, alignment: .leading)
+            .onChange(of: position.day_range_price) { oldPrice, newPrice in
+                guard let oldPrice, let newPrice,
+                      oldPrice.isFinite, newPrice.isFinite, oldPrice > 0, newPrice > 0 else {
+                    movementColor = .secondary
+                    return
+                }
+                if newPrice > oldPrice { movementColor = .green }
+                else if newPrice < oldPrice { movementColor = .red }
+            }
+            .onChange(of: position.id) { _, _ in movementColor = .secondary }
             .accessibilityElement(children: .combine)
     }
 }
