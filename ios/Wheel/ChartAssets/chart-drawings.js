@@ -197,7 +197,7 @@ function anchor(x,y){
  else {const next=candleLogical(lo+1);if(next===null||next===base)return null;time=previous[lo].time+(l-base)/(next-base)*(previous[lo+1].time-previous[lo].time);}
  return Number.isFinite(time)?{time,price}:null;
 }
-function xy(p){const logical=timeLogical(p.time);if(logical===null)return null;const x=chart.timeScale().logicalToCoordinate(logical),y=series.priceToCoordinate(p.price);return Number.isFinite(x)&&Number.isFinite(y)?{x,y}:null;}
+function xy(p){const logical=timeLogical(p.time);if(logical===null)return null;const scale=chart.timeScale(),left=Math.floor(logical),fraction=logical-left,x0=scale.logicalToCoordinate(left),x1=scale.logicalToCoordinate(left+1),x=x0===null||x1===null?null:x0+(x1-x0)*fraction,y=series.priceToCoordinate(p.price);return Number.isFinite(x)&&Number.isFinite(y)?{x,y}:null;}
 function element(tag,attrs,parent=svg){const e=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);parent.append(e);return e;}
 function text(x,y,value,parent){const t=element('text',{x,y,fill:'#173e36','font-size':11,'font-family':'-apple-system','paint-order':'stroke',stroke:'#ecefe9','stroke-width':3},parent);t.textContent=value;return t;}
 function positionEnd(d){const a=xy(d.p[0]);return Number.isFinite(d.endTime)?d.endTime:Math.max(...d.p.map(p=>p.time),a?anchor(a.x+85,a.y)?.time||0:0);}
