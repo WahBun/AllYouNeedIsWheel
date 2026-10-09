@@ -160,3 +160,7 @@ header #theme,header #trade-sounds,header #settings{width:42px;height:40px;paddi
 #chart-grid.pane-maximized .chart-pane.active{position:absolute;inset:0;grid-column:1 / -1!important;grid-row:1 / -1!important;z-index:10;outline:0}
 #maximize-chart{margin-left:auto;margin-right:8px;width:34px;height:34px;padding:6px;display:grid;place-items:center}
 #maximize-chart[hidden]{display:none}
+
+/* Transient refresh status must not change any pane's height. */
+.workspace{position:relative}
+#market-status{position:absolute;left:10px;bottom:60px;z-index:30;max-width:calc(100% - 20px);min-height:0;padding:5px 8px;border-radius:4px;background:var(--panel);pointer-events:none}

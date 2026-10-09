@@ -1,5 +1,14 @@
 # Project Handoff
 
+## 2026-10-09 refresh status layout stability
+
+Transient market-status messages now overlay the workspace rather than adding
+and removing a row above the grid. Status toggles must preserve every pane height
+and manual price range; ordinary new-bar scrolling remains unchanged. Maximize
+uses the requested opposite-corner icons and Option/Alt+Enter in the host and
+chart frames, excluding editable fields and open dialogs. Browser layout checks
+cover repeated status toggles, shortcuts and all-pane maximize/restore.
+
 ## 2026-10-09 selected pane maximize
 
 Footer expand/restore button temporarily fills the chart grid with the selected

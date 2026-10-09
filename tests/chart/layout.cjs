@@ -31,6 +31,10 @@ for(const interval of [1,15,60,5]){await focusInterval(interval);await page.wait
 assert.ok(await page.evaluate(()=>paneWindows.every(w=>[...document.querySelectorAll('.chart-pane iframe')].some(f=>f.contentWindow===w)&&w.emptyReceives===0)));
 const afterFocus=await Promise.all(page.frames().filter(f=>f.url().includes('/superchart/frame')).map(f=>f.evaluate(()=>({interval:countdownPacket.interval,range:chart.timeScale().getVisibleLogicalRange(),prices:activePriceScale().getVisibleRange()}))));assert.deepEqual(afterFocus,beforeFocus);
 
+// Status changes used to add/remove 26px and trigger auto-scale on all panes.
+const stableBounds=await page.locator('.chart-pane').evaluateAll(es=>es.map(e=>({y:e.getBoundingClientRect().y,h:e.clientHeight})));
+const stablePrices=await Promise.all(chartFrames.map(f=>f.evaluate(()=>activePriceScale().getVisibleRange())));
+for(const hidden of [false,true,false,true]){await page.locator('#market-status').evaluate((e,hidden)=>{e.textContent='Refreshing latest prices…';e.hidden=hidden;},hidden);await page.waitForTimeout(100);assert.deepEqual(await page.locator('.chart-pane').evaluateAll(es=>es.map(e=>({y:e.getBoundingClientRect().y,h:e.clientHeight}))),stableBounds);assert.deepEqual(await Promise.all(chartFrames.map(f=>f.evaluate(()=>activePriceScale().getVisibleRange()))),stablePrices);}
 // Maximize every pane without destroying peers, then restore the same layout.
 for(const interval of [1,15,60,5]){
  await focusInterval(interval);await page.waitForTimeout(100);
@@ -48,6 +52,7 @@ await page.locator('#contracts').evaluate(el=>{el.append(new Option('QQQ CALL','
 await focusInterval(1);await page.waitForTimeout(2200);assert.equal(await page.locator('.chart-pane.active').count(),1);assert.equal(await page.locator('#intervals .active').getAttribute('data-interval'),'1');assert.equal(await page.locator('#contracts').inputValue(),'7');assert.equal(await page.locator('#quantity').inputValue(),'1');
 await page.locator('#intervals [data-interval="15"]').click();await page.waitForTimeout(2200);assert.equal(await page.locator('#chart').elementHandle().then(h=>h.contentFrame()).then(f=>f.evaluate(()=>countdownPacket.interval)),15);
 const primary=await page.locator('#chart').elementHandle().then(h=>h.contentFrame());
+await primary.locator('body').click({position:{x:180,y:100}});await page.keyboard.press('Alt+Enter');assert.equal(await page.locator('#maximize-chart').getAttribute('aria-pressed'),'true');await page.keyboard.press('Alt+Enter');assert.equal(await page.locator('#maximize-chart').getAttribute('aria-pressed'),'false');
 await primary.evaluate(()=>{configurePriceAxis('left');parent.postMessage({wheelChart:true,name:'priceAxisChanged',body:{side:'left'}},location.origin);});await page.waitForTimeout(100);
 await page.reload();await page.waitForFunction(()=>document.querySelectorAll('.chart-pane').length===4);assert.equal(await page.locator('#intervals .active').getAttribute('data-interval'),'15');
 await page.waitForFunction(()=>document.querySelector('#chart').contentWindow.priceAxisSide==='left');
