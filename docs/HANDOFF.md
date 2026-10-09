@@ -865,3 +865,16 @@ Native phone installation/settings integration deferred per web-first preference
 Formula and browser tests cover mappings, leverage, arrays, DST, partial sessions,
 no daily lookahead, render/cleanup, zero writes; backend tests cover async cache.
 Live broker index availability is separate from mock calculation/render tests.
+
+
+## Volatility visual and latency follow-up
+Restored original Pine Unicode channel labels and two-column distance table,
+including row order and hit typography. Price-axis channel values now have opaque
+colored badges; stale unavailable notices clear when levels become available.
+Index intraday/daily history fetches run concurrently and publish each completed
+part; pending web results poll sooner, and primary bars trigger optional loading
+without awaiting it. Completed index caches are reused across chart states on the
+same connection only, qualification is reused, and transient errors retain data.
+Calculation and browser tests plus async progressive/cache-isolation tests passed.
+TV MNQ1! and IB MNQZ6 are different contracts/feeds; numerical equivalence of their
+opening/index inputs is not asserted. Native installation remains deferred.

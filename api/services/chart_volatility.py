@@ -31,15 +31,23 @@ def snapshot(conn,cid,source=None):
     source=source or SOURCES[family]
     if source not in SOURCES.values(): raise ValueError('Unsupported volatility index')
     cache=state.setdefault('volatility_cache',{})
+    # Reuse completed index data only within this exact IB connection.
+    if source not in cache:
+        for other in stock_chart.states.values():
+            candidate=other.get('volatility_cache',{}).get(source)
+            if other.get('conn') is conn and candidate and candidate.get('status')=='ready' and time.monotonic()<candidate.get('retry',0):
+                cache[source]=dict(candidate)
+                break
     item=cache.setdefault(source,dict(status='waiting',intraday=[],daily=[]))
     if source not in state.setdefault('volatility_pending',{}) and time.monotonic()>=item.get('retry',0):
         item['retry']=time.monotonic()+60
         async def load():
             try:
-                contracts=await asyncio.wait_for(conn.ib.qualifyContractsAsync(Index(source,'CBOE','USD')),6)
-                if len(contracts)!=1: raise ValueError('Index unavailable')
-                intra=await conn.ib.reqHistoricalDataAsync(contracts[0],'','2 D','1 min','TRADES',useRTH=False,formatDate=2,timeout=6)
-                daily=await conn.ib.reqHistoricalDataAsync(contracts[0],'','10 D','1 day','TRADES',useRTH=False,formatDate=2,timeout=6)
+                contract=item.get('contract')
+                if contract is None:
+                    contracts=await asyncio.wait_for(conn.ib.qualifyContractsAsync(Index(source,'CBOE','USD')),6)
+                    if len(contracts)!=1: raise ValueError('Index unavailable')
+                    contract=item['contract']=contracts[0]
                 def rows(bars):
                     out=[]
                     for b in bars:
@@ -49,10 +57,18 @@ def snapshot(conn,cid,source=None):
                         elif isinstance(stamp,date): out.append(dict(day=stamp.isoformat(),close=b.close))
                         elif isinstance(stamp,str) and len(stamp)==8: out.append(dict(day=f'{stamp[:4]}-{stamp[4:6]}-{stamp[6:]}',close=b.close))
                     return out
-                if stock_chart.states.get(cid) is state:
-                    item.update(intraday=rows(intra),daily=rows(daily),status='ready' if intra or daily else 'unavailable')
+                async def history(key,duration,size):
+                    try:
+                        bars=await conn.ib.reqHistoricalDataAsync(contract,'',duration,size,'TRADES',useRTH=False,formatDate=2,timeout=6)
+                        values=rows(bars)
+                        if values and stock_chart.states.get(cid) is state:
+                            item[key]=values
+                    except asyncio.CancelledError: raise
+                    except Exception: pass
+                await asyncio.gather(history('intraday','2 D','1 min'),history('daily','10 D','1 day'))
+                item['status']='ready' if item['intraday'] or item['daily'] else 'unavailable'
             except asyncio.CancelledError: raise
-            except Exception: item['status']='unavailable'
+            except Exception: item['status']='ready' if item['intraday'] or item['daily'] else 'unavailable'
             finally: state['volatility_pending'].pop(source,None)
         # Bound qualification too; all work remains on the existing IB event loop.
         state['volatility_pending'][source]=asyncio.get_event_loop().create_task(load())
