@@ -1,5 +1,15 @@
 # Project Handoff
 
+## 2026-10-09 immediate same-page drawing operations
+
+Drawing-change messages forward idempotent pending operations directly to loaded
+same-contract panes. Receivers merge without resetting tool selection/preferences
+or reconfiguring chart data. Active gestures defer peer application. Origin saves
+start server synchronization immediately; the existing three-second recovery poll
+remains for external devices. Operations are deduplicated and cleared on context
+changes. Mock offline-server tests observe add/delete in all panes after 150ms.
+Local two-client tests pass union, deletion, stale import protection and new lines.
+
 ## 2026-10-09 SVG screenshot coordinates
 
 Before html2canvas capture, direct-body SVG overlays are rasterized using live

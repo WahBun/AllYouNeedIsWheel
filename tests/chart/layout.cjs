@@ -10,6 +10,15 @@ for(const n of [2,3,4]){await page.locator('#layout-button').click();await page.
 await page.waitForFunction(()=>[...document.querySelectorAll('.chart-pane iframe')].every(f=>f.contentDocument.querySelector('#chart-title').textContent.includes('TSLL')));
 for(const chart of page.frames().filter(f=>f.url().includes('/superchart/frame')))await chart.waitForFunction(()=>previous.length===55);
 await page.screenshot({path:'/tmp/wheel-four-layout.png'});
+// Peer drawings must arrive without waiting for server polling or an acknowledgement.
+await page.route('**/api/chart-drawings/**',r=>r.fulfill({status:503,json:{error:'offline drawing sync'}}));
+const drawingSource=await page.locator('#chart').elementHandle().then(h=>h.contentFrame());
+await drawingSource.evaluate(()=>{const message={key:`web:${location.origin}:7`,syncState:{pending:[{op:'peer-test-put',id:'peer-test',base:0,kind:'put',value:{id:'peer-test',type:'hline',p:[{time:1791466200,price:102}]}}]}};receivePeerDrawings(message);parent.postMessage({wheelChart:true,name:'drawingsChanged',body:message},location.origin);});
+await page.waitForTimeout(150);
+for(const f of page.frames().filter(f=>f.url().includes('/superchart/frame')))assert.equal(await f.evaluate(()=>chartDrawingActions.count()),1);
+await drawingSource.evaluate(()=>chartDrawingActions.removeAll());await page.waitForTimeout(150);
+for(const f of page.frames().filter(f=>f.url().includes('/superchart/frame')))assert.equal(await f.evaluate(()=>chartDrawingActions.count()),0);
+
 for(const f of page.frames().filter(f=>f.url().includes('/superchart/frame')))await f.evaluate(()=>{window.captureCount=0;const render=renderChartImage;window.renderChartImage=()=>{captureCount++;return render();};});
 const capture=await page.evaluate(async()=>{const c=await renderChartLayoutImage(),r=document.querySelector('#chart-grid').getBoundingClientRect();return {width:c.width,height:c.height,expected:[Math.round(r.width*devicePixelRatio),Math.round(r.height*devicePixelRatio)],png:c.toDataURL()};});
 assert.deepEqual([capture.width,capture.height],capture.expected);
