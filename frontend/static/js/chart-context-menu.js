@@ -3,12 +3,30 @@
  // Keep the shared price button in the plot, but never over the price axis.
  let overPriceAxis=false;
  chart.unsubscribeCrosshairMove(updatePriceCursor);
- chart.subscribeCrosshairMove(p=>{if(overPriceAxis){priceAdd.hidden=true;return;}updatePriceCursor(p);});
+ chart.subscribeCrosshairMove(p=>{if(overPriceAxis||applyingCrosshair){priceAdd.hidden=true;return;}updatePriceCursor(p);});
  document.addEventListener('pointermove',e=>{
   if(e.pointerType!=='mouse')return;
   overPriceAxis=e.clientX>=chart.paneSize().width;
   if(overPriceAxis){priceAdd.hidden=true;cursorOrderPrice=null;}
  },true);
+ // Programmatic crosshair moves must never echo back into the pane group.
+ let applyingCrosshair=false;
+ window.syncPaneCrosshair=point=>{
+  applyingCrosshair=true;
+  try{
+   if(!point||!previous.length){chart.clearCrosshairPosition();return;}
+   let lo=0,hi=previous.length;
+   while(lo<hi){const mid=(lo+hi)>>1;if(previous[mid].time<=point.time)lo=mid+1;else hi=mid;}
+   const bar=previous[Math.max(0,lo-1)];
+   chart.setCrosshairPosition(point.price,bar.time,series);
+  }finally{applyingCrosshair=false;}
+ };
+ chart.subscribeCrosshairMove(p=>{
+  if(applyingCrosshair)return;
+  const size=chart.paneSize(),valid=p.point&&p.time!=null&&p.point.x>=0&&p.point.x<=size.width&&p.point.y>=0&&p.point.y<=size.height;
+  const price=valid?series.coordinateToPrice(p.point.y):null;
+  parent.postMessage({wheelChart:true,name:'paneCrosshair',body:valid&&Number.isFinite(price)?{time:p.time,price}:null},location.origin);
+ });
  let refreshOrderMenu=()=>{};
  window.addEventListener('order-configured',()=>refreshOrderMenu());
  const orderItems=(...args)=>window.wheelOrderItems(...args);
@@ -50,8 +68,8 @@
   menu.hidden=false;menu.style.left=Math.max(6,Math.min(event.clientX,innerWidth-menu.offsetWidth-6))+'px';menu.style.top=Math.max(6,Math.min(event.clientY,innerHeight-menu.offsetHeight-6))+'px';
  }
  document.addEventListener('contextmenu',event=>openChartMenu(event),true);
- const axisButton=document.createElement('button');axisButton.id='price-axis-settings';axisButton.textContent='⚙';axisButton.title='Price axis settings / 价格轴设置';axisButton.setAttribute('aria-label',axisButton.title);axisButton.style.cssText='position:fixed;right:2px;bottom:2px;width:22px;height:22px;padding:0;border:0;border-radius:3px;background:#b8b8b8cc;color:#444;font:16px system-ui;z-index:25';document.body.append(axisButton);
- const axisStyle=document.createElement('style');axisStyle.textContent='body.axis-left #price-axis-settings{left:2px;right:auto!important}';document.head.append(axisStyle);
+ const axisButton=document.createElement('button');axisButton.id='price-axis-settings';axisButton.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M7 4h10l5 8-5 8H7l-5-8z"/><circle cx="12" cy="12" r="3"/></svg>';axisButton.title='Price axis settings / 价格轴设置';axisButton.setAttribute('aria-label',axisButton.title);axisButton.style.cssText='position:fixed;right:max(0px,calc((var(--axis-width,60px) - 28px)/2));bottom:2px;width:28px;height:28px;display:grid;place-items:center;padding:0;border:0;border-radius:3px;background:#b8b8b8cc;color:#444;font:16px system-ui;z-index:25';document.body.append(axisButton);
+ const axisStyle=document.createElement('style');axisStyle.textContent='body.axis-left #price-axis-settings{left:max(0px,calc((var(--axis-width,60px) - 28px)/2));right:auto!important}';document.head.append(axisStyle);
  axisButton.onclick=()=>{const r=axisButton.getBoundingClientRect();openChartMenu({target:document.body,clientX:r.left,clientY:Math.min(r.top,chart.paneSize().height-1),preventDefault(){},stopPropagation(){}},true);};
  document.addEventListener('pointerdown',e=>{if(!menu.contains(e.target))close();},true);
  chart.timeScale().subscribeVisibleLogicalRangeChange(()=>{const range=chart.timeScale().getVisibleRange();if(previous.length&&range&&range.from<=previous[Math.min(5,previous.length-1)].time)window.webkit?.messageHandlers.historyRequest?.postMessage({con_id:paperCID,before:previous[0].time,interval:countdownPacket?.interval,session:countdownPacket?.session});});

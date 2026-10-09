@@ -1,5 +1,14 @@
 # Project Handoff
 
+## 2026-10-09 linked crosshairs
+
+Desktop panes of the same contract share cursor price and time, mapped to the
+containing bar in each interval. Programmatic updates do not echo or activate
+the trading pane; leaving the plot clears peer crosshairs. Different contracts
+are excluded. The price-axis gear uses a 20px hexagonal SVG in a 28px button,
+centered within the axis width on either side. Browser mock tests cover pointer
+movement, clearing, unchanged focus, and button geometry.
+
 ## 2026-10-09 remove duplicate pane headers
 
 Removed the extra symbol/timeframe strip above each pane. The chart retains its

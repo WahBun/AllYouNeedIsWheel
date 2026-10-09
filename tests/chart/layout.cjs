@@ -10,6 +10,16 @@ for(const n of [2,3,4]){await page.locator('#layout-button').click();await page.
 await page.waitForFunction(()=>[...document.querySelectorAll('.chart-pane iframe')].every(f=>f.contentDocument.querySelector('#chart-title').textContent.includes('TSLL')));
 for(const chart of page.frames().filter(f=>f.url().includes('/superchart/frame')))await chart.waitForFunction(()=>previous.length===55);
 await page.screenshot({path:'/tmp/wheel-four-layout.png'});
+const chartFrames=page.frames().filter(f=>f.url().includes('/superchart/frame'));
+for(const f of chartFrames)await f.evaluate(()=>{window.synced=[];const set=chart.setCrosshairPosition.bind(chart),clear=chart.clearCrosshairPosition.bind(chart);chart.setCrosshairPosition=(p,t,s)=>{synced.push({price:p,time:t});return set(p,t,s);};chart.clearCrosshairPosition=()=>{synced.push(null);return clear();};});
+const hostBefore=await page.locator('#intervals .active').getAttribute('data-interval');
+await chartFrames[0].locator('body').hover({position:{x:200,y:100}});await page.waitForTimeout(150);
+for(const f of chartFrames.slice(1)){const calls=await f.evaluate(()=>synced);assert.ok(calls.some(p=>p&&Number.isFinite(p.price)&&Number.isFinite(p.time)));}
+assert.equal(await page.locator('#intervals .active').getAttribute('data-interval'),hostBefore);
+await page.locator('#layout-button').hover();await page.waitForTimeout(150);
+for(const f of chartFrames.slice(1))assert.equal(await f.evaluate(()=>synced.at(-1)),null);
+for(const f of chartFrames){const geometry=await f.evaluate(()=>{const r=document.querySelector('#price-axis-settings').getBoundingClientRect(),width=priceAxisWidth(window.priceAxisSide||'right');return {size:r.width,error:Math.abs(r.left+r.width/2-(window.priceAxisSide==='left'?width/2:innerWidth-width/2))};});assert.equal(geometry.size,28);assert.ok(geometry.error<1);}
+
 // Focus must not navigate, clear, replace, or change the timeframe of any pane.
 await page.evaluate(()=>{window.paneWindows=[...document.querySelectorAll('.chart-pane iframe')].map(f=>f.contentWindow);for(const w of paneWindows){w.emptyReceives=0;const receive=w.receive;w.receive=p=>{if(!p.bars?.length)w.emptyReceives++;return receive(p);};}});
 for(const f of page.frames().filter(f=>f.url().includes('/superchart/frame')))await f.evaluate(()=>activePriceScale().setVisibleRange({from:97,to:110}));await page.waitForTimeout(200);
