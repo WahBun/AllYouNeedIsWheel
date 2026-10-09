@@ -44,7 +44,6 @@ window.configureVolatility=(p,data,o)=>{renderRevision++;const identity=p.con_id
  if(initialized&&settings.alerts){const fresh=[...seen].filter(k=>!lastAlerts.has(k));if(fresh.length){notice.textContent='MoonShine · '+fresh.map(k=>['1st Bull','1st Bear','2nd Bull','2nd Bear'][Number(k.split(':').at(-1))]+' Hit').join(' · ');setTimeout(()=>notice.textContent='',5000);}}
  lastAlerts=seen;initialized=!!current;
  notice.style.left='12px';notice.style.top='50px';
- if(family(p)&&settings.channels&&!current)notice.textContent=data?.status==='unavailable'?'Volatility index unavailable':data?.status==='waiting'?'Loading volatility index…':'';
  if(!family(p)||!settings.channels)notice.textContent='';
 };
 window.drawVolatility=()=>{
