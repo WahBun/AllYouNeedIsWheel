@@ -878,3 +878,13 @@ same connection only, qualification is reused, and transient errors retain data.
 Calculation and browser tests plus async progressive/cache-isolation tests passed.
 TV MNQ1! and IB MNQZ6 are different contracts/feeds; numerical equivalence of their
 opening/index inputs is not asserted. Native installation remains deferred.
+
+
+## TV overlay styling parity
+Aligned the distance table nearer the top-right with centered cells and Pine-sized
+text; reserved space for high/low axis labels. Historical session channel labels
+now persist, align vertically with their lines, and clip before the price axis.
+Channel axis numbers use grouping separators and right alignment. Gauge segments
+are contiguous with Pine-like dimensions. No history requests or viewport changes.
+Formula and browser layout/cleanup checks passed. Screenshot-derived channel
+centers differ by 34.75 between MNQ1! and MNQZ6; do not hard-code TV prices.
