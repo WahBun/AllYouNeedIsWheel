@@ -829,7 +829,26 @@ function updateVisibleExtrema(){
   if(extremaLines[name])extremaLines[name].applyOptions(options);else extremaLines[name]=series.createPriceLine(options);
  }
 }
-function position(){updateVisibleExtrema();updateCountdown();positionExtremaLabels();document.getElementById('chart-header').style.right=(chart.priceScale('right').width()+7)+'px';updateLatestBarButton();drawPV();drawFVG();drawBarCount();for(const badge of holdingAxisBadges.values()){const price=Number(badge.dataset.price),y=series.priceToCoordinate(price);badge.hidden=y===null||y<9||y>innerHeight-50;badge.textContent=priceText(price);badge.style.width=axisBadgeWidth()+'px';if(y!==null)badge.style.top=(y-9)+'px';}const axisRight=Math.ceil(chart.priceScale('right').width())+7;for(const badge of holdingBadges.values()){const y=badge.dataset.price===''?innerHeight-65:series.priceToCoordinate(Number(badge.dataset.price));badge.hidden=y===null||y<20||y>innerHeight-36;badge.style.right=axisRight+'px';if(y!==null)badge.style.top=y+'px';}for(const id of ['tp','sl','cancel'])document.getElementById(id).style.right=axisRight+'px';document.getElementById('entry').style.right=(axisRight+35)+'px';for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}requestAnimationFrame(position);}position();
+// Offset labels only: their price lines remain anchored to the true price.
+function separateHoldingLabels(){
+ const occupied=[document.getElementById('countdown'),...Object.values(extremaLabels),...['entry','tp','sl'].map(id=>document.getElementById(id))]
+  .filter(el=>el&&!el.hidden&&getComputedStyle(el).display!=='none'&&getComputedStyle(el).visibility!=='hidden')
+  .map(el=>el.getBoundingClientRect());
+ for(const [id,badge] of holdingBadges){
+  if(badge.hidden)continue;
+  const axis=holdingAxisBadges.get(id),base=parseFloat(badge.style.top),limit=chart.paneSize().height;
+  const elements=[badge,...(axis&&!axis.hidden?[axis]:[])];
+  const originals=elements.map(el=>parseFloat(el.style.top));
+  for(let step=0;step<40;step++){
+   const shift=step===0?0:Math.ceil(step/2)*24*(step%2?-1:1);
+   if(base+shift<16||base+shift>limit-16)continue;
+   elements.forEach((el,i)=>el.style.top=(originals[i]+shift)+'px');
+   const rects=elements.map(el=>el.getBoundingClientRect());
+   if(rects.every(r=>occupied.every(o=>r.right<=o.left||r.left>=o.right||r.bottom+3<=o.top||r.top>=o.bottom+3))){occupied.push(...rects);break;}
+  }
+ }
+}
+function position(){updateVisibleExtrema();updateCountdown();positionExtremaLabels();document.getElementById('chart-header').style.right=(chart.priceScale('right').width()+7)+'px';updateLatestBarButton();drawPV();drawFVG();drawBarCount();for(const badge of holdingAxisBadges.values()){const price=Number(badge.dataset.price),y=series.priceToCoordinate(price);badge.hidden=y===null;badge.textContent=(y!==null&&y<16?'↑ ':y!==null&&y>chart.paneSize().height-16?'↓ ':'')+priceText(price);badge.style.width=axisBadgeWidth()+'px';if(y!==null)badge.style.top=(Math.min(chart.paneSize().height-16,Math.max(16,y))-9)+'px';}const axisRight=Math.ceil(chart.priceScale('right').width())+7;for(const badge of holdingBadges.values()){const y=badge.dataset.price===''?innerHeight-65:series.priceToCoordinate(Number(badge.dataset.price));badge.hidden=y===null;badge.style.right=axisRight+'px';if(y!==null)badge.style.top=Math.min(chart.paneSize().height-16,Math.max(16,y))+'px';}for(const id of ['tp','sl','cancel'])document.getElementById(id).style.right=axisRight+'px';document.getElementById('entry').style.right=(axisRight+35)+'px';for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}separateHoldingLabels();requestAnimationFrame(position);}position();
 // A WKWebView changes size in place when native full-screen controls appear.
 // Resize the canvas and restore the time window together; stale manual Y scaling
 // must not carry the full-screen pixel range into the shorter chart.

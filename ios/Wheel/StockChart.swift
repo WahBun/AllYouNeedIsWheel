@@ -224,8 +224,8 @@ enum ChartHoldingOverlay {
                 if holding.security_type == "STK", let report = holding.reported_cost,
                    report.quantity.isFinite, abs(report.quantity - holding.position) < 0.000001 {
                     price = report.average
-                } else { price = holding.entry_fill_price }
-                caption = "\(size) · " + (chinese ? "成交均价" : "Avg")
+                } else { price = holding.security_type == "OPT" ? holding.optionAveragePrice : holding.entry_fill_price }
+                caption = "\(size) · " + (holding.optionAverageUsesBrokerCost ? (chinese ? "IB均价*" : "IB Avg*") : (chinese ? "成交均价" : "Avg"))
             }
             if let value = price, !value.isFinite || value <= 0 { price = nil }
             if strike && price == nil { return nil }

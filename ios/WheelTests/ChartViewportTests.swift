@@ -35,6 +35,10 @@ final class ChartViewportTests: XCTestCase {
         var closed = call; closed.position = 0
         XCTAssertTrue(ChartHoldingOverlay.rows(positions: [closed], conID: 2, symbol: "TSLL", type: "OPT", chinese: false).isEmpty)
         var unknown = call; unknown.entry_fill_price = nil
+        let fallback = ChartHoldingOverlay.rows(positions: [unknown], conID: 2, symbol: "TSLL", type: "OPT", chinese: false)
+        XCTAssertEqual(fallback.first?["price"] as? Double, 0.77)
+        XCTAssertEqual(fallback.first?["title"] as? String, "-2 · IB Avg*")
+        unknown.avg_cost = nil
         XCTAssertTrue(ChartHoldingOverlay.rows(positions: [unknown], conID: 2, symbol: "TSLL", type: "OPT", chinese: false).first?["price"] is NSNull)
     }
 
