@@ -234,11 +234,12 @@ async function refreshMarket({full=false}={}){
  const request=marketBusy=new AbortController();lastFallback=Date.now();const context=marketContext(),revision=marketRevision;
  const timeout=setTimeout(()=>request.abort(),12000);
  try{
+  if(!packet.bars?.length){await refreshLegacyMarket(context);return;}
   if(streamSupported()){
    try{
     const generation=!full&&packet.generation&&packetReceived>Date.now()-5000?`&generation=${encodeURIComponent(packet.generation)}`:'';
     const bars=await api(`portfolio/stock-chart-latest/${context.cid}?interval=${context.interval}&session=${context.session}${context.epoch?'&epoch='+encodeURIComponent(context.epoch):''}${generation}`,undefined,AbortSignal.any([request.signal,AbortSignal.timeout(800)]));
-    if(!Array.isArray(bars.bars)||!Number.isFinite(bars.server_time))throw Error('Latest quote packet unavailable');
+    if(!Array.isArray(bars.bars)||!bars.bars.length||!Number.isFinite(bars.server_time))throw Error('Latest quote packet unavailable');
     if(marketBusy===request&&currentMarket(context)&&(full||!marketStream.healthy()))applyMarket(bars);
     return;
    }catch(error){if(request.signal.aborted)throw error;if(!marketStream.healthy())refreshLegacyMarket(context);return;}
@@ -266,7 +267,8 @@ async function refreshPnL(){
 function ensureMarket(){
  if(!ready||!cid||!epoch||document.hidden){marketStream.stop();return;}
  const supported=streamSupported();
- if(supported)marketStream.ensure(marketContext());else marketStream.stop();
+ // Bootstrap with one finite history request before starting SSE, as native does.
+ if(supported&&packet.bars?.length)marketStream.ensure(marketContext());else marketStream.stop();
  if((!supported||!marketStream.healthy())&&Date.now()-lastFallback>=(supported?(Date.now()<marketPriorityUntil?250:1000):2000))refreshMarket();
  refreshPnL();
 }
