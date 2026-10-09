@@ -1935,7 +1935,6 @@ struct PositionDayRange: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(verbatim: status).font(.caption2).foregroundStyle(.secondary)
             if let (low, high) = bounds {
                 GeometryReader { geometry in
                     let width = geometry.size.width
@@ -1969,5 +1968,6 @@ struct PositionDayRange: View {
             }
             .onChange(of: position.id) { _, _ in movementColor = .secondary }
             .accessibilityElement(children: .combine)
+            .accessibilityLabel(Text(verbatim: status))
     }
 }
