@@ -58,7 +58,7 @@ window.drawVolatility=()=>{
  if(o.markHits)for(const m of s.marks){if(!enabled(m.i))continue;const x=chart.timeScale().timeToCoordinate(m.time),y=series.priceToCoordinate(m.price);if(x!==null&&y!==null){ctx.fillStyle=colors[m.i];ctx.fillText((m.i<2?'1st':'2nd')+' Hit',x,y+(m.i%2?12:-8));}}
  }
  const s=model.sessions.at(-1);table.replaceChildren();table.hidden=!s||!o.distance||o.rthOnly&&!model.rth||s.day!==model.day;
- Object.assign(table.style,{right:(chart.priceScale('right').width()+36)+'px',top:'10px',background:'transparent',padding:'0',font:'14px Arial, sans-serif',display:table.hidden?'none':'grid',gridTemplateColumns:'auto auto',columnGap:'0',rowGap:'0'});
+ Object.assign(table.style,{right:(chart.priceScale('right').width()+10)+'px',top:'10px',background:'transparent',padding:'0',font:'14px Arial, sans-serif',display:table.hidden?'none':'grid',gridTemplateColumns:'auto auto',columnGap:'0',rowGap:'0'});
  if(!table.hidden){for(const text of ['𝕄𝕠𝕠𝕟𝕊𝕙𝕚𝕟𝕖','𝔸𝕨𝕒𝕪']){const cell=document.createElement('span');cell.textContent=text;Object.assign(cell.style,{background:'#ffffff1f',padding:'3px 6px',textAlign:'center',color:'#000'});table.append(cell);}
  const labels=['𝟙𝕤𝕥 𝔹𝕦𝕝𝕝𝕤','𝟙𝕤𝕥 𝔹𝕖𝕒𝕣𝕤','𝟚𝕟𝕕 𝔹𝕦𝕝𝕝𝕤','𝟚𝕟𝕕 𝔹𝕖𝕒𝕣𝕤'];
  for(const i of [0,2,1,3]){if(!enabled(i))continue;const d=s.levels[i]-model.last.close,hit=s.hits[i]||(i%2?d>=0:d<=0);for(const text of [labels[i],hit?'𝙷𝚒𝚝':priceText(d)+' ('+(d/model.last.close*100).toFixed(2)+'%)']){const cell=document.createElement('span');cell.style.color=alpha([o.up1||'#c8e6c9',o.down1||'#FF1493',o.up2||'#008000',o.down2||'#ff0000'][i],i<2?0:35);Object.assign(cell.style,{background:'#ffffff14',padding:'3px 6px',textAlign:'center'});cell.textContent=text;table.append(cell);}}}
