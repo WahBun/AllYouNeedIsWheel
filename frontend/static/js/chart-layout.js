@@ -1,3 +1,38 @@
+/* Merge after OHLC aggregation and stream validation. Prices are delivered
+ * immediately to Lightweight Charts; only auxiliary configuration is batched. */
+class WheelPaneBuffer {
+ constructor(deliver,{schedule=fn=>requestAnimationFrame(fn),cancel=id=>cancelAnimationFrame(id),limit=20000}={}) {
+  Object.assign(this,{deliver,schedule,cancel,limit});this.clear();
+ }
+ clear(){if(this.frame!=null)this.cancel(this.frame);this.frame=null;this.bars=[];this.byTime=new Map();this.pending=new Map();this.packet=null;this.snapshot=false;}
+ accept(packet){
+  if(this.packet&&packet.generation!==this.packet.generation)this.clear();
+  const incoming=packet.bars||[];let sort=false;
+  for(const bar of incoming){
+   const index=this.byTime.get(bar.time);
+   if(index!==undefined)this.bars[index]=bar;
+   else{if(this.bars.length&&bar.time<this.bars.at(-1).time)sort=true;this.byTime.set(bar.time,this.bars.length);this.bars.push(bar);}
+   this.pending.set(bar.time,bar);
+  }
+  if(sort)this.bars.sort((a,b)=>a.time-b.time);
+  const trimmed=this.bars.length>this.limit;
+  if(trimmed)this.bars=this.bars.slice(-this.limit);
+  if(sort||trimmed)this.byTime=new Map(this.bars.map((bar,index)=>[bar.time,index]));
+  this.snapshot=this.snapshot||packet.mode!=='delta'||trimmed;
+  // A full frame already owns every retained bar; discarded history must not
+  // accumulate in the delta map while animation frames are suspended.
+  if(this.snapshot)this.pending.clear();
+  this.packet={...packet,bars:this.bars};
+  if(this.frame==null)this.frame=this.schedule(()=>this.flush());
+  return this.packet;
+ }
+ flush(){
+  this.frame=null;if(!this.packet)return;
+  const packet={...this.packet,mode:this.snapshot?'snapshot':'delta',bars:this.snapshot?this.bars.slice():[...this.pending.values()].sort((a,b)=>a.time-b.time)};
+  this.pending.clear();this.snapshot=false;this.deliver(packet);
+ }
+}
+globalThis.WheelPaneBuffer=WheelPaneBuffer;
 /* Auxiliary panes are read-only chart renderers. Only the existing main host trades. */
 window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
  const saved=(()=>{try{return JSON.parse(localStorage.getItem('wheel.chart-layout')||'{}')}catch{return {}}})();
@@ -38,26 +73,27 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
  function position(el,index){if(count<=2){el.style.gridColumn=String(index+1);el.style.gridRow='1';}else if(index===count-1){el.style.gridColumn='2';el.style.gridRow='1 / -1';}else{el.style.gridColumn='1';el.style.gridRow=String(index+1);}}
  function captureActive(){const c=current(),pane=panes.get(active);if(!pane)return;configs[active]={cid:c.cid,interval:c.interval,session:c.session,label:c.label,axis:c.axis,display:structuredClone(c.display)};pane.drawingKey=`web:${location.origin}:${c.cid}`;pane.lastRead=Date.now();pane.data=c.packet;pane.ema=c.emaFrames;pane.volatility=c.volatility;pane.key=JSON.stringify(pane.context());pane.loaded=c.ready;}
  function follow(kind){if(!links[kind])return;const c=current();for(let i=0;i<configs.length;i++)if(i!==active){if(kind==='symbol'){configs[i].cid=c.cid;configs[i].label=c.label;}else configs[i].session=c.session;}tick();}
- function choose(index){const target=configs[index],next=panes.get(index);if(!target?.cid||index===active||!next?.loaded||!next.data.bars?.length)return;captureActive();const old=panes.get(active);if(!activate(target,next.frame,{packet:next.data,ema:next.ema,volatility:next.volatility}))return;next.stream.stop();next.controller?.abort();next.seq++;next.inflight=false;old.frame.removeAttribute('id');next.frame.id='chart';active=index;old.render();arrange();tick();persist();}
+ function choose(index){const target=configs[index],next=panes.get(index);if(!target?.cid||index===active||!next?.loaded||!next.data.bars?.length)return;captureActive();const old=panes.get(active);if(!activate(target,next.frame,{packet:next.data,ema:next.ema,volatility:next.volatility}))return;next.stream.stop();next.buffer.clear();next.controller?.abort();next.seq++;next.inflight=false;old.frame.removeAttribute('id');next.frame.id='chart';active=index;old.render();arrange();tick();persist();}
  function arrange(){paintMaximize();grid.dataset.layout=count;button.innerHTML=icon(count);for(const b of menu.querySelectorAll('[data-layout]'))b.setAttribute('aria-checked',String(Number(b.dataset.layout)===count));
   for(const [index,pane] of panes)if(index>=count){pane.dispose();panes.delete(index);}
   for(let i=0;i<count;i++){if(!panes.has(i))panes.set(i,new Pane(i));const pane=panes.get(i);position(pane.el,i);pane.el.classList.toggle('active',i===active);}
  }
  class Pane{
   constructor(index,existing){this.index=index;this.el=existing?existing.parentElement:document.createElement('div');this.el.className='chart-pane';this.frame=existing||document.createElement('iframe');this.frame.title='Chart '+(index+1);if(!existing)this.frame.src='/superchart/frame';if(!existing){this.el.append(this.frame);grid.append(this.el);}this.data={};this.loaded=false;this.dead=false;this.seq=0;this.lastRead=0;this.lastExtras=0;
+   this.buffer=new WheelPaneBuffer(p=>{if(this.dead||this.index===active||this.key!==JSON.stringify(this.context()))return;this.render();});
    this.stream=new WheelChartStream({receive:p=>this.receive(p),status:()=>{}});
    this.listener=e=>{if(e.origin!==location.origin||e.source!==this.frame.contentWindow||!e.data?.wheelChart)return;const {name,body}=e.data;if(name==='paperAction'&&['indicatorToggle','indicatorCollapse','indicatorSettings'].includes(body?.action)&&this.index!==active){choose(this.index);}else if(name==='historyRequest'&&this.index!==active){void this.loadHistory(body.before);}else if(name==='chartReady'){this.loaded=true;maximizeKeys(this.frame.contentDocument,this);this.frame.contentDocument.addEventListener('click',e=>{if(!e.target.closest('button,input,select,textarea,#draw-svg,#tv-attr-logo'))choose(this.index);},true);this.tick();}else if(name==='paneCrosshair'){for(const pane of panes.values())if(pane!==this&&pane.loaded)pane.frame.contentWindow.syncPaneCrosshair?.(body&&configs[pane.index].cid===configs[this.index].cid?body:null);}else if(name==='priceAxisChanged'){configs[this.index].axis=body.side;persist();}else if(name==='drawingsChanged'&&body.key===this.drawingKey){localStorage.setItem('wheel.drawings:'+configs[this.index].cid,JSON.stringify(body));for(const pane of panes.values())if(pane!==this&&pane.loaded&&configs[pane.index].cid===configs[this.index].cid)pane.frame.contentWindow.receivePeerDrawings?.(body);}};window.addEventListener('message',this.listener);
   }
-  dispose(){this.dead=true;this.stream.stop();this.controller?.abort();window.removeEventListener('message',this.listener);this.el.remove();}
+  dispose(){this.dead=true;this.buffer.clear();this.stream.stop();this.controller?.abort();window.removeEventListener('message',this.listener);this.el.remove();}
   context(){const c=configs[this.index];return {cid:c.cid,interval:c.interval,session:c.session,epoch:current().epoch};}
-  receive(p){if(this.index===active)return;const c=this.context();if(p.con_id!==c.cid||p.interval!==c.interval||p.session!==c.session)return;
-   const bars=[...new Map([...(this.data.bars||[]),...(p.bars||[])].map(b=>[b.time,b])).values()].sort((a,b)=>a.time-b.time).slice(-20000);this.data={...p,bars};this.frame.contentWindow.receive(p.mode==='delta'?p:{...p,bars,mode:'snapshot'});this.render();if([15,60].includes(c.interval)&&bars.length&&bars.at(-1).time-bars[0].time<7*86400){queueMicrotask(()=>this.loadHistory(bars[0].time));}
+  receive(p){if(this.index===active)return;const c=this.context();if(p.con_id!==c.cid||p.interval!==c.interval||p.session!==c.session||(p.account_epoch!==undefined&&p.account_epoch!==c.epoch))return;
+   if(!this.buffer.packet&&this.data.bars?.length)this.buffer.accept({...this.data,mode:'snapshot'});this.data=this.buffer.accept(p);const bars=this.data.bars;this.frame.contentWindow.receive(p.mode==='delta'&&!this.buffer.snapshot?p:{...p,bars,mode:'snapshot'});if([15,60].includes(c.interval)&&bars.length&&bars.at(-1).time-bars[0].time<7*86400){queueMicrotask(()=>this.loadHistory(bars[0].time));}
   }
-  async loadHistory(before){const c=this.context();if(this.dead||this.index===active||!c.epoch||!before||this.historyBusy||Date.now()<(this.historyRetry||0))return;this.historyBusy=true;this.historyRetry=Date.now()+30000;const seq=this.seq;try{const page=await api(`portfolio/stock-chart-history/${c.cid}?interval=${c.interval}&session=${c.session}&before=${before}`);if(!this.dead&&this.index!==active&&seq===this.seq&&page.bars?.length){const bars=[...new Map([...page.bars,...(this.data.bars||[])].map(b=>[b.time,b])).values()].sort((a,b)=>a.time-b.time).slice(-20000);this.data={...this.data,bars,mode:'snapshot'};this.frame.contentWindow.receive(this.data);}}catch{}finally{this.historyBusy=false;}}
+  async loadHistory(before){const c=this.context();if(this.dead||this.index===active||!c.epoch||!before||this.historyBusy||Date.now()<(this.historyRetry||0))return;this.historyBusy=true;this.historyRetry=Date.now()+30000;const seq=this.seq;try{const page=await api(`portfolio/stock-chart-history/${c.cid}?interval=${c.interval}&session=${c.session}&before=${before}`);if(!this.dead&&this.index!==active&&seq===this.seq&&page.bars?.length){const bars=[...new Map([...page.bars,...(this.data.bars||[])].map(b=>[b.time,b])).values()].sort((a,b)=>a.time-b.time).slice(-20000);this.data=this.buffer.accept({...this.data,bars,mode:'snapshot'});this.frame.contentWindow.receive(this.data);}}catch{}finally{this.historyBusy=false;}}
   render(){if(!this.loaded||this.index===active)return;const c=configs[this.index],root=current(),display=WheelChartSettings.effective({...c.display,atr:this.data.security_type==='OPT'?c.display.optionATR===true:c.display.atr},c.session,this.ema||{});
    this.frame.contentWindow.configurePriceAxis?.(c.axis);this.frame.contentWindow.configure({con_id:c.cid,entry:0,quantity:0,paper:{enabled:false},holdings:holdings(c.cid,this.data),executions:c.cid===root.cid?executions():[],dark:root.dark,display,priceRules:this.data.price_rules||[]});const o={...display.volatility};if(!display.indicatorVisible){o.channels=false;o.gauge=false;}this.frame.contentWindow.configureVolatility?.(this.data,this.volatility,o);
   }
-  async tick(){if(this.dead||!this.loaded||this.index===active||document.hidden)return;const c=this.context();if(!c.cid)return;const key=JSON.stringify(c);if(key!==this.key){const old=this.key?JSON.parse(this.key):null;const accountOnly=old&&old.cid===c.cid&&old.interval===c.interval&&old.session===c.session;this.key=key;this.seq++;this.controller?.abort();this.inflight=false;this.data={};this.ema={};this.volatility=null;this.lastRead=0;this.lastExtras=0;this.historyRetry=0;this.stream.stop();if(accountOnly)this.frame.contentWindow.prepareAccountChart?.();else this.frame.contentWindow.receive({bars:[],generation:'clear',con_id:c.cid,interval:c.interval,session:c.session});this.drawingKey=`web:${location.origin}:${c.cid}`;let value={};try{value=JSON.parse(localStorage.getItem('wheel.drawings:'+c.cid)||'{}')}catch{}this.frame.contentWindow.configureDrawings({key:this.drawingKey,value});}
+  async tick(){if(this.dead||!this.loaded||this.index===active||document.hidden)return;const c=this.context();if(!c.cid)return;const key=JSON.stringify(c);if(key!==this.key){const old=this.key?JSON.parse(this.key):null;const accountOnly=old&&old.cid===c.cid&&old.interval===c.interval&&old.session===c.session;this.key=key;this.seq++;this.controller?.abort();this.inflight=false;this.buffer.clear();this.data={};this.ema={};this.volatility=null;this.lastRead=0;this.lastExtras=0;this.historyRetry=0;this.stream.stop();if(accountOnly)this.frame.contentWindow.prepareAccountChart?.();else this.frame.contentWindow.receive({bars:[],generation:'clear',con_id:c.cid,interval:c.interval,session:c.session});this.drawingKey=`web:${location.origin}:${c.cid}`;let value={};try{value=JSON.parse(localStorage.getItem('wheel.drawings:'+c.cid)||'{}')}catch{}this.frame.contentWindow.configureDrawings({key:this.drawingKey,value});}
    this.render();if(!c.epoch)return;if([15,60].includes(c.interval)&&this.data.bars?.length&&this.data.bars.at(-1).time-this.data.bars[0].time<7*86400)void this.loadHistory(this.data.bars[0].time);if(this.data.bars?.length)this.stream.ensure(c);
    if(!this.inflight&&!this.stream.healthy()&&Date.now()-this.lastRead>5000){this.inflight=true;this.lastRead=Date.now();const seq=this.seq;this.controller=new AbortController();try{const p=await readInitial(c,this.controller.signal);if(!this.dead&&seq===this.seq)this.receive(p);}catch{}finally{if(seq===this.seq)this.inflight=false;}}
    if(this.data.bars?.length&&!this.extraBusy&&Date.now()-this.lastExtras>10000){this.extraBusy=true;this.lastExtras=Date.now();const seq=this.seq,display=configs[this.index].display;try{const frames=WheelChartSettings.requested(display,c.interval,c.session),family=WheelVolatility.family(this.data);const results=await Promise.allSettled([frames.length?api(`portfolio/chart-ema/${c.cid}?frames=${frames.join(',')}&session=${c.session}`):Promise.resolve(null),family&&display.indicatorVisible&&display.volatility.channels?api(`portfolio/chart-volatility/${c.cid}?source=${display.volatility[family]}`):Promise.resolve(null)]);if(!this.dead&&seq===this.seq){if(results[0].status==='fulfilled')this.ema=results[0].value?.frames||{};if(results[1].status==='fulfilled')this.volatility=results[1].value;this.render();}}finally{this.extraBusy=false;}}

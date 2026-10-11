@@ -32,6 +32,41 @@ def positive(value):
         return None
 
 
+def historical_volume(bar):
+    """Preserve IB's reported snapshot units; never assume shares vs lots."""
+    value = getattr(bar, 'volume', None)
+    try:
+        value = float(value) if not isinstance(value, bool) else None
+    except (TypeError, ValueError, OverflowError):
+        value = None
+    valid = value is not None and math.isfinite(value) and 0 <= value < 1e100
+    return dict(volume=value if valid else None,
+                volume_status='historical_snapshot' if valid else 'unknown',
+                volume_unit='IB_reported')
+
+
+def unknown_volume(bar):
+    # No trade identity or history/live watermark: adding sizes can double count.
+    if bar.get('volume_status') == 'historical_snapshot':
+        bar['historical_volume'] = bar.get('volume')
+    bar.update(volume=None, volume_status='unknown', volume_unit='IB_reported')
+    return bar
+
+
+def merge_volume(target, incoming):
+    """Aggregate disjoint bars only; any unknown constituent stays unknown."""
+    if 'volume_status' not in target and 'volume_status' not in incoming:
+        return
+    a, b = target.get('volume'), incoming.get('volume')
+    if (target.get('volume_status') == incoming.get('volume_status') == 'historical_snapshot'
+            and target.get('volume_unit') == incoming.get('volume_unit') and a is not None and b is not None):
+        target['volume'] = a + b
+    else:
+        target.pop('historical_volume', None)
+        unknown_volume(target)
+        target.pop('historical_volume', None)  # Partial aggregates are not a total.
+
+
 def apply_tick(bars, timestamp, price):
     price = positive(price)
     if price is None or not math.isfinite(timestamp):
@@ -68,6 +103,7 @@ def aggregate(bars, minutes, sessions=None):
         if not result or result[-1]['time'] != stamp:
             result.append(dict(bar, time=stamp))
         else:
+            merge_volume(result[-1], bar)
             result[-1].update(high=max(result[-1]['high'], bar['high']),
                               low=min(result[-1]['low'], bar['low']), close=bar['close'])
     return result
@@ -110,6 +146,7 @@ def bar_close_time(bar, minutes, session, now):
 
 
 class StockChart:
+    MAX_CONTRACTS = 8  # Two independent four-chart pages; never unbounded.
     IDLE_SECONDS = 300  # Keep a bounded subscription warm across short app switches.
     def __init__(self):
         self.active = None
@@ -117,6 +154,7 @@ class StockChart:
         self.next_request = {}
         self.request_errors = {}
         self.listeners = set()
+        self.has_subscribers = lambda con_id: False
 
     def stop(self, reset_cooldown=False):
         try:
@@ -174,8 +212,11 @@ class StockChart:
                       or conn.ib.ticker(state['contract']) is not state['ticker']):
             self.stop_state(state)
             state = None
-        if state is None and len(self.states) >= 4:
-            self.stop_state(min(self.states.values(), key=lambda item: item['used']))
+        if state is None and len(self.states) >= self.MAX_CONTRACTS:
+            idle = [item for item in self.states.values() if not self.has_subscribers(item['con_id'])]
+            if not idle:
+                raise ValueError('Chart contract capacity reached; close an unused chart first')
+            self.stop_state(min(idle, key=lambda item: item['used']))
         self.active = state
         if fast and state is not None and minutes in (1,3,5,10,15,60,480) and not (minutes==480 and session=='rth'):
             # Resume quotes without historical backfill; metadata loads independently.
@@ -219,7 +260,7 @@ class StockChart:
                 o, h, l, c = prices
                 if not l <= min(o, c) <= max(o, c) <= h:
                     continue
-                bars.append(dict(time=int(bar.date.timestamp()), open=o, high=h, low=l, close=c))
+                bars.append(dict(time=int(bar.date.timestamp()), open=o, high=h, low=l, close=c, **historical_volume(bar)))
             bars = list({b['time']: b for b in bars}.values())
             bars.sort(key=lambda b: b['time'])
             from api.services.history_health import record as record_history_health
@@ -277,6 +318,7 @@ class StockChart:
                     if timestamp > time.time() + 5 or (state['last_tick'] is not None and timestamp < state['last_tick']):
                         continue
                     if apply_tick(state['bars'], timestamp, tick.price):
+                        unknown_volume(state['bars'][-1])
                         state['last_tick'] = timestamp
                         state['received'] = time.time()
                         state['ticks'] += 1
@@ -304,7 +346,7 @@ class StockChart:
                     if any(v is None for v in values): return
                     o,h,l,c=values
                     if not l<=min(o,c)<=max(o,c)<=h or stamp>time.time()+5: return
-                    point=dict(time=stamp,open=o,high=h,low=l,close=c)
+                    point=dict(time=stamp,open=o,high=h,low=l,close=c,**historical_volume(bar))
                     merged={b['time']:b for b in state['bars']};merged[stamp]=point
                     state['bars']=sorted(merged.values(),key=lambda b:b['time'])[-12000:]
                     state['live_bars'][stamp]=point
@@ -329,7 +371,7 @@ class StockChart:
                     continue
                 o,h,l,c = values
                 if l <= min(o,c) <= max(o,c) <= h:
-                    older.append(dict(time=int(bar.date.timestamp()),open=o,high=h,low=l,close=c))
+                    older.append(dict(time=int(bar.date.timestamp()),open=o,high=h,low=l,close=c,**historical_volume(bar)))
             if older:
                 # Refresh historical baselines; retain extrema from received live ticks.
                 merged = {b['time']: b for b in state['bars']}
@@ -338,6 +380,7 @@ class StockChart:
                     baseline = merged.get(stamp, live_bar)
                     merged[stamp] = dict(baseline, high=max(baseline['high'], live_bar['high']),
                         low=min(baseline['low'], live_bar['low']), close=live_bar['close'])
+                    unknown_volume(merged[stamp])
                 state['bars'] = sorted(merged.values(), key=lambda b:b['time'])[-12000:]
                 state['backfilled'] = True
         state['used'] = time.monotonic()
@@ -359,7 +402,7 @@ class StockChart:
                     if any(value is None for value in values): continue
                     o,h,l,c = values
                     if l <= min(o,c) <= max(o,c) <= h:
-                        older.append(dict(time=int(bar.date.timestamp()), open=o, high=h, low=l, close=c))
+                        older.append(dict(time=int(bar.date.timestamp()), open=o, high=h, low=l, close=c, **historical_volume(bar)))
                 if older: state['option_hourly'] = sorted(older, key=lambda bar: bar['time'])
             older = state.get('option_hourly', [])
             if older:
@@ -371,7 +414,7 @@ class StockChart:
                 for bar in aggregate(state['bars'], minutes, sessions):
                     old = combined.get(bar['time'])
                     if old:
-                        combined[bar['time']] = dict(old, high=max(old['high'],bar['high']), low=min(old['low'],bar['low']), close=bar['close'])
+                        combined[bar['time']] = unknown_volume(dict(old, high=max(old['high'],bar['high']), low=min(old['low'],bar['low']), close=bar['close']))
                     else: combined[bar['time']] = bar
                 packet = self.packet(state, minutes, session, sorted(combined.values(), key=lambda b:b['time']))
             else:
@@ -416,7 +459,7 @@ class StockChart:
                     continue
                 o, h, l, c = values
                 if l <= min(o, c) <= max(o, c) <= h:
-                    higher_bars.append(dict(time=stamp, open=o, high=h, low=l, close=c))
+                    higher_bars.append(dict(time=stamp, open=o, high=h, low=l, close=c, **historical_volume(bar)))
             higher_bars = sorted({bar['time']: bar for bar in higher_bars}.values(), key=lambda bar: bar['time'])
         return self.packet(state, minutes, session, higher_bars)
 

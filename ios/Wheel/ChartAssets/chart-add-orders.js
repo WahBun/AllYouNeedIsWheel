@@ -249,7 +249,7 @@
  function addAllowed(choice){return paperConfig.enabled&&(paperConfig.add_allowed??paperConfig.scalable)&&paperConfig.position&&choice.side===Math.sign(paperConfig.position)&&!paperConfig.busy&&!paperConfig.orders?.some(o=>['PendingSubmit','PendingCancel','Unknown'].includes(o.status));}
  function choosePriceOrder(choice,price){
   if(!paperConfig.position){menuOrderPrice=price;menuOrderCID=paperCID;sendPriceOrder(choice);return;}
-  if(choice.side!==Math.sign(paperConfig.position)){if(choice.type==='LMT')chooseExit(true,price);return;}
+  if(choice.side!==Math.sign(paperConfig.position)){if(choice.type==='LMT')chooseExit(Math.abs(paperConfig.position)>1,price);return;}
   if(!addAllowed(choice))return;
   const cid=paperCID,ref=paperConfig.order_ref,epoch=paperConfig.web_account_epoch,tp=paperConfig.add_tp||paperConfig.tp,sl=paperConfig.sl;
   addDialog.replaceChildren();const zh=parent.document.documentElement.lang.startsWith('zh');addDialog.dataset.light=String(!darkAppearance);
@@ -277,6 +277,7 @@
   if(!paperConfig.enabled)return paperConfig.trading_block_reason||'Waiting for verified order status';
   if(paperConfig.busy)return 'Order request in progress';
   if(!paperConfig.position)return 'No remaining position';
+  if(!trim&&paperConfig.close_allowed===false)return 'Wait for reconciled position before Close';
   if(trim&&(!priced||!paperConfig.scalable)&&Math.abs(paperConfig.position)<=1)return 'Only 1 remains; use Close position';
   if(trim&&availableTrim()<1)return 'All remaining units already have exit plans; move or cancel a plan first';
   if(trim&&!(paperConfig.trim_allowed??paperConfig.scalable))return 'Partial exit requires reconciled paired protection; use Close position';
@@ -307,7 +308,7 @@
   for(const choice of priceOrderChoices(price,previous.at(-1)?.close)){
    const adding=!!paperConfig.position;
    const reducing=adding&&choice.side!==Math.sign(paperConfig.position);
-   const reduceReason=()=>exitReason(true,true)||(choice.type!=='LMT'?'Priced stop exits are not supported; choose a limit price':'');
+   const reduceReason=()=>exitReason(Math.abs(paperConfig.position)>1,true)||(choice.type!=='LMT'?'Priced stop exits are not supported; choose a limit price':'');
    const disabled=adding?(reducing?!!reduceReason():!addAllowed(choice)):!paperConfig.enabled||paperConfig.active||paperConfig.busy||ovtStopBlocked(choice.type);
    const quantity=adding?(paperConfig.adjustment_quantity||1):qty;
    const b=append(`${reducing?(Math.abs(paperConfig.position)===1?'Close · ':'Trim · '):adding?'Add · ':''}${choice.label} ${quantity} ${countdownPacket?.local_symbol||countdownPacket?.symbol||''} @ ${priceText(price)}`,()=>choosePriceOrder(choice,price),disabled);

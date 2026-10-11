@@ -25,3 +25,13 @@ Use broker Paper acceptance only with the user's authorization and verify the ac
 Paper session first. Keep test effects bounded and verify the final order state.
 Report mock/simulator evidence separately from broker evidence; market-open fills,
 partial fills, and TP/SL triggers remain unverified until actually observed.
+
+## Protected market-data foundation
+
+Keep the price/OHLC delivery path stable by default. Before changing aggregation,
+streaming, chart scheduling or indicator work on that path, follow
+`docs/MARKET_DATA_BASELINE.md` and compare the same workload against its baseline.
+Cover 1–4 panes, repeated layout changes, two four-pane pages, latency distributions,
+data integrity, context isolation and recovery. Do not add quote throttles or
+parallel IB owners to hide regressions. Report mock/browser and broker evidence
+separately, including the documented trade-volume gap. Preserve the current layout.

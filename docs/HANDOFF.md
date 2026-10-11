@@ -1,5 +1,49 @@
 # Project Handoff
 
+## 2026-10-11 validated market and order recovery release
+
+Preserve the existing UI and serialized IB owner. The deployment scope includes
+Lightweight Charts 5.2.1 (verified vendor SHA-256), bounded per-page SSE multiplexing,
+eight active contract sources, incremental OHLC delivery, cached volatility work,
+and historical-volume provenance. It does not certify complete live trade volume.
+
+Order recovery now persists cancellation intent before broker transmission,
+mutually excludes amendment/cancellation claims, preserves unknown outcomes without
+replay, deduplicates execution identities and handles conflicting/corrected fee
+evidence conservatively. A follow-up fixes Unknown -> Submitted after a persisted
+cancel: the UI remains canceling until terminal broker evidence. Right-click
+single-unit Close now keeps its chosen limit price through host dispatch and backend
+submission; plain Close retains its existing behavior. No Live policy expansion is
+included. The older local Live management allowlist work remains unshipped.
+
+Fresh offline/browser validation: 168 protected-foundation tests, 111 focused order
+fault tests, 221 close/protection/scaling/policy regressions, 51 JavaScript tests, lifecycle,
+volatility and actual right-click browser routing. Counts overlap across suites.
+The matrix with eight cached fake order-status checks per tick passed 1/2/3/4 panes,
+two pages, eight distinct symbols, 200-tick bursts and reconnect/layout changes.
+Dual-page 10Hz max update gap was 103ms, apply p95 2-7ms; 100Hz p95 4-10ms.
+These are synthetic local measurements, not broker/network/physical-display claims.
+Stress assertions now cover both pages rather than silently skipping dual-page data.
+
+REA 6.4.0 reused the retained public Tradesea worker analysis rather than repeating
+it: parent ev_3d5cc80a4ec6ac6cb1577caf442db80d6fd9547372baa0b768b7341a9a4b901c;
+trading module view ev_3b06c4644792ae1947c86b8b659b29b8972b01b337bf35ed25bc30ee9931d6fa;
+asset view ev_b9ef6275e1f710b923d1dc3f54654d1481ce164d815ab55fefc342d2a818e038.
+Static public worker evidence supports isolated connection state, stale-connection
+handling and jittered reconnect. It does not establish server-side idempotency,
+execution reconciliation, or a license to copy proprietary code. Wheel retains
+its own durable UUID/intent mechanisms and licensed chart engine. Public source:
+https://tradesea.ai/blog/UnderTheHood and app.tradesea.ai public assets.
+
+Mini preflight verified Paper on 4002, no unresolved local writes or unpersisted
+chart requests, and one existing processing order. Preserve it, all saved chart
+groups, local configuration and account selection. Back up privately before the
+nullable cancellation_pending migration and restart only Wheel, not Gateway.
+No Live writes, test orders, account switch or iPhone installation are included.
+Market-open Paper fills, partial fills, TP/SL triggers, real Gateway recovery and
+physical-device acceptance remain outstanding before a Live-readiness claim.
+
+
 ## 2026-10-09 Live Orders refresh guard
 
 Allow only POST /api/options/check-orders through the option-only Live legacy

@@ -6,6 +6,16 @@ from unittest.mock import Mock, AsyncMock
 from eventkit import Event
 from api.services.stock_chart import StockChart, aggregate, apply_tick, regular_sessions, bar_close_time
 
+
+def close_test_loop():
+    """Drain cancellation on the test-owned loop before closing it."""
+    loop = asyncio.get_event_loop()
+    pending = asyncio.all_tasks(loop)
+    for task in pending: task.cancel()
+    if pending: loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+    loop.close()
+
+
 class StockChartTests(unittest.TestCase):
     def test_ticks_preserve_intrabar_extremes_and_new_minutes(self):
         bars = []
@@ -58,7 +68,7 @@ class StockChartTests(unittest.TestCase):
                 live.ib.reqHistoricalData.assert_called_once()
                 paper.ib.placeOrder.assert_not_called(); live.ib.placeOrder.assert_not_called()
         finally:
-            feed.stop();asyncio.get_event_loop().close()
+            feed.stop();close_test_loop()
 
     def test_same_account_stop_keeps_subscription_pacing(self):
         from unittest.mock import patch
@@ -72,7 +82,7 @@ class StockChartTests(unittest.TestCase):
                     feed.snapshot(conn,7,5,'all',fast=True)
                 self.assertEqual(conn.ib.reqHistoricalData.call_count,1)
         finally:
-            feed.stop();asyncio.get_event_loop().close()
+            feed.stop();close_test_loop()
 
     def test_short_background_keeps_subscription_but_idle_eventually_releases(self):
         from unittest.mock import patch
@@ -96,7 +106,7 @@ class StockChartTests(unittest.TestCase):
             conn.ib.reqHistoricalData.assert_not_called()
             conn.ib.placeOrder.assert_not_called()
         finally:
-            feed.stop();asyncio.get_event_loop().close()
+            feed.stop();close_test_loop()
 
     def test_fast_resume_uses_live_subscription_without_history_backfill(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
@@ -112,7 +122,7 @@ class StockChartTests(unittest.TestCase):
             feed.snapshot(conn,7,5,'all')
             conn.ib.reqHistoricalData.assert_called_once()
         finally:
-            feed.stop();asyncio.get_event_loop().close()
+            feed.stop();close_test_loop()
 
     def test_cold_snapshot_countdown_does_not_wait_for_first_trade(self):
         from unittest.mock import patch
@@ -141,7 +151,7 @@ class StockChartTests(unittest.TestCase):
                 self.assertIsNone(feed.packet(feed.active, 5, 'all')['bar_closes_at'])
             conn.ib.placeOrder.assert_not_called()
         finally:
-            feed.stop(); asyncio.get_event_loop().close()
+            feed.stop(); close_test_loop()
 
     def test_reuses_subscription_for_period_and_session_switches(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
@@ -157,7 +167,7 @@ class StockChartTests(unittest.TestCase):
             self.assertEqual(conn.ib.reqTickByTickData.call_count,2)
             conn.ib.placeOrder.assert_not_called()
             feed.stop();self.assertEqual(conn.ib.cancelTickByTickData.call_count,2)
-        finally:asyncio.get_event_loop().close()
+        finally:close_test_loop()
     def test_futures_rth_can_load_and_backfill_previous_session(self):
         from unittest.mock import patch
         asyncio.set_event_loop(asyncio.new_event_loop())
@@ -179,7 +189,7 @@ class StockChartTests(unittest.TestCase):
                 conn.ib.placeOrder.assert_not_called()
         finally:
             feed.stop()
-            asyncio.get_event_loop().close()
+            close_test_loop()
 
     def test_wrong_asset_and_missing_history_never_subscribe(self):
         conn,_=self.connection();feed=StockChart()
@@ -212,7 +222,7 @@ class StockChartTests(unittest.TestCase):
                 self.assertEqual(conn.ib.reqHistoricalData.call_count,1)
                 conn.ib.placeOrder.assert_not_called()
         finally:
-            feed.stop(); asyncio.get_event_loop().close()
+            feed.stop(); close_test_loop()
 
     def test_option_empty_history_retries_after_pacing_not_one_minute(self):
         from unittest.mock import patch
@@ -264,7 +274,7 @@ class StockChartTests(unittest.TestCase):
             self.assertIsNone(result['bid']);self.assertIsNone(result['ask'])
             conn.ib.placeOrder.assert_not_called()
         finally:
-            feed.stop();asyncio.get_event_loop().close()
+            feed.stop();close_test_loop()
 
     def test_favorite_intervals_preserve_ohlc_and_rth_boundaries(self):
         bars=[]
@@ -299,7 +309,7 @@ class StockChartTests(unittest.TestCase):
             feed.stop()
             self.assertEqual(conn.ib.cancelHistoricalData.call_count,3)
             conn.ib.placeOrder.assert_not_called()
-        finally:asyncio.get_event_loop().close()
+        finally:close_test_loop()
 
     def test_option_eight_hour_retains_recent_bars_during_daily_cooldown(self):
         from ib_async import Option
@@ -338,7 +348,7 @@ class StockChartTests(unittest.TestCase):
 
             conn.ib.placeOrder.assert_not_called()
         finally:
-            asyncio.get_event_loop().close()
+            close_test_loop()
 
     def test_countdown_session_close_early_close_and_calendar(self):
         ts=lambda value:datetime.fromisoformat(value).timestamp()
@@ -367,7 +377,7 @@ class StockChartTests(unittest.TestCase):
             conn.ib.reqMarketRuleAsync.assert_awaited_once_with(2)
             feed.snapshot(conn,7,5)
             conn.ib.reqContractDetailsAsync.assert_awaited_once()
-        finally:feed.stop();asyncio.get_event_loop().close()
+        finally:feed.stop();close_test_loop()
 
     def test_price_rules_load_without_blocking_and_ignore_retired_state(self):
         async def scenario():
@@ -414,7 +424,7 @@ class StockChartTests(unittest.TestCase):
             feed.active['backfilled']=False;feed.active['backfill_retry']=0
             result=feed.snapshot(conn,7,1,'all')
             self.assertEqual((result['bars'][-1]['high'],result['bars'][-1]['low'],result['bars'][-1]['close']),(14,8,14))
-        finally:feed.stop();asyncio.get_event_loop().close()
+        finally:feed.stop();close_test_loop()
 
     def test_last_tick_cannot_refresh_old_bid_ask(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
@@ -431,7 +441,7 @@ class StockChartTests(unittest.TestCase):
             ticker.updateEvent.emit(ticker)
             result=feed.snapshot(conn,7,1,'all')
             self.assertIsNone(result['bid']);self.assertIsNone(result['ask'])
-        finally:feed.stop();asyncio.get_event_loop().close()
+        finally:feed.stop();close_test_loop()
 
     def test_contract_timeout_cools_down_then_retries(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
@@ -447,7 +457,7 @@ class StockChartTests(unittest.TestCase):
             asyncio.get_event_loop().run_until_complete(feed.active['rules_task'])
             self.assertEqual(conn.ib.reqContractDetailsAsync.await_count,2)
             conn.ib.placeOrder.assert_not_called()
-        finally:feed.stop();asyncio.get_event_loop().close()
+        finally:feed.stop();close_test_loop()
 
     def test_bidask_subscription_keeps_unchanged_quote_during_active_feed(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
@@ -462,7 +472,7 @@ class StockChartTests(unittest.TestCase):
             result=feed.snapshot(conn,7,1,'all')
             self.assertEqual((result['bid'],result['ask']),(10,10.01))
             self.assertGreater(result['quote_expires_at'],result['server_time'])
-        finally:feed.stop();asyncio.get_event_loop().close()
+        finally:feed.stop();close_test_loop()
 
     def test_current_bidask_remains_valid_without_recent_last_trade(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
@@ -479,7 +489,7 @@ class StockChartTests(unittest.TestCase):
             self.assertGreater(result['quote_expires_at'],result['server_time'])
             ticker.marketDataType=3
             self.assertIsNone(feed.packet(feed.active,1,'all')['bid'])
-        finally:feed.stop();asyncio.get_event_loop().close()
+        finally:feed.stop();close_test_loop()
 
     def test_incremental_aggregation_matches_full_history_after_rollover_and_backfill(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
@@ -502,7 +512,7 @@ class StockChartTests(unittest.TestCase):
             self.assertEqual(feed.packet(state,5,'all')['bars'],aggregate(state['bars'],5))
             del state['bars'][:40]
             self.assertEqual(feed.packet(state,5,'all')['bars'],aggregate(state['bars'],5))
-        finally:feed.stop();asyncio.get_event_loop().close()
+        finally:feed.stop();close_test_loop()
 
     def test_option_updates_use_history_and_never_cached_last_or_tick_by_tick(self):
         from unittest.mock import patch
@@ -544,7 +554,7 @@ class StockChartTests(unittest.TestCase):
             self.assertEqual(feed.packet(feed.active,1,'all')['status'],'waiting')
             conn.ib.placeOrder.assert_not_called()
         finally:
-            feed.stop();asyncio.get_event_loop().close()
+            feed.stop();close_test_loop()
         conn.ib.cancelHistoricalData.assert_called_once_with(history)
         conn.ib.cancelMktData.assert_not_called()
         conn.ib.cancelTickByTickData.assert_not_called()
@@ -569,7 +579,7 @@ class MultiChartTests(unittest.TestCase):
                 ticker.updateEvent.emit(ticker)
                 self.assertEqual(first['ticks'],1)
                 self.assertEqual(second['ticks'],0)
-            finally:feed.stop();asyncio.get_event_loop().close()
+            finally:feed.stop();close_test_loop()
 
 
 class CoveredCallDefaultTests(unittest.TestCase):
@@ -594,4 +604,4 @@ class CoveredCallDefaultTests(unittest.TestCase):
             stock.position=100
             self.assertEqual(feed.packet(state,5,'all')['covered_call_capacity'],0)
         finally:
-            feed.stop();asyncio.get_event_loop().close()
+            feed.stop();close_test_loop()

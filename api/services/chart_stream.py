@@ -2,13 +2,16 @@
 import json
 import time
 from queue import Queue, Empty
-from threading import BoundedSemaphore
+from threading import BoundedSemaphore, Lock, Event
 from uuid import uuid4
 from flask import Response, current_app, request
 from api.services.stock_chart import stock_chart
 from api.services.chart_latest import latest_charts
 
-slots = BoundedSemaphore(2)
+# At most four transport connections, each with at most four chart contexts.
+# Legacy single-chart clients remain supported. Each context retains eight packets.
+MAX_CHART_STREAMS = 4
+slots = BoundedSemaphore(MAX_CHART_STREAMS)
 
 
 class Subscriber:
@@ -20,6 +23,7 @@ class Subscriber:
         self.sent = 0
         self.created = time.monotonic()
         self.closed = False
+        self.ready = None
 
     def publish(self, packet):
         bars = packet['bars']
@@ -41,6 +45,7 @@ class Subscriber:
         # OHLC dictionaries mutate in place on the owner thread.
         self.previous = dict(packet, bars=[dict(b) for b in bars])
         self.sent = time.monotonic()
+        if self.ready is not None: self.ready.set()
 
 
 class ChartStreams:
@@ -48,6 +53,7 @@ class ChartStreams:
         self.clients = {}
 
     def open(self, connection, con_id, minutes, session, include_pnl=False):
+        stock_chart.has_subscribers = lambda cid: any(not sub.closed and sub.con_id == cid for sub in self.clients.values())
         state = stock_chart.states.get(con_id)
         if (state and state['conn'] is connection and state['con_id'] == con_id
                 and connection.is_connected() and connection.ib.ticker(state['contract']) is state['ticker']):
@@ -56,6 +62,8 @@ class ChartStreams:
         else:
             packet = stock_chart.snapshot(connection, con_id, minutes, session)
         sub = Subscriber(con_id, minutes, session)
+        from api.routes.account import epoch
+        sub.account_epoch = epoch()
         sub.include_pnl = include_pnl
         if include_pnl:
             from api.services.chart_pnl import snapshot
@@ -70,10 +78,13 @@ class ChartStreams:
         return key, sub
 
     def with_pnl(self, packet, connection, sub):
+        from api.routes.account import epoch
+        # A late packet must keep the identity captured when its subscription opened.
+        account_epoch = sub.account_epoch if hasattr(sub, 'account_epoch') else epoch()
+        packet = dict(packet, account_epoch=account_epoch)
         service = getattr(connection, '_chart_pnl', None)
         if getattr(sub, 'include_pnl', False) and service:
-            from api.routes.account import epoch
-            return dict(packet, daily_pnl=service.snapshot(sub.con_id, cached_only=True), account_epoch=epoch())
+            packet = dict(packet, daily_pnl=service.snapshot(sub.con_id, cached_only=True))
         return packet
 
     def publish_pnl(self, pnl):
@@ -89,12 +100,16 @@ class ChartStreams:
         now = time.monotonic()
         marker = (state['ticks'], tuple(sorted(state['quotes'].items())),
                   tuple((r['low'], r['increment']) for r in state.get('price_rules', [])))
+        packets = {}
         for sub in tuple(self.clients.values()):
             if sub.closed or sub.con_id != state['con_id']:
                 continue
             if marker != getattr(sub, 'marker', None) or now-sub.sent >= 1 or (pnl_changed and getattr(sub, 'include_pnl', False)):
                 sub.marker = marker
-                sub.publish(self.with_pnl(stock_chart.packet(state, sub.minutes, sub.session), state['conn'], sub))
+                context = (sub.minutes, sub.session)
+                if context not in packets:
+                    packets[context] = stock_chart.packet(state, *context)
+                sub.publish(self.with_pnl(packets[context], state['conn'], sub))
 
     def pulse(self):
         contexts=latest_charts.contexts()
@@ -138,47 +153,91 @@ streams = ChartStreams()
 
 def response(connection_factory):
     try:
-        con_id = request.view_args['con_id']
-        minutes = int(request.args.get('interval', '5'))
-        session = request.args.get('session', 'rth')
-        if minutes not in (1,3,5,10,15,60,480) or (minutes == 480 and session == 'rth') or session not in ('rth','all'):
-            raise ValueError()
-    except (ValueError, KeyError):
-        return {'error': 'Unsupported streaming chart interval'}, 400
+        raw = request.args.get('contexts')
+        if raw is not None:
+            if len(raw) > 2048: raise ValueError()
+            contexts = json.loads(raw)
+        else:
+            contexts = [dict(cid=request.view_args['con_id'],
+                             interval=int(request.args.get('interval', '5')),
+                             session=request.args.get('session', 'rth'))]
+        if not isinstance(contexts, list) or not 1 <= len(contexts) <= 4: raise ValueError()
+        identities = set()
+        for context in contexts:
+            cid, minutes, session = context['cid'], context['interval'], context['session']
+            if (type(cid) is not int or cid <= 0 or type(minutes) is not int
+                    or minutes not in (1,3,5,10,15,60,480)
+                    or (minutes == 480 and session == 'rth') or session not in ('rth','all')):
+                raise ValueError()
+            identity = (cid, minutes, session)
+            if identity in identities: raise ValueError()
+            identities.add(identity)
+    except (ValueError, KeyError, TypeError):
+        return {'error': 'Unsupported streaming chart contexts'}, 400
     if not slots.acquire(blocking=False):
         return {'error': 'Chart streams busy'}, 503
     include_pnl = request.args.get('include_pnl') == '1'
     app = current_app._get_current_object()
     executor = app.extensions['ib_api_executor']
+    ready = Event()
     def start():
-        with app.app_context():
-            return streams.open(connection_factory(), con_id, minutes, session, include_pnl)
-    future = executor.submit(start)
+        opened = []
+        try:
+            with app.app_context():
+                connection = connection_factory()
+                for context in contexts:
+                    item = streams.open(connection, context['cid'], context['interval'], context['session'], include_pnl)
+                    item[1].ready = ready
+                    opened.append(item)
+            return opened
+        except Exception:
+            for _, sub in opened: sub.closed = True
+            raise
     try:
-        key, sub = future.result(timeout=20)
+        future = executor.submit(start)
+    except Exception:
+        slots.release()
+        return {'error': 'Chart stream unavailable'}, 503
+    try:
+        opened = future.result(timeout=20)
     except Exception as error:
         def abandon(done):
             if not done.cancelled() and done.exception() is None:
-                done.result()[1].closed = True
+                for _, sub in done.result(): sub.closed = True
         future.add_done_callback(abandon)
         future.cancel()
         slots.release()
         if isinstance(error, ValueError): return {'error': str(error)}, 400
         return {'error': 'Chart stream unavailable'}, 503
+    released = False
+    release_lock = Lock()
+    def release():
+        nonlocal released
+        with release_lock:
+            if not released:
+                released = True
+                for _, sub in opened: sub.closed = True
+                ready.set()
+                slots.release()
     def generate():
         try:
-            while not sub.closed:
-                try:
-                    packet = sub.queue.get(timeout=2)
+            while not any(sub.closed for _, sub in opened):
+                ready.clear()
+                sent = False
+                # One packet per context per round prevents a hot chart starving peers.
+                for _, sub in opened:
+                    try: packet = sub.queue.get_nowait()
+                    except Empty: continue
+                    sent = True
                     yield 'data: ' + json.dumps(packet, allow_nan=False, separators=(',', ':')) + '\n\n'
-                except Empty:
-                    if time.monotonic()-sub.sent > 10:
-                        return
+                if not sent and not ready.wait(timeout=2):
+                    if any(time.monotonic()-sub.sent > 10 for _, sub in opened): return
                     yield ': heartbeat\n\n'
         finally:
-            sub.closed = True
-            slots.release()
+            release()
     result = Response(generate(), mimetype='text/event-stream')
+    # Closing an unstarted generator does not execute its finally block.
+    result.call_on_close(release)
     result.headers['Cache-Control'] = 'no-store'
     result.headers['X-Accel-Buffering'] = 'no'
     return result

@@ -4,6 +4,7 @@ Stock and Options Trading Connection Module for Interactive Brokers
 
 import logging
 from core.order_timing import routed_contract
+from core.execution_evidence import groups as execution_groups
 import asyncio
 import copy
 import math
@@ -1882,19 +1883,33 @@ class IBConnection:
     @staticmethod
     def _fill_metadata(fills, expected_filled=None):
         """Broker executions only: timezone-qualified time and complete fee reports."""
-        unique = {}
-        for fill in fills:
-            execution = getattr(fill, 'execution', None)
-            key = getattr(execution, 'execId', '')
-            if key:
-                unique[key] = fill
+        identified = [fill for fill in fills if getattr(getattr(fill, 'execution', None), 'execId', '')]
+        grouped, unambiguous = execution_groups(identified, lambda fill: fill.execution)
+        unique = []
+        fee_conflict = False
+        for duplicate_group in grouped:
+            reported = []
+            for fill in duplicate_group:
+                report = getattr(fill, 'commissionReport', None)
+                fee = getattr(report, 'commission', None)
+                if (getattr(report, 'execId', '') == fill.execution.execId
+                        and getattr(report, 'currency', '')
+                        and isinstance(fee, (int, float)) and math.isfinite(fee) and abs(fee) < 1e100):
+                    reported.append(fill)
+            signatures = {(f.commissionReport.commission, f.commissionReport.currency) for f in reported}
+            pnls = {getattr(f.commissionReport, '_wheel_realized_pnl', None) for f in reported
+                    if getattr(f.commissionReport, '_wheel_realized_pnl', None) is not None}
+            fee_conflict |= len(signatures) > 1 or len(pnls) > 1
+            # An older duplicate without a report cannot erase a valid late fee.
+            unique.append(max(reported, key=lambda f: getattr(f.commissionReport, '_wheel_realized_pnl', None) is not None)
+                          if reported else duplicate_group[-1])
         times, actions, fees, currencies = [], set(), [], set()
-        complete = bool(unique)
+        complete = bool(unique) and unambiguous and not fee_conflict
         pnl_values = []
         if expected_filled is not None:
-            reported_quantity = sum(float(getattr(fill.execution, 'shares', 0) or 0) for fill in unique.values())
+            reported_quantity = sum(float(getattr(fill.execution, 'shares', 0) or 0) for fill in unique)
             complete = complete and reported_quantity >= float(expected_filled or 0)
-        for fill in unique.values():
+        for fill in unique:
             execution = fill.execution
             stamp = getattr(execution, 'time', None)
             if isinstance(stamp, datetime) and stamp.tzinfo is not None:
@@ -1918,6 +1933,7 @@ class IBConnection:
         return {
             'fill_time': max(times).isoformat() if times else None,
             'fill_action': next(iter(actions)) if len(actions) == 1 else None,
+            '_fee_conflict': not unambiguous or fee_conflict or len(currencies) > 1,
             'commission': sum(fees) if complete and len(currencies) == 1 else None,
             'commission_currency': next(iter(currencies)) if complete and len(currencies) == 1 else None,
             'realized_pnl': sum(pnl_values) if complete and currencies == {'USD'} and len(pnl_values) == len(unique) else None,
@@ -1943,7 +1959,7 @@ class IBConnection:
     def get_order_fill_metadata(self, details):
         """Read cached broker fills; never infer a fill from submission timestamps."""
         account = self._order_account()
-        if not account:
+        if not account or details.get('account_id') and details['account_id'] != account:
             return self._fill_metadata([])
         perm = str(details.get('perm_id') or '')
         ref = f"AYNIW-{details['id']}"
@@ -2313,7 +2329,10 @@ class IBConnection:
             matching_executions = []
             local_order_id = (order_details or {}).get('id')
             expected_order_ref = f"AYNIW-{local_order_id}" if local_order_id else None
+            expected_account = (order_details or {}).get('account_id') or getattr(self, 'account_id', None)
             for execution in executions:
+                if expected_account and getattr(execution, 'acctNumber', '') != expected_account:
+                    continue
                 execution_order_id = getattr(execution, 'orderId', 0)
                 execution_perm_id = getattr(execution, 'permId', 0)
                 execution_order_ref = str(getattr(execution, 'orderRef', '') or '')
@@ -2322,11 +2341,15 @@ class IBConnection:
                 elif expected_order_ref:
                     matches_execution = execution_order_ref == expected_order_ref
                 else:
-                    matches_execution = execution_order_id == order_id
+                    matches_execution = execution_order_id == order_id and (
+                        getattr(self, 'client_id', None) is None or
+                        getattr(execution, 'clientId', None) == self.client_id)
                 if matches_execution:
                     matching_executions.append(execution)
 
             if matching_executions:
+                grouped, unambiguous = execution_groups(matching_executions)
+                matching_executions = [values[0] for values in grouped]
                 filled = sum(float(getattr(item, 'shares', 0) or 0) for item in matching_executions)
                 fill_value = sum(
                     float(getattr(item, 'shares', 0) or 0)
@@ -2339,6 +2362,8 @@ class IBConnection:
                     execution = getattr(fill, 'execution', None)
                     if not execution:
                         continue
+                    if expected_account and getattr(execution, 'acctNumber', '') != expected_account:
+                        continue
                     if perm_id:
                         matches_fill = str(getattr(execution, 'permId', 0)) == str(perm_id)
                     elif expected_order_ref:
@@ -2347,7 +2372,9 @@ class IBConnection:
                             == expected_order_ref
                         )
                     else:
-                        matches_fill = getattr(execution, 'orderId', 0) == order_id
+                        matches_fill = getattr(execution, 'orderId', 0) == order_id and (
+                            getattr(self, 'client_id', None) is None or
+                            getattr(execution, 'clientId', None) == self.client_id)
                     if matches_fill:
                         matching_fills.append(fill)
 
@@ -2355,9 +2382,10 @@ class IBConnection:
                     expected_quantity = float((order_details or {}).get('quantity', 0) or 0)
                 except (TypeError, ValueError):
                     expected_quantity = 0
-                fully_filled = expected_quantity > 0 and filled >= expected_quantity
+                fully_filled = unambiguous and expected_quantity > 0 and filled >= expected_quantity
                 result = {
                     'status': 'Filled' if fully_filled else 'Unknown',
+                    'execution_evidence_complete': unambiguous,
                     'filled': filled,
                     'remaining': max(expected_quantity - filled, 0),
                     'avg_fill_price': avg_fill_price,
@@ -2365,7 +2393,8 @@ class IBConnection:
                 }
                 if not fully_filled:
                     result['error_message'] = (
-                        "IB returned partial execution history without a final order state. "
+                        ("IB returned missing IDs or conflicting/corrected execution evidence; quantities exclude ambiguous records. "
+                         if not unambiguous else "IB returned partial execution history without a final order state. ") +
                         "Verify the remaining quantity in IB Gateway before taking further action."
                     )
                 return result

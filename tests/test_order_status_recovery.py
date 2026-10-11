@@ -1,4 +1,6 @@
 import unittest
+from itertools import count
+execution_ids = count()
 from types import SimpleNamespace
 
 from core.connection import IBConnection
@@ -51,6 +53,7 @@ class FakeIB:
 
 def execution(shares, order_id=29, perm_id=1029, order_ref=''):
     return SimpleNamespace(
+        execId=f'fixture-{next(execution_ids)}',
         orderId=order_id,
         permId=perm_id,
         orderRef=order_ref,

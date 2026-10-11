@@ -1,7 +1,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const ctx={};vm.runInNewContext(fs.readFileSync('frontend/static/js/chart-stream.js','utf8'),ctx);
 let now=1000,received=0;const sources=[];class Source{constructor(){sources.push(this);}close(){this.closed=true;}}
-const stream=new ctx.WheelChartStream({EventSource:Source,now:()=>now,receive:()=>received++,status:()=>{}}),context={cid:7,interval:5,session:'all',epoch:'a'};
+const stream=new ctx.WheelChartStream({EventSource:Source,now:()=>now,random:()=>1,receive:()=>received++,status:()=>{}}),context={cid:7,interval:5,session:'all',epoch:'a'};
 const packet={con_id:7,interval:5,session:'all',generation:'g',sequence:1,mode:'snapshot',bars:[]};
 const send=(source,p=packet)=>source.onmessage({data:JSON.stringify(p)});
 stream.ensure(context);send(sources[0]);assert.ok(stream.healthy());now+=8001;stream.ensure(context);assert.ok(sources[0].closed);assert.equal(sources.length,1);

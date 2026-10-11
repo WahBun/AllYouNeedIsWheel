@@ -42,7 +42,10 @@ class ChartPushTests(unittest.TestCase):
         import test_stock_chart
         from api.services.stock_chart import StockChart
         from api.services.chart_stream import ChartStreams
-        asyncio.set_event_loop(asyncio.new_event_loop())
+        try: previous_loop = asyncio.get_event_loop()
+        except RuntimeError: previous_loop = None
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         conn,ticker=test_stock_chart.StockChartTests().connection()
         feed=StockChart(); hub=ChartStreams()
         try:
@@ -58,7 +61,15 @@ class ChartPushTests(unittest.TestCase):
                 self.assertEqual(conn.ib.reqHistoricalData.call_count,1)
                 conn.ib.placeOrder.assert_not_called()
                 sub.closed=True;hub.pulse();self.assertFalse(hub.clients)
-        finally:feed.stop();asyncio.get_event_loop().close()
+        finally:
+            feed.stop()
+            # Cancellation is scheduled, not completed, by StockChart.stop().
+            # Drain this test-owned loop before closing it.
+            pending = asyncio.all_tasks(loop)
+            for task in pending: task.cancel()
+            if pending: loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            loop.close()
+            asyncio.set_event_loop(previous_loop)
 
     def test_queued_payload_owns_its_bars(self):
         sub=Subscriber(1,1,'all'); packet=self.packet()
@@ -121,3 +132,12 @@ class ChartPushTests(unittest.TestCase):
             feed.snapshot.assert_not_called()
             conn.ib.reqHistoricalData.assert_not_called()
             self.assertFalse(sub.closed)
+
+    def test_late_packet_keeps_subscription_epoch_after_account_change(self):
+        from types import SimpleNamespace as S
+        from unittest.mock import patch
+        from api.services.chart_stream import ChartStreams
+        sub = Subscriber(7,5,'all');sub.account_epoch='old';sub.include_pnl=False
+        with patch('api.routes.account.epoch',return_value='new'):
+            packet = ChartStreams().with_pnl(self.packet(),S(),sub)
+        self.assertEqual(packet['account_epoch'],'old')

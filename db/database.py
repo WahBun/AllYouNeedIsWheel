@@ -208,6 +208,7 @@ class OptionsDatabase:
             close_order_columns = {
                 'tif': 'TEXT',
                 'amendment_pending': 'TEXT',
+                'cancellation_pending': 'TEXT',
                 'intent': "TEXT NOT NULL DEFAULT 'OPEN'",
                 'con_id': 'INTEGER',
                 'account_id': 'TEXT',
@@ -422,6 +423,14 @@ class OptionsDatabase:
                         OR (intent = 'CLOSE' AND realized_pnl IS NULL))
                    ORDER BY timestamp DESC, id DESC LIMIT ?""", (limit,))]
 
+    def get_fills_for_reconciliation(self, after_id=0, limit=100):
+        """Bounded keyset scan includes complete terminal fees that can be corrected."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            return [dict(row) for row in conn.execute(
+                "SELECT * FROM orders WHERE filled > 0 AND id > ? ORDER BY id LIMIT ?",
+                (after_id, min(max(int(limit), 1), 100)))]
+
     def get_broker_order_identities(self):
         """Unpaginated identity projection, including completed orders."""
         with sqlite3.connect(self.db_path) as conn:
@@ -456,8 +465,19 @@ class OptionsDatabase:
         with sqlite3.connect(self.db_path, timeout=5) as conn:
             result = conn.execute(
                 "UPDATE orders SET amendment_pending = ? WHERE id = ? "
-                "AND status = 'processing' AND amendment_pending IS NULL",
+                "AND status = 'processing' AND amendment_pending IS NULL AND cancellation_pending IS NULL",
                 (payload, order_id))
+            return result.rowcount == 1
+
+    def claim_order_cancellation(self, order_id, payload):
+        """Fence a broker cancel before sending; only terminal evidence clears it."""
+        identity = json.loads(payload)
+        with sqlite3.connect(self.db_path, timeout=5) as conn:
+            result = conn.execute(
+                "UPDATE orders SET cancellation_pending = ?, status = 'canceling' WHERE id = ? "
+                "AND status = 'processing' AND cancellation_pending IS NULL AND amendment_pending IS NULL "
+                "AND account_id IS ? AND ib_order_id IS ? AND perm_id IS ?",
+                (payload, order_id, identity.get('account_id'), identity.get('ib_order_id'), identity.get('perm_id')))
             return result.rowcount == 1
 
     def finish_order_amendment(self, order_id, payload, desired):
@@ -484,7 +504,23 @@ class OptionsDatabase:
             conn = sqlite3.connect(self.db_path, timeout=5)
             cursor = conn.cursor()
             set_clauses = ['status = ?', 'executed = ?']
+            if status in {'executed', 'canceled', 'rejected'}:
+                set_clauses.append('cancellation_pending = NULL')
             params = [status, executed]
+
+            if isinstance(execution_details, dict) and execution_details.get('_fee_conflict') is True:
+                set_clauses.extend(['commission = NULL', 'commission_currency = NULL', 'realized_pnl = NULL'])
+
+            # A corrected fee/currency cannot retain PnL from the older report.
+            # Missing cache evidence alone must not erase previously confirmed PnL.
+            if isinstance(execution_details, dict) and execution_details.get('realized_pnl') is None:
+                prior_fee = cursor.execute(
+                    'SELECT commission, commission_currency FROM orders WHERE id = ?',
+                    (order_id,)).fetchone()
+                if prior_fee and any(execution_details.get(field) is not None
+                                     and execution_details[field] != prior_fee[index]
+                                     for index, field in enumerate(('commission', 'commission_currency'))):
+                    set_clauses.append('realized_pnl = NULL')
 
             # A fee captured for an earlier partial fill is not the full-order fee.
             if isinstance(execution_details, dict) and execution_details.get('filled') is not None:

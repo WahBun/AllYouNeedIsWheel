@@ -95,7 +95,7 @@ class OptionsService:
                         if metadata and self.db.update_order_status(order['id'], order['status'],
                                 executed=bool(order.get('executed')), execution_details=metadata,
                                 expected_statuses=[order['status']]):
-                            order.update(metadata)
+                            order.update(self.db.get_order(order['id']))
                     except Exception as error:
                         logger.warning('Could not enrich broker fill metadata: %s', type(error).__name__)
             return local_orders + (futures_orders(conn, completed=True, db_path=self.db.db_path) if is_rollover is None else [])
@@ -1313,8 +1313,10 @@ class OptionsService:
         """Read-only broker synchronization, including terminal orders with late fees."""
         pending = self.db.get_orders(
             status_filter=['submitting', 'processing', 'canceling', 'unknown'], limit=200)
-        missing = self.db.get_fills_missing_metadata()
-        if not pending and not missing:
+        candidates = self.db.get_fills_for_reconciliation(getattr(self, '_fee_scan_id', 0))
+        if not candidates:
+            candidates = self.db.get_fills_for_reconciliation()
+        if not pending and not candidates:
             return
         conn = self._ensure_connection()
         if not conn:
@@ -1327,14 +1329,20 @@ class OptionsService:
         conn.ib.sleep(0.05)
         if pending:
             self.check_pending_orders()
-        # Re-read after status updates so newly completed fills are included.
-        for order in self.db.get_fills_missing_metadata():
-            metadata = {key: value for key, value in conn.get_order_fill_metadata(order).items()
-                        if value is not None and value != order.get(key)}
+        # Rotate through all filled rows; complete terminal fees may be revised.
+        # Never erase confirmed fees merely because a reconnect cache is empty.
+        for candidate in candidates:
+            order = self.db.get_order(candidate['id'])
+            evidence = conn.get_order_fill_metadata(order)
+            metadata = {key: value for key, value in evidence.items()
+                        if key != '_fee_conflict' and value is not None and value != order.get(key)}
+            if evidence.get('_fee_conflict') and any(order.get(k) is not None for k in ('commission', 'commission_currency', 'realized_pnl')):
+                metadata['_fee_conflict'] = True
             if metadata:
                 self.db.update_order_status(order['id'], order['status'],
                     executed=bool(order.get('executed')), execution_details=metadata,
                     expected_statuses=[order['status']])
+            self._fee_scan_id = candidate['id']
 
     def check_pending_orders(self):
         """
@@ -1438,7 +1446,7 @@ class OptionsService:
                             elif raw_ib_status == 'PendingCancel':
                                 new_status = "canceling"
                             elif raw_ib_status in {'Submitted', 'PreSubmitted', 'PendingSubmit', 'ApiPending', 'ApiSubmit'}:
-                                new_status = 'canceling' if current_status == 'canceling' else 'processing'
+                                new_status = 'canceling' if current_status == 'canceling' or order.get('cancellation_pending') else 'processing'
                             elif raw_ib_status in {'NotFound', 'Unknown'}:
                                 new_status = "unknown"
                                 executed = False
@@ -1531,7 +1539,7 @@ class OptionsService:
         local = self.db.get_order(order_id)
         if not local:
             return {'error': 'Order not found'}, 404
-        if local['status'] != 'processing' or local.get('amendment_pending'):
+        if local['status'] != 'processing' or local.get('amendment_pending') or local.get('cancellation_pending'):
             return {'error': 'Order is not ready for modification; verify its broker state'}, 409
         claimed = False
         try:
@@ -1660,6 +1668,12 @@ class OptionsService:
                     "error": f"Order with status '{current_status}' cannot be canceled"
                 }, 409
 
+            if order.get('cancellation_pending') or current_status in {'canceling', 'unknown'}:
+                return {'success': False, 'status': 'unknown',
+                        'message': 'Cancellation outcome requires broker reconciliation; not resent'}, 202
+            if order.get('amendment_pending'):
+                return {'success': False, 'error': 'An uncertain modification must be reconciled first'}, 409
+
             ib_order_id = order.get('ib_order_id')
             if not ib_order_id:
                 return {
@@ -1680,6 +1694,12 @@ class OptionsService:
                     "status": current_status
                 }, 503
 
+            payload = json.dumps({key: order.get(key) for key in
+                                  ('id', 'account_id', 'ib_order_id', 'perm_id')}, sort_keys=True)
+            if not db.claim_order_cancellation(order_id, payload):
+                return {'success': False, 'status': 'unknown',
+                        'message': 'Order changed or cancellation is already pending; not sent'}, 409
+            current_status = 'canceling'
             cancel_result = conn.cancel_order(ib_order_id)
             cancel_accepted = bool(cancel_result and cancel_result.get('success'))
             ib_status = conn.check_order_status(
@@ -1723,15 +1743,11 @@ class OptionsService:
                 )
                 response_code = 502
             else:
-                return {
-                    "success": False,
-                    "error": (
-                        (cancel_result or {}).get('error')
-                        or "IB did not accept the cancellation request"
-                    ),
-                    "status": current_status,
-                    "ib_status": raw_status
-                }, 502
+                local_status = 'unknown'
+                finalized = False
+                success = False
+                message = (cancel_result or {}).get('error') or 'Cancellation outcome is unknown; do not retry'
+                response_code = 502
 
             execution_details = {
                 "ib_order_id": (ib_status or {}).get('order_id') or ib_order_id,
@@ -1782,7 +1798,7 @@ class OptionsService:
                 "success": False,
                 "error": (
                     f"Cancellation could not be confirmed: {error}. "
-                    "The local order status was left unchanged."
+                    "Any persisted cancellation intent remains locked; reconcile before retrying."
                 )
             }, 500
     def get_stock_price(self, ticker):

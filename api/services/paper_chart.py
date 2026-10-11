@@ -2240,6 +2240,10 @@ class PaperChart:
             if body.get('restore_trim'):
                 self.finish_trim_restore(account,cid,group,body['order_id'])
             return
+        if action == 'close' and 'exit_price' in body:
+            if body.get('exit_type') != 'LMT' or body.get('expected_position') != current.get('position'):
+                raise ValueError('Priced Close requires a matching position and limit type')
+            price(body['exit_price'])
         if action == 'close' and body.get('expected_ref') is not None and body['expected_ref'] != group.get('ref'):
             raise ValueError('Order identity changed; refresh before closing')
         if action=='close' and group.get('lots') and current.get('scalable') and current.get('protection', {}).get('status') == 'covered':
@@ -2275,7 +2279,7 @@ class PaperChart:
                     raise RuntimeError('Entry cancellation needs reconciliation')
             if len(live)!=abs(current['position']):
                 raise RuntimeError('Position changed during close; protection retained')
-            if live: self.exit_lots(conn,account,cid,group,live,trades,price,action,request_id)
+            if live: self.exit_lots(conn,account,cid,group,live,trades,price,action,request_id,limit_target=price(body['exit_price']) if 'exit_price' in body else None)
             return
         if action=='close':
             pending_close = trades.get(group['ids'].get('close'))
@@ -2299,10 +2303,13 @@ class PaperChart:
             if position and position.position:
                 if any(t.contract.conId==cid and t.order.account==account for t in conn.ib.openTrades()): raise ValueError('Other working orders exist; review Gateway')
                 order=MarketOrder('SELL' if position.position>0 else 'BUY',abs(position.position),account=account,tif='DAY',orderRef=group.get('ref','WheelPaper:'+request_id))
-                if not account.startswith('DU'):
-                    chart_state=stock_chart.states.get(cid) or stock_chart.active
-                    quote=stock_chart.packet(chart_state,5,'rth') if chart_state and chart_state.get('con_id')==cid else {}
-                    target=quote.get('bid' if position.position>0 else 'ask') if quote else None
+                if not account.startswith('DU') or 'exit_price' in body:
+                    if body.get('exit_type')=='LMT' and 'exit_price' in body:
+                        target=price(body['exit_price'])
+                    else:
+                        chart_state=stock_chart.states.get(cid) or stock_chart.active
+                        quote=stock_chart.packet(chart_state,5,'rth') if chart_state and chart_state.get('con_id')==cid else {}
+                        target=quote.get('bid' if position.position>0 else 'ask') if quote else None
                     if not target: raise ValueError('Fresh executable quote required for Live limit close')
                     target=price(target)
                     order=LimitOrder('SELL' if position.position>0 else 'BUY',abs(position.position),target,account=account,tif='DAY',orderRef=group.get('ref','WheelPaper:'+request_id))

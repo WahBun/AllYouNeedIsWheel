@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from api import create_app
-from api.routes import options as options_routes
+options_routes = None  # Loaded only by route tests; service tests stay offline.
 from api.services.options_service import OptionsService
 from db.database import OptionsDatabase
 
@@ -425,7 +425,7 @@ class OrderSafetyTests(unittest.TestCase):
         self.assertEqual(connection.status_calls[0][0], None)
         self.assertEqual(connection.status_calls[0][2]['id'], order_id)
 
-    def test_failed_ib_cancel_leaves_local_status_unchanged(self):
+    def test_failed_ib_cancel_retains_uncertain_intent(self):
         connection = FakeIBConnection(
             cancellation={
                 'success': False,
@@ -454,7 +454,8 @@ class OrderSafetyTests(unittest.TestCase):
 
         self.assertEqual(status_code, 502)
         self.assertFalse(result['success'])
-        self.assertEqual(self.db.get_order(order_id)['status'], 'processing')
+        self.assertEqual(self.db.get_order(order_id)['status'], 'unknown')
+        self.assertIsNotNone(self.db.get_order(order_id)['cancellation_pending'])
 
     def test_pending_cancel_waits_for_ib_confirmation(self):
         connection = FakeIBConnection()
@@ -698,6 +699,8 @@ class OrderSafetyTests(unittest.TestCase):
 
 class TradingRouteSafetyTests(unittest.TestCase):
     def setUp(self):
+        global options_routes
+        from api.routes import options as options_routes
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db = OptionsDatabase(str(Path(self.temp_dir.name) / 'routes.db'))
         self.original_db = options_routes.options_service.db

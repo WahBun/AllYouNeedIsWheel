@@ -5,7 +5,10 @@ const groups={spx:['SPY','SPX','XSP','SP500','US500','ES','MES'],ndx:['QQQ','TQQ
 const sources={spx:'VIX',ndx:'VXN',dow:'VXD',r2k:'RVX',gold:'GVZ',oil:'OVX'};
 function family(p){return ['STK','FUT','IND'].includes(p.security_type)?Object.keys(groups).find(k=>groups[k].includes(p.symbol)):null;}
 const fmt=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
-function clock(t){const x=Object.fromEntries(fmt.formatToParts(new Date(t*1000)).map(p=>[p.type,p.value]));return {day:`${x.year}-${x.month}-${x.day}`,minute:Number(x.hour)*60+Number(x.minute)};}
+// Candle timestamps do not change with tick prices. Avoid formatting the same
+// history on every quote; bound retained entries independently of chart lifetime.
+const clockCache=new Map();
+function clock(t){if(clockCache.has(t))return clockCache.get(t);const x=Object.fromEntries(fmt.formatToParts(new Date(t*1000)).map(p=>[p.type,p.value]));const value=Object.freeze({day:`${x.year}-${x.month}-${x.day}`,minute:Number(x.hour)*60+Number(x.minute)});clockCache.set(t,value);if(clockCache.size>20000)clockCache.delete(clockCache.keys().next().value);return value;}
 function calculate(p,data,o){
  const g=family(p),bars=p.bars||[],last=bars.at(-1);if(!g||!last)return {sessions:[],gauge:null};
  const lc=clock(last.time),rth=lc.minute>=570&&lc.minute<960;

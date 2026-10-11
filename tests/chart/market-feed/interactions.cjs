@@ -1,0 +1,29 @@
+const evidence=process.env.WHEEL_EVIDENCE_DIR||require('node:fs').mkdtempSync(require('node:os').tmpdir()+'/wheel-market-');require('node:fs').mkdirSync(evidence,{recursive:true});
+const {chromium}=require(process.env.WHEEL_PLAYWRIGHT_MODULE||'playwright'),{start}=require('./harness.cjs'),fs=require('node:fs'),assert=require('node:assert/strict');
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+async function until(fn,timeout=12000){const t=Date.now();while(!(await fn())){if(Date.now()-t>timeout)throw Error('condition timed out');await delay(50)}}
+(async()=>{const browser=await chromium.launch({executablePath:process.env.WHEEL_CHROME||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true,args:['--disable-background-networking','--disable-component-update','--disable-sync']});const h=await start();let timer;const steps=[],errors=[],blocked=[];
+try{const context=await browser.newContext({viewport:{width:1440,height:1000},serviceWorkers:'block'});await context.route('**/*',r=>new URL(r.request().url()).origin===h.url?r.continue():(blocked.push(r.request().url()),r.abort()));
+await context.addInitScript(()=>localStorage.setItem('wheel.chart-layout',JSON.stringify({count:1,active:0,panes:[1,3,5,15].map(interval=>({cid:7,label:'SYNTH7',interval,session:'all'}))})));
+let p=await context.newPage();p.on('pageerror',e=>errors.push(e.message));await p.goto(h.url+'/superchart?con_id=7&session=all');
+let tick=0;timer=setInterval(()=>{for(const cid of [7,8])h.rpc('tick',{cid,tick_id:++tick,generated:Date.now(),prices:[100+(tick%11)/10]}).catch(e=>errors.push(e.message))},100);
+for(const count of [1,2,3,4,3,2,1,4,1,4]){
+ if(await p.locator('#chart-grid').getAttribute('data-layout')!==String(count)){await p.locator('#layout-button').click();await p.locator(`#layout-menu button[data-layout="${count}"]`).click();}
+ await p.waitForFunction(count=>document.querySelectorAll('.chart-pane iframe').length===count&&[...document.querySelectorAll('.chart-pane iframe')].every(f=>f.contentDocument.querySelector('#chart-title')?.textContent.includes('SYNTH')),count);
+ await until(()=>h.streams.size===1&&h.channels.size===count);await delay(500);
+ const before=await Promise.all(p.frames().filter(f=>f.url().includes('/superchart/frame')).map(f=>f.evaluate(()=>window.__latency.length)));await delay(500);const after=await Promise.all(p.frames().filter(f=>f.url().includes('/superchart/frame')).map(f=>f.evaluate(()=>window.__latency.length)));
+ assert.equal(after.length,count);after.forEach((n,i)=>assert.ok(n>before[i],`visible pane ${i} stopped at layout ${count}`));steps.push({step:'layout',count,streams:h.streams.size,contexts:h.channels.size,updates:after.map((n,i)=>n-before[i])});console.log('layout',count,'passed');
+}
+// Real UI timeframe and symbol controls; inactive panes keep their own contexts.
+await p.locator('[data-interval="5"]').first().click();await p.waitForFunction(()=>document.getElementById('chart').contentWindow.eval('countdownPacket.interval')===5);
+await p.locator('#option-search').click();await p.locator('#symbol').fill('SYNTH8');await p.locator('#search > button').click();await p.waitForFunction(()=>document.getElementById('chart').contentDocument.querySelector('#chart-title').textContent.includes('SYNTH8'));
+await delay(500);assert.equal(await p.locator('#chart').evaluate(f=>f.contentWindow.eval('countdownPacket.con_id')),8);steps.push({step:'symbol-period',activeCid:8,activeInterval:5,contexts:h.channels.size});
+for(let i=0;i<3;i++){await p.locator('#layout-button').click();await p.locator('#layout-menu button[data-layout="4"]').click();}
+await delay(500);assert.equal(await p.locator('.chart-pane iframe').count(),4);steps.push({step:'repeat-four-layout',contexts:h.channels.size});
+const frames=p.frames().filter(f=>f.url().includes('/superchart/frame'));const before=await Promise.all(frames.map(f=>f.evaluate(()=>window.__latency.length)));const lost=Date.now();h.disconnect();await until(()=>h.streams.size===1);await until(async()=>{const counts=await Promise.all(frames.map(f=>f.evaluate(()=>window.__latency.length)));return counts.every((n,i)=>n>before[i])});steps.push({step:'disconnect-recovery',milliseconds:Date.now()-lost,streams:h.streams.size,contexts:h.channels.size});
+await p.close();await until(()=>h.streams.size===0&&h.channels.size===0);steps.push({step:'close',streams:0,contexts:0});
+p=await context.newPage();p.on('pageerror',e=>errors.push(e.message));await p.goto(h.url+'/superchart?con_id=7&session=all');await p.waitForFunction(()=>document.getElementById('chart').contentDocument.querySelector('#chart-title').textContent.includes('SYNTH7'));await until(()=>h.streams.size===1);steps.push({step:'reopen',streams:1});
+// Hidden-tab simulation is separate from visible inactive panes.
+await p.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'))});await until(()=>h.streams.size===0);await p.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'))});await until(()=>h.streams.size===1);steps.push({step:'hidden-resume',streams:1,note:'simulated document visibility event; not an OS background-tab frame-rate measurement'});
+assert.deepEqual(errors,[]);assert.deepEqual(blocked,[]);assert.equal(h.metrics.posts,0);await p.screenshot({path:evidence+'/interaction-final.png'});await context.close();console.log(JSON.stringify({steps,errors,blocked,metrics:h.metrics},null,2));fs.writeFileSync(evidence+'/interactions.json',JSON.stringify({steps,errors,blocked,metrics:h.metrics},null,2));
+}finally{clearInterval(timer);await browser.close();await h.close();console.log('browser/server/worker closed')}})().catch(e=>{console.error(e);process.exitCode=1});
