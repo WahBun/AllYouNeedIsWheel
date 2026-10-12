@@ -142,3 +142,14 @@ class LivePortfolioTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class FuturesPortfolioUnits(LivePortfolioTests):
+    @patch('core.connection.is_market_hours', return_value=False)
+    def test_mnq_short_uses_contract_multiplier(self, _hours):
+        self.fake_ib._positions=[SimpleNamespace(contract=SimpleNamespace(secType='FUT',symbol='MNQ',localSymbol='MNQZ6',conId=7,currency='USD',multiplier='2'),position=-1,averageCost=62472.89,marketPrice=31224.35,marketValue=-62448.70,unrealizedPNL=24.19,realizedPNL=0)]
+        row=self.connection.get_live_portfolio()['positions']['MNQZ6']
+        self.assertAlmostEqual(row['unrealized_pnl'],24.19)
+        self.assertAlmostEqual(row['market_value'],-62448.70)
+        self.assertAlmostEqual(row['market_price'],31224.35)
+        self.fake_ib._positions[0].contract.multiplier=''
+        self.assertAlmostEqual(self.connection.get_live_portfolio()['positions']['MNQZ6']['unrealized_pnl'],24.19)

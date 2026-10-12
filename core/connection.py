@@ -1399,6 +1399,19 @@ class IBConnection:
                         f"{symbol}_{getattr(contract, 'lastTradeDateOrContractMonth', '')}_"
                         f"{getattr(contract, 'strike', 0)}_{getattr(contract, 'right', '')}"
                     )
+                elif sec_type == 'FUT':
+                    # IB averageCost is money per contract; futures quotes are
+                    # points. Never subtract those different units directly.
+                    try:
+                        multiplier = float(getattr(contract, 'multiplier', '') or 0)
+                    except (TypeError, ValueError):
+                        multiplier = 0
+                    valid_multiplier = math.isfinite(multiplier) and multiplier > 0
+                    market_value = (quantity * market_price * multiplier
+                        if market_price is not None and valid_multiplier else getattr(item, 'marketValue', None))
+                    unrealized_pnl = ((market_price * multiplier - avg_cost) * quantity
+                        if market_price is not None and valid_multiplier else getattr(item, 'unrealizedPNL', None))
+                    position_key = str(getattr(contract, 'localSymbol', '') or symbol)
                 else:
                     market_value = (
                         quantity * market_price
