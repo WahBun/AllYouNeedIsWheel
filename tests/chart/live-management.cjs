@@ -27,8 +27,11 @@ for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [
  stale=false;state={enabled:true,known:true,active:false,position:0,live_options_scope:true,orders:[]};await page.reload();await page.waitForFunction(()=>!document.getElementById('quantity').disabled&&document.getElementById('quantity').max==='10');
  assert.equal(await page.locator('#bracket-enabled').isDisabled(),false);assert.equal(await page.locator('#type option').nth(1).isDisabled(),false);
  await page.locator('#quantity').fill('4');await page.locator('#quantity').dispatchEvent('change');await page.locator('#bracket-enabled').check();await page.locator('#tp-enabled').check();await page.locator('#sl-enabled').check();
+ await page.locator('#tp-mode').selectOption('profit');await page.locator('#sl-mode').selectOption('profit');assert.equal(await page.locator('#tp').inputValue(),'300');assert.equal(await page.locator('#sl').inputValue(),'300');
  for(const id of ['preview-buy','preview-sell'])assert.equal(await page.locator('#'+id).isDisabled(),false);
  const before=writes.length;await page.locator('#preview-buy').click();assert.equal(writes.length,before);assert.equal(await page.locator('#quantity').inputValue(),'4');
+ const frame=page.frames().find(f=>f.url().includes('/superchart/frame'));await frame.waitForFunction(()=>Math.abs(levels.tp-2.87)<1e-8&&Math.abs(levels.sl-1.37)<1e-8);
+ await page.locator('#quantity').fill('3');await page.locator('#quantity').dispatchEvent('change');await frame.waitForFunction(()=>Math.abs(levels.tp-3.12)<1e-8&&Math.abs(levels.sl-1.12)<1e-8);assert.equal(writes.length,before);
  assert.deepEqual(errors,[]);await page.close();
 }
 console.log('PASS: 8 desktop/mobile, EN/ZH, light/dark combinations; TP/SL, Add, Trim, BE, Close payloads and stale quote guard; all API writes mocked.');

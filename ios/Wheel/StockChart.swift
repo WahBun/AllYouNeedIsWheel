@@ -337,10 +337,11 @@ struct StockChartView: View {
     private func protectionToggle(_ type: String, _ role: String) -> Binding<Bool> {
         Binding(get: { protectionOption(type, role) != "off" }, set: { saveProtectionOption(type, role, $0 ? "on" : "off"); templateRevision += 1 })
     }
-    private func protectionMode(_ type: String) -> Binding<String> {
-        Binding(get: { protectionOption(type, "mode") ?? "distance" }, set: { value in
-            saveProtectionOption(type, "mode", value)
-            distanceBinding(type, tp: true).wrappedValue = value == "percent" ? "75" : value == "price" ? String(max(validEntry, 0.01)) : "0.20"
+    private func protectionMode(_ type: String, tp: Bool = true) -> Binding<String> {
+        let key = tp ? "mode" : "slMode"
+        return Binding(get: { protectionOption(type, key) ?? "distance" }, set: { value in
+            saveProtectionOption(type, key, value)
+            distanceBinding(type, tp: tp).wrappedValue = value == "profit" ? "300" : value == "percent" ? (tp ? "75" : "10") : value == "price" ? String(max(validEntry, 0.01)) : (type == "FUT" ? (tp ? "2" : "1") : (tp ? "0.2" : "0.1"))
             templateRevision += 1
         })
     }
@@ -1097,7 +1098,7 @@ struct StockChartView: View {
             }
             }
             if let emaHistoryNotice { NoticeText(emaHistoryNotice).font(.caption2).foregroundStyle(.secondary) }
-            StockChartWeb(backendAddress: store.address, executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, previewSide: previewSide, previewRevision: previewRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "webEntryDrag": true, "web_account_epoch": store.trading.accountEpoch ?? "", "adjustment_quantity": adjustmentQuantity, "quantity_limit": quantityLimit, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
+            StockChartWeb(backendAddress: store.address, executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, previewSide: previewSide, previewRevision: previewRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", slMode: protectionOption(chartType, "slMode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "webEntryDrag": true, "web_account_epoch": store.trading.accountEpoch ?? "", "adjustment_quantity": adjustmentQuantity, "quantity_limit": quantityLimit, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
                 Button { showDisplaySettings = true } label: {
@@ -1363,8 +1364,8 @@ struct StockChartView: View {
             }.presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showPositionProtection) {
-            PositionProtectionEditor(state: positionProtectionState, rules: packet["price_rules"] as? [[String: Any]] ?? []) { request in
-                guard positionProtectionCID == chartID, positionProtectionState["order_ref"] as? String == paperState["order_ref"] as? String else { paperMessage = "Order changed; reopen TP / SL"; return }
+            PositionProtectionEditor(state: positionProtectionState, multiplier: ChartProtectionMath.multiplier(packet: packet) ?? 0, rules: packet["price_rules"] as? [[String: Any]] ?? []) { request in
+                guard positionProtectionCID == chartID, positionProtectionState["order_ref"] as? String == paperState["order_ref"] as? String, positionProtectionState["position"] as? Double == paperState["position"] as? Double, positionProtectionState["entry"] as? Double == paperState["entry"] as? Double else { paperMessage = "Order changed; reopen TP / SL"; return }
                 showPositionProtection = false; paperAction(request)
             }
         }
@@ -1383,14 +1384,19 @@ struct StockChartView: View {
                         Toggle("Enable TP", isOn: protectionToggle(templateType, "tp"))
                         if protectionToggle(templateType, "tp").wrappedValue {
                             Picker("TP input", selection: protectionMode(templateType)) {
-                                Text("Distance").tag("distance"); Text("Target price").tag("price"); Text("Profit %").tag("percent")
+                                Text("Distance").tag("distance"); Text("Target price").tag("price"); Text("Profit").tag("profit"); Text("Profit %").tag("percent")
                             }
                             distanceRow("TP", value: distanceBinding(templateType, tp: true))
                         }
                         Toggle("Enable SL", isOn: protectionToggle(templateType, "sl"))
-                        if protectionToggle(templateType, "sl").wrappedValue { distanceRow("SL distance", value: distanceBinding(templateType, tp: false)) }
+                        if protectionToggle(templateType, "sl").wrappedValue {
+                            Picker("SL input", selection: protectionMode(templateType, tp: false)) {
+                                Text("Distance").tag("distance"); Text("Target price").tag("price"); Text("Profit").tag("profit"); Text("Loss %").tag("percent")
+                            }
+                            distanceRow("SL", value: distanceBinding(templateType, tp: false))
                         }
-                        Text("Profit % uses the entry premium before fees. A short option sold at 2.12 with 75% profit targets 0.53, rounded to the contract tick.").font(.caption)
+                        }
+                        Text(verbatim: locale.language.languageCode?.identifier == "zh" ? "Profit 按合约计价币种的持仓总金额计算（TP 盈利 / SL 亏损），不含手续费，并按合约最小跳动取整。Profit % 按入场价格计算。" : "Profit is the total position amount in contract currency before fees (TP gain / SL loss), rounded to the contract tick. Profit % uses the entry premium before fees.").font(.caption)
                     }
                     if validEntry > 0 && templateType == chartType && !paperActive {
                         Text("Apply updates the current preview and saves these distances for new orders.")
@@ -1673,6 +1679,7 @@ private struct StockChartWeb: UIViewRepresentable {
     var tpEnabled: Bool = true
     var slEnabled: Bool = true
     var tpMode: String = "distance"
+    var slMode: String = "distance"
     var templateRevision: Int
     var onBE: (Bool) -> Void
     var onEntry: (Double) -> Void
@@ -1715,7 +1722,7 @@ private struct StockChartWeb: UIViewRepresentable {
         context.coordinator.onEntry = onEntry
         context.coordinator.onBE = onBE
         context.coordinator.onPaper = onPaper
-        context.coordinator.config = ["executions": executions, "holdings": holdings, "display": display, "entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "previewSide": previewSide, "previewRevision": previewRevision, "beRevision": beRevision, "tpDistance": tpDistance.isFinite ? tpDistance : 0, "slDistance": slDistance.isFinite ? slDistance : 0, "tpEnabled": tpEnabled, "slEnabled": slEnabled, "tpMode": tpMode, "templateRevision": templateRevision, "priceRules": packet["price_rules"] ?? [], "paper": paperState, "con_id": conID, "multiplier": packet["multiplier"] ?? 1]
+        context.coordinator.config = ["executions": executions, "holdings": holdings, "display": display, "entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "previewSide": previewSide, "previewRevision": previewRevision, "beRevision": beRevision, "tpDistance": tpDistance.isFinite ? tpDistance : 0, "slDistance": slDistance.isFinite ? slDistance : 0, "tpEnabled": tpEnabled, "slEnabled": slEnabled, "tpMode": tpMode, "slMode": slMode, "templateRevision": templateRevision, "priceRules": packet["price_rules"] ?? [], "paper": paperState, "con_id": conID, "multiplier": ChartProtectionMath.multiplier(packet: packet) ?? 0]
         context.coordinator.update()
     }
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {
@@ -1839,7 +1846,9 @@ private struct StockChartWeb: UIViewRepresentable {
 
 
 private struct PositionProtectionEditor: View {
+    @Environment(\.locale) private var locale
     let state: [String: Any]
+    let multiplier: Double
     let rules: [[String: Any]]
     let apply: ([String: Any]) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -1848,12 +1857,16 @@ private struct PositionProtectionEditor: View {
     @State private var tp = ""
     @State private var sl = ""
     @State private var mode = "price"
+    @State private var slMode = "price"
     @State private var confirm = false
     private var targetTP: Double? {
-        ChartProtectionMath.target(entry: state["entry"] as? Double ?? 0, side: state["side"] as? Double ?? 1, value: Double(tp), percent: mode == "percent", rules: rules)
+        ChartProtectionMath.target(entry: state["entry"] as? Double ?? 0, side: state["side"] as? Double ?? 1, value: Double(tp), mode: mode, quantity: abs(state["position"] as? Double ?? 0), multiplier: multiplier, rules: rules)
+    }
+    private var targetSL: Double? {
+        ChartProtectionMath.target(entry: state["entry"] as? Double ?? 0, side: -(state["side"] as? Double ?? 1), value: Double(sl), mode: slMode, quantity: abs(state["position"] as? Double ?? 0), multiplier: multiplier, rules: rules)
     }
     private var valid: Bool {
-        (!tpEnabled || targetTP != nil) && (!slEnabled || (Double(sl).map { $0.isFinite && $0 > 0 } ?? false))
+        (!tpEnabled || targetTP != nil) && (!slEnabled || targetSL != nil)
     }
     var body: some View {
         NavigationStack {
@@ -1861,13 +1874,19 @@ private struct PositionProtectionEditor: View {
                 Section("Optional TP / SL · GTC") {
                     Toggle("Enable TP", isOn: $tpEnabled)
                     if tpEnabled {
-                        Picker("TP input", selection: $mode) { Text("Target price").tag("price"); Text("Profit %").tag("percent") }
-                            .onChange(of: mode) { _, value in tp = value == "percent" ? "75" : String(state["tp"] as? Double ?? 0) }
+                        Picker("TP input", selection: $mode) { Text("Target price").tag("price"); Text("Profit").tag("profit"); Text("Profit %").tag("percent") }
+                            .onChange(of: mode) { _, value in tp = value == "profit" ? "300" : value == "percent" ? "75" : String(state["tp"] as? Double ?? 0) }
                         TextField("TP", text: $tp).keyboardType(.decimalPad)
                         if let targetTP { Text("TP target: " + String(format: "%.4f", targetTP)).font(.caption) }
                     }
                     Toggle("Enable SL", isOn: $slEnabled)
-                    if slEnabled { TextField("SL target price", text: $sl).keyboardType(.decimalPad) }
+                    if slEnabled {
+                        Picker("SL input", selection: $slMode) { Text("Target price").tag("price"); Text("Profit").tag("profit"); Text("Loss %").tag("percent") }
+                            .onChange(of: slMode) { _, value in sl = value == "profit" ? "300" : value == "percent" ? "10" : String(state["sl"] as? Double ?? 0) }
+                        TextField("SL", text: $sl).keyboardType(.decimalPad)
+                        if let targetSL { Text("SL target: " + String(format: "%.4f", targetSL)).font(.caption) }
+                    }
+                    Text(verbatim: locale.language.languageCode?.identifier == "zh" ? "Profit 按合约计价币种的持仓总金额计算：TP 盈利 / SL 亏损，不含手续费，目标价按合约最小跳动取整。" : "Profit is the total position amount in contract currency before fees: TP gain / SL loss. Targets are rounded to the contract tick.").font(.caption)
                 }
                 Section {
                     if state["position_only"] as? Bool == true {
@@ -1882,7 +1901,7 @@ private struct PositionProtectionEditor: View {
                     Button("Apply TP / SL") {
                         var request: [String: Any] = ["action": "set_protection", "expected_ref": state["order_ref"] ?? "", "expected_snapshot": state["edit_snapshot"] ?? [], "confirm_replace_protection": true]
                         if tpEnabled { request["tp"] = targetTP }
-                        if slEnabled { request["sl"] = Double(sl) }
+                        if slEnabled { request["sl"] = targetSL }
                         apply(request)
                     }.disabled(!valid || !confirm)
                     if state["position_only"] as? Bool != true {
@@ -1898,6 +1917,20 @@ private struct PositionProtectionEditor: View {
 
 
 enum ChartProtectionMath {
+    static func multiplier(packet: [String: Any]) -> Double? {
+        if packet["multiplier"] == nil, packet["security_type"] as? String == "STK" { return 1 }
+        guard let value = packet["multiplier"] as? Double, value.isFinite, value > 0 else { return nil }
+        return value
+    }
+    static func target(entry: Double, side: Double, value: Double?, mode: String, quantity: Double, multiplier: Double, rules: [[String: Any]]) -> Double? {
+        if mode != "profit" { return target(entry: entry, side: side, value: value, percent: mode == "percent", rules: rules) }
+        guard let value, value.isFinite, value > 0, entry.isFinite, entry > 0, side == -1 || side == 1,
+              quantity.isFinite, quantity > 0, multiplier.isFinite, multiplier > 0 else { return nil }
+        let raw = entry + side * value / (quantity * multiplier)
+        guard raw.isFinite, raw > 0, let tick = rules.last(where: { ($0["low"] as? Double ?? 0) <= raw })?["increment"] as? Double, tick.isFinite, tick > 0 else { return nil }
+        let result = (raw / tick).rounded() * tick
+        return result.isFinite && result > 0 && side * (result - entry) > 0 ? result : nil
+    }
     static func target(entry: Double, side: Double, value: Double?, percent: Bool, rules: [[String: Any]]) -> Double? {
         guard let value, value.isFinite, value > 0 else { return nil }
         if !percent { return value }

@@ -81,15 +81,29 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   requestAnimationFrame(()=>requestAnimationFrame(()=>{if(transition!==t||!t.revealing)return;if([...panes.values()].filter(p=>p.index<count).some(p=>!matching(p.index===active?current().packet:p.data,p.index===active?current():p.context()))){t.revealing=false;checkSwitch();return;}transition=null;cover.hidden=true;grid.removeAttribute('aria-busy');onReady();}));
  }
  let persisted='';function persist(){const value=JSON.stringify({count,active,panes:configs,links,syncVersion:1});if(value===persisted)return;try{localStorage.setItem('wheel.chart-layout',value);persisted=value;}catch{}}
- async function readInitial(c,signal){
-  signal=signal?AbortSignal.any([signal,AbortSignal.timeout(12000)]):AbortSignal.timeout(12000);
+ // Only cold owner reads share this queue; immutable latest reads and SSE stay parallel.
+ let initialReadTail=Promise.resolve(),initialReadPending=0;
+ async function readLatest(c,signal){
   if(c.epoch&&[1,3,5,10,15,60,480].includes(c.interval)&&!(c.interval===480&&c.session==='rth')){
    try{
     const p=await api(`portfolio/stock-chart-latest/${c.cid}?interval=${c.interval}&session=${c.session}&epoch=${encodeURIComponent(c.epoch)}`,undefined,AbortSignal.any([signal,AbortSignal.timeout(800)]));
     if(p.con_id===c.cid&&p.interval===c.interval&&p.session===c.session&&p.account_epoch===c.epoch&&p.bars?.length&&Number.isFinite(p.server_time))return p;
    }catch(error){if(signal.aborted)throw error;}
   }
-  return api(`portfolio/stock-chart/${c.cid}?interval=${c.interval}&session=${c.session}&fast=1`,undefined,signal);
+  return null;
+ }
+ async function readInitial(c,signal){
+  signal=signal?AbortSignal.any([signal,AbortSignal.timeout(12000)]):AbortSignal.timeout(12000);
+  const latest=await readLatest(c,signal);if(latest)return latest;
+  const previous=initialReadTail,waited=initialReadPending>0;let release;
+  initialReadPending++;initialReadTail=new Promise(resolve=>{release=resolve;});
+  try{
+   await previous;signal.throwIfAborted();
+   if(c.epoch!==current().epoch)throw Error('Account changed; refresh connection state');
+   // The preceding pane may have initialized this contract for every interval.
+   if(waited){const refreshed=await readLatest(c,signal);if(refreshed)return refreshed;}
+   return await api(`portfolio/stock-chart/${c.cid}?interval=${c.interval}&session=${c.session}&fast=1`,undefined,signal);
+  }finally{initialReadPending--;release();}
  }
  function position(el,index){if(count<=2){el.style.gridColumn=String(index+1);el.style.gridRow='1';}else if(index===count-1){el.style.gridColumn='2';el.style.gridRow='1 / -1';}else{el.style.gridColumn='1';el.style.gridRow=String(index+1);}}
  function captureActive(){const c=current(),pane=panes.get(active);if(!pane)return;configs[active]={cid:c.cid,interval:c.interval,session:c.session,label:c.label,axis:c.axis,display:structuredClone(c.display)};pane.drawingKey=`web:${location.origin}:${c.cid}`;pane.lastRead=Date.now();pane.data=c.packet;pane.ema=c.emaFrames;pane.volatility=c.volatility;pane.key=JSON.stringify(pane.context());pane.loaded=c.ready;}

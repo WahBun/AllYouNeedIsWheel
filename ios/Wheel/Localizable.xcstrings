@@ -1,6 +1,20 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "SL input" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "止损输入" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "止損輸入" } }
+      }
+    },
+    "Loss %" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "亏损 %" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "虧損 %" } }
+      }
+    },
     "IBKR excluded the configured account from this Flex report. Previous history is retained; a complete report is required." : {
       "extractionState" : "manual",
       "localizations" : {

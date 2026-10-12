@@ -58,3 +58,22 @@ final class ChartLiveManagementTests: XCTestCase {
         XCTAssertEqual(unchanged["cancel"] as? Bool, true)
     }
 }
+
+extension ChartLiveManagementTests {
+    func testProfitAmountUsesWholePositionAndTickRounding() {
+        XCTAssertNil(ChartProtectionMath.multiplier(packet: ["security_type": "OPT"]))
+        XCTAssertNil(ChartProtectionMath.multiplier(packet: ["security_type": "FUT", "multiplier": 0.0]))
+        XCTAssertEqual(ChartProtectionMath.multiplier(packet: ["security_type": "STK"]), 1)
+        XCTAssertEqual(ChartProtectionMath.multiplier(packet: ["security_type": "OPT", "multiplier": 100.0]), 100)
+        let rules: [[String: Any]] = [["low": 0.0, "increment": 0.25]]
+        XCTAssertEqual(ChartProtectionMath.target(entry: 100, side: 1, value: 300, mode: "profit", quantity: 3, multiplier: 2, rules: rules), 150)
+        XCTAssertEqual(ChartProtectionMath.target(entry: 100, side: -1, value: 300, mode: "profit", quantity: 3, multiplier: 2, rules: rules), 50)
+        XCTAssertEqual(ChartProtectionMath.target(entry: 100, side: 1, value: 300, mode: "profit", quantity: 4, multiplier: 2, rules: rules), 137.5)
+        XCTAssertEqual(ChartProtectionMath.target(entry: 100, side: 1, value: 302, mode: "profit", quantity: 3, multiplier: 2, rules: rules), 150.25)
+        XCTAssertEqual(ChartProtectionMath.target(entry: 10, side: -1, value: 300, mode: "profit", quantity: 3, multiplier: 100, rules: rules), 9)
+        for (quantity, multiplier, amount) in [(0.0, 2.0, 300.0), (3, 0, 300), (3, 2, 0.001), (3, 2, Double.nan)] {
+            XCTAssertNil(ChartProtectionMath.target(entry: 100, side: 1, value: amount, mode: "profit", quantity: quantity, multiplier: multiplier, rules: rules))
+        }
+        XCTAssertNil(ChartProtectionMath.target(entry: 1, side: -1, value: 300, mode: "profit", quantity: 1, multiplier: 100, rules: rules))
+    }
+}
