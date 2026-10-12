@@ -2141,7 +2141,9 @@ class IBConnection:
             # Yield briefly so orderStatus events pushed by IB can be applied.
             self.ib.sleep(0.05)
 
-        raw = refreshed_trades + list(self.ib.openTrades()) + list(self.ib.trades())
+        # The same SDK object can occur in all three sources. Preserve distinct
+        # conflicting evidence, but never render one object multiple times.
+        raw = list({id(t): t for t in refreshed_trades + list(self.ib.openTrades()) + list(self.ib.trades())}.values())
         foreign = any(t.order.clientId != self.client_id for t in raw)
         completed = None
         if foreign:

@@ -57,6 +57,12 @@ class SharedSnapshotTests(unittest.TestCase):
   c.ib=S(trades=lambda:[self.stale],openTrades=lambda:[self.stale],fills=lambda:[],sleep=lambda _:None,
          reqOpenOrders=lambda:[],reqAllOpenOrders=Mock(return_value=opened),reqCompletedOrders=Mock(return_value=completed))
   return c
+ def test_repeated_own_sdk_object_is_only_one_snapshot_row(self):
+  c=self.connection([],[])
+  self.stale.order.clientId=71
+  snap=c.get_order_status_snapshot(True)
+  self.assertEqual(len(snap['display_trades']),1)
+  self.assertIs(snap['display_trades'][0],self.stale)
  def test_shared_snapshot_and_chart_view_reconcile_and_do_not_mutate_sdk(self):
   c=self.connection([], [trade('Cancelled')])
   snap=c.get_order_status_snapshot(force_refresh=True)

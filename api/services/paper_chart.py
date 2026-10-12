@@ -1062,7 +1062,7 @@ class PaperChart:
             if (body.get('action') == 'close' and state.get('known')
                     and not state.get('position') and not state.get('active')
                     and state.get('close_progress', {}).get('status') == 'completed'):
-                result.update(success=True, status='acknowledged', message='Paper close completed; broker position is flat')
+                result.update(success=True, status='acknowledged', message='Paper close completed; selected order group is flat' if state.get('group_attribution') is not None else 'Paper close completed; broker position is flat')
             if state.get('broker_pending') and not request_rejected:
                 result.update(success=False, status='unknown', awaiting_broker=True,
                     message='Request sent; awaiting broker confirmation. Do not resubmit.')
