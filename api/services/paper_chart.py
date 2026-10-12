@@ -1,7 +1,7 @@
-"""Paper-only chart brackets. All calls run on the serialized IB owner.
+"""Chart execution with explicit Paper/Live capability gates on the IB owner.
 
 The journal claims each request before a broker write. Unknown outcomes are
-never automatically replayed. Real accounts cannot use this execution path.
+never automatically replayed. Live execution is limited to provisioned standard options.
 """
 import json
 import hashlib
@@ -269,7 +269,7 @@ class PaperChart:
         if not account.startswith('DU'):
             from api.services.live_options import standard_option
             result['enabled'] = standard_option(contracts.resolve(conn,cid))
-            result['live_initial_scope'] = True
+            result['live_options_scope'] = True
         executions = {}
         execution_groups=self.execution_groups(account,cid)
         for fill in conn.ib.fills():
@@ -299,8 +299,9 @@ class PaperChart:
                     protection=self.protection_progress([],size),
                     protection_block_reason='Use the existing order group to manage this position' if result['group_choices'] else 'Existing working orders need reconciliation' if working else '' if valid else 'Wait for a valid whole position and cost basis')
                 result['protection']['status']='not_requested'
-            if not account.startswith('DU'):
-                result.update(add_allowed=False,trim_allowed=False,protection_manageable=False,protection_cancelable=False)
+                if not account.startswith('DU') and result['enabled'] and result['protection_manageable']:
+                    result.update(position_manageable=True, add_allowed=True, trim_allowed=True,
+                                  trim_available=abs(size), unprotected_scaling=True, unprotected_trim=True)
             self.action_availability(conn, account, position.contract if position else None, result)
             return result
         # A reused API order number is not sufficient ownership evidence. Do not
@@ -709,8 +710,6 @@ class PaperChart:
                     entry=basis,side=group['side'],multiplier=multiplier) for r in rows
                     if r['role'].split('_')[0]==role and r['status'] in ('Submitted','PreSubmitted')]
                 result[role+'_projection']=dict(known=complete and bool(targets),realized=realized,targets=targets)
-        if not account.startswith('DU'):
-            result.update(add_allowed=False,trim_allowed=False,protection_manageable=False,protection_cancelable=False)
         self.action_availability(conn, account, scaling_contract, result)
         if attribution_view is not None and not attribution_view['known']:
             result['protection']['status']='unknown'
@@ -731,10 +730,12 @@ class PaperChart:
         # updates on collateral reads. Execution still performs fresh validation.
         size = abs(result.get('position', 0))
         ready = bool(result.get('known') and result.get('enabled') and not result.get('closing') and not result.get('sync_error'))
-        result['close_allowed'] = bool(ready and result.get('active') and not result.get('position_only'))
+        result['close_allowed'] = bool(ready and result.get('active') and (not result.get('position_only') or result.get('position_manageable')))
         result['be_allowed'] = bool(ready and size and result.get('entry', 0) > 0 and not result.get('be_applied') and
             (result.get('sl') or contract and contract.secType in ('STK', 'OPT') and (result.get('protection_manageable') or result.get('unprotected_trim'))))
-        if not account.startswith('DU'): result['be_allowed'] = False
+        if not result.get('enabled'):
+            for name in ('add_allowed','trim_allowed','protection_manageable','protection_cancelable'):
+                result[name] = False
         if not contract: return
         result['add_available'] = max(0, (10 if contract.secType in ('OPT','FUT') else 1000) - size)
         result['trim_available'] = result.get('trim_available', size)
@@ -1096,7 +1097,7 @@ class PaperChart:
             request_rejected = state.get('rejected', False) and (not state.get('orders') or any(
                 r['status'] == 'Inactive' and r['order_id'] not in previous_rejections
                 and '_retired_' not in r['role'] for r in state['orders']))
-            result=dict(success=not request_rejected,status='rejected' if request_rejected else 'acknowledged',message='IB rejected a paper order; review Gateway' if request_rejected else 'Paper request sent; broker status shown on chart',state=state)
+            result=dict(success=not request_rejected,status='rejected' if request_rejected else 'acknowledged',message='IB rejected an order; review Gateway' if request_rejected else 'Request sent; broker status shown on chart',state=state)
             # A prior rejected Add must not turn a broker-confirmed flat close
             # into a rejection. Keep the historical rejection visible in state.
             if (body.get('action') == 'close' and state.get('known')
@@ -1527,6 +1528,31 @@ class PaperChart:
         if any(t.order.account == account and (t.contract.secType == 'BAG' or
                related(t.contract) and t.order.action == 'SELL') and not t.isDone() for t in orders):
             raise ValueError('Close covered CALLs before selling shares.')
+
+    def adopt_live_position(self, conn, account, cid, current, body):
+        """Claim only an unchanged whole holding with no existing order ownership.
+
+        Reads may deliver callbacks, so recheck both the fresh position and chart
+        snapshot after all-client order reconciliation. This creates no IB order.
+        """
+        if not current.get('position_manageable') or not current.get('known'):
+            raise ValueError('Existing position is not ready for management')
+        if body.get('expected_ref') != current.get('order_ref') or body.get('expected_position') != current.get('position'):
+            raise ValueError('Position changed; reopen position management')
+        positions = conn._bounded_order_read(conn.ib.reqPositions, timeout_seconds=3)
+        opened = conn._bounded_order_read(conn.ib.reqAllOpenOrders, timeout_seconds=3)
+        actual = sum(float(p.position) for p in positions if p.account == account and p.contract.conId == cid)
+        fresh = self.state(conn, cid)
+        if (actual != current['position'] or fresh.get('edit_snapshot') != current.get('edit_snapshot')
+                or fresh.get('order_ref') != current.get('order_ref') or not fresh.get('position_manageable')
+                or self.group(account, cid) or self.group_choices(account, cid)):
+            raise ValueError('Position changed during reconciliation')
+        if any(t.order.account == account and t.contract.conId == cid and not t.isDone() for t in opened):
+            raise ValueError('Other working orders require reconciliation before managing this position')
+        group = dict(ids={}, side=current['side'], ref=current['order_ref'],
+                     origin_position=actual, origin_entry=current['entry'], requested_protection=[])
+        self.save_group(account, cid, group)
+        return group
 
     def set_protection(self, conn, account, cid, contract, current, group, body, request_id, price):
         """Explicit replacement for a settled, fully owned position. Never replay writes.
@@ -2167,6 +2193,11 @@ class PaperChart:
             return
         if not current['known']: raise ValueError('Orders need Gateway reconciliation before another action')
         group=self.group(account,cid)
+        if not group and not account.startswith('DU') and action in ('add','trim','close'):
+            # Validate the explicit limit before persisting ownership or canceling anything.
+            price(body.get('entry') if action == 'add' else body.get('exit_price'))
+            group=self.adopt_live_position(conn,account,cid,current,body)
+            current=self.state(conn,cid)
         if not group: raise ValueError('No chart bracket for this contract')
         trades=getattr(self,'_resolved_trades',{})
         if action == 'add' and (contract.secType == 'OPT' or contract.secType == 'STK' and not current.get('scalable')):

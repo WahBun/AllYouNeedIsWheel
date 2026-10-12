@@ -1,5 +1,35 @@
 # Project Handoff
 
+## 2026-10-12 chart orders, panel and device synchronization
+
+User authorized GitHub/Mini deployment after local checks and iPhone source
+synchronization; user will Run the iPhone app. Never use real orders as deployment
+verification. Retain Wheel Buy/Sell preview/confirmation and existing close policy;
+do not add account-wide Flatten All.
+
+Live standard USD options now use `live_options_scope`: both entry sides,
+multi-contract LMT/STP and optional TP/SL, plus reconciled TP/SL/Add/Trim/BE/Close.
+The original exact-account gate, coverage/cash checks, quantity ceiling and
+unknown-outcome fences remain. Quick sizes are 1/2/3/4. Old-server
+`live_initial_scope` remains restricted in clients for compatibility.
+
+Web right-click/price-plus quantities enter a preview, not a direct write.
+The panel can collapse without recreating chart frames. Cold-start auxiliary
+panes keep current-frame dynamic EMA20, ATR and FVG; other indicators default off,
+while main-pane settings remain. In-session manual choices are not reset.
+Four-pane synchronized symbol switching retains each pane's interval.
+
+Validation: 59 frontend tests; isolated backend execution/fault/recovery tests;
+eight-case browser matrices for Live management, context quantities, panel
+integration, cold-start indicators and symbol synchronization. Native simulator
+build and 100 focused tests passed. Physical iPhone Run and actual broker fills,
+partial fills and stop triggers are not certified by these mocked checks.
+See `ORDER_BUTTON_COMPARISON_2026-10-12.md` for REA evidence and exact scope.
+
+Preserve the accepted refresh release below. No price aggregation, stream
+transport, Gateway/routing or account configuration changes are part of this
+order/UI release. Mini's Live option capability switch was already enabled.
+
 ## 2026-10-12 planned chart-stream renewal
 
 Chart transport lease expiry now emits an explicit renewal event after releasing

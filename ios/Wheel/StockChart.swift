@@ -286,7 +286,8 @@ struct StockChartView: View {
         editPrice = String(paperState["entry"] as? Double ?? validEntry)
     }
     private var liveInitialScope: Bool { paperState["live_initial_scope"] as? Bool == true }
-    private var quantityLimit: Int { liveInitialScope ? 1 : chartType == "STK" ? 1000 : 10 }
+    private var liveOptionsScope: Bool { paperState["live_options_scope"] as? Bool == true || liveInitialScope }
+    private var quantityLimit: Int { TradeRules.chartQuantityLimit(securityType: chartType, state: paperState) }
     private var validQuantityDraft: Int? {
         guard let value = Int(quantityDraft), (1...quantityLimit).contains(value) else { return nil }
         return value
@@ -375,7 +376,11 @@ struct StockChartView: View {
             return
         }
         if body["action"] as? String == "close", paperState["closing"] as? Bool == true { return }
-        if body["action"] as? String == "close" { body = TradeRules.chartCloseRequest(paperState); body["con_id"] = chartID }
+        if body["action"] as? String == "close", body["exit_price"] == nil {
+            if let source = body["con_id"] as? Int, source != chartID { return }
+            if let ref = body["expected_ref"] as? String, ref != paperState["order_ref"] as? String { return }
+            body = TradeRules.chartCloseRequest(paperState); body["con_id"] = chartID
+        }
         if body["action"] as? String == "indicatorSettings" { showIndicatorSettings = true; return }
         if body["action"] as? String == "indicatorToggle" { indicatorVisible.toggle(); return }
         if body["action"] as? String == "indicatorCollapse", let collapsed = body["collapsed"] as? Bool { indicatorCollapsed = collapsed; return }
@@ -384,6 +389,10 @@ struct StockChartView: View {
                   let price = body["entry"] as? Double, price > 0,
                   let type = body["entry_type"] as? String, ["LMT", "STP"].contains(type) else { return }
             guard previewTIF != "OVERNIGHT" || type == "LMT" else { paperMessage = "OVT supports limit orders only; STP is unavailable"; return }
+            if let raw = body["quantity"] {
+                guard let value = raw as? Int, (1...quantityLimit).contains(value) else { return }
+                quantity = String(value)
+            }
             entry = String(price); entryType = type
             if let side = body["side"] as? Int, side == 1 || side == -1 { previewSide = side; previewRevision += 1 }
             return
@@ -403,7 +412,7 @@ struct StockChartView: View {
         guard !paperBusy, paperEnabled, let cid = chartID else { return }
         if let source = body["con_id"] as? Int, source != cid { return }
         if body["action"] as? String == "submit" {
-            guard !paperActive else { return }
+            guard !paperActive, let size = body["quantity"] as? Double, size.isFinite, size.rounded(.towardZero) == size, size >= 1, size <= Double(quantityLimit) else { return }
             if paperState["live_initial_scope"] as? Bool == true || !bracketEnabled(chartType) {
                 body.removeValue(forKey: "tp"); body.removeValue(forKey: "sl")
             } else if body["tp"] == nil && body["sl"] == nil {
@@ -416,6 +425,8 @@ struct StockChartView: View {
             if let type = body["entry_type"] as? String, ["LMT", "STP"].contains(type) { entryType = type }
             if let price = body["entry"] as? Double { entry = String(price) }
         }
+        do { body = try TradeRules.liveChartManagementRequest(body, state: paperState, packet: packet, conID: cid, epoch: store.trading.accountEpoch, received: received) }
+        catch { paperMessage = connectionMessage(error); return }
         body["group_id"] = selectedOrderGroup
         let requestGroup = selectedOrderGroup
         pendingActionLabel = body["cancel"] as? Bool == true ? "Canceling order…" : body["action"] as? String == "submit" ? "Submitting order…" : body["action"] as? String == "close" ? "Closing position…" : "Updating order…"
@@ -1006,7 +1017,7 @@ struct StockChartView: View {
     private var cacheKey: String { "\(store.address)-\(chartID ?? 0)-\(interval)-\(session)" }
     private var context: String { "\(store.demo)-\(store.address)-\(chartID ?? 0)-\(interval)-\(session)-\(phase == .active)-\(visible)" }
     private var validEntry: Double { Double(entry).flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 0 }
-    private var validQuantity: Double { Double(quantity).flatMap { $0.isFinite && $0 > 0 && $0 <= 1_000_000 && (chartType == "STK" || $0.rounded(.towardZero) == $0) ? $0 : nil } ?? 0 }
+    private var validQuantity: Double { Double(quantity).flatMap { $0.isFinite && $0 > 0 && (paperActive || $0 <= Double(quantityLimit)) && $0.rounded(.towardZero) == $0 ? $0 : nil } ?? 0 }
     private func joinPrice(_ side: String) -> Double? {
         guard visible, phase == .active, let received, Date().timeIntervalSince(received) < 3,
               let expires = packet["quote_expires_at"] as? Double,
@@ -1086,7 +1097,7 @@ struct StockChartView: View {
             }
             }
             if let emaHistoryNotice { NoticeText(emaHistoryNotice).font(.caption2).foregroundStyle(.secondary) }
-            StockChartWeb(backendAddress: store.address, executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, previewSide: previewSide, previewRevision: previewRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "webEntryDrag": true, "web_account_epoch": store.trading.accountEpoch ?? "", "adjustment_quantity": adjustmentQuantity, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
+            StockChartWeb(backendAddress: store.address, executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, previewSide: previewSide, previewRevision: previewRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "webEntryDrag": true, "web_account_epoch": store.trading.accountEpoch ?? "", "adjustment_quantity": adjustmentQuantity, "quantity_limit": quantityLimit, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
                 Button { showDisplaySettings = true } label: {
@@ -1154,7 +1165,7 @@ struct StockChartView: View {
             HStack(spacing: 8) {
                 TextField(chartType == "STK" ? "Shares" : "Contracts", text: $quantity).keyboardType(chartType == "STK" ? .decimalPad : .numberPad)
                     .multilineTextAlignment(.center).textFieldStyle(.roundedBorder).frame(width: 48).disabled(liveInitialScope || paperActive)
-                Stepper(chartType == "STK" ? "Shares" : "Contracts", value: Binding(get: { max(1, Int(validQuantity)) }, set: { quantity = String($0) }), in: 1...1_000_000).labelsHidden().disabled(liveInitialScope || paperActive)
+                Stepper(chartType == "STK" ? "Shares" : "Contracts", value: Binding(get: { max(1, Int(validQuantity)) }, set: { quantity = String($0) }), in: 1...quantityLimit).labelsHidden().disabled(liveInitialScope || paperActive)
                 Spacer(minLength: 0)
                 if validEntry == 0 {
                     Button { entry = String(((packet["bars"] as? [[String: Any]])?.last?["close"] as? Double) ?? position.market_price ?? 0) } label: { Image(systemName: "plus.circle").frame(minWidth: 32, minHeight: 44) }.accessibilityLabel("Entry reference")
@@ -1162,6 +1173,14 @@ struct StockChartView: View {
                 Picker("Entry type", selection: $entryType) {
                     Text("LMT").tag("LMT"); Text("STP").tag("STP").disabled(liveInitialScope || previewTIF == "OVERNIGHT" || paperState["tif"] as? String == "OVERNIGHT")
                 }.pickerStyle(.segmented).frame(maxWidth: 140)
+            }
+            if !paperActive {
+                HStack(spacing: 8) {
+                    ForEach([1, 2, 3, 4].filter { $0 <= quantityLimit }, id: \.self) { value in
+                        Button { quantity = String(value) } label: { Text(String(value)).frame(maxWidth: .infinity, minHeight: 30) }
+                            .tint(Int(quantity) == value ? .blue : .secondary)
+                    }
+                }.disabled(paperBusy)
             }
             HStack(spacing: 10) {
                 VStack(spacing: 6) {
@@ -1187,7 +1206,7 @@ struct StockChartView: View {
                             .tint(.purple).disabled(!paperEnabled || paperBusy || !canTrim || positionSize == 0)
                         Button { if paperEnabled { paperAction(["action": "be", "expected_ref": paperState["order_ref"] ?? "", "expected_snapshot": paperState["edit_snapshot"] ?? ""]) } else { beRevision += 1 } } label: { Text("BE").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(paperBusy || (store.chartTradingAvailable && !paperEnabled) || (paperEnabled && (paperState["be_allowed"] as? Bool != true)) || (!paperEnabled && protectionOption(chartType, "sl") == "off") || (!paperEnabled && beApplied) || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
                     }
-                    Button { if paperEnabled { paperAction(["action": "close", "expected_ref": paperState["order_ref"] ?? ""]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.65).frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || paperState["close_allowed"] as? Bool == false || paperState["position_only"] as? Bool == true || paperState["closing"] as? Bool == true || (store.chartTradingAvailable ? (!paperEnabled || !paperActive) : validEntry <= 0))
+                    Button { if paperEnabled { paperAction(["action": "close", "expected_ref": paperState["order_ref"] ?? ""]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.65).frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || paperState["close_allowed"] as? Bool == false || (paperState["position_only"] as? Bool == true && paperState["position_manageable"] as? Bool != true) || paperState["closing"] as? Bool == true || (store.chartTradingAvailable ? (!paperEnabled || !paperActive) : validEntry <= 0))
                     }
                 }.font(.system(size: 13, weight: .semibold))
             }.buttonStyle(.bordered)
@@ -1305,6 +1324,7 @@ struct StockChartView: View {
                         Stepper("Quantity", value: $adjustmentQuantity, in: 1...max(1, adjustmentLimit)).labelsHidden()
                     }
                     if chartType == "FUT" { Text("Futures use one protected bracket per contract. Add creates new brackets. Trim exits selected contracts at bid/ask while keeping every other bracket unchanged.").font(.caption) }
+                    else if liveOptionsScope { Text(locale.language.languageCode?.identifier == "zh" ? "加仓、减仓使用当前买卖报价限价单，不保证立即成交。" : "Add and Trim use current bid/ask limit orders; immediate fill is not guaranteed.").font(.caption) }
                     else { Text(locale.language.languageCode?.identifier == "zh" ? "加仓使用市价单；减仓使用买卖报价限价单。不会自动添加止盈止损。" : "Add uses a market order; Trim uses a quote-limit order. TP/SL is not added automatically.").font(.caption) }
                     Button(adjustmentAction == "trim" ? "Trim position" : "Add to position") {
                         guard adjustmentAllowed, adjustmentCID == chartID, adjustmentRef == paperState["order_ref"] as? String else { return }

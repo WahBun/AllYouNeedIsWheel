@@ -162,7 +162,7 @@ function updateOptionQuote(){
  if(ivElement.textContent!==ivText)ivElement.textContent=ivText;
  ivElement.style.color=ivValid?colors[iv<=30?'low':iv<=70?'medium':'high']:'#666';
  ivElement.dataset.band=ivValid?(iv<=30?'low':iv<=70?'medium':'high'):'unavailable';
- const noQuote=!displayQuote&&displayIV===null;for(const el of optionQuote.querySelectorAll('span'))el.hidden=noQuote;if(noQuote){optionStale.textContent=document.documentElement.lang==='zh'?'暂无报价':'No quote available';optionStale.style.color='#666';}
+ const noQuote=!displayQuote&&displayIV===null;for(const el of optionQuote.querySelectorAll('span'))el.hidden=noQuote;if(noQuote){optionStale.textContent=document.documentElement.lang.startsWith('zh')?'暂无报价':'No quote available';optionStale.style.color='#666';}
  optionQuote.style.opacity='1';
 }
 
@@ -670,41 +670,62 @@ priceAdd.style.cssText='position:absolute;right:60px;width:20px;height:20px;padd
 priceMenu.id='price-order-menu';priceMenu.hidden=true;priceMenu.style.cssText='position:absolute;right:8px;z-index:16;background:#20242d;color:#eee;border-radius:6px;padding:4px;box-shadow:0 3px 10px #0005;max-width:calc(100% - 16px)';
 document.body.append(priceAdd,priceMenu);
 const cursorBadgeStyle=document.createElement('style');cursorBadgeStyle.textContent='#price-order-add:not([hidden]){display:flex;align-items:stretch}#price-order-add .price-cursor-add{width:20px;display:flex;align-items:center;justify-content:center;border-right:1px solid #666}#price-order-add .price-cursor-value{position:absolute;left:20px;top:0;height:20px;background:#191919;border-radius:0 2px 2px 0;pointer-events:none;display:flex;align-items:center;justify-content:flex-end;padding:0 5px;font-variant-numeric:tabular-nums;box-sizing:border-box}';document.head.append(cursorBadgeStyle);
-let cursorOrderPrice=null,menuOrderPrice=null,menuOrderCID=null,priceControlTouchUntil=0;
+let cursorOrderPrice=null,menuOrderPrice=null,menuOrderCID=null,menuOrderEpoch=null,priceControlTouchUntil=0;
 function closePriceMenu(){priceMenu.hidden=true;menuOrderPrice=null;}
 function priceOrderChoices(price,reference){
  if(!(price>0&&reference>0)||price===reference)return [];
  return price>reference?[{side:-1,type:'LMT',label:'Sell Limit'},{side:1,type:'STP',label:'Buy Stop'}]:[{side:1,type:'LMT',label:'Buy Limit'},{side:-1,type:'STP',label:'Sell Stop'}];
 }
-function sendPriceOrder(choice){
+function priceMenuLimit(){return paperConfig.live_initial_scope?1:Number.isInteger(paperConfig.quantity_limit)&&paperConfig.quantity_limit>0?paperConfig.quantity_limit:contractMultiplier===1?1000:10;}
+function priceMenuChinese(){try{return (parent.document.documentElement.lang||document.documentElement.lang).startsWith('zh');}catch{return document.documentElement.lang.startsWith('zh');}}
+function sendPriceOrder(choice,quantity=qty){
  if(ovtStopBlocked(choice.type)){validation('OVT supports limit orders only; STP is unavailable');return;}
- const price=menuOrderPrice,cid=menuOrderCID;closePriceMenu();
- if(cid!==paperCID||!paperConfig.enabled||paperConfig.active||paperConfig.busy||!(qty>0)||!Number.isFinite(qty))return;
+ const price=menuOrderPrice,cid=menuOrderCID,epoch=menuOrderEpoch;closePriceMenu();
+ if(cid!==paperCID||epoch!==paperConfig.web_account_epoch||!paperConfig.enabled||paperConfig.chart_only||paperConfig.active||paperConfig.busy||!Number.isInteger(quantity)||quantity<1||quantity>priceMenuLimit())return;
  if(!priceOrderChoices(price,previous.at(-1)?.close).some(c=>c.side===choice.side&&c.type===choice.type)){validation('Price crossed the market · select the order again');return;}
  const values=paperConfig.preview_tif==='OVERNIGHT'?{tp:0,sl:0}:templatePrices(price,choice.side);
  if(!values){validation('Set valid enabled TP / SL values first');return;}const {tp,sl}=values;
- entry=price;entryType=choice.type;explicitPreviewSide=choice.side;setSide(choice.side);levels={tp,sl};canceled=false;updateLines();paperAction({action:'previewOrder',entry:price,side:choice.side,entry_type:choice.type});
+ qty=quantity;
+ entry=price;entryType=choice.type;explicitPreviewSide=choice.side;setSide(choice.side);levels={tp,sl};canceled=false;updateLines();paperAction({action:'previewOrder',entry:price,side:choice.side,entry_type:choice.type,quantity});
 }
 priceAdd.addEventListener('pointerdown',e=>{priceControlTouchUntil=performance.now()+600;e.preventDefault();e.stopPropagation();});
-priceAdd.onclick=e=>{
- e.stopPropagation();hideExecutionPopup();
- if(!priceMenu.hidden){closePriceMenu();return;}
- menuOrderPrice=cursorOrderPrice;menuOrderCID=paperCID;priceMenu.replaceChildren();
- const quantityButton=document.createElement('button');quantityButton.textContent='Quantity · '+qty+' ▾';quantityButton.setAttribute('aria-label','Edit order quantity');
- quantityButton.style.cssText='display:block;width:100%;background:transparent;color:#aaa;border:0;border-bottom:1px solid #555;padding:10px;text-align:left;font:13px -apple-system';
+function positionPriceMenu(y,x=null){
+ priceMenu.style.left=x===null?'auto':Math.max(8,Math.min(x,innerWidth-priceMenu.offsetWidth-8))+'px';
+ priceMenu.style.right=x===null?'8px':'auto';
+ priceMenu.style.top=Math.max(35,Math.min(y,innerHeight-priceMenu.offsetHeight-8))+'px';
+}
+function openPriceMenu(price,y,x=null){
+ if(paperConfig.chart_only||!(price>0))return;
+ hideExecutionPopup();menuOrderPrice=price;menuOrderCID=paperCID;menuOrderEpoch=paperConfig.web_account_epoch;priceMenu.replaceChildren();
+ const zh=priceMenuChinese(),dark=document.body.dataset.dark==='true';
+ priceMenu.style.background=dark?'#20242d':'#f4f5f3';priceMenu.style.color=dark?'#eee':'#171919';
+ priceMenu.style.maxHeight=Math.max(80,innerHeight-48)+'px';priceMenu.style.overflowY='auto';
+ const quantityButton=document.createElement('button');quantityButton.textContent=(zh?'自定义数量':'Quantity')+' · '+qty+' ▾';quantityButton.setAttribute('aria-label','Edit order quantity');
+ quantityButton.style.cssText='display:block;width:100%;background:transparent;color:inherit;opacity:.8;border:0;border-bottom:1px solid #7775;padding:10px;text-align:left;font:13px -apple-system;min-height:44px';
  quantityButton.disabled=paperConfig.active||paperConfig.busy;
  quantityButton.onclick=e=>{e.stopPropagation();closePriceMenu();paperAction({action:'editQuantity'});};priceMenu.append(quantityButton);
  const choices=priceOrderChoices(menuOrderPrice,previous.at(-1)?.close);
  for(const choice of choices){
-  const button=document.createElement('button');
-  button.dataset.orderChoice='true';button.textContent=choice.label+' '+qty+' '+(countdownPacket?.local_symbol||countdownPacket?.symbol||'')+' @ '+priceText(menuOrderPrice);
-  button.style.cssText='display:block;background:transparent;color:inherit;border:0;text-align:left;padding:12px;font:13px -apple-system;min-height:44px;width:100%;touch-action:manipulation';
+  const row=document.createElement('div');row.style.cssText='display:flex;align-items:stretch';
+  const button=document.createElement('button'),expand=document.createElement('button'),presets=document.createElement('div');
+  button.dataset.orderChoice='true';button.textContent=(zh?({"Sell Limit":'限价卖出',"Buy Limit":'限价买入',"Buy Stop":'止损买入',"Sell Stop":'止损卖出'}[choice.label]):choice.label)+' '+qty+' '+(countdownPacket?.local_symbol||countdownPacket?.symbol||'')+' @ '+priceText(menuOrderPrice);
+  button.style.cssText='display:block;flex:1;background:transparent;color:inherit;border:0;text-align:left;padding:10px;font:13px -apple-system;min-height:44px;touch-action:manipulation';
   button.disabled=!paperConfig.enabled||paperConfig.active||paperConfig.busy||ovtStopBlocked(choice.type);
-  button.onclick=e=>{e.stopPropagation();sendPriceOrder(choice);};priceMenu.append(button);
+  button.onclick=e=>{e.stopPropagation();sendPriceOrder(choice);};
+  expand.textContent='▸';expand.dataset.quantityExpand=choice.side+':'+choice.type;expand.setAttribute('aria-label',zh?'选择数量':'Choose quantity');expand.setAttribute('aria-expanded','false');expand.style.cssText='background:transparent;color:inherit;border:0;min-width:44px;min-height:44px;font-size:18px';expand.disabled=button.disabled;
+  presets.hidden=true;presets.dataset.quantityPresets=choice.side+':'+choice.type;
+  for(const quantity of [1,2,3,4].filter(n=>n<=priceMenuLimit())){
+   const preset=document.createElement('button');preset.textContent=String(quantity);preset.dataset.orderQuantity=quantity;preset.style.cssText='background:transparent;color:inherit;border:1px solid #7775;border-radius:4px;min-width:44px;min-height:44px;margin:2px;font:13px -apple-system';
+   preset.onclick=e=>{e.stopPropagation();sendPriceOrder(choice,quantity);};presets.append(preset);
+  }
+  expand.onclick=e=>{e.stopPropagation();const show=presets.hidden;for(const other of priceMenu.querySelectorAll('[data-quantity-presets]'))other.hidden=true;for(const other of priceMenu.querySelectorAll('[data-quantity-expand]'))other.setAttribute('aria-expanded','false');presets.hidden=!show;expand.setAttribute('aria-expanded',String(show));positionPriceMenu(y,x);};
+  row.append(button,expand);priceMenu.append(row,presets);
  }
- if(!choices.length){priceMenu.textContent='Choose a price above or below the market';}
- priceMenu.hidden=false;priceMenu.style.top=Math.max(35,Math.min(parseFloat(priceAdd.style.top)+24,innerHeight-priceMenu.offsetHeight-32))+'px';
-};
+ if(!choices.length)priceMenu.textContent=zh?'请选择高于或低于市价的价格':'Choose a price above or below the market';
+ priceMenu.hidden=false;positionPriceMenu(y,x);
+}
+priceAdd.onclick=e=>{e.stopPropagation();if(!priceMenu.hidden){closePriceMenu();return;}openPriceMenu(cursorOrderPrice,parseFloat(priceAdd.style.top)+24);};
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closePriceMenu();});
 function updatePriceCursor(p){
  if(!priceMenu.hidden)return;
  if(!p.point){

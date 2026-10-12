@@ -5,6 +5,14 @@ const defaults={volatility:{channels:true,rthOnly:true,showInner:true,showOuter:
 const get=(o,p)=>p.split('.').reduce((v,k)=>v?.[k],o),set=(o,p,v)=>{const keys=p.split('.'),key=keys.pop();keys.reduce((v,k)=>v[k],o)[key]=v;};
 function normalize(saved){const d={...clone(defaults),...saved};for(const k of ['fvg','previousValues','volatility'])d[k]={...clone(defaults[k]),...saved[k]};for(const k of ['extraEMAs'])d[k]=defaults[k].map((v,i)=>({...v,...saved[k]?.[i]}));d.previousValues.rows=defaults.previousValues.rows.map((v,i)=>({...v,...saved.previousValues?.rows?.[i]}));return d;}
 const frames=[0,1,3,5,10,15,30,60,240,1440,10080,43200],sources=['close','open','high','low','hl2','hlc3','ohlc4'];
+function auxiliaryDefaults(saved={}){
+ const d=normalize(saved);
+ Object.assign(d,{indicatorVisible:true,indicatorCollapsed:true,ema:true,emaLength:20,emaFrame:0,emaDynamic:true,emaSource:'close',emaOffset:0,atr:true,optionATR:true,barCount:false,barCountETH:false});
+ d.extraEMAs.forEach(e=>e.enabled=false);d.fvg.enabled=true;d.previousValues.enabled=false;
+ d.previousValues.rows.forEach(r=>r.enabled=false);
+ for(const key of ['channels','distance','gauge','alerts','markHits','priceScale','showInner','showOuter'])d.volatility[key]=false;
+ return d;
+}
 const f=(key,en,zh,type='checkbox',options)=>({key,en,zh,type,options});
 const n=(k,en,zh,min,max,step=1)=>f(k,en,zh,'number',{min,max,step});
 const select=(k,en,zh,options)=>f(k,en,zh,'select',options);
@@ -59,5 +67,5 @@ function mount({read,change,getSession=()=>'rth'}){const dialog=document.getElem
  function dependencies(){const d=read();for(const input of dialog.querySelectorAll('[data-setting]')){const k=input.dataset.setting;input.disabled=(['profit','positions','positionUnit','brackets','bracketUnit'].includes(k)&&!d.holdingsVisible)||(['positions','positionUnit','brackets','bracketUnit'].includes(k)&&!d.profit)||(k==='positionUnit'&&!d.positions)||(k==='bracketUnit'&&!d.brackets)||(k==='executionLabels'&&!d.executions)||(k==='emaColor'&&d.emaDynamic)||(k==='barCountBars'&&!d.barCountLimit);}}
  return {open(m='display'){mode=m;render();if(!dialog.open)dialog.showModal();}};
 }
-window.WheelChartSettings={normalize,effective,requested,mount};
+window.WheelChartSettings={normalize,auxiliaryDefaults,effective,requested,mount};
 })();

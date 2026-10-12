@@ -34,12 +34,13 @@ class WheelPaneBuffer {
 }
 globalThis.WheelPaneBuffer=WheelPaneBuffer;
 /* Auxiliary panes are read-only chart renderers. Only the existing main host trades. */
-window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
+window.installChartLayout=({frame,api,current,activate,holdings,executions,onReady=()=>{}})=>{
  const saved=(()=>{try{return JSON.parse(localStorage.getItem('wheel.chart-layout')||'{}')}catch{return {}}})();
  let count=[1,2,3,4].includes(saved.count)?saved.count:1,active=0,started=false;
  if(Number.isInteger(saved.active)&&saved.active>=0&&saved.active<count)active=saved.active;
  const grid=document.getElementById('chart-grid');
- let maximized=false;const links={symbol:saved.links?.symbol===true,session:saved.links?.session===true};
+ // Old saves persisted the previous default (false). Migrate once, then retain explicit choices.
+ let maximized=false;const links={symbol:saved.syncVersion===1?saved.links?.symbol!==false:true,session:saved.links?.session===true};
  const maximize=document.createElement('button');maximize.id='maximize-chart';maximize.setAttribute('aria-controls','chart-grid');document.getElementById('toggle-trade').before(maximize);
  function paintMaximize(){
   grid.classList.toggle('pane-maximized',maximized);maximize.hidden=count===1;
@@ -53,27 +54,47 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
  const paths={1:'',2:'M12 3v18',3:'M12 3v18M3 12h9',4:'M12 3v18M3 9h9M3 15h9'},names={1:'Single chart',2:'Two columns',3:'Two left, one right',4:'Three left, one right'};
  const icon=n=>`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="${paths[n]}"/></svg>`;
  const menu=document.createElement('div');menu.id='layout-menu';menu.hidden=true;menu.setAttribute('role','menu');
- for(const n of [1,2,3,4]){const b=document.createElement('button');b.innerHTML=icon(n);b.title=names[n];b.setAttribute('aria-label',names[n]);b.setAttribute('role','menuitemradio');b.dataset.layout=n;b.onclick=()=>{if(current().busy)return;captureActive();const selected=panes.get(active),config=configs[active],others=[...panes.values()].sort((a,b)=>a.index-b.index).filter(p=>p!==selected),remaining=configs.filter((_,i)=>i!==active);active=n>=3?n-1:0;remaining.splice(active,0,config);configs.splice(0,4,...remaining);others.splice(Math.min(active,others.length),0,selected);panes.clear();for(const pane of others){const index=pane===selected?active:[...Array(4).keys()].find(i=>i!==active&&!panes.has(i));pane.index=index;panes.set(index,pane);}count=n;maximized=false;close();arrange();tick();persist();};menu.append(b);}
+ for(const n of [1,2,3,4]){const b=document.createElement('button');b.innerHTML=icon(n);b.title=names[n];b.setAttribute('aria-label',names[n]);b.setAttribute('role','menuitemradio');b.dataset.layout=n;b.onclick=()=>{if(current().busy)return;captureActive();const selected=panes.get(active),config=configs[active],others=[...panes.values()].sort((a,b)=>a.index-b.index).filter(p=>p!==selected),remaining=configs.filter((_,i)=>i!==active);active=n>=3?n-1:0;remaining.splice(active,0,config);configs.splice(0,4,...remaining);others.splice(Math.min(active,others.length),0,selected);panes.clear();for(const pane of others){const index=pane===selected?active:[...Array(4).keys()].find(i=>i!==active&&!panes.has(i));pane.index=index;panes.set(index,pane);}count=n;maximized=false;close();arrange();if(links.symbol)beginSwitch();tick();persist();};menu.append(b);}
  for(const [name,label] of [['symbol','Sync symbol'],['session','Sync RTH / ETH']]){const b=document.createElement('button');b.className='layout-sync';b.dataset.sync=name;b.setAttribute('role','menuitemcheckbox');b.setAttribute('aria-checked',String(links[name]));b.textContent=label;b.onclick=()=>{if(current().busy)return;links[name]=!links[name];b.setAttribute('aria-checked',String(links[name]));if(links[name])follow(name);persist();};menu.append(b);}
  picker.append(button,menu);document.getElementById('session-picker').before(picker);
  function close(){menu.hidden=true;button.setAttribute('aria-expanded','false');}
  button.onclick=()=>{menu.hidden=!menu.hidden;button.setAttribute('aria-expanded',String(!menu.hidden));};document.addEventListener('pointerdown',e=>{if(!picker.contains(e.target))close();});picker.onkeydown=e=>{if(e.key==='Escape'){close();button.focus();}};
  const configs=Array.from({length:4},(_,i)=>({...saved.panes?.[i],interval:saved.panes?.[i]?.interval||[5,1,15,60][i],session:saved.panes?.[i]?.session||'rth'}));const panes=new Map();
- for(let i=0;i<configs.length;i++)if(!configs[i].display){const d=structuredClone(current().display);d.optionATR??=localStorage.getItem('wheel.chart.optionATR')==='true';if(i!==(count>=3?count-1:0))d.volatility={...d.volatility,channels:false,distance:false,gauge:false};configs[i].display=d;}
- let persisted='';function persist(){const value=JSON.stringify({count,active,panes:configs,links});if(value===persisted)return;try{localStorage.setItem('wheel.chart-layout',value);persisted=value;}catch{}}
+ // Apply cold-start defaults once. In-session edits and pane activation retain their settings.
+ for(let i=0;i<configs.length;i++){
+  const d=structuredClone(configs[i].display||current().display);d.optionATR??=localStorage.getItem('wheel.chart.optionATR')==='true';
+  configs[i].display=i===(count>=3?count-1:0)?d:WheelChartSettings.auxiliaryDefaults(d);
+ }
+ // Cover only a symbol transition. Steady SSE packets still reach each renderer immediately.
+ const cover=document.createElement('div');cover.id='chart-group-loading';cover.hidden=true;cover.setAttribute('role','status');cover.setAttribute('aria-live','polite');grid.append(cover);
+ let transition=null;
+ function loading(){return transition!==null;}
+ function beginSwitch(){if(count<2)return;transition={started:Date.now(),revealing:false};cover.hidden=false;grid.setAttribute('aria-busy','true');checkSwitch();}
+ function checkSwitch(){
+  const t=transition;if(!t)return;const root=current();
+  const matching=(p,c)=>p?.bars?.length&&p.con_id===c.cid&&p.interval===c.interval&&p.session===c.session&&p.account_epoch===current().epoch;
+  const complete=[...panes.values()].filter(p=>p.index<count).filter(p=>matching(p.index===active?root.packet:p.data,p.index===active?root:p.context())).length;
+  cover.textContent=(document.documentElement.lang.startsWith('zh')?'正在同步加载图表':'Loading charts together')+` · ${complete}/${count}`+(Date.now()-t.started>8000?(document.documentElement.lang.startsWith('zh')?' · 等待行情，自动重试中':' · Waiting for data, retrying automatically'):'');
+  if(complete!==count||!root.epoch){t.revealing=false;return;}
+  if(t.revealing)return;t.revealing=true;
+  // Let the chart library paint its initial snapshot behind the shared cover.
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{if(transition!==t||!t.revealing)return;if([...panes.values()].filter(p=>p.index<count).some(p=>!matching(p.index===active?current().packet:p.data,p.index===active?current():p.context()))){t.revealing=false;checkSwitch();return;}transition=null;cover.hidden=true;grid.removeAttribute('aria-busy');onReady();}));
+ }
+ let persisted='';function persist(){const value=JSON.stringify({count,active,panes:configs,links,syncVersion:1});if(value===persisted)return;try{localStorage.setItem('wheel.chart-layout',value);persisted=value;}catch{}}
  async function readInitial(c,signal){
+  signal=signal?AbortSignal.any([signal,AbortSignal.timeout(12000)]):AbortSignal.timeout(12000);
   if(c.epoch&&[1,3,5,10,15,60,480].includes(c.interval)&&!(c.interval===480&&c.session==='rth')){
    try{
     const p=await api(`portfolio/stock-chart-latest/${c.cid}?interval=${c.interval}&session=${c.session}&epoch=${encodeURIComponent(c.epoch)}`,undefined,AbortSignal.any([signal,AbortSignal.timeout(800)]));
-    if(p.con_id===c.cid&&p.interval===c.interval&&p.session===c.session&&p.bars?.length&&Number.isFinite(p.server_time))return p;
+    if(p.con_id===c.cid&&p.interval===c.interval&&p.session===c.session&&p.account_epoch===c.epoch&&p.bars?.length&&Number.isFinite(p.server_time))return p;
    }catch(error){if(signal.aborted)throw error;}
   }
   return api(`portfolio/stock-chart/${c.cid}?interval=${c.interval}&session=${c.session}&fast=1`,undefined,signal);
  }
  function position(el,index){if(count<=2){el.style.gridColumn=String(index+1);el.style.gridRow='1';}else if(index===count-1){el.style.gridColumn='2';el.style.gridRow='1 / -1';}else{el.style.gridColumn='1';el.style.gridRow=String(index+1);}}
  function captureActive(){const c=current(),pane=panes.get(active);if(!pane)return;configs[active]={cid:c.cid,interval:c.interval,session:c.session,label:c.label,axis:c.axis,display:structuredClone(c.display)};pane.drawingKey=`web:${location.origin}:${c.cid}`;pane.lastRead=Date.now();pane.data=c.packet;pane.ema=c.emaFrames;pane.volatility=c.volatility;pane.key=JSON.stringify(pane.context());pane.loaded=c.ready;}
- function follow(kind){if(!links[kind])return;const c=current();for(let i=0;i<configs.length;i++)if(i!==active){if(kind==='symbol'){configs[i].cid=c.cid;configs[i].label=c.label;}else configs[i].session=c.session;}tick();}
- function choose(index){const target=configs[index],next=panes.get(index);if(!target?.cid||index===active||!next?.loaded||!next.data.bars?.length)return;captureActive();const old=panes.get(active);if(!activate(target,next.frame,{packet:next.data,ema:next.ema,volatility:next.volatility}))return;next.stream.stop();next.buffer.clear();next.controller?.abort();next.seq++;next.inflight=false;old.frame.removeAttribute('id');next.frame.id='chart';active=index;old.render();arrange();tick();persist();}
+ function follow(kind){if(!links[kind])return;const c=current();for(let i=0;i<configs.length;i++)if(i!==active){if(kind==='symbol'){configs[i].cid=c.cid;configs[i].label=c.label;}else configs[i].session=c.session;}if(kind==='symbol')beginSwitch();tick();}
+ function choose(index){if(loading())return;const target=configs[index],next=panes.get(index);if(!target?.cid||index===active||!next?.loaded||!next.data.bars?.length)return;captureActive();const old=panes.get(active);if(!activate(target,next.frame,{packet:next.data,ema:next.ema,volatility:next.volatility}))return;next.stream.stop();next.buffer.clear();next.controller?.abort();next.seq++;next.inflight=false;old.frame.removeAttribute('id');next.frame.id='chart';active=index;old.render();arrange();tick();persist();}
  function arrange(){paintMaximize();grid.dataset.layout=count;button.innerHTML=icon(count);for(const b of menu.querySelectorAll('[data-layout]'))b.setAttribute('aria-checked',String(Number(b.dataset.layout)===count));
   for(const [index,pane] of panes)if(index>=count){pane.dispose();panes.delete(index);}
   for(let i=0;i<count;i++){if(!panes.has(i))panes.set(i,new Pane(i));const pane=panes.get(i);position(pane.el,i);pane.el.classList.toggle('active',i===active);}
@@ -87,7 +108,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
   dispose(){this.dead=true;this.buffer.clear();this.stream.stop();this.controller?.abort();window.removeEventListener('message',this.listener);this.el.remove();}
   context(){const c=configs[this.index];return {cid:c.cid,interval:c.interval,session:c.session,epoch:current().epoch};}
   receive(p){if(this.index===active)return;const c=this.context();if(p.con_id!==c.cid||p.interval!==c.interval||p.session!==c.session||(p.account_epoch!==undefined&&p.account_epoch!==c.epoch))return;
-   if(!this.buffer.packet&&this.data.bars?.length)this.buffer.accept({...this.data,mode:'snapshot'});this.data=this.buffer.accept(p);const bars=this.data.bars;this.frame.contentWindow.receive(p.mode==='delta'&&!this.buffer.snapshot?p:{...p,bars,mode:'snapshot'});if([15,60].includes(c.interval)&&bars.length&&bars.at(-1).time-bars[0].time<7*86400){queueMicrotask(()=>this.loadHistory(bars[0].time));}
+   if(!this.buffer.packet&&this.data.bars?.length)this.buffer.accept({...this.data,mode:'snapshot'});this.data=this.buffer.accept(p);const bars=this.data.bars;this.frame.contentWindow.receive(p.mode==='delta'&&!this.buffer.snapshot?p:{...p,bars,mode:'snapshot'});checkSwitch();if([15,60].includes(c.interval)&&bars.length&&bars.at(-1).time-bars[0].time<7*86400){queueMicrotask(()=>this.loadHistory(bars[0].time));}
   }
   async loadHistory(before){const c=this.context();if(this.dead||this.index===active||!c.epoch||!before||this.historyBusy||Date.now()<(this.historyRetry||0))return;this.historyBusy=true;this.historyRetry=Date.now()+30000;const seq=this.seq;try{const page=await api(`portfolio/stock-chart-history/${c.cid}?interval=${c.interval}&session=${c.session}&before=${before}`);if(!this.dead&&this.index!==active&&seq===this.seq&&page.bars?.length){const bars=[...new Map([...page.bars,...(this.data.bars||[])].map(b=>[b.time,b])).values()].sort((a,b)=>a.time-b.time).slice(-20000);this.data=this.buffer.accept({...this.data,bars,mode:'snapshot'});this.frame.contentWindow.receive(this.data);}}catch{}finally{this.historyBusy=false;}}
   render(){if(!this.loaded||this.index===active)return;const c=configs[this.index],root=current(),display=WheelChartSettings.effective({...c.display,atr:this.data.security_type==='OPT'?c.display.optionATR===true:c.display.atr},c.session,this.ema||{});
@@ -99,7 +120,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
    if(this.data.bars?.length&&!this.extraBusy&&Date.now()-this.lastExtras>10000){this.extraBusy=true;this.lastExtras=Date.now();const seq=this.seq,display=configs[this.index].display;try{const frames=WheelChartSettings.requested(display,c.interval,c.session),family=WheelVolatility.family(this.data);const results=await Promise.allSettled([frames.length?api(`portfolio/chart-ema/${c.cid}?frames=${frames.join(',')}&session=${c.session}`):Promise.resolve(null),family&&display.indicatorVisible&&display.volatility.channels?api(`portfolio/chart-volatility/${c.cid}?source=${display.volatility[family]}`):Promise.resolve(null)]);if(!this.dead&&seq===this.seq){if(results[0].status==='fulfilled')this.ema=results[0].value?.frames||{};if(results[1].status==='fulfilled')this.volatility=results[1].value;this.render();}}finally{this.extraBusy=false;}}
   }
  }
- function tick(){const c=current();if(!c.cid||!c.ready)return;if(!started){started=true;for(let i=0;i<4;i++)configs[i]={...configs[i],cid:configs[i].cid||c.cid,label:configs[i].label||c.label,session:configs[i].cid?configs[i].session:c.session};arrange();}captureActive();for(const other of panes.values())if(other.index!==active)void other.tick();persist();}
+ function tick(){const c=current();if(!c.cid||!c.ready)return;if(!started){started=true;for(let i=0;i<4;i++)configs[i]={...configs[i],cid:links.symbol?c.cid:(configs[i].cid||c.cid),label:links.symbol?c.label:(configs[i].label||c.label),session:configs[i].cid?configs[i].session:c.session};arrange();if(links.symbol)beginSwitch();}captureActive();for(const other of panes.values())if(other.index!==active)void other.tick();checkSwitch();persist();}
  panes.set(active,new Pane(active,frame));arrange();setInterval(tick,2000);window.addEventListener('pagehide',()=>{for(const p of panes.values())p.stream.stop();});window.addEventListener('pageshow',tick);document.addEventListener('visibilitychange',()=>{if(document.hidden)for(const p of panes.values())p.stream.stop();else tick();});
  window.renderChartLayoutImage=async()=>{
   const bounds=grid.getBoundingClientRect(),scale=devicePixelRatio||1;
@@ -109,5 +130,5 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions})=>{
   visible.forEach(({rect},i)=>ctx.drawImage(images[i],rect.left-bounds.left,rect.top-bounds.top,rect.width,rect.height));return canvas;
  };
  function showTable(target){return panes.get(count>=3?count-1:0)?.frame===target;}
- return {tick,readInitial,follow,showTable};
+ return {tick,readInitial,follow,showTable,loading,checkSwitch};
 };

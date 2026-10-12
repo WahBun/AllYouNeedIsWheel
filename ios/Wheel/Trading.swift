@@ -196,6 +196,46 @@ struct ChartJoinGate {
 }
 
 enum TradeRules {
+    static func chartQuantityLimit(securityType: String, state: [String: Any]) -> Int {
+        state["live_initial_scope"] as? Bool == true ? 1 : securityType == "STK" ? 1000 : 10
+    }
+
+    static func liveChartManagementRequest(_ incoming: [String: Any], state: [String: Any], packet: [String: Any], conID: Int, epoch: String?, received: Date?, now: Date = .now) throws -> [String: Any] {
+        guard state["live_options_scope"] as? Bool == true || state["live_initial_scope"] as? Bool == true,
+              let action = incoming["action"] as? String, ["add", "trim", "close"].contains(action) else { return incoming }
+        guard let position = state["position"] as? Double, position.isFinite, position != 0,
+              let ref = state["order_ref"] as? String, !ref.isEmpty,
+              incoming["expected_ref"] as? String == ref,
+              incoming["con_id"] == nil || incoming["con_id"] as? Int == conID,
+              incoming["expected_position"] == nil || incoming["expected_position"] as? Double == position else {
+            throw AppError.message("Position changed; refresh before managing Live options.")
+        }
+        var body = incoming
+        body["expected_position"] = position
+        let typeField = action == "add" ? "entry_type" : "exit_type"
+        let priceField = action == "add" ? "entry" : "exit_price"
+        if body[priceField] != nil || body[typeField] != nil {
+            let allowed = action == "add" ? ["LMT", "STP"] : ["LMT"]
+            guard let selected = body[priceField] as? Double, selected.isFinite, selected > 0, allowed.contains(body[typeField] as? String ?? "") else {
+                throw AppError.message("Live option management requires an explicit valid price.")
+            }
+            return body
+        }
+        let side = action == "add" ? (position > 0 ? "ask" : "bid") : (position > 0 ? "bid" : "ask")
+        guard let epoch, !epoch.isEmpty, packet["account_epoch"] as? String == epoch,
+              packet["con_id"] as? Int == conID, let received,
+              now.timeIntervalSince(received) >= 0, now.timeIntervalSince(received) < 3,
+              let server = packet["server_time"] as? Double, server.isFinite,
+              let expires = packet["quote_expires_at"] as? Double, expires.isFinite,
+              server + now.timeIntervalSince(received) < expires,
+              let bid = packet["bid"] as? Double, let ask = packet["ask"] as? Double,
+              bid.isFinite, ask.isFinite, bid > 0, ask >= bid,
+              let quote = packet[side] as? Double else {
+            throw AppError.message("Wait for a fresh quote for this account and contract.")
+        }
+        body[typeField] = "LMT"; body[priceField] = quote
+        return body
+    }
     static func chartCloseRequest(_ state: [String: Any]) -> [String: Any] {
         if (state["position"] as? Double ?? 0) == 0, state["entry_editable"] as? Bool == true,
            let ref = state["order_ref"] as? String, let snapshot = state["edit_snapshot"] as? [[String: Any]] {
