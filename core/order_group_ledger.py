@@ -155,6 +155,13 @@ def project(path, account, cid, client, groups, trades, fills, account_position)
                     conflict('Foreign parent relationship: '+ref+':'+role);continue
                 identity=(client,permanent,parent,o.action)
                 old=db.execute('SELECT client_id,perm_id,parent_id,action FROM group_order_identity WHERE account=? AND con_id=? AND reference=? AND order_id=?',(account,cid,ref,oid)).fetchone()
+                # Completed-order downloads clear API parentId. Preserve the
+                # saved API relationship only when permanent parent identity proves it.
+                if old and not parent and old[2] and o.clientId == 0:
+                    parent_roles=[r for r,i in g['ids'].items() if i==old[2] and r.split('_')[0]=='entry']
+                    parent_perm=g.get('perms',{}).get(parent_roles[0]) if len(parent_roles)==1 else None
+                    if parent_perm and getattr(o,'parentPermId',None)==parent_perm:
+                        identity=(client,permanent,old[2],o.action)
                 if old and old!=identity:
                     conflict('Persisted identity changed: '+ref+':'+role);continue
                 db.execute('INSERT OR IGNORE INTO group_order_identity VALUES(?,?,?,?,?,?,?,?)',(account,cid,ref,oid,*identity))
