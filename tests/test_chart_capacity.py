@@ -113,6 +113,25 @@ class ChartCapacityTests(unittest.TestCase):
             for _ in range(6): self.assertEqual(self.open()[1], 400)
         for _ in range(4): self.assertFalse(isinstance(self.open(), tuple))
 
+    def test_planned_renewal_releases_lease_before_control_event(self):
+        response = self.open()
+        retiring = self.last_sub
+        for _ in range(3): self.open()
+        self.assertEqual(self.open()[1], 503)
+        retiring.renew = retiring.closed = True
+        retiring.ready.set()
+        self.assertEqual(next(response.response), 'event: renew\ndata: {}\n\n')
+        # The old generator has not finished, but replacement capacity is free.
+        self.assertFalse(isinstance(self.open(), tuple))
+        with self.assertRaises(StopIteration): next(response.response)
+        response.close()
+        self.assertEqual(self.open()[1], 503, 'renewal must release exactly once')
+
+    def test_unplanned_close_does_not_request_immediate_renewal(self):
+        response = self.open()
+        self.last_sub.closed = True
+        with self.assertRaises(StopIteration): next(response.response)
+
 
 if __name__ == '__main__': unittest.main()
 

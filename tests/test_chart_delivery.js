@@ -92,7 +92,7 @@ test('legacy epoch omission stays compatible; repeated lifecycle actions do not 
 });
 
 test('multiplex transport is bounded, routes peers, isolates epochs and releases once',()=>{
- const sources=[],tasks=[];class Source{constructor(url){this.url=url;this.closes=0;sources.push(this)}close(){this.closes++}}
+ const sources=[],tasks=[];class Source{constructor(url){this.url=url;this.closes=0;sources.push(this)}close(){this.closes++}addEventListener(){}}
  const c={globalThis:null,location:{href:'http://fixture/'},URL,queueMicrotask:fn=>tasks.push(fn),EventSource:Source};c.globalThis=c;
  vm.runInNewContext(fs.readFileSync('frontend/static/js/chart-stream.js','utf8'),c);
  const flush=()=>{while(tasks.length)tasks.shift()()};
@@ -123,4 +123,32 @@ test('vendored Lightweight Charts matches the pinned official package manifest',
  assert.ok(fs.readFileSync(base+'LightweightCharts-NOTICE.txt','utf8').includes('https://www.tradingview.com/'));
  assert.ok(fs.readFileSync(base+'stock-chart.html','utf8').includes('attributionLogo:true'));
  assert.equal(createHash('sha256').update(bytes).digest('hex'),manifest.sha256);
+});
+
+test('planned renewal replaces four contexts immediately without bypassing snapshot or failure guards',()=>{
+ const sources=[],tasks=[];class Source{constructor(url){this.url=url;this.closes=0;this.events={};sources.push(this)}close(){this.closes++}addEventListener(name,fn){this.events[name]=fn}}
+ const c={globalThis:null,location:{href:'http://fixture/'},URL,queueMicrotask:fn=>tasks.push(fn),EventSource:Source};c.globalThis=c;
+ vm.runInNewContext(fs.readFileSync('frontend/static/js/chart-stream.js','utf8'),c);
+ const flush=()=>{while(tasks.length)tasks.shift()()};let now=1000;const received=[],statuses=[];
+ const streams=[1,5,15,60].map(interval=>{const s=new c.WheelChartStream({now:()=>now,random:()=>1,receive:p=>received.push(p),status:m=>statuses.push(m)});s.ensure({cid:7,interval,session:'all',epoch:'a'});return s});
+ const send=(source,interval,mode='snapshot',sequence=1,epoch='a')=>source.onmessage({data:JSON.stringify({con_id:7,interval,session:'all',account_epoch:epoch,generation:'g',bars:[],mode,sequence})});
+ flush();for(const n of [1,5,15,60])send(sources[0],n);assert.equal(received.length,4);
+ const old=sources[0];old.events.renew();old.onerror();flush();assert.equal(sources.length,2);assert.equal(old.closes,1);assert.equal(statuses.length,0);
+ assert.equal(new URL(sources[1].url,'http://fixture').searchParams.get('contexts'),new URL(old.url,'http://fixture').searchParams.get('contexts'));
+ old.events.renew();send(old,1);flush();assert.equal(sources.length,2);assert.equal(received.length,4);
+ for(const n of [1,5,15,60])send(sources[1],n);assert.equal(received.length,8);assert.ok(streams.every(s=>s.healthy()&&s.failures===0));
+ sources[1].onerror();flush();assert.equal(statuses.length,4);assert.ok(streams.every(s=>s.retryAt===2000));
+ for(const s of streams)s.stop();flush();assert.equal(c.WheelChartSource.groups.size,0);
+ // Stopping during a scheduled renewal must not resurrect a closed page.
+ const last=new c.WheelChartSource('/api/portfolio/stock-chart-stream/7?interval=1&session=all&epoch=b');flush();const native=sources.at(-1);native.events.renew();last.close();flush();assert.equal(sources.at(-1),native);assert.equal(c.WheelChartSource.groups.size,0);
+});
+
+test('a renewed transport must begin with a snapshot even if an old delta sequence would match',()=>{
+ const sources=[],tasks=[];class Source{constructor(){this.events={};sources.push(this)}close(){}addEventListener(name,fn){this.events[name]=fn}}
+ const c={globalThis:null,location:{href:'http://fixture/'},URL,queueMicrotask:fn=>tasks.push(fn),EventSource:Source};c.globalThis=c;
+ vm.runInNewContext(fs.readFileSync('frontend/static/js/chart-stream.js','utf8'),c);const flush=()=>{while(tasks.length)tasks.shift()()};let received=0;
+ const s=new c.WheelChartStream({now:()=>1000,receive:()=>received++,status:()=>{}});s.ensure({cid:7,interval:1,session:'all',epoch:'a'});flush();
+ const p={con_id:7,interval:1,session:'all',account_epoch:'a',generation:'g',bars:[],mode:'snapshot',sequence:1};sources[0].onmessage({data:JSON.stringify(p)});
+ sources[0].events.renew();flush();sources[1].onmessage({data:JSON.stringify({...p,mode:'delta',sequence:2})});
+ assert.equal(received,1);assert.equal(s.source,null);assert.equal(s.failures,1);s.stop();flush();
 });

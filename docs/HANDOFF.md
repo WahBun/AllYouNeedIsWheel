@@ -1,5 +1,27 @@
 # Project Handoff
 
+## 2026-10-12 planned chart-stream renewal
+
+Chart transport lease expiry now emits an explicit renewal event after releasing
+admission. The browser reconnects its shared contexts immediately and requires a
+new snapshot; genuine failures retain bounded backoff and epoch/sequence guards.
+Cache immutable New York calendar-day identities for EMA/FVG calculations with
+a 24,000-entry bound. No quote throttle, new IB owner or execution-policy change.
+
+Exact isolated release candidate: 55 frontend and 171 offline regressions passed.
+Four-pane renewal replay improved from about 1.07 seconds to 2–5 milliseconds;
+this is synthetic loopback timing, not broker latency. The wider paired matrix,
+stress, distinct-symbol and recovery checks passed during local validation.
+
+Passive runtime evidence places the main half-second cadence upstream of Wheel:
+Gateway trade bursts around 0.50–0.53 seconds, with normal Mini handling measured
+in milliseconds. Active upstream networking showed about 223–241 ms RTT and
+out-of-order traffic. Network versus IB farm batching remains unresolved; do not
+claim a fixed IB throttle or Tradesea-equivalent real-feed performance. The user
+has deferred upstream tuning near market open and authorized Pro/Mini refresh
+synchronization via GitHub. Preserve Gateway, routing and account settings.
+See docs/TICK_REFRESH_INVESTIGATION_2026-10-12.md for evidence and limitations.
+
 ## 2026-10-12 Inactive evidence correction
 
 Do not classify IB Inactive alone as cancellation, rejection, or replay permission.

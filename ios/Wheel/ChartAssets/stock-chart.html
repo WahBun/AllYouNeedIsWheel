@@ -202,6 +202,16 @@ function updateATR(){
 }
 // Port of the reference's first EMA and ATR-normalized dynamic color module.
 const emaDayFormatter=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'});
+// Calendar identity is immutable. Reuse it across EMA/FVG ticks rather than
+// formatting the same historical timestamps hundreds of times per update.
+const chartDayCache=new Map();
+function chartDay(time){
+ if(chartDayCache.has(time))return chartDayCache.get(time);
+ const day=emaDayFormatter.format(new Date(time*1000));
+ if(chartDayCache.size>=24000)chartDayCache.delete(chartDayCache.keys().next().value);
+ chartDayCache.set(time,day);return day;
+}
+
 function emaSource(b,source){return source==='hl2'?(b.high+b.low)/2:source==='hlc3'?(b.high+b.low+b.close)/3:source==='ohlc4'?(b.open+b.high+b.low+b.close)/4:b[source]??b.close;}
 function emaStep(b,prior,older,state,options,seconds,projected){
  const value=emaSource(b,options.source),alpha=2/(options.length+1),ema=Number.isFinite(projected)?projected:state?state.ema+alpha*(value-state.ema):value;
@@ -211,7 +221,7 @@ function emaStep(b,prior,older,state,options,seconds,projected){
  const bull=b.low>ema&&b.close>ema,bear=b.high<ema&&b.close<ema,dir=bull?1:bear?-1:0,prevDir=state?.dir||0,run=dir?(dir===prevDir?state.run+1:1):0;
  const gap=bull?b.low-ema:bear?ema-b.high:0,strength=atr>0?gap/atr:0,extension=atr>0?Math.abs(b.close-ema)/atr:0;
  const impulse=!!prior&&!!state&&((bull&&b.close>prior.close&&slope>state.slope)||(bear&&b.close<prior.close&&slope<state.slope));
- const day=t=>emaDayFormatter.format(new Date(t*1000));
+ const day=chartDay;
  const continuous=!!older&&(seconds>=86400||(b.time-prior.time<=seconds*3&&prior.time-older.time<=seconds*3));
  const sameDay=!!older&&day(b.time)===day(prior.time)&&day(prior.time)===day(older.time);
  const fvg=continuous&&sameDay&&((bull&&b.low>older.high&&b.low-older.high>=atr*.05)||(bear&&b.high<older.low&&older.low-b.high>=atr*.05))&&atr!==null;
@@ -338,8 +348,7 @@ function drawBarCount(){
 // Port of the preserved Pine FVG block: fixed three-bar boxes, wick mitigation.
 function computeFVG(bars, o, seconds, now, closesAt, tick) {
  let gaps=[], atr=null, sum=0;
- const formatter=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York'});
- const day=t=>formatter.format(new Date(t*1000));
+ const day=chartDay;
  for(let i=0;i<bars.length;i++){
   const b=bars[i],prev=bars[i-1],tr=prev?Math.max(b.high-b.low,Math.abs(b.high-prev.close),Math.abs(b.low-prev.close)):b.high-b.low;
   if(i<14)sum+=tr;

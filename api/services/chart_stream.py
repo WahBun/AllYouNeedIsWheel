@@ -23,6 +23,7 @@ class Subscriber:
         self.sent = 0
         self.created = time.monotonic()
         self.closed = False
+        self.renew = False
         self.ready = None
 
     def publish(self, packet):
@@ -122,7 +123,9 @@ class ChartStreams:
         now = time.monotonic()
         for key, sub in list(self.clients.items()):
             if sub.closed or now-sub.created > 120:
+                sub.renew = not sub.closed
                 sub.closed = True
+                if sub.ready is not None: sub.ready.set()
                 self.clients.pop(key, None)
         if not self.clients and not contexts:
             return
@@ -233,6 +236,11 @@ def response(connection_factory):
                 if not sent and not ready.wait(timeout=2):
                     if any(time.monotonic()-sub.sent > 10 for _, sub in opened): return
                     yield ': heartbeat\n\n'
+            if any(sub.renew for _, sub in opened):
+                # Release admission before the browser opens its replacement.
+                # Planned lease expiry is not a transport failure/backoff.
+                release()
+                yield 'event: renew\ndata: {}\n\n'
         finally:
             release()
     result = Response(generate(), mimetype='text/event-stream')

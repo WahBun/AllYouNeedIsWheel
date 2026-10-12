@@ -2,6 +2,23 @@ import unittest
 from api.services.chart_stream import Subscriber
 
 class ChartPushTests(unittest.TestCase):
+    def test_expired_lease_wakes_sender_for_planned_renewal(self):
+        from threading import Event
+        from unittest.mock import patch
+        from api.services.chart_stream import ChartStreams
+        hub = ChartStreams()
+        expired, disconnected = Subscriber(7,1,'all'), Subscriber(7,5,'all')
+        expired.created -= 121
+        disconnected.closed = True
+        for sub in (expired, disconnected): sub.ready = Event()
+        hub.clients = dict(expired=expired, disconnected=disconnected)
+        with patch('api.services.chart_stream.latest_charts') as latest:
+            latest.contexts.return_value = []
+            hub.pulse()
+        self.assertFalse(hub.clients)
+        self.assertTrue(expired.closed and expired.renew and expired.ready.is_set())
+        self.assertFalse(disconnected.renew)
+
     def packet(self, close=10, generation='1'):
         return dict(generation=generation, bars=[dict(time=60,open=10,high=max(10,close),low=10,close=close)])
     def test_snapshot_then_delta_and_metadata_heartbeat(self):

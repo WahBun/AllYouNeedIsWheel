@@ -24,6 +24,14 @@ class WheelChartSource {
    for(const member of [...group.members])if(!member.closed&&packet.con_id===member.context.cid&&packet.interval===member.context.interval&&packet.session===member.context.session)member.onmessage?.(event);
   };
   source.onerror=()=>{if(group.source!==source)return;source.close();group.source=null;for(const member of [...group.members])member.onerror?.();};
+  source.addEventListener('renew',()=>{
+   if(group.source!==source)return;
+   source.close();group.source=null;
+   for(const member of [...group.members])member.onrenew?.();
+   // Keep all contexts together; the replacement begins with fresh snapshots.
+   // Real errors still use the per-pane bounded failure backoff above.
+   WheelChartSource.schedule(group,epoch);
+  });
  }
  close(){if(this.closed)return;this.closed=true;this.group.members.delete(this);WheelChartSource.schedule(this.group,this.epoch);}
 }
@@ -54,6 +62,7 @@ class WheelChartStream {
    }catch{this.fail(source);}
   };
   source.onerror=()=>this.fail(source);
+  source.onrenew=()=>{if(this.source===source){sequence=0;generation=undefined;}};
  }
  fail(source){if(this.source!==source)return;source.close();this.source=null;this.last=0;this.retryAt=this.now()+Math.min(15000,1000*2**Math.min(this.failures++,4))*(0.8+0.2*this.random());this.status('Chart push reconnecting · snapshot fallback');}
 }
