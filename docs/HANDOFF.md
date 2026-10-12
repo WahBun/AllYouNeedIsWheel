@@ -1,5 +1,41 @@
 # Project Handoff
 
+## 2026-10-12 first MNQ ETH / Paper acceptance loop
+
+Verified Mini bed4c69, Paper identity and MNQZ6 conId 815824267 before writes.
+A separately identified one-contract, nonmarketable limit entry completed submit,
+identical-UUID duplicate, price amendment, cancel and identical-UUID duplicate
+cancel. IB order 59 ended Cancelled, zero fills and zero position. Initial submit
+returned unknown, then a read observed Submitted; no new UUID retry was sent.
+HTTP operation durations were 247 / 12 / 223 / 453 / 10 ms respectively.
+Existing orders were outside the test group and were not modified.
+
+Real ETH browser observation covered 1/2/3/4 panes and two pages with four panes
+each. New-trade receipt-to-SSE enqueue p95 was 13–24 ms; eight-pane repeat 20.5 ms.
+Browser data-application p95 was 2–5 ms (eight-pane 3.9 ms). These are separate
+stages, not exchange-to-screen latency: clock alignment, physical presentation,
+and native iPhone display were not measured. Heartbeats with unchanged trade
+counts are excluded from new-trade latency. UI/layout and market code unchanged.
+REA passive runtime evidence: ev_51e15d7e4fe65c411fccb52806f923a1f44a7c670526f8cdbe9b3b3f881a7e3a.
+
+Minimal order fix: capture clientId and permanent broker order identity before
+amending and require both for acknowledgement. Previously a same-number/ref,
+different-client or different-permId snapshot could confirm the wrong order.
+A fault regression reproduces that false acknowledgement; the corrected clean
+candidate passes 137 order/entry-edit/Live-policy tests. Existing unshipped Live
+policy changes are excluded. No iPhone bundle update or Live action.
+
+Reference: official NautilusTrader a10f7b8521f664428ab7dec24a4898d0a68f4d3e,
+crates/adapters/interactive_brokers/src/execution/order_state.rs lines 25–125.
+Remaining: Inactive after a rejected amendment is not necessarily terminal
+(updates.rs lines 1594–1640); Wheel's broader terminal-status handling needs a
+separate durable-state regression/fix before Live readiness. Partial fills,
+TP/SL triggers, multi-group fill races, actual Gateway disconnect/restart and
+RTH option behavior were not triggered in this first loop. Do not claim them
+accepted from offline tests. Account-switch transient 503 was observed and
+recovered; it was not used as evidence for an unrelated market-path rewrite.
+
+
 ## 2026-10-11 validated market and order recovery release
 
 Preserve the existing UI and serialized IB owner. The deployment scope includes

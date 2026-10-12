@@ -1119,7 +1119,10 @@ class PaperChart:
         # Capture immutable intent: ib_async mutates Trade/Order on local writes
         # and broker callbacks. Their current price alone is not an acknowledgement.
         requested=getattr(order,field)
-        identity=(order.orderId,order.account,trade.contract.conId,order.orderRef)
+        def identity_of(t):
+            return (t.order.orderId, t.order.account, t.contract.conId, t.order.orderRef,
+                    t.order.clientId, t.order.permId or t.orderStatus.permId)
+        identity=identity_of(trade)
         conn.ib.placeOrder(trade.contract,order)
         import time
         deadline=time.monotonic()+3
@@ -1129,8 +1132,8 @@ class PaperChart:
             confirmed=conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=max(.05,deadline-time.monotonic()))
             errors=[e.errorCode for e in trade.log[start:] if e.errorCode and e.errorCode not in (399,2109)]
             if errors: raise ValueError(f'IB rejected the order amendment ({errors[-1]}); broker state will be refreshed')
-            if trade.orderStatus.status=='Filled': return
-            matches=[t for t in confirmed if (t.order.orderId,t.order.account,t.contract.conId,t.order.orderRef)==identity]
+            if trade.orderStatus.status=='Filled' and identity_of(trade)==identity: return
+            matches=[t for t in confirmed if identity_of(t)==identity]
             if any(t.orderStatus.status in ('Submitted','PreSubmitted') and getattr(t.order,field)==requested for t in matches): return
             if time.monotonic()>=deadline: raise RuntimeError('Broker amendment not confirmed')
             conn.ib.sleep(.05)

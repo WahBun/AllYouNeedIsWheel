@@ -216,6 +216,28 @@ class PaperChartTests(unittest.TestCase):
             self.service.execute(self.conn,7,dict(request_id=identity,action='submit',quantity=500,entry=10,side=1,entry_type='LMT',mode='overnight_entry',tif='OVERNIGHT'))
         self.conn.ib.placeOrder.assert_not_called()
 
+    def test_amendment_confirmation_rejects_reused_broker_identity(self):
+        import copy
+        self.submit(tp=None, sl=None)
+        for field in ('clientId', 'permId'):
+            with self.subTest(field=field):
+                trade = self.trades[0]
+                trade.order.clientId = 7
+                trade.order.permId = 9001
+                amended = copy.copy(trade.order)
+                amended.lmtPrice = 10.25
+                foreign = copy.deepcopy(trade)
+                foreign.order.lmtPrice = 10.25
+                setattr(foreign.order, field, getattr(foreign.order, field) + 1)
+                self.conn._bounded_order_read.side_effect = lambda *a, **k: [foreign]
+                before = self.conn.ib.placeOrder.call_count
+                with patch('time.monotonic', side_effect=[0, 0, 4]):
+                    with self.assertRaisesRegex(RuntimeError, 'not confirmed'):
+                        self.service.modify_exit(self.conn, trade, amended, 'lmtPrice')
+                self.assertEqual(self.conn.ib.placeOrder.call_count, before + 1)
+                self.conn.ib.cancelOrder.assert_not_called()
+                self.conn._bounded_order_read.side_effect = lambda fn, *a, **kw: self.trades if fn == self.conn.ib.reqOpenOrders else []
+
     def test_first_old_snapshot_then_acknowledgement_sends_only_one_amendment(self):
         import copy
         self.submit();old=copy.deepcopy(self.trades);reads=0
