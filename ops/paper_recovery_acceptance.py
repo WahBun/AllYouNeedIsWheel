@@ -61,7 +61,9 @@ def resume_manifest(root, account, client_id, port):
         Path(config['db_path']).resolve()!=root/'test.sqlite' or
         Path(m['database']).resolve()!=root/'test.sqlite'):
         raise ValueError('Resume identity/configuration mismatch')
-    with sqlite3.connect('file:'+str(root/'test.sqlite')+'?mode=ro',uri=True) as db:
+    if not (root/'test.sqlite').is_file():raise ValueError('Test database missing')
+    with sqlite3.connect(root/'test.sqlite') as db:
+        db.execute('PRAGMA query_only=ON')
         rows=db.execute('SELECT orders FROM chart_paper_independent WHERE account=? AND con_id=? AND group_id=?',
                         (account,m['con_id'],m['group'])).fetchall()
     if len(rows)!=1:raise ValueError('Exact isolated group required')
