@@ -114,6 +114,38 @@ def _closed_external_brackets(trades, batches, owners, account, cid, client):
     return proven
 
 
+def _durable_terminal_trades(db, account, cid, trades):
+    """Recover missing terminal observations, never an active order or ownership.
+
+    IB's reconnect history is a bounded view. Retain its explicit terminal
+    evidence across that boundary; fill completeness and group identity are
+    still independently checked by project(). Conflicting terminal observations
+    remain unresolved. A current observation always wins, including Unknown.
+    """
+    present={t.order.permId or t.orderStatus.permId for t in trades
+             if t.order.account==account and t.contract.conId==cid}
+    candidates={}
+    for (encoded,) in db.execute('SELECT payload FROM group_order_evidence WHERE account=? AND con_id=?',(account,cid)):
+        payload=json.loads(encoded);o=payload['order'];st=payload['status']
+        perm=o.get('permId') or st.get('permId')
+        if not perm or perm in present or st.get('status') not in ('Filled','Cancelled','ApiCancelled'):
+            continue
+        candidates.setdefault(perm,[]).append(payload)
+    recovered=[]
+    for perm, rows in candidates.items():
+        # API IDs may be zeroed by completedOrders; positive identities must agree.
+        keys={(r['order'].get('orderRef'),r['order'].get('action'),r['status'].get('status'),
+               r['status'].get('filled')) for r in rows}
+        consistent=len(keys)==1 and all(len({r['order'].get(k) for r in rows if r['order'].get(k)})<=1
+                                       for k in ('orderId','clientId','parentId','parentPermId'))
+        if not consistent: continue
+        # Prefer the completed-order representation carrying permanent parent ID.
+        row=max(rows,key=lambda r:bool(r['order'].get('parentPermId')))
+        recovered.append(SimpleNamespace(order=SimpleNamespace(**row['order']),
+            orderStatus=SimpleNamespace(**row['status']),contract=SimpleNamespace(conId=cid),fills=[]))
+    return recovered
+
+
 def project(path, account, cid, client, groups, trades, fills, account_position):
     """Return quantities only from exact, nonconflicting executions.
 
@@ -121,6 +153,8 @@ def project(path, account, cid, client, groups, trades, fills, account_position)
     contradictory/corrected executions remain blocked, never guessed/reassigned.
     """
     migrate(path)
+    observed_order_count=len(trades)
+    observed_execution_count=len(fills)
     errors=[];owners={};current={};positions={g['ref']:0.0 for g in groups};events=[];basis={}
     with sqlite3.connect(path) as db:
         def conflict(detail):
@@ -130,6 +164,8 @@ def project(path, account, cid, client, groups, trades, fills, account_position)
             if trade.order.account==account and trade.contract.conId==cid:
                 encoded=json.dumps(dict(order=vars(trade.order),status=vars(trade.orderStatus)),sort_keys=True,default=str)
                 db.execute('INSERT OR IGNORE INTO group_order_evidence VALUES(?,?,?,?)',(hashlib.sha256(encoded.encode()).hexdigest(),account,cid,encoded))
+        recovered=_durable_terminal_trades(db,account,cid,trades)
+        trades=list(trades)+recovered
         if len(positions)!=len(groups):conflict('Duplicate group reference')
         for g in groups:
             ref=g['ref']
@@ -142,7 +178,8 @@ def project(path, account, cid, client, groups, trades, fills, account_position)
                           (t.order.clientId==client and t.order.orderId==oid))]
                 unique={json.dumps(dict(order=vars(t.order),status=vars(t.orderStatus)),sort_keys=True,default=str):t for t in matches}
                 if len(unique)!=1:
-                    errors.append('Order identity unavailable or ambiguous: '+ref+':'+role);continue
+                    errors.append('Order identity unavailable or ambiguous: '+ref+':'+role+
+                                  ' (order_id='+str(oid)+', perm_id='+str(perm)+', matches='+str(len(unique))+')');continue
                 t=next(iter(unique.values()));o=t.order
                 expected_action=('BUY' if g['side']==1 else 'SELL') if role.split('_')[0]=='entry' else ('SELL' if g['side']==1 else 'BUY')
                 if o.orderRef!=ref or o.action!=expected_action or (perm and (o.permId or t.orderStatus.permId)!=perm) or o.clientId not in (0,client):
@@ -221,4 +258,6 @@ def project(path, account, cid, client, groups, trades, fills, account_position)
         if not math.isfinite(account_position) or abs(sum(positions.values())-account_position)>1e-8:
             errors.append('Account total does not reconcile with attributed groups')
         errors += [r[0] for r in db.execute('SELECT detail FROM group_ledger_conflicts WHERE account=? AND con_id=?',(account,cid))]
-    return dict(known=not errors,positions=positions,account_position=account_position,errors=sorted(set(errors)),owned_perms=sorted(owners),entry_basis=basis)
+    return dict(known=not errors,positions=positions,account_position=account_position,errors=sorted(set(errors)),owned_perms=sorted(owners),entry_basis=basis,
+                recovered_terminal_perms=sorted(t.order.permId or t.orderStatus.permId for t in recovered),
+                observed_order_count=observed_order_count,observed_execution_count=observed_execution_count)
