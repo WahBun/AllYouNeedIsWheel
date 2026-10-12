@@ -29,6 +29,7 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
         trades = snapshot.get('authoritative_open_trades')
         if trades is None:
             trades = snapshot.get('trades', [])
+        trades = snapshot.get('display_trades', trades)
     journal = {}
     if db_path:
         with sqlite3.connect(db_path) as db:

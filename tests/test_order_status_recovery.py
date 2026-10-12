@@ -78,6 +78,7 @@ def trade(order_id, symbol='TSLL', order_ref=''):
             permId=0,
             orderRef=order_ref,
             action='BUY',
+            orderType='LMT',
             totalQuantity=1,
             lmtPrice=0.25,
             account='U1234567',
@@ -90,7 +91,7 @@ def trade(order_id, symbol='TSLL', order_ref=''):
             permId=0,
             clientId=1,
             status='Submitted',
-            remaining=1
+            remaining=1, filled=0
         )
     )
 
@@ -98,6 +99,7 @@ def trade(order_id, symbol='TSLL', order_ref=''):
 class OrderStatusRecoveryTests(unittest.TestCase):
     def make_connection(self, executions):
         connection = IBConnection.__new__(IBConnection)
+        connection.client_id = 1
         connection.ib = FakeIB(executions)
         connection.is_connected = lambda: True
         return connection
@@ -218,6 +220,7 @@ class OrderStatusRecoveryTests(unittest.TestCase):
             position=-1
         )
         connection = IBConnection.__new__(IBConnection)
+        connection.client_id = 1
         connection.ib = FakeIB([], trades=[mobile_trade], positions=[short_position])
         connection.is_connected = lambda: True
 
@@ -232,13 +235,14 @@ class OrderStatusRecoveryTests(unittest.TestCase):
         self.assertEqual(orders[0]['tif'], 'DAY')
         self.assertTrue(orders[0]['external_ib'])
 
-    def test_authoritative_empty_refresh_drops_stale_external_order(self):
+    def test_authoritative_empty_refresh_keeps_external_order_unknown(self):
         stale_mobile_trade = trade(0)
         stale_mobile_trade.order.permId = 409539202
         stale_mobile_trade.order.clientId = 0
         stale_mobile_trade.orderStatus.permId = 409539202
         stale_mobile_trade.orderStatus.clientId = 0
         connection = IBConnection.__new__(IBConnection)
+        connection.client_id = 1
         connection.ib = FakeIB(
             [], trades=[stale_mobile_trade], refreshed_trades=[]
         )
@@ -249,7 +253,9 @@ class OrderStatusRecoveryTests(unittest.TestCase):
             force_refresh=True
         )
 
-        self.assertEqual(orders, [])
+        self.assertEqual(len(orders), 1)
+        self.assertEqual(orders[0]['ib_status'], 'Unknown')
+        self.assertEqual(orders[0]['status'], 'unknown')
 
     def test_matching_details_without_order_ref_do_not_recover_unidentified_order(self):
         connection = self.make_connection([])

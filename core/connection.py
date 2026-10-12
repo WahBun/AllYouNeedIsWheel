@@ -372,6 +372,9 @@ class IBConnection:
             self._connected = self.ib.isConnected()
             if self._connected:
                 self._fill_refresh_at = {}
+                self._last_order_status_refresh = 0
+                self._external_open_snapshot = None
+                self._external_completed_snapshot = []
                 self._market_ticker_cache.clear()
                 self._market_data_type = None
                 logger.info(f"Successfully connected to IB with client ID {self.client_id}")
@@ -2138,15 +2141,49 @@ class IBConnection:
             # Yield briefly so orderStatus events pushed by IB can be applied.
             self.ib.sleep(0.05)
 
+        raw = refreshed_trades + list(self.ib.openTrades()) + list(self.ib.trades())
+        foreign = any(t.order.clientId != self.client_id for t in raw)
+        completed = None
+        if foreign:
+            from core.external_order_state import project, matches, key
+            # Same five-second refresh window as existing order reconciliation.
+            if force_refresh or now - last_refresh >= 5:
+                self._external_open_snapshot = authoritative_open_trades
+                missing = [t for t in raw if t.order.clientId != self.client_id
+                           and key(t) not in getattr(self, '_external_order_terminals', {})
+                           and not any(matches(t, opened) for opened in (authoritative_open_trades or []))]
+                if missing:
+                    try:
+                        self._external_completed_snapshot = list(self._bounded_order_read(self.ib.reqCompletedOrders, False, timeout_seconds=3) or [])
+                        self.refresh_execution_history()
+                    except Exception as error:
+                        logger.warning('External order evidence incomplete: %s', type(error).__name__)
+                        self._external_completed_snapshot = []
+            terminals = getattr(self, '_external_order_terminals', {})
+            self._external_order_terminals = terminals
+            completed = getattr(self, '_external_completed_snapshot', [])
+            raw = project(raw, getattr(self, '_external_open_snapshot', None), completed,
+                          list(self.ib.fills()), self.client_id, terminals)
         return {
-            'trades': (
-                refreshed_trades
-                + list(self.ib.openTrades())
-                + list(self.ib.trades())
-            ),
+            'trades': raw,
+            'display_trades': raw,
             'authoritative_open_trades': authoritative_open_trades,
-            'completed_trades': None
+            'completed_trades': completed
         }
+
+    def reconciled_order_trades(self):
+        """Only cross-client views need snapshot reconciliation; own callbacks stay untouched."""
+        raw = list(self.ib.trades())
+        if not any(t.order.clientId != self.client_id for t in raw):
+            return raw
+        from core.external_order_state import project, TERMINAL
+        terminal_view = project(raw, None, [], list(self.ib.fills()), self.client_id,
+                                getattr(self, '_external_order_terminals', {}))
+        if all(t.order.clientId == self.client_id or t.orderStatus.status in TERMINAL for t in terminal_view):
+            return terminal_view
+        snapshot = self.get_order_status_snapshot()
+        if snapshot: return snapshot['trades']
+        return terminal_view
 
     def get_open_option_orders(
         self, account_id=None, force_refresh=False, status_snapshot=None
@@ -2174,13 +2211,14 @@ class IBConnection:
 
         active_orders = []
         seen_orders = set()
-        terminal_statuses = {'filled', 'cancelled', 'apicancelled', 'inactive'}
+        terminal_statuses = {'filled', 'cancelled', 'apicancelled'}
         authoritative_trades = snapshot.get('authoritative_open_trades')
         trades = (
             authoritative_trades
             if authoritative_trades is not None
             else snapshot.get('trades', [])
         )
+        trades = snapshot.get('display_trades', trades)
         for trade in trades:
             contract = getattr(trade, 'contract', None)
             order = getattr(trade, 'order', None)
@@ -2257,7 +2295,7 @@ class IBConnection:
                     total_quantity if remaining is None else remaining or 0
                 ),
                 'status': (
-                    'canceling' if ib_status == 'PendingCancel' else 'processing'
+                    'unknown' if ib_status in {'Unknown','Inactive'} else 'canceling' if ib_status == 'PendingCancel' else 'processing'
                 ),
                 'executed': False,
                 'ib_order_id': ib_order_id,

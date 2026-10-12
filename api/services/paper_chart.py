@@ -150,7 +150,8 @@ class PaperChart:
         # Runs only on the serialized IB owner, never an HTTP thread.
         conn.ib.sleep(.005)
         group = self.group(account,cid)
-        trades = {t.order.orderId:t for t in conn.ib.trades() if t.order.account==account and t.contract.conId==cid}
+        raw_trades = conn.reconciled_order_trades() if hasattr(type(conn), 'reconciled_order_trades') else conn.ib.trades()
+        trades = {t.order.orderId:t for t in raw_trades if t.order.account==account and t.contract.conId==cid}
         position = next((p for p in conn.ib.positions() if p.account==account and p.contract.conId==cid),None)
         from api.services.chart_broker_orders import can_retire_empty_group
         if not self.group_id and group and can_retire_empty_group(self.path, conn, account, cid, group, float(position.position) if position else 0):
@@ -174,9 +175,10 @@ class PaperChart:
         # Exact native-order identity enables the same management lifecycle on either UI.
         owned_ids = set((group or {}).get('ids', {}).values())
         result['broker_pending_orders'] = []
-        for trade in trades.values():
+        for trade in raw_trades:
+            if trade.order.account != account or trade.contract.conId != cid: continue
             order, status = trade.order, trade.orderStatus
-            if order.orderId in owned_ids or status.status not in ('PendingSubmit', 'PreSubmitted', 'Submitted', 'PendingCancel'):
+            if (order.orderId in owned_ids and order.clientId == conn.ib.client.clientId) or status.status not in ('PendingSubmit', 'PreSubmitted', 'Submitted', 'PendingCancel', 'Unknown'):
                 continue
             kind = order.orderType
             price = order.lmtPrice if kind == 'LMT' else order.auxPrice if kind in ('STP', 'STP LMT') else None
@@ -188,7 +190,7 @@ class PaperChart:
             from api.services.chart_broker_orders import describe
             result['broker_pending_orders'].append(dict(order_id=order.orderId, price=price,
                 quantity=remaining, action=order.action, order_type=kind, status=status.status,
-                **describe(self.path, conn, trade)))
+                **(dict(client_id=order.clientId, perm_id=order.permId) | (describe(self.path, conn, trade) if order.clientId == conn.ib.client.clientId else {}))))
         if not account.startswith('DU'):
             from api.services.live_options import standard_option
             result['enabled'] = standard_option(contracts.resolve(conn,cid))
@@ -634,6 +636,11 @@ class PaperChart:
 
     @staticmethod
     def action_availability(conn, account, contract, result):
+        if any(row.get('status') == 'Unknown' for row in result.get('broker_pending_orders', [])):
+            result.update(known=False, status='unknown', broker_pending=True, sync_error='External order status needs verification')
+            result.setdefault('protection', {})['status'] = 'unknown'
+            for name in ('add_allowed','trim_allowed','stop_trim_allowed','protection_manageable','protection_cancelable','entry_editable','scalable'):
+                result[name] = False
         # UI hints use the already synchronized broker cache: never block chart
         # updates on collateral reads. Execution still performs fresh validation.
         size = abs(result.get('position', 0))
