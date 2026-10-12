@@ -5,7 +5,7 @@ const updateSymbolClear=()=>{$('clear-symbol').hidden=!$('symbol').value;};
 $('symbol').addEventListener('input',updateSymbolClear);
 $('clear-symbol').onclick=()=>{$('symbol').value='';updateSymbolClear();$('symbol').focus();};
 window.addEventListener('pageshow',updateSymbolClear);updateSymbolClear();
-let groupID='',switchingChart=false,marketReadError='';
+let groupID='',switchingChart=false,marketReadError='',accountNotice='',pendingJoin=null,pnlPhase='loading';
 function chartTransition(){cancelMarketReads();marketReadError='';switchingChart=true;frame.style.opacity='.3';frame.style.pointerEvents='none';frame.setAttribute('aria-busy','true');$('market-status').textContent=`Loading ${session==='all'?'ETH':'RTH'} · ${interval}m…`;sync();ensureMarket();}
 let entryFlight=null,queuedEntry=null,writeVersion=0;
 const entryIdentity=s=>JSON.stringify((s.edit_snapshot||[]).map(({order_id,quantity,filled,tif})=>({order_id,quantity,filled,tif})));
@@ -92,18 +92,56 @@ async function api(path,body,signal){const response=await fetch('/api/'+path,{me
 let protectionType=null;
 function loadProtection(){const type=packet.security_type;if(!type||type===protectionType)return;protectionType=type;$('bracket-enabled').checked=stored('wheel.web.bracket:'+type).enabled??(type==='FUT');const saved=stored('wheel.web.protection:'+type),defaults=type==='FUT'?[2,1]:[.2,.1];for(const [i,id] of ['tp','sl'].entries())$(id).value=Number(saved[id])>0?saved[id]:defaults[i];for(const role of ['tp','sl'])$(role+'-enabled').checked=(saved[role+'Enabled']??(type==='FUT'));if($('bracket-enabled').checked&&!$('tp-enabled').checked&&!$('sl-enabled').checked){$('tp-enabled').checked=true;$('sl-enabled').checked=true;}$('tp-mode').value=saved.tpMode||'distance';$('sl-mode').value=saved.slMode||'distance';revision++;}
 function allowed(){return ['DAY','GTC',...(packet.security_type==='STK'&&packet.currency==='USD'&&$('type').value==='LMT'?['OVERNIGHT']:[])];}
-function tradingBlockReason(){if(switchingChart)return 'Chart session is loading; please wait';if(busy)return 'An order request is in progress; please wait';if(localStorage.getItem(pendingKey()))return 'An earlier request is still being confirmed; verify its outcome before submitting again';if(!profile.verified||!epoch)return 'Account connection is not verified; waiting for IB';if((profile.selected!=='paper'&&profile.chart_execution_enabled!==true))return 'Chart execution is not enabled for this account';if(state.live_initial_scope&&$('bracket-enabled').checked)return 'Live options do not attach TP or SL';if(state.sync_error)return String(state.sync_error);if(state.known===false)return 'Order state is not confirmed; waiting for IB';if(Date.now()-received>=15000)return 'Order status is stale; waiting for an IB refresh';return 'Trading is currently unavailable; waiting for IB order status';}
+function tradingBlockReason(){if(!profile.verified||!epoch)return 'Account connection is not verified; waiting for IB';if(switchingChart)return 'Chart session is loading; please wait';if(busy)return 'An order request is in progress; please wait';if(localStorage.getItem(pendingKey()))return 'An earlier request is still being confirmed; verify its outcome before submitting again';if((profile.selected!=='paper'&&profile.chart_execution_enabled!==true))return 'Chart execution is not enabled for this account';if(state.live_initial_scope&&$('bracket-enabled').checked)return 'Live options do not attach TP or SL';if(state.sync_error)return String(state.sync_error);if(state.known===false)return state.group_attribution?.errors?.length?'Order group reconciliation required: '+state.group_attribution.errors[0]:'Order state is not confirmed; waiting for IB';if(Date.now()-received>=15000)return 'Order status is stale; waiting for an IB refresh';return 'Trading is currently unavailable; waiting for IB order status';}
 function enabled(){return !switchingChart&&(profile.selected==='paper'||profile.chart_execution_enabled===true)&&profile.verified&&!!epoch&&state.enabled===true&&state.known!==false&&!state.sync_error&&Date.now()-received<15000&&!busy&&!localStorage.getItem(pendingKey());}
+function clearAccountNotice(){
+ if(accountNotice&&profile.verified&&epoch&&packet.account_epoch===epoch&&!switchingChart&&received>0){
+  if($('trade-feedback').textContent===accountNotice)$('trade-feedback').textContent='';
+  accountNotice='';
+ }
+}
+function joinBlockReason(id){
+ if(!enabled())return tradingBlockReason();
+ if(state.active)return 'Select a new order group before joining a quote';
+ if(!Number.isInteger(Number($('quantity').value))||Number($('quantity').value)<1)return 'Enter a positive whole quantity';
+ if(packet.con_id!==cid||packet.account_epoch!==epoch)return 'Quote account or contract is not synchronized';
+ const price=packet[id],now=packet.server_time+(Date.now()-packetReceived)/1000;
+ if(!Number.isFinite(price)||price<=0)return `No ${id} quote available`;
+ if(!Number.isFinite(now)||!Number.isFinite(packet.quote_expires_at)||packet.quote_expires_at<=now)return `${id} quote is stale; waiting for IB`;
+ if(packet.bid>packet.ask&&packet.ask>0)return 'Crossed bid / ask; waiting for a valid quote';
+ const rule=[...(packet.price_rules||[])].filter(r=>Number.isFinite(r.low)&&r.low<=price&&Number.isFinite(r.increment)&&r.increment>0).sort((a,b)=>b.low-a.low)[0];
+ if(!rule||Math.abs(price/rule.increment-Math.round(price/rule.increment))>1e-7)return 'Quote does not match confirmed contract price increments';
+ return '';
+}
+function syncJoinControls(){
+ const reasons=['bid','ask'].map(id=>{const reason=joinBlockReason(id);$(id).disabled=!!reason;$(id).title=reason||`Submit ${id==='bid'?'Buy':'Sell'} LMT at ${id}`;return reason;});
+ const note=$('join-reason');if(note){note.hidden=!reasons.some(Boolean);const text=[...new Set(reasons.filter(Boolean))].join(' · ');if(note.textContent!==text)note.textContent=text;}
+}
+function beginJoin(id,side){
+ const reason=joinBlockReason(id);if(reason)return log(reason);
+ if(pendingJoin&&pendingJoin.context===JSON.stringify(marketContext()))return;
+ if($('bracket-enabled').checked&&frame.contentWindow.templatePrices?.(packet[id],side)===null)return log('Set valid enabled TP / SL before joining a quote');
+ entry=packet[id];$('type').value='LMT';joinSide=side;joinRevision++;
+ pendingJoin={id,side,price:entry,quantity:Number($('quantity').value),tif:$('tif').value,templateRevision:revision,revision:joinRevision,context:JSON.stringify(marketContext())};sync();
+}
+function validateJoin(body){
+ const pending=pendingJoin;pendingJoin=null;
+ if(!pending||body.join_revision!==pending.revision||pending.context!==JSON.stringify(marketContext()))return 'Join context changed; review the current quote';
+ const reason=joinBlockReason(pending.id);if(reason)return reason;
+ if(body.quantity!==pending.quantity||Number($('quantity').value)!==pending.quantity||$('tif').value!==pending.tif||revision!==pending.templateRevision)return 'Join order settings changed; review and click again';
+ if(body.entry_type!=='LMT'||body.side!==pending.side||body.entry!==pending.price||packet[pending.id]!==pending.price)return 'Join quote changed; review and click again';
+ return '';
+}
 function renderDailyPnL(){
  if(!$('daily-pnl'))return; // Compatible with an already-running server template during asset updates.
  const pnl=packet.daily_pnl,zh=document.documentElement.lang==='zh',age=(pnl?.age_seconds??Infinity)+(Date.now()-pnlReceived)/1000;
  const fresh=profile.verified&&!!epoch&&packet.account_epoch===epoch&&pnl?.con_id===cid&&pnl.fresh===true&&typeof pnl.value==='number'&&Number.isFinite(pnl.value)&&age<15;
- const value=fresh?new Intl.NumberFormat(zh?'zh-CN':'en-US',{minimumFractionDigits:2,maximumFractionDigits:2,signDisplay:'exceptZero'}).format(Math.abs(pnl.value)<.005?0:pnl.value):'—';
+ const value=fresh?new Intl.NumberFormat(zh?'zh-CN':'en-US',{minimumFractionDigits:2,maximumFractionDigits:2,signDisplay:'exceptZero'}).format(Math.abs(pnl.value)<.005?0:pnl.value):profile.verified&&epoch&&pnlPhase==='loading'?'…':'—';
  $('daily-pnl-value').textContent=value;$('daily-pnl-value').dataset.direction=fresh&&Math.abs(pnl.value)>=.005?(pnl.value>0?'positive':'negative'):'neutral';$('daily-pnl-currency').textContent=fresh?(pnl.currency||'BASE'):'';
  const realized=pnl?.basis==='realized';
  const label=$('daily-pnl').querySelector('span');label.textContent=realized?(zh?'当日已实现':'Realized today'):(zh?'当日盈亏':'Daily P&L');
  const scope=realized?(zh?`当前合约 · 当前账户 · IB 成交已实现盈亏，已保存。交易日 ${pnl.trading_day}，每日分界 ${pnl.day_boundary}；与 IB 持仓盯市盈亏口径不同。`:`Current contract · selected account · persisted IB execution realized P&L. Trading day ${pnl.trading_day}, boundary ${pnl.day_boundary}; distinct from IB daily mark-to-market P&L.`):(zh?'当前合约 · 当前账户 · IB 当日盈亏（账户基准币种），按 IB 的日重置时间统计。':'Current contract · selected account · IB daily P&L in account base currency, following IB’s daily reset.');
- $('daily-pnl').title=scope+(fresh?' '+value+' '+(pnl.currency||'BASE'):(zh?' 数据未返回或已过期；不代表零盈亏。':' Data unavailable or stale; this does not mean zero P&L.'));
+ $('daily-pnl').title=scope+(fresh?' '+value+' '+(pnl.currency||'BASE'):(zh?' 数据未返回或已过期；不代表零盈亏。':(pnlPhase==='loading'?' Loading current account P&L…':' Data unavailable or stale; this does not mean zero P&L.')));
  $('daily-pnl').setAttribute('aria-label',(zh?'当日盈亏 ':'Daily P&L ')+value+'. '+$('daily-pnl').title);
 }
 let ticketProtectionKey='',ticketProtectionState='',ticketDraft={};
@@ -193,7 +231,8 @@ const config={con_id:cid,entry,quantity:Number($('quantity').value),entryType:$(
 $('resolve-request').hidden=!localStorage.getItem(pendingKey())||busy||state.known!==true;frame.contentWindow.configure(config);renderPendingAdds(can);$('order-status').textContent=`${enabled()?'Trading · ':''}${state.orders?.some(o=>o.status==='PendingCancel')?'Waiting for IB cancellation':state.status||'View'}${busy?' · Updating…':''}${entryFlight?' · '+entryFlight.role.toUpperCase()+' target '+(queuedEntry?.price??entryFlight.price)+' (pending)':''}${localStorage.getItem(pendingKey())?' · Confirming outcome…':''}`;$('order-status').title=$('order-status').textContent;
 $('order-group').disabled=busy;
 $('new-order').disabled=busy||!cid||(profile.selected!=='paper'&&profile.chart_execution_enabled!==true)||!profile.verified;
-for(const id of ['bid','ask','close','be'])$(id).disabled=!can||(id==='close'?(!(state.active||state.position)||state.position_only===true||state.close_allowed===false):id==='be'?(!state.position||state.be_allowed!==true):state.active===true||!(Number($('quantity').value)>0));
+syncJoinControls();clearAccountNotice();
+for(const id of ['close','be'])$(id).disabled=!can||(id==='close'?(!(state.active||state.position)||state.position_only===true||state.close_allowed===false):id==='be'?(!state.position||state.be_allowed!==true):state.active===true||!(Number($('quantity').value)>0));
 for(const id of ['preview-buy','preview-sell'])$(id).disabled=!(Number($('quantity').value)>0)||!cid||busy||switchingChart||state.active;for(const id of ['quantity-minus','quantity-plus'])$(id).disabled=busy||state.active===true;const size=Math.abs(state.position||0),adjustment=Number($('adjustment-quantity').value),valid=Number.isInteger(adjustment)&&adjustment>0;$('adjustment-control').hidden=!size;$('adjustment-quantity').disabled=!can||!(state.add_allowed??state.scalable)&&!(state.trim_allowed??state.scalable)||!size;const adjustmentMax=Math.max(1,(state.add_allowed??state.scalable)?(state.add_available??1):0,(state.trim_allowed??state.scalable)?Math.min(size-1,state.trim_available??size):0);$('adjustment-quantity').max=adjustmentMax;$('adjustment-minus').disabled=$('adjustment-quantity').disabled||adjustment<=1;$('adjustment-plus').disabled=$('adjustment-quantity').disabled||adjustment>=adjustmentMax;for(const id of ['add','trim']){$(id).disabled=!can||!(id==='add'?(state.add_allowed??state.scalable):(state.trim_allowed??state.scalable))||!size||!valid||(id==='trim'&&(adjustment>=size||adjustment>(state.trim_available??size)))||(id==='add'&&adjustment>(state.add_available??Infinity));$(id).title=id==='trim'&&adjustment>=size?'Trim must leave a position; use Close position':'';}$('bracket-control').hidden=state.active===true;for(const id of ['quantity','type','tif','bracket-enabled','tp-enabled','sl-enabled'])$(id).disabled=busy||state.active===true||(!!state.live_initial_scope&&['quantity','type','bracket-enabled','tp-enabled','sl-enabled'].includes(id));if(!state.position)for(const role of ['tp','sl']){$(role).disabled=busy||state.active===true||!$('bracket-enabled').checked||!$(role+'-enabled').checked;$(role+'-mode').disabled=busy||state.active===true||!$('bracket-enabled').checked;}$('manage-protection').hidden=!state.position;$('manage-protection').disabled=!can||!state.protection_manageable;$('manage-protection').title=state.protection_block_reason||'';syncPositionProtection();renderTradingContext();}
 const cancelAddButtons=new Map();
 function renderPendingAdds(can){
@@ -223,17 +262,17 @@ function mergeHistory(bars){
  historyCaches.set(key,merged);if(historyCaches.size>12)historyCaches.delete(historyCaches.keys().next().value);return {...bars,bars:merged,mode:'snapshot'};
 }
 async function loadHistory(body){if(historyLoading||busy||body.con_id!==cid||body.interval!==interval||body.session!==session||!epoch)return;const token=generation,key=historyKey(),requestKey=key+':'+body.before;if(Date.now()<(historyRetry.get(requestKey)||0))return;if((historyCaches.get(key)?.length||0)>=20000){$('market-status').textContent='History limit reached · use a longer interval';return;}historyLoading=true;historyRetry.set(requestKey,Date.now()+30000);$('market-status').textContent='Loading earlier history…';try{const page=await api(`portfolio/stock-chart-history/${cid}?interval=${interval}&session=${session}&before=${body.before}`);if(token!==generation||key!==historyKey())return;const rows=new Map((page.bars||[]).map(b=>[b.time,b]));for(const b of packet.bars||[])rows.set(b.time,b);packet={...packet,mode:'snapshot',bars:[...rows.values()].sort((a,b)=>a.time-b.time)};historyCaches.set(key,packet.bars);frame.contentWindow.receive(packet);$('market-status').textContent=page.bars?.length?'Earlier history loaded':'No earlier bars returned; retry later';}catch(error){if(token===generation)$('market-status').hidden=false;$('market-status').textContent=error.message;}finally{historyLoading=false;}}
-let marketBusy=null,marketRevision=0,pnlBusy=false,lastFallback=0,lastPnL=0,quoteConfigKey="";
+let marketBusy=null,marketRevision=0,pnlBusy=null,lastFallback=0,lastPnL=0,quoteConfigKey="";
 function cancelMarketReads(){marketBusy?.abort();marketBusy=null;legacyMarket?.abort();legacyMarket=null;legacyStarted=0;lastFallback=0;marketRevision++;}
 const marketContext=()=>({cid,interval,session,epoch,generation});
 const currentMarket=c=>JSON.stringify(c)===JSON.stringify(marketContext());
 const marketStream=new WheelChartStream({receive:(bars,context)=>{if(currentMarket(context)){marketRevision++;applyMarket(bars,true);}},status:message=>{if(!switchingChart&&!marketReadError)$('market-status').textContent=message;}});
 function applyMarket(bars,push=false){
- if(bars.con_id!==cid||bars.interval!==interval||bars.session!==session)return;
+ if(bars.con_id!==cid||bars.interval!==interval||bars.session!==session||bars.account_epoch!==epoch)return;
  if(Number.isFinite(bars.server_time)&&Number.isFinite(packet.server_time)&&bars.server_time<packet.server_time)return;
  const pushedPnL=push&&state.position&&bars.account_epoch===epoch&&bars.daily_pnl?.fresh===true;
- const pnl=pushedPnL?{daily_pnl:bars.daily_pnl,account_epoch:bars.account_epoch}:{daily_pnl:packet.daily_pnl,account_epoch:packet.account_epoch};
- if(pushedPnL)pnlReceived=Date.now();
+ const pnl=pushedPnL?{daily_pnl:bars.daily_pnl,account_epoch:bars.account_epoch}:{daily_pnl:packet.daily_pnl};
+ if(pushedPnL){pnlReceived=Date.now();pnlPhase='ready';}
  packet={...mergeHistory(bars),...pnl};loadProtection();
  if($('contracts').selectedOptions[0])$('contracts').selectedOptions[0].textContent=bars.display_symbol||bars.local_symbol||bars.symbol||String(cid);
  marketReadError='';packetReceived=Date.now();
@@ -248,6 +287,7 @@ function applyMarket(bars,push=false){
  // contract metadata changes; order-state and user edits still sync immediately.
  const nextConfig=JSON.stringify([cid,bars.generation,interval,session,bars.security_type,bars.multiplier,bars.price_rules]);
  if(nextConfig!==quoteConfigKey){quoteConfigKey=nextConfig;sync();if($('protection-editor').open&&protectionContext?.cid===cid)estimateProtection();}else if(pushedPnL)renderDailyPnL();
+ syncJoinControls();clearAccountNotice();
 }
 let legacyMarket=null,legacyStarted=0,legacyContext=null;
 async function refreshLegacyMarket(context){
@@ -287,14 +327,22 @@ function resumeMarket(){
  const now=Date.now();if(now-resumedAt<300)return;resumedAt=now;marketPriorityUntil=now+1500;
  if(!marketStream.healthy())marketStream.stop();marketRevision++;marketBusy?.abort();marketBusy=null;lastFallback=0;
  $('market-status').textContent='Refreshing latest prices…';
- refreshMarket({full:true});ensureMarket();refresh();
+ refreshMarket({full:true});refreshPnL({force:true});ensureMarket();refresh();
 }
-async function refreshPnL(){
- // First chart history gets the broker lane before optional P&L reads.
- if(!packet.bars?.length)return;
- if(document.hidden||Date.now()<marketPriorityUntil||pnlBusy||Date.now()-lastPnL<5000)return;pnlBusy=true;lastPnL=Date.now();const context=marketContext(),started=Date.now();
- try{const result=await api(`portfolio/chart-pnl/${context.cid}`);if(currentMarket(context)&&pnlReceived<=started){packet={...packet,...result};pnlReceived=Date.now();renderDailyPnL();}}
- catch{if(currentMarket(context)&&pnlReceived<=started){packet.daily_pnl=null;renderDailyPnL();}}finally{pnlBusy=false;}
+async function refreshPnL({force=false}={}){
+ if(!packet.bars?.length||document.hidden||!profile.verified||!epoch)return;
+ if(!force&&(pnlBusy||Date.now()-lastPnL<5000))return;
+ if(force)pnlBusy?.abort();
+ const request=pnlBusy=new AbortController(),context=marketContext(),started=Date.now();lastPnL=started;
+ pnlPhase='loading';renderDailyPnL();
+ try{
+  const result=await api(`portfolio/chart-pnl/${context.cid}`,undefined,AbortSignal.any([request.signal,AbortSignal.timeout(12000)]));
+  if(pnlBusy!==request||!currentMarket(context)||pnlReceived>started)return;
+  if(result.account_epoch!==epoch||result.daily_pnl?.con_id!==cid)throw Error('P&L identity mismatch');
+  packet.daily_pnl=result.daily_pnl;pnlReceived=Date.now();pnlPhase=result.daily_pnl.fresh?'ready':'unavailable';renderDailyPnL();
+ }catch{
+  if(pnlBusy===request&&currentMarket(context)&&!request.signal.aborted&&pnlReceived<=started){packet.daily_pnl=null;pnlPhase='unavailable';renderDailyPnL();}
+ }finally{if(pnlBusy===request)pnlBusy=null;}
 }
 function ensureMarket(){
  if(!ready||!cid||!epoch||document.hidden){marketStream.stop();return;}
@@ -306,12 +354,12 @@ function ensureMarket(){
 }
 async function refresh(){if(document.hidden||Date.now()<marketPriorityUntil||polling||busy||!ready)return;polling=true;let token=generation;const selected=cid,readVersion=writeVersion;let stateRead=false;try{
 const p=await api('account/profiles');if(token!==generation||readVersion!==writeVersion)return;
-if(profile.selected&&(p.selected!==profile.selected||p.epoch!==profile.epoch||(profile.verified&&!p.verified))){
- resetNewQuantity();token=++generation;marketStream.stop();marketBusy?.abort();marketBusy=null;legacyMarket?.abort();legacyMarket=null;legacyStarted=0;lastFallback=0;lastPnL=0;marketReadError='';quoteConfigKey='';
+if(profile.selected&&(p.selected!==profile.selected||p.epoch!==profile.epoch||p.account_identity!==profile.account_identity||(profile.verified&&!p.verified))){
+ pnlBusy?.abort();pnlBusy=null;pnlPhase='loading';pendingJoin=null;resetNewQuantity();token=++generation;marketStream.stop();marketBusy?.abort();marketBusy=null;legacyMarket?.abort();legacyMarket=null;legacyStarted=0;lastFallback=0;lastPnL=0;marketReadError='';quoteConfigKey='';
  frame.contentWindow.prepareAccountChart?.();switchingChart=true;historyCaches.clear();packet={};state={};received=0;entry=0;positions=[];chartExecutions=[];executionContext='';emaFrames={};volatilityData=null;
- renderRows('orders',[],true);renderRows('positions',[],false);log('Account changed; chart trading state cleared.');
+ renderRows('orders',[],true);renderRows('positions',[],false);log('Account connection changed; synchronizing current account.');accountNotice=$('trade-feedback').textContent;
 }
-window.wheelTradeSounds?.connection(p.verified===true);profile=p;epoch=p.verified?p.epoch:null;$('connection').textContent=`${p.selected||'Disconnected'} · ${p.verified?'Connected':'Not verified'}`;$('connection').className=p.selected||'';
+window.wheelTradeSounds?.connection(p.verified===true);profile=p;epoch=p.verified?p.epoch:null;if(!p.verified)pnlPhase='unavailable';$('connection').textContent=`${p.selected||'Disconnected'} · ${p.verified?'Connected':'Not verified'}`;$('connection').className=p.selected||'';
 sync();chartLayout.tick();ensureMarket();
 if(selected){
 if((profile.selected==='paper'||profile.chart_execution_enabled===true)&&profile.verified){const pending=localStorage.getItem(pendingKey());if(pending){const r=await api(orderPath(selected)+(groupID?'&':'?')+'request_id='+encodeURIComponent(pending));if(token!==generation||readVersion!==writeVersion)return;if(r.confirmed===true&&(terminal.has(r.status)||r.status==='reconciled')){localStorage.removeItem(pendingKey());log(`Reconciled: ${r.status}`);}}
@@ -374,7 +422,8 @@ async function cancelConfirmedExits(role,ref){
   }
  }catch(error){log(error.message);}finally{busy=false;revision++;sync();refresh();}
 }
-function action(body){if(body.con_id!==cid)return;switch(body.action){case 'cancelProtectionPreview':if(body.role&&(state.cancelable_exits||[]).some(x=>x.role===body.role)){cancelConfirmedExits(body.role,body.expected_ref);return;}if(body.expected_ref!==state.order_ref)return;if(confirm((body.role==='tp'?'Cancel ordinary TP exits; keep Trim / Close plans':body.role==='sl'?'Cancel stop-loss protection':'Cancel both TP and SL')+'? Position remains open. Check remaining orders after cancellation.'))write({action:'cancel_protection',role:body.role,expected_ref:body.expected_ref,confirm_remove_protection:true});return;case 'submitBlocked':log(tradingBlockReason());return;case 'indicatorSettings':settings('indicators');return;case 'indicatorCollapse':saveDisplay({...display,indicatorCollapsed:body.collapsed});return;case 'indicatorToggle':saveDisplay({...display,indicatorVisible:display.indicatorVisible===false});return;case 'previewOrder':entry=body.entry;$('type').value=body.entry_type;sync();return;case 'setQuantity':quantityEdited=true;$('quantity').value=body.quantity;sync();return;case 'editQuantity':case 'editOrderSettings':openEditor(body);return;case 'close':if(body.exit_type==='LMT'&&body.exit_price!=null){write(body);return;}close();return;case 'submit':if(state.active)return;if(!$('bracket-enabled').checked){body={...body};delete body.tp;delete body.sl;}else if(!('tp' in body)&&!('sl' in body))return log('Enable TP or SL for Bracket / Bracket 至少开启 TP 或 SL');if($('tif').value==='OVERNIGHT'){if(body.entry_type!=='LMT'||!allowed().includes('OVERNIGHT'))return log('OVT requires a USD stock limit order.');body={...body,mode:'overnight_entry'};delete body.tp;delete body.sl;}body.tif=$('tif').value;break;}write(body);}
+function action(body){if(body.con_id!==cid)return;switch(body.action){case 'cancelProtectionPreview':if(body.role&&(state.cancelable_exits||[]).some(x=>x.role===body.role)){cancelConfirmedExits(body.role,body.expected_ref);return;}if(body.expected_ref!==state.order_ref)return;if(confirm((body.role==='tp'?'Cancel ordinary TP exits; keep Trim / Close plans':body.role==='sl'?'Cancel stop-loss protection':'Cancel both TP and SL')+'? Position remains open. Check remaining orders after cancellation.'))write({action:'cancel_protection',role:body.role,expected_ref:body.expected_ref,confirm_remove_protection:true});return;case 'submitBlocked':log(tradingBlockReason());return;case 'indicatorSettings':settings('indicators');return;case 'indicatorCollapse':saveDisplay({...display,indicatorCollapsed:body.collapsed});return;case 'indicatorToggle':saveDisplay({...display,indicatorVisible:display.indicatorVisible===false});return;case 'previewOrder':entry=body.entry;$('type').value=body.entry_type;sync();return;case 'setQuantity':quantityEdited=true;$('quantity').value=body.quantity;sync();return;case 'editQuantity':case 'editOrderSettings':openEditor(body);return;case 'close':if(body.exit_type==='LMT'&&body.exit_price!=null){write(body);return;}close();return;case 'submit':if(body.source==='join'){const reason=validateJoin(body);if(reason){revision++;sync();return log(reason);}}if(state.active)return;if(!$('bracket-enabled').checked){body={...body};delete body.tp;delete body.sl;}else if(!('tp' in body)&&!('sl' in body))return log('Enable TP or SL for Bracket / Bracket 至少开启 TP 或 SL');if($('tif').value==='OVERNIGHT'){if(body.quantity!==pending.quantity||Number($('quantity').value)!==pending.quantity||$('tif').value!==pending.tif||revision!==pending.templateRevision)return 'Join order settings changed; review and click again';
+ if(body.entry_type!=='LMT'||!allowed().includes('OVERNIGHT'))return log('OVT requires a USD stock limit order.');body={...body,mode:'overnight_entry'};delete body.tp;delete body.sl;}body.tif=$('tif').value;break;}write(body);}
 function close(){write(!state.position&&state.entry_editable?{action:'edit_entry',cancel:true,expected_ref:state.order_ref,expected_snapshot:state.edit_snapshot}:{action:'close',expected_ref:state.order_ref});}
 document.addEventListener('pointerup',event=>{if(ready){frame.contentWindow.finishWebProtectionDrag?.(event.pointerId);frame.contentWindow.finishEntryDrag?.(event.pointerId);}},true);
 document.addEventListener('keydown',event=>{if(!event.repeat&&(event.metaKey||event.ctrlKey)&&event.shiftKey&&!event.altKey&&event.code==='KeyS'){event.preventDefault();frame.contentWindow.copyChartImage?.();return;}if(ready&&!event.repeat&&event.shiftKey&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&event.code==='KeyF'&&!event.target.closest('input,textarea,select,[contenteditable=true]')&&!document.querySelector('dialog[open]')){event.preventDefault();$('fullscreen').click();return;}if(!ready||event.repeat||event.target.closest('input,textarea,select,[contenteditable=true]')||document.querySelector('dialog[open]'))return;});
@@ -429,7 +478,7 @@ function protectionCurrent(){return protectionContext&&protectionContext.cid===c
 $('protection-form').onsubmit=e=>{e.preventDefault();if(!protectionCurrent())return log('Order changed; reopen TP / SL.');const tp=$('position-tp-enabled').checked?positionTP():null,sl=$('position-sl-enabled').checked?positionTarget('sl'):null;if([tp,sl].some(v=>v!==null&&(!Number.isFinite(v)||v<=0)))return log('Enter valid enabled protection prices.');$('protection-editor').close();write({action:'set_protection',expected_ref:protectionContext.ref,expected_snapshot:protectionContext.snapshot,confirm_replace_protection:true,tp,sl});};
 $('protection-remove').onclick=()=>{if(!protectionCurrent())return;const ref=protectionContext.ref;$('protection-editor').close();action({action:'cancelProtectionPreview',con_id:cid,expected_ref:ref});};
 for(const [id,side] of [['preview-buy',1],['preview-sell',-1]])$(id).onclick=()=>{if(!cid||busy||switchingChart||state.active)return;entry=entry||packet.bars?.at(-1)?.close||0;previewSide=side;previewRevision++;sync();};
-for(const [id,side] of [['bid',1],['ask',-1]])$(id).onclick=()=>{const price=packet[id],now=(packet.server_time||0)+(Date.now()-packetReceived)/1000;if(!(price>0)||!(packet.quote_expires_at>now))return log(`No current ${id} quote; Join is unavailable.`);entry=price;joinSide=side;joinRevision++;sync();};
+for(const [id,side] of [['bid',1],['ask',-1]])$(id).onclick=()=>beginJoin(id,side);
 $('quantity').addEventListener('input',()=>{quantityEdited=true;});
 $('adjustment-quantity').oninput=sync;
 for(const [id,delta] of [['adjustment-minus',-1],['adjustment-plus',1]])$(id).onclick=()=>{const input=$('adjustment-quantity');if(input.disabled)return;input.value=Math.min(Number(input.max)||1,Math.max(1,(Number(input.value)||1)+delta));sync();};

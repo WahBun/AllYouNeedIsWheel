@@ -1,4 +1,5 @@
 """Explicit, serialized switching between locally provisioned broker profiles."""
+import hashlib
 import json
 import os
 import logging
@@ -53,7 +54,7 @@ def status():
     target = 'paper' if account.startswith('DU') else 'live' if account.startswith('U') else 'unknown'
     conn = portfolio_service.connection
     actual = portfolio_service.connection_status(conn) if conn and conn.is_connected() else {'mode':'unknown'}
-    verified = actual.get('mode') == target
+    verified = bool(account and target in ('paper', 'live') and actual.get('mode') == target and getattr(conn, 'account_id', None) == account)
     gateway_login.prepare_paper(target, verified)
     gateway = gateway_login.state()
     if verified:
@@ -65,6 +66,7 @@ def status():
     else:
         message = 'Log in to the selected IB Gateway mode on Mini. Connection will complete automatically.'
     return dict(selected=target, verified=verified, epoch=_epoch,
+                account_identity=hashlib.sha256(account.encode()).hexdigest() if verified else None,
                 available=list(profiles()), gateway=gateway, message=message, chart_execution_enabled=actual.get('chart_execution_enabled',False))
 
 @bp.get('/profiles')

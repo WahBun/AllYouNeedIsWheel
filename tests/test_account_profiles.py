@@ -81,6 +81,7 @@ class AccountProfileTests(unittest.TestCase):
         stack.enter_context(patch.object(portfolio, 'portfolio_service', old_portfolio))
         stack.enter_context(patch.object(options, 'options_service', old_options))
         self.next_portfolio = Mock(config=self.config['paper'])
+        self.next_portfolio.connection.account_id = 'DU_TEST'
         self.next_portfolio.connection_status.return_value = {'mode':'paper'}
         self.next_options = Mock()
         stack.enter_context(patch.object(portfolio, 'PortfolioService', return_value=self.next_portfolio))
@@ -106,6 +107,30 @@ class AccountProfileTests(unittest.TestCase):
         self.chart_stop.assert_called_once_with(reset_cooldown=True)
         self.old_connection.disconnect.assert_called_once()
         self.assertEqual([call[0] for call in self.old_connection.mock_calls], ['disconnect'])
+
+    def test_quote_snapshot_identity_does_not_require_pnl(self):
+        from api.routes import portfolio
+        from api.services.stock_chart import stock_chart
+        self.app.register_blueprint(portfolio.bp)
+        with patch.object(portfolio.portfolio_service, '_ensure_connection', return_value=Mock()), patch.object(stock_chart, 'snapshot', return_value={'con_id': 7, 'bars': []}), patch.object(account, '_epoch', 'quote-identity'):
+            result = self.app.test_client().get('/api/portfolio/stock-chart/7?interval=5&session=all')
+            self.assertEqual(result.status_code, 200)
+            self.assertEqual(result.get_json()['account_epoch'], 'quote-identity')
+            self.assertNotIn('daily_pnl', result.get_json())
+
+    def test_same_mode_wrong_account_is_not_verified(self):
+        self.switch_context()
+        from api.routes import portfolio
+        with patch.object(portfolio, 'portfolio_service', self.next_portfolio):
+            self.next_portfolio.connection.account_id = 'DU_OTHER'
+            result = account.status()
+            self.assertFalse(result['verified'])
+            self.assertIsNone(result['account_identity'])
+            self.next_portfolio.connection.account_id = 'DU_TEST'
+            result = account.status()
+            self.assertTrue(result['verified'])
+            self.assertTrue(result['account_identity'])
+            self.assertNotIn('DU_TEST', result['account_identity'])
 
     def test_failed_preparation_keeps_current_account_and_epoch(self):
         self.switch_context(preparation_error=OSError('db unavailable'))

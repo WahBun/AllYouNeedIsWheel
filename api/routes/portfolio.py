@@ -166,6 +166,9 @@ def get_stock_chart(con_id):
             return _no_store_json({'error': 'Invalid stock chart parameters'}, 400)
         connection = portfolio_service._ensure_connection()
         result = stock_chart.snapshot(connection, con_id, minutes, request.args.get("session", "rth"), fast=True)
+        # Quote identity must not depend on requesting optional P&L.
+        from api.routes.account import epoch
+        result = dict(result, account_epoch=epoch())
         if request.args.get('include_pnl') == '1':
             from api.services.chart_pnl import snapshot
             from api.routes.account import status as account_status
