@@ -1,5 +1,25 @@
 # Project Handoff
 
+## 2026-10-12 Inactive evidence correction
+
+Do not classify IB Inactive alone as cancellation, rejection, or replay permission.
+Chart state normalizes it to Unknown; protection remains unknown even when a
+position snapshot is flat or the ambiguous child is contingent on an entry.
+Remove Inactive from cancellation/replace/close confirmation and group retirement.
+Legacy persisted Inactive terminal rows and request results are rechecked rather
+than trusted after restart. Missing orders remain Unknown. Permanent-ID/reference
+conflicts cannot overwrite group ownership. Unknown group evidence cannot release
+an uncertain request. Explicit operation errors do not establish old-order death.
+No market/UI changes and no expansion of the unshipped Live policy work.
+
+Seven new regressions fail on 87fbb39 and pass with this patch; 153 affected
+order/entry/broker/Live-policy tests pass in an isolated clean candidate. The exact
+16 deterministic tests from round two pass separately. Counts overlap.
+Round two actually filled one entry and an amended original TP via Close, with
+explicit sibling cancellation; that was not a natural TP/SL trigger. Round three
+must separately observe an unchanged target or stop before claiming that branch.
+
+
 ## 2026-10-12 first MNQ ETH / Paper acceptance loop
 
 Verified Mini bed4c69, Paper identity and MNQZ6 conId 815824267 before writes.

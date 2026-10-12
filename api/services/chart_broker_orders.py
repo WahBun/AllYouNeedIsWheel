@@ -120,14 +120,14 @@ def can_retire_empty_group(path, conn, account, cid, group, position):
         if not matches:
             terminal = group.get('terminal', {}).get(role, {})
             if (group.get('perms', {}).get(role) and terminal.get('order_id') == oid
-                    and terminal.get('status') in {'Cancelled', 'ApiCancelled', 'Inactive'}
+                    and terminal.get('status') in {'Cancelled', 'ApiCancelled'}
                     and terminal.get('filled') == 0):
                 continue
             return False
         if len(matches) != 1:
             return False
         t = matches[0]
-        if (t.orderStatus.status not in {'Cancelled', 'ApiCancelled', 'Inactive'}
+        if (t.orderStatus.status not in {'Cancelled', 'ApiCancelled'}
                 or t.orderStatus.filled or t.fills):
             return False
         if group.get('perms', {}).get(role) and t.order.permId != group['perms'][role]:
