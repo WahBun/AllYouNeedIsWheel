@@ -140,7 +140,7 @@ def project(path, account, cid, client, groups, trades, fills, account_position)
                 matches=[t for t in trades if t.order.account==account and t.contract.conId==cid and
                          ((perm and (t.order.permId or t.orderStatus.permId)==perm) or
                           (t.order.clientId==client and t.order.orderId==oid))]
-                unique={id(t):t for t in matches}
+                unique={json.dumps(dict(order=vars(t.order),status=vars(t.orderStatus)),sort_keys=True,default=str):t for t in matches}
                 if len(unique)!=1:
                     errors.append('Order identity unavailable or ambiguous: '+ref+':'+role);continue
                 t=next(iter(unique.values()));o=t.order

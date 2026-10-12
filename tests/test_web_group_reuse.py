@@ -57,3 +57,8 @@ class WebOriginalReuse(TwoGroupAttribution):
         self.assertTrue(view['known'],view['errors'])
         with patch('api.services.paper_chart.completed_trades',return_value=[]):
             self.assertFalse(self.a.group_projection(self.conn,'DU_TEST',7)['known'])
+    def test_identical_completed_objects_do_not_create_identity_conflict(self):
+        from copy import deepcopy
+        self.establish()
+        self.trades.extend(deepcopy(self.trades))
+        self.assertTrue(self.a.group_projection(self.conn,'DU_TEST',7)['known'])
