@@ -22,3 +22,17 @@ Baseline: Mini ca8a2f2, verified Paper, same server epoch as deployment. Only re
 
 ## Deployment gate
 Mini remains ca8a2f2. Need user authorization for a brief Wheel-only restart (client71 and charts reconnect), after backup and GitHub version verification. Gateway/Docker/QQQ/Live untouched. This candidate intentionally does not remove historical group ownership restrictions.
+
+## Authorized follow-up: completed group evidence
+Read-only broker/database evidence reproduced the remaining Join gate: completed
+IB orders had totalQuantity=0 despite matching filledQuantity/status/executions.
+Accept this representation only with matching explicit terminal fill evidence.
+Foreign historic brackets are excluded only with one exact parent, two linked
+OCA exits, explicit terminal states, complete executions from one other client,
+and zero bracket net quantity. They never enter owned_perms. Missing/Inactive,
+identity conflict, unbalanced or still-working foreign evidence remains blocked.
+No historical records are deleted or reassigned; no broker writes are involved.
+
+106 targeted Python regressions plus actual shared JS Join/recovery tests passed.
+A consistent copy of the running database reconciled all stored local MNQ groups
+to zero with no errors after the fix. Deployment and page evidence follow below.

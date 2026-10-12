@@ -43,6 +43,77 @@ def flat_baseline(path,account,cid,fills):
         db.execute('INSERT OR IGNORE INTO group_ledger_baseline VALUES(?,?,?)',(account,cid,json.dumps(records,sort_keys=True)))
 
 
+def _complete_fill_evidence(trade, quantity):
+    """Completed IB orders may report remaining totalQuantity=0.
+
+    Only an explicit terminal status plus matching broker filledQuantity permits
+    that representation. Active orders retain their original quantity ceiling.
+    """
+    order, status = trade.order, trade.orderStatus
+    filled = float(status.filled or 0)
+    limit = float(order.totalQuantity or 0)
+    if status.status in ('Filled', 'Cancelled', 'ApiCancelled'):
+        reported = float(getattr(order, 'filledQuantity', -1))
+        if abs(reported - filled) < 1e-8:
+            limit = max(limit, reported)
+        return abs(quantity - filled) < 1e-8 and quantity <= limit + 1e-8
+    return filled <= quantity + 1e-8 and quantity <= limit + 1e-8
+
+
+def _closed_external_brackets(trades, batches, owners, account, cid, client):
+    """Recognize proven flat foreign brackets, without granting ownership.
+
+    Require one parent, exactly two linked OCA exits, explicit terminal states,
+    complete executions and zero net quantity. Anything less remains blocked.
+    """
+    by_ref = {}
+    for t in trades:
+        o = t.order
+        if o.account == account and t.contract.conId == cid and o.permId not in owners:
+            by_ref.setdefault(o.orderRef, []).append(t)
+    proven = set()
+    for ref, members in by_ref.items():
+        if not ref or len(members) != 3:
+            continue
+        parents = [t for t in members if getattr(t.order, 'parentPermId', None) == 0]
+        if len(parents) != 1:
+            continue
+        parent = parents[0]; exits = [t for t in members if t is not parent]
+        perms = {t.order.permId for t in members}
+        if len(perms) != 3 or not all(perms):
+            continue
+        if any(getattr(t.order, 'parentPermId', None) != parent.order.permId for t in exits):
+            continue
+        if not getattr(exits[0].order, 'ocaGroup', '') or exits[0].order.ocaGroup != exits[1].order.ocaGroup:
+            continue
+        if any(t.orderStatus.status not in ('Filled', 'Cancelled', 'ApiCancelled') for t in members):
+            continue
+        opposite = {'BUY': 'SELL', 'SELL': 'BUY'}.get(parent.order.action)
+        if not opposite or any(t.order.action != opposite for t in exits):
+            continue
+        quantities = {p: 0.0 for p in perms}; clients = set(); valid = True
+        for batch in batches:
+            e = batch[0]
+            if e.permId not in perms:
+                continue
+            trade = next(t for t in members if t.order.permId == e.permId)
+            for x in batch:
+                if (x.orderRef != ref or x.clientId in (0, client) or
+                    {'BOT': 'BUY', 'SLD': 'SELL'}.get(x.side) != trade.order.action or
+                    not all(isinstance(v, (int, float)) and math.isfinite(v) for v in (x.shares, x.price)) or x.shares <= 0):
+                    valid = False
+                clients.add(x.clientId)
+            quantities[e.permId] += e.shares
+        if not valid or len(clients) != 1:
+            continue
+        if not all(_complete_fill_evidence(t, quantities[t.order.permId]) for t in members):
+            continue
+        if quantities[parent.order.permId] <= 0 or abs(quantities[parent.order.permId] - sum(quantities[t.order.permId] for t in exits)) > 1e-8:
+            continue
+        proven.update(perms)
+    return proven
+
+
 def project(path, account, cid, client, groups, trades, fills, account_position):
     """Return quantities only from exact, nonconflicting executions.
 
@@ -105,10 +176,12 @@ def project(path, account, cid, client, groups, trades, fills, account_position)
         records=[SimpleNamespace(**json.loads(row[0])) for row in db.execute('SELECT payload FROM group_execution_evidence WHERE account=? AND con_id=?',(account,cid))]
         dedup,unambiguous=execution_groups(records)
         if not unambiguous:conflict('Execution identity or correction conflict')
+        closed_external = _closed_external_brackets(trades, dedup, owners, account, cid, client) if unambiguous else set()
         totals={}
         for batch in dedup:
             e=batch[0];owner=owners.get(e.permId)
             if not owner and all({k:getattr(x,k,None) for k in ('execId','acctNumber','clientId','orderId','permId','orderRef','side','shares','price')} in baseline for x in batch):continue
+            if not owner and e.permId in closed_external:continue
             if not owner:
                 # History outside these journals must not be silently netted away.
                 errors.append('Unassigned external execution: '+str(e.execId));continue
@@ -125,7 +198,7 @@ def project(path, account, cid, client, groups, trades, fills, account_position)
             qty=totals.get(perm,0)
             if t.orderStatus.status in ('Inactive','Unknown','ValidationError'):
                 errors.append('Order state requires reconciliation: '+str(perm))
-            if qty+1e-8<float(t.orderStatus.filled or 0) or qty>float(t.order.totalQuantity)+1e-8:
+            if not _complete_fill_evidence(t, qty):
                 errors.append('Order fill evidence incomplete: '+str(perm))
         for g in groups:
             held=cost=0.0
