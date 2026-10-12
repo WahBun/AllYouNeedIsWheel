@@ -1347,7 +1347,7 @@ class IBConnection:
             contract = getattr(item, 'contract', None)
             sec_type = getattr(contract, 'secType', '') if contract else ''
             ticker = None
-            if contract and sec_type in {'STK', 'OPT'}:
+            if contract and sec_type in {'STK', 'OPT', 'FUT'}:
                 key = self._market_ticker_key(contract)
                 was_cached = key in self._market_ticker_cache
                 try:

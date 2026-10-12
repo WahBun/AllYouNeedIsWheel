@@ -80,7 +80,7 @@ struct Position: Decodable, Identifiable {
     var day_range_status: String? = nil
     var id: String { "\(symbol)-\(security_type)-\(con_id ?? 0)-\(expiration ?? "")-\(strike ?? 0)" }
     var optionAveragePrice: Double? {
-        guard security_type == "OPT" else { return nil }
+        guard ["OPT", "FUT"].contains(security_type) else { return nil }
         if let fill = entry_fill_price, fill.isFinite, fill > 0 { return fill }
         guard let cost = avg_cost, cost.isFinite, cost > 0,
               let multiplier, multiplier.isFinite, multiplier > 0 else { return nil }
@@ -815,6 +815,11 @@ struct PortfolioView: View {
                             HStack(alignment: .top) {
                                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                                     SymbolText(symbol: position.symbol).font(.headline)
+                                    if position.security_type == "FUT" {
+                                        Text(verbatim: "@" + (position.optionAveragePrice.map { String(format: "%.2f", $0) } ?? "—") + (position.optionAverageUsesBrokerCost ? "*" : ""))
+                                            .font(.caption).monospacedDigit()
+                                            .accessibilityLabel(position.optionAverageUsesBrokerCost ? "IB average cost per contract point" : "Average entry fill price")
+                                    }
                                     Text(verbatim: position.position.formatted())
                                         .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                                         .accessibilityLabel(Text("Quantity"))

@@ -1612,6 +1612,17 @@ extension TradingTests {
 }
 
 final class OptionAveragePriceTests: XCTestCase {
+    func testFuturesEntryUsesPointUnitsAndConfirmedFillPriority() {
+        var p = Position(symbol: "MNQ", position: -1, security_type: "FUT", avg_cost: 62472.89, multiplier: 2)
+        XCTAssertEqual(p.optionAveragePrice!, 31236.445, accuracy: 0.0001)
+        XCTAssertTrue(p.optionAverageUsesBrokerCost)
+        p.entry_fill_price = 31236.75
+        XCTAssertEqual(p.optionAveragePrice, 31236.75)
+        XCTAssertFalse(p.optionAverageUsesBrokerCost)
+        p.entry_fill_price = nil; p.multiplier = nil
+        XCTAssertNil(p.optionAveragePrice)
+    }
+
     func testBrokerFallbackUsesActualMultiplierAndKeepsFillPriority() {
         var p = Position(symbol: "QQQ", position: -3, security_type: "OPT", avg_cost: 161, multiplier: 100)
         XCTAssertEqual(p.optionAveragePrice, 1.61)

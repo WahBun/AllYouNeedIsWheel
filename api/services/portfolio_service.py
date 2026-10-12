@@ -123,6 +123,13 @@ class PortfolioService:
             ):
                 position_data.update(self._option_position_fields(contract, pos, account_id))
 
+            if pos_type == 'FUT':
+                try:
+                    multiplier = float(getattr(contract, 'multiplier', '') or 0)
+                except (TypeError, ValueError):
+                    multiplier = 0
+                position_data['multiplier'] = multiplier if 0 < multiplier < float('inf') else None
+
             if pos_type in ('STK', 'FUT'):
                 position_data['entry_fill_price'] = recorded_entry_price(
                     self.config.get('db_path'), account_id, position_data['con_id'],
