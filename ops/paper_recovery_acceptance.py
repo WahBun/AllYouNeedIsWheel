@@ -50,9 +50,33 @@ class OrderFence:
         ib.reqAutoOpenOrders = forbidden
 
 
+def resume_manifest(root, account, client_id, port):
+    """Only resume the exact isolated journal; never import production state."""
+    import sqlite3
+    root = root.resolve()
+    m=json.loads((root/'manifest.json').read_text())
+    config=json.loads((root/'connection.json').read_text())
+    if (m['client_id']!=client_id or m['port']!=port or config['account_id']!=account or
+        config['client_id']!=client_id or config['port']!=4002 or config['host']!='127.0.0.1' or
+        Path(config['db_path']).resolve()!=root/'test.sqlite' or
+        Path(m['database']).resolve()!=root/'test.sqlite'):
+        raise ValueError('Resume identity/configuration mismatch')
+    with sqlite3.connect('file:'+str(root/'test.sqlite')+'?mode=ro',uri=True) as db:
+        rows=db.execute('SELECT orders FROM chart_paper_independent WHERE account=? AND con_id=? AND group_id=?',
+                        (account,m['con_id'],m['group'])).fetchall()
+    if len(rows)!=1:raise ValueError('Exact isolated group required')
+    group=json.loads(rows[0][0])
+    if group['ref']!='WheelPaper:'+m['submit'] or set(group['ids'])!={'entry','tp','sl'}:
+        raise ValueError('Not the original one-contract bracket')
+    ids={oid:group.get('perms',{}).get(role,0) for role,oid in group['ids'].items()}
+    if len(ids)!=3 or not all(ids.values()):raise ValueError('Confirmed permanent identities required')
+    return m,config,ids
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', required=True)
+    parser.add_argument('--resume', action='store_true')
     parser.add_argument('--account', required=True)
     parser.add_argument('--client-id', type=int, required=True)
     parser.add_argument('--port', type=int, default=18081)
@@ -60,16 +84,25 @@ def main():
     if not args.account.startswith('DU') or args.client_id in (0, 71) or args.client_id < 1 or not 1024 <= args.port <= 65535:
         parser.error('Explicit Paper account, nonzero non-71 client and unprivileged port required')
     root = Path(args.root).resolve()
-    root.mkdir(mode=0o700)  # Fail closed on existing directories/databases.
+    import fcntl
     os.umask(0o077)
-    token, group, submit = secrets.token_hex(32), str(uuid4()), str(uuid4())
-    cid = 815824267
-    manifest = dict(pid=os.getpid(), client_id=args.client_id, port=args.port, group=group,
-                    submit=submit, con_id=cid, token=token, database=str(root/'test.sqlite'))
+    if not args.resume:root.mkdir(mode=0o700)
+    lock=(root/'instance.lock').open('a')
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    restored={}
+    if args.resume:
+        manifest,config,restored=resume_manifest(root,args.account,args.client_id,args.port)
+        token,group,submit,cid=(manifest[k] for k in ('token','group','submit','con_id'))
+        manifest['pid']=os.getpid()
+    else:
+        token, group, submit = secrets.token_hex(32), str(uuid4()), str(uuid4())
+        cid = 815824267
+        manifest = dict(pid=os.getpid(), client_id=args.client_id, port=args.port, group=group,
+                        submit=submit, con_id=cid, token=token, database=str(root/'test.sqlite'))
+        config = dict(host='127.0.0.1', port=4002, client_id=args.client_id, account_id=args.account,
+                      readonly=False, db_path=str(root/'test.sqlite'), timeout=8)
+        (root/'connection.json').write_text(json.dumps(config))
     (root/'manifest.json').write_text(json.dumps(manifest))
-    config = dict(host='127.0.0.1', port=4002, client_id=args.client_id, account_id=args.account,
-                  readonly=False, db_path=str(root/'test.sqlite'), timeout=8)
-    (root/'connection.json').write_text(json.dumps(config))
     os.environ.update(CONNECTION_CONFIG=str(root/'connection.json'), LOG_DIR=str(root/'logs'),
                       WHEEL_ACCOUNT_PROFILES=str(root/'disabled-account-profiles'),
                       WHEEL_GATEWAY_PROFILES=str(root/'disabled-gateway'))
@@ -80,6 +113,7 @@ def main():
     from core.connection import IBConnection
     from api.services.connection_manager import connection_manager
     fence = OrderFence(args.account, args.client_id, cid, 'WheelPaper:'+submit, audit)
+    fence.identities.update(restored)
     class IsolatedConnection(IBConnection):
         checked = False
         def __init__(self, **kwargs):
@@ -92,9 +126,10 @@ def main():
                 self.disconnect(); raise ValueError('Actual Paper/client mismatch')
             if not self.checked:
                 opened = self._bounded_order_read(self.ib.reqAllOpenOrders, timeout_seconds=3)
-                if any(t.order.clientId == args.client_id or t.contract.conId == cid for t in opened):
+                unexpected=[t for t in opened if (t.order.clientId == args.client_id or t.contract.conId == cid) and not (args.resume and t.order.clientId==args.client_id and t.order.account==args.account and t.contract.conId==cid and t.order.orderRef==fence.reference and restored.get(t.order.orderId)==t.order.permId)]
+                if unexpected:
                     self.disconnect(); raise ValueError('Client already owns orders or MNQ orders exist')
-                if any(p.contract.conId == cid and p.position for p in self.ib.positions()):
+                if any(p.contract.conId == cid and p.position and not (args.resume and p.account==args.account and p.position==1) for p in self.ib.positions()):
                     self.disconnect(); raise ValueError('MNQ position exists')
                 self.checked = True
             audit('connected', client_id=self.ib.client.clientId, paper_verified=True)
@@ -118,7 +153,7 @@ def main():
         if request.method=='POST' and request.path==chart_path and request.args.get('group_id')==group:
             body=request.get_json(silent=True) or {}
             action=body.get('action')
-            if action=='submit' and body.get('request_id')==submit and body.get('quantity')==1 and body.get('side')==1 and body.get('tp') and body.get('sl'):
+            if not args.resume and action=='submit' and body.get('request_id')==submit and body.get('quantity')==1 and body.get('side')==1 and body.get('tp') and body.get('sl'):
                 return None
             if action=='close' and body.get('expected_ref')==fence.reference and body.get('expected_position')==1: return None
             if action=='edit_entry' and body.get('cancel') is True and body.get('expected_ref')==fence.reference: return None
@@ -136,7 +171,7 @@ def main():
         conn.disconnect()
         audit('disconnected', client_id=args.client_id, state=s)
         return jsonify(disconnected=True,client_id=args.client_id)
-    audit('started', client_id=args.client_id, port=args.port)
+    audit('resumed' if args.resume else 'started', client_id=args.client_id, port=args.port, pid=os.getpid())
     from werkzeug.serving import make_server
     server=make_server('127.0.0.1',args.port,app,threaded=True)
     try: server.serve_forever()
