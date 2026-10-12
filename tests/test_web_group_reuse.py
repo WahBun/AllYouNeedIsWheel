@@ -48,3 +48,12 @@ class WebOriginalReuse(TwoGroupAttribution):
             saved=json.loads(db.execute('SELECT result FROM chart_paper_requests WHERE id=?',(request_id,)).fetchone()[0])
         self.assertEqual(saved['state']['order_ref'],group['ref'])
         self.assertFalse(saved['awaiting_broker'])
+    def test_restart_projection_uses_completed_evidence_when_cache_empty(self):
+        from unittest.mock import patch
+        self.establish();self.a.state(self.conn,7)
+        self.conn.ib.trades.side_effect=lambda:[]
+        with patch('api.services.paper_chart.completed_trades',return_value=self.trades):
+            view=self.a.group_projection(self.conn,'DU_TEST',7)
+        self.assertTrue(view['known'],view['errors'])
+        with patch('api.services.paper_chart.completed_trades',return_value=[]):
+            self.assertFalse(self.a.group_projection(self.conn,'DU_TEST',7)['known'])

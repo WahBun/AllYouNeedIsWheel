@@ -189,6 +189,13 @@ class PaperChart:
         from core.order_group_ledger import project
         groups=[PaperChart(self.path,c['id'] or None).group(account,cid) for c in choices]+historical
         trades=list(conn.reconciled_order_trades() if hasattr(type(conn),'reconciled_order_trades') else conn.ib.trades())
+        # After restart, own completed orders are absent from ib.trades().
+        # Use the same bounded completed-order evidence as state(), never absence.
+        expected={perm for g in groups for perm in g.get('perms',{}).values() if perm}
+        observed={t.order.permId or t.orderStatus.permId for t in trades}
+        if expected-observed:
+            trades += [t for t in completed_trades(conn,account)
+                       if t.contract.conId==cid and (t.order.permId or t.orderStatus.permId) not in observed]
         total=sum(float(p.position) for p in conn.ib.positions() if p.account==account and p.contract.conId==cid)
         return project(self.path,account,cid,conn.ib.client.clientId,groups,trades,conn.ib.fills(),total)
 
