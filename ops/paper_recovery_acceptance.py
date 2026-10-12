@@ -50,6 +50,19 @@ class OrderFence:
         ib.reqAutoOpenOrders = forbidden
 
 
+class TwoGroupFence(OrderFence):
+    def __init__(self, account, client_id, con_id, references, audit):
+        if len(set(references))!=2:raise ValueError('Exactly two distinct references required')
+        super().__init__(account,client_id,con_id,references[0],audit)
+        self.children={ref:OrderFence(account,client_id,con_id,ref,audit) for ref in references}
+    def check(self, contract, order, cancel=False):
+        owner=self.children.get(order.orderRef)
+        if owner is None:raise ValueError('Foreign group')
+        if any(order.orderId in child.identities for ref,child in self.children.items() if ref!=order.orderRef):
+            raise ValueError('Cross-group identity reuse')
+        owner.check(contract,order,cancel)
+
+
 def resume_manifest(root, account, client_id, port):
     """Only resume the exact isolated journal; never import production state."""
     import sqlite3
@@ -79,12 +92,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', required=True)
     parser.add_argument('--resume', action='store_true')
+    parser.add_argument('--two-groups', action='store_true')
     parser.add_argument('--account', required=True)
     parser.add_argument('--client-id', type=int, required=True)
     parser.add_argument('--port', type=int, default=18081)
     args = parser.parse_args()
     if not args.account.startswith('DU') or args.client_id in (0, 71) or args.client_id < 1 or not 1024 <= args.port <= 65535:
         parser.error('Explicit Paper account, nonzero non-71 client and unprivileged port required')
+    if args.two_groups and args.resume:parser.error('Two-group process restart not enabled in this acceptance scope')
     root = Path(args.root).resolve()
     import fcntl
     os.umask(0o077)
@@ -104,6 +119,9 @@ def main():
         config = dict(host='127.0.0.1', port=4002, client_id=args.client_id, account_id=args.account,
                       readonly=False, db_path=str(root/'test.sqlite'), timeout=8)
         (root/'connection.json').write_text(json.dumps(config))
+    test_groups={group:submit}
+    if args.two_groups:test_groups[str(uuid4())]=str(uuid4())
+    manifest['test_groups']=test_groups
     (root/'manifest.json').write_text(json.dumps(manifest))
     os.environ.update(CONNECTION_CONFIG=str(root/'connection.json'), LOG_DIR=str(root/'logs'),
                       WHEEL_ACCOUNT_PROFILES=str(root/'disabled-account-profiles'),
@@ -115,6 +133,7 @@ def main():
     from core.connection import IBConnection
     from api.services.connection_manager import connection_manager
     fence = OrderFence(args.account, args.client_id, cid, 'WheelPaper:'+submit, audit)
+    if args.two_groups:fence=TwoGroupFence(args.account,args.client_id,cid,['WheelPaper:'+r for r in test_groups.values()],audit)
     fence.identities.update(restored)
     class IsolatedConnection(IBConnection):
         checked = False
@@ -148,17 +167,20 @@ def main():
         if request.remote_addr != '127.0.0.1' or not secrets.compare_digest(request.headers.get('X-Acceptance-Token',''),token):
             return jsonify(error='Acceptance authorization required'),403
         if request.method=='GET' and request.path in read_paths:
-            if request.path==chart_path and request.args.get('group_id')!=group:
+            if request.path==chart_path and request.args.get('group_id') not in test_groups:
                 return jsonify(error='Exact test group required'),403
             return None
-        if request.method=='POST' and request.path=='/api/acceptance/disconnect': return None
-        if request.method=='POST' and request.path==chart_path and request.args.get('group_id')==group:
+        if not args.two_groups and request.method=='POST' and request.path=='/api/acceptance/disconnect': return None
+        if request.method=='POST' and request.path==chart_path and request.args.get('group_id') in test_groups:
+            selected_submit=test_groups[request.args['group_id']]
+            selected_ref='WheelPaper:'+selected_submit
             body=request.get_json(silent=True) or {}
             action=body.get('action')
-            if not args.resume and action=='submit' and body.get('request_id')==submit and body.get('quantity')==1 and body.get('side')==1 and body.get('tp') and body.get('sl'):
+            if not args.resume and action=='submit' and body.get('request_id')==selected_submit and body.get('quantity')==1 and body.get('side')==1 and body.get('tp') and body.get('sl'):
                 return None
-            if action=='close' and body.get('expected_ref')==fence.reference and body.get('expected_position')==1: return None
-            if action=='edit_entry' and body.get('cancel') is True and body.get('expected_ref')==fence.reference: return None
+            if args.two_groups and action=='amend' and body.get('expected_ref')==selected_ref and body.get('role') in ('tp','sl'):return None
+            if action=='close' and body.get('expected_ref')==selected_ref and body.get('expected_position')==1: return None
+            if action=='edit_entry' and body.get('cancel') is True and body.get('expected_ref')==selected_ref: return None
         return jsonify(error='Operation outside isolated acceptance scope'),403
     @app.post('/api/acceptance/disconnect')
     def disconnect():

@@ -144,6 +144,35 @@ class PaperChart:
         self._execution_group_cache=(account,cid,signature,groups)
         return groups
 
+    def group_projection(self, conn, account, cid):
+        choices=self.group_choices(account,cid)
+        if self.group_id and not choices:
+            total=sum(float(p.position) for p in conn.ib.positions() if p.account==account and p.contract.conId==cid)
+            if not total and not any(t.order.account==account and t.contract.conId==cid for t in conn.ib.openTrades()):
+                from core.order_group_ledger import flat_baseline
+                flat_baseline(self.path,account,cid,conn.ib.fills())
+        if len(choices)<2 and not (self.group_id and choices and not self.group(account,cid)):
+            return None
+        from core.order_group_ledger import project
+        groups=[PaperChart(self.path,c['id'] or None).group(account,cid) for c in choices]
+        trades=list(conn.reconciled_order_trades() if hasattr(type(conn),'reconciled_order_trades') else conn.ib.trades())
+        total=sum(float(p.position) for p in conn.ib.positions() if p.account==account and p.contract.conId==cid)
+        return project(self.path,account,cid,conn.ib.client.clientId,groups,trades,conn.ib.fills(),total)
+
+    def group_size(self, conn, account, cid, positions):
+        total=sum(float(p.position) for p in positions if p.account==account and p.contract.conId==cid)
+        projection=self.group_projection(conn,account,cid)
+        if projection is None:return total
+        if not projection['known'] or abs(total-projection['account_position'])>1e-8:
+            raise ValueError('Group ownership or account total needs reconciliation')
+        return projection['positions'].get((self.group(account,cid) or {}).get('ref'),0)
+
+    def other_group_order(self, conn, account, cid, trade, group):
+        projection=self.group_projection(conn,account,cid)
+        if projection is not None:
+            return not projection['known'] or trade.order.clientId!=conn.ib.client.clientId or trade.order.permId not in projection['owned_perms']
+        return trade.order.orderId not in group['ids'].values()
+
     def state(self, conn, cid):
         account = paper_account(conn)
         # Read broker events even when no chart SSE subscriber is pumping the loop.
@@ -171,6 +200,12 @@ class PaperChart:
                 self.save_group(account,cid,group)
         result = dict(paper=account.startswith('DU'), account_mode='paper' if account.startswith('DU') else 'live', enabled=conn.readonly is False, position=float(position.position) if position else 0,
                       active=False, known=True, orders=[], entry=0, tp=0, sl=0, side=1, status='idle', group_id=self.group_id or '', group_choices=self.group_choices(account,cid))
+        attribution_view=self.group_projection(conn,account,cid)
+        if attribution_view is not None:
+            result['account_position']=result['position']
+            result['position']=attribution_view['positions'].get((group or {}).get('ref'),0)
+            result['group_attribution']=attribution_view
+            result['known']=attribution_view['known']
         # Orders submitted outside this chart group still belong on its chart.
         # Exact native-order identity enables the same management lifecycle on either UI.
         owned_ids = set((group or {}).get('ids', {}).values())
@@ -208,7 +243,7 @@ class PaperChart:
         result['executions'] = sorted(executions.values(), key=lambda e:e['time'])
         if not group:
             self._resolved_trades = trades
-            if position and result['position']:
+            if attribution_view is None and position and result['position']:
                 size=result['position']
                 try:
                     multiplier=float(position.contract.multiplier or (1 if position.contract.secType=='STK' else 0))
@@ -314,7 +349,7 @@ class PaperChart:
         if confirmed != group.get('terminal'):
             group['terminal'] = confirmed
             self.save_group(account,cid,group)
-        result.update(orders=rows, side=group['side'], known=all(r['status']!='Unknown' for r in rows))
+        result.update(orders=rows, side=group['side'], known=result['known'] and all(r['status']!='Unknown' for r in rows))
         reappeared=any(r['order_id'] in trades for release in group.get('operator_releases',[]) for r in release['orders'])
         if reappeared:result.update(known=False,sync_error='Operator-released order reappeared; reconcile before trading')
         result['broker_pending'] = any(r['status'] in ('Unknown','ValidationError','PendingSubmit','ApiPending','PendingCancel') for r in rows)
@@ -343,6 +378,8 @@ class PaperChart:
         if group.get('origin_position'):
             result['entry']=group['origin_entry']
         if not result['known']: result['status']='unknown'
+        if attribution_view is not None and not attribution_view['known']:
+            result['sync_error']='Group ownership requires reconciliation: '+ '; '.join(attribution_view['errors'])
         if result['position']:
             # Broker avgCost includes commission for futures. Use actual fills for
             # the chart's price basis, retaining average cost through trims.
@@ -377,6 +414,9 @@ class PaperChart:
                     basis = 0
                 result['entry'] = basis if math.isfinite(basis) and basis > 0 else 0
                 result['entry_source'] = 'broker_average_cost' if result['entry'] else 'unknown'
+        if attribution_view is not None:
+            result['entry']=attribution_view['entry_basis'].get(group['ref'],0) if attribution_view['known'] else 0
+            result['entry_source']='group_executions' if attribution_view['known'] else 'unknown'
         result['be_applied']=bool(result['position'] and result['entry']>0 and result['sl']>0 and result['side']*(result['sl']-result['entry'])>0)
         result['rejected']=any(r['status']=='Inactive' and '_retired_' not in r['role'] for r in rows)
         result['protection'] = self.protection_progress(rows, result['position'], group.get('lots'))
@@ -632,6 +672,12 @@ class PaperChart:
         if not account.startswith('DU'):
             result.update(add_allowed=False,trim_allowed=False,protection_manageable=False,protection_cancelable=False)
         self.action_availability(conn, account, scaling_contract, result)
+        if attribution_view is not None and not attribution_view['known']:
+            result['protection']['status']='unknown'
+            result['protection_manageable']=False
+            result['scalable']=False
+            for key in ('add_allowed','trim_allowed','stop_trim_allowed','unprotected_trim','protection_cancelable','entry_editable'):
+                result[key]=False
         return result
 
     @staticmethod
@@ -1470,7 +1516,7 @@ class PaperChart:
         if abs(owned-current['position']) > .000001 or owned*group['side'] <= 0:
             raise ValueError('Position differs from owned fills; reconcile before protecting')
         trades = self._resolved_trades
-        if any(t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades() if t.order.account==account and t.contract.conId==cid):
+        if any(self.other_group_order(conn,account,cid,t,group) for t in conn.ib.openTrades() if t.order.account==account and t.contract.conId==cid):
             raise ValueError('Other working orders exist; reconcile before protecting')
         if any(t.order.account!=account or t.contract.conId!=cid or t.order.orderRef!=group['ref'] for oid,t in trades.items() if oid in group['ids'].values()):
             raise ValueError('Protection ownership mismatch')
@@ -1491,12 +1537,12 @@ class PaperChart:
             if fresh['position']!=current['position'] or any(r['filled']!=old['filled'] for r,old in zip(fresh['orders'],current['orders'])):
                 raise RuntimeError('Fill raced protection replacement; reconcile before another action')
             positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
-            actual=next((float(p.position) for p in positions if p.account==account and p.contract.conId==cid),0)
+            actual=self.group_size(conn,account,cid,positions)
             if actual!=fresh['position']: raise RuntimeError('Position reconciliation incomplete')
             verified=self.state(conn,cid)
             if verified['edit_snapshot']!=fresh['edit_snapshot'] or verified['position']!=actual:
                 raise RuntimeError('Orders changed during position reconciliation')
-            if any(t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades() if t.order.account==account and t.contract.conId==cid):
+            if any(self.other_group_order(conn,account,cid,t,group) for t in conn.ib.openTrades() if t.order.account==account and t.contract.conId==cid):
                 raise RuntimeError('Other working orders appeared during reconciliation')
             if body.get('be_create') and contract.secType == 'STK':
                 self.require_no_call_reservation(conn, account, contract)
@@ -1566,11 +1612,11 @@ class PaperChart:
             conn.ib.sleep(.05)
         fresh=self.state(conn,cid)
         positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
-        actual=next((float(p.position) for p in positions if p.account==account and p.contract.conId==cid),0)
+        actual=self.group_size(conn,account,cid,positions)
         checked=self.state(conn,cid);by_id={r['order_id']:r for r in checked['orders']}
         if actual!=current['position'] or checked['position']!=actual or any(by_id[r['order_id']]['filled']!=r['filled'] for r in current['orders']):
             raise RuntimeError('Fill raced stop repartition; reconcile')
-        if any(t.order.account==account and t.contract.conId==cid and t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades()):raise RuntimeError('Other orders appeared')
+        if any(t.order.account==account and t.contract.conId==cid and self.other_group_order(conn,account,cid,t,group) for t in conn.ib.openTrades()):raise RuntimeError('Other orders appeared')
         group=self.group(account,cid)
         for r in free:
             role=r['role'];group['ids'][role+'_retired_'+str(r['order_id'])]=group['ids'].pop(role)
@@ -1632,7 +1678,7 @@ class PaperChart:
             reserved=sum(r['quantity'] for r in current.get('pending_exits',[]) if r['order_id']!=oid)
             if qty+reserved>size:raise ValueError('Trim exceeds unallocated position')
             positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
-            actual=sum(float(p.position) for p in positions if p.account==account and p.contract.conId==cid)
+            actual=self.group_size(conn,account,cid,positions)
             fresh=self.state(conn,cid)
             if actual!=current['position'] or fresh['edit_snapshot']!=current['edit_snapshot']:
                 raise ValueError('Orders changed; reopen Trim quantity editor')
@@ -1641,7 +1687,7 @@ class PaperChart:
         active=[r for r in current['orders'] if r['status'] not in ('Filled','Cancelled','ApiCancelled')]
         if any(r['role'].split('_')[0] not in ('trim','sl') for r in active) or any(r['status'] not in ('Submitted','PreSubmitted') for r in active):
             raise ValueError('Wait for other orders to reconcile')
-        if any(t.order.account==account and t.contract.conId==cid and t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades()):
+        if any(t.order.account==account and t.contract.conId==cid and self.other_group_order(conn,account,cid,t,group) for t in conn.ib.openTrades()):
             raise ValueError('Other working orders need reconciliation')
         plans=[(r['quantity']-r['filled'],r['price']) for r in active if r['role'].split('_')[0]=='trim' and r['order_id']!=oid]
         if qty+sum(q for q,_ in plans)>size:raise ValueError('Trim exceeds unallocated position')
@@ -1664,7 +1710,7 @@ class PaperChart:
             conn.ib.sleep(.05)
         fresh=self.state(conn,cid)
         positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
-        actual=next((float(p.position) for p in positions if p.account==account and p.contract.conId==cid),0)
+        actual=self.group_size(conn,account,cid,positions)
         by_id={r['order_id']:r for r in fresh['orders']}
         if actual!=current['position'] or fresh['position']!=actual or any(by_id[r['order_id']]['filled']!=r['filled'] for r in active):
             raise RuntimeError('Fill raced Trim edit; reconcile before replacement')
@@ -1791,6 +1837,9 @@ class PaperChart:
                 conn.ib.cancelOrder(trade.order)
 
     def perform(self, conn, account, cid, body, request_id):
+        attribution=self.group_projection(conn,account,cid)
+        if attribution is not None and not attribution['known']:
+            raise ValueError('Group ownership needs reconciliation; no order write allowed')
         if body.get('action') == 'manage_broker_order':
             from api.services.chart_broker_orders import manage
             return manage(self.path, conn, account, cid, body)
@@ -1802,7 +1851,7 @@ class PaperChart:
             if any(t.order.account==account and t.contract.conId==cid and not t.isDone() for t in opened):
                 raise ValueError('Working orders remain; resolve them before manual recovery')
             current=self.state(conn,cid);group=self.group(account,cid) or {}
-            actual=sum(float(p.position) for p in positions if p.account==account and p.contract.conId==cid)
+            actual=self.group_size(conn,account,cid,positions)
             missing=[r for r in current['orders'] if r['status']=='Unknown']
             if (body.get('expected_ref')!=group.get('ref') or actual!=body.get('expected_position') or actual!=current['position'] or
                 not missing or sorted(r['order_id'] for r in missing)!=sorted(body.get('order_ids',[])) or
@@ -1877,7 +1926,7 @@ class PaperChart:
             return self.cancel_protection(conn, account, cid, body)
         if body.get('action') == 'cancel_add':
             return self.cancel_add(conn, account, cid, body)
-        if body.get('action') in ('close','be','add','trim','resize_trim') and any(t.contract.conId==cid and t.order.account==account and t.order.orderRef in {g['ref'] for g in self.group_choices(account,cid) if g['id'] != (self.group_id or '')} for t in conn.ib.openTrades()):
+        if attribution is None and body.get('action') in ('close','be','add','trim','resize_trim') and any(t.contract.conId==cid and t.order.account==account and t.order.orderRef in {g['ref'] for g in self.group_choices(account,cid) if g['id'] != (self.group_id or '')} for t in conn.ib.openTrades()):
             raise ValueError('Multiple order groups: manage each order separately; position actions require reconciliation')
         if body.get('action') == 'edit_entry' and body.get('cancel') is True:
             # A pure cancellation needs exact broker identity, not new contract/price rules.
@@ -2024,9 +2073,9 @@ class PaperChart:
                 if current.get('unprotected_trim') and body.get('manual_stop_quantity') is True:
                     positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
                     opened=conn._bounded_order_read(conn.ib.reqAllOpenOrders,timeout_seconds=3)
-                    actual=sum(float(p.position) for p in positions if p.account==account and p.contract.conId==cid)
+                    actual=self.group_size(conn,account,cid,positions)
                     fresh=self.state(conn,cid)
-                    if actual!=current['position'] or fresh['edit_snapshot']!=current['edit_snapshot'] or not fresh.get('unprotected_trim') or any(t.order.account==account and t.contract.conId==cid and t.order.orderId not in group['ids'].values() and not t.isDone() for t in opened):
+                    if actual!=current['position'] or fresh['edit_snapshot']!=current['edit_snapshot'] or not fresh.get('unprotected_trim') or any(t.order.account==account and t.contract.conId==cid and self.other_group_order(conn,account,cid,t,group) and not t.isDone() for t in opened):
                         raise ValueError('Position or orders changed before BE')
                     oid=conn.ib.client.getReqId()
                     order=StopOrder('SELL' if actual>0 else 'BUY',abs(actual),target,orderId=oid,account=account,orderRef=group['ref'],tif='GTC',transmit=True)
@@ -2126,7 +2175,7 @@ class PaperChart:
                 raise ValueError('Trim must leave a whole position; use Close for a full exit')
             # No cancellations, no reverse order overlap, and no automatic replay.
             positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
-            actual=next((float(p.position) for p in positions if p.account==account and p.contract.conId==cid),0)
+            actual=self.group_size(conn,account,cid,positions)
             fresh=self.state(conn,cid)
             if actual!=current['position'] or fresh['position']!=actual or not fresh.get('unprotected_trim') or fresh['edit_snapshot']!=current['edit_snapshot']:
                 raise ValueError('Position/orders changed before Trim; reconcile first')
@@ -2168,7 +2217,7 @@ class PaperChart:
             owned = sum(group['side'] * (1 if row['role'].split('_')[0] == 'entry' else -1) * row['filled']
                         for row in current['orders'])
             if abs(owned-current['position']) > .000001: raise ValueError('Position differs from chart fills; reconcile Gateway')
-            if any(t.order.orderId not in group['ids'].values() for t in conn.ib.openTrades() if t.contract.conId==cid and t.order.account==account):
+            if any(self.other_group_order(conn,account,cid,t,group) for t in conn.ib.openTrades() if t.contract.conId==cid and t.order.account==account):
                 raise ValueError('Other working orders exist; review Gateway')
             if group.get('adjustment',{}).get('outcome') in ('unknown','rejected'):
                 raise ValueError('Previous exit needs reconciliation before another adjustment')
@@ -2322,22 +2371,22 @@ class PaperChart:
             expected = group.get('origin_position',0)+sum((1 if t.order.action == 'BUY' else -1) * max(float(t.orderStatus.filled),
                            sum(float(f.execution.shares) for f in t.fills)) for t in trades.values()
                            if t.order.orderId in group['ids'].values())
-            actual = float(position.position) if position else 0
+            actual = self.group_size(conn,account,cid,positions)
             if abs(expected - actual) > .000001:
                 raise ValueError('Position and executions are not synchronized; review before closing')
-            if position and position.position:
-                if any(t.contract.conId==cid and t.order.account==account for t in conn.ib.openTrades()): raise ValueError('Other working orders exist; review Gateway')
-                order=MarketOrder('SELL' if position.position>0 else 'BUY',abs(position.position),account=account,tif='DAY',orderRef=group.get('ref','WheelPaper:'+request_id))
+            if actual:
+                if any(t.contract.conId==cid and t.order.account==account and self.other_group_order(conn,account,cid,t,group) for t in conn.ib.openTrades()): raise ValueError('Other working orders exist; review Gateway')
+                order=MarketOrder('SELL' if actual>0 else 'BUY',abs(actual),account=account,tif='DAY',orderRef=group.get('ref','WheelPaper:'+request_id))
                 if not account.startswith('DU') or 'exit_price' in body:
                     if body.get('exit_type')=='LMT' and 'exit_price' in body:
                         target=price(body['exit_price'])
                     else:
                         chart_state=stock_chart.states.get(cid) or stock_chart.active
                         quote=stock_chart.packet(chart_state,5,'rth') if chart_state and chart_state.get('con_id')==cid else {}
-                        target=quote.get('bid' if position.position>0 else 'ask') if quote else None
+                        target=quote.get('bid' if actual>0 else 'ask') if quote else None
                     if not target: raise ValueError('Fresh executable quote required for Live limit close')
                     target=price(target)
-                    order=LimitOrder('SELL' if position.position>0 else 'BUY',abs(position.position),target,account=account,tif='DAY',orderRef=group.get('ref','WheelPaper:'+request_id))
+                    order=LimitOrder('SELL' if actual>0 else 'BUY',abs(actual),target,account=account,tif='DAY',orderRef=group.get('ref','WheelPaper:'+request_id))
                 order.orderId=conn.ib.client.getReqId();group['ids']['close']=order.orderId
                 group.pop('close_cancellation', None)
                 group['close_request'] = dict(request_id=request_id, order_id=order.orderId,
