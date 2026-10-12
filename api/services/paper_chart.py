@@ -94,6 +94,7 @@ class PaperChart:
         db.execute('CREATE TABLE IF NOT EXISTS chart_paper_requests (id TEXT PRIMARY KEY, account TEXT NOT NULL, body TEXT NOT NULL, result TEXT)')
         db.execute('CREATE TABLE IF NOT EXISTS chart_paper_groups (account TEXT, con_id INTEGER, orders TEXT NOT NULL, PRIMARY KEY(account,con_id))')
         db.execute('CREATE TABLE IF NOT EXISTS chart_paper_independent (account TEXT, con_id INTEGER, group_id TEXT, orders TEXT NOT NULL, PRIMARY KEY(account,con_id,group_id))')
+        db.execute('CREATE TABLE IF NOT EXISTS chart_paper_group_history (account TEXT, con_id INTEGER, reference TEXT, orders TEXT NOT NULL, PRIMARY KEY(account,con_id,reference))')
         db.commit()
         return db
 
@@ -144,6 +145,37 @@ class PaperChart:
         self._execution_group_cache=(account,cid,signature,groups)
         return groups
 
+    def historical_groups(self, account, cid, active_refs):
+        """Restore attribution from journal snapshots plus persisted identities.
+
+        Never manufacture broker state or ownership from account net position.
+        Legacy snapshots without independently persisted identities stay blocked.
+        """
+        with self.database() as db:
+            saved = {ref: json.loads(data) for ref, data in db.execute(
+                'SELECT reference,orders FROM chart_paper_group_history WHERE account=? AND con_id=?', (account,cid))}
+            has_identity = db.execute("SELECT 1 FROM sqlite_master WHERE name='group_order_identity'").fetchone()
+            if has_identity:
+                for body, result in db.execute('SELECT body,result FROM chart_paper_requests WHERE account=? AND result IS NOT NULL ORDER BY rowid',(account,)):
+                    request=json.loads(body)
+                    if request.get('con_id') != cid: continue
+                    snapshot=json.loads(result).get('state', {})
+                    ref=snapshot.get('order_ref'); rows=snapshot.get('orders', [])
+                    if not ref or ref in active_refs or ref in saved or snapshot.get('side') not in (-1,1) or not rows: continue
+                    identities=db.execute('SELECT order_id,perm_id,action FROM group_order_identity WHERE account=? AND con_id=? AND reference=?',(account,cid,ref)).fetchall()
+                    by_id={oid:(perm,action) for oid,perm,action in identities}
+                    if set(by_id)!={row['order_id'] for row in rows}: continue
+                    ids={};perms={};valid=True
+                    for row in rows:
+                        role=row['role'];oid=row['order_id'];perm,action=by_id[oid]
+                        expected=('BUY' if snapshot['side']==1 else 'SELL') if role.split('_')[0]=='entry' else ('SELL' if snapshot['side']==1 else 'BUY')
+                        if not perm or role in ids or action!=expected: valid=False;break
+                        ids[role]=oid;perms[role]=perm
+                    if valid:
+                        saved[ref]=dict(ref=ref,side=snapshot['side'],ids=ids,perms=perms)
+                        db.execute('INSERT OR IGNORE INTO chart_paper_group_history VALUES(?,?,?,?)',(account,cid,ref,json.dumps(saved[ref])))
+        return [g for ref,g in saved.items() if ref not in active_refs]
+
     def group_projection(self, conn, account, cid):
         choices=self.group_choices(account,cid)
         if self.group_id and not choices:
@@ -151,10 +183,11 @@ class PaperChart:
             if not total and not any(t.order.account==account and t.contract.conId==cid for t in conn.ib.openTrades()):
                 from core.order_group_ledger import flat_baseline
                 flat_baseline(self.path,account,cid,conn.ib.fills())
-        if len(choices)<2 and not (self.group_id and choices and not self.group(account,cid)):
+        historical=self.historical_groups(account,cid,{c['ref'] for c in choices})
+        if len(choices)+len(historical)<2 and not (self.group_id and choices and not self.group(account,cid)):
             return None
         from core.order_group_ledger import project
-        groups=[PaperChart(self.path,c['id'] or None).group(account,cid) for c in choices]
+        groups=[PaperChart(self.path,c['id'] or None).group(account,cid) for c in choices]+historical
         trades=list(conn.reconciled_order_trades() if hasattr(type(conn),'reconciled_order_trades') else conn.ib.trades())
         total=sum(float(p.position) for p in conn.ib.positions() if p.account==account and p.contract.conId==cid)
         return project(self.path,account,cid,conn.ib.client.clientId,groups,trades,conn.ib.fills(),total)
@@ -778,7 +811,7 @@ class PaperChart:
                 group.pop('pending_edit'); self.save_group(account, cid, group)
             with self.database() as db:
                 db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
-                    (json.dumps(dict(success=status != 'rejected', status=status)), request_id, account))
+                    (json.dumps(dict(result, success=status != 'rejected', status=status, awaiting_broker=False, state=state)), request_id, account))
             return dict(confirmed=True, status=status)
         if body.get('action') == 'manage_broker_order':
             from api.services.chart_broker_orders import reconcile
@@ -1106,6 +1139,11 @@ class PaperChart:
             if self.group_id:
                 db.execute('INSERT OR REPLACE INTO chart_paper_independent VALUES(?,?,?,?)',(account,cid,self.group_id,json.dumps(group)))
             else:
+                old=db.execute('SELECT orders FROM chart_paper_groups WHERE account=? AND con_id=?',(account,cid)).fetchone()
+                if old:
+                    previous=json.loads(old[0])
+                    if previous.get('ref') and previous['ref']!=group.get('ref'):
+                        db.execute('INSERT OR IGNORE INTO chart_paper_group_history VALUES(?,?,?,?)',(account,cid,previous['ref'],old[0]))
                 db.execute('INSERT OR REPLACE INTO chart_paper_groups VALUES(?,?,?)',(account,cid,json.dumps(group)))
 
     def add_lots(self, conn, account, cid, contract, group, qty, kind, entry, tp, sl, entry_kind="entry", unit_quantity=1):
