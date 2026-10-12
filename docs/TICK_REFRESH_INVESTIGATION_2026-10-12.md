@@ -78,3 +78,28 @@ The existing server retires each chart transport after 120 seconds. Previously i
 Evidence files for this follow-up (temporary local files): `/tmp/wheel-gateway-passive.jsonl`, `/tmp/wheel-mini-direct-sse-2.jsonl`, `/tmp/wheel-gateway-upstream.jsonl`, `/tmp/wheel-upstream-summary.json`, `/tmp/wheel-ib-host-network.csv`, `/tmp/wheel-route-probe.json`, `/tmp/wheel-renew-before/after-results.json`, `/tmp/wheel-renew-after/after-results.json` and `/tmp/wheel-renew-*.log`.
 
 Reproduce the isolated renewal comparison with `tests/chart/market-feed/renewal.cjs`; set `WHEEL_EXPECT_SLOW_RENEW=1` only when running it against the saved pre-change baseline. Other required cases use the commands in `docs/MARKET_DATA_BASELINE.md`.
+
+
+## Authorized deployment and real-feed renewal verification
+
+After the local-only investigation, the user explicitly authorized syncing the
+refresh mechanism to Pro and Mini before market open. Refresh code commit
+`6c7e488a` was pushed to GitHub `codex/ios-native`, then fast-forwarded on Mini.
+The release excludes the separate unshipped Live-management and symbol-switch UI
+work still in the development checkout. The exact release candidate passed 55
+frontend tests, 171 offline tests and its four-context browser renewal fixture.
+
+Mini preflight found no unsafe local order operations and zero unresolved chart
+requests. A private online database backup passed integrity checking, and the
+connection configuration was preserved. Only Wheel was restarted, at approximately
+21:14 Asia/Shanghai on 2026-10-12; Gateway, network/proxy settings and account
+selection were unchanged. Mini's worktree was clean, and the three refresh assets
+matched Pro hashes. The externally served chart-stream client matched as well.
+
+Passive Chrome observation of the real, read-only MNQ preview confirmed one
+scheduled renewal. Replacement snapshots arrived after 89 ms (5-minute), 376 ms
+(1-minute and 15-minute), and 377 ms (60-minute). All four panes reported Live and
+agreed on the latest price after renewal. This is one real-feed observation,
+not a distribution or exchange-to-screen latency claim. The preview forwarded
+no trading writes. Temporary evidence: /tmp/wheel-deployed-renewal.json and
+/tmp/wheel-deployed-renewal.png. The upstream/network improvement remains deferred.

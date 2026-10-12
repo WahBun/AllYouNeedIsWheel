@@ -22,6 +22,11 @@ has deferred upstream tuning near market open and authorized Pro/Mini refresh
 synchronization via GitHub. Preserve Gateway, routing and account settings.
 See docs/TICK_REFRESH_INVESTIGATION_2026-10-12.md for evidence and limitations.
 
+User-authorized deployment: refresh code 6c7e488a synchronized through GitHub to
+Mini, Wheel restarted around 21:14 Asia/Shanghai, Gateway/config unchanged. A
+real read-only MNQ four-pane renewal took 89–377 ms to receive replacement
+snapshots, with all panes Live. No trading writes were used.
+
 ## 2026-10-12 Inactive evidence correction
 
 Do not classify IB Inactive alone as cancellation, rejection, or replay permission.
