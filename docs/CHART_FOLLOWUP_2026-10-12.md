@@ -31,26 +31,36 @@ New previews recalculate when quantity changes. Existing-position management
 uses actual position quantity and rejects a stale quantity/cost-basis context.
 Changing the display mode alone does not submit an order.
 
-## TradingView comparison: keep the existing calculation
+## Shared first-five-minute close channel basis
 
-The user chose to keep Wheel's existing New York 09:30 opening anchor after
-cross-checking the opening price with moomoo. No volatility calculation changes
-are included in this release.
+The user's final instruction selects B1 C: the confirmed close of the first
+New York 09:30–09:35 five-minute candle. All display intervals now use that
+same basis. The existing volatility endpoint derives it from the contract's
+cached minute bars, requiring all five minutes and a completed time window.
+No new broker history request, subscription or owner is introduced. Missing
+anchor data waits instead of falling back to an opening price. Index history
+uses the same 09:35 cutoff across panes, with the existing previous-day fallback.
 
-Passive REA observed identical TV inputs: America/New_York, 09:30–16:00, VXN,
-and factors 0.5/0.8. Wheel uses the actual IB 09:30 opening bar. TV channel bounds
-imply a different anchor near the next bar; this does not prove its displayed
-09:30 candle has a different opening price. The preserved Pine source has a
-conditional history call which could reset the anchor twice under Pine v6 lazy
-conditions. This remains an inference about the indicator, not a trace of TV's
-internal state, and is deliberately not reproduced in Wheel.
+Current cached MNQ B1 close is 30,952.25; the corresponding cached VXN close is
+21.04. They produce first Bears 30,747.13. This implements the requested basis;
+it does not guarantee identical IB and TV quotations. No coefficient or index
+price was changed to force a match to a screenshot. The earlier hypothesis of
+reproducing Pine's conditional day-reset behavior was not adopted.
 
-REA Inputs evidence:
+Bounded post-B1 minute extrema retain touch flags while a coarse candle spans
+the anchor. When that candle cannot establish the exact first-touch time, no
+marker timestamp is fabricated. Historical corrections can update the cached
+basis. This is not a guarantee of final exchange data.
+
+REA confirmed the observed TV inputs: America/New_York, 09:30–16:00, VXN,
+0.5/0.8. The B1-close rule is the user's requested specification; the retained
+older Pine reference assigns `open`, so it is not proof of current TV source.
+Inputs evidence:
 `ev_8f684d4a4d5ad8efea24a893be83135d73b59a8b41e3691629ac8861c9e6638d`.
 
 ## Validation
 
-63 frontend unit tests, 152 isolated order regressions and 64 chart/backend
+63 frontend unit tests, 152 isolated order regressions and 70 chart/backend
 regressions passed. Native simulator: 101 focused tests and final build passed.
 The eight desktop/mobile, English/Chinese, light/dark Live-management fixture
 combinations passed; all API writes were mocked. Profit preview tests cover

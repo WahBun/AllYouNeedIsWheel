@@ -6,8 +6,8 @@ Cold chart owner reads now serialize within each page and recheck cached data,
 preventing four-pane startup from exhausting the three read-admission slots.
 Normal realtime SSE delivery is unchanged. TP/SL adds Profit, default 300,
 using total position amount in contract currency before fees on web and iOS.
-The user keeps the existing 09:30 volatility-channel calculation; no TV
-compatibility reset is included. See `CHART_FOLLOWUP_2026-10-12.md` for evidence
+The final channel rule uses confirmed NY 09:30–09:35 B1 Close from cached
+minute bars across all panes; it does not reproduce conditional Pine resets. See `CHART_FOLLOWUP_2026-10-12.md` for evidence
 and test scope. User Runs the phone app manually; no real orders were tested.
 
 ## 2026-10-12 chart orders, panel and device synchronization

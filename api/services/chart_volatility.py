@@ -3,6 +3,7 @@ import asyncio
 import math
 import time
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 from ib_async import Index
 from api.services.stock_chart import stock_chart
 
@@ -19,6 +20,44 @@ SOURCES = dict(spx='VIX',ndx='VXN',dow='VXD',r2k='RVX',gold='GVZ',oil='OVX')
 def group(contract):
     if contract.secType not in ('STK','FUT','IND'): return None
     return next((k for k,v in GROUPS.items() if contract.symbol.upper() in v),None)
+
+def session_anchors(bars, now):
+    """Confirmed NY first-five-minute closes from the existing minute cache.
+
+    Missing minutes or a still-open 09:34 candle cannot establish B1 C.
+    This performs no history request and never substitutes another pane's open.
+    """
+    days = {}
+    extremes = {}
+    ny = ZoneInfo('America/New_York')
+    for bar in bars:
+        stamp = bar.get('time')
+        close = bar.get('close')
+        if (not isinstance(stamp, (int, float)) or not math.isfinite(stamp)
+                or not isinstance(close, (int, float)) or not math.isfinite(close) or close <= 0):
+            continue
+        local = datetime.fromtimestamp(stamp, ny)
+        minute = local.hour * 60 + local.minute
+        day = local.date().isoformat()
+        if 575 <= minute < 960 and stamp <= now:
+            for key, choose in [('high', max), ('low', min)]:
+                value = bar.get(key)
+                if isinstance(value, (int, float)) and math.isfinite(value) and value > 0:
+                    row = extremes.setdefault(day, {})
+                    row[key] = choose(row.get(key, value), value)
+        if 570 <= minute < 575 and local.second == 0:
+            days.setdefault(local.date().isoformat(), {})[minute] = (stamp, close)
+    result = []
+    for day, rows in sorted(days.items()):
+        if not all(minute in rows for minute in range(570, 575)):
+            continue
+        start = rows[570][0]
+        if any(rows[minute][0] != start + (minute - 570) * 60 for minute in range(570, 575)):
+            continue
+        if now < start + 300:
+            continue
+        result.append(dict(day=day, start=start, ready_at=start+300, close=rows[574][1], **extremes.get(day, {})))
+    return result
 
 def snapshot(conn,cid,source=None):
     state=stock_chart.states.get(cid)
@@ -73,4 +112,4 @@ def snapshot(conn,cid,source=None):
         # Bound qualification too; all work remains on the existing IB event loop.
         state['volatility_pending'][source]=asyncio.get_event_loop().create_task(load())
     conn.ib.sleep(.005)
-    return dict(con_id=cid,supported=True,group=family,source=source,**{k:item[k] for k in ('status','intraday','daily')})
+    return dict(con_id=cid,supported=True,group=family,source=source,session_anchors=session_anchors(state.get('bars', []), time.time()),**{k:item[k] for k in ('status','intraday','daily')})

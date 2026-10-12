@@ -10,23 +10,32 @@ const fmt=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'num
 const clockCache=new Map();
 function clock(t){if(clockCache.has(t))return clockCache.get(t);const x=Object.fromEntries(fmt.formatToParts(new Date(t*1000)).map(p=>[p.type,p.value]));const value=Object.freeze({day:`${x.year}-${x.month}-${x.day}`,minute:Number(x.hour)*60+Number(x.minute)});clockCache.set(t,value);if(clockCache.size>20000)clockCache.delete(clockCache.keys().next().value);return value;}
 function calculate(p,data,o){
- const g=family(p),bars=p.bars||[],last=bars.at(-1);if(!g||!last)return {sessions:[],gauge:null};
+ const g=family(p),bars=p.bars||[],last=bars.at(-1);if(data?.con_id!==undefined&&data.con_id!==p.con_id)data=null;if(!g||!last)return {sessions:[],gauge:null};
  const lc=clock(last.time),rth=lc.minute>=570&&lc.minute<960;
  const curve=o.curve==='NQ'||o.curve==='Auto'&&g==='ndx'?'NQ':'ES',idx=Math.min(90,Math.max(0,lc.minute-570));
  const gauge=o.gauge&&['spx','ndx'].includes(g)&&rth?{value:PROBS[curve][idx],after:lc.minute-570>90}:null;
  const sessions=[],byDay=new Map();
  for(const b of bars){const c=clock(b.time);if(c.minute<570||c.minute>=960)continue;if(!byDay.has(c.day))byDay.set(c.day,[]);byDay.get(c.day).push(b);}
  if(o.channels&&p.interval<1440&&(!o.rthOnly||(rth&&p.session!=='all')))for(const [day,rows] of byDay){
-  // Do not substitute a mid-session first visible candle for the RTH opening.
-  if(clock(rows[0].time).minute!==570)continue;
-  let levels=null,seed=null;const hits=[false,false,false,false],marks=[];
+  // Every pane shares confirmed B1 C (NY 09:30-09:35), independently
+  // of its display interval. Never substitute a pane open or partial candle.
+  const anchor=(data?.session_anchors||[]).find(a=>a.day===day);
+  if(!anchor||!(anchor.close>0)||!Number.isFinite(anchor.ready_at))continue;
+  const vol=(data?.intraday||[]).filter(v=>v.time+60<=anchor.ready_at&&clock(v.time).day===day).at(-1)?.close??(data?.daily||[]).filter(v=>v.day<day).at(-1)?.close;
+  if(!(vol>0))continue;
+  const sigma=anchor.close*vol/100*(p.symbol==='TQQQ'?3:1)/Math.sqrt(252);
+  const levels=[anchor.close+sigma*o.inner,anchor.close-sigma*o.inner,anchor.close+sigma*o.outer,anchor.close-sigma*o.outer],seed=vol;
+  const hits=[false,false,false,false],marks=[];
   for(const b of rows){
-   if(!levels){const limit=b.time+p.interval*60,vol=(data?.intraday||[]).filter(v=>v.time+60<=limit&&clock(v.time).day===day).at(-1)?.close??(data?.daily||[]).filter(v=>v.day<day).at(-1)?.close;
-    if(!(vol>0))continue;const open=rows[0].open,sigma=open*vol/100*(p.symbol==='TQQQ'?3:1)/Math.sqrt(252);levels=[open+sigma*o.inner,open-sigma*o.inner,open+sigma*o.outer,open-sigma*o.outer];seed=vol;
-   }
+   // A coarse candle overlapping B1 also contains pre-anchor prices; do not
+   // invent hits from prices that preceded confirmation.
+   if(b.time<anchor.ready_at)continue;
    levels.forEach((price,i)=>{if(!hits[i]&&(i%2?b.low<=price:b.high>=price)){hits[i]=true;marks.push({time:b.time,price,i});}});
   }
-  if(levels)sessions.push({day,start:rows[0].time,end:rows.at(-1).time,levels,hits,marks,seed});
+  // Cached minute extrema retain post-B1 touches even while a 15m/1h
+  // display candle overlaps the pre-anchor period. No invented mark timestamp.
+  levels.forEach((price,i)=>{if(i%2?Number.isFinite(anchor.low)&&anchor.low<=price:Number.isFinite(anchor.high)&&anchor.high>=price)hits[i]=true;});
+  if(levels)sessions.push({day,start:anchor.start,end:rows.at(-1).time,levels,hits,marks,seed});
  }
  return {sessions,gauge,rth,last,day:lc.day};
 }

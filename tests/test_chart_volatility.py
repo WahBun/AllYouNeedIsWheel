@@ -54,3 +54,25 @@ class VolatilityTests(unittest.TestCase):
                 with self.assertRaises(ValueError): v.snapshot(foreign,8)
                 foreign.ib.reqHistoricalDataAsync.assert_not_called()
         finally:loop.close();asyncio.set_event_loop(None)
+
+class SessionAnchorTests(unittest.TestCase):
+    def test_completed_b1_close_and_missing_minutes(self):
+        start=datetime(2026,10,12,13,30,tzinfo=timezone.utc).timestamp()
+        bars=[dict(time=start+i*60,open=31045,close=30950+i) for i in range(5)]
+        self.assertEqual(v.session_anchors(bars,start+299),[])
+        self.assertEqual(v.session_anchors(bars,start+300),[dict(day='2026-10-12',start=start,ready_at=start+300,close=30954)])
+        self.assertEqual(v.session_anchors(bars[1:],start+600),[])
+        self.assertEqual(v.session_anchors(bars[:2]+bars[3:],start+600),[])
+        self.assertEqual(v.session_anchors(bars[:-1]+[dict(time=start+240,close=float('nan'))],start+600),[])
+
+    def test_dst_and_no_open_substitution(self):
+        start=datetime(2026,11,2,14,30,tzinfo=timezone.utc).timestamp()
+        bars=[dict(time=start+i*60,open=900,close=100+i) for i in range(5)]
+        self.assertEqual(v.session_anchors(bars,start+300)[0]['close'],104)
+
+    def test_post_b1_extrema_are_bounded_and_do_not_include_b1(self):
+        start=datetime(2026,10,12,13,30,tzinfo=timezone.utc).timestamp()
+        bars=[dict(time=start+i*60,close=100,high=1000,low=1) for i in range(5)]
+        bars += [dict(time=start+300,close=101,high=105,low=95),dict(time=start+360,close=102,high=106,low=94)]
+        anchor=v.session_anchors(bars,start+360)[0]
+        self.assertEqual((anchor['high'],anchor['low']),(106,94))
