@@ -14,6 +14,17 @@ final class ChartLiveManagementTests: XCTestCase {
             XCTAssertEqual(TradeRules.chartQuantityLimit(securityType: type, state: ["live_initial_scope": true]), 1)
         }
     }
+
+    func testStockAndFutureScopeIncludesProtectionSnapshotForQuoteAdd() throws {
+        for kind in ["STK", "FUT"] {
+            let state: [String: Any] = ["live_chart_scope": true, "position": 3.0, "order_ref": "owned", "tp": 3.0, "sl": 1.0]
+            let body = try TradeRules.liveChartManagementRequest(["action": "add", "quantity": 1, "expected_ref": "owned"], state: state, packet: packet.merging(["security_type": kind]) { _, new in new }, conID: 7, epoch: "test", received: now, now: now)
+            XCTAssertEqual(body["entry_type"] as? String, "LMT")
+            XCTAssertEqual(body["side"] as? Int, 1)
+            XCTAssertEqual(body["expected_tp"] as? Double, 3)
+            XCTAssertEqual(body["expected_sl"] as? Double, 1)
+        }
+    }
     func testLiveLongAndShortActionsUseCorrectFreshQuoteLimits() throws {
         for position in [-4.0, 4.0] {
             for action in ["add", "trim", "close"] {

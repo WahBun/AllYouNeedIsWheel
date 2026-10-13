@@ -286,7 +286,7 @@ struct StockChartView: View {
         editPrice = String(paperState["entry"] as? Double ?? validEntry)
     }
     private var liveInitialScope: Bool { paperState["live_initial_scope"] as? Bool == true }
-    private var liveOptionsScope: Bool { paperState["live_options_scope"] as? Bool == true || liveInitialScope }
+    private var liveOptionsScope: Bool { paperState["live_chart_scope"] as? Bool == true || paperState["live_options_scope"] as? Bool == true || liveInitialScope }
     private var quantityLimit: Int { TradeRules.chartQuantityLimit(securityType: chartType, state: paperState) }
     private var validQuantityDraft: Int? {
         guard let value = Int(quantityDraft), (1...quantityLimit).contains(value) else { return nil }

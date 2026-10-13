@@ -201,14 +201,14 @@ enum TradeRules {
     }
 
     static func liveChartManagementRequest(_ incoming: [String: Any], state: [String: Any], packet: [String: Any], conID: Int, epoch: String?, received: Date?, now: Date = .now) throws -> [String: Any] {
-        guard state["live_options_scope"] as? Bool == true || state["live_initial_scope"] as? Bool == true,
+        guard state["live_chart_scope"] as? Bool == true || state["live_options_scope"] as? Bool == true || state["live_initial_scope"] as? Bool == true,
               let action = incoming["action"] as? String, ["add", "trim", "close"].contains(action) else { return incoming }
         guard let position = state["position"] as? Double, position.isFinite, position != 0,
               let ref = state["order_ref"] as? String, !ref.isEmpty,
               incoming["expected_ref"] as? String == ref,
               incoming["con_id"] == nil || incoming["con_id"] as? Int == conID,
               incoming["expected_position"] == nil || incoming["expected_position"] as? Double == position else {
-            throw AppError.message("Position changed; refresh before managing Live options.")
+            throw AppError.message("Position changed; refresh before managing Live orders.")
         }
         var body = incoming
         body["expected_position"] = position
@@ -217,7 +217,7 @@ enum TradeRules {
         if body[priceField] != nil || body[typeField] != nil {
             let allowed = action == "add" ? ["LMT", "STP"] : ["LMT"]
             guard let selected = body[priceField] as? Double, selected.isFinite, selected > 0, allowed.contains(body[typeField] as? String ?? "") else {
-                throw AppError.message("Live option management requires an explicit valid price.")
+                throw AppError.message("Live order management requires an explicit valid price.")
             }
             return body
         }
@@ -234,6 +234,11 @@ enum TradeRules {
             throw AppError.message("Wait for a fresh quote for this account and contract.")
         }
         body[typeField] = "LMT"; body[priceField] = quote
+        if action == "add" {
+            body["side"] = position > 0 ? 1 : -1
+            body["expected_tp"] = state["add_tp"] ?? state["tp"]
+            body["expected_sl"] = state["sl"]
+        }
         return body
     }
     static func chartCloseRequest(_ state: [String: Any]) -> [String: Any] {

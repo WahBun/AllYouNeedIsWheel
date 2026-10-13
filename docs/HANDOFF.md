@@ -1,3 +1,33 @@
+## 2026-10-14 QQQ Paper differential acceptance passed; Live activation prepared
+
+Mini backend 3ee8d84 was deployed after explicit restart approval. Gateway
+container start time did not change. After reconnect, verified Paper identity and
+new epoch, QQQ zero starting position and no pending orders; used one new group.
+Broker evidence: 100-share protected LMT entry filled; aggregate Add 100 filled
+(total 200; TP/SL each 200); LMT Trim 50 filled (remaining 150, TP/SL each 150).
+A resting Trim 50 was resized to 25, then canceled; TP returned to 150 and SL
+remained 150. Finally amended the 150-share SL near market; it actually triggered
+in RTH, filled 150 and canceled its OCA TP. Final account/test-group QQQ position
+zero, inactive group, every test order Filled/Cancelled, no broker pending orders.
+Initial entry acknowledgement was unknown and recovered through reads only.
+No original holdings/orders or Live orders were changed. Partial fills were
+covered offline, not observed in this broker run. Previous no-fill cause remains
+unproven; this run verifies the corrected route/workflow works, not causation.
+
+Live candidate adds independent stock/futures capability flags alongside options.
+Exact account, port, read-only setting and asset checks remain enforced. UI/native
+Add/Trim/Close use explicit price requests, including TP/SL snapshots for Add.
+70 focused backend policy/execution/routing/scaling regressions passed, alongside
+85 earlier scaling regressions. Browser stock/future/option management tests cover
+desktop/mobile, themes, payloads and stale quote refusal with intercepted APIs.
+102 relevant iOS Simulator tests passed; no physical phone install was performed.
+
+Native GitHub branch is to receive this validated source. The older Pro native
+checkout has unrelated uncommitted changes and is not safe to fast-forward;
+preserve it. Use the current Ben Options checkout's ios/Wheel.xcodeproj for Run.
+Final Live capability deployment requires the separately confirmed backend restart;
+no actual Live order is part of acceptance or activation.
+
 ## 2026-10-14 stock protected scaling candidate — broker acceptance pending
 
 Option quote metrics now follow primary-pane chrome. Auxiliary panes hide them;

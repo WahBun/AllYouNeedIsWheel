@@ -1,7 +1,7 @@
 """Chart execution with explicit Paper/Live capability gates on the IB owner.
 
 The journal claims each request before a broker write. Unknown outcomes are
-never automatically replayed. Live execution is limited to provisioned standard options.
+never automatically replayed. Live execution requires explicitly provisioned per-asset capabilities.
 """
 import json
 import hashlib
@@ -284,9 +284,11 @@ class PaperChart:
                 chart_role=display_roles.get((order.orderRef, order.orderId, order.permId)) if order.clientId == conn.ib.client.clientId else None,
                 **(dict(client_id=order.clientId, perm_id=order.permId) | (describe(self.path, conn, trade) if order.clientId == conn.ib.client.clientId else {}))))
         if not account.startswith('DU'):
-            from api.services.live_options import standard_option
-            result['enabled'] = standard_option(contracts.resolve(conn,cid))
-            result['live_options_scope'] = True
+            from api.services.live_options import contract_allowed
+            live_contract = contracts.resolve(conn,cid)
+            result['enabled'] = contract_allowed(conn, live_contract)
+            result['live_chart_scope'] = True
+            result['live_options_scope'] = live_contract.secType == 'OPT'
         executions = {}
         execution_groups=self.execution_groups(account,cid)
         for fill in conn.ib.fills():
