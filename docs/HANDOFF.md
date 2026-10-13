@@ -1,5 +1,38 @@
 # Project Handoff
 
+## 2026-10-13 hourly EMA seed and Paper futures scaling
+
+Read-only MNQ RTH evidence reproduced seven fast hourly bars yielding EMA20
+30893.7215875 with a positive last slope, versus 31010.4015091 with a negative
+slope after 176 earlier bars. Auxiliary snapshots previously shared a mutable
+array with the renderer, so prepending history could bypass its historical-reset
+check. Snapshot handoff now copies the array; immediate delta delivery is unchanged.
+The web hourly EMA waits for at least max(100, 5 * period) seed bars, requests
+bounded/retried history through the existing owner path, and shows loading while
+prices continue. Late auxiliary history requests check contract/period/session.
+A real read-only four-pane preview now matches the full-history EMA calculation.
+
+REA current Tradesea evidence
+`ev_3ba6417b9eb557ce5160cda73abcf1c60e0d4d1c5fd02594ce85cfd8bf8d689f`
+identifies the same TradeScreen-ciiZNcao.js/main-DeEIo2vj.js reference bundles.
+Retained client code limits partial-close quantity to position size and guards
+repeat submission; it routes full quantity through closePosition and partial
+quantity through an opposite-side order. This does not establish its server-side
+protection guarantees. Wheel keeps its own grouped broker-confirmed lifecycle.
+
+Owned, reconciled futures without TP/SL now use the existing unprotected Add/Trim
+path, with the 10-contract total cap, exact position guards, reserved trim quantity,
+outside-RTH flag and partial-Add cancellation of only the remaining quantity.
+Paired protected futures retain their existing per-lot bracket path. No existing
+external position is newly adopted. Stock/option policies and Live gates remain.
+
+Validation: 179 offline order regressions, 63 frontend checks, renderer plus
+full-page delayed-history EMA regression, eight desktop/mobile EN/ZH theme panel
+checks, multi-pane/two-page latency and layout/reconnect checks. Browser checks
+block trading writes. Paper was verified; actual test orders await the user's
+specific contract, maximum quantity and permission to close the test position.
+No futures/stock Live enablement or actual order acceptance is claimed.
+
 ## 2026-10-13 complete cold-start restoration
 
 Bare /superchart now restores the saved active contract, interval and session;

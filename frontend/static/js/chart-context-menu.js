@@ -1,5 +1,29 @@
 // Desktop-only menu; use the shared chart's price-choice and preview path.
 (()=>{
+ // Hourly fast snapshots may contain fewer than one EMA period. Keep prices
+ // live, but seed the EMA with history before presenting its direction.
+ const updateSeededEMA=updateEMA;
+ const emaHistoryStatus=document.createElement('span');
+ emaHistoryStatus.id='ema-history-status';
+ emaHistoryStatus.style.cssText='display:none;font:10px -apple-system;margin-left:4px';
+ indicatorRow.append(emaHistoryStatus);
+ let emaHistoryRequestKey='',emaHistoryRetry=0;
+ updateEMA=()=>{
+  updateSeededEMA();
+  const length=Math.max(1,Math.min(500,Math.round(displayOptions.emaLength||20)));
+  const waiting=displayOptions.ema===true&&countdownPacket?.interval===60&&
+   (!displayOptions.emaFrame||displayOptions.emaFrame===60)&&previous.length>0&&previous.length<Math.max(100,length*5);
+  emaHistoryStatus.style.display=waiting?'inline':'none';
+  if(!waiting)return;
+  emaSeries.applyOptions({visible:false});
+  emaHistoryStatus.textContent=`EMA${length} · ${parent.document.documentElement.lang==='zh'?'加载历史中…':'Loading history…'}`;
+  const requestKey=JSON.stringify([key,previous[0].time]);
+  if(requestKey!==emaHistoryRequestKey||Date.now()>=emaHistoryRetry){
+   emaHistoryRequestKey=requestKey;emaHistoryRetry=Date.now()+30000;
+   const body={con_id:countdownPacket.con_id,before:previous[0].time,interval:60,session:countdownPacket.session};
+   queueMicrotask(()=>window.webkit?.messageHandlers.historyRequest?.postMessage(body));
+  }
+ };
  // An account reconnect replaces data, not the user's chart view.
  let accountTransition=false;
  window.prepareAccountChart=()=>{accountTransition=true;document.body.style.opacity='.65';};

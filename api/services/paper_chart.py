@@ -623,7 +623,7 @@ class PaperChart:
         result['add_allowed'] = bool(result.get('scalable'))
         result['trim_allowed'] = bool(result.get('scalable'))
         scaling_contract = parent.contract if parent else position.contract if position else None
-        if scaling_contract and scaling_contract.secType in ('OPT', 'STK'):
+        if scaling_contract and scaling_contract.secType in ('OPT', 'STK', 'FUT'):
             opposite = 'SELL' if (result['position'] or group['side']) > 0 else 'BUY'
             working = [t for t in conn.ib.openTrades() if t.order.account == account and t.contract.conId == cid]
             opposite_working = any(t.order.action == opposite for t in working)
@@ -635,7 +635,7 @@ class PaperChart:
                 and not group.get('pending_resize') and not group.get('pending_protection')
                 and abs(owned - result['position']) < .000001)
             result['unprotected_scaling'] = settled_unprotected
-            result['add_allowed'] = settled_unprotected
+            result['add_allowed'] = bool(settled_unprotected or scaling_contract.secType == 'FUT' and result.get('scalable'))
             result['trim_allowed'] = bool(result.get('scalable') or settled_unprotected)
             standalone_working=bool(working) and all(t.order.orderRef==group.get('ref') and
                 any(r['order_id']==t.order.orderId and r['role'].startswith('trim_') for r in rows) and
@@ -653,7 +653,7 @@ class PaperChart:
                     any(r['order_id']==t.order.orderId and r['role'].split('_')[0] in ('sl','tp','trim') for r in rows) for t in working))
             if result['independent_add']:result['add_allowed']=True
             if opposite_working and scaling_contract.secType=='OPT':result['add_allowed']=False
-            result['add_block_reason'] = ('option_opposite_orders' if opposite_working
+            result['add_block_reason'] = ('option_opposite_orders' if opposite_working and scaling_contract.secType == 'OPT'
                 else 'orders_need_reconciliation' if not result['add_allowed'] else '')
         # A settled standalone stop can be split into retained protection and
         # an equal-sized broker OCA stop/Trim pair. No client-side fill resizing.
@@ -1455,7 +1455,7 @@ class PaperChart:
             raise ValueError('Exact add order unavailable')
         if group.get('entry_kinds',{}).get(str(oid))=='entry' and (parent.orderStatus.filled or parent.orderStatus.status=='Filled'):
             raise ValueError('Original entry is already filled; protection retained')
-        unprotected_stock = parent.contract.secType in ('STK','OPT') and not any(r in lot for r in ('tp','sl'))
+        unprotected_stock = parent.contract.secType in ('STK','OPT','FUT') and not any(r in lot for r in ('tp','sl'))
         if parent.orderStatus.status == 'Filled' or (parent.orderStatus.filled and not unprotected_stock):
             return  # Fill won the race; never remove filled-unit protection.
         if parent.orderStatus.status not in ('Cancelled', 'ApiCancelled', 'PendingCancel'):
@@ -2200,7 +2200,7 @@ class PaperChart:
             current=self.state(conn,cid)
         if not group: raise ValueError('No chart bracket for this contract')
         trades=getattr(self,'_resolved_trades',{})
-        if action == 'add' and (contract.secType == 'OPT' or contract.secType == 'STK' and not current.get('scalable')):
+        if action == 'add' and (contract.secType == 'OPT' or contract.secType in ('STK','FUT') and not current.get('scalable')):
             if body.get('expected_ref') != group.get('ref'):
                 raise ValueError('Order identity changed; refresh before adding')
             if contract.secType=='OPT' and any(t.order.account==account and t.contract.conId==cid and t.order.action!=('BUY' if current['position']>0 else 'SELL') for t in conn.ib.openTrades()):
@@ -2208,7 +2208,7 @@ class PaperChart:
             if not (current.get('unprotected_scaling') or current.get('independent_add')):
                 raise ValueError('Wait for reconciled position and owned working orders before Add')
             qty = body.get('quantity')
-            maximum = 10 if contract.secType == 'OPT' else 1000
+            maximum = 10 if contract.secType in ('OPT','FUT') else 1000
             if isinstance(qty, bool) or not isinstance(qty, (int, float)) or not math.isfinite(qty) or qty != int(qty) or not 1 <= qty <= maximum - abs(current['position']):
                 raise ValueError(f'Invalid adjustment quantity; maximum total is {maximum}')
             kind = body.get('entry_type', 'MKT')
@@ -2240,7 +2240,7 @@ class PaperChart:
             return
         if action == 'trim' and current.get('stop_trim_allowed'):
             return self.trim_standalone_stop(conn,account,cid,contract,current,group,body,request_id,price)
-        if action == 'trim' and contract.secType in ('OPT','STK') and current.get('unprotected_trim'):
+        if action == 'trim' and contract.secType in ('OPT','STK','FUT') and current.get('unprotected_trim'):
             if body.get('expected_ref') != group.get('ref') or body.get('expected_position') != current['position']:
                 raise ValueError('Position changed; reopen Trim')
             target = price(body['exit_price']) if 'exit_price' in body and body.get('exit_type') == 'LMT' else None
@@ -2262,7 +2262,7 @@ class PaperChart:
                     raise ValueError(f'Trim exceeds unreserved shares ({available:g}); shares are reserved for covered CALLs or stock sell orders')
             oid=conn.ib.client.getReqId()
             order=(LimitOrder('SELL' if actual>0 else 'BUY',int(qty),target) if target is not None else MarketOrder('SELL' if actual>0 else 'BUY',int(qty)))
-            order.orderId=oid;order.account=account;order.tif='DAY';order.orderRef=group['ref']
+            order.orderId=oid;order.account=account;order.tif='DAY';order.orderRef=group['ref'];order.outsideRth=contract.secType=='FUT'
             group['ids']['trim_'+str(oid)]=oid
             group['simple_adjustments']=True
             group['simple_trim']=dict(request_id=request_id,order_id=oid)
