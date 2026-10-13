@@ -249,6 +249,22 @@ class PaperChart:
         # Orders submitted outside this chart group still belong on its chart.
         # Exact native-order identity enables the same management lifecycle on either UI.
         owned_ids = set((group or {}).get('ids', {}).values())
+        # Display roles from persisted ownership, never from price direction.
+        # Unknown/external orders remain ordinary Limit/Stop labels.
+        with self.database() as db:
+            stored_groups = [json.loads(row[0]) for row in db.execute(
+                'SELECT orders FROM chart_paper_groups WHERE account=? AND con_id=? UNION ALL SELECT orders FROM chart_paper_independent WHERE account=? AND con_id=?',
+                (account, cid, account, cid))]
+        display_roles = {}
+        for saved in stored_groups:
+            for role, oid in saved.get('ids', {}).items():
+                perm = saved.get('perms', {}).get(role)
+                if not perm: continue
+                label = role.split('_')[0]
+                for lot in saved.get('lots', []):
+                    if lot.get('tp') == oid and lot.get('closing'):
+                        label = lot.get('exit_action', 'trim')
+                display_roles[(saved.get('ref'), oid, perm)] = label
         result['broker_pending_orders'] = []
         for trade in raw_trades:
             if trade.order.account != account or trade.contract.conId != cid: continue
@@ -265,6 +281,7 @@ class PaperChart:
             from api.services.chart_broker_orders import describe
             result['broker_pending_orders'].append(dict(order_id=order.orderId, price=price,
                 quantity=remaining, action=order.action, order_type=kind, status=status.status,
+                chart_role=display_roles.get((order.orderRef, order.orderId, order.permId)) if order.clientId == conn.ib.client.clientId else None,
                 **(dict(client_id=order.clientId, perm_id=order.permId) | (describe(self.path, conn, trade) if order.clientId == conn.ib.client.clientId else {}))))
         if not account.startswith('DU'):
             from api.services.live_options import standard_option

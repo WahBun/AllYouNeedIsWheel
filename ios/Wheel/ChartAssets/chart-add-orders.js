@@ -166,16 +166,26 @@
   const footer=document.createElement('footer');footer.append(back,apply);addDialog.append(title,description);if(!cancel)addDialog.append(price,quantity,tif,note);addDialog.append(footer);addDialog.showModal();
  }
  function syncBrokerLines(config){
-  const rows=config.paper?.broker_pending_orders||[],ids=new Set(rows.map(brokerIdentity));
+  const grouped=new Map();
+  for(const order of config.paper?.broker_pending_orders||[]){
+   // Aggregate presentation only; editable orders retain their exact identity.
+   const id=order.editable||order.cancelable?brokerIdentity(order):JSON.stringify([order.action,order.order_type,order.price,order.chart_role||'']);
+   const prior=grouped.get(id);
+   if(prior){prior.quantity+=order.quantity;prior.members.push(order);}
+   else grouped.set(id,{...order,displayId:id,members:[order]});
+  }
+  const rows=[...grouped.values()],ids=new Set(rows.map(o=>o.displayId));
   for(const [id,row] of brokerLines)if(!ids.has(id)){series.removePriceLine(row.line);row.badge.remove();brokerLines.delete(id);}
   for(const order of rows){
-   const id=brokerIdentity(order),color=order.action==='BUY'?'#315fc4':'#c6384d';
+   const id=order.displayId,color=order.chart_role==='tp'?'#00897b':order.chart_role==='sl'?'#c87851':order.action==='BUY'?'#315fc4':'#c6384d';
    const options={price:order.price,color,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:''};
    let row=brokerLines.get(id);
-   if(!row){const badge=document.createElement('div');badge.className='broker-order-label';badge.style.cssText='position:absolute;z-index:6;padding:0;border:1px solid;border-radius:3px;font:600 12px -apple-system;display:flex;align-items:center';document.body.append(badge);row={line:series.createPriceLine(options),badge};brokerLines.set(id,row);}
+   if(!row){const badge=document.createElement('div');badge.className='broker-order-label';badge.style.cssText='position:absolute;z-index:6;padding:0;border:1px solid;border-radius:4px;font:600 11px -apple-system;display:flex;align-items:center';document.body.append(badge);row={line:series.createPriceLine(options),badge};brokerLines.set(id,row);}
    row.line.applyOptions(options);row.price=order.price;row.badge.style.color=color;row.badge.style.background=darkAppearance?'#20242a':'#f4f5f3';row.badge.replaceChildren();
-   const label=document.createElement('span');label.textContent=`${order.action} ${order.quantity} @ ${priceText(order.price)} · ${order.status}`;label.style.padding='5px 7px';row.badge.append(label);
-   for(const [cancel,allowed] of [[false,order.editable],[true,order.cancelable]])if(allowed){const button=document.createElement('button');button.textContent=cancel?'×':'…';button.setAttribute('aria-label',cancel?'Cancel pending order':'Edit pending order');button.style.cssText='color:inherit;background:transparent;border:0;border-left:1px solid;padding:5px 9px;cursor:pointer';button.disabled=!paperConfig.enabled||paperConfig.busy;button.onpointerdown=e=>e.stopPropagation();button.onclick=()=>brokerEdit(order,cancel);row.badge.append(button);}
+   const role={tp:'TP',sl:'SL',trim:'Trim',close:'Close',entry:order.action}[order.chart_role]||(order.order_type?.startsWith('STP')?'Stop':'Limit');
+   const label=document.createElement('span');label.textContent=`${role} · ${order.action} ${order.quantity} @ ${priceText(order.price)}`;label.style.padding='3px 7px';row.badge.append(label);
+   row.badge.title=order.members.map(o=>`#${o.order_id} · ${o.quantity} · ${o.status}`).join('\n');
+   for(const [cancel,allowed] of [[false,order.editable],[true,order.cancelable]])if(allowed){const button=document.createElement('button');button.textContent=cancel?'×':'…';button.setAttribute('aria-label',cancel?'Cancel pending order':'Edit pending order');button.style.cssText='color:inherit;background:transparent;border:0;border-left:1px solid;padding:5px 9px;cursor:pointer';button.disabled=!paperConfig.enabled||paperConfig.busy;button.onpointerdown=e=>e.stopPropagation();button.onclick=()=>brokerEdit(order.members[0],cancel);row.badge.append(button);}
   }
  }
  function positionBrokerLines(){for(const row of brokerLines.values()){const y=series.priceToCoordinate(row.price);row.badge.hidden=y===null||y<15||y>chart.paneSize().height-15;placeByPriceAxis(row.badge,priceAxisWidth(window.priceAxisSide||'right')+7);if(y!==null)row.badge.style.top=(y-14)+'px';}requestAnimationFrame(positionBrokerLines);}

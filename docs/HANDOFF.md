@@ -1,5 +1,35 @@
 # Project Handoff
 
+## 2026-10-13 holding basis and compact protection labels
+
+Futures holdings without a local fill price now fall back to IB average cost
+divided by the verified contract multiplier (stocks use one). Unknown multipliers
+remain unknown; recorded fill/report precedence is unchanged. This repairs the
+missing MNQ holding line rather than inventing a price from the current quote.
+Read-only same-price broker orders share one quantity label. Persisted reference,
+client, order ID and permanent ID identify TP/SL roles; external orders are not
+classified by price. Editable orders retain separate identities and controls.
+The shared iOS chart asset is updated; physical iPhone Run remains user-owned.
+
+REA verified the loaded TradingView trading bundle against retained source hash
+`7bedce64082b21c073f079fb5270e2d953ee5de1ff2f10ffeca62710386d3dbc`
+(evidence `ev_02548b8160263b1e1009d68119d92707691d0f082dbdf7fa02c27f5e836fe75a`).
+Its renderer separates quantity, text and action controls. No active TV position
+was visible, so this is source evidence, not a live order workflow replay.
+
+Authorized independent IB Paper MNQZ6 acceptance: buy 2, add 3, trim 1,
+add 4, add 2 (10-contract cap), trim 4, close 6. Broker-confirmed position and
+TP/SL quantities progressed 2/5/4/8/10/6/0; final group was done and flat.
+Original positions/orders were not modified. QQQ buy 100 DAY LMT with protection
+was PreSubmitted with zero fills during premarket; all three test orders were
+subsequently canceled and the group is done/flat. QQQ actual fills and scaling
+remain unverified. Neither Live futures nor Live stocks has been enabled.
+
+Validation: 65 frontend checks, 116 offline backend checks, desktop/mobile broker
+label identity and holding renderer checks. Mock checks are separate from the
+broker evidence above. Short-side, partial-fill/race and actual stop-trigger
+acceptance remain outstanding; this is not blanket order-channel certification.
+
 ## 2026-10-13 hourly EMA seed and Paper futures scaling
 
 Read-only MNQ RTH evidence reproduced seven fast hourly bars yielding EMA20
