@@ -1,5 +1,19 @@
 # Project Handoff
 
+## 2026-10-13 auxiliary axes and panel edge handle
+
+Cold-start auxiliary panes default their price axes to the left, including a
+saved active auxiliary pane. Main axis preferences and in-session axis edits
+remain intact. The web trading panel toggle moves from the header to a compact
+right-edge toolbar-style arrow, with an 8×26px rounded tab when collapsed.
+There is no visible text label; localized accessible labels remain.
+Existing panel preference, ticket fields and chart frame identities are retained.
+REA current viewport evidence: `ev_167285eaa01e079f84788dab723f8b77e0dcb0206f69acc53513703ad8b5d4f2`.
+The final tiny arrow follows the user-provided drawing-toolbar screenshots,
+not the larger order-pad tab in the initial REA viewport. No order behavior changes.
+Browser checks cover desktop/mobile, English/Chinese, dark/light, cold axes and
+panel preservation using mocked data and no broker writes.
+
 ## 2026-10-12 Paper recovery and Profit input
 
 Cold chart owner reads now serialize within each page and recheck cached data,

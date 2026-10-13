@@ -24,20 +24,24 @@ for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [
 
  // Populate prior-session auxiliary settings to prove cold start resets them,
  // while retaining the primary chart and its distinct indicator preferences.
- await page.evaluate(({active})=>{
+ await page.evaluate(({active,light})=>{
   const saved=JSON.parse(localStorage.getItem('wheel.chart-layout'));
   saved.active=active;
-  for(const p of saved.panes){p.display=WheelChartSettings.normalize({...p.display,emaLength:50,emaFrame:60,atr:true,barCount:true,barCountETH:true,optionATR:true});p.display.extraEMAs.forEach(e=>e.enabled=true);p.display.fvg.enabled=true;p.display.previousValues.enabled=true;p.display.volatility.channels=true;p.display.volatility.gauge=true;}
+  for(const p of saved.panes){p.axis='right';p.display=WheelChartSettings.normalize({...p.display,emaLength:50,emaFrame:60,atr:true,barCount:true,barCountETH:true,optionATR:true});p.display.extraEMAs.forEach(e=>e.enabled=true);p.display.fvg.enabled=true;p.display.previousValues.enabled=true;p.display.volatility.channels=true;p.display.volatility.gauge=true;}
+  saved.panes[3].axis=light?'left':'right';
   window.expectedMain=JSON.stringify(saved.panes[3].display);localStorage.setItem('expected-main',window.expectedMain);
   localStorage.setItem('wheel.chart-layout',JSON.stringify(saved));
- },{active:width===1440?0:3});
+ },{active:width===1440?0:3,light});
  await page.reload();
  await page.waitForFunction(()=>document.querySelectorAll('#chart-grid iframe').length===4&&document.querySelector('#chart-group-loading')?.hidden===true);
  await page.waitForFunction(()=>JSON.parse(localStorage.getItem('wheel.chart-layout')).panes.slice(0,3).every(p=>p.display.emaLength===20));
  const result=await page.evaluate(()=>{
   const saved=JSON.parse(localStorage.getItem('wheel.chart-layout'));
-  return {main:saved.panes[3].display,expected:JSON.parse(localStorage.getItem('expected-main')),aux:saved.panes.slice(0,3).map(p=>({d:p.display,requests:WheelChartSettings.requested(p.display,p.interval,p.session)}))};
+  return {axes:saved.panes.map(p=>p.axis),main:saved.panes[3].display,expected:JSON.parse(localStorage.getItem('expected-main')),aux:saved.panes.slice(0,3).map(p=>({d:p.display,requests:WheelChartSettings.requested(p.display,p.interval,p.session)}))};
  });
+ assert.deepEqual(result.axes,['left','left','left',light?'left':'right']);
+ const renderedAxes=await page.evaluate(()=>[...document.querySelectorAll('#chart-grid iframe')].map(f=>({primary:f.parentElement.style.gridColumn==='2',side:f.contentWindow.priceAxisSide||'right'})));
+ for(const pane of renderedAxes)assert.equal(pane.side,pane.primary?(light?'left':'right'):'left');
  assert.deepEqual(result.main,result.expected,'primary chart settings stay unchanged');
  for(const {d,requests} of result.aux){
   assert.equal(d.ema,true);assert.equal(d.emaLength,20);assert.equal(d.emaFrame,0);assert.equal(d.emaDynamic,true);assert.equal(d.indicatorVisible,true);
@@ -47,6 +51,9 @@ for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [
   for(const key of ['channels','distance','gauge','alerts','markHits'])assert.equal(d.volatility[key],false,key);
   assert.deepEqual(requests,[],'no cross-timeframe EMA history requested');
  }
+ // A manual in-session axis change must not be undone by subsequent updates.
+ await page.evaluate(()=>{const f=[...document.querySelectorAll('#chart-grid iframe')].find(f=>f.parentElement.style.gridColumn!=='2');f.contentWindow.configurePriceAxis('right');f.contentWindow.eval("parent.postMessage({wheelChart:true,name:'priceAxisChanged',body:{side:'right'}},location.origin)");});
+ await page.waitForFunction(()=>JSON.parse(localStorage.getItem('wheel.chart-layout')).panes[0].axis==='right');
  assert.equal(writes.length,0);assert.deepEqual(errors,[]);await page.close();
 }
 console.log('PASS: 8 cold-start cases, including saved auxiliary active pane; primary preferences unchanged, auxiliary current-frame dynamic EMA20 plus ATR/FVG, no orders.');

@@ -31,8 +31,14 @@ for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [
  assert.ok(await toggle.isVisible());assert.ok(await page.locator('#trade-sounds').isVisible());
  assert.equal((await page.locator('.workspace').boundingBox()).width,width);
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ const edge=await page.locator('#toggle-trading-panel').boundingBox(),gridBox=await page.locator('#chart-grid').boundingBox();
+ assert.equal(edge.width,16);assert.equal(edge.height,32);assert.ok(Math.abs(edge.x+edge.width-gridBox.x-gridBox.width)<1);
+ assert.ok(Math.abs(edge.y+edge.height/2-gridBox.y-gridBox.height/2)<1);
+ assert.equal(await page.locator('#toggle-trading-panel .panel-handle-label').count(),0);
+ assert.equal(await page.locator('header #toggle-trading-panel').count(),0);
  await page.screenshot({path:`/tmp/wheel-panel-full-${width}-${lang}-${light?'light':'dark'}.png`});
  await toggle.click();assert.ok(await page.locator('#trade').isVisible());
+ await page.screenshot({path:`/tmp/wheel-panel-full-expanded-${width}-${lang}-${light?'light':'dark'}.png`});
  assert.equal(await page.locator('#adjustment-quantity').inputValue(),'2');
  assert.ok(await page.evaluate(()=>panelTestFrames.every((f,i)=>f===document.querySelectorAll('#chart-grid iframe')[i]&&f.contentWindow===panelTestWindows[i])&&JSON.parse(localStorage.getItem('panel-test-pending')).request_id==='unresolved-test'));
  assert.equal((await page.locator('.workspace').boundingBox()).width,before.width);

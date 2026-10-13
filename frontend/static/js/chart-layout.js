@@ -63,7 +63,9 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  // Apply cold-start defaults once. In-session edits and pane activation retain their settings.
  for(let i=0;i<configs.length;i++){
   const d=structuredClone(configs[i].display||current().display);d.optionATR??=localStorage.getItem('wheel.chart.optionATR')==='true';
-  configs[i].display=i===(count>=3?count-1:0)?d:WheelChartSettings.auxiliaryDefaults(d);
+  const primary=i===(count>=3?count-1:0);
+  configs[i].display=primary?d:WheelChartSettings.auxiliaryDefaults(d);
+  if(!primary)configs[i].axis='left';
  }
  // Cover only a symbol transition. Steady SSE packets still reach each renderer immediately.
  const cover=document.createElement('div');cover.id='chart-group-loading';cover.hidden=true;cover.setAttribute('role','status');cover.setAttribute('aria-live','polite');grid.append(cover);

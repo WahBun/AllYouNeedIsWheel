@@ -16,6 +16,11 @@ for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [
  assert.equal(await button.getAttribute('aria-label'),lang==='zh'?'展开交易面板':'Show trading panel');
  assert.ok(await button.isVisible());assert.equal(await page.evaluate(()=>document.querySelector('.workspace').getBoundingClientRect().width),width);
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ const edge=await page.locator('#toggle-trading-panel').boundingBox(),gridBox=await page.locator('#chart-grid').boundingBox();
+ assert.equal(edge.width,16);assert.equal(edge.height,32);assert.ok(Math.abs(edge.x+edge.width-gridBox.x-gridBox.width)<1);
+ assert.ok(Math.abs(edge.y+edge.height/2-gridBox.y-gridBox.height/2)<1);
+ assert.equal(await page.locator('#toggle-trading-panel .panel-handle-label').count(),0);
+ assert.equal(await page.locator('header #toggle-trading-panel').count(),0);
  await page.screenshot({path:`/tmp/wheel-panel-${width}-${lang}-${light?'light':'dark'}.png`});
  await button.click();assert.ok(await page.locator('#trade').isVisible());assert.equal(await page.locator('#quantity').inputValue(),'3');
  assert.ok(await page.evaluate(()=>framesBefore.every((node,i)=>node===document.querySelectorAll('iframe')[i])&&pendingTest.request_id==='unresolved-test'));
