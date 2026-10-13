@@ -1,5 +1,27 @@
 # Project Handoff
 
+## 2026-10-13 complete cold-start restoration
+
+Bare /superchart now restores the saved active contract, interval and session;
+an explicit valid URL contract wins. Old partial saves recover a valid contract
+from another pane. Auxiliary reads wait until the root context is initialized.
+A cover exists in the initial HTML, stays until all selected panes paint, and
+shows a working instrument chooser when no contract can be restored. Slow
+loads expose the same chooser without revealing a partial layout. Existing
+stream delivery, account gates and order behavior are unchanged.
+
+REA evidence `ev_00c79fc3c7ce0fb6cf1ce220bef243398683ca4ee6b60551bf65b224d09e90d5`
+confirms the currently loaded TV layout bundle SHA matches the earlier retained
+source `ev_1f744bc99761235fe3d7f4ce2ff0b205c2ca713122775a24f9adc8d858f63fa0`.
+Its loadContent restores chart contents, layout and synchronization preferences
+before initializing widgets. This is code evidence, not a replay of TV login.
+
+Eleven offline cold-start scenarios cover 1–4 panes, auxiliary active, partial
+saves, direct-link precedence, unlinked symbols, missing/null storage, invalid
+URL and chooser completion. Panel/crosshair and indicator browser checks plus
+63 frontend tests pass. A read-only real MNQ preview restores four live panes
+when returning from the contract URL to bare /superchart; no order writes.
+
 ## 2026-10-13 auxiliary axes and panel edge handle
 
 Cold-start auxiliary panes default their price axes to the left, including a

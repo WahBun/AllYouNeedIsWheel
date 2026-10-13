@@ -36,8 +36,15 @@ $('favorite-contract').onclick=()=>{
 $('favorite-contracts').onchange=()=>{const item=contractFavorites.find(x=>String(x.id)===$('favorite-contracts').value);if(item)select(item.id,item.label);$('favorite-contracts').value='';};
 window.addEventListener('storage',event=>{if(event.key===contractFavoritesKey){contractFavorites=readContractFavorites();renderContractFavorites();}});
 renderContractFavorites();
-const savedSession=stored('wheel.web.chart.session'),urlSession=new URL(location).searchParams.get('session');
-session=['all','rth'].includes(urlSession)?urlSession:['all','rth'].includes(savedSession)?savedSession:'all';
+const savedLayout=stored('wheel.chart-layout')||{};
+const savedActive=Number.isInteger(savedLayout.active)&&savedLayout.active>=0&&savedLayout.active<savedLayout.count?savedLayout.active:0;
+const savedPane=savedLayout.panes?.[savedActive];
+const validContract=id=>Number.isSafeInteger(id)&&id>0;
+const restoredPane=validContract(savedPane?.cid)?savedPane:(Array.isArray(savedLayout.panes)?savedLayout.panes.find(p=>validContract(p?.cid)):null);
+const startupURL=new URL(location),explicitContract=startupURL.searchParams.has('con_id');
+const startupCID=explicitContract?Number(startupURL.searchParams.get('con_id')):restoredPane?.cid;
+const savedSession=stored('wheel.web.chart.session'),urlSession=startupURL.searchParams.get('session');
+session=['all','rth'].includes(urlSession)?urlSession:!explicitContract&&['all','rth'].includes(savedPane?.session)?savedPane.session:['all','rth'].includes(savedSession)?savedSession:'all';
 function rememberSession(){
  $('session').value=session;
  $('session-button').textContent=(session==='all'?'ETH':'RTH')+' ▾';
@@ -45,7 +52,6 @@ function rememberSession(){
  try{localStorage.setItem('wheel.web.chart.session',JSON.stringify(session));}catch{}
  const url=new URL(location);url.searchParams.set('session',session);history.replaceState(null,'',url);
 }
-const savedLayout=stored('wheel.chart-layout'),savedPane=savedLayout.panes?.[savedLayout.active||0];
 if([1,2,3,4].includes(savedLayout.count)&&[1,3,5,10,15,30,60,240,480,1440,10080,43200].includes(savedPane?.interval))interval=savedPane.interval;
 rememberSession();
 window.addEventListener('pageshow',rememberSession);
@@ -53,7 +59,7 @@ let display=WheelChartSettings.normalize(savedPane?.display||stored('wheel.chart
 display.optionATR??=localStorage.getItem('wheel.chart.optionATR')==='true';
 function resetSessionBarCount(){display.barCount=true;display.barCountETH=false;}
 if(!savedPane?.display)resetSessionBarCount();
-const initialAuxiliary=savedLayout.count>1&&(savedLayout.active||0)!==(savedLayout.count>=3?savedLayout.count-1:0);
+const initialAuxiliary=savedLayout.count>1&&savedActive!==(savedLayout.count>=3?savedLayout.count-1:0);
 if(initialAuxiliary)display=WheelChartSettings.auxiliaryDefaults(display);
 let emaFrames={},emaContext='',emaBusy=false,emaLast=0;
 function indicatorHistoryStatus(message){$('display').dataset.historyStatus=message;const label=$('indicator-history-status');if(label)label.textContent=message;}
@@ -442,7 +448,7 @@ function livePositionAction(action,quantity){
 function close(){if((state.live_options_scope||state.live_initial_scope)&&state.position)return livePositionAction('close',Math.abs(state.position));write(!state.position&&state.entry_editable?{action:'edit_entry',cancel:true,expected_ref:state.order_ref,expected_snapshot:state.edit_snapshot}:{action:'close',expected_ref:state.order_ref});}
 document.addEventListener('pointerup',event=>{if(ready){frame.contentWindow.finishWebProtectionDrag?.(event.pointerId);frame.contentWindow.finishEntryDrag?.(event.pointerId);}},true);
 document.addEventListener('keydown',event=>{if(!event.repeat&&(event.metaKey||event.ctrlKey)&&event.shiftKey&&!event.altKey&&event.code==='KeyS'){event.preventDefault();frame.contentWindow.copyChartImage?.();return;}if(ready&&!event.repeat&&event.shiftKey&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&event.code==='KeyF'&&!event.target.closest('input,textarea,select,[contenteditable=true]')&&!document.querySelector('dialog[open]')){event.preventDefault();$('fullscreen').click();return;}if(!ready||event.repeat||event.target.closest('input,textarea,select,[contenteditable=true]')||document.querySelector('dialog[open]'))return;});
-window.addEventListener('message',event=>{if(event.origin!==location.origin||event.source!==frame.contentWindow||!event.data?.wheelChart)return;const {name,body}=event.data;if(name==='chartReady'){frame.contentWindow.configurePriceAxis?.(initialAuxiliary?'left':savedPane?.axis);frame.contentWindow.addEventListener('focus',resumeMarket);ready=true;sync();const id=Number(new URL(location).searchParams.get('con_id'));if(id>0)select(id);else refresh();}else if(name==='priceAxisChanged')chartLayout.tick();else if(name==='historyRequest')loadHistory(body);else if(name==='paperAction')action({...body,clientReleasedAt:event.data.sentAt});else if(name==='chartDiagnostic'){const message=`${body.role?.toUpperCase()||'Order'} drag: ${body.message}`;(body.interrupted?log:trace)(message);}else if(name==='entryChanged'){entry=body;}else if(name==='drawingsChanged'&&cid){const expected=`web:${location.origin}:${cid}`;if(body.key===expected)localStorage.setItem(`wheel.drawings:${cid}`,JSON.stringify(body));}});
+window.addEventListener('message',event=>{if(event.origin!==location.origin||event.source!==frame.contentWindow||!event.data?.wheelChart)return;const {name,body}=event.data;if(name==='chartReady'){frame.contentWindow.configurePriceAxis?.(initialAuxiliary?'left':savedPane?.axis);frame.contentWindow.addEventListener('focus',resumeMarket);ready=true;sync();if(validContract(startupCID))select(startupCID,!explicitContract?restoredPane?.label:undefined);else{chartLayout.showEmpty();refresh();}}else if(name==='priceAxisChanged')chartLayout.tick();else if(name==='historyRequest')loadHistory(body);else if(name==='paperAction')action({...body,clientReleasedAt:event.data.sentAt});else if(name==='chartDiagnostic'){const message=`${body.role?.toUpperCase()||'Order'} drag: ${body.message}`;(body.interrupted?log:trace)(message);}else if(name==='entryChanged'){entry=body;}else if(name==='drawingsChanged'&&cid){const expected=`web:${location.origin}:${cid}`;if(body.key===expected)localStorage.setItem(`wheel.drawings:${cid}`,JSON.stringify(body));}});
 window.installOptionSearch({api,select,symbol:()=>packet.symbol||$('symbol').value,canSelect:()=>!busy});
 $('search').onsubmit=async event=>{event.preventDefault();try{const r=await api('portfolio/chart-contracts?q='+encodeURIComponent($('symbol').value));$('contracts').replaceChildren(...r.contracts.map(c=>new Option(c.local_symbol,c.con_id)));if(r.contracts.length){select(r.contracts[0].con_id,r.contracts[0].local_symbol);$('option-picker').close();}}catch(error){log(error.message);}};
 function renderGroups(value){const choices=value.group_choices||[],picker=$('order-group');picker.replaceChildren(new Option('Original order',''),...choices.filter(g=>g.id).map((g,i)=>new Option('Order '+(i+2)+' · '+(g.ref||g.id).slice(-6),g.id)));if(groupID&&!choices.some(g=>g.id===groupID))picker.append(new Option('New order draft',groupID));picker.value=groupID;picker.disabled=busy;}

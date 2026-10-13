@@ -35,7 +35,7 @@ class WheelPaneBuffer {
 globalThis.WheelPaneBuffer=WheelPaneBuffer;
 /* Auxiliary panes are read-only chart renderers. Only the existing main host trades. */
 window.installChartLayout=({frame,api,current,activate,holdings,executions,onReady=()=>{}})=>{
- const saved=(()=>{try{return JSON.parse(localStorage.getItem('wheel.chart-layout')||'{}')}catch{return {}}})();
+ const saved=(()=>{try{return JSON.parse(localStorage.getItem('wheel.chart-layout')||'{}')||{}}catch{return {}}})();
  let count=[1,2,3,4].includes(saved.count)?saved.count:1,active=0,started=false;
  if(Number.isInteger(saved.active)&&saved.active>=0&&saved.active<count)active=saved.active;
  const grid=document.getElementById('chart-grid');
@@ -78,15 +78,21 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   if(!primary)configs[i].axis='left';
  }
  // Cover only a symbol transition. Steady SSE packets still reach each renderer immediately.
- const cover=document.createElement('div');cover.id='chart-group-loading';cover.hidden=true;cover.setAttribute('role','status');cover.setAttribute('aria-live','polite');grid.append(cover);
+ const cover=document.getElementById('chart-group-loading')||document.createElement('div');cover.id='chart-group-loading';cover.hidden=false;cover.setAttribute('role','status');cover.setAttribute('aria-live','polite');grid.append(cover);
+ const loadingMessage=document.createElement('span'),chooseInstrument=document.createElement('button');
+ chooseInstrument.type='button';chooseInstrument.id='chart-select-instrument';chooseInstrument.hidden=true;
+ chooseInstrument.onclick=()=>document.getElementById('option-search').click();
+ loadingMessage.textContent='Restoring charts…';cover.replaceChildren(loadingMessage,chooseInstrument);
+ function showEmpty(){transition=null;cover.hidden=false;grid.removeAttribute('aria-busy');const zh=document.documentElement.lang.startsWith('zh');loadingMessage.textContent=zh?'选择一个标的，开始查看图表。':'Choose an instrument to open your charts.';chooseInstrument.textContent=zh?'选择标的':'Select instrument';chooseInstrument.hidden=false;}
  let transition=null;
  function loading(){return transition!==null;}
- function beginSwitch(){if(count<2)return;transition={started:Date.now(),revealing:false};cover.hidden=false;grid.setAttribute('aria-busy','true');checkSwitch();}
+ function beginSwitch(){transition={started:Date.now(),revealing:false};cover.hidden=false;grid.setAttribute('aria-busy','true');checkSwitch();}
  function checkSwitch(){
   const t=transition;if(!t)return;const root=current();
   const matching=(p,c)=>p?.bars?.length&&p.con_id===c.cid&&p.interval===c.interval&&p.session===c.session&&p.account_epoch===current().epoch;
   const complete=[...panes.values()].filter(p=>p.index<count).filter(p=>matching(p.index===active?root.packet:p.data,p.index===active?root:p.context())).length;
-  cover.textContent=(document.documentElement.lang.startsWith('zh')?'正在同步加载图表':'Loading charts together')+` · ${complete}/${count}`+(Date.now()-t.started>8000?(document.documentElement.lang.startsWith('zh')?' · 等待行情，自动重试中':' · Waiting for data, retrying automatically'):'');
+  chooseInstrument.hidden=Date.now()-t.started<=8000;chooseInstrument.textContent=document.documentElement.lang.startsWith('zh')?'重新选择标的':'Choose another instrument';
+  loadingMessage.textContent=(document.documentElement.lang.startsWith('zh')?'正在同步加载图表':'Loading charts together')+` · ${complete}/${count}`+(Date.now()-t.started>8000?(document.documentElement.lang.startsWith('zh')?' · 等待行情，自动重试中':' · Waiting for data, retrying automatically'):'');
   if(complete!==count||!root.epoch){t.revealing=false;return;}
   if(t.revealing)return;t.revealing=true;
   // Let the chart library paint its initial snapshot behind the shared cover.
@@ -140,13 +146,13 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   render(){if(!this.loaded||this.index===active)return;const c=configs[this.index],root=current(),display=WheelChartSettings.effective({...c.display,atr:this.data.security_type==='OPT'?c.display.optionATR===true:c.display.atr},c.session,this.ema||{});
    this.frame.contentWindow.configurePriceAxis?.(c.axis);this.frame.contentWindow.configure({con_id:c.cid,entry:0,quantity:0,paper:{enabled:false},holdings:holdings(c.cid,this.data),executions:c.cid===root.cid?executions():[],dark:root.dark,display,priceRules:this.data.price_rules||[]});const o={...display.volatility};if(!display.indicatorVisible){o.channels=false;o.gauge=false;}this.frame.contentWindow.configureVolatility?.(this.data,this.volatility,o);
   }
-  async tick(){if(this.dead||!this.loaded||this.index===active||document.hidden)return;const c=this.context();if(!c.cid)return;const key=JSON.stringify(c);if(key!==this.key){const old=this.key?JSON.parse(this.key):null;const accountOnly=old&&old.cid===c.cid&&old.interval===c.interval&&old.session===c.session;this.key=key;this.seq++;this.controller?.abort();this.inflight=false;this.buffer.clear();this.data={};this.ema={};this.volatility=null;this.lastRead=0;this.lastExtras=0;this.historyRetry=0;this.stream.stop();if(accountOnly)this.frame.contentWindow.prepareAccountChart?.();else this.frame.contentWindow.receive({bars:[],generation:'clear',con_id:c.cid,interval:c.interval,session:c.session});this.drawingKey=`web:${location.origin}:${c.cid}`;let value={};try{value=JSON.parse(localStorage.getItem('wheel.drawings:'+c.cid)||'{}')}catch{}this.frame.contentWindow.configureDrawings({key:this.drawingKey,value});}
+  async tick(){if(!started||this.dead||!this.loaded||this.index===active||document.hidden)return;const c=this.context();if(!c.cid)return;const key=JSON.stringify(c);if(key!==this.key){const old=this.key?JSON.parse(this.key):null;const accountOnly=old&&old.cid===c.cid&&old.interval===c.interval&&old.session===c.session;this.key=key;this.seq++;this.controller?.abort();this.inflight=false;this.buffer.clear();this.data={};this.ema={};this.volatility=null;this.lastRead=0;this.lastExtras=0;this.historyRetry=0;this.stream.stop();if(accountOnly)this.frame.contentWindow.prepareAccountChart?.();else this.frame.contentWindow.receive({bars:[],generation:'clear',con_id:c.cid,interval:c.interval,session:c.session});this.drawingKey=`web:${location.origin}:${c.cid}`;let value={};try{value=JSON.parse(localStorage.getItem('wheel.drawings:'+c.cid)||'{}')}catch{}this.frame.contentWindow.configureDrawings({key:this.drawingKey,value});}
    this.render();if(!c.epoch)return;if([15,60].includes(c.interval)&&this.data.bars?.length&&this.data.bars.at(-1).time-this.data.bars[0].time<7*86400)void this.loadHistory(this.data.bars[0].time);if(this.data.bars?.length)this.stream.ensure(c);
    if(!this.inflight&&!this.stream.healthy()&&Date.now()-this.lastRead>5000){this.inflight=true;this.lastRead=Date.now();const seq=this.seq;this.controller=new AbortController();try{const p=await readInitial(c,this.controller.signal);if(!this.dead&&seq===this.seq)this.receive(p);}catch{}finally{if(seq===this.seq)this.inflight=false;}}
    if(this.data.bars?.length&&!this.extraBusy&&Date.now()-this.lastExtras>10000){this.extraBusy=true;this.lastExtras=Date.now();const seq=this.seq,display=configs[this.index].display;try{const frames=WheelChartSettings.requested(display,c.interval,c.session),family=WheelVolatility.family(this.data);const results=await Promise.allSettled([frames.length?api(`portfolio/chart-ema/${c.cid}?frames=${frames.join(',')}&session=${c.session}`):Promise.resolve(null),family&&display.indicatorVisible&&display.volatility.channels?api(`portfolio/chart-volatility/${c.cid}?source=${display.volatility[family]}`):Promise.resolve(null)]);if(!this.dead&&seq===this.seq){if(results[0].status==='fulfilled')this.ema=results[0].value?.frames||{};if(results[1].status==='fulfilled')this.volatility=results[1].value;this.render();}}finally{this.extraBusy=false;}}
   }
  }
- function tick(){const c=current();if(!c.cid||!c.ready)return;if(!started){started=true;for(let i=0;i<4;i++)configs[i]={...configs[i],cid:links.symbol?c.cid:(configs[i].cid||c.cid),label:links.symbol?c.label:(configs[i].label||c.label),session:configs[i].cid?configs[i].session:c.session};arrange();if(links.symbol)beginSwitch();}captureActive();for(const other of panes.values())if(other.index!==active)void other.tick();checkSwitch();persist();}
+ function tick(){const c=current();if(!c.cid||!c.ready)return;if(!started){started=true;for(let i=0;i<4;i++)configs[i]={...configs[i],cid:links.symbol?c.cid:(configs[i].cid||c.cid),label:links.symbol?c.label:(configs[i].label||c.label),session:configs[i].cid?configs[i].session:c.session};arrange();beginSwitch();}captureActive();for(const other of panes.values())if(other.index!==active)void other.tick();checkSwitch();persist();}
  panes.set(active,new Pane(active,frame));arrange();setInterval(tick,2000);window.addEventListener('pagehide',()=>{for(const p of panes.values())p.stream.stop();});window.addEventListener('pageshow',tick);document.addEventListener('visibilitychange',()=>{if(document.hidden)for(const p of panes.values())p.stream.stop();else tick();});
  window.renderChartLayoutImage=async()=>{
   const bounds=grid.getBoundingClientRect(),scale=devicePixelRatio||1;
@@ -156,5 +162,5 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   visible.forEach(({rect},i)=>ctx.drawImage(images[i],rect.left-bounds.left,rect.top-bounds.top,rect.width,rect.height));return canvas;
  };
  function showTable(target){return panes.get(count>=3?count-1:0)?.frame===target;}
- return {tick,readInitial,follow,showTable,loading,checkSwitch};
+ return {tick,readInitial,follow,showTable,loading,checkSwitch,showEmpty};
 };
