@@ -1,0 +1,10 @@
+# Opt-in only. Use after verifying smart-mode routing for actual IB IP targets.
+# Both sessions share the same proxy; loopback API traffic remains local.
+services:
+  gateway:
+    environment:
+      _JAVA_OPTIONS: >-
+        -DsocksProxyHost=${WHEEL_GATEWAY_PROXY_HOST:?Set a reachable SOCKS host}
+        -DsocksProxyPort=${WHEEL_GATEWAY_PROXY_PORT:?Set the SOCKS port}
+        -DsocksProxyVersion=5
+        -DsocksNonProxyHosts=localhost|127.*|[::1]
