@@ -18,10 +18,10 @@ for(const width of [1000,393])for(const zh of [false,true])for(const dark of [fa
  const input=page.getByRole('spinbutton',{name:'Trim plan quantity'});assert.equal(await input.inputValue(),'3');
  await input.fill('2');await page.getByRole('button',{name:zh?'确认数量':'Confirm quantity',exact:true}).click();
  const body=await page.evaluate(()=>sent.at(-1));assert.equal(body.action,'resize_trim');assert.equal(body.quantity,2);assert.equal(body.expected_orders.length,3);assert.equal(body.expected_position,4);
- await page.getByRole('button',{name:'TP amount breakdown',exact:true}).click();
+ assert.equal(await page.getByRole('button',{name:'TP amount breakdown',exact:true}).count(),0);await page.evaluate(()=>showExitBreakdown('tp'));
  assert.match(await page.locator('#priced-add-dialog').textContent(),/\+\$75.00/);
  await page.getByRole('button',{name:zh?'关闭':'Close',exact:true}).click();
- await page.getByRole('button',{name:'SL amount breakdown',exact:true}).click();assert.match(await page.locator('#priced-add-dialog').textContent(),/\+\$30.00/);
+ assert.equal(await page.getByRole('button',{name:'SL amount breakdown',exact:true}).count(),0);await page.evaluate(()=>showExitBreakdown('sl'));assert.match(await page.locator('#priced-add-dialog').textContent(),/\+\$30.00/);
  await page.screenshot({path:`/tmp/wheel-exit-details-${width}-${zh}-${dark}.png`});
  assert.deepEqual(errors,[]);await page.close();
 }

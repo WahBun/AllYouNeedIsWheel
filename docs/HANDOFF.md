@@ -1,5 +1,17 @@
 # Project Handoff
 
+## 2026-10-13 compact pending-order labels
+
+REA observed the user's visible TV pending entry and attached TP/SL:
+`ev_a68ad0ab70a69759a04e1663a9ce2eddc5a43eb0efba346f6598ff70752e74bf`,
+screenshot `ev_7e12f64a9d0d8815a50f27f67d446a9e83c734dec1b15d6a67bfbdc337e2617f`.
+Wheel adapts the compact segmented labels: 21px visual height, lighter type,
+joined protection cancel cells, no TP/SL information icon. The 44px drag surface,
+price/quantity/order-type/cancel actions and broker reconciliation are unchanged.
+Backend projection calculation and breakdown renderer remain available internally.
+Eight exit-plan theme/language/viewport checks, Paper renderer and exact broker
+edit/cancel regressions pass with simulated data and no actual orders.
+
 ## 2026-10-13 optional right-click submission and display settings
 
 Chart display adds rightClickTrading, false by default. Only the desktop chart
