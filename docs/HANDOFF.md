@@ -2,6 +2,13 @@
 
 ## 2026-10-13 holding basis and compact protection labels
 
+Runtime release `7b3bb36d023441c3b7470c8e8759a1e2bda503a4` is deployed to
+Mini; rollback is `5b5ed285a72c5b54e8581fd5286d74913fa391f3`. Wheel-only restart
+recovered, configuration was preserved, and normal reads cleared the old marker.
+Read-only production Chrome verified all four MNQ panes and 183 hourly seed bars
+with zero trading writes. GitHub web/iOS branches share this runtime release;
+iPhone installation remains unverified.
+
 Futures holdings without a local fill price now fall back to IB average cost
 divided by the verified contract multiplier (stocks use one). Unknown multipliers
 remain unknown; recorded fill/report precedence is unchanged. This repairs the
@@ -32,7 +39,10 @@ markers only from confirmed terminal orders, never replaying writes.
 
 Validation: 65 frontend checks, 118 offline backend checks, desktop/mobile broker
 label identity and holding renderer checks. Mock checks are separate from the
-broker evidence above. Short-side, partial-fill/race and actual stop-trigger
+broker evidence above. Additional broker acceptance after deployment: independent unprotected MNQZ6
+short 2, add 1 to short 3, trim 1 to short 2, close 2. Each broker outcome was
+read before the next write; the final account/group position is zero with no
+working orders. Partial-fill/race and actual stop-trigger
 acceptance remain outstanding; this is not blanket order-channel certification.
 
 ## 2026-10-13 hourly EMA seed and Paper futures scaling
