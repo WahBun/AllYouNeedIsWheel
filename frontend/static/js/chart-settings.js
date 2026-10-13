@@ -7,7 +7,7 @@ function normalize(saved){const d={...clone(defaults),...saved};for(const k of [
 const frames=[0,1,3,5,10,15,30,60,240,1440,10080,43200],sources=['close','open','high','low','hl2','hlc3','ohlc4'];
 function auxiliaryDefaults(saved={}){
  const d=normalize(saved);
- Object.assign(d,{indicatorVisible:true,indicatorCollapsed:true,ema:true,emaLength:20,emaFrame:0,emaDynamic:true,emaSource:'close',emaOffset:0,atr:true,optionATR:true,barCount:false,barCountETH:false});
+ Object.assign(d,{holdingsVisible:false,executions:false,indicatorVisible:true,indicatorCollapsed:true,ema:true,emaLength:20,emaFrame:0,emaDynamic:true,emaSource:'close',emaOffset:0,atr:true,optionATR:true,barCount:false,barCountETH:false});
  d.extraEMAs.forEach(e=>e.enabled=false);d.fvg.enabled=true;d.previousValues.enabled=false;
  d.previousValues.rows.forEach(r=>r.enabled=false);
  for(const key of ['channels','distance','gauge','alerts','markHits','priceScale','showInner','showOuter'])d.volatility[key]=false;

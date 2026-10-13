@@ -74,7 +74,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  for(let i=0;i<configs.length;i++){
   const d=structuredClone(configs[i].display||current().display);d.optionATR??=localStorage.getItem('wheel.chart.optionATR')==='true';
   const primary=i===(count>=3?count-1:0);
-  configs[i].display=primary?d:WheelChartSettings.auxiliaryDefaults(d);
+  configs[i].display=primary?{...d,holdingsVisible:true,executions:true}:WheelChartSettings.auxiliaryDefaults(d);
   if(!primary)configs[i].axis='left';
  }
  // Cover only a symbol transition. Steady SSE packets still reach each renderer immediately.
