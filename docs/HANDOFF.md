@@ -1,5 +1,15 @@
 # Project Handoff
 
+## 2026-10-13 TV pending-label spacing follow-up
+
+REA read-only screenshot of the open TV draft shows approximately 64px between
+order controls and price axis. Wheel now uses 64px desktop / 48px narrow-screen
+clearance, 24px cancel cell, 19px entry labels, neutral Discard and bright-blue
+Confirm with an 11px gap before order details. Protection label content and
+quantity confirmation semantics are unchanged. Desktop/mobile draft, discard,
+confirm, stale-context, P&L and label avoidance tests pass with mock data.
+This follow-up changes assets only and needs no Wheel or Gateway restart.
+
 ## 2026-10-13 quantity confirmation and price label spacing
 
 Working-entry quantity changes now stage a local draft with Confirm / Discard;
