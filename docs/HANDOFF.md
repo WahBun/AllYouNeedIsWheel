@@ -1,5 +1,13 @@
 # Project Handoff
 
+## 2026-10-13 stable order editing controls
+
+Pending type labels use LMT/STP. Entry controls retain DOM identity across
+unchanged quote refreshes; actionable cells no longer enter long-press drag.
+Local browser regression holds quantity down across 20 updates and 400ms, then
+releases and verifies the popup opens on desktop/mobile. Existing confirmation
+and Paper interaction tests pass; no broker orders used. Assets-only update.
+
 ## 2026-10-13 TV pending-label spacing follow-up
 
 REA read-only screenshot of the open TV draft shows approximately 64px between
