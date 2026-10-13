@@ -93,6 +93,16 @@ class ChartContracts:
         if len(matches) != 1:
             raise ValueError('Exact chart contract unavailable; select it using search')
         contract = matches[0]
+        detail = next(d for d in details if d.contract is contract)
+        # Restored conIds must use the same stock route as symbol search.
+        # Keep the exact listing identity; SMART is only selected when IB
+        # explicitly advertises it for this contract.
+        routes = str(getattr(detail, 'validExchanges', '')).split(',')
+        if contract.secType == 'STK' and 'SMART' in routes:
+            contract = copy.copy(contract)
+            if not contract.primaryExchange and contract.exchange != 'SMART':
+                contract.primaryExchange = contract.exchange
+            contract.exchange = 'SMART'
         if not contract.exchange:
             raise ValueError('Exact chart contract exchange unavailable; select it using search')
         self.contracts[con_id] = contract

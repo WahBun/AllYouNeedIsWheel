@@ -81,6 +81,21 @@ class ChartContractsTests(unittest.TestCase):
         conn._bounded_order_read.assert_called_once()
         conn.ib.placeOrder.assert_not_called()
 
+    def test_restored_stock_uses_advertised_smart_route_without_changing_listing(self):
+        conn=Mock();conn.get_option_position_by_con_id.return_value=None
+        original=Stock('QQQ','NASDAQ','USD',conId=7)
+        conn._bounded_order_read.return_value=[S(contract=original,validExchanges='NASDAQ,SMART,ARCA')]
+        result=ChartContracts().resolve(conn,7)
+        self.assertEqual((result.conId,result.exchange,result.primaryExchange),(7,'SMART','NASDAQ'))
+        self.assertEqual(original.exchange,'NASDAQ')
+        conn.ib.placeOrder.assert_not_called()
+
+    def test_restored_stock_does_not_invent_unadvertised_smart_route(self):
+        conn=Mock();conn.get_option_position_by_con_id.return_value=None
+        original=Stock('QQQ','NASDAQ','USD',conId=7)
+        conn._bounded_order_read.return_value=[S(contract=original,validExchanges='NASDAQ')]
+        self.assertIs(ChartContracts().resolve(conn,7),original)
+
     def test_restart_rejects_wrong_id_wrong_asset_and_ambiguous_results(self):
         good=Future('MES','20261218','CME',currency='USD',conId=7)
         wrong=Future('MES','20270319','CME',currency='USD',conId=8)

@@ -478,7 +478,7 @@ class PaperChart:
             result['entry_source']='group_executions' if attribution_view['known'] else 'unknown'
         result['be_applied']=bool(result['position'] and result['entry']>0 and result['sl']>0 and result['side']*(result['sl']-result['entry'])>0)
         result['rejected']=any(r['status']=='Inactive' and '_retired_' not in r['role'] for r in rows)
-        result['protection'] = self.protection_progress(rows, result['position'], group.get('lots'))
+        result['protection'] = self.protection_progress(rows, result['position'], group.get('lots') or group.get('stock_brackets'))
         protective = [r for r in rows if r['role'].split('_')[0] in ('tp', 'sl')]
         result['editable_stop_ids'] = [r['order_id'] for r in protective if r['role']=='sl' and r['status'] in ('Submitted','PreSubmitted') and r['order_id'] in trades and not trades[r['order_id']].order.ocaGroup and not trades[r['order_id']].order.parentId]
         result['cancelable_exits'] = [dict(order_id=r['order_id'],role=r['role'].split('_')[0],quantity=r['quantity'],price=r['price']) for r in protective if '_retired_' not in r['role'] and r['status'] in ('Submitted','PreSubmitted','PendingCancel')]
@@ -671,6 +671,13 @@ class PaperChart:
                     any(r['order_id']==t.order.orderId and r['role'].split('_')[0] in ('sl','tp','trim') for r in rows) for t in working))
             if result['independent_add']:result['add_allowed']=True
             if opposite_working and scaling_contract.secType=='OPT':result['add_allowed']=False
+            if scaling_contract.secType == 'STK':
+                from api.services.stock_scaling import eligible, trim_editable
+                result['protected_stock_scaling'] = eligible(result, group, trades, working)
+                result['stock_trim_editable'] = trim_editable(result, group, working)
+                if result['protected_stock_scaling']:
+                    result['add_allowed'] = result['trim_allowed'] = True
+                    result['trim_available'] = abs(result['position'])
             result['add_block_reason'] = ('option_opposite_orders' if opposite_working and scaling_contract.secType == 'OPT'
                 else 'orders_need_reconciliation' if not result['add_allowed'] else '')
         # A settled standalone stop can be split into retained protection and
@@ -696,6 +703,8 @@ class PaperChart:
                 result['stop_trim_allowed']=False
                 result['trim_available']=max(0,abs(result['position'])-sum(r['quantity']-r['filled'] for r in active if r['role'].startswith('trim_')))
                 result['trim_allowed']=result['trim_available']>=1
+        if group.get('stock_adjustment', {}).get('pending'):
+            result['sync_error'] = 'Stock adjustment needs broker reconciliation'
         if group.get('pending_trim_edit'):
             result['sync_error'] = 'Trim edit needs broker reconciliation'
         if group.get('pending_stop_trim'):
@@ -733,7 +742,7 @@ class PaperChart:
             result['protection']['status']='unknown'
             result['protection_manageable']=False
             result['scalable']=False
-            for key in ('add_allowed','trim_allowed','stop_trim_allowed','unprotected_trim','protection_cancelable','entry_editable'):
+            for key in ('add_allowed','trim_allowed','stop_trim_allowed','unprotected_trim','protection_cancelable','entry_editable','protected_stock_scaling','stock_trim_editable'):
                 result[key]=False
         return result
 
@@ -748,6 +757,8 @@ class PaperChart:
         # updates on collateral reads. Execution still performs fresh validation.
         size = abs(result.get('position', 0))
         ready = bool(result.get('known') and result.get('enabled') and not result.get('closing') and not result.get('sync_error'))
+        if not ready:
+            result['protected_stock_scaling'] = result['stock_trim_editable'] = False
         result['close_allowed'] = bool(ready and result.get('active') and (not result.get('position_only') or result.get('position_manageable')))
         result['be_allowed'] = bool(ready and size and result.get('entry', 0) > 0 and not result.get('be_applied') and
             (result.get('sl') or contract and contract.secType in ('STK', 'OPT') and (result.get('protection_manageable') or result.get('unprotected_trim'))))
@@ -840,6 +851,16 @@ class PaperChart:
                 db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
                     (json.dumps(dict(result, success=status != 'rejected', status=status, awaiting_broker=False, state=state)), request_id, account))
             return dict(confirmed=True, status=status)
+        operation = group.get('stock_adjustment', {})
+        if operation.get('id') == request_id and (body.get('action') == operation.get('action') or body.get('action') == 'cancel_trim' and operation.get('action') == 'resize_trim'):
+            from api.services.stock_scaling import reconcile as reconcile_stock
+            status = reconcile_stock(self, conn, account, cid, group, authoritative)
+            if status:
+                group = self.group(account, cid)
+                group['stock_adjustment']['pending'] = False
+                self.save_group(account, cid, group)
+                return resolved(status)
+            return dict(confirmed=False, status='unknown')
         if body.get('action') == 'manage_broker_order':
             from api.services.chart_broker_orders import reconcile
             status = reconcile(self.path, conn, cid, body)
@@ -1008,7 +1029,7 @@ class PaperChart:
                 return dict(confirmed=False,status='unknown')
         if body.get('action')=='amend_add' and state['known'] and group.get('ref')==body.get('expected_ref'):
             oid=body.get('order_id')
-            lot=next((l for l in group.get('lots',[]) if l['entry']==oid),None)
+            lot=next((l for l in (group.get('lots') or group.get('stock_brackets',[])) if l['entry']==oid),None)
             row=next((r for r in state['orders'] if r['order_id']==oid),None)
             if lot and row:
                 if row['filled'] or row['status']=='Filled': return resolved('filled')
@@ -1019,7 +1040,7 @@ class PaperChart:
                 if len(matches)==1 and getattr(matches[0].order,'lmtPrice' if matches[0].order.orderType=='LMT' else 'auxPrice')==body.get('price'):
                     return resolved('reconciled')
         if body.get('action') == 'cancel_add' and state['known'] and group.get('ref') == body.get('expected_ref'):
-            lot = next((lot for lot in group.get('lots', []) if lot['entry'] == body.get('order_id')), None)
+            lot = next((lot for lot in (group.get('lots') or group.get('stock_brackets', [])) if lot['entry'] == body.get('order_id')), None)
             rows = {r['order_id']: r for r in state['orders']}
             parent = rows.get(body.get('order_id'))
             if lot and parent:
@@ -1464,7 +1485,7 @@ class PaperChart:
         oid = body.get('order_id')
         if isinstance(oid, bool) or not isinstance(oid, int):
             raise ValueError('Exact add order ID required')
-        lot = next((lot for lot in group.get('lots', []) if lot['entry'] == oid), None)
+        lot = next((lot for lot in (group.get('lots') or group.get('stock_brackets', [])) if lot['entry'] == oid), None)
         if not lot:
             raise ValueError('This is not an owned add order')
         trades = getattr(self, '_resolved_trades', {})
@@ -1475,6 +1496,8 @@ class PaperChart:
         if group.get('entry_kinds',{}).get(str(oid))=='entry' and (parent.orderStatus.filled or parent.orderStatus.status=='Filled'):
             raise ValueError('Original entry is already filled; protection retained')
         unprotected_stock = parent.contract.secType in ('STK','OPT','FUT') and not any(r in lot for r in ('tp','sl'))
+        if parent.contract.secType == 'STK' and parent.orderStatus.filled and parent.orderStatus.status != 'Filled' and not unprotected_stock:
+            raise ValueError('Partially filled stock Add needs protection reconciliation before cancellation')
         if parent.orderStatus.status == 'Filled' or (parent.orderStatus.filled and not unprotected_stock):
             return  # Fill won the race; never remove filled-unit protection.
         if parent.orderStatus.status not in ('Cancelled', 'ApiCancelled', 'PendingCancel'):
@@ -1761,6 +1784,10 @@ class PaperChart:
         if body.get('expected_position')!=current['position'] or isinstance(qty,bool) or not isinstance(qty,int) or not 0<=qty<size:
             raise ValueError('Invalid remaining Trim quantity or changed position')
         if qty==row['quantity']:return
+        if contract.secType == 'STK' and current.get('stock_trim_editable'):
+            from api.services.stock_scaling import adjust
+            return adjust(self,conn,account,cid,contract,current,group,
+                dict(body,exit_type='LMT',exit_price=row['price']),request_id,price)
         if qty==0:
             return self.perform(conn,account,cid,dict(action='cancel_trim',order_id=oid,expected_ref=group['ref']),request_id)
         if not trade.order.ocaGroup and not trade.order.parentId:
@@ -1927,6 +1954,8 @@ class PaperChart:
                 conn.ib.cancelOrder(trade.order)
 
     def perform(self, conn, account, cid, body, request_id):
+        if (self.group(account, cid) or {}).get('stock_adjustment', {}).get('pending'):
+            raise ValueError('Previous stock adjustment needs reconciliation; do not resubmit')
         attribution=self.group_projection(conn,account,cid)
         if attribution is not None and not attribution['known']:
             raise ValueError('Group ownership needs reconciliation; no order write allowed')
@@ -1995,6 +2024,12 @@ class PaperChart:
             current=self.state(conn,cid);group=self.group(account,cid) or {}
             oid=body.get('order_id')
             allowed_roles=('trim',) if body['action']=='cancel_trim' else ('tp','sl')
+            if body['action']=='cancel_trim' and current.get('stock_trim_editable'):
+                pending=next((r for r in current.get('pending_exits',[]) if r['order_id']==oid),None)
+                if pending:
+                    return self.perform(conn,account,cid,dict(body,action='resize_trim',quantity=0,
+                        expected_position=current['position'],expected_orders=[dict(order_id=oid,
+                        price=pending['price'],quantity=pending['quantity'])]),request_id)
             if body['action']=='cancel_exit' and body.get('confirm_remove_protection') is not True:
                 raise ValueError('Confirm removal of this protection order')
             row=next((r for r in current['orders'] if r['order_id']==oid and r['role'].split('_')[0] in allowed_roles and '_retired_' not in r['role']),None)
@@ -2038,6 +2073,8 @@ class PaperChart:
             # Refresh canonical broker fields before copying an active order.
             conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
         current=self.state(conn,cid)
+        if self.group(account,cid) and self.group(account,cid).get('stock_adjustment', {}).get('pending'):
+            raise ValueError('Previous stock adjustment needs reconciliation; do not resubmit')
         if self.group(account,cid) and self.group(account,cid).get('pending_stop_trim'):
             raise ValueError('Previous protected Trim needs reconciliation; do not submit another action')
         action=body.get('action')
@@ -2117,7 +2154,7 @@ class PaperChart:
             if not group or not current['known'] or body.get('expected_ref')!=group.get('ref'):
                 raise ValueError('Add identity/status changed; refresh before amending')
             oid=body.get('order_id')
-            lot=next((l for l in group.get('lots',[]) if l['entry']==oid),None)
+            lot=next((l for l in (group.get('lots') or group.get('stock_brackets',[])) if l['entry']==oid),None)
             row=next((r for r in current['orders'] if r['order_id']==oid),None)
             trades=getattr(self,'_resolved_trades',{})
             parent=trades.get(oid)
@@ -2219,6 +2256,9 @@ class PaperChart:
             current=self.state(conn,cid)
         if not group: raise ValueError('No chart bracket for this contract')
         trades=getattr(self,'_resolved_trades',{})
+        if action in ('add', 'trim') and contract.secType == 'STK' and current.get('protected_stock_scaling'):
+            from api.services.stock_scaling import adjust
+            return adjust(self, conn, account, cid, contract, current, group, body, request_id, price)
         if action == 'add' and (contract.secType == 'OPT' or contract.secType in ('STK','FUT') and not current.get('scalable')):
             if body.get('expected_ref') != group.get('ref'):
                 raise ValueError('Order identity changed; refresh before adding')

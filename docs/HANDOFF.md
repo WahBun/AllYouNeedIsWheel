@@ -1,3 +1,31 @@
+## 2026-10-14 stock protected scaling candidate — broker acceptance pending
+
+Option quote metrics now follow primary-pane chrome. Auxiliary panes hide them;
+maximizing an auxiliary pane restores them. Browser interaction regression passed.
+GitHub/Mini static deployment 0bd4111 was verified on the actual option page:
+main display flex, three auxiliary displays none. No restart was needed.
+
+Development candidate: aggregate STK Add uses one share-quantity parent with
+attached TP/SL, distinct from FUT per-unit lots. Settled protected Trim repartitions
+exits into retained TP/SL and Trim/SL OCA pairs with proportional reduction.
+Pending limit Trim resize/cancel rebuilds the remaining protection from the
+current broker snapshot. Cancellation/replacement has a protection gap; it is
+not atomic. Fill races or incomplete acknowledgement stop further writes and
+retain a durable pending plan. Recovery only reads broker evidence, never replays
+missing orders. Partially filled protected stock Add cancellation is explicitly
+blocked pending reconciliation rather than incorrectly reported successful.
+
+Restored exact stock conIds use SMART only when advertised by IB, retaining the
+primary listing. This fixes a route inconsistency; it does not establish why the
+previous QQQ Paper orders did not fill.
+
+85 focused offline tests pass: aggregate quantities, OCA partition, partial Trim,
+resize/cancel, ownership and covered-call guards, unknown/restart reconciliation,
+contract routing and shared entry/option/close regressions. These are mock results,
+not broker acceptance. Backend changes require user-approved Wheel backend restart
+before QQQ Paper validation. Gateway is not to be restarted. FUT/STK Live remain
+closed; iOS workflow acceptance and native branch synchronization are outstanding.
+
 ## 2026-10-13 symbol-switch history admission recovery
 
 Observed on the deployed Paper page: MNQ settled in 1.5 seconds; switching back
