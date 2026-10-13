@@ -1,5 +1,25 @@
 # Project Handoff
 
+## 2026-10-13 quantity confirmation and price label spacing
+
+Working-entry quantity changes now stage a local draft with Confirm / Discard;
+TP/SL amounts use draft quantity at unchanged prices. Refresh preserves the draft
+only for the same contract, account epoch, order reference and broker snapshot.
+Quantity presets remain 1/2/3/4. Confirm uses the existing guarded edit request.
+REA observed the user-opened TV quantity draft and matching confirmation controls.
+Pending-entry labels join quantity, side/type and cancel; TP/SL styling is retained.
+Order labels now leave 24px between controls and price axis. The current-price
+DOM badge avoids order price badges without moving their actual price lines.
+
+Fixed pending-entry price being overwritten by zero execution basis when historical
+order groups exist. Execution basis now applies only to filled positions.
+Mock entry-edit tests use explicit broker client/permanent identities, matching
+the attribution requirement; 25 entry-edit, 108 Paper, 68 attribution and 65 frontend
+tests pass. Browser checks cover draft/discard/confirm, refresh and epoch invalidation,
+P&L, spacing/collision on desktop/mobile, existing Paper interactions and eight
+exit-plan viewport/language/theme combinations. No real broker orders were changed.
+Backend activation requires a Wheel service restart; iPhone installation was not done.
+
 ## 2026-10-13 compact pending-order labels
 
 REA observed the user's visible TV pending entry and attached TP/SL:

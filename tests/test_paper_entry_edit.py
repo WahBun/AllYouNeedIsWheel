@@ -8,6 +8,12 @@ class EntryEditTests(unittest.TestCase):
     submit = fixtures.PaperChartTests.submit
     def setUp(self):
         fixtures.PaperChartTests.setUp(self)
+        self.conn.ib.client.clientId = 0
+        place = self.conn.ib.placeOrder.side_effect
+        def identified_place(contract, order):
+            order.permId = order.orderId + 1000
+            return place(contract, order)
+        self.conn.ib.placeOrder.side_effect = identified_place
         self.conn._bounded_order_read.side_effect = lambda fn, *a, **k: self.trades if fn == self.conn.ib.reqOpenOrders else []
 
     def edit(self, **changes):
@@ -15,6 +21,21 @@ class EntryEditTests(unittest.TestCase):
         body = dict(request_id=str(uuid4()), action='edit_entry', expected_ref=state['order_ref'], expected_snapshot=state['edit_snapshot'])
         body.update(changes)
         return self.service.execute(self.conn, 7, body)
+
+    def test_futures_quantity_replacement_preserves_protection(self):
+        self.contract.secType = 'FUT'
+        self.contract.multiplier = '2'
+        self.submit(quantity=2)
+        result = self.edit(quantity=4)
+        self.assertTrue(result['success'], result)
+        current = self.service.state(self.conn, 7)
+        self.assertTrue(current['known'], current)
+        self.assertEqual(current['entry'], 10)
+        for role in ('entry', 'tp', 'sl'):
+            self.assertEqual(sum(r['quantity'] for r in current['orders'] if r['role'].split('_')[0]==role), 4)
+        result = self.edit(quantity=3)
+        self.assertTrue(result['success'], result)
+        self.assertEqual(self.service.state(self.conn, 7)['entry'], 10)
 
     def test_repeated_drag_release_and_replacement_stay_synced_in_orders(self):
         from api.services.futures_orders import futures_orders

@@ -472,7 +472,8 @@ class PaperChart:
                     basis = 0
                 result['entry'] = basis if math.isfinite(basis) and basis > 0 else 0
                 result['entry_source'] = 'broker_average_cost' if result['entry'] else 'unknown'
-        if attribution_view is not None:
+        # Execution basis describes a filled position, never an unfilled limit/stop.
+        if attribution_view is not None and result['position']:
             result['entry']=attribution_view['entry_basis'].get(group['ref'],0) if attribution_view['known'] else 0
             result['entry_source']='group_executions' if attribution_view['known'] else 'unknown'
         result['be_applied']=bool(result['position'] and result['entry']>0 and result['sl']>0 and result['side']*(result['sl']-result['entry'])>0)
