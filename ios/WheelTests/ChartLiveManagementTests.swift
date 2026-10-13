@@ -8,6 +8,15 @@ final class ChartLiveManagementTests: XCTestCase {
     private func request(_ action: String, position: Double = -4, fields: [String: Any] = [:], quote: [String: Any]? = nil, received: Date? = nil) throws -> [String: Any] {
         try TradeRules.liveChartManagementRequest(["action": action, "quantity": 1, "expected_ref": "owned"].merging(fields) { _, new in new }, state: state(position), packet: quote ?? packet, conID: 7, epoch: "test", received: received ?? now, now: now)
     }
+    func testFractionalStockHoldingAddPreservesExactPositionAndWholeOrderQuantity() throws {
+        let body = try request("add", position: 302.1533, quote: packet.merging(["security_type": "STK"]) { _, n in n })
+        XCTAssertEqual(body["expected_position"] as? Double, 302.1533)
+        XCTAssertEqual(body["quantity"] as? Int, 1)
+        XCTAssertEqual(body["side"] as? Int, 1)
+        XCTAssertEqual(body["entry_type"] as? String, "LMT")
+        XCTAssertEqual(body["entry"] as? Double, 2.15)
+    }
+
     func testNewScopeQuantityLimitsAndLegacyCompatibility() {
         for type in ["OPT", "FUT", "STK"] {
             XCTAssertEqual(TradeRules.chartQuantityLimit(securityType: type, state: state()), type == "STK" ? 1000 : 10)

@@ -1,6 +1,7 @@
 // Offline UI acceptance: static assets only; every API call is intercepted.
 const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),http=require('node:http');
-const asset=process.env.WHEEL_TEST_ASSET||'OPT';
+const fractional=process.env.WHEEL_TEST_FRACTIONAL==='1';
+const asset=fractional?'STK':process.env.WHEEL_TEST_ASSET||'OPT';
 const root=path.resolve(__dirname,'../..'),assets=root+'/ios/Wheel/ChartAssets';
 let chart=fs.readFileSync(assets+'/stock-chart.html','utf8').replace('/*LIBRARY*/',()=>fs.readFileSync(assets+'/lightweight-charts.standalone.production.js','utf8'));
 const bridge="window.webkit={messageHandlers:Object.fromEntries(['paperAction','entryChanged','drawingsChanged','chartReady','beState','historyRequest'].map(name=>[name,{postMessage:body=>parent.postMessage({wheelChart:true,name,body,sentAt:performance.timeOrigin+performance.now()},location.origin)}]))};";
@@ -10,6 +11,7 @@ const server=http.createServer((req,res)=>{const url=new URL(req.url,'http://loc
 for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [false,true]){
  const page=await browser.newPage({viewport:{width,height:950}}),writes=[],errors=[];page.on('pageerror',e=>errors.push(e.message));
  let stale=false,state={enabled:true,known:true,active:true,status:'filled',position:-3,position_only:true,position_manageable:true,live_chart_scope:true,live_options_scope:asset==='OPT',side:-1,entry:2.12,tp:0,sl:0,order_ref:'position-test',edit_snapshot:[{position:-3,entry:2.12}],orders:[],protection_manageable:true,be_allowed:true,close_allowed:true,add_allowed:true,add_available:2,trim_allowed:true,trim_available:3};
+ if(fractional)state={...state,position:302.1533,side:1,position_manageable:false,protection_manageable:false,be_allowed:false,close_allowed:false,trim_allowed:false,add_available:697,edit_snapshot:[{position:302.1533,entry:2.12}]};
  await page.route('**/*',async route=>{const req=route.request(),u=new URL(req.url());if(u.origin!==base)return route.abort();if(!u.pathname.startsWith('/api/'))return route.continue();let result={};
  if(req.method()==='POST'){const b=req.postDataJSON();writes.push(b);assert.equal(req.headers()['x-wheel-account-epoch'],'offline-live');result={success:true,status:'acknowledged',state};}
  else if(u.pathname.endsWith('/profiles'))result={selected:'live',verified:true,epoch:'offline-live',chart_execution_enabled:true};
@@ -18,8 +20,14 @@ for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [
  else if(u.pathname.includes('paper-chart/'))result=state;
  else if(u.pathname.endsWith('bootstrap'))result={positions:[{con_id:7,symbol:'TEST',position:-3,security_type:asset}]};else if(u.pathname.endsWith('pending-orders'))result={orders:[{con_id:7,symbol:'TEST',quantity:1,order_type:'STP'}]};
  await route.fulfill({json:result});});
- await page.goto(base+'/superchart?con_id=7');await page.waitForFunction(()=>!document.getElementById('close').disabled);
+ await page.goto(base+'/superchart?con_id=7');await page.waitForFunction(()=>!document.getElementById('add').disabled);
  await page.evaluate(({lang,light})=>{document.documentElement.lang=lang;document.body.classList.toggle('light',light)},{lang,light});
+ if(fractional){
+  for(const id of ['trim','be','close'])assert.equal(await page.locator('#'+id).isDisabled(),true);
+  await page.locator('#add').click();await page.waitForFunction(()=>!document.getElementById('add').disabled);
+  assert.equal(writes.at(-1).action,'add');assert.equal(writes.at(-1).expected_position,302.1533);assert.equal(writes.at(-1).quantity,1);assert.equal(writes.at(-1).entry,2.15);assert.equal(writes.at(-1).entry_type,'LMT');
+  assert.deepEqual(errors,[]);await page.close();continue;
+ }
  for(const id of ['manage-protection','add','trim','be','close'])assert.equal(await page.locator('#'+id).isDisabled(),false,id);
  await page.locator('#manage-protection').click();await page.locator('#protection-form button[type=submit]').click();await page.waitForFunction(()=>!document.getElementById('close').disabled);
  assert.equal(writes.at(-1).action,'set_protection');assert.equal(writes.at(-1).tp,.53);

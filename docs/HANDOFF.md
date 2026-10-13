@@ -1,3 +1,15 @@
+## 2026-10-14 fractional stock holding Add
+
+A positive stock holding such as 302.1533 shares may adopt its exact reconciled
+position for a whole-share Add. CC reservations do not reduce BUY capacity;
+existing asset limits, stale identities, all-client open-order checks and unknown
+outcome guards remain. Fractional Trim/Close/protection remain unavailable; no
+fractional-order support was introduced. OPT/FUT execution is unchanged.
+49 focused mocked backend checks, eight browser combinations for fractional
+stock Add, and 105 Simulator trading checks passed. No broker orders submitted.
+User authorized Wheel backend restart and physical iPhone Run for this repair.
+Keep local signing/localization edits out of commits; do not restart Gateway.
+
 ## 2026-10-14 inline confirmation correction
 
 Replaced the floating confirmation card with Discard/Confirm directly left of the
