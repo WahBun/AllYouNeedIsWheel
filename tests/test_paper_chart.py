@@ -25,6 +25,30 @@ class PaperChartTests(unittest.TestCase):
         self.conn.ib.cancelOrder.side_effect=lambda o:setattr(next(t for t in self.trades if t.order.orderId==o.orderId).orderStatus,'status','Cancelled')
         self.resolve=patch('api.services.paper_chart.contracts.resolve',return_value=self.contract);self.resolve.start()
         self.feed=patch('api.services.paper_chart.stock_chart.active',{'con_id':7,'price_rules':[{'low':0,'increment':.25}]});self.feed.start()
+    def test_flat_close_clears_cancellation_after_broker_confirmation(self):
+        self.submit()
+        request=dict(request_id=str(uuid4()),action='close')
+        result=self.service.execute(self.conn,7,request)
+        self.assertTrue(result['success'],result)
+        self.assertNotIn('close_cancellation',self.service.group('DU_TEST',7))
+        self.assertTrue(all(t.orderStatus.status=='Cancelled' for t in self.trades))
+
+    def test_acknowledged_close_recovers_stale_marker_without_order_writes(self):
+        self.submit()
+        request=dict(request_id=str(uuid4()),action='close')
+        self.service.execute(self.conn,7,request)
+        group=self.service.group('DU_TEST',7)
+        group['close_cancellation']=dict(request_id=request['request_id'],parents=list(group['ids'].values()))
+        self.service.save_group('DU_TEST',7,group)
+        self.conn.ib.placeOrder.reset_mock();self.conn.ib.cancelOrder.reset_mock()
+        self.trades[0].orderStatus.status='Submitted'
+        self.assertFalse(self.service.request_status(self.conn,7,request['request_id'])['confirmed'])
+        self.assertIn('close_cancellation',self.service.group('DU_TEST',7))
+        self.trades[0].orderStatus.status='Cancelled'
+        self.assertTrue(self.service.request_status(self.conn,7,request['request_id'])['confirmed'])
+        self.assertNotIn('close_cancellation',self.service.group('DU_TEST',7))
+        self.conn.ib.placeOrder.assert_not_called();self.conn.ib.cancelOrder.assert_not_called()
+
     def test_missing_historical_fills_uses_whole_broker_position_cost(self):
         self.submit()
         self.trades[0].orderStatus.status='Filled'

@@ -25,7 +25,12 @@ was PreSubmitted with zero fills during premarket; all three test orders were
 subsequently canceled and the group is done/flat. QQQ actual fills and scaling
 remain unverified. Neither Live futures nor Live stocks has been enabled.
 
-Validation: 65 frontend checks, 116 offline backend checks, desktop/mobile broker
+The deployment preflight found a cancellation-only Close retaining its pending
+marker despite all three broker orders being Cancelled with zero fills. Flat
+Close now clears it after position reconciliation; status reads recover legacy
+markers only from confirmed terminal orders, never replaying writes.
+
+Validation: 65 frontend checks, 118 offline backend checks, desktop/mobile broker
 label identity and holding renderer checks. Mock checks are separate from the
 broker evidence above. Short-side, partial-fill/race and actual stop-trigger
 acceptance remain outstanding; this is not blanket order-channel certification.

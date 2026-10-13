@@ -823,7 +823,8 @@ class PaperChart:
         if result.get('operator_release'):
             return dict(confirmed=True,status='released',message='Operator released the lock; original outcome remains unknown')
         legacy_inactive = any(r.get('status') == 'Inactive' for r in result.get('state', {}).get('orders', []))
-        if not legacy_inactive and result.get('status') in ('acknowledged','rejected','working','filled','canceled','pending','done','reconciled'):
+        pending_close = (self.group(account, cid) or {}).get('close_cancellation', {}).get('request_id') == request_id
+        if not pending_close and not legacy_inactive and result.get('status') in ('acknowledged','rejected','working','filled','canceled','pending','done','reconciled'):
             return dict(confirmed=True, status=result['status'])
         authoritative = conn._bounded_order_read(conn.ib.reqOpenOrders, timeout_seconds=3)
         state = self.state(conn, cid)
@@ -2490,5 +2491,9 @@ class PaperChart:
                     import copy
                     contract = copy.copy(contract); contract.exchange = 'SMART'
                 conn.ib.placeOrder(contract,order)
+            elif group.get('close_cancellation'):
+                # All cancellations and the zero position were confirmed above.
+                group.pop('close_cancellation', None)
+                self.save_group(account,cid,group)
             return
         raise ValueError('Unsupported paper chart action')
