@@ -247,6 +247,7 @@ enum TradeRules {
             return ["action": "edit_entry", "cancel": true, "expected_ref": ref, "expected_snapshot": snapshot]
         }
         var body: [String: Any] = ["action": "close"]
+        if let position = state["position"] as? Double { body["expected_position"] = position }
         if let ref = state["order_ref"] as? String { body["expected_ref"] = ref }
         return body
     }

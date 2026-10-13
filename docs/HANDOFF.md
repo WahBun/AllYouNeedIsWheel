@@ -1,3 +1,16 @@
+## 2026-10-14 Paper existing-option Add parity fix
+
+The reported disabled Add was an existing Paper short option holding without a
+Wheel group: known position, no working orders, no sync error, but the position-only
+management branch was Live-only. There is no unrealized-loss prohibition.
+Expose the same guarded adoption path for Paper option holdings; preserve fresh
+position/order identity, CSP cash and CC share checks. Add/Trim/Close requests do
+not claim or trade a holding merely by reading it. Web/native Close include the
+expected position. No actual orders were sent on the user's existing option.
+40 focused backend checks and 102 iOS Simulator checks passed, including losing
+short-put Add, cash denial and foreign-order/position races (all mocked).
+This follow-up requires another approved backend restart before it is effective.
+
 ## 2026-10-14 final capability deployment verified
 
 After separate user approval, Mini fast-forwarded to 74ef95f. A private profile

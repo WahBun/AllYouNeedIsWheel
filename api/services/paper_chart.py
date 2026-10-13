@@ -318,7 +318,7 @@ class PaperChart:
                     protection=self.protection_progress([],size),
                     protection_block_reason='Use the existing order group to manage this position' if result['group_choices'] else 'Existing working orders need reconciliation' if working else '' if valid else 'Wait for a valid whole position and cost basis')
                 result['protection']['status']='not_requested'
-                if not account.startswith('DU') and result['enabled'] and result['protection_manageable']:
+                if (not account.startswith('DU') or position.contract.secType == 'OPT') and result['enabled'] and result['protection_manageable']:
                     result.update(position_manageable=True, add_allowed=True, trim_allowed=True,
                                   trim_available=abs(size), unprotected_scaling=True, unprotected_trim=True)
             self.action_availability(conn, account, position.contract if position else None, result)
@@ -1573,7 +1573,7 @@ class PaperChart:
                related(t.contract) and t.order.action == 'SELL') and not t.isDone() for t in orders):
             raise ValueError('Close covered CALLs before selling shares.')
 
-    def adopt_live_position(self, conn, account, cid, current, body):
+    def adopt_existing_position(self, conn, account, cid, current, body):
         """Claim only an unchanged whole holding with no existing order ownership.
 
         Reads may deliver callbacks, so recheck both the fresh position and chart
@@ -2251,10 +2251,11 @@ class PaperChart:
             return
         if not current['known']: raise ValueError('Orders need Gateway reconciliation before another action')
         group=self.group(account,cid)
-        if not group and not account.startswith('DU') and action in ('add','trim','close'):
+        if not group and current.get('position_manageable') and action in ('add','trim','close'):
             # Validate the explicit limit before persisting ownership or canceling anything.
-            price(body.get('entry') if action == 'add' else body.get('exit_price'))
-            group=self.adopt_live_position(conn,account,cid,current,body)
+            if not account.startswith('DU') or ('entry' if action == 'add' else 'exit_price') in body:
+                price(body.get('entry') if action == 'add' else body.get('exit_price'))
+            group=self.adopt_existing_position(conn,account,cid,current,body)
             current=self.state(conn,cid)
         if not group: raise ValueError('No chart bracket for this contract')
         trades=getattr(self,'_resolved_trades',{})
