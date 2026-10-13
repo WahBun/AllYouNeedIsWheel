@@ -1,3 +1,26 @@
+## 2026-10-14 existing CC BE and option chart display repair
+
+Existing position-only manual BE could dereference an absent Wheel group before
+saving an intent or placing a stop. It now uses the guarded existing-position
+protection path. Legacy unknown requests are reconciled without resubmission only
+for the exact unchanged, unadopted holding with no all-client working orders;
+foreign orders keep the request unknown. No real orders were used for validation.
+
+Option chart packets now carry a separate display-only cached bid/ask pair from
+the shared ticker. This handles opening a chart after Portfolio received quotes.
+The renderer labels this fallback as last quote/waiting; executable quote fields
+and freshness checks are unchanged. The native chart shares the same asset.
+Option auxiliary panes show only their dynamic current-timeframe EMA20; primary
+preferences and stock/future auxiliary profiles remain unchanged.
+
+Validation: 121 focused backend tests plus the added foreign-order recovery
+regression passed; eight browser cases covered active/inactive auxiliary panes,
+main preferences, desktop/mobile and cached quote isolation; 102 Simulator tests
+passed. The 1-4 pane/two-four-pane synthetic refresh matrix passed, with 30 updates
+per pane and preserved burst extrema. These are offline results, not Live fills.
+User authorized this Wheel backend restart; Gateway and actual orders stay untouched.
+User signing/project and localization changes are excluded from this commit.
+
 ## 2026-10-14 Paper existing-option Add parity fix
 
 The reported disabled Add was an existing Paper short option holding without a

@@ -853,6 +853,24 @@ class PaperChart:
                 db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
                     (json.dumps(dict(result, success=status != 'rejected', status=status, awaiting_broker=False, state=state)), request_id, account))
             return dict(confirmed=True, status=status)
+        # Legacy manual BE on an unadopted holding failed before its durable
+        # protection intent (and therefore before placeOrder). Only reconcile
+        # this exact no-group case after fresh all-client and position reads.
+        if (not group and body.get('action') == 'be' and body.get('manual_stop_quantity') is True
+                and str(body.get('expected_ref', '')).startswith('WheelPaper:position:')
+                and state.get('position_only') and state.get('order_ref') == body.get('expected_ref')
+                and state.get('edit_snapshot') == body.get('expected_snapshot')):
+            opened = conn._bounded_order_read(conn.ib.reqAllOpenOrders, timeout_seconds=3)
+            positions = conn._bounded_order_read(conn.ib.reqPositions, timeout_seconds=3)
+            fresh = self.state(conn, cid)
+            if (not self.group(account,cid) and not self.group_choices(account,cid)
+                    and fresh.get('known') and fresh.get('position_only')
+                    and fresh.get('order_ref') == body.get('expected_ref')
+                    and fresh.get('edit_snapshot') == body.get('expected_snapshot')
+                    and self.group_size(conn,account,cid,positions) == state.get('position')
+                    and not any(t.order.account==account and t.contract.conId==cid and not t.isDone() for t in opened)):
+                return resolved('rejected')
+            return dict(confirmed=False,status='unknown')
         operation = group.get('stock_adjustment', {})
         if operation.get('id') == request_id and (body.get('action') == operation.get('action') or body.get('action') == 'cancel_trim' and operation.get('action') == 'resize_trim'):
             from api.services.stock_scaling import reconcile as reconcile_stock
@@ -2199,7 +2217,7 @@ class PaperChart:
                 tick = Decimal(str(ticks[-1]))
                 sign = 1 if current['position'] > 0 else -1
                 target = price(float((Decimal(str(base))/tick).to_integral_value(rounding=ROUND_CEILING if sign > 0 else ROUND_FLOOR)*tick + sign*tick))
-                if current.get('unprotected_trim') and body.get('manual_stop_quantity') is True:
+                if group and current.get('unprotected_trim') and body.get('manual_stop_quantity') is True:
                     positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
                     opened=conn._bounded_order_read(conn.ib.reqAllOpenOrders,timeout_seconds=3)
                     actual=self.group_size(conn,account,cid,positions)

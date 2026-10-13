@@ -51,10 +51,16 @@ for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [
   for(const key of ['channels','distance','gauge','alerts','markHits'])assert.equal(d.volatility[key],false,key);
   assert.deepEqual(requests,[],'no cross-timeframe EMA history requested');
  }
+ const rendered=await page.evaluate(()=>[...document.querySelectorAll('#chart-grid iframe')].map(f=>({primary:f.parentElement.style.gridColumn==='2',d:f.contentWindow.eval('displayOptions')})));
+ for(const {primary,d} of rendered)if(!primary){assert.equal(d.ema,true);assert.equal(d.emaLength,20);assert.equal(d.atr,false);assert.equal(d.fvg.enabled,false);assert.equal(d.barCount,false);assert.ok(d.extraEMAs.every(e=>!e.enabled));}
+ const quoteFrame=await page.locator('#chart').elementHandle().then(e=>e.contentFrame());
+ await quoteFrame.evaluate(()=>{countdownPacket={security_type:'OPT',con_id:99,generation:'cached',server_time:100,bid:null,ask:null,option_display_quote:{bid:.29,ask:.31}};countdownReceived=Date.now();updateOptionQuote();});
+ assert.equal(await quoteFrame.locator('#option-mid').textContent(),'0.30');assert.equal(await quoteFrame.locator('#option-spread').textContent(),'6.7%');assert.match(await quoteFrame.locator('#option-quote-status').textContent(),/waiting/);
+ await quoteFrame.evaluate(()=>{countdownPacket={...countdownPacket,con_id:100,option_display_quote:null};updateOptionQuote();});assert.equal(await quoteFrame.locator('#option-mid').textContent(),'—');
  // A manual in-session axis change must not be undone by subsequent updates.
  await page.evaluate(()=>{const f=[...document.querySelectorAll('#chart-grid iframe')].find(f=>f.parentElement.style.gridColumn!=='2');f.contentWindow.configurePriceAxis('right');f.contentWindow.eval("parent.postMessage({wheelChart:true,name:'priceAxisChanged',body:{side:'right'}},location.origin)");});
  await page.waitForFunction(()=>JSON.parse(localStorage.getItem('wheel.chart-layout')).panes[0].axis==='right');
  assert.equal(writes.length,0);assert.deepEqual(errors,[]);await page.close();
 }
-console.log('PASS: 8 cold-start cases, including saved auxiliary active pane; primary preferences unchanged, auxiliary current-frame dynamic EMA20 plus ATR/FVG, no orders.');
+console.log('PASS: 8 cold-start cases, including saved auxiliary active pane; primary preferences unchanged, option auxiliary EMA20 only, cached display quote isolated from trading, no orders.');
 }finally{await browser?.close();server.closeAllConnections();await new Promise(r=>server.close(r));}})().catch(e=>{console.error(e);process.exitCode=1});

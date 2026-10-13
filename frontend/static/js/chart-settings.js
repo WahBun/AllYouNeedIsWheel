@@ -13,6 +13,10 @@ function auxiliaryDefaults(saved={}){
  for(const key of ['channels','distance','gauge','alerts','markHits','priceScale','showInner','showOuter'])d.volatility[key]=false;
  return d;
 }
+function paneDisplay(saved,securityType,primary){
+ if(primary||securityType!=='OPT')return saved;
+ const d=auxiliaryDefaults(saved);d.atr=false;d.optionATR=false;d.fvg.enabled=false;return d;
+}
 const f=(key,en,zh,type='checkbox',options)=>({key,en,zh,type,options});
 const n=(k,en,zh,min,max,step=1)=>f(k,en,zh,'number',{min,max,step});
 const select=(k,en,zh,options)=>f(k,en,zh,'select',options);
@@ -68,5 +72,5 @@ function mount({read,change,getSession=()=>'rth'}){const dialog=document.getElem
  function dependencies(){const d=read();for(const input of dialog.querySelectorAll('[data-setting]')){const k=input.dataset.setting;input.disabled=(['profit','positions','positionUnit','brackets','bracketUnit'].includes(k)&&!d.holdingsVisible)||(['positions','positionUnit','brackets','bracketUnit'].includes(k)&&!d.profit)||(k==='positionUnit'&&!d.positions)||(k==='bracketUnit'&&!d.brackets)||(k==='executionLabels'&&!d.executions)||(k==='emaColor'&&d.emaDynamic)||(k==='barCountBars'&&!d.barCountLimit);}}
  return {open(m='display'){mode=m;render();if(!dialog.open)dialog.showModal();}};
 }
-window.WheelChartSettings={normalize,auxiliaryDefaults,effective,requested,mount};
+window.WheelChartSettings={normalize,auxiliaryDefaults,paneDisplay,effective,requested,mount};
 })();

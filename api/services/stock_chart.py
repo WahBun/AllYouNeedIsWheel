@@ -545,7 +545,14 @@ class StockChart:
                     cc_capacity = math.floor(unreserved_stock_shares(conn, conn.account_id, contract, cached=True) / 100)
             except (ValueError, TypeError, AttributeError):
                 pass
-        return dict(covered_call_capacity=cc_capacity,option_right=getattr(contract, 'right', ''),iv_percent=iv if iv_valid else None,iv_expires_at=iv_time+30 if iv_valid else None,data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
+        # Display-only cached values may predate chart attachment. Never promote
+        # them to executable quotes or manufacture freshness from ticker activity.
+        display_quote = None
+        if contract.secType == 'OPT':
+            cached_bid, cached_ask = positive(getattr(ticker, 'bid', None)), positive(getattr(ticker, 'ask', None))
+            if cached_bid is not None and cached_ask is not None and cached_bid <= cached_ask:
+                display_quote = dict(bid=cached_bid, ask=cached_ask)
+        return dict(option_display_quote=display_quote,covered_call_capacity=cc_capacity,option_right=getattr(contract, 'right', ''),iv_percent=iv if iv_valid else None,iv_expires_at=iv_time+30 if iv_valid else None,data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
             con_id=con_id, symbol=contract.symbol,
             display_symbol=(f"{contract.symbol} {contract.lastTradeDateOrContractMonth} {contract.strike:g} {'CALL' if contract.right == 'C' else 'PUT'}" if contract.secType == 'OPT' else getattr(contract, 'localSymbol', '') or contract.symbol),
             security_type=contract.secType, local_symbol=getattr(contract, "localSymbol", "") or contract.symbol,

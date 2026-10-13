@@ -10,6 +10,39 @@ class LiveOptionManagementTests(unittest.TestCase):
         f.contract.right='C';f.contract.tradingClass=f.contract.symbol
         p=patch('api.routes.account.profiles',return_value={'live':{'account_id':'U_TEST','chart_options_live_enabled':True}})
         p.start();self.addCleanup(p.stop)
+    def test_existing_cc_be_without_group_creates_one_stop_and_never_replays(self):
+        f=self.f
+        body=self.body('be',manual_stop_quantity=True)
+        result=f.service.execute(f.conn,7,body)
+        self.assertTrue(result['success'],result)
+        self.assertEqual(len(f.trades),1)
+        o=f.trades[0].order
+        self.assertEqual((o.action,o.orderType,o.totalQuantity,o.auxPrice,o.account),('BUY','STP',1,2.11,'U_TEST'))
+        f.conn.ib.cancelOrder.assert_not_called()
+        f.service.execute(f.conn,7,body)
+        self.assertEqual(len(f.trades),1)
+
+    def test_legacy_unadopted_be_reconciles_without_writing_orders(self):
+        import json
+        f=self.f;body=self.body('be',manual_stop_quantity=True);body['con_id']=7
+        with f.service.database() as db:
+            db.execute('INSERT INTO chart_paper_requests VALUES(?,?,?,?)',(body['request_id'],'U_TEST',json.dumps(body),json.dumps(dict(status='unknown'))))
+        result=f.service.request_status(f.conn,7,body['request_id'])
+        self.assertEqual(result,dict(confirmed=True,status='rejected'))
+        f.conn.ib.placeOrder.assert_not_called();f.conn.ib.cancelOrder.assert_not_called()
+
+    def test_legacy_be_with_foreign_order_stays_unknown(self):
+        import json
+        from ib_async import Trade,LimitOrder,OrderStatus
+        f=self.f;body=self.body('be',manual_stop_quantity=True);body['con_id']=7
+        with f.service.database() as db:
+            db.execute('INSERT INTO chart_paper_requests VALUES(?,?,?,?)',(body['request_id'],'U_TEST',json.dumps(body),json.dumps(dict(status='unknown'))))
+        other=Trade(f.contract,LimitOrder('BUY',1,2,account='U_TEST',orderId=999,clientId=99),OrderStatus(status='Submitted'))
+        old=f.conn._bounded_order_read.side_effect
+        f.conn._bounded_order_read.side_effect=lambda fn,*a,**kw:[other] if fn==f.conn.ib.reqAllOpenOrders else old(fn,*a,**kw)
+        self.assertFalse(f.service.request_status(f.conn,7,body['request_id'])['confirmed'])
+        f.conn.ib.placeOrder.assert_not_called();f.conn.ib.cancelOrder.assert_not_called()
+
     def test_live_owned_position_can_attach_tp_and_replay_does_not_resubmit(self):
         self.f.test_existing_short_can_attach_tp_without_entry_or_stop()
     def test_live_position_change_rejects_before_write(self):

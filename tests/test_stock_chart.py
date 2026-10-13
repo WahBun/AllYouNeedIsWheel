@@ -497,6 +497,21 @@ class StockChartTests(unittest.TestCase):
             self.assertGreater(result['quote_expires_at'],result['server_time'])
         finally:feed.stop();close_test_loop()
 
+    def test_cached_option_quote_is_display_only_when_no_new_quote_arrives(self):
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection();feed=StockChart()
+        try:
+            feed.snapshot(conn,7,1,'all')
+            feed.active['contract'].secType='OPT';feed.active['contract'].right='P';feed.active['contract'].lastTradeDateOrContractMonth='20261120';feed.active['contract'].strike=12
+            ticker.bid=.29;ticker.ask=.31;ticker.marketDataType=1
+            packet=feed.packet(feed.active,1,'all')
+            self.assertEqual(packet['option_display_quote'],dict(bid=.29,ask=.31))
+            self.assertIsNone(packet['bid']);self.assertIsNone(packet['ask'])
+            self.assertIsNone(packet['quote_expires_at'])
+            ticker.bid=.32
+            self.assertIsNone(feed.packet(feed.active,1,'all')['option_display_quote'])
+        finally:feed.stop();close_test_loop()
+
     def test_current_bidask_remains_valid_without_recent_last_trade(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
         conn,ticker=self.connection();feed=StockChart()

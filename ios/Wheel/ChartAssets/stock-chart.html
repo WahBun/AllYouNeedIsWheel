@@ -155,6 +155,8 @@ function updateOptionQuote(){
  const valid=Number.isFinite(p.bid)&&Number.isFinite(p.ask)&&p.bid>=0&&p.ask>0&&p.ask>=p.bid&&Number.isFinite(now)&&Number.isFinite(p.quote_expires_at)&&p.quote_expires_at>now;
  const displayIdentity=String(p.con_id)+':'+String(p.generation);
  if(displayIdentity!==optionDisplayIdentity){optionDisplayIdentity=displayIdentity;optionLastQuote=null;optionLastIV=null;}
+ const cached=p.option_display_quote;
+ if(cached&&Number.isFinite(cached.bid)&&Number.isFinite(cached.ask)&&cached.bid>=0&&cached.ask>0&&cached.ask>=cached.bid)optionLastQuote={bid:cached.bid,ask:cached.ask};
  if(valid)optionLastQuote={bid:p.bid,ask:p.ask};
  const displayQuote=valid?p:optionLastQuote;
  const percentage=displayQuote?(displayQuote.ask-displayQuote.bid)/((displayQuote.bid+displayQuote.ask)/2)*100:null;
