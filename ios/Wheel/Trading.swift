@@ -201,7 +201,8 @@ enum TradeRules {
     }
 
     static func liveChartManagementRequest(_ incoming: [String: Any], state: [String: Any], packet: [String: Any], conID: Int, epoch: String?, received: Date?, now: Date = .now) throws -> [String: Any] {
-        guard state["live_chart_scope"] as? Bool == true || state["live_options_scope"] as? Bool == true || state["live_initial_scope"] as? Bool == true,
+        let useMid = ["OPT", "STK"].contains(packet["security_type"] as? String ?? "")
+        guard useMid || state["live_chart_scope"] as? Bool == true || state["live_options_scope"] as? Bool == true || state["live_initial_scope"] as? Bool == true,
               let action = incoming["action"] as? String, ["add", "trim", "close"].contains(action) else { return incoming }
         guard let position = state["position"] as? Double, position.isFinite, position != 0,
               let ref = state["order_ref"] as? String, !ref.isEmpty,
@@ -214,7 +215,7 @@ enum TradeRules {
         body["expected_position"] = position
         let typeField = action == "add" ? "entry_type" : "exit_type"
         let priceField = action == "add" ? "entry" : "exit_price"
-        if body[priceField] != nil || body[typeField] != nil {
+        if !useMid && (body[priceField] != nil || body[typeField] != nil) {
             let allowed = action == "add" ? ["LMT", "STP"] : ["LMT"]
             guard let selected = body[priceField] as? Double, selected.isFinite, selected > 0, allowed.contains(body[typeField] as? String ?? "") else {
                 throw AppError.message("Live order management requires an explicit valid price.")
@@ -233,7 +234,17 @@ enum TradeRules {
               let quote = packet[side] as? Double else {
             throw AppError.message("Wait for a fresh quote for this account and contract.")
         }
-        body[typeField] = "LMT"; body[priceField] = quote
+        var price = quote
+        if useMid {
+            let mid = bid + (ask - bid) / 2
+            let buy = action == "add" ? position > 0 : position < 0
+            let rules = (packet["price_rules"] as? [[String: Double]] ?? []).filter { ($0["low"]?.isFinite ?? false) && ($0["increment"]?.isFinite ?? false) && ($0["increment"] ?? 0) > 0 }.sorted { ($0["low"] ?? 0) > ($1["low"] ?? 0) }
+            guard let tick = rules.first(where: { ($0["low"] ?? 0) <= mid })?["increment"] else { throw AppError.message("Waiting for contract price increments.") }
+            price = (buy ? floor(mid / tick + 1e-9) : ceil(mid / tick - 1e-9)) * tick
+            price = (price * 1e10).rounded() / 1e10
+            guard price > 0, let finalTick = rules.first(where: { ($0["low"] ?? 0) <= price })?["increment"], abs(price / finalTick - (price / finalTick).rounded()) < 1e-7 else { throw AppError.message("Midpoint does not match contract price increments.") }
+        }
+        body[typeField] = "LMT"; body[priceField] = price
         if action == "add" {
             body["side"] = position > 0 ? 1 : -1
             body["expected_tp"] = state["add_tp"] ?? state["tp"]

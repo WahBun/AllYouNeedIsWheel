@@ -3,7 +3,7 @@ import XCTest
 
 final class ChartLiveManagementTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1000)
-    private var packet: [String: Any] { ["con_id": 7, "account_epoch": "test", "server_time": 1000.0, "quote_expires_at": 1003.0, "bid": 2.1, "ask": 2.2] }
+    private var packet: [String: Any] { ["con_id": 7, "account_epoch": "test", "server_time": 1000.0, "quote_expires_at": 1003.0, "bid": 2.1, "ask": 2.2, "price_rules": [["low": 0.0, "increment": 0.01]]] }
     private func state(_ position: Double = -4) -> [String: Any] { ["live_options_scope": true, "position": position, "order_ref": "owned"] }
     private func request(_ action: String, position: Double = -4, fields: [String: Any] = [:], quote: [String: Any]? = nil, received: Date? = nil) throws -> [String: Any] {
         try TradeRules.liveChartManagementRequest(["action": action, "quantity": 1, "expected_ref": "owned"].merging(fields) { _, new in new }, state: state(position), packet: quote ?? packet, conID: 7, epoch: "test", received: received ?? now, now: now)
@@ -12,6 +12,27 @@ final class ChartLiveManagementTests: XCTestCase {
         for type in ["OPT", "FUT", "STK"] {
             XCTAssertEqual(TradeRules.chartQuantityLimit(securityType: type, state: state()), type == "STK" ? 1000 : 10)
             XCTAssertEqual(TradeRules.chartQuantityLimit(securityType: type, state: ["live_initial_scope": true]), 1)
+        }
+    }
+
+    func testOptionsAndStocksUseMidpointOnBothSidesIncludingPaperAndExplicitInputs() throws {
+        for kind in ["OPT", "STK"] { for position in [-4.0, 4.0] { for action in ["add", "trim", "close"] {
+            let priceKey = action == "add" ? "entry" : "exit_price"
+            let typeKey = action == "add" ? "entry_type" : "exit_type"
+            let q = packet.merging(["security_type": kind, "bid": 2.10, "ask": 2.21]) { _, n in n }
+            let body = try request(action, position: position, fields: [typeKey: "LMT", priceKey: 9.0], quote: q)
+            let buy = action == "add" ? position > 0 : position < 0
+            XCTAssertEqual(body[priceKey] as? Double, buy ? 2.15 : 2.16)
+            XCTAssertEqual(body[typeKey] as? String, "LMT")
+            let paper = try TradeRules.liveChartManagementRequest(["action": action, "expected_ref": "owned"], state: ["position": position, "order_ref": "owned"], packet: q, conID: 7, epoch: "test", received: now, now: now)
+            XCTAssertEqual(paper[priceKey] as? Double, buy ? 2.15 : 2.16)
+        } } }
+    }
+
+    func testMidpointNeverUsesCachedDisplayQuoteOrBypassesFreshnessWithExplicitPrice() throws {
+        for changes in [["bid": NSNull()], ["ask": Double.nan], ["quote_expires_at": 999.0], ["price_rules": []], ["account_epoch": "other"]] as [[String: Any]] {
+            let q = packet.merging(["security_type": "OPT", "option_display_quote": ["bid": 2.1, "ask": 2.2]]) { _, n in n }.merging(changes) { _, n in n }
+            XCTAssertThrowsError(try request("close", fields: ["exit_type": "LMT", "exit_price": 2.1], quote: q))
         }
     }
 

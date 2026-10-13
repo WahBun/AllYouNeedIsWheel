@@ -1,3 +1,23 @@
+## 2026-10-14 option and stock midpoint management
+
+Web and native chart Add/Trim/Close for OPT/STK now select the latest valid
+bid/ask midpoint at submission, including Paper. Round BUY down and SELL up to
+the confirmed contract increment; reject missing rules, invalid/crossed/stale
+quotes and account/contract mismatches. Display-only cached quotes are excluded.
+Explicit Add/Trim/Close inputs also take the fresh midpoint; amendments to already
+submitted orders retain their existing explicit-price behavior. No automatic
+repricing or market fallback. Futures preserve existing pricing and routing.
+
+Validation: 24 isolated browser management combinations across OPT/STK/FUT,
+desktop/mobile and themes; dedicated midpoint direction/rounding guards; 104 iOS
+Simulator checks; 112 relevant backend regressions. All writes were mocked;
+no real orders were placed, modified or canceled. An initial broad unittest
+invocation also discovered an imported base fixture with incompatible inherited
+tests; corrected explicit test-class selection passes without backend changes.
+Only frontend/native changes: web assets can deploy without a backend restart.
+User performs the physical-device Run. Local signing/localization edits remain
+uncommitted and are excluded from synchronization.
+
 ## 2026-10-14 existing CC BE and option chart display repair
 
 Existing position-only manual BE could dereference an absent Wheel group before
