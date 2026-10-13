@@ -1,5 +1,24 @@
 # Project Handoff
 
+## 2026-10-13 optional right-click submission and display settings
+
+Chart display adds rightClickTrading, false by default. Only the desktop chart
+context menu passes the opt-in to new-position Buy/Sell and 1–4 quantity choices.
+It reuses submitPreview, the host UUID write path and existing broker/account,
+quantity, protection, busy and unknown-outcome guards. The host also checks the
+current setting. Panel Buy/Sell and the price-axis plus remain preview-first;
+Add/Trim/Close confirmation semantics and Live asset gates are unchanged.
+Selected Limit/Stop terms are submitted; fills are not guaranteed or converted
+to market orders. No actual broker test orders were placed for this change.
+
+REA inspected the user's open Trading settings dialog:
+`ev_fedbd21d990a98056d412a5092576dcbad7740d1a24f168da54c8f112ea2df16`,
+screenshot `ev_2c3f7deaff287b3459c86d029ae2109d979957d73c7677701bd3c4be05547127`.
+The display layout adapts its general/appearance grouping, left checkboxes and
+indented P&L units. Wheel retains only its existing controls; the explanatory
+text is specific to right-click Buy/Sell. Immediate-save behavior is unchanged.
+Desktop/mobile, English/Chinese and light/dark layouts are checked separately.
+
 ## 2026-10-13 per-pane view controls and tail following
 
 Each pane now has compact maximize/restore and reset buttons above ATR. They

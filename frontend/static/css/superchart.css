@@ -203,3 +203,23 @@ body.trading-panel-collapsed main{grid-template-columns:minmax(0,1fr)}
 #chart-splitter:focus-visible{outline:none}
 #chart-grid.resizing-columns{cursor:col-resize;user-select:none}
 #chart-grid.resizing-columns iframe{pointer-events:none}
+
+/* Display settings: compact, grouped controls with a stable navigation rail. */
+#display.chart-display-settings{width:min(760px,94vw)}
+#display.chart-display-settings[open]{display:grid;grid-template-columns:175px minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+#display.chart-display-settings .settings-head{grid-column:1/-1;border-bottom:0;padding:20px 24px}
+#display.chart-display-settings .settings-tabs{flex-direction:column;padding:8px 12px;gap:6px;border-right:1px solid var(--border)}
+#display.chart-display-settings .settings-tabs button{text-align:left;border-radius:7px;padding:12px;font-size:14px}
+#display.chart-display-settings .settings-tabs button.active{outline:1px solid #547cff;background:#547cff18;color:var(--fg)}
+#display.chart-display-settings .settings-body{padding:8px 26px 24px;max-height:calc(88dvh - 80px)}
+#display.chart-display-settings fieldset{border:0;border-radius:0;margin:12px 0 28px;padding:0}
+#display.chart-display-settings legend{text-transform:uppercase;font-size:11px;letter-spacing:.04em;padding:0;margin-bottom:12px}
+#display.chart-display-settings label{justify-content:flex-start;border:0;min-height:36px;padding:6px 0;gap:10px;font-size:14px}
+#display.chart-display-settings label.setting-child{padding-left:28px}
+#display.chart-display-settings label:has(select){justify-content:flex-start}#display.chart-display-settings label:has(select)>span{flex:1}
+#display.chart-display-settings input[type=checkbox]{appearance:auto;accent-color:#547cff;width:18px;height:18px;border-radius:3px;background:none}
+#display.chart-display-settings input[type=checkbox]:after{display:none}
+#display.chart-display-settings .setting-help{color:var(--muted);font-size:12px;line-height:1.55;margin:2px 0 0 28px;max-width:390px}
+@media(max-width:560px){#display.chart-display-settings[open]{grid-template-columns:minmax(0,1fr)}#display.chart-display-settings .settings-tabs{flex-direction:row;border-right:0;border-bottom:1px solid var(--border);padding:6px 16px}#display.chart-display-settings .settings-body{padding:8px 18px 20px;max-height:calc(88dvh - 140px)}#display.chart-display-settings .settings-head{padding:16px 18px}}
+
+#display.chart-display-settings #indicator-history-status{display:none}

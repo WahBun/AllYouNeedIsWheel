@@ -257,8 +257,8 @@
  `;document.head.append(addStyle);
  const pendingQuantity=()=> (paperConfig.orders||[]).filter(o=>o.role.split('_')[0]==='entry'&&!['Filled','Cancelled','ApiCancelled','Inactive'].includes(o.status)).reduce((n,o)=>n+Math.max(0,o.quantity-o.filled),0);
  function addAllowed(choice){return paperConfig.enabled&&(paperConfig.add_allowed??paperConfig.scalable)&&paperConfig.position&&choice.side===Math.sign(paperConfig.position)&&!paperConfig.busy&&!paperConfig.orders?.some(o=>['PendingSubmit','PendingCancel','Unknown'].includes(o.status));}
- function choosePriceOrder(choice,price,quantity=qty){
-  if(!paperConfig.position){menuOrderPrice=price;menuOrderCID=paperCID;menuOrderEpoch=paperConfig.web_account_epoch;sendPriceOrder(choice,quantity);return;}
+ function choosePriceOrder(choice,price,quantity=qty,direct=false){
+  if(!paperConfig.position){menuOrderPrice=price;menuOrderCID=paperCID;menuOrderEpoch=paperConfig.web_account_epoch;sendPriceOrder(choice,quantity,direct);return;}
   if(choice.side!==Math.sign(paperConfig.position)){if(choice.type==='LMT')chooseExit(Math.abs(paperConfig.position)>1,price);return;}
   if(!addAllowed(choice))return;
   const cid=paperCID,ref=paperConfig.order_ref,epoch=paperConfig.web_account_epoch,tp=paperConfig.add_tp||paperConfig.tp,sl=paperConfig.sl;
@@ -313,7 +313,7 @@
   };
   const footer=document.createElement('footer');footer.append(cancel,submit);addDialog.append(title,detail,input,remaining,footer);addDialog.showModal();
  }
- function orderItems(price,append){
+ function orderItems(price,append,direct=false){
   const updates=[],contract=paperCID,epoch=paperConfig.web_account_epoch;
   for(const choice of priceOrderChoices(price,previous.at(-1)?.close)){
    const adding=!!paperConfig.position;
@@ -322,7 +322,7 @@
    const disabled=adding?(reducing?!!reduceReason():!addAllowed(choice)):!paperConfig.enabled||paperConfig.active||paperConfig.busy||ovtStopBlocked(choice.type);
    const quantity=adding?(paperConfig.adjustment_quantity||1):qty;
    const choiceLabel=!adding&&priceMenuChinese()?({'Sell Limit':'限价卖出','Buy Limit':'限价买入','Buy Stop':'止损买入','Sell Stop':'止损卖出'}[choice.label]):choice.label;
-   const b=append(`${reducing?(Math.abs(paperConfig.position)===1?'Close · ':'Trim · '):adding?'Add · ':''}${choiceLabel} ${quantity} ${countdownPacket?.local_symbol||countdownPacket?.symbol||''} @ ${priceText(price)}`,()=>{if(contract===paperCID&&epoch===paperConfig.web_account_epoch)choosePriceOrder(choice,price);},disabled,adding?null:{quantities:[1,2,3,4].filter(n=>n<=priceMenuLimit()),choose:n=>{if(contract===paperCID&&epoch===paperConfig.web_account_epoch&&!paperConfig.position)choosePriceOrder(choice,price,n);}});
+   const b=append(`${reducing?(Math.abs(paperConfig.position)===1?'Close · ':'Trim · '):adding?'Add · ':''}${choiceLabel} ${quantity} ${countdownPacket?.local_symbol||countdownPacket?.symbol||''} @ ${priceText(price)}`,()=>{if(contract===paperCID&&epoch===paperConfig.web_account_epoch)choosePriceOrder(choice,price,qty,direct);},disabled,adding?null:{quantities:[1,2,3,4].filter(n=>n<=priceMenuLimit()),choose:n=>{if(contract===paperCID&&epoch===paperConfig.web_account_epoch&&!paperConfig.position)choosePriceOrder(choice,price,n,direct);}});
    if(b)updates.push(()=>{const changed=contract!==paperCID||epoch!==paperConfig.web_account_epoch||adding!==!!paperConfig.position||quantity!==(adding?(paperConfig.adjustment_quantity||1):qty);const reason=changed?'Chart or quantity changed; reopen menu':ovtStopBlocked(choice.type)?'OVT supports limit orders only':!paperConfig.enabled?(paperConfig.trading_block_reason||'Waiting for verified order status'):paperConfig.busy?'Order request in progress':paperConfig.active&&!adding?'An entry order is already working':reducing?reduceReason():adding&&!addAllowed(choice)?'Position is not ready for this add order':'';b.disabled=!!reason;b.style.opacity=reason?'.4':'1';b.title=reason;let note=b.querySelector('small');if(reason&&!note){note=document.createElement('small');note.style.cssText='display:block;max-width:270px;white-space:normal;margin-top:5px;font-size:11px';b.append(note);}if(note){note.textContent=reason;note.hidden=!reason;}});
 
   }

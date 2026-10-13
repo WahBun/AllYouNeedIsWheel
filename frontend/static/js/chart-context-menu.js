@@ -149,7 +149,7 @@
    const side=window.priceAxisSide==='left'?'right':'left';
    item('Move scale to '+side,()=>{window.configurePriceAxis(side);parent.postMessage({wheelChart:true,name:'priceAxisChanged',body:{side}},location.origin);});
   }else{
-  refreshOrderMenu=orderItems(price,(label,run,disabled,presets)=>entryItem(label,()=>{if(contract===paperCID)run();},disabled,presets));
+  refreshOrderMenu=orderItems(price,(label,run,disabled,presets)=>entryItem(label,()=>{if(contract===paperCID)run();},disabled,presets),true);
   const n=window.chartDrawingActions?.count()||0;item(`Remove ${n} drawings`,()=>window.chartDrawingActions?.removeAll(),n===0);
   }
   menu.hidden=false;menu.style.left=Math.max(6,Math.min(event.clientX,innerWidth-menu.offsetWidth-6))+'px';menu.style.top=Math.max(6,Math.min(event.clientY,innerHeight-menu.offsetHeight-6))+'px';
