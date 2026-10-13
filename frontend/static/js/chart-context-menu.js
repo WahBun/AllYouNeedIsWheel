@@ -18,33 +18,57 @@
  // Keep the shared price button in the plot, but never over the price axis.
  let overPriceAxis=false,pointerInPlot=false;
  chart.unsubscribeCrosshairMove(updatePriceCursor);
- chart.subscribeCrosshairMove(p=>{if(overPriceAxis||applyingCrosshair){priceAdd.hidden=true;return;}updatePriceCursor(p);});
- document.addEventListener('pointermove',e=>{
-  if(e.pointerType!=='mouse')return;
+ chart.subscribeCrosshairMove(p=>{if(!pointerInPlot||overPriceAxis||applyingCrosshair){priceAdd.hidden=true;cursorOrderPrice=null;return;}updatePriceCursor(p);});
+ const trackPointer=e=>{
   overPriceAxis=e.clientX<plotLeft()||e.clientX>=plotRight();
   pointerInPlot=!overPriceAxis&&e.clientY>=0&&e.clientY<chart.paneSize().height;
-  if(overPriceAxis){priceAdd.hidden=true;cursorOrderPrice=null;}
- },true);
+  if(!pointerInPlot){priceAdd.hidden=true;cursorOrderPrice=null;publishCrosshair(null);}
+ };
+ document.addEventListener('pointermove',trackPointer,true);
+ document.addEventListener('pointerdown',trackPointer,true);
+ // Same-origin panes share pointer updates directly, without queued message lag.
+ function publishCrosshair(point){
+  if(parent.publishPaneCrosshair)parent.publishPaneCrosshair(window,point);
+  else parent.postMessage({wheelChart:true,name:'paneCrosshair',body:point},location.origin);
+ }
  // Programmatic crosshair moves must never echo back into the pane group.
- let applyingCrosshair=false;
+ let applyingCrosshair=false,lastPeerPoint=null;
+ // OHLC text only changes when the selected bar changes. Re-fitting its font on
+ // every mouse pixel forces synchronous layout in every iframe.
+ chart.unsubscribeCrosshairMove(handleReadoutMove);
+ chart.subscribeCrosshairMove(p=>{
+  if(applyingCrosshair)return;
+  const bar=p.seriesData?.get(series),last=previous.at(-1);
+  const logical=p.logical??(p.point?chart.timeScale().coordinateToLogical(p.point.x):null);
+  const latest=!!last&&!!p.point&&!bar&&logical!==null&&logical>previous.length-1;
+  if((bar?.time??null)!==readoutTime||latest!==readoutLatest)handleReadoutMove(p);
+ });
  window.syncPaneCrosshair=point=>{
-  if(pointerInPlot)return;
+  priceAdd.hidden=true;cursorOrderPrice=null;
   applyingCrosshair=true;
   try{
-   if(!point||!previous.length){chart.clearCrosshairPosition();return;}
+   const clear=()=>{lastPeerPoint=null;chart.clearCrosshairPosition();if(readoutTime!==null||readoutLatest){readoutTime=null;readoutLatest=false;updateReadout();}};
+   if(!point||!Number.isFinite(point.time)||!Number.isFinite(point.price)||!previous.length){clear();return;}
    let lo=0,hi=previous.length;
    while(lo<hi){const mid=(lo+hi)>>1;if(previous[mid].time<=point.time)lo=mid+1;else hi=mid;}
-   const bar=previous[Math.max(0,lo-1)];
-   chart.setCrosshairPosition(point.price,bar.time,series);
+   const bar=previous[lo-1],seconds=(countdownPacket?.interval||1)*60;
+   // No phantom match before history, after the last candle, or across session gaps.
+   if(!bar||point.time>=bar.time+seconds){clear();return;}
+   if(lastPeerPoint?.context!==key||lastPeerPoint?.time!==bar.time||lastPeerPoint?.price!==point.price){
+    chart.setCrosshairPosition(point.price,bar.time,series);lastPeerPoint={context:key,time:bar.time,price:point.price};
+   }
+   // The chart library's programmatic API does not emit crosshairMove.
+   if(readoutTime!==bar.time||readoutLatest){readoutTime=bar.time;readoutLatest=false;updateReadout();}
   }finally{applyingCrosshair=false;}
  };
  chart.subscribeCrosshairMove(p=>{
-  if(applyingCrosshair||!p.sourceEvent)return;
+  if(applyingCrosshair||!pointerInPlot||!p.sourceEvent)return;
+  lastPeerPoint=null;
   const size=chart.paneSize(),valid=p.point&&p.time!=null&&p.point.x>=0&&p.point.x<=size.width&&p.point.y>=0&&p.point.y<=size.height;
   const price=valid?series.coordinateToPrice(p.point.y):null;
-  parent.postMessage({wheelChart:true,name:'paneCrosshair',body:valid&&Number.isFinite(price)?{time:p.time,price}:null},location.origin);
+  publishCrosshair(valid&&Number.isFinite(price)?{time:p.time,price}:null);
  });
- document.documentElement.addEventListener('pointerleave',()=>{pointerInPlot=false;parent.postMessage({wheelChart:true,name:'paneCrosshair',body:null},location.origin);});
+ document.documentElement.addEventListener('pointerleave',()=>{pointerInPlot=false;priceAdd.hidden=true;cursorOrderPrice=null;publishCrosshair(null);});
  let refreshOrderMenu=()=>{};
  window.addEventListener('order-configured',()=>refreshOrderMenu());
  const orderItems=(...args)=>window.wheelOrderItems(...args);

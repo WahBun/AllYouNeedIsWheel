@@ -60,6 +60,16 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  function close(){menu.hidden=true;button.setAttribute('aria-expanded','false');}
  button.onclick=()=>{menu.hidden=!menu.hidden;button.setAttribute('aria-expanded',String(!menu.hidden));};document.addEventListener('pointerdown',e=>{if(!picker.contains(e.target))close();});picker.onkeydown=e=>{if(e.key==='Escape'){close();button.focus();}};
  const configs=Array.from({length:4},(_,i)=>({...saved.panes?.[i],interval:saved.panes?.[i]?.interval||[5,1,15,60][i],session:saved.panes?.[i]?.session||'rth'}));const panes=new Map();
+ // Only the current pointer owner may clear followers when moving between frames.
+ let crosshairOwner=null;
+ window.publishPaneCrosshair=(source,point)=>{
+  const owner=[...panes.values()].find(p=>p.frame.contentWindow===source);
+  if(!owner)return;
+  if(!point&&crosshairOwner!==owner)return;
+  crosshairOwner=point?owner:null;
+  for(const pane of panes.values())if(pane!==owner&&pane.loaded)
+   pane.frame.contentWindow.syncPaneCrosshair?.(point&&configs[pane.index].cid===configs[owner.index].cid?point:null);
+ };
  // Apply cold-start defaults once. In-session edits and pane activation retain their settings.
  for(let i=0;i<configs.length;i++){
   const d=structuredClone(configs[i].display||current().display);d.optionATR??=localStorage.getItem('wheel.chart.optionATR')==='true';
@@ -119,7 +129,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   constructor(index,existing){this.index=index;this.el=existing?existing.parentElement:document.createElement('div');this.el.className='chart-pane';this.frame=existing||document.createElement('iframe');this.frame.title='Chart '+(index+1);if(!existing)this.frame.src='/superchart/frame';if(!existing){this.el.append(this.frame);grid.append(this.el);}this.data={};this.loaded=false;this.dead=false;this.seq=0;this.lastRead=0;this.lastExtras=0;
    this.buffer=new WheelPaneBuffer(p=>{if(this.dead||this.index===active||this.key!==JSON.stringify(this.context()))return;this.render();});
    this.stream=new WheelChartStream({receive:p=>this.receive(p),status:()=>{}});
-   this.listener=e=>{if(e.origin!==location.origin||e.source!==this.frame.contentWindow||!e.data?.wheelChart)return;const {name,body}=e.data;if(name==='paperAction'&&['indicatorToggle','indicatorCollapse','indicatorSettings'].includes(body?.action)&&this.index!==active){choose(this.index);}else if(name==='historyRequest'&&this.index!==active){void this.loadHistory(body.before);}else if(name==='chartReady'){this.loaded=true;maximizeKeys(this.frame.contentDocument,this);this.frame.contentDocument.addEventListener('click',e=>{if(!e.target.closest('button,input,select,textarea,#draw-svg,#tv-attr-logo'))choose(this.index);},true);this.tick();}else if(name==='paneCrosshair'){for(const pane of panes.values())if(pane!==this&&pane.loaded)pane.frame.contentWindow.syncPaneCrosshair?.(body&&configs[pane.index].cid===configs[this.index].cid?body:null);}else if(name==='priceAxisChanged'){configs[this.index].axis=body.side;persist();}else if(name==='drawingsChanged'&&body.key===this.drawingKey){localStorage.setItem('wheel.drawings:'+configs[this.index].cid,JSON.stringify(body));for(const pane of panes.values())if(pane!==this&&pane.loaded&&configs[pane.index].cid===configs[this.index].cid)pane.frame.contentWindow.receivePeerDrawings?.(body);}};window.addEventListener('message',this.listener);
+   this.listener=e=>{if(e.origin!==location.origin||e.source!==this.frame.contentWindow||!e.data?.wheelChart)return;const {name,body}=e.data;if(name==='paperAction'&&['indicatorToggle','indicatorCollapse','indicatorSettings'].includes(body?.action)&&this.index!==active){choose(this.index);}else if(name==='historyRequest'&&this.index!==active){void this.loadHistory(body.before);}else if(name==='chartReady'){this.loaded=true;maximizeKeys(this.frame.contentDocument,this);this.frame.contentDocument.addEventListener('click',e=>{if(!e.target.closest('button,input,select,textarea,#draw-svg,#tv-attr-logo'))choose(this.index);},true);this.tick();}else if(name==='paneCrosshair'){window.publishPaneCrosshair(this.frame.contentWindow,body);}else if(name==='priceAxisChanged'){configs[this.index].axis=body.side;persist();}else if(name==='drawingsChanged'&&body.key===this.drawingKey){localStorage.setItem('wheel.drawings:'+configs[this.index].cid,JSON.stringify(body));for(const pane of panes.values())if(pane!==this&&pane.loaded&&configs[pane.index].cid===configs[this.index].cid)pane.frame.contentWindow.receivePeerDrawings?.(body);}};window.addEventListener('message',this.listener);
   }
   dispose(){this.dead=true;this.buffer.clear();this.stream.stop();this.controller?.abort();window.removeEventListener('message',this.listener);this.el.remove();}
   context(){const c=configs[this.index];return {cid:c.cid,interval:c.interval,session:c.session,epoch:current().epoch};}

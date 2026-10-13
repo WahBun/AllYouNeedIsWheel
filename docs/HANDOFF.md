@@ -6,13 +6,34 @@ Cold-start auxiliary panes default their price axes to the left, including a
 saved active auxiliary pane. Main axis preferences and in-session axis edits
 remain intact. The web trading panel toggle moves from the header to a compact
 right-edge toolbar-style arrow, with an 8×26px rounded tab when collapsed.
-There is no visible text label; localized accessible labels remain.
+There is no visible text label; localized accessible labels remain. A reserved
+16px edge keeps the collapsed expand tab permanently visible off the price axis.
+The main/auxiliary column boundary now supports pointer dragging and keyboard
+resizing, saves a bounded ratio per layout and hides in single/maximized views.
 Existing panel preference, ticket fields and chart frame identities are retained.
 REA current viewport evidence: `ev_167285eaa01e079f84788dab723f8b77e0dcb0206f69acc53513703ad8b5d4f2`.
 The final tiny arrow follows the user-provided drawing-toolbar screenshots,
 not the larger order-pad tab in the initial REA viewport. No order behavior changes.
+Crosshair routing now uses direct same-origin calls, with owner-aware clearing
+and OHLC readout updates (the library does not emit crosshairMove for programmatic
+positions). Missing candle intervals clear rather than clamp to stale history;
+chart periods and visible ranges remain independent. REA script evidence
+`ev_99b778f205e414400e59984f8d824b273a031742fc8b5375a74ee1a0d43a8077`
+shows Tradesea timestamp/price mapping and separate viewport synchronization.
+TradingView evidence `ev_1f744bc99761235fe3d7f4ce2ff0b205c2ca713122775a24f9adc8d858f63fa0`
+confirms separate hovered/external cursor state, plus-menu visibility only on the
+hovered chart, change-only view invalidation and requestAnimationFrame painting.
+Wheel now gates order cursors and publishing on local pointer ownership; follower
+repaints cannot show the plus control or echo into the group. OHLC layout runs on
+bar changes, not every vertical mouse pixel. In a read-only real MNQ 4-pane
+preview, 81 updates measured 0.2ms p95/0.3ms max synchronous group dispatch; this
+measures handler work, not display latency or equivalence with TradingView.
+This is source evidence, not an observed end-to-end reference gesture comparison.
 Browser checks cover desktop/mobile, English/Chinese, dark/light, cold axes and
-panel preservation using mocked data and no broker writes.
+panel preservation using mocked data and no broker writes. Current quantity-menu
+checks and 63 frontend tests pass. The legacy context-menu fixture omits the
+shared add-orders module and fails identically at baseline; the current
+context-quantity fixture loads that module and passes all eight cases.
 
 ## 2026-10-12 Paper recovery and Profit input
 
