@@ -34,9 +34,18 @@ globalThis.WheelTradeSounds=WheelTradeSounds;
   }catch{}
  }
  document.addEventListener('pointerdown',unlock,{passive:true});document.addEventListener('keydown',unlock,{passive:true});
+ // Chart gestures occur in same-origin frames and never bubble to the host.
+ const soundDocuments=new WeakSet(),soundFrames=new WeakSet();
+ function bindChartAudio(frame){
+  if(!soundFrames.has(frame)){soundFrames.add(frame);frame.addEventListener('load',()=>bindChartAudio(frame));}
+  try{const doc=frame.contentDocument;if(!doc||soundDocuments.has(doc))return;soundDocuments.add(doc);doc.addEventListener('pointerdown',unlock,{passive:true});doc.addEventListener('keydown',unlock,{passive:true});}catch{}
+ }
+ const bindFrames=()=>document.querySelectorAll('iframe').forEach(bindChartAudio);
+ new MutationObserver(bindFrames).observe(document.body,{childList:true,subtree:true});bindFrames();
  button.onclick=()=>{enabled=!enabled;if(!enabled){for(const source of sources){try{source.stop();}catch{}}sources.clear();next=0;}try{localStorage.setItem('wheel.web.sounds',enabled?'on':'off');}catch{}render();if(enabled)unlock();};
  new MutationObserver(render).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});render();
- globalThis.wheelTradeSounds=new WheelTradeSounds(name=>{
+ globalThis.wheelTradeSounds=new WheelTradeSounds(async name=>{
+  if(loading)await loading;
   if(!enabled||context?.state!=='running'||!buffers.has(name))return;
   const now=context.currentTime;if(now-(last.get(name)??-Infinity)<1)return;last.set(name,now);
   if(next-now>3)return;const source=context.createBufferSource();source.buffer=buffers.get(name);source.connect(context.destination);sources.add(source);source.onended=()=>sources.delete(source);source.start(Math.max(now,next));next=Math.max(now,next)+source.buffer.duration;
