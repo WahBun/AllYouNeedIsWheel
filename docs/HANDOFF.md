@@ -1,5 +1,18 @@
 # Project Handoff
 
+## 2026-10-13 RTH 8h session-day correction
+
+REA observed TV RTH 8h as one bar per regular session anchored at 09:30.
+Wheel previously reused daily broker history, including futures settlement closes
+and midnight timestamps. RTH 8h now aggregates 30-minute TRADES history plus
+minute/live bars within the regular-session calendar. Daily/weekly/monthly paths
+are unchanged. History is currently bounded to one month of intraday data.
+Axis retains dates at day boundaries and 09:30 in the crosshair.
+Offline chart/volume/stream tests, DST cross-period close regression, browser
+axis check, 1-4 panes, two four-pane pages, 100Hz stress and layout/recovery
+checks pass. Synthetic throughput remains consistent with recorded baseline.
+Live broker comparison remains required after deployment; no trading writes.
+
 ## 2026-10-13 stable order editing controls
 
 Pending type labels use LMT/STP. Entry controls retain DOM identity across

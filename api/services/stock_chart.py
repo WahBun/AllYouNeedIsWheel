@@ -386,50 +386,50 @@ class StockChart:
         state['used'] = time.monotonic()
         conn.ib.sleep(0.01)  # Drain IB events on the owner thread, not an HTTP thread.
         higher_bars = None
-        history_minutes = 1440 if minutes == 480 and session == 'rth' else minutes
-        def option_intraday_fallback():
-            # A bounded hourly backfill provides weeks of real trades without
-            # repeatedly requesting a large minute series on each chart refresh.
-            if time.monotonic() >= state.get('option_hourly_retry', 0):
-                state['option_hourly_retry'] = time.monotonic() + 60
-                history = conn.ib.reqHistoricalData(contract, '', '1 M', '1 hour', 'TRADES',
-                    useRTH=True, formatDate=2, keepUpToDate=False, timeout=2)
+        history_minutes = minutes
+        if minutes == 480 and session == 'rth':
+            # Intraday bars have session-open timestamps and trade closes. Daily
+            # futures bars can contain settlement prices and are not an 8h source.
+            if time.monotonic() >= state.get('rth_eight_retry', 0):
+                state['rth_eight_retry'] = time.monotonic() + 60
+                history = conn.ib.reqHistoricalData(contract, '', '1 M', '30 mins', 'TRADES',
+                    useRTH=True, formatDate=2, keepUpToDate=False, timeout=2 if contract.secType == 'OPT' else 5)
                 older = []
                 for bar in history:
-                    if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
-                        continue
+                    if not isinstance(bar.date, datetime) or bar.date.tzinfo is None: continue
                     values = [positive(getattr(bar, field)) for field in ('open','high','low','close')]
                     if any(value is None for value in values): continue
                     o,h,l,c = values
                     if l <= min(o,c) <= max(o,c) <= h:
-                        older.append(dict(time=int(bar.date.timestamp()), open=o, high=h, low=l, close=c, **historical_volume(bar)))
-                if older: state['option_hourly'] = sorted(older, key=lambda bar: bar['time'])
-            older = state.get('option_hourly', [])
-            if older:
-                # Build sessions for the actual history range, not the short
-                # rolling calendar used by the minute stream.
-                days = {datetime.fromtimestamp(b['time'], ZoneInfo('America/New_York')).date().isoformat() for b in older + state['bars']}
-                sessions = sorted({window for day in days for window in regular_sessions(day)})
-                combined = {b['time']: b for b in aggregate(older, minutes, sessions)}
-                for bar in aggregate(state['bars'], minutes, sessions):
-                    old = combined.get(bar['time'])
+                        older.append(dict(time=int(bar.date.timestamp()),open=o,high=h,low=l,close=c,**historical_volume(bar)))
+                if older: state['rth_eight_history'] = sorted(older,key=lambda b:b['time'])
+            older = state.get('rth_eight_history', [])
+            source = older + state['bars']
+            if source:
+                first = datetime.fromtimestamp(min(b['time'] for b in source),ZoneInfo('America/New_York')).date()
+                last = datetime.fromtimestamp(max(b['time'] for b in source),ZoneInfo('America/New_York')).date()
+                cached = state.get('rth_eight_calendar')
+                if cached and cached[:2] == (first,last): windows = cached[2]
+                else:
+                    schedule = calendars.get_calendar('NYSE').schedule(start_date=first,end_date=last)
+                    windows = tuple((int(r.market_open.timestamp()),int(r.market_close.timestamp())) for r in schedule.itertuples())
+                    state['rth_eight_calendar']=(first,last,windows)
+                combined = {b['time']:b for b in aggregate(older,minutes,windows)}
+                for bar in aggregate(state['bars'],minutes,windows):
+                    old=combined.get(bar['time'])
                     if old:
-                        combined[bar['time']] = unknown_volume(dict(old, high=max(old['high'],bar['high']), low=min(old['low'],bar['low']), close=bar['close']))
-                    else: combined[bar['time']] = bar
-                packet = self.packet(state, minutes, session, sorted(combined.values(), key=lambda b:b['time']))
-            else:
-                packet = self.packet(state, minutes, session)
-            packet['data_notice'] = 'Limited history · aggregated from available intraday trades; daily history pending'
+                        combined[bar['time']]=unknown_volume(dict(old,high=max(old['high'],bar['high']),low=min(old['low'],bar['low']),close=bar['close']))
+                    else: combined[bar['time']]=bar
+                higher_bars=sorted(combined.values(),key=lambda b:b['time'])
+            packet=self.packet(state,minutes,session,higher_bars)
+            packet['data_notice']='8h RTH · 1 month of intraday trade history'
             return packet
-        option_eight_hour = contract.secType == 'OPT' and minutes == 480 and session == 'rth'
         if history_minutes >= 1440:
             cache = state.setdefault('higher', {})
             cache_key = (history_minutes, session)
             if cache_key not in cache:
                 retry = state.setdefault('higher_retry', {})
                 if time.monotonic() < retry.get(cache_key, 0):
-                    if option_eight_hour and state['bars']:
-                        return option_intraday_fallback()
                     raise ValueError('Historical chart request cooling down')
                 retry[cache_key] = time.monotonic() + 15
                 duration, size = {1440: ('1 Y', '1 day'), 10080: ('5 Y', '1 week'), 43200: ('10 Y', '1 month')}[history_minutes]
@@ -439,8 +439,6 @@ class StockChart:
                     useRTH=session == 'rth', formatDate=2, keepUpToDate=True, timeout=2 if contract.secType == 'OPT' else 5)
                 if not history:
                     conn.ib.cancelHistoricalData(history)
-                    if option_eight_hour and state['bars']:
-                        return option_intraday_fallback()
                     raise ValueError('Historical stock bars unavailable; retry shortly')
                 cache[cache_key] = history
             higher_bars = []

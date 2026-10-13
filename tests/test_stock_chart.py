@@ -286,6 +286,25 @@ class StockChartTests(unittest.TestCase):
             self.assertEqual(result[-1]['close'],13.89)
             self.assertEqual(len(result),(390+minutes-1)//minutes)
 
+    def test_rth_eight_hour_trade_close_matches_intraday_across_dst(self):
+        from unittest.mock import patch
+        for day, hour in [('2026-10-02',13),('2026-11-02',14)]:
+            asyncio.set_event_loop(asyncio.new_event_loop())
+            conn,ticker=self.connection();feed=StockChart()
+            try:
+                feed.snapshot(conn,7,5)
+                start=int(datetime.fromisoformat(day).replace(hour=hour,minute=30,tzinfo=timezone.utc).timestamp())
+                feed.active['backfilled']=True
+                feed.active['bars']=[dict(time=start+i*60,open=100+i,high=101+i,low=99+i,close=100.5+i) for i in range(390)]
+                conn.ib.reqHistoricalData.return_value=[]
+                with patch('api.services.stock_chart.regular_sessions',return_value=((start,start+390*60),)):
+                    eight=feed.snapshot(conn,7,480)
+                    self.assertEqual(eight['bars'][-1]['time'],start)
+                    for interval in (1,5,15,60):
+                        self.assertEqual(eight['bars'][-1]['close'],feed.packet(feed.active,interval,'rth')['bars'][-1]['close'])
+                conn.ib.placeOrder.assert_not_called()
+            finally:close_test_loop()
+
     def test_calendar_history_cached_and_canceled(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
         conn,ticker=self.connection();feed=StockChart()
@@ -304,8 +323,12 @@ class StockChartTests(unittest.TestCase):
                 self.assertEqual(conn.ib.reqHistoricalData.call_count,calls)
             calls=conn.ib.reqHistoricalData.call_count
             daily=feed.snapshot(conn,7,1440)['bars']
-            self.assertEqual(feed.snapshot(conn,7,480)['bars'],daily)
-            self.assertEqual(conn.ib.reqHistoricalData.call_count,calls)
+            conn.ib.reqHistoricalData.return_value=[S(date=datetime(2026,9,1,13,30,tzinfo=timezone.utc),open=10,high=12,low=9,close=10.5)]
+            intraday=feed.snapshot(conn,7,480)['bars']
+            self.assertEqual(intraday[0]['close'],10.5)
+            self.assertEqual(intraday[0]['time'],int(datetime(2026,9,1,13,30,tzinfo=timezone.utc).timestamp()))
+            self.assertNotEqual(intraday,daily)
+            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[3],'30 mins')
             feed.stop()
             self.assertEqual(conn.ib.cancelHistoricalData.call_count,3)
             conn.ib.placeOrder.assert_not_called()
@@ -332,14 +355,14 @@ class StockChartTests(unittest.TestCase):
             feed.active['bars'] = [dict(time=int(datetime(2026,10,2,14,tzinfo=timezone.utc).timestamp()), open=1, high=2, low=1, close=2)]
             conn.ib.reqHistoricalData.return_value = []
             result = feed.snapshot(conn, 7, 480)
-            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4], ('1 M', '1 hour'))
+            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4], ('1 M', '30 mins'))
             self.assertTrue(result['bars'])
-            self.assertIn('Limited history', result['data_notice'])
+            self.assertIn('intraday trade history', result['data_notice'])
             count = conn.ib.reqHistoricalData.call_count
             again = feed.snapshot(conn, 7, 480)
             self.assertEqual(again['bars'], result['bars'])
             self.assertEqual(conn.ib.reqHistoricalData.call_count, count)
-            feed.active['option_hourly_retry'] = 0
+            feed.active['rth_eight_retry'] = 0
             conn.ib.reqHistoricalData.return_value = [S(date=datetime(2026,9,1,14,tzinfo=timezone.utc), open=3, high=4, low=2, close=3)]
             expanded = feed.snapshot(conn, 7, 480)
             self.assertEqual(len(expanded['bars']), 2)
