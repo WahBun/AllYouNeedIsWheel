@@ -104,7 +104,7 @@ window.setPaneChrome=visible=>{
  chart.applyOptions({layout:{attributionLogo:visible}});
  if(!visible&&toolsVisible)toggleToolVisibility();
 };
-const paneStyle=document.createElement('style');paneStyle.textContent='body.auxiliary-chrome-hidden #draw-toolbar,body.auxiliary-chrome-hidden #draw-menu,body.auxiliary-chrome-hidden #draw-properties,body.auxiliary-chrome-hidden #draw-magnet,body.auxiliary-chrome-hidden #draw-editor,body.auxiliary-chrome-hidden #draw-hint,body.auxiliary-chrome-hidden #draw-touch{display:none!important}';document.head.append(paneStyle);
+const paneStyle=document.createElement('style');paneStyle.textContent='body.auxiliary-chrome-hidden #option-quote,body.auxiliary-chrome-hidden #draw-toolbar,body.auxiliary-chrome-hidden #draw-menu,body.auxiliary-chrome-hidden #draw-properties,body.auxiliary-chrome-hidden #draw-magnet,body.auxiliary-chrome-hidden #draw-editor,body.auxiliary-chrome-hidden #draw-hint,body.auxiliary-chrome-hidden #draw-touch{display:none!important}';document.head.append(paneStyle);
 window.resetChartView=()=>{
  if(!previous.length)return;
  activePriceScale().applyOptions({autoScale:true});

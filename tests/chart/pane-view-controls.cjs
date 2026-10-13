@@ -1,16 +1,20 @@
 const {chromium}=require('playwright'),assert=require('node:assert/strict');
 const {start}=require('./market-feed/harness.cjs');
-(async()=>{const server=await start(),browser=await chromium.launch();try{
+(async()=>{const server=await start({history:6000}),browser=await chromium.launch();try{
  const p=await browser.newPage({viewport:{width:1400,height:900}});const errors=[];p.setDefaultTimeout(15000);p.on('pageerror',e=>{errors.push(e.message);console.error(e.message)});
  await p.addInitScript(()=>localStorage.setItem('wheel.chart-layout',JSON.stringify({count:4,active:3,syncVersion:1,panes:[1,15,60,5].map(interval=>({cid:7,interval,session:'all'}))})));
  await p.goto(server.url+'/superchart?con_id=7&session=all');
  await p.waitForFunction(()=>document.querySelectorAll('.chart-pane iframe').length===4&&[...document.querySelectorAll('.chart-pane iframe')].every(f=>f.contentDocument.querySelector('#pane-view-controls'))&&!document.querySelector('#chart-grid').hasAttribute('aria-busy'));
  const frames=await p.locator('.chart-pane iframe').elementHandles().then(h=>Promise.all(h.map(x=>x.contentFrame())));
  assert.deepEqual(await Promise.all(frames.map(f=>f.evaluate(()=>chart.options().layout.attributionLogo))),[true,false,false,false]);
+ for(const f of frames)await f.evaluate(()=>{optionQuote.hidden=false;});
+ assert.deepEqual(await Promise.all(frames.map(f=>f.locator('#option-quote').evaluate(e=>(e.hidden=false,getComputedStyle(e).display==='none')))),[false,true,true,true]);
  const aux=frames[1];await p.mouse.move(5,5);assert.equal(await aux.locator('#pane-view-controls').evaluate(e=>getComputedStyle(e).opacity),'0');await aux.locator('#pane-view-controls').hover();await aux.waitForFunction(()=>getComputedStyle(document.getElementById('pane-view-controls')).opacity==='1');await aux.locator('[data-pane-maximize]').click({force:true});await p.waitForFunction(()=>document.querySelector('#chart-grid').classList.contains('pane-maximized'));
  assert.equal(await aux.evaluate(()=>chart.options().layout.attributionLogo),true);
+ await aux.evaluate(()=>{optionQuote.hidden=false;});assert.notEqual(await aux.locator('#option-quote').evaluate(e=>(e.hidden=false,getComputedStyle(e).display)),'none');
  await aux.locator('body').press('Alt+Enter');await p.waitForFunction(()=>!document.querySelector('#chart-grid').classList.contains('pane-maximized'));
  assert.equal(await aux.evaluate(()=>chart.options().layout.attributionLogo),false);
+ assert.equal(await aux.locator('#option-quote').evaluate(e=>(e.hidden=false,getComputedStyle(e).display)),'none');
  await aux.locator('body').click({position:{x:120,y:120},modifiers:['Alt']});await p.waitForFunction(()=>document.querySelector('#chart-grid').classList.contains('pane-maximized'));
  await aux.evaluate(()=>{chart.timeScale().setVisibleLogicalRange({from:0,to:10});activePriceScale().applyOptions({autoScale:false});});
  await aux.locator('body').press('Alt+r');await aux.evaluate(()=>new Promise(requestAnimationFrame));assert.equal(await aux.evaluate(()=>activePriceScale().options().autoScale),true);
