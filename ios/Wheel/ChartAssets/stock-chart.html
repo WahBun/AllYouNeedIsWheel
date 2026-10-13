@@ -564,6 +564,7 @@ function updateLines(){
  }
  if(entryLine)entryLine.applyOptions({price:entry,title:'',color,lineVisible:displayOptions.orderExtensionLines!==false});else entryLine=series.createPriceLine({price:entry,color,lineWidth:1,lineStyle:2,lineVisible:displayOptions.orderExtensionLines!==false,axisLabelVisible:true,title:''});
  if(displayOptions.holdingsVisible===false&&paperConfig.position){eh.hidden=true;document.getElementById('cancel').hidden=true;if(entryLine){series.removePriceLine(entryLine);entryLine=null;}}
+ renderChartConfirmation();
 }
 // Account holdings are read-only overlays, independent of order previews and paper brackets.
 const holdingLines = new Map();
@@ -607,19 +608,27 @@ function syncHoldingOverlays(config) {
 }
 let paperConfig={},paperCID=0,displayOptions={},accountExecutions=[];
 let chartConfirmation=null;
-const confirmationBox=document.createElement('div');confirmationBox.id='chart-confirmation';confirmationBox.hidden=true;confirmationBox.setAttribute('role','group');confirmationBox.setAttribute('aria-label','Confirm order change');document.body.append(confirmationBox);
-const confirmationStyle=document.createElement('style');confirmationStyle.textContent='#chart-confirmation{position:absolute;z-index:40;right:110px;bottom:100px;max-width:300px;padding:8px 10px;background:#202225;color:#eee;border:1px solid #555;border-radius:4px;font:12px -apple-system,sans-serif;box-shadow:0 2px 8px #0004}#chart-confirmation[hidden]{display:none}#chart-confirmation p{margin:0 0 7px}#chart-confirmation button{padding:4px 9px;border-radius:3px;border:1px solid #ddd;margin-right:4px;cursor:pointer;background:white;color:#222}#chart-confirmation button:last-child{background:#2962ff;color:white;border-color:#2962ff}@media(max-width:600px){#chart-confirmation{right:64px;bottom:86px;max-width:230px}}';document.head.append(confirmationStyle);
+function renderChartConfirmation(){
+ document.getElementById('chart-confirmation')?.remove();
+ if(!chartConfirmation)return;
+ const body=chartConfirmation.body,role=body.action==='edit_entry'?'entry':body.role||(levels.sl?'sl':'tp');
+ const handle=document.getElementById(role);if(!handle||handle.hidden)return;
+ const row=document.createElement('div');row.id='chart-confirmation';row.setAttribute('role','group');row.setAttribute('aria-label',body.action==='cancelProtectionPreview'?'Cancel '+role.toUpperCase()+'; position remains open':'Confirm '+role.toUpperCase()+' price change');row.style.cssText='display:flex;align-items:center;flex-shrink:0';
+ for(const [text,fn] of [['Discard',discardChartConfirmation],['Confirm',()=>{const draft=chartConfirmation;if(!draft)return;const valid=draft.identity===confirmationIdentity()&&!paperConfig.busy;discardChartConfirmation();if(valid)paperAction(draft.body);} ]]){
+  const button=document.createElement('span');button.textContent=text;button.setAttribute('role','button');button.tabIndex=0;
+  button.style.cssText='padding:0 8px;border-radius:3px;cursor:pointer;pointer-events:auto;margin-right:'+(text==='Confirm'?'11':'3')+'px;background:'+(text==='Confirm'?'#2962ff':'#fff')+';color:'+(text==='Confirm'?'white':'#222')+';border-color:'+(text==='Confirm'?'#2962ff':'#ddd');
+  button.onpointerdown=e=>e.stopPropagation();button.onclick=e=>{e.preventDefault();e.stopPropagation();fn();};button.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();fn();}};row.append(button);
+ }
+ handle.prepend(row);
+}
 function confirmationIdentity(){return JSON.stringify([paperCID,paperConfig.web_account_epoch,paperConfig.order_ref,paperConfig.position,paperConfig.tp,paperConfig.sl,paperConfig.edit_snapshot,paperConfig.cancelable_exits,(paperConfig.orders||[]).map(o=>[o.order_id,o.role,o.status,o.quantity,o.filled,o.price])]);}
-function discardChartConfirmation(){chartConfirmation=null;confirmationBox.hidden=true;levels={tp:paperConfig.tp,sl:paperConfig.sl};if(paperConfig.entry)entry=paperConfig.entry;updateLines();}
+function discardChartConfirmation(){chartConfirmation=null;document.getElementById('chart-confirmation')?.remove();levels={tp:paperConfig.tp,sl:paperConfig.sl};if(paperConfig.entry)entry=paperConfig.entry;updateLines();}
 function stageChartConfirmation(body){
  const cancel=body.action==='cancelProtectionPreview',protection=body.action==='amend'&&['tp','sl'].includes(body.role),edit=body.action==='edit_entry'&&Number.isFinite(body.price)&&!body.cancel;
  if(body.chart_confirmed||!(cancel||protection||edit))return false;
  if((cancel||protection)&&displayOptions.rightClickTrading===true){body.chart_confirmed=true;return false;}
  chartConfirmation={body:{...body,expected_ref:body.expected_ref??paperConfig.order_ref,chart_confirmed:true},identity:confirmationIdentity()};
- const text=document.createElement('p');text.textContent=cancel?'Cancel '+(body.role?.toUpperCase()||'TP / SL')+'? Position remains open.':(protection?body.role.toUpperCase():'Order')+' → '+String(body.price);
- const discard=document.createElement('button');discard.textContent='Discard';discard.type='button';discard.onclick=discardChartConfirmation;
- const confirm=document.createElement('button');confirm.textContent='Confirm';confirm.type='button';confirm.onclick=()=>{const draft=chartConfirmation;if(!draft)return;const valid=draft.identity===confirmationIdentity()&&!paperConfig.busy;discardChartConfirmation();if(valid)paperAction(draft.body);};
- confirmationBox.replaceChildren(text,discard,confirm);confirmationBox.hidden=false;discard.focus();return true;
+ updateLines();document.querySelector('#chart-confirmation [role=button]')?.focus();return true;
 }
 window.requestProtectionCancellation=body=>paperAction({...body,action:'cancelProtectionPreview'});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&chartConfirmation){e.preventDefault();discardChartConfirmation();}});

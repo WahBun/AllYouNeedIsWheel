@@ -1,3 +1,13 @@
+## 2026-10-14 inline confirmation correction
+
+Replaced the floating confirmation card with Discard/Confirm directly left of the
+relevant TP/SL or entry label, matching existing futures quantity-edit controls.
+Shared HTML covers web and native. No order routing or backend changes.
+Desktop/mobile confirmation and quantity-edit regressions passed; mobile screenshot
+reviewed. One-click bypass, stale-context guards and Escape behavior preserved.
+Static deployment only; no service restart or real order operations. Phone requires
+user Run to bundle the updated asset; no new physical-device installation verified.
+
 ## 2026-10-14 shared one-click protection confirmation and Detail collapse
 
 One-click trading now covers chart right-click entry plus dragging/removing TP/SL.
