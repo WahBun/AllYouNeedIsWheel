@@ -16,7 +16,7 @@ for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [
  else if(u.pathname.includes('stock-chart-stream'))return route.abort();
  else if(u.pathname.includes('stock-chart/')){const now=Date.now()/1000;result={con_id:7,generation:'test',account_epoch:'offline-live',security_type:asset,symbol:'TEST',currency:'USD',multiplier:asset==='STK'?1:asset==='FUT'?2:100,interval:Number(u.searchParams.get('interval')),session:u.searchParams.get('session'),server_time:now,quote_expires_at:stale?now-1:now+60,bid:2.1,ask:2.2,price_rules:[{low:0,increment:.01}],bars:Array.from({length:30},(_,i)=>({time:1790947800+i*300,open:2.1,high:2.2,low:2,close:2.12}))};}
  else if(u.pathname.includes('paper-chart/'))result=state;
- else if(u.pathname.endsWith('bootstrap'))result={positions:[]};else if(u.pathname.endsWith('pending-orders'))result={orders:[]};
+ else if(u.pathname.endsWith('bootstrap'))result={positions:[{con_id:7,symbol:'TEST',position:-3,security_type:asset}]};else if(u.pathname.endsWith('pending-orders'))result={orders:[{con_id:7,symbol:'TEST',quantity:1,order_type:'STP'}]};
  await route.fulfill({json:result});});
  await page.goto(base+'/superchart?con_id=7');await page.waitForFunction(()=>!document.getElementById('close').disabled);
  await page.evaluate(({lang,light})=>{document.documentElement.lang=lang;document.body.classList.toggle('light',light)},{lang,light});
@@ -25,6 +25,7 @@ for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [
  assert.equal(writes.at(-1).action,'set_protection');assert.equal(writes.at(-1).tp,.53);
  for(const action of ['add','trim','close','be']){await page.locator('#'+action).click();await page.waitForFunction(()=>!document.getElementById('close').disabled);const b=writes.at(-1);assert.equal(b.action,action);assert.equal(b.expected_ref,'position-test');if(action!=='be'){assert.equal(b.expected_position,-3);assert.equal(b[action==='add'?'entry_type':'exit_type'],'LMT');assert.equal(b[action==='add'?'entry':'exit_price'],asset==='FUT'?(action==='add'?2.1:2.2):2.15);}}
  stale=true;await page.reload();await page.waitForFunction(()=>!document.getElementById('close').disabled);const n=writes.length;await page.locator('#close').click();await page.waitForTimeout(100);assert.equal(writes.length,n);
+ for(const id of ['orders','positions']){await page.locator('#toggle-trade').click();await page.locator('#'+id+' button').first().click();assert.equal(await page.locator('#chart-detail').isVisible(),false);assert.equal(await page.locator('#toggle-trade').getAttribute('aria-expanded'),'false');await page.waitForFunction(()=>!document.getElementById('close').disabled);}
  if(asset!=='OPT'){assert.deepEqual(errors,[]);await page.close();continue;}
  stale=false;state={enabled:true,known:true,active:false,position:0,live_options_scope:true,orders:[]};await page.reload();await page.waitForFunction(()=>!document.getElementById('quantity').disabled&&document.getElementById('quantity').max==='10');
  assert.equal(await page.locator('#bracket-enabled').isDisabled(),false);assert.equal(await page.locator('#type option').nth(1).isDisabled(),false);

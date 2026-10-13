@@ -606,7 +606,24 @@ function syncHoldingOverlays(config) {
  // Holdings are overlays; keep candle scaling independent of position cost.
 }
 let paperConfig={},paperCID=0,displayOptions={},accountExecutions=[];
-function paperAction(body){const settings=['editQuantity','editOrderSettings'].includes(body.action)?{side,entry_type:entryType}:{};window.webkit?.messageHandlers.paperAction?.postMessage({...settings,...body,con_id:paperCID});}
+let chartConfirmation=null;
+const confirmationBox=document.createElement('div');confirmationBox.id='chart-confirmation';confirmationBox.hidden=true;confirmationBox.setAttribute('role','group');confirmationBox.setAttribute('aria-label','Confirm order change');document.body.append(confirmationBox);
+const confirmationStyle=document.createElement('style');confirmationStyle.textContent='#chart-confirmation{position:absolute;z-index:40;right:110px;bottom:100px;max-width:300px;padding:8px 10px;background:#202225;color:#eee;border:1px solid #555;border-radius:4px;font:12px -apple-system,sans-serif;box-shadow:0 2px 8px #0004}#chart-confirmation[hidden]{display:none}#chart-confirmation p{margin:0 0 7px}#chart-confirmation button{padding:4px 9px;border-radius:3px;border:1px solid #ddd;margin-right:4px;cursor:pointer;background:white;color:#222}#chart-confirmation button:last-child{background:#2962ff;color:white;border-color:#2962ff}@media(max-width:600px){#chart-confirmation{right:64px;bottom:86px;max-width:230px}}';document.head.append(confirmationStyle);
+function confirmationIdentity(){return JSON.stringify([paperCID,paperConfig.web_account_epoch,paperConfig.order_ref,paperConfig.position,paperConfig.tp,paperConfig.sl,paperConfig.edit_snapshot,paperConfig.cancelable_exits,(paperConfig.orders||[]).map(o=>[o.order_id,o.role,o.status,o.quantity,o.filled,o.price])]);}
+function discardChartConfirmation(){chartConfirmation=null;confirmationBox.hidden=true;levels={tp:paperConfig.tp,sl:paperConfig.sl};if(paperConfig.entry)entry=paperConfig.entry;updateLines();}
+function stageChartConfirmation(body){
+ const cancel=body.action==='cancelProtectionPreview',protection=body.action==='amend'&&['tp','sl'].includes(body.role),edit=body.action==='edit_entry'&&Number.isFinite(body.price)&&!body.cancel;
+ if(body.chart_confirmed||!(cancel||protection||edit))return false;
+ if((cancel||protection)&&displayOptions.rightClickTrading===true){body.chart_confirmed=true;return false;}
+ chartConfirmation={body:{...body,expected_ref:body.expected_ref??paperConfig.order_ref,chart_confirmed:true},identity:confirmationIdentity()};
+ const text=document.createElement('p');text.textContent=cancel?'Cancel '+(body.role?.toUpperCase()||'TP / SL')+'? Position remains open.':(protection?body.role.toUpperCase():'Order')+' → '+String(body.price);
+ const discard=document.createElement('button');discard.textContent='Discard';discard.type='button';discard.onclick=discardChartConfirmation;
+ const confirm=document.createElement('button');confirm.textContent='Confirm';confirm.type='button';confirm.onclick=()=>{const draft=chartConfirmation;if(!draft)return;const valid=draft.identity===confirmationIdentity()&&!paperConfig.busy;discardChartConfirmation();if(valid)paperAction(draft.body);};
+ confirmationBox.replaceChildren(text,discard,confirm);confirmationBox.hidden=false;discard.focus();return true;
+}
+window.requestProtectionCancellation=body=>paperAction({...body,action:'cancelProtectionPreview'});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&chartConfirmation){e.preventDefault();discardChartConfirmation();}});
+function paperAction(body){if(stageChartConfirmation(body))return;const settings=['editQuantity','editOrderSettings'].includes(body.action)?{side,entry_type:entryType}:{};window.webkit?.messageHandlers.paperAction?.postMessage({...settings,...body,con_id:paperCID});}
 const quantityPopup=document.createElement('div');quantityPopup.id='order-quantity-popup';quantityPopup.hidden=true;quantityPopup.style.cssText='position:absolute;z-index:30;width:210px;padding:12px;background:#202020;color:#eee;border:1px solid #555;border-radius:9px;box-shadow:0 5px 16px #0005';document.body.append(quantityPopup);
 let quantityDraft=null;
 function quantityDraftValid(){return quantityDraft&&paperCID===quantityDraft.cid&&paperConfig.web_account_epoch===quantityDraft.epoch&&paperConfig.order_ref===quantityDraft.ref&&paperConfig.active&&paperConfig.entry_editable&&!paperConfig.position&&JSON.stringify(paperConfig.edit_snapshot)===JSON.stringify(quantityDraft.snapshot);}
@@ -664,6 +681,7 @@ window.configure=(config)=>{optionQuoteDark=!!config.dark;accountExecutions=conf
  if(config.previewRevision>lastPreviewRevision){lastPreviewRevision=config.previewRevision;if(!paperConfig.active&&(config.previewSide===1||config.previewSide===-1)){explicitPreviewSide=config.previewSide;setSide(config.previewSide);canceled=false;levels={tp:0,sl:0};appliedTemplate=-1;}}
  if(paperConfig.active&&paperConfig.entry>0){if(dragging!=='entry')entry=paperConfig.entry_target??paperConfig.entry;entryType=paperConfig.entry_type||entryType;qty=Math.abs(paperConfig.position)||paperConfig.quantity||paperConfig.orders?.find(o=>o.role==='entry')?.quantity||qty;side=paperConfig.side;breakEven=paperConfig.be_applied===true;if(!dragging){levels={tp:paperConfig.tp,sl:paperConfig.sl};if(paperConfig.protection_drag_role&&paperConfig.protection_target!=null)levels[paperConfig.protection_drag_role]=paperConfig.protection_target;}canceled=false;}
  if(quantityDraft){if(quantityDraftValid()&&!paperConfig.busy)qty=quantityDraft.value;else {quantityDraft=null;quantityPopup.hidden=true;}}
+ if(chartConfirmation){if(chartConfirmation.identity!==confirmationIdentity()||paperConfig.busy)discardChartConfirmation();else if(chartConfirmation.body.action==='amend')levels[chartConfirmation.body.role]=chartConfirmation.body.price;}
  updateLines();
  document.getElementById('entry').style.pointerEvents=(paperConfig.active?!canDragEntry():paperConfig.busy)?'none':'auto';
  for(const role of ['tp','sl'])document.getElementById(role).style.pointerEvents=canDragProtection(role)?'auto':'none';
@@ -823,7 +841,7 @@ function finishWebProtectionDrag(pointerId){
  const valid=gesture.cid===paperCID&&gesture.ref===paperConfig.order_ref&&gesture.epoch===paperConfig.web_account_epoch&&paperConfig.active&&paperConfig.known===true&&!paperConfig.sync_error&&canDragProtection(gesture.role)&&paperConfig.orders?.some(o=>o.role.split('_')[0]===gesture.role&&['Submitted','PreSubmitted'].includes(o.status));
  if(!valid){cancelWebProtectionDrag('Order state changed; refresh before dragging again.');return;}
  const price=levels[gesture.role];if(!(Number.isFinite(price)&&price>0)){cancelWebProtectionDrag('No valid target price; price unchanged.');return;}webProtectionDrag=null;dragging=null;
- reportWebDrag(gesture.role,price===gesture.start?'released at unchanged price':'released; sending amendment');
+ reportWebDrag(gesture.role,price===gesture.start?'released at unchanged price':displayOptions.rightClickTrading===true?'released; sending amendment':'released; awaiting confirmation');
  if(price!==gesture.start)paperAction({action:'amend',role:gesture.role,price,expected_ref:gesture.ref});
 }
 window.finishWebProtectionDrag=finishWebProtectionDrag;

@@ -1,3 +1,24 @@
+## 2026-10-14 shared one-click protection confirmation and Detail collapse
+
+One-click trading now covers chart right-click entry plus dragging/removing TP/SL.
+The existing web preference is retained; native adds a default-off local toggle.
+Off: shared chart displays an English Confirm/Discard panel before protection
+amendments or removal. On: these actions dispatch directly. Ordinary entry price
+edits still require confirmation regardless of the toggle. Drafts are invalidated
+by contract/account/order/position changes or busy state, and Escape discards.
+Web no longer uses browser confirm() for protection removal; the native bridge
+accepts shared-chart confirmation without showing a second dialog. Backend
+ownership and unknown-result handling remain unchanged.
+
+Detail now collapses after a valid Orders/Positions selection; disabled/busy rows
+do not navigate. Validated with eight offline web management cases, shared chart
+confirmation tests at desktop/mobile widths, right-click/settings regressions and
+104 Simulator checks. Screenshots reviewed. No real orders or gateway operations.
+REA passive TV inspection was available, but no live cancellation was triggered
+on the reference product: confirmation UI is a Wheel adaptation of its existing
+Confirm/Discard controls and the user's supplied screenshots, not a claim of
+observed TV cancellation behavior. Static deployment needs no backend restart.
+
 ## 2026-10-14 option and stock midpoint management
 
 Web and native chart Add/Trim/Close for OPT/STK now select the latest valid

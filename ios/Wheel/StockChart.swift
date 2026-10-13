@@ -370,6 +370,10 @@ struct StockChartView: View {
         var body = incoming
         if body["action"] as? String == "submitBlocked" { paperMessage = "Trading unavailable; waiting for order status"; return }
         if body["action"] as? String == "be" { body["manual_stop_quantity"] = true }
+        if body["action"] as? String == "cancelProtectionPreview", body["chart_confirmed"] as? Bool == true {
+            guard body["con_id"] as? Int == chartID, body["expected_ref"] as? String == paperState["order_ref"] as? String else { return }
+            body["action"] = "cancel_protection"; body["confirm_remove_protection"] = true
+        }
         if body["action"] as? String == "cancelProtectionPreview" {
             protectionCancelRef = body["expected_ref"] as? String
             protectionCancelCID = chartID
@@ -507,6 +511,7 @@ struct StockChartView: View {
     @AppStorage("futureChartTPDistance") private var futureTPDistance = "2.00"
     @AppStorage("futureChartSLDistance") private var futureSLDistance = "1.00"
     @AppStorage("chartShowProfit") private var showProfit = true
+    @AppStorage("chartOneClickTrading") private var oneClickTrading = false
     @AppStorage("chartShowHoldings") private var showHoldings = true
     @AppStorage("chartOrderExtensionLines") private var showOrderExtensionLines = true
     @AppStorage("chartBarCount") private var rthBarCount = true
@@ -950,7 +955,7 @@ struct StockChartView: View {
     private var adjustmentLimit: Int { adjustmentAction == "trim" ? min(positionSize, (paperState["trim_available"] as? NSNumber)?.intValue ?? positionSize) : ((paperState["add_available"] as? NSNumber)?.intValue ?? 0) }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
+        ["rightClickTrading": oneClickTrading, "volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
          "emaDynamic": emaDynamic, "emaColor": emaColor + "ab", "emaWidth": emaWidth, "emaStyle": emaStyle,
          "atr": showATR && indicatorVisible, "atrLength": atrLength, "profit": showHoldings && showProfit, "positions": showHoldings && showPositionProfit, "brackets": showHoldings && showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
@@ -1340,6 +1345,10 @@ struct StockChartView: View {
         .sheet(isPresented: $showDisplaySettings) {
             NavigationStack {
                 Form {
+                    Section("General") {
+                        Toggle("One-click trading", isOn: $oneClickTrading)
+                        Text("Submit chart right-click Buy/Sell and drag or remove TP/SL without confirmation. Other order edits still require confirmation.").font(.caption).foregroundStyle(.secondary)
+                    }
                     Section("Positions") {
                         Toggle("Positions", isOn: $showHoldings)
                         Toggle("Order and TP/SL extension lines", isOn: $showOrderExtensionLines)
