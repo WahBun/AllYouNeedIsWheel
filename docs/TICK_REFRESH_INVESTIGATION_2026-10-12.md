@@ -103,3 +103,50 @@ agreed on the latest price after renewal. This is one real-feed observation,
 not a distribution or exchange-to-screen latency claim. The preview forwarded
 no trading writes. Temporary evidence: /tmp/wheel-deployed-renewal.json and
 /tmp/wheel-deployed-renewal.png. The upstream/network improvement remains deferred.
+
+## 2026-10-13 bounded Paper proxy comparison
+
+Development checkout: `922512b`; running Mini code: `7247996c`. No application
+code, execution gates or orders were changed by this network experiment.
+
+The first Paper-only proxy attempt failed with IB error 162, "Trading TWS session
+is connected from a different IP address". Following separate user authorization,
+a read-only Live snapshot found existing positions but no open orders. The Live
+IBC parent was suspended while its Java login process exited; its existing cold
+restart marker was retained so the container supervisor stayed alive. Paper was
+then restarted with isolated JVM SOCKS settings. Observed external Paper sockets
+pointed to the host proxy and actual MNQ ticks resumed while Live was logged out.
+This supports session conflict as the first attempt's blocker, not a conclusion
+that the proxy was slower.
+
+Passive 25-second samples, Paper API port only, MNQ prices, and burst boundaries
+at gaps greater than 20 ms:
+
+| Route / window | Captured ticks | Burst gap median | Burst gap P95 |
+| --- | ---: | ---: | ---: |
+| Hong Kong proxy, stable | 1061 | 209 ms | 473 ms |
+| Restored direct, first | 647 | 236 ms | 810 ms |
+| Restored direct, stable | 815 | 246 ms | 1448 ms |
+
+The paired 20-second four-pane browser windows had update-gap P95 approximately
+543–552 ms on the proxy and 1162–1169 ms on restored direct. Main-pane application
+P95 was 6.3 / 6.5 ms respectively. These sequential short samples have different
+market activity, best-effort packet reassembly, and no simultaneous reference
+feed control. They suggest fewer long gaps on the tested proxy, but do not prove
+a durable causal improvement or a guaranteed exchange-to-screen latency. IB tick
+timestamps have one-second precision; cross-host clock offsets also prevent
+interpreting raw server/browser age as pure transport latency.
+
+Restoration: Paper proxy flags removed, Live resumed with its original launcher
+and direct route, user restored US node plus smart mode. A fresh read-only Live
+API check verified the expected account, unchanged position quantities and zero
+open orders. No orders were placed, amended or canceled. Four panes resumed
+updates. The temporary Paper launcher copy retains the original script contents;
+no shared launcher or connection profile was altered. No permanent proxy route
+has been deployed. Future use must account for shared Live/Paper data sessions,
+proxy failures, and service supervision rather than retaining this test harness.
+
+Private temporary samples: `/tmp/wheel-hk-isolated-steady.jsonl`,
+`/tmp/wheel-direct-after-hk.jsonl`, `/tmp/wheel-direct-after-hk-steady.jsonl`,
+and the corresponding `*-browser-summary.json` files. REA confirmed the selected
+Wheel runtime target: `ev_ea6cbe221f80e57680d5dc3da4166ce454c1569b4c79628e515bb12d0323b638`.
