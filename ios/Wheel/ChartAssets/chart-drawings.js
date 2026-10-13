@@ -99,6 +99,18 @@ function syncToolVisibility(){
  const logo=document.getElementById('tv-attr-logo');
  if(logo){logo.setAttribute('role','button');logo.setAttribute('aria-label',toolsVisible?'Hide drawing tools':'Show drawing tools');logo.setAttribute('aria-pressed',String(toolsVisible));logo.title=toolsVisible?'Hide drawing tools':'Show drawing tools';}
 }
+window.setPaneChrome=visible=>{
+ document.body.classList.toggle('auxiliary-chrome-hidden',!visible);
+ chart.applyOptions({layout:{attributionLogo:visible}});
+ if(!visible&&toolsVisible)toggleToolVisibility();
+};
+const paneStyle=document.createElement('style');paneStyle.textContent='body.auxiliary-chrome-hidden #draw-toolbar,body.auxiliary-chrome-hidden #draw-menu,body.auxiliary-chrome-hidden #draw-properties,body.auxiliary-chrome-hidden #draw-magnet,body.auxiliary-chrome-hidden #draw-editor,body.auxiliary-chrome-hidden #draw-hint,body.auxiliary-chrome-hidden #draw-touch{display:none!important}';document.head.append(paneStyle);
+window.resetChartView=()=>{
+ if(!previous.length)return;
+ activePriceScale().applyOptions({autoScale:true});
+ const last=latestBarLogical();if(last===null)return;
+ chart.timeScale().setVisibleLogicalRange({from:last-(displayOptions.nativeCompact?31:49),to:last+(displayOptions.nativeCompact?21:11)});
+};
 function toggleToolVisibility(){
  if(toolsVisible){touch.onpointercancel?.();drag=null;selected=null;editor.style.display='none';choose(null);}
  toolsVisible=!toolsVisible;

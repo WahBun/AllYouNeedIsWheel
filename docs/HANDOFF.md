@@ -1,5 +1,38 @@
 # Project Handoff
 
+## 2026-10-13 per-pane view controls and tail following
+
+Each pane now has compact maximize/restore and reset buttons above ATR. They
+reveal only when hovering their small control area (or keyboard focus), not on
+whole-chart hover. Touch devices keep an accessible visible target. Mac
+labels use Option: Option+Enter or Option+click toggles the selected pane;
+Option+R resets only that pane to recent candles and automatic price scaling.
+Inputs and open dialogs do not consume these shortcuts. Auxiliary chart logos
+and drawing-tool chrome stay hidden until maximized; restoring the grid hides
+them again. Existing drawings, pane settings and main-pane attribution remain.
+
+REA current-page evidence
+`ev_e0235c7e9f34b4bcc4d4976bb8f28e6ea70dc089640f580838f20ba0b46eeb71`
+matched retained TV bundles 762 (SHA256
+`2732aebe665f0d01abb81089f4d3a24838e7bb0347ee68173adb6d49afb9ae36`)
+and 62766 (`20550a5624197c012efcab64aaaa3d37382c44f6e9026bce3c6d7701c05282da`).
+They expose per-widget maximize/restore, scrollToRealtime and new-bar range
+shifting. User screenshots establish the two buttons and Option shortcuts;
+this is source/UI evidence, not a replay of all TV interaction paths.
+
+Wheel's corrected-history snapshot branch preserved an old range even when a
+new candle arrived. Tail following now preserves the actual latest candle's
+screen offset across new bars only when it was already visible. Browsing old
+bars stays anchored. Same-candle ticks do no new viewport work. Reset uses the
+actual logical coordinate rather than candle count, because indicator series
+can extend the shared time axis. Quote transport and aggregation are unchanged.
+
+Validation: per-pane browser interaction and tail/history regression, 65 frontend
+checks, 1–4 pane and dual-page baseline comparison, repeated layout/recovery,
+100Hz stress and eight-distinct-symbol workloads passed with no trading writes.
+At 10Hz, four-pane apply p95 remained 5ms; dual-page maximum was 7ms versus
+5ms baseline. These are local synthetic measurements, not IB latency claims.
+
 ## 2026-10-13 holding basis and compact protection labels
 
 Runtime release `7b3bb36d023441c3b7470c8e8759a1e2bda503a4` is deployed to
