@@ -29,14 +29,16 @@ const {start}=require('./market-feed/harness.cjs');
  assert.equal(result.switched.visible,false);assert.equal(result.fiveMinute,true);assert.equal(h.metrics.posts,0);
  // Exercise the real auxiliary buffer: history insertion must not mutate
  // the renderer's previous array before it detects the prepend/reset.
+ for(const active of [3,2]){
+ let historyAttempts=0, firstBusyAt=0, recoveredAt=0;
  let release;const pendingHistory=new Promise(r=>release=r);
  const bars=Array.from({length:183},(_,i)=>{const close=i<176?200:100+(i-176)*.2;return {time:1700000000+i*3600,open:close,high:close+1,low:close-1,close}});
- await page.addInitScript(()=>{if(window===top)localStorage.setItem('wheel.chart-layout',JSON.stringify({count:4,active:3,syncVersion:1,panes:[1,15,60,5].map(interval=>({cid:7,interval,session:'all'}))}));});
+ await page.addInitScript(active=>{if(window===top)localStorage.setItem('wheel.chart-layout',JSON.stringify({count:4,active,syncVersion:1,panes:[1,15,60,5].map(interval=>({cid:7,interval,session:'all'}))}));},active);
  await page.route('**/api/**',async r=>{const u=new URL(r.request().url());let json={};
   if(r.request().method()!=='GET')throw Error('Unexpected write');
   if(u.pathname.includes('stock-chart-stream'))return r.abort();
   if(u.pathname.endsWith('/profiles'))json={selected:'paper',verified:true,epoch:'mock-epoch',readonly:true};
-  else if(u.pathname.includes('stock-chart-history')){await pendingHistory;json={bars:bars.slice(0,-7)};}
+  else if(u.pathname.includes('stock-chart-history')){if(u.searchParams.get('interval')==='60'){historyAttempts++;if(historyAttempts===1){firstBusyAt=Date.now();return r.fulfill({status:503,json:{error:'IB requests are busy; please retry shortly'}});}recoveredAt=Date.now();}await pendingHistory;json={bars:bars.slice(0,-7)};}
   else if(u.pathname.includes('stock-chart/'))json={con_id:7,account_epoch:'mock-epoch',generation:'cold',interval:Number(u.searchParams.get('interval')),session:'all',bars:bars.slice(-7),security_type:'FUT'};
   else if(u.pathname.endsWith('bootstrap'))json={positions:[]};
   else if(u.pathname.includes('paper-chart/'))json={enabled:false,known:true,orders:[]};
@@ -51,6 +53,9 @@ const {start}=require('./market-feed/harness.cjs');
  release();await hour.waitForFunction(()=>previous.length===183&&emaSeries.options().visible);
  await page.waitForFunction(()=>document.getElementById('chart-group-loading').hidden);
  const integrated=await hour.evaluate(()=>{let expected=previous[0].close;for(const b of previous)expected+=2/21*(b.close-expected);return {actual:emaSeries.data().at(-1).value,expected,priceBars:series.data().length}});
+ assert.ok(historyAttempts>=2,'busy history must be retried');assert.ok(recoveredAt-firstBusyAt<8000,'busy history must not stall the group for 30 seconds');
  assert.equal(integrated.actual,integrated.expected,'history prepend must reset EMA seed');assert.equal(integrated.priceBars,183);
+ await page.unroute('**/api/**');
+ }
  console.log('PASS: short hourly seed withheld, quotes update immediately, full history restores correct downward EMA, symbol reset and 5m preserved.');
 }finally{await browser?.close();await h.close();}})().catch(e=>{console.error(e);process.exitCode=1});

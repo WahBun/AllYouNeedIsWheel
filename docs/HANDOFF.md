@@ -1,3 +1,24 @@
+## 2026-10-13 symbol-switch history admission recovery
+
+Observed on the deployed Paper page: MNQ settled in 1.5 seconds; switching back
+to QQQ left 1h at 9 bars while the other panes had data, then completed at 31.7
+seconds. The shared history loader imposed a 30-second cooldown even when the
+IB dispatcher explicitly rejected a read before execution. The 1h EMA seed
+barrier made that delay visible as 3/4. Keep the seed barrier: removing it would
+reintroduce the incorrect short-history EMA slope.
+
+Development change: confirmed busy/unstarted history reads retry after two
+seconds; optional indicator/execution reads wait until the chart group is ready.
+Auxiliary context changes release their own history loading state, and stale
+completions cannot release a new context's in-flight guard. Trading writes are
+not retried. Main and auxiliary busy-history regressions pass with exact seeded
+EMA values; symbol switching passes desktop/mobile and light/dark fixtures.
+Deployment and broker before/after timing still require verification.
+
+REA page observations were used, but the passive capture did not retain the
+symbol-switch network requests. The 31.7-second measurement comes from direct
+browser state sampling; do not present it as a captured TV implementation.
+
 ## 2026-10-13 RTH QQQ differential acceptance — incomplete
 
 GitHub development/native branches and the clean Mini deployment were verified at
