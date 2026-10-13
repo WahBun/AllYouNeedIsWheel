@@ -1,3 +1,31 @@
+## 2026-10-13 RTH QQQ differential acceptance — incomplete
+
+GitHub development/native branches and the clean Mini deployment were verified at
+`7247996ce172ee26487fa4029fd92610c49c7eaf`. The selected session was verified IB
+Paper with a stable account epoch. QQQ had no starting position or working orders.
+Only a new isolated test group was used; no Live writes or service restarts occurred.
+
+Broker evidence: a 100-share DAY LMT bracket was acknowledged, then an exact-snapshot
+entry replacement changed the parent and both contingent exits to 120 shares.
+Initial unknown responses were reconciled using reads only, never resubmitted.
+No fills were observed. Cleanup was acknowledged; all three replacement orders
+were Cancelled, the test group was done/inactive, position was zero, and there
+were no pending broker orders. Raw identity-bearing evidence remains private.
+
+Blocking code finding: protected STK entries use an aggregate bracket, whereas
+protected FUT scaling requires per-unit lots. STK protected Add/Trim is not
+implemented by that common path; the existing guard correctly disables it.
+Do not enable it by relaxing the guard or treating a 120-share aggregate as one
+futures lot. Actual stock fills, protection resizing after scaling, RTH stop
+triggering and stock-specific recovery remain unverified. Stock/futures Live
+activation and the final native workflow acceptance are NOT complete.
+
+Focused offline validation: 47 tests passed across CoverageTests,
+OptionAggregateTests, EntryEditTests and PricedChartCloseTests. A broader module
+loader also discovered inherited ExistingPositionProtectionTests whose fixture
+failed (15 failures/22 errors); those failures have not been repaired or dismissed
+as production evidence. The focused pass does not replace broker acceptance.
+
 # Project Handoff
 
 ## 2026-10-13 RTH 8h session-day correction
