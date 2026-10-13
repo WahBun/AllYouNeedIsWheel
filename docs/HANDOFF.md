@@ -13,7 +13,23 @@ Auxiliary context changes release their own history loading state, and stale
 completions cannot release a new context's in-flight guard. Trading writes are
 not retried. Main and auxiliary busy-history regressions pass with exact seeded
 EMA values; symbol switching passes desktop/mobile and light/dark fixtures.
-Deployment and broker before/after timing still require verification.
+GitHub and Mini static assets were updated to 839f26d without a backend or
+Gateway restart. The deployed page's next warm switch measured MNQ 1.52 seconds
+and QQQ 0.51 seconds with all four panes ready. Cache state differs from the
+31.7-second sample: these observations do not establish a cold-load guarantee.
+The paired offline latency matrix remained comparable (four panes at 10Hz:
+pre-fix p95 2–5ms, post-fix 2–5ms). Layout recovery, two four-pane pages, 100Hz
+stress and eight distinct symbols passed without order writes.
+
+Mini Git fetch diagnosis: no Git proxy configuration or proxy environment was
+present despite the system proxy being enabled. Direct branch lookup/fetch
+samples completed in roughly 2–4 seconds; explicit local HTTP proxy samples
+exceeded 18–20 seconds. The original intermittent stall's network cause is not
+proven. Repository-local lowSpeedLimit=1 and lowSpeedTime=20 were added after a
+private configuration backup. Actual fetch then passed in 3.83 seconds and
+matched the deployed commit. Use an external total deadline as well: low-speed
+settings do not promise a total command timeout. No system/global proxy or
+Gateway settings changed.
 
 REA page observations were used, but the passive capture did not retain the
 symbol-switch network requests. The 31.7-second measurement comes from direct
