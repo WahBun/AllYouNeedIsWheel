@@ -501,7 +501,7 @@ let favorites=stored('wheel.chart.intervals');favorites=Array.isArray(favorites)
 function renderIntervals(){
  $('intervals').replaceChildren();$('interval-menu').replaceChildren();let group='';
  for(const [value,label,section] of periods){
-  if(favorites.includes(value)){const b=document.createElement('button');b.textContent=label;b.dataset.interval=value;b.classList.toggle('active',interval===value);b.onclick=()=>changeInterval(value);$('intervals').append(b);}
+  if(favorites.includes(value)){const b=document.createElement('button');b.textContent=label.replace(/^1([DWM])$/,'$1');b.dataset.interval=value;b.classList.toggle('active',interval===value);b.onclick=()=>changeInterval(value);$('intervals').append(b);}
   if(group!==section){const heading=document.createElement('div');heading.className='interval-heading';heading.textContent=section.toUpperCase();$('interval-menu').append(heading);group=section;}
   const row=document.createElement('div');row.className='interval-row';const choose=document.createElement('button');choose.textContent=label;choose.classList.toggle('active',interval===value);choose.onclick=()=>{changeInterval(value);closeIntervalMenu(true);};const star=document.createElement('button');star.dataset.interval=value;star.textContent=favorites.includes(value)?'★':'☆';star.setAttribute('aria-label','Favorite '+label);star.setAttribute('aria-pressed',String(favorites.includes(value)));star.onclick=()=>{favorites=favorites.includes(value)?favorites.filter(v=>v!==value):[...favorites,value];localStorage.setItem('wheel.chart.intervals',JSON.stringify(favorites));renderIntervals();$('interval-menu').querySelector(`[data-interval="${value}"]`)?.focus();};row.append(choose,star);$('interval-menu').append(row);
  }

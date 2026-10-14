@@ -12,10 +12,19 @@ const {start}=require('./market-feed/harness.cjs');
    assert.equal(result.navInHeader,width>=1280);assert.ok(result.scrollWidth<=width,'No page overflow at '+width);assert.equal(result.sameNodes,true,'Controls and chart frames are retained');
    if(width===1920||(dark&&width>=1400))assert.ok(Math.abs(result.centerX-width/2)<1,'Instrument and interval group centers on the whole toolbar');
    if(width>=1280){assert.equal(result.headerHeight,58);assert.equal(result.chartTop,result.headerBottom,'Chart starts directly below one toolbar row');for(const r of result.controls){assert.ok(r.top>=0&&r.bottom<=58&&r.left>=0&&r.right<=width,'Controls fit one row at '+width);}}
-   for(const selector of ['#interval','#layout-button','#session-button']){await page.locator(selector).click();await page.keyboard.press('Escape');}
+   await page.locator('#interval').click();
+   const period=page.locator('#interval-menu').getByRole('button',{name:'3m',exact:true});
+   assert.equal(await period.evaluate(e=>{const r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),true,'Open interval menu receives clicks above chart frames at '+width);
+   if([1920,393].includes(width))await page.screenshot({path:`/tmp/wheel-interval-menu-${width}-${dark?'dark':'light'}.png`});
+   await period.click();await page.waitForFunction(()=>document.getElementById('chart').contentDocument.getElementById('chart-title')?.textContent.endsWith('· 3')&&!document.getElementById('chart-grid').hasAttribute('aria-busy'));
+   assert.equal(await page.locator('#interval-menu').isVisible(),false,'Selecting a period closes the menu');
+   await page.locator('#interval').click();await page.locator('#interval-menu').getByRole('button',{name:'5m',exact:true}).click();await page.waitForFunction(()=>document.getElementById('chart').contentDocument.getElementById('chart-title')?.textContent.endsWith('· 5')&&!document.getElementById('chart-grid').hasAttribute('aria-busy'));
+   const strip=await page.locator('#intervals button.active').evaluate(e=>({height:e.getBoundingClientRect().height,border:getComputedStyle(e).borderTopWidth,background:getComputedStyle(e).backgroundColor}));
+   assert.equal(strip.height,34);assert.equal(strip.border,'0px');assert.notEqual(strip.background,'rgb(49, 95, 196)','Compact interval selection uses neutral emphasis');
+   for(const selector of ['#layout-button','#session-button']){await page.locator(selector).click();await page.keyboard.press('Escape');}
    if([1920,393].includes(width))await page.screenshot({path:`/tmp/wheel-unified-${width}-${dark?'dark':'light'}.png`});
   }
-  await page.locator('#fullscreen').click();await page.waitForFunction(()=>document.fullscreenElement&&document.querySelector('nav').parentElement===document.querySelector('.workspace'));assert.equal(await page.locator('#interval').isVisible(),true,'Interval picker remains available in fullscreen');await page.locator('#interval').click();await page.keyboard.press('Escape');await page.locator('#fullscreen').click();await page.waitForFunction(()=>!document.fullscreenElement&&document.querySelector('nav').parentElement===document.querySelector('body>header'));
+  await page.locator('#fullscreen').click();await page.waitForFunction(()=>document.fullscreenElement&&document.querySelector('nav').parentElement===document.querySelector('.workspace'));assert.equal(await page.locator('#interval').isVisible(),true,'Interval picker remains available in fullscreen');await page.locator('#interval').click();await page.locator('#interval-menu').getByRole('button',{name:'3m',exact:true}).click();await page.waitForFunction(()=>document.getElementById('chart').contentDocument.getElementById('chart-title')?.textContent.endsWith('· 3')&&!document.getElementById('chart-grid').hasAttribute('aria-busy'));await page.locator('#fullscreen').click();await page.waitForFunction(()=>!document.fullscreenElement&&document.querySelector('nav').parentElement===document.querySelector('body>header'));
   assert.equal(await page.evaluate(()=>toolbarOriginalNodes.every(e=>e.isConnected)),true);assert.deepEqual(errors,[]);await page.close();console.log(`Unified desktop toolbar, narrow layout, menus and fullscreen passed: ${dark?'dark':'light'}`);
  }
  assert.equal(server.metrics.posts,0);

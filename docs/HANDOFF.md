@@ -2119,3 +2119,24 @@ changes, and desktop/narrow layouts without broker writes. The before/after
 per-case worst-pane applied-update p95 was 3–9 ms before and 3–9 ms after (local
 synthetic results, not physical-screen or live-broker latency). Layout/recovery,
 100 Hz stress and eight distinct symbols on two pages also passed.
+
+
+## 2026-10-14 — Compact intervals and hidden dropdown repair
+
+REA inspected the current TV toolbar (`ev_3cba5670828dabbb9b219eedbc2a01316e0ab5a4b3a153425d09084c171c51a9`)
+and captured its visible styling (`ev_6d10f93ca13ec96cb851ac94da9e9644cee5b712ac13afd4eacf9c3d29c86211`).
+Adopt the observed borderless compact interval strip, neutral rounded selection,
+small chevron and D/W/M abbreviations. Wheel keeps its favorites, supported
+intervals, menus and centered toolbar; no new interval/data capability is implied.
+
+Reproduced the dropdown failure at 1920 px: `hidden=false`, but elementFromPoint
+at a visible menu row returned the chart iframe. Centering's CSS transform creates
+a stacking context below the chart. Raise the header/workspace toolbar layers so
+menus render and receive clicks above charts; keep chart layout/feed code intact.
+
+Expanded the existing toolbar test from mere open/close checks to real pointer
+hit testing and 3m/5m selection, verified through the rendered chart title at
+1920/1400/1280/1024/393 px in dark/light themes and fullscreen. Existing favorites,
+keyboard navigation, dismiss behavior and retained-frame tests also pass.
+Synthetic read-only fixtures; no orders. Static assets only: no backend/Gateway
+restart and no iOS app installation required.

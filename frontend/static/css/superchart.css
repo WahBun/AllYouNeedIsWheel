@@ -246,3 +246,19 @@ body.unified-chart-toolbar #option-search{max-width:180px;overflow:hidden;text-o
 
 body.unified-chart-toolbar>header{position:relative}
 body.unified-chart-toolbar>header.centered-chart-controls .toolbar-center{position:absolute;left:50%;top:50%;width:var(--centered-controls-width);transform:translate(-50%,-50%)}
+
+/* Transformed centered controls must keep their menus above the chart frames. */
+body>header{position:relative;z-index:50}
+.workspace>nav{position:relative;z-index:40}
+
+/* Compact interval strip: quiet defaults, neutral selected state, one chevron. */
+#intervals{gap:0;align-items:center}
+#intervals::before{content:"";height:22px;width:1px;flex-shrink:0;margin-right:6px;background:var(--border)}
+#intervals button,#interval{height:34px;min-height:34px;min-width:28px;padding:0 6px;border:0;border-radius:4px;background:transparent;color:var(--fg);font-weight:400}
+#intervals button{font-size:14px}
+#intervals button:hover,#interval:hover{background:#ffffff0f}
+#intervals button.active,#interval[aria-expanded=true]{background:#ffffff24;color:var(--fg)}
+body.light #intervals button:hover,body.light #interval:hover{background:#1317220a}
+body.light #intervals button.active,body.light #interval[aria-expanded=true]{background:#13172217}
+#interval{min-width:24px;width:24px;margin-left:-5px}
+#intervals button:focus-visible,#interval:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
