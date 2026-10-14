@@ -20,9 +20,10 @@ function stored(key){try{return JSON.parse(localStorage.getItem(key)||'{}');}cat
 const contractFavoritesKey='wheel.web.favorite-contracts';
 function readContractFavorites(){const items=stored(contractFavoritesKey);return Array.isArray(items)?items.filter(x=>Number.isSafeInteger(x?.id)&&x.id>0&&typeof x.label==='string').slice(0,100):[];}
 let contractFavorites=readContractFavorites();
+$('favorite-contracts').setAttribute('aria-label','Favorite contracts');
 function renderContractFavorites(){
  const saved=contractFavorites.some(x=>x.id===cid),button=$('favorite-contract');button.disabled=!cid;button.textContent=saved?'★':'☆';button.setAttribute('aria-pressed',String(saved));
- button.title=saved?'取消收藏 / Remove favorite':'收藏当前品种 / Favorite current contract';button.setAttribute('aria-label',button.title);
+ button.title=saved?'Remove favorite':'Favorite current contract';button.setAttribute('aria-label',button.title);
  const menu=$('favorite-contracts');menu.replaceChildren(new Option('★ Favorites',''),...contractFavorites.map(x=>new Option(x.label,String(x.id))));menu.value='';
 }
 $('favorite-contract').onclick=()=>{
@@ -30,8 +31,8 @@ $('favorite-contract').onclick=()=>{
  const label=packet.display_symbol||packet.local_symbol||$('contracts').selectedOptions[0]?.textContent||String(cid);
  if(!contractFavorites.some(x=>x.id===cid)&&(!label||/^\d+$/.test(label)||label==='Loading contract…'))return log('Contract name is still loading; retry shortly');
  const next=contractFavorites.some(x=>x.id===cid)?contractFavorites.filter(x=>x.id!==cid):[...contractFavorites,{id:cid,label}];
- if(next.length>100)return log('Favorites limit: 100 / 最多收藏 100 个品种');
- try{localStorage.setItem(contractFavoritesKey,JSON.stringify(next));contractFavorites=next;renderContractFavorites();}catch{log('Unable to save favorites / 无法保存收藏');}
+ if(next.length>100)return log('Favorites limit: 100');
+ try{localStorage.setItem(contractFavoritesKey,JSON.stringify(next));contractFavorites=next;renderContractFavorites();}catch{log('Unable to save favorites');}
 };
 $('favorite-contracts').onchange=()=>{const item=contractFavorites.find(x=>String(x.id)===$('favorite-contracts').value);if(item)select(item.id,item.label);$('favorite-contracts').value='';};
 window.addEventListener('storage',event=>{if(event.key===contractFavoritesKey){contractFavorites=readContractFavorites();renderContractFavorites();}});
@@ -475,13 +476,19 @@ function renderIntervals(){
  for(const [value,label,section] of periods){
   if(favorites.includes(value)){const b=document.createElement('button');b.textContent=label;b.dataset.interval=value;b.classList.toggle('active',interval===value);b.onclick=()=>changeInterval(value);$('intervals').append(b);}
   if(group!==section){const heading=document.createElement('div');heading.className='interval-heading';heading.textContent=section.toUpperCase();$('interval-menu').append(heading);group=section;}
-  const row=document.createElement('div');row.className='interval-row';const choose=document.createElement('button');choose.textContent=label;choose.classList.toggle('active',interval===value);choose.onclick=()=>{changeInterval(value);$('interval-menu').hidden=true;$('interval').setAttribute('aria-expanded','false');};const star=document.createElement('button');star.textContent=favorites.includes(value)?'★':'☆';star.setAttribute('aria-label','Favorite '+label);star.setAttribute('aria-pressed',String(favorites.includes(value)));star.onclick=()=>{favorites=favorites.includes(value)?favorites.filter(v=>v!==value):[...favorites,value];localStorage.setItem('wheel.chart.intervals',JSON.stringify(favorites));renderIntervals();};row.append(choose,star);$('interval-menu').append(row);
+  const row=document.createElement('div');row.className='interval-row';const choose=document.createElement('button');choose.textContent=label;choose.classList.toggle('active',interval===value);choose.onclick=()=>{changeInterval(value);closeIntervalMenu(true);};const star=document.createElement('button');star.dataset.interval=value;star.textContent=favorites.includes(value)?'★':'☆';star.setAttribute('aria-label','Favorite '+label);star.setAttribute('aria-pressed',String(favorites.includes(value)));star.onclick=()=>{favorites=favorites.includes(value)?favorites.filter(v=>v!==value):[...favorites,value];localStorage.setItem('wheel.chart.intervals',JSON.stringify(favorites));renderIntervals();$('interval-menu').querySelector(`[data-interval="${value}"]`)?.focus();};row.append(choose,star);$('interval-menu').append(row);
  }
  $('interval').title='Current interval: '+(periods.find(p=>p[0]===interval)?.[1]||interval);
 }
 function changeInterval(value){if(busy)return;interval=value;generation++;marketStream.stop();lastFallback=0;lastPnL=0;renderIntervals();chartTransition();refresh();}
-$('interval').onclick=()=>{$('interval-menu').hidden=!$('interval-menu').hidden;$('interval').setAttribute('aria-expanded',String(!$('interval-menu').hidden));};
-document.addEventListener('pointerdown',e=>{if(!e.target.closest('.interval-picker')){$('interval-menu').hidden=true;$('interval').setAttribute('aria-expanded','false');}});
+function closeIntervalMenu(focus=false){$('interval-menu').hidden=true;$('interval').setAttribute('aria-expanded','false');if(focus)$('interval').focus();}
+$('interval').onclick=()=>{const open=$('interval-menu').hidden;$('interval-menu').hidden=!open;$('interval').setAttribute('aria-expanded',String(open));if(open)$('interval-menu').querySelector('button.active')?.focus();};
+const intervalPicker=$('interval').closest('.interval-picker');
+$('interval').setAttribute('aria-haspopup','dialog');$('interval').setAttribute('aria-controls','interval-menu');$('interval-menu').setAttribute('role','dialog');$('interval-menu').setAttribute('aria-label','Chart interval');
+intervalPicker.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();closeIntervalMenu(true);}else if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();$('interval-menu').hidden=false;$('interval').setAttribute('aria-expanded','true');const items=[...$('interval-menu').querySelectorAll('button')],i=items.indexOf(document.activeElement);items[e.key==='Home'?0:e.key==='End'?items.length-1:i<0?(e.key==='ArrowDown'?0:items.length-1):(i+(e.key==='ArrowDown'?1:-1)+items.length)%items.length]?.focus();}});
+document.addEventListener('pointerdown',e=>{if(!intervalPicker.contains(e.target))closeIntervalMenu();});
+document.addEventListener('focusin',e=>{if(!intervalPicker.contains(e.target))closeIntervalMenu();});
+window.addEventListener('blur',()=>closeIntervalMenu());
 renderIntervals();
 function closeSessionMenu(focus=false){$('session-menu').hidden=true;$('session-button').setAttribute('aria-expanded','false');if(focus)$('session-button').focus();}
 $('session-button').onclick=()=>{const open=$('session-menu').hidden;$('session-menu').hidden=!open;$('session-button').setAttribute('aria-expanded',String(open));if(open)$('session-menu').querySelector('[aria-checked="true"]').focus();};

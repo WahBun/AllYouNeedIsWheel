@@ -1985,3 +1985,35 @@ for all future UI text, including hidden controls and every control state, until
 an explicitly requested coordinated localization pass. This is a copy-only change
 and uses the documented REA exception for text changes. Checked all three labels
 and JavaScript syntax; deploy static assets without restarting services.
+
+### 2026-10-14 — Focused chart UI audit and toolbar menu polish
+
+Scope: current chart chrome, toolbar menus, main/auxiliary controls, header/OHLC,
+desktop/mobile widths, and light/dark themes. This is not an exhaustive audit of
+all settings or broker workflows. Existing order-state warnings remain intact.
+
+REA captured current Wheel and TradingView viewports (evidence
+`ev_72827d229a0723dbd91e5d72799a8517e7ac0c9556d137c0daed97c4aa0fa494`,
+`ev_b2c9caa4c8ce841e816fe4bcb482c7a88ab62f714a21f57f0972a4038c9a6458`).
+Current TV script inventory evidence
+`ev_44a20b199f71a6e8b01481b4a42e1f53a8f035d3766b826b4d26d4579696cbad`
+confirmed the exact previously captured `53500.3a5fc4bc7516b767bee2.js`
+SHA-256 `ef15a7ca514a0f9934e3f3e974d13dfc1cabab0edba67549dded0b276f9e3c7b`.
+Reused source evidence
+`ev_1f744bc99761235fe3d7f4ce2ff0b205c2ca713122775a24f9adc8d858f63fa0`:
+module 26696 enables click-away, Escape, scroll/resize and Tab closure; the
+popover uses initial focus and keyboard navigation. These are static source
+observations, not a claim that TV menus were dynamically exercised.
+
+Reproduced: interval and layout menus remained visible after clicking the chart
+iframe; interval Escape did nothing. Session menu already behaved correctly.
+Fixed those gaps, added visible keyboard focus and arrow/Home/End navigation,
+restored focus after an interval favorite re-render, and removed mixed-language
+favorites/fullscreen labels. Wheel adaptation: preserve Tab access to individual
+favorite buttons, closing when focus leaves the picker; keep its existing layout.
+
+`toolbar-menus.cjs` covers 1400/393 px and both themes, frame click, Escape,
+focus departure, keyboard movement, favorite focus, viewport bounds and English
+toolbar labels with zero order writes. Existing pane controls/magnet and header
+checks passed. No order, streaming, aggregation or iOS asset changes. Static web
+deployment only; no backend/Gateway restart or phone installation required.

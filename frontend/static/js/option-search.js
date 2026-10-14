@@ -17,7 +17,7 @@ window.installOptionSearch=({api,select,symbol,canSelect})=>{
  const views=document.createElement('div');views.className='toolbar-views';
  for(const id of ['layout-picker','maximize-chart','fullscreen'])if($(id))views.append($(id));
  end.append($('session-picker'),views);
- $('fullscreen').title='Fullscreen workspace / 工作区全屏';$('fullscreen').setAttribute('aria-label',$('fullscreen').title);
+ $('fullscreen').title='Fullscreen workspace';$('fullscreen').setAttribute('aria-label',$('fullscreen').title);
 
  function mode(options){form.hidden=!options;stockPanel.hidden=options;stockTab.classList.toggle('active',!options);optionTab.classList.toggle('active',options);stockTab.setAttribute('aria-pressed',String(!options));optionTab.setAttribute('aria-pressed',String(options));}
  stockTab.onclick=()=>{mode(false);$('symbol').focus();};optionTab.onclick=()=>{mode(true);if(!loaded)dates();};
