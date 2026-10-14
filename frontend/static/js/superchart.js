@@ -527,9 +527,21 @@ function settings(mode='display'){settingsPanel.open(mode);}
 $('settings').onclick=()=>settings();
 $('theme').onclick=()=>{dark=!dark;document.body.classList.toggle('light',!dark);localStorage.setItem('theme',dark?'dark':'light');sync();};document.body.classList.toggle('light',!dark);
 $('copy').onclick=()=>navigator.clipboard.writeText(JSON.stringify({contract:cid,interval,session,mode:profile.selected,status:state.status,activity},null,2));
-// Install on both documents: focus may be in the chart or its surrounding controls.
-function magnetKeys(doc){const reset=()=>frame.contentWindow.setTemporaryMagnet?.(false);doc.addEventListener('keydown',e=>{if(e.key==='Meta'&&!e.target.closest('input,textarea,select,[contenteditable=true]')&&!document.querySelector('dialog[open]'))frame.contentWindow.setTemporaryMagnet?.(true);});doc.addEventListener('keyup',e=>{if(e.key==='Meta'||!e.metaKey)reset();});doc.defaultView.addEventListener('blur',reset);doc.addEventListener('visibilitychange',()=>{if(doc.hidden)reset();});}
-magnetKeys(document);frame.addEventListener('load',()=>{magnetKeys(frame.contentDocument);frame.contentWindow.addEventListener('focus',resumeMarket);});
+// Bind each pane to its own document, including dynamically created auxiliaries.
+const magnetDocuments=new WeakSet();
+function magnetKeys(doc){
+ if(magnetDocuments.has(doc))return;magnetDocuments.add(doc);let heldWindow=null;
+ const reset=()=>{heldWindow?.setTemporaryMagnet?.(false);heldWindow=null;};
+ doc.addEventListener('keydown',e=>{
+  if(e.key!=='Meta'||e.target.closest?.('input,textarea,select,[contenteditable=true]')||document.querySelector('dialog[open]'))return;
+  const target=doc===document?frame.contentWindow:doc.defaultView;
+  if(heldWindow!==target)reset();heldWindow=target;target.setTemporaryMagnet?.(true);
+ });
+ doc.addEventListener('keyup',e=>{if(e.key==='Meta'||!e.metaKey)reset();});
+ doc.defaultView.addEventListener('blur',reset);doc.addEventListener('visibilitychange',()=>{if(doc.hidden)reset();});
+}
+window.bindChartMagnetKeys=magnetKeys;
+magnetKeys(document);frame.addEventListener('load',e=>{magnetKeys(e.currentTarget.contentDocument);e.currentTarget.contentWindow.addEventListener('focus',resumeMarket);});
 $('fullscreen').title='Fullscreen · Shift+F';$('fullscreen').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.querySelector('.workspace').requestFullscreen();
 for(const b of $('intervals').children)b.classList.toggle('active',Number(b.dataset.interval)===interval);
 setInterval(()=>{sync();refresh();},2000);

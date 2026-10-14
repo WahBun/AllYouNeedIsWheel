@@ -1954,3 +1954,25 @@ order status continues to report reconciliation; broker state remains unchanged.
 The common price-amendment in-flight marker is unchanged for both roles.
 Both pending-stop and full-page quantity recovery tests check matching TP/SL
 label treatment, retained line identity and a single write.
+
+### 2026-10-14 — Command magnet in expanded auxiliary charts
+
+REA inspected the active multi-pane Wheel page (evidence
+`ev_2885fb51e7b45eb7e0eb1daab78c2b753d1e031a96d5c093282d9667d53138b3`).
+Keyboard magnet wiring was installed only on the initial chart document and
+addressed the mutable active trading frame. New auxiliary frames lacked the
+handler, so expanding one did not reproduce the main chart's Command behavior.
+
+Install the existing shortcut on each ready pane, once per document. Frame
+keydown events target their own window; parent-document events retain the active
+chart target. Release, blur and hidden-page cleanup reset the window that actually
+received the temporary mode. Saved magnet preferences and drawing snap math are
+unchanged. No order, market-data or chart-layout behavior was changed.
+
+The four-pane browser test expands an auxiliary with magnet off, presses Command,
+places a horizontal ray and checks its actual anchor equals the candle high.
+It checks other panes are unaffected, release/blur restore off, and the saved
+preference stays off. Existing maximize, restore, reset, tail/history and Option
+shortcuts passed with zero broker writes. Web host scripts only; no phone build
+or installation is required for this correction. Deploy statically without a
+backend or Gateway restart.
