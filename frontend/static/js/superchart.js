@@ -425,6 +425,11 @@ function select(id,label){if(busy)return;cancelMarketReads();resetNewQuantity();
 function entryPriceOnly(body){return !('order_id' in body)&&( body.action==='edit_entry'||body.action==='amend'&&['tp','sl'].includes(body.role))&&Number.isFinite(body.price)&&body.price>0&&!body.cancel&&!('quantity' in body)&&!('tif' in body);}
 function midManagement(body){
  if(!['OPT','STK'].includes(packet.security_type)||!state.position||!['add','trim','close'].includes(body.action))return body;
+ const typeField=body.action==='add'?'entry_type':'exit_type',priceField=body.action==='add'?'entry':'exit_price';
+ if(priceField in body||typeField in body){
+  if(!Number.isFinite(body[priceField])||body[priceField]<=0||!(body.action==='add'?['LMT','STP']:['LMT']).includes(body[typeField]))throw Error('Order management requires an explicit valid price.');
+  return {...body,expected_ref:body.expected_ref??state.order_ref,expected_position:body.expected_position??state.position};
+ }
  const age=(Date.now()-packetReceived)/1000,now=packet.server_time+age,bid=packet.bid,ask=packet.ask;
  if(packet.con_id!==cid||packet.account_epoch!==epoch||age<0||age>=3||!Number.isFinite(now)||!Number.isFinite(packet.quote_expires_at)||packet.quote_expires_at<=now||!Number.isFinite(bid)||!Number.isFinite(ask)||bid<=0||ask<bid)throw Error('Wait for a fresh bid and ask for this account and contract.');
  const mid=bid+(ask-bid)/2,buy=body.action==='add'?state.position>0:state.position<0;
@@ -485,6 +490,7 @@ function livePositionAction(action,quantity){
     !Number.isFinite(now)||!Number.isFinite(packet.quote_expires_at)||packet.quote_expires_at<=now||packet.bid>packet.ask)
    return log(document.documentElement.lang==='zh'?'等待当前账户及合约的有效买卖报价。':'Wait for a fresh quote for this account and contract.');
  const body={action,quantity,expected_ref:state.order_ref,expected_position:state.position};
+ if(['OPT','STK'].includes(packet.security_type))return write(body);
  write({...body,...(action==='add'?{entry_type:'LMT',entry:value,side,expected_tp:state.add_tp||state.tp,expected_sl:state.sl}:{exit_type:'LMT',exit_price:value})});
 }
 function close(){if((state.live_chart_scope||state.live_options_scope||state.live_initial_scope)&&state.position)return livePositionAction('close',Math.abs(state.position));write(!state.position&&state.entry_editable?{action:'edit_entry',cancel:true,expected_ref:state.order_ref,expected_snapshot:state.edit_snapshot}:{action:'close',expected_ref:state.order_ref,expected_position:state.position});}

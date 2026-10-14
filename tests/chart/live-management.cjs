@@ -10,7 +10,7 @@ const server=http.createServer((req,res)=>{const url=new URL(req.url,'http://loc
 (async()=>{await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;let browser;try{browser=await chromium.launch();
 for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [false,true]){
  const page=await browser.newPage({viewport:{width,height:950}}),writes=[],errors=[];page.on('pageerror',e=>errors.push(e.message));
- let stale=false,state={enabled:true,known:true,active:true,status:'filled',position:-3,position_only:true,position_manageable:true,live_chart_scope:true,live_options_scope:asset==='OPT',side:-1,entry:2.12,tp:0,sl:0,order_ref:'position-test',edit_snapshot:[{position:-3,entry:2.12}],orders:[],protection_manageable:true,be_allowed:true,close_allowed:true,add_allowed:true,add_available:2,trim_allowed:true,trim_available:3};
+ let stale=false,state={enabled:true,known:true,active:true,status:'filled',position:-3,position_only:true,position_manageable:true,live_chart_scope:true,live_options_scope:asset==='OPT',side:-1,entry:2.12,tp:0,sl:0,order_ref:'position-test',edit_snapshot:[{position:-3,entry:2.12}],orders:[],protection_manageable:true,be_allowed:true,close_allowed:true,add_allowed:true,add_available:2,trim_allowed:true,trim_available:3,unprotected_trim:true};
  if(fractional)state={...state,position:302.1533,side:1,position_manageable:false,protection_manageable:false,be_allowed:false,close_allowed:false,trim_allowed:false,add_available:697,edit_snapshot:[{position:302.1533,entry:2.12}]};
  await page.route('**/*',async route=>{const req=route.request(),u=new URL(req.url());if(u.origin!==base)return route.abort();if(!u.pathname.startsWith('/api/'))return route.continue();let result={};
  if(req.method()==='POST'){const b=req.postDataJSON();writes.push(b);assert.equal(req.headers()['x-wheel-account-epoch'],'offline-live');result={success:true,status:'acknowledged',state};}
@@ -32,6 +32,21 @@ for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [
  await page.locator('#manage-protection').click();await page.locator('#protection-form button[type=submit]').click();await page.waitForFunction(()=>!document.getElementById('close').disabled);
  assert.equal(writes.at(-1).action,'set_protection');assert.equal(writes.at(-1).tp,.53);
  for(const action of ['add','trim','close','be']){await page.locator('#'+action).click();await page.waitForFunction(()=>!document.getElementById('close').disabled);const b=writes.at(-1);assert.equal(b.action,action);assert.equal(b.expected_ref,'position-test');if(action!=='be'){assert.equal(b.expected_position,-3);assert.equal(b[action==='add'?'entry_type':'exit_type'],'LMT');assert.equal(b[action==='add'?'entry':'exit_price'],asset==='FUT'?(action==='add'?2.1:2.2):2.15);}}
+ // Use the actual chart price menu and confirmation dialog; API remains mocked.
+ if(await page.locator('#chart-detail').isVisible())await page.locator('#toggle-trade').click();
+ const panel=page.locator('#toggle-trading-panel');if(await panel.getAttribute('aria-expanded')==='true')await panel.click();
+ await page.waitForTimeout(400);
+ const pricedFrame=page.frames().find(f=>f.url().includes('/superchart/frame'));
+ await pricedFrame.waitForFunction(()=>typeof window.wheelOrderItems==='function');
+ await pricedFrame.evaluate(()=>{cursorOrderPrice=.46;priceAdd.style.top='100px';document.getElementById('price-order-add').click();});
+ await pricedFrame.locator('#price-order-menu button').filter({hasText:'Trim · Buy Limit'}).click();
+ const dialog=pricedFrame.locator('#priced-add-dialog');
+ assert.match(await dialog.innerText(),/0.46/);
+ const chosenRequest=page.waitForRequest(r=>r.method()==='POST'&&r.postDataJSON()?.action==='trim');
+ await dialog.locator('footer button').last().click();await chosenRequest;
+ await page.waitForFunction(()=>!document.getElementById('close').disabled);
+ assert.equal(writes.at(-1).action,'trim');assert.equal(writes.at(-1).exit_price,.46);assert.equal(writes.at(-1).exit_type,'LMT');assert.equal(writes.at(-1).expected_position,-3);
+ if(await panel.getAttribute('aria-expanded')==='false')await panel.click();
  stale=true;await page.reload();await page.waitForFunction(()=>!document.getElementById('close').disabled);const n=writes.length;await page.locator('#close').click();await page.waitForTimeout(100);assert.equal(writes.length,n);
  for(const id of ['orders','positions']){await page.locator('#toggle-trade').click();await page.locator('#'+id+' button').first().click();assert.equal(await page.locator('#chart-detail').isVisible(),false);assert.equal(await page.locator('#toggle-trade').getAttribute('aria-expanded'),'false');await page.waitForFunction(()=>!document.getElementById('close').disabled);}
  if(asset!=='OPT'){assert.deepEqual(errors,[]);await page.close();continue;}

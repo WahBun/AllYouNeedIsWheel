@@ -103,7 +103,9 @@ class LiveOptionManagementTests(unittest.TestCase):
                 # Separate database per side; no production data is used.
                 from api.services.paper_chart import PaperChart
                 f.service=PaperChart(f.tmp.name+'/trim'+str(side)+'.db');f.trades.clear()
-                result=self.execute('trim')
+                result=self.execute('trim',exit_price=.46)
+                self.assertEqual(f.trades[-1].order.lmtPrice,.46)
+                self.assertEqual(f.trades[-1].order.orderType,'LMT')
                 self.assertTrue(result['success'],result)
                 self.assertEqual((f.trades[-1].order.action,f.trades[-1].order.totalQuantity),('BUY' if side<0 else 'SELL',1))
                 self.assertEqual(result['state']['trim_available'],2)

@@ -1330,7 +1330,7 @@ struct StockChartView: View {
                         Stepper("Quantity", value: $adjustmentQuantity, in: 1...max(1, adjustmentLimit)).labelsHidden()
                     }
                     if chartType == "FUT" { Text("Futures use one protected bracket per contract. Add creates new brackets. Trim exits selected contracts at bid/ask while keeping every other bracket unchanged.").font(.caption) }
-                    else if ["OPT", "STK"].contains(chartType) { Text("Add, Trim and Close use fresh midpoint limit orders. Orders do not automatically follow the quote; immediate fill is not guaranteed.").font(.caption) }
+                    else if ["OPT", "STK"].contains(chartType) { Text("Quick Add, Trim and Close use fresh midpoint limits. Prices selected on the chart are preserved. Orders do not automatically follow quotes; immediate fill is not guaranteed.").font(.caption) }
                     else { Text(locale.language.languageCode?.identifier == "zh" ? "加仓使用市价单；减仓使用买卖报价限价单。不会自动添加止盈止损。" : "Add uses a market order; Trim uses a quote-limit order. TP/SL is not added automatically.").font(.caption) }
                     Button(adjustmentAction == "trim" ? "Trim position" : "Add to position") {
                         guard adjustmentAllowed, adjustmentCID == chartID, adjustmentRef == paperState["order_ref"] as? String else { return }

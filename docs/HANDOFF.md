@@ -1,3 +1,24 @@
+## 2026-10-14 preserve chart-selected option Trim limits
+
+REA 6.5 inspected the deployed web host/iframe and found `midManagement`
+unconditionally replaced explicit OPT/STK Add/Trim/Close prices with midpoint.
+Read-only incident reconciliation confirmed an initial BUY Trim limit of 0.52,
+a fill at 0.52, and a later attempted 0.46 amendment rejected after the fill.
+The original intended price is reported by the user; it was already overwritten
+before the request journal. No broker order was changed during investigation.
+
+Web and native now preserve valid explicit prices/order types; only unpriced
+quick actions derive fresh midpoint limits. Invalid explicit inputs reject instead
+of falling back to midpoint. Position identity and backend guards remain intact.
+No backend, layout, feed, drag-confirmation or broker reconciliation changes.
+Validation: 12 targeted Simulator tests, 27 Live option and 5 Paper holding mocked
+backend tests, midpoint regression (chosen 0.46 versus mid 0.52), actual chart
+menu/dialog requests at desktop/mobile widths and light/dark, plus existing
+One-click/Confirm/Discard regressions. All order writes were mocked. Native
+source requires a new iPhone build; Simulator success is not device installation.
+Publish to codex/chart-labels-1.6 and codex/ios-native. Deploy web static assets
+without restarting Backend or Gateway; retain the previous deployed SHA as rollback.
+
 ## 2026-10-14 fractional stock holding Add
 
 A positive stock holding such as 302.1533 shares may adopt its exact reconciled

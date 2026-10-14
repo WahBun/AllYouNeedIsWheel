@@ -215,7 +215,7 @@ enum TradeRules {
         body["expected_position"] = position
         let typeField = action == "add" ? "entry_type" : "exit_type"
         let priceField = action == "add" ? "entry" : "exit_price"
-        if !useMid && (body[priceField] != nil || body[typeField] != nil) {
+        if body[priceField] != nil || body[typeField] != nil {
             let allowed = action == "add" ? ["LMT", "STP"] : ["LMT"]
             guard let selected = body[priceField] as? Double, selected.isFinite, selected > 0, allowed.contains(body[typeField] as? String ?? "") else {
                 throw AppError.message("Live order management requires an explicit valid price.")

@@ -24,12 +24,12 @@ final class ChartLiveManagementTests: XCTestCase {
         }
     }
 
-    func testOptionsAndStocksUseMidpointOnBothSidesIncludingPaperAndExplicitInputs() throws {
+    func testOptionsAndStocksUseMidpointForUnpricedActionsIncludingPaper() throws {
         for kind in ["OPT", "STK"] { for position in [-4.0, 4.0] { for action in ["add", "trim", "close"] {
             let priceKey = action == "add" ? "entry" : "exit_price"
             let typeKey = action == "add" ? "entry_type" : "exit_type"
             let q = packet.merging(["security_type": kind, "bid": 2.10, "ask": 2.21]) { _, n in n }
-            let body = try request(action, position: position, fields: [typeKey: "LMT", priceKey: 9.0], quote: q)
+            let body = try request(action, position: position, quote: q)
             let buy = action == "add" ? position > 0 : position < 0
             XCTAssertEqual(body[priceKey] as? Double, buy ? 2.15 : 2.16)
             XCTAssertEqual(body[typeKey] as? String, "LMT")
@@ -38,11 +38,28 @@ final class ChartLiveManagementTests: XCTestCase {
         } } }
     }
 
-    func testMidpointNeverUsesCachedDisplayQuoteOrBypassesFreshnessWithExplicitPrice() throws {
+    func testMidpointNeverUsesCachedDisplayQuoteOrBypassesFreshness() throws {
         for changes in [["bid": NSNull()], ["ask": Double.nan], ["quote_expires_at": 999.0], ["price_rules": []], ["account_epoch": "other"]] as [[String: Any]] {
             let q = packet.merging(["security_type": "OPT", "option_display_quote": ["bid": 2.1, "ask": 2.2]]) { _, n in n }.merging(changes) { _, n in n }
-            XCTAssertThrowsError(try request("close", fields: ["exit_type": "LMT", "exit_price": 2.1], quote: q))
+            XCTAssertThrowsError(try request("close", quote: q))
         }
+    }
+
+    func testChosenOptionAndStockPricesAreNeverReplacedByMidpoint() throws {
+        for kind in ["OPT", "STK"] { for position in [-2.0, 2.0] { for action in ["add", "trim", "close"] {
+            let priceKey = action == "add" ? "entry" : "exit_price"
+            let typeKey = action == "add" ? "entry_type" : "exit_type"
+            let q = packet.merging(["security_type": kind, "bid": 0.51, "ask": 0.53]) { _, n in n }
+            for orderType in action == "add" ? ["LMT", "STP"] : ["LMT"] {
+                let body = try request(action, position: position, fields: [typeKey: orderType, priceKey: 0.46], quote: q)
+                XCTAssertEqual(body[priceKey] as? Double, 0.46)
+                XCTAssertEqual(body[typeKey] as? String, orderType)
+            }
+            XCTAssertThrowsError(try request(action, fields: [typeKey: "LMT"], quote: q))
+            XCTAssertThrowsError(try request(action, fields: [typeKey: "LMT", priceKey: Double.nan], quote: q))
+            XCTAssertThrowsError(try request(action, fields: [typeKey: "MKT", priceKey: 0.46], quote: q))
+            XCTAssertThrowsError(try request(action, fields: [typeKey: "LMT", priceKey: 0.46, "expected_position": 99.0], quote: q))
+        } } }
     }
 
     func testStockAndFutureScopeIncludesProtectionSnapshotForQuoteAdd() throws {
