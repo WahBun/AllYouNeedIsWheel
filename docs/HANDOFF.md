@@ -1907,3 +1907,17 @@ with direct mode on/off and delayed confirmation across polling. The confirmatio
 test holds the mouse button across 50 configuration updates and still confirms
 the intended price. Fast segment drag/capture-loss and position P&L tests pass.
 Static deployment only; no backend or Gateway restart required.
+
+### 2026-10-14 — Native entry cancel-cell alignment
+
+The supplied iPhone screenshot showed a 24px native entry label joined to a
+19px cancel cell. REA inspected the current shared page controls (evidence
+`ev_55c21bf172912cef92c56fc5a44499322be126e216a8aff29500f3391e9aee61`);
+the native-only CSS override omitted `#cancel span`. Both visible segments now
+use 24px height, preserving the existing 44px hit-region height, separator,
+colors and all event/confirmation logic. This is a CSS-only runtime change.
+
+Chromium native-mode geometry and screenshot checks confirmed equal top/bottom
+edges and the shared 1px boundary. Position-label and order-line-drag regressions
+passed. iOS Simulator build passed with matching bundled chart resource. Local
+Playwright WebKit is unavailable; no physical iPhone install/Run was performed.
