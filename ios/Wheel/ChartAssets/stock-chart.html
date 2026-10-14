@@ -629,7 +629,7 @@ function renderChartConfirmation(){
  document.getElementById('chart-confirmation')?.remove();
  if(!chartConfirmation)return;
  const body=chartConfirmation.body,role=body.action==='edit_entry'?'entry':body.role||(levels.sl?'sl':'tp');
- const handle=document.getElementById(role);if(!handle||handle.hidden)return;
+ const handle=document.getElementById('entry');if(!handle||handle.hidden)return;
  const row=document.createElement('div');row.id='chart-confirmation';row.setAttribute('role','group');row.setAttribute('aria-label',body.action==='cancelProtectionPreview'?'Cancel '+role.toUpperCase()+'; position remains open':'Confirm '+role.toUpperCase()+' price change');row.style.cssText='display:flex;align-items:center;flex-shrink:0';
  for(const [text,fn] of [['Discard',discardChartConfirmation],['Confirm',()=>{const draft=chartConfirmation;if(!draft)return;const valid=draft.identity===confirmationIdentity()&&!paperConfig.busy;discardChartConfirmation();if(valid)paperAction(draft.body);} ]]){
   const button=document.createElement('span');button.textContent=text;button.setAttribute('role','button');button.tabIndex=0;
@@ -896,7 +896,7 @@ let orderHold=null,suppressOrderClickUntil=0;
 function clearOrderHold(){if(orderHold)clearTimeout(orderHold.timer);orderHold=null;}
 for(const target of ['entry','cancel','tp','sl'].map(id=>document.getElementById(id))){
  target.addEventListener('pointerdown',e=>{
-  if(e.button!==0||e.target.closest('#confirm-quantity,#discard-quantity'))return;
+  if(e.button!==0||e.target.closest('#confirm-quantity,#discard-quantity,#chart-confirmation'))return;
   suppressOrderClickUntil=0;const role=target.id==='cancel'?'entry':target.id;
   if(paperConfig.active?(role==='entry'?!canDragEntry():!canDragProtection(role)):paperConfig.busy)return;
   clearOrderHold();const hold={x:e.clientX,y:e.clientY,id:e.pointerId,role,cid:paperCID,ref:paperConfig.order_ref,epoch:paperConfig.web_account_epoch};orderHold=hold;
@@ -912,7 +912,7 @@ for(const target of ['entry','cancel','tp','sl'].map(id=>document.getElementById
 }
 document.addEventListener('pointermove',e=>{if(!orderHold||dragging===orderHold.role)return;const distance=Math.hypot(e.clientX-orderHold.x,e.clientY-orderHold.y);if(orderHold.pointerType==='mouse'&&(e.buttons&1)&&distance>3){orderHold.start();if(dragging==='entry'){entryDragMoved=true;move('entry',e.clientY-entryDragSnapshot.offset);}else if(webProtectionDrag){webProtectionDrag.moved=true;move(webProtectionDrag.role,e.clientY-webProtectionDrag.offset);}e.preventDefault();}else if(distance>8)clearOrderHold();},true);
 for(const name of ['pointerup','pointercancel'])document.addEventListener(name,()=>{clearOrderHold();},true);
-document.addEventListener('click',e=>{if(performance.now()<suppressOrderClickUntil&&e.target.closest('#entry,#cancel,#tp,#sl')){e.preventDefault();e.stopImmediatePropagation();}},true);
+document.addEventListener('click',e=>{if(performance.now()<suppressOrderClickUntil&&!e.target.closest('#chart-confirmation,#confirm-quantity,#discard-quantity')&&e.target.closest('#entry,#cancel,#tp,#sl')){e.preventDefault();e.stopImmediatePropagation();}},true);
 // Match the visible horizontal line throughout the plot, excluding axes and controls.
 function orderLineAt(e){
  if(e.target.tagName!=='CANVAS'||!e.target.closest('#chart')||e.clientX<plotLeft()||e.clientX>plotRight()||e.clientY<0||e.clientY>chart.paneSize().height)return null;

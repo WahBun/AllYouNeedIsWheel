@@ -1876,3 +1876,11 @@ full-line Add, exact order identity, refresh/capture loss and fill races.
 no iPhone installation or Run was performed. Deploy these shared static assets
 without restarting Wheel or Gateway; retain a rollback ref and verify the served
 frame equals the committed source.
+
+Follow-up: per user request, all chart Confirm/Discard controls now sit beside
+the entry/position line, including TP/SL price amendments and protection
+cancellations. Their accessible descriptions retain the affected role. Confirm
+and Discard are excluded from segment drag/anti-click handling so immediate
+confirmation after a drag remains usable. This is a requested Wheel adaptation
+of the already analyzed controls, not a claim about TradingView placement.
+Desktop/mobile confirmation and drag tests cover the unified anchor and actions.
