@@ -1,7 +1,7 @@
 const {chromium}=require('playwright'),assert=require('node:assert/strict');
 const {start}=require('./market-feed/harness.cjs');
 (async()=>{const h=await start(),browser=await chromium.launch();try{for(const width of [1400,393])for(const dark of [false,true]){const p=await browser.newPage({viewport:{width,height:900}}),errors=[];p.on('pageerror',e=>errors.push(e.message));await p.route('**/*',r=>new URL(r.request().url()).origin===h.url?r.continue():r.abort());await p.goto(h.url+'/superchart/frame');for(const [kind,position,multiplier,expected] of [['STK',302.1533,1,'+$302.15'],['OPT',-2,100,'−$200.00'],['FUT',2,2,'+$4.00']]){
-await p.evaluate(({kind,position,multiplier,width,dark})=>{window.sent=[];window.webkit={messageHandlers:{paperAction:{postMessage:b=>sent.push(b)}}};configure({dark,con_id:7,entry:10,quantity:1,multiplier,display:{nativeCompact:width===393,positions:false},paper:{enabled:true,known:true,active:true,position,entry:10,side:Math.sign(position),order_ref:'test'}});receive({con_id:7,generation:kind,security_type:kind,interval:5,bars:[{time:1000,open:10,high:12,low:9,close:11}]});},{kind,position,multiplier,width,dark});
+await p.evaluate(({kind,position,multiplier,width,dark})=>{window.sent=[];window.webkit={messageHandlers:{paperAction:{postMessage:b=>sent.push(b)}}};configure({dark,con_id:7,entry:10,quantity:1,multiplier,display:{nativeCompact:width===393,positions:true},paper:{enabled:true,known:true,active:true,position,entry:10,side:Math.sign(position),order_ref:'test'}});receive({con_id:7,generation:kind,security_type:kind,interval:5,bars:[{time:1000,open:10,high:12,low:9,close:11}]});},{kind,position,multiplier,width,dark});
 assert.equal(await p.locator('#position-quantity').textContent(),String(Math.abs(position)));assert.equal(await p.locator('#position-pnl').textContent(),expected);assert.ok(!(await p.locator('#entry').textContent()).includes('Long'));assert.ok(!(await p.locator('#entry').textContent()).includes('Short'));
 const q=await p.locator('#position-quantity').boundingBox(),v=await p.locator('#position-pnl').boundingBox();assert.ok(Math.abs(q.y-v.y)<1);assert.ok(q.x>=0);assert.equal(await p.locator('#cancel').isVisible(),true);assert.equal(await p.evaluate(()=>sent.length),0);
 await p.screenshot({path:`/tmp/wheel-position-${kind}-${width}-${dark?'dark':'light'}.png`});}
@@ -32,12 +32,23 @@ assert.equal(additional.length,3);for(const item of additional){assert.ok(Math.a
 await p.evaluate(()=>configure({...axisFixture,paper:{...axisFixture.paper,orders:[],pending_exits:[],broker_pending_orders:[]}}));await p.waitForTimeout(80);
 assert.equal(await p.evaluate(()=>[...tradeAxisBadges.keys()].filter(k=>k.includes(':')).length),0,'Canceled order badges are removed');
 // Live price changes and display preferences must not require reopening the chart.
-await p.evaluate(()=>{window.positionFixture={dark:optionQuoteDark,con_id:7,entry:10,quantity:1,multiplier:100,priceRules:[{low:0,increment:.01}],display:{nativeCompact:innerWidth<500,positions:false},paper:{enabled:true,known:true,active:true,position:-2,side:-1,entry:10,order_ref:'units'}};configure(positionFixture);receive({con_id:7,generation:'units',security_type:'OPT',interval:5,bars:[{time:1000,open:10,high:12,low:9,close:11}]});});
+await p.evaluate(()=>{window.positionFixture={dark:optionQuoteDark,con_id:7,entry:10,quantity:1,multiplier:100,priceRules:[{low:0,increment:.01}],display:{nativeCompact:innerWidth<500,positions:true},paper:{enabled:true,known:true,active:true,position:-2,side:-1,entry:10,order_ref:'units'}};configure(positionFixture);receive({con_id:7,generation:'units',security_type:'OPT',interval:5,bars:[{time:1000,open:10,high:12,low:9,close:11}]});});
 assert.equal(await p.locator('#position-pnl').textContent(),'−$200.00');
 await p.evaluate(()=>receive({con_id:7,generation:'units',security_type:'OPT',interval:5,mode:'delta',bars:[{time:1000,open:10,high:12,low:9,close:9.5}]}));
 assert.equal(await p.locator('#position-pnl').textContent(),'+$100.00');
 for(const [unit,expected] of [['percent','+5.00%'],['ticks','+50.0 ticks']]){await p.evaluate(unit=>configure({...positionFixture,display:{...positionFixture.display,positionUnit:unit}}),unit);assert.equal(await p.locator('#position-pnl').textContent(),expected);}
-await p.evaluate(()=>configure({...positionFixture,display:{profit:false}}));assert.equal(await p.locator('#position-pnl').count(),0);
+// Position P&L is opt-in under the master switch; brackets remain independent.
+for(const profit of [true,false])for(const positions of [true,false,undefined])for(const brackets of [true,false]){
+ await p.evaluate(({profit,positions,brackets})=>configure({...positionFixture,display:{...positionFixture.display,profit,positions,brackets}}),{profit,positions,brackets});
+ const show=profit&&positions===true;assert.equal(await p.locator('#position-pnl').count(),show?1:0);
+ assert.equal(await p.locator('#position-order-type').count(),show?0:1);
+ if(!show)assert.equal(await p.locator('#position-order-type').textContent(),'Sell LMT');
+ assert.equal(await p.locator('#position-quantity').textContent(),'2');
+ assert.equal(await p.locator('#cancel span').evaluate(e=>getComputedStyle(e).borderLeftWidth),'1px');
+}
+await p.screenshot({path:`/tmp/wheel-position-off-${width}-${dark?'dark':'light'}.png`});
+await p.evaluate(()=>configure({...positionFixture,display:{positions:false},paper:{...positionFixture.paper,position:2,side:1}}));
+assert.equal(await p.locator('#position-order-type').textContent(),'Buy LMT');
 await p.evaluate(()=>configure({...positionFixture,display:{holdingsVisible:false}}));await p.waitForTimeout(80);
 assert.equal(await p.locator('#entry').isVisible(),false);assert.equal(await p.locator('[data-axis-role=entry]').isVisible(),false);
 await p.evaluate(()=>{configure(positionFixture);activePriceScale().applyOptions({autoScale:false,scaleMargins:{top:0,bottom:0}});activePriceScale().setVisibleRange({from:9,to:10.005});});await p.waitForTimeout(80);

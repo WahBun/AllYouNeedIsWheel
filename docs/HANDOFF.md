@@ -1791,3 +1791,23 @@ order direction label, and `pending-exit-lines.cjs:19` expects an immediate amen
 message. Both failures reproduce on unmodified 1.5; those tests were left intact.
 No Mini deployment/restart or physical iPhone build/install occurred in this task.
 Existing local project signing and localization edits remain outside this commit.
+
+### 2026-10-14 — Position P&L preference correction
+
+REA inspected the authorized current Wheel page and its rendered position label.
+The supplied settings screenshot plus source identified a missing `positions`
+condition: an active position showed P&L whenever the master switch was enabled.
+Require both switches; otherwise show quantity and Buy/Sell plus order type.
+Restore the one-pixel separator on the left of the close control. No refresh,
+price-axis, layout or broker execution logic changed.
+
+Validated `position-segments.cjs` (master/position/bracket combinations, desktop
+and mobile widths, fractional STK and OPT/FUT multipliers, fixed price axes) and
+`quantity-confirm.cjs`. A local synthetic full-page check clicked the real Chart
+settings and Position P&L controls and verified immediate switching, with zero
+order writes. Screenshots: `/tmp/wheel-pnl-real-settings.png` and
+`/tmp/wheel-position-off-*.png`. Generic iOS Simulator build succeeded; bundled
+stock-chart.html matched source. User will Run the iPhone app themselves from
+this checkout's `ios/Wheel.xcodeproj`; signing/localization changes stay local.
+Deploy the static resources on Mini by fast-forward with a rollback ref and
+served-document hash verification; no service or Gateway restart is required.
