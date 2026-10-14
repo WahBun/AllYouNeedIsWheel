@@ -35,3 +35,40 @@ Cover 1–4 panes, repeated layout changes, two four-pane pages, latency distrib
 data integrity, context isolation and recovery. Do not add quote throttles or
 parallel IB owners to hide regressions. Report mock/browser and broker evidence
 separately, including the documented trade-volume gap. Preserve the current layout.
+
+## Protected order-drag and confirmation behavior
+
+These rules apply on every computer and in every new conversation. The user
+approved this behavior at commit `9df6bd644d32c09d1434240b076d6598cd43a399`.
+Treat it as a protected behavioral baseline, not a requirement to stay on that
+commit. Future UI, styling and layout changes must preserve it. Change these
+semantics only when the user explicitly requests a behavioral change.
+
+- With **One-click trading on**, releasing an entry-price or TP/SL-price drag
+  submits the amendment through the existing guarded request path without
+  Confirm/Discard. Do not introduce an entry-price exception.
+- With **One-click trading off**, releasing a drag leaves the line at the chosen
+  draft price until Confirm or Discard. Ordinary quote updates, polling and UI
+  refresh must not restore the old broker price or discard the pending change.
+- Put Confirm/Discard beside the entry/position line, including for TP/SL changes;
+  do not move these controls onto the TP/SL lines.
+- Keep confirmation controls stable across ordinary refresh. Do not recreate
+  their DOM nodes on every update: users must be able to wait before confirming,
+  and a click held through a refresh must still work without racing the update.
+- Confirm submits the intended draft through existing identity and state checks;
+  Discard restores broker-confirmed values. Real account/order identity changes,
+  fills, cancellations or invalid state must still invalidate unsafe drafts.
+  Never bypass broker guards or automatically replay trading writes.
+- Support dragging anywhere on the visible editable order line. Use a vertical
+  resize cursor on the line and a grabbing cursor when dragging its label or
+  button segments. Long presses on those segments support dragging; short clicks
+  retain their original actions. A drag must not accidentally cancel an order
+  or open quantity editing, and an unchanged release must not amend the order.
+
+When changing related UI, run the directly relevant checks, especially
+`tests/chart/entry-one-click-page.cjs`, `tests/chart/one-click-protection.cjs`,
+`tests/chart/fast-entry-drag.cjs` and `tests/chart/order-line-drag.cjs`.
+Cover One-click on/off, desktop/mobile, draft persistence across polling, delayed
+confirmation and a click held through refresh. Preserve tick-level delivery and
+the existing 1/2/3/4-chart layouts. Report mock/browser results separately from
+broker acceptance; do not place real orders merely to verify UI changes.
