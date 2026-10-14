@@ -1811,3 +1811,37 @@ stock-chart.html matched source. User will Run the iPhone app themselves from
 this checkout's `ios/Wheel.xcodeproj`; signing/localization changes stay local.
 Deploy the static resources on Mini by fast-forward with a rollback ref and
 served-document hash verification; no service or Gateway restart is required.
+
+### 2026-10-14 — Reused API order IDs blocked bracket reconciliation
+
+The earlier cancellation-only recovery fix (`7b3bb36`) is already an ancestor
+of the deployed `e9715ce`; Paper and Live use the shared chart service. This
+incident instead exposed a historical/current identity collision in the group
+ledger. A saved permanent ID was OR-matched with a reused client/order ID,
+causing distinct old and new orders to become ambiguous. Use the saved permanent
+ID exclusively when present; retain account, contract, reference, action, parent,
+execution and terminal-state checks. No record deletion, lock override or replay.
+
+REA passively inspected the authorized active four-pane page and observed the
+unknown outcome, disabled cancellation and zero TP/SL totals (evidence
+`ev_a62afe1ca3da9d3413b394c3268423e07cccb629c3f5484dd39b5f15a61fad9f`).
+Read-only Paper state and journal inspection established that the outstanding
+request was the original submit; subsequent UI cancellation had not been sent.
+A filtered, anonymized snapshot replay reproduced the ambiguity. With the fix,
+the same 28 groups and 6 current orders reconcile with no errors and zero net
+position. This is offline replay, not a broker cancellation acceptance test.
+
+Bracket labels now show planned entry-based amounts for confirmed unfilled
+working entries even if unrelated reconciliation disables editing. Filled
+positions retain realized-plus-remaining projections; unknown projections remain
+unknown. No market-data scheduling, pane layout or price-axis policy changed.
+
+Validation: 219 focused backend tests passed, including cancellation/fill races,
+durable history, group attribution, exact identity and Live capability guards.
+The reused-ID test first failed under both synthetic Paper and Live accounts,
+then passed with the fix. `quantity-confirm.cjs` and `entry-recovery.cjs` passed
+at desktop/mobile widths, covering planned TP/SL, request-key isolation, no
+write replay and one explicit simulated cancellation after authoritative recovery.
+Temporary evidence stays outside Git. No production order, Live switch, Gateway
+restart or iPhone installation was performed. Backend activation requires an
+explicitly authorized Wheel backend restart and fresh broker/read-only UI checks.

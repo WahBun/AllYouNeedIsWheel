@@ -20,5 +20,24 @@ await p.locator('#order-quantity-popup').getByRole('button',{name:'+',exact:true
  await p.evaluate(()=>configure(cfg));await p.waitForTimeout(100);
  const geometry=await p.evaluate(()=>{const el=document.getElementById('countdown'),y=series.priceToCoordinate(levels.tp),r=el.getBoundingClientRect(),label=document.getElementById('tp').getBoundingClientRect();const axis=document.querySelector('[data-axis-role=tp]').getBoundingClientRect();return {axisTop:axis.top,axisBottom:axis.bottom,top:r.top,bottom:r.bottom,y,gap:innerWidth-priceAxisWidth('right')-label.right};});
  assert.ok(geometry.bottom+2<=geometry.axisTop||geometry.top>=geometry.axisBottom+2,JSON.stringify(geometry));assert.ok(geometry.gap>=(width<500?47:63),JSON.stringify(geometry));
- await p.screenshot({path:'/tmp/wheel-quantity-confirm-'+width+'.png'});await p.close();}
+ await p.screenshot({path:'/tmp/wheel-quantity-confirm-'+width+'.png'});
+ // Broker-confirmed unfilled entries still show the planned bracket amounts
+ // while unrelated ownership reconciliation disables entry editing.
+ await p.evaluate(()=>{
+  window.locked={...cfg,multiplier:2,paper:{...cfg.paper,known:false,enabled:false,entry_editable:false,position:0,tp:175,sl:25,
+   orders:[{role:'entry',filled:0,status:'Submitted'},{role:'entry_1',filled:0,status:'Submitted'}],
+   tp_projection:{known:true,realized:0,targets:[]},sl_projection:{known:true,realized:0,targets:[]}}};
+  configure(locked);
+ });
+ assert.match(await p.locator('#tp').textContent(),/^TP  \+\$300\.00/);
+ assert.match(await p.locator('#sl').textContent(),/^SL  −\$300\.00/);
+ await p.evaluate(()=>configure({...locked,paper:{...locked.paper,orders:locked.paper.orders.map(r=>({...r,status:'PendingCancel'}))}}));
+ assert.match(await p.locator('#tp').textContent(),/^TP  \+\$300\.00/);
+ await p.evaluate(()=>configure({...locked,paper:{...locked.paper,position:1,
+  tp_projection:{known:true,realized:20,targets:[{entry:100,quantity:1,side:1,multiplier:2}]},
+  sl_projection:{known:false,realized:0,targets:[]}}}));
+ assert.match(await p.locator('#tp').textContent(),/^TP Σ  \+\$170\.00/);
+ assert.match(await p.locator('#sl').textContent(),/^SL Σ  —/);
+ assert.equal(await p.evaluate(()=>sent.length),1,'Display recovery never sends an order');
+ await p.close();}
  assert.equal(h.metrics.posts,0);console.log('Draft/Confirm/Discard, refresh/stale guards, protection P&L, label collision and spacing passed on desktop/mobile');}finally{await b.close();await h.close()}})().catch(e=>{console.error(e);process.exitCode=1});

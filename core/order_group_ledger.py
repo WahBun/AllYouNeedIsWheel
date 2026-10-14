@@ -173,8 +173,11 @@ def project(path, account, cid, client, groups, trades, fills, account_position)
             if g.get('origin_position'):conflict('Legacy opening balance lacks execution ownership: '+ref)
             for role,oid in g['ids'].items():
                 perm=g.get('perms',{}).get(role)
+                # API order IDs can be reused after reconnect/reset. Once saved,
+                # the broker permanent ID is authoritative; never union it with
+                # an unrelated newer order carrying the same temporary number.
                 matches=[t for t in trades if t.order.account==account and t.contract.conId==cid and
-                         ((perm and (t.order.permId or t.orderStatus.permId)==perm) or
+                         ((t.order.permId or t.orderStatus.permId)==perm if perm else
                           (t.order.clientId==client and t.order.orderId==oid))]
                 unique={json.dumps(dict(order=vars(t.order),status=vars(t.orderStatus)),sort_keys=True,default=str):t for t in matches}
                 if len(unique)!=1:
