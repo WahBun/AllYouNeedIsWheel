@@ -535,7 +535,7 @@ function totalSLText(){
  for(const row of projection.targets||[]){const target=preview?levels.sl:row.price;total+=(target-row.entry)*row.side*row.quantity*row.multiplier;}
  return (total>=0?'+':'−')+'$'+Math.abs(total).toFixed(2);
 }
-function label(k){const total=paperConfig.active?(k==='tp'?totalTPText():k==='sl'?totalSLText():null):null;return k.toUpperCase()+(total!==null?' Σ':'')+(paperConfig.protection_drag_role===k||k==='sl'&&pendingStopDisplayPrice()?' …':'')+(displayOptions.profit!==false&&displayOptions.brackets!==false?'  '+(total??profitText(levels[k],displayOptions.bracketUnit)):'');}
+function label(k){const total=paperConfig.active?(k==='tp'?totalTPText():k==='sl'?totalSLText():null):null;return k.toUpperCase()+(total!==null?' Σ':'')+(paperConfig.protection_drag_role===k?' …':'')+(displayOptions.profit!==false&&displayOptions.brackets!==false?'  '+(total??profitText(levels[k],displayOptions.bracketUnit)):'');}
 
 function templatePrices(base,direction,quantity=qty){
  const values={tp:0,sl:0};

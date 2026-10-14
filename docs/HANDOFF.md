@@ -1947,3 +1947,10 @@ one mock write and retained line identity. Quantity-confirm, one-click-protectio
 order-line-drag and entry-one-click-page regressions passed. iOS Simulator build
 passed with matching bundled chart resource; no physical device Run or IB write.
 Deploy static assets without restarting Wheel/Gateway; preserve a rollback point.
+
+User preference follow-up: pending replacement SL uses the same ordinary label
+style as TP, without an SL-only ellipsis. The page's existing unknown/confirming
+order status continues to report reconciliation; broker state remains unchanged.
+The common price-amendment in-flight marker is unchanged for both roles.
+Both pending-stop and full-page quantity recovery tests check matching TP/SL
+label treatment, retained line identity and a single write.
