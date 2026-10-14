@@ -2085,3 +2085,37 @@ themes, favorite counts and fullscreen. Price-axis tests passed at 1x/2x device
 scale, including native icon size and pixel alignment, both axis sides, menu
 operation, drawing anchors and visible ranges. Synthetic checks only; no orders.
 Static frontend deployment, no iOS bundle change or service restart.
+
+
+## 2026-10-14 — Browser tab quote display
+
+REA inspected the current TradingView chart (evidence
+`ev_23cfcf33e26a84bb845cb337ac8cfc8fc19b4b75dfd947dc0574818238601f11`).
+Current `main_chart.bc04d2d77efe2bc12a54.js` SHA-256
+`fcaaf2824af6e78cf0cd9d82e98ed09514970e7726c896c5f232ffdfd0c54358`
+matches the retained REA source. Its title controller follows the active chart's
+quote provider, formats `last_price` / `change_percent`, and writes document.title.
+This is source evidence, not an observation of TradingView's server-side baseline.
+
+Wheel retains its favicon and shows the active contract, latest price, direction
+and daily percent. The baseline is IB's `close` tick (previous available trading
+day close), not the prior candle or ETH opening. Futures feeds may use settlement
+conventions; do not promise equality with TV's continuous MNQ1! contract.
+Reference subscription uses the existing bounded connection cache through a
+separate read-only endpoint, with account/current-chart checks. No new IB owner,
+historical requests, order writes or quote throttles. Raw latest trade metadata
+is independent of the chart's selected RTH/ETH and bar interval. Missing/invalid
+or delayed references omit the percentage. No stale account/symbol fallback.
+Browser title formatting samples accepted state separately from price rendering;
+it changes the document title only when the displayed value changes.
+
+User authorized one Wheel Backend restart after verification; never restart
+Gateway. Preserve the local signing/localization edits and broker database.
+
+Validation: 81 focused offline backend tests passed. The browser title fixture
+covers rising/falling/zero/missing references, independent symbols, active-pane
+changes, and desktop/narrow layouts without broker writes. The before/after
+1/2/3/4-pane and dual-page matrix retained every generated event and OHLC extreme;
+per-case worst-pane applied-update p95 was 3–9 ms before and 3–9 ms after (local
+synthetic results, not physical-screen or live-broker latency). Layout/recovery,
+100 Hz stress and eight distinct symbols on two pages also passed.

@@ -16,6 +16,32 @@ let quantityEdited=false;
 function resetNewQuantity(){quantityEdited=false;$('quantity').value='1';}
 function defaultNewQuantity(){if(state.active||quantityEdited||!packet.security_type)return;if(packet.security_type==='OPT'&&packet.option_right==='C')$('quantity').value=Number.isInteger(packet.covered_call_capacity)?Math.min(newQuantityLimit(),Math.max(0,packet.covered_call_capacity)):0;else $('quantity').value='1';}
 let ready=false,cid=0,interval=5,session='rth',packet={},state={},profile={},epoch=null,received=0,busy=false,generation=0,polling=false,entry=0,revision=0,joinRevision=0,joinSide=0,previewRevision=0,previewSide=0,editContext=null,packetReceived=0,pnlReceived=0,positions=[];
+// Browser chrome only: sample accepted state without adding work to price delivery.
+let titleReferenceKey='',titleReferenceAt=0,titleReferenceBusy=false;
+const titleFormats=new Map();
+function updateTabTitle(){
+ const valid=packet.con_id===cid&&packet.account_epoch===epoch&&!switchingChart;
+ const symbol=valid?(packet.local_symbol||packet.display_symbol||packet.symbol):'';
+ const price=valid?packet.last_price:null;
+ let title=symbol||'Wheel · Superchart';
+ if(symbol&&Number.isFinite(price)&&price>0&&Date.now()-packetReceived<30000){
+  const rule=(packet.price_rules||[]).filter(r=>r.low<=price&&r.increment>0).sort((a,b)=>b.low-a.low)[0];
+  let digits=2;if(rule){while(digits<8&&Math.abs(rule.increment*10**digits-Math.round(rule.increment*10**digits))>1e-7)digits++;}
+  if(!titleFormats.has(digits))titleFormats.set(digits,new Intl.NumberFormat('en-US',{minimumFractionDigits:digits,maximumFractionDigits:digits}));
+  title+=' '+titleFormats.get(digits).format(price);
+  if(Number.isFinite(packet.previous_close)&&packet.previous_close>0){
+   const change=Number(((price/packet.previous_close-1)*100).toFixed(2));
+   title+=' '+(change>0?'▲ +':change<0?'▼ −':'')+Math.abs(change).toFixed(2)+'%';
+  }
+ }else if(symbol)title+=' · Waiting';
+ if(document.title!==title)document.title=title;
+ // Refresh only the bounded existing IB quote subscription, not chart history.
+ const key=JSON.stringify([cid,epoch]);
+ if(!valid||!cid||!epoch||document.hidden||titleReferenceBusy||(key===titleReferenceKey&&Date.now()-titleReferenceAt<15000))return;
+ titleReferenceKey=key;titleReferenceAt=Date.now();titleReferenceBusy=true;
+ api(`portfolio/chart-reference/${cid}?epoch=${encodeURIComponent(epoch)}`).catch(()=>{}).finally(()=>{titleReferenceBusy=false;});
+}
+setInterval(updateTabTitle,250);
 function stored(key){try{return JSON.parse(localStorage.getItem(key)||'{}');}catch{return {};}}
 const contractFavoritesKey='wheel.web.favorite-contracts';
 function readContractFavorites(){const items=stored(contractFavoritesKey);return Array.isArray(items)?items.filter(x=>Number.isSafeInteger(x?.id)&&x.id>0&&typeof x.label==='string').slice(0,100):[];}

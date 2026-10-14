@@ -554,6 +554,9 @@ class StockChart:
                 display_quote = dict(bid=cached_bid, ask=cached_ask)
         return dict(option_display_quote=display_quote,covered_call_capacity=cc_capacity,option_right=getattr(contract, 'right', ''),iv_percent=iv if iv_valid else None,iv_expires_at=iv_time+30 if iv_valid else None,data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
             con_id=con_id, symbol=contract.symbol,
+            # Display-only quote metadata; independent of chart interval/session.
+            last_price=positive(state['bars'][-1]['close']) if state['bars'] else None,
+            previous_close=positive(getattr(ticker, 'close', None)) if getattr(ticker, 'marketDataType', None) in (1, 2) else None,
             display_symbol=(f"{contract.symbol} {contract.lastTradeDateOrContractMonth} {contract.strike:g} {'CALL' if contract.right == 'C' else 'PUT'}" if contract.secType == 'OPT' else getattr(contract, 'localSymbol', '') or contract.symbol),
             security_type=contract.secType, local_symbol=getattr(contract, "localSymbol", "") or contract.symbol,
             exchange=getattr(contract, "primaryExchange", "") or getattr(contract, "exchange", ""),

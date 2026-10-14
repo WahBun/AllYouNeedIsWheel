@@ -286,6 +286,18 @@ def get_chart_ema(con_id):
         return _no_store_json({'error':'EMA history unavailable'},503)
 
 
+@bp.get('/chart-reference/<int:con_id>')
+def chart_reference(con_id):
+    from api.services.chart_reference import subscribe
+    from api.routes.account import epoch
+    if request.args.get('epoch') != epoch():
+        return _no_store_json({'error': 'Account changed; refresh connection state'}, 409)
+    try:
+        return _no_store_json(subscribe(portfolio_service._ensure_connection(), con_id))
+    except Exception:
+        return _no_store_json({'error': 'Previous close unavailable'}, 503)
+
+
 @bp.get('/stock-chart-history/<int:con_id>')
 def chart_history_page(con_id):
     from api.services.chart_history import chart_history
