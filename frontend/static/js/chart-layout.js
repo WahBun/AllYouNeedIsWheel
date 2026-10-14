@@ -44,7 +44,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  const maximize=document.createElement('button');maximize.id='maximize-chart';maximize.setAttribute('aria-controls','chart-grid');document.getElementById('toggle-trade').before(maximize);
  function paintMaximize(){
   grid.classList.toggle('pane-maximized',maximized);maximize.hidden=count===1;
-  maximize.title=(maximized?'Restore chart / 恢复图表':'Maximize chart / 放大图表')+' · '+(/Mac/.test(navigator.platform)?'⌥ Option':'Alt')+' + Enter';maximize.setAttribute('aria-label',maximize.title);maximize.setAttribute('aria-pressed',String(maximized));
+  maximize.title=(maximized?'Restore chart':'Maximize chart')+' · '+(/Mac/.test(navigator.platform)?'⌥ Option':'Alt')+' + Enter';maximize.setAttribute('aria-label',maximize.title);maximize.setAttribute('aria-pressed',String(maximized));
   maximize.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">'+(maximized?'<path d="M20 9h-5V4M4 15h5v5"/>':'<path d="M15 4h5v5M4 15v5h5"/>')+'</svg>';
  }
  maximize.onclick=()=>{if(count===1)return;maximized=!maximized;paintMaximize();paintPaneChrome();};
@@ -54,7 +54,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   const doc=pane.frame.contentDocument;if(doc.getElementById('pane-view-controls'))return;
   const style=doc.createElement('style');style.textContent='#pane-view-controls{position:absolute;bottom:70px;left:50%;transform:translateX(-50%);display:flex;gap:4px;z-index:21;opacity:0;transition:opacity .12s}#pane-view-controls:hover,#pane-view-controls:has(button:focus-visible){opacity:1}#pane-view-controls button{width:26px;height:26px;padding:4px;border:0;border-radius:4px;background:#303336df;color:#fff;cursor:pointer;box-shadow:0 1px 4px #0003}#pane-view-controls button[hidden]{display:none}@media(hover:none){#pane-view-controls{opacity:1}}';doc.head.append(style);
   const bar=doc.createElement('div');bar.id='pane-view-controls';
-  const zoom=doc.createElement('button'),reset=doc.createElement('button');zoom.dataset.paneMaximize='';reset.setAttribute('aria-label','Reset chart view');reset.title='Reset chart view / 重置视图 · '+(/Mac/.test(navigator.platform)?'⌥ Option':'Alt')+' + R';reset.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 10a8 8 0 1 1 1 8M4 4v6h6"/></svg>';
+  const zoom=doc.createElement('button'),reset=doc.createElement('button');zoom.dataset.paneMaximize='';reset.setAttribute('aria-label','Reset chart view');reset.title='Reset chart view · '+(/Mac/.test(navigator.platform)?'⌥ Option':'Alt')+' + R';reset.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 10a8 8 0 1 1 1 8M4 4v6h6"/></svg>';
   zoom.onclick=()=>paneMaximize(pane);reset.onclick=()=>pane.frame.contentWindow.resetChartView?.();bar.append(zoom,reset);doc.body.append(bar);
   doc.addEventListener('click',e=>{if(e.altKey&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.target.closest('button,a,input,textarea,select,dialog')){e.preventDefault();paneMaximize(pane);}},true);
   paintPaneChrome();

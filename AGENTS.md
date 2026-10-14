@@ -10,7 +10,7 @@ Read `docs/HANDOFF.md` and `docs/MAC_MINI_TAILSCALE.md` before deployment change
 - Keep one server process and one stable IB client identity. HTTP threads are safe only with the dedicated serialized API dispatcher in place.
 - Do not automatically retry trading writes or interpret an unknown order status as canceled.
 - Verify account routing, exact contracts, quantities and prices when changing execution code.
-- Check mobile and desktop layouts, English/Chinese and light/dark themes for UI changes.
+- Check mobile and desktop layouts and light/dark themes for UI changes.
 - Run the relevant tests and record material limitations. Do not promise bug-free trading or guaranteed fills.
 - Conversation history is not a source of deployed state: inspect Git, local configuration and service status on the current host.
 
@@ -100,3 +100,14 @@ For related UI changes, run `tests/chart/stop-pending-display.cjs` and
 `tests/chart/quantity-stop-recovery.cjs`. Verify desktop/mobile rendering,
 matching TP/SL styles, stable line identity through pending-to-confirmed updates,
 and exactly one intended quantity-change request with no automatic replay.
+
+## UI language: English until localization is explicitly requested
+
+This rule applies across computers, new conversations and all future UI changes.
+All new or modified visible UI text must be English only: buttons, menus, titles,
+tooltips (including hidden/hover controls), placeholders, errors, help text and
+visible annotations. Do not introduce Chinese text or mixed Chinese/English UI.
+Keep every state of a control in English, including maximize, restore and reset.
+Defer Chinese localization until the product and interactions are mature and the
+user explicitly requests a coordinated localization pass. Continue communicating
+with the user in Chinese. This does not authorize unrelated UI or behavior changes.

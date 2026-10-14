@@ -1976,3 +1976,12 @@ preference stays off. Existing maximize, restore, reset, tail/history and Option
 shortcuts passed with zero broker writes. Web host scripts only; no phone build
 or installation is required for this correction. Deploy statically without a
 backend or Gateway restart.
+
+### 2026-10-14 — English-only chart control tooltips
+
+Removed Chinese from both hover controls: Maximize/Restore chart and Reset chart
+view. Shortcut hints and behavior are unchanged. AGENTS.md now requires English
+for all future UI text, including hidden controls and every control state, until
+an explicitly requested coordinated localization pass. This is a copy-only change
+and uses the documented REA exception for text changes. Checked all three labels
+and JavaScript syntax; deploy static assets without restarting services.
