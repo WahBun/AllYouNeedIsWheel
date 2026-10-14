@@ -13,7 +13,7 @@ for(const width of [1200,393])for(const axis of ['right','left']){
   const button=p.getByRole('button',{name,exact:true});const size=await button.evaluate(e=>({hit:e.getBoundingClientRect().height,visible:e.firstChild.getBoundingClientRect().height,text:e.textContent,background:getComputedStyle(e.firstChild).backgroundColor}));
   assert.equal(size.hit,44);assert.equal(size.visible,width===393?24:21);assert.ok(!size.text.includes('@'));assert.equal(size.background,'rgb(255, 255, 255)');
  }
- assert.equal(await p.getByRole('button',{name:'Drag add order 1',exact:true}).textContent(),'Add 1');
+ assert.equal(await p.getByRole('button',{name:'Drag add order 1',exact:true}).textContent(),'Add');
  assert.equal(await p.getByRole('button',{name:'Drag trim limit price',exact:true}).textContent(),'Trim');
  assert.equal(await p.getByRole('button',{name:'Edit trim quantity',exact:true}).textContent(),'1');
  // Reproduce a pending Add very close to SL: controls retain their lane and price anchor.

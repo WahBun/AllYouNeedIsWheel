@@ -20,7 +20,42 @@
  const pendingLines=new Map();
  const exitLines=new Map(),exitHandles=new Map();
  let exitGesture=null,addGesture=null;
- function cancelAddDrag(){if(addGesture){const row=pendingLines.get(addGesture.id);if(row){row.price=paperConfig.orders?.find(r=>r.order_id===addGesture.oid)?.price??addGesture.start;row.button.title='Drag to amend this unfilled add order @ '+priceText(row.price);row.line.applyOptions({price:row.price});}addGesture=null;repositionCancels();}}
+ function pendingAddPlans(paper=paperConfig){
+  const raw=(paper.orders||[]).filter(o=>o.role.split('_')[0]==='entry'&&(o.entry_kind==='add'||paper.position)&&!o.filled&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status)&&o.price>0),groups=new Map();
+  for(const row of raw){const key=row.add_plan?`plan:${row.add_plan}:${row.price}`:`order:${row.order_id}`;let plan=groups.get(key);
+   if(!plan){plan={...row,key,quantity:0,members:[],add_quantity_editable:true};groups.set(key,plan);}
+   plan.quantity+=row.quantity;plan.members.push(row);plan.add_quantity_editable&&=row.add_quantity_editable===true;
+   if(!['Submitted','PreSubmitted'].includes(row.status))plan.status=row.status;
+  }
+  return [...groups.values()];
+ }
+ const findAddPlan=key=>pendingAddPlans().find(row=>row.key===key);
+ const addSnapshot=plan=>plan.members.map(({order_id,price,quantity,status,filled})=>({order_id,price,quantity,status,filled}));
+ const addExpected=plan=>plan.members.map(({order_id,price,quantity})=>({order_id,price,quantity}));
+ const addContext=plan=>plan.members.length>1?{expected_orders:addExpected(plan),expected_position:paperConfig.position}:{order_id:plan.order_id,expected_price:plan.price,expected_quantity:plan.quantity};
+ function editAddQuantity(key){
+  const current=findAddPlan(key);if(!current?.add_quantity_editable||!paperConfig.enabled||paperConfig.busy)return;
+  const cid=paperCID,ref=paperConfig.order_ref,epoch=paperConfig.web_account_epoch,position=paperConfig.position,snapshot=JSON.stringify(addSnapshot(current));
+  const other=pendingAddPlans().filter(row=>row.key!==key).reduce((sum,row)=>sum+row.quantity,0);
+  const maximum=Math.max(current.quantity,Math.floor((paperConfig.quantity_limit||10)-Math.abs(position)-other));
+  addDialog.replaceChildren();addDialog.dataset.light=String(!darkAppearance);
+  const title=document.createElement('strong');title.textContent='Edit Add quantity @ '+priceText(current.price);
+  const note=document.createElement('p');note.textContent='Change this pending Add only. Existing position and protection remain unchanged.';
+  const input=document.createElement('input');input.type='number';input.min='1';input.max=String(maximum);input.step='1';input.value=String(current.quantity);input.setAttribute('aria-label','Add order quantity');
+  const stepper=document.createElement('div');stepper.className='pending-quantity-stepper';
+  const minus=document.createElement('button'),plus=document.createElement('button');minus.textContent='−';plus.textContent='+';minus.setAttribute('aria-label','Decrease Add quantity');plus.setAttribute('aria-label','Increase Add quantity');
+  const update=()=>{minus.disabled=Number(input.value)<=1;plus.disabled=Number(input.value)>=maximum;};
+  minus.onclick=()=>{input.value=String(Math.max(1,Number(input.value)-1));update();};plus.onclick=()=>{input.value=String(Math.min(maximum,Number(input.value)+1));update();};input.oninput=update;update();stepper.append(minus,input,plus);
+  const back=document.createElement('button');back.textContent='Back';back.onclick=()=>addDialog.close();
+  const save=document.createElement('button');save.textContent='Confirm quantity';save.onclick=()=>{
+   const quantity=Number(input.value),fresh=findAddPlan(key);
+   if(!input.value||!Number.isSafeInteger(quantity)||!input.reportValidity())return;
+   if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||position!==paperConfig.position||!fresh?.add_quantity_editable||JSON.stringify(addSnapshot(fresh))!==snapshot||!paperConfig.enabled||paperConfig.busy){addDialog.close();return validation('Add changed; reopen the quantity editor.');}
+   addDialog.close();if(quantity!==current.quantity)paperAction({action:'resize_add',quantity,expected_ref:ref,expected_position:position,expected_orders:addExpected(current)});
+  };
+  const footer=document.createElement('footer');footer.append(back,save);addDialog.append(title,note,stepper,footer);addDialog.showModal();input.focus();input.select();
+ }
+ function cancelAddDrag(){if(addGesture){const row=pendingLines.get(addGesture.id);if(row){row.price=findAddPlan(addGesture.key)?.price??addGesture.start;row.button.title='Drag to amend this unfilled add order @ '+priceText(row.price);row.line.applyOptions({price:row.price});}addGesture=null;repositionCancels();}}
  document.addEventListener('pointermove',e=>{
   if(!addGesture||e.pointerId!==addGesture.pointer||!(e.buttons&1))return;
   const price=snapPrice(series.coordinateToPrice(e.clientY-(addGesture.offset||0)));if(!(price>0))return;
@@ -29,10 +64,10 @@
  },true);
  document.addEventListener('pointerup',e=>{
   if(!addGesture||addGesture.pointer!==e.pointerId)return;
-  const g=addGesture,current=paperConfig.orders?.find(r=>r.order_id===g.oid);
-  const valid=g.cid===paperCID&&g.ref===paperConfig.order_ref&&g.epoch===paperConfig.web_account_epoch&&paperConfig.enabled&&!paperConfig.busy&&current&&!current.filled&&current.price===g.start&&current.quantity===g.quantity&&['Submitted','PreSubmitted'].includes(current.status);
+  const g=addGesture,current=findAddPlan(g.key);
+  const valid=g.cid===paperCID&&g.ref===paperConfig.order_ref&&g.epoch===paperConfig.web_account_epoch&&paperConfig.enabled&&!paperConfig.busy&&current&&paperConfig.position===g.position&&JSON.stringify(addSnapshot(current))===g.snapshot&&['Submitted','PreSubmitted'].includes(current.status);
   cancelAddDrag();
-  if(valid&&g.price>0&&g.price!==g.start)paperAction({action:'amend_add',order_id:g.oid,price:g.price,expected_ref:g.ref,expected_price:g.start,expected_quantity:g.quantity});
+  if(valid&&g.price>0&&g.price!==g.start)paperAction({action:'amend_add',...g.context,price:g.price,expected_ref:g.ref});
  },true);
  document.addEventListener('pointercancel',e=>{if(addGesture?.pointer===e.pointerId)cancelAddDrag();},true);
  window.addEventListener('blur',cancelAddDrag);
@@ -93,7 +128,7 @@
    const item=visible[i],h=item.h;
    // Match entry/TP/SL: scale changes must never move labels into another lane.
    const y=item.y,gap=right+(innerWidth<500?48:64);
-   h.button.style.top=(y-22)+'px';placeByPriceAxis(h.button,gap+(item.exit?48:24));
+   h.button.style.top=(y-22)+'px';placeByPriceAxis(h.button,gap+(h.edit?48:24));
    h.cancel.style.top=(y-22)+'px';placeByPriceAxis(h.cancel,gap);
    if(h.edit){h.edit.style.top=(y-22)+'px';placeByPriceAxis(h.edit,gap+24);}
   }
@@ -215,31 +250,31 @@
  const sharedConfigure=window.configure;
  window.configure=config=>{
   darkAppearance=!!config.dark;sharedConfigure(config);syncBrokerLines(config);if(addGesture&&(addGesture.cid!==paperCID||addGesture.ref!==paperConfig.order_ref||addGesture.epoch!==paperConfig.web_account_epoch))cancelAddDrag();syncExitLines(config);window.dispatchEvent(new Event('order-configured'));
-  const pending=(config.paper?.orders||[]).filter(o=>o.role.split('_')[0]==='entry'&&(o.entry_kind==='add'||config.paper.position)&&!o.filled&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status)&&o.price>0);
-  const live=new Set(pending.map(o=>`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${o.order_id}`));
-  for(const [id,row] of pendingLines)if(!live.has(id)){series.removePriceLine(row.line);row.button.remove();row.cancel?.remove();pendingLines.delete(id);if(addGesture?.id===id)addGesture=null;}
+  const pending=pendingAddPlans(config.paper||{});
+  const live=new Set(pending.map(o=>`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${o.key}`));
+  for(const [id,row] of pendingLines)if(!live.has(id)){series.removePriceLine(row.line);row.button.remove();row.cancel?.remove();row.edit?.remove();pendingLines.delete(id);if(addGesture?.id===id)addGesture=null;}
   for(const order of pending){
-   const id=`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${order.order_id}`,options={price:order.price,color:config.paper.side===1?'#2962ff':'#c6384d',lineWidth:1,lineStyle:2,lineVisible:config.display?.orderExtensionLines!==false,axisLabelVisible:false,title:''};
+   const id=`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${order.key}`,options={price:order.price,color:config.paper.side===1?'#2962ff':'#c6384d',lineWidth:1,lineStyle:2,lineVisible:config.display?.orderExtensionLines!==false,axisLabelVisible:false,title:''};
    if(pendingLines.has(id)){if(addGesture?.id!==id)pendingLines.get(id).line.applyOptions(options);}
    else {
-    const button=document.createElement('button');document.body.append(button);
-    const cid=config.con_id,ref=config.paper.order_ref,epoch=config.paper.web_account_epoch,oid=order.order_id;
-    const cancel=document.createElement('button');cancel.textContent='×';cancel.setAttribute('aria-label',`Cancel add order ${oid}`);document.body.append(cancel);
-    compactSegment(button);compactSegment(cancel,false,true,true);
-    cancel.onclick=e=>{e.stopPropagation();if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||!paperConfig.enabled||paperConfig.busy)return;button.disabled=true;cancel.disabled=true;paperAction({action:'cancel_add',order_id:oid,expected_ref:ref});};
-    cancel.onpointerdown=e=>e.stopPropagation();
+    const button=document.createElement('button'),cancel=document.createElement('button'),edit=document.createElement('button');cancel.textContent='×';
+    document.body.append(button,edit,cancel);compactSegment(button);compactSegment(cancel,false,true,true);compactSegment(edit,false,true);
+    const cid=config.con_id,ref=config.paper.order_ref,epoch=config.paper.web_account_epoch,key=order.key;
+    cancel.onclick=e=>{e.stopPropagation();const current=findAddPlan(key);if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||!paperConfig.enabled||paperConfig.busy||!current)return;button.disabled=true;cancel.disabled=true;edit.disabled=true;paperAction({action:'cancel_add',...addContext(current),expected_ref:ref});};
+    cancel.onpointerdown=e=>e.stopPropagation();edit.onpointerdown=e=>e.stopPropagation();edit.onclick=()=>editAddQuantity(key);
     button.style.touchAction='none';button.style.cursor='ns-resize';
-    button.onpointerdown=e=>{const current=paperConfig.orders?.find(r=>r.order_id===oid);
-     if(e.button!==0||!paperConfig.enabled||paperConfig.busy||!current||current.filled||!['Submitted','PreSubmitted'].includes(current.status))return;
-     addGesture={id,cid,ref,epoch,oid,offset:e.clientY-series.priceToCoordinate(current.price),pointer:e.pointerId,start:current.price,quantity:current.quantity,price:current.price};
+    button.onpointerdown=e=>{const current=findAddPlan(key);
+     if(e.button!==0||!paperConfig.enabled||paperConfig.busy||!current||!['Submitted','PreSubmitted'].includes(current.status))return;
+     addGesture={id,cid,ref,epoch,key,offset:e.clientY-series.priceToCoordinate(current.price),pointer:e.pointerId,start:current.price,price:current.price,position:paperConfig.position,snapshot:JSON.stringify(addSnapshot(current)),context:addContext(current)};
      orderDragCursor('grabbing');button.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();
     };
-    pendingLines.set(id,{line:series.createPriceLine(options),button,cancel});
+    pendingLines.set(id,{line:series.createPriceLine(options),button,cancel,edit});
    }
-   const row=pendingLines.get(id);row.button.style.color=row.cancel.style.color=options.color;if(addGesture?.id!==id)row.price=order.price;
-   labelText(row.button,`${order.entry_kind==='entry'?'Entry':order.entry_kind==='unknown'?'Pending':'Add'} ${order.quantity}${order.status==='PendingCancel'?' · Canceling…':''}`);
+   const row=pendingLines.get(id);row.button.style.color=row.cancel.style.color=row.edit.style.color=options.color;if(addGesture?.id!==id)row.price=order.price;
+   labelText(row.button,`${order.entry_kind==='entry'?'Entry':order.entry_kind==='unknown'?'Pending':'Add'}${order.status==='PendingCancel'?' · Canceling…':''}`);labelText(row.edit,String(order.quantity));
    row.button.setAttribute('aria-label',`${order.entry_kind==='entry'?'Drag entry order':order.entry_kind==='unknown'?'Drag pending entry':'Drag add order'} ${order.order_id}`);row.button.title='Drag to amend this unfilled add order @ '+priceText(row.price);
    row.button.disabled=!config.paper.enabled||config.paper.busy||!['Submitted','PreSubmitted'].includes(order.status);
+   row.edit.setAttribute('aria-label','Edit Add quantity');row.edit.title=order.add_quantity_editable?'Edit pending Add quantity':'Quantity editing requires a reconciled pending Add';row.edit.disabled=row.button.disabled||!order.add_quantity_editable;
    row.cancel.setAttribute('aria-label',`Cancel ${order.entry_kind==='entry'?'entry':order.entry_kind==='unknown'?'pending entry':'add'} order ${order.order_id}`);row.cancel.disabled=row.button.disabled;positionCancelButton(row);
   }
  };
@@ -265,6 +300,9 @@
  addDialog.id='priced-add-dialog';document.body.append(addDialog);
  const addStyle=document.createElement('style');addStyle.textContent=`
  #priced-add-dialog{box-sizing:border-box;width:360px;max-width:calc(100vw - 32px);padding:24px;border:1px solid #3b4148;border-radius:16px;background:#1d2127;color:#e9edf2;box-shadow:0 20px 70px #0008;font:14px -apple-system,BlinkMacSystemFont,sans-serif}
+ #priced-add-dialog .pending-quantity-stepper{display:flex;align-items:center;gap:8px;margin:8px 0 14px}
+ #priced-add-dialog .pending-quantity-stepper input{min-width:0;flex:1;margin:0;text-align:center}
+ #priced-add-dialog .pending-quantity-stepper button{flex:0 0 44px;height:46px;background:transparent;border-color:#697683;color:inherit;font-size:20px}
  #priced-add-dialog::backdrop{background:#080b1055;backdrop-filter:blur(3px)}
  #priced-add-dialog strong{display:block;font-size:19px;font-weight:650;margin-bottom:8px}
  #priced-add-dialog p{color:#9da7b4;font-size:12px;line-height:1.65;margin:0 0 20px}

@@ -34,7 +34,7 @@ def validate(conn,contract,body,current):
     if not contract_allowed(conn, contract):
         raise ValueError('Live chart trading is not enabled for this account and asset')
     action=body.get('action')
-    if action not in ('submit','edit_entry','close','set_protection','cancel_protection','amend','be','add','amend_add','cancel_add','trim','resize_trim','resize_stop','cancel_trim','cancel_exit'):
+    if action not in ('submit','edit_entry','close','set_protection','cancel_protection','amend','be','add','resize_add','amend_add','cancel_add','trim','resize_trim','resize_stop','cancel_trim','cancel_exit'):
         raise ValueError('This action is not enabled for Live charts')
     if action=='submit':
         if isinstance(body.get('side'),bool) or body.get('side') not in (-1,1) or body.get('entry_type') not in ('LMT','STP'):
@@ -48,11 +48,11 @@ def validate(conn,contract,body,current):
     if body.get('tif','DAY') not in ('DAY','GTC'):
         raise ValueError('Live chart TIF is restricted to DAY or GTC')
 
-    if action in ('add', 'trim', 'close'):
+    if action in ('add', 'resize_add', 'trim', 'close'):
         if body.get('expected_ref') != current.get('order_ref') or body.get('expected_position') != current.get('position'):
             raise ValueError('Position identity changed; refresh before managing Live orders')
         if action == 'add':
             if body.get('entry_type') not in ('LMT','STP') or body.get('entry') is None:
                 raise ValueError('Live Add requires an explicit limit or stop price')
-        elif body.get('exit_type') != 'LMT' or body.get('exit_price') is None:
+        elif action != 'resize_add' and (body.get('exit_type') != 'LMT' or body.get('exit_price') is None):
             raise ValueError('Live exits require an explicit limit price')

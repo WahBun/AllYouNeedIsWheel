@@ -412,6 +412,13 @@ class PaperChart:
         for row in rows:
             if row['role'].split('_')[0] == 'entry':
                 row['entry_kind'] = group.get('entry_kinds', {}).get(str(row['order_id']), 'unknown')
+                row['add_plan'] = group.get('add_plans', {}).get(str(row['order_id']))
+                lot = next((lot for lot in (group.get('lots') or group.get('stock_brackets', [])) if lot['entry'] == row['order_id']), None)
+                trade = trades.get(row['order_id'])
+                row['add_quantity_editable'] = bool(row['entry_kind'] == 'add' and lot and trade
+                    and not row['filled'] and row['status'] in ('Submitted','PreSubmitted')
+                    and (not any(role in lot for role in ('tp','sl')) or trade.contract.secType == 'FUT'
+                         and row['quantity'] == 1 and all(role in lot for role in ('tp','sl'))))
         confirmed = {r['role']:r for r in rows if r['status'] in ('Filled','Cancelled','ApiCancelled')}
         if confirmed != group.get('terminal'):
             group['terminal'] = confirmed
@@ -714,6 +721,8 @@ class PaperChart:
                 result['trim_allowed']=result['trim_available']>=1
         if group.get('stock_adjustment', {}).get('pending'):
             result['sync_error'] = 'Stock adjustment needs broker reconciliation'
+        if group.get('pending_add_edit'):
+            result['sync_error'] = 'Add edit needs broker reconciliation'
         if group.get('pending_trim_edit'):
             result['sync_error'] = 'Trim edit needs broker reconciliation'
         if group.get('pending_stop_trim'):
@@ -944,6 +953,10 @@ class PaperChart:
             if expected and state.get('order_ref')==original.get('order_ref') and expected <= working | terminal:
                 return resolved('rejected' if state.get('rejected') else 'reconciled')
             return dict(confirmed=False,status='unknown')
+        if group.get('pending_add_edit', {}).get('id') == request_id:
+            from api.services.chart_add_quantity import reconcile
+            status = reconcile(self, account, cid, request_id, state, authoritative)
+            return resolved(status) if status else dict(confirmed=False, status='unknown')
         if body.get('action')=='resize_trim' and group.get('pending_trim_edit',{}).get('id')==request_id:
             operation=group['pending_trim_edit'];ids=operation.get('replacement_ids') or operation['ids']
             by_id={r['order_id']:r for r in state['orders']}
@@ -1227,6 +1240,7 @@ class PaperChart:
                 db.execute('INSERT OR REPLACE INTO chart_paper_groups VALUES(?,?,?)',(account,cid,json.dumps(group)))
 
     def add_lots(self, conn, account, cid, contract, group, qty, kind, entry, tp, sl, entry_kind="entry", unit_quantity=1):
+        plan = group.get('pending_add_edit', {}).get('plan') if entry_kind == 'add' else None
         for _ in range(qty):
             index = len(group['lots'])
             values = {r:v for r,v in (('tp',tp),('sl',sl)) if v is not None}
@@ -1234,6 +1248,9 @@ class PaperChart:
             ids = {role:conn.ib.client.getReqId() for role in ('entry', *values)}
             for role, oid in ids.items(): group['ids'][role if index==0 else f'{role}_{index}'] = oid
             group.setdefault('entry_kinds', {})[str(ids['entry'])] = entry_kind
+            if entry_kind == 'add':
+                plan = plan or str(ids['entry'])
+                group.setdefault('add_plans', {})[str(ids['entry'])] = plan
             if entry_kind == 'add' and group.get('simple_add') and not values:
                 group['simple_add'].update(order_id=ids['entry'],kind=kind,price=entry,
                     quantity=unit_quantity,action='BUY' if group['side']==1 else 'SELL',tif=group.get('tif','DAY'))
@@ -1246,6 +1263,14 @@ class PaperChart:
             for order in orders:
                 order.account=account;order.tif=group.get('tif', 'DAY') if order is parent else 'GTC';order.orderRef=group['ref']
                 order.outsideRth = contract.secType == 'FUT'
+            if entry_kind == 'add' and group.get('pending_add_edit'):
+                from api.services.chart_add_quantity import intent
+                from types import SimpleNamespace
+                operation = group['pending_add_edit']
+                operation['new_ids'].extend(ids.values())
+                operation['expected'].extend(intent(SimpleNamespace(order=order)) for order in orders)
+                self.save_group(account,cid,group)
+            for order in orders:
                 conn.ib.placeOrder(contract,order)
 
     def exit_lots(self, conn, account, cid, group, lots, trades, price, action, request_id, limit_target=None):
@@ -1987,6 +2012,9 @@ class PaperChart:
                 conn.ib.cancelOrder(trade.order)
 
     def perform(self, conn, account, cid, body, request_id):
+        pending_add = (self.group(account, cid) or {}).get('pending_add_edit')
+        if pending_add and pending_add.get('id') != request_id:
+            raise ValueError('Previous Add edit needs broker reconciliation; do not resubmit')
         if (self.group(account, cid) or {}).get('stock_adjustment', {}).get('pending'):
             raise ValueError('Previous stock adjustment needs reconciliation; do not resubmit')
         attribution=self.group_projection(conn,account,cid)
@@ -2082,7 +2110,7 @@ class PaperChart:
         if pending.get('pending_resize'): raise ValueError('Previous quantity change needs broker reconciliation')
         if body.get('action') == 'cancel_protection':
             return self.cancel_protection(conn, account, cid, body)
-        if body.get('action') == 'cancel_add':
+        if body.get('action') == 'cancel_add' and 'expected_orders' not in body:
             return self.cancel_add(conn, account, cid, body)
         if attribution is None and body.get('action') in ('close','be','add','trim','resize_trim') and any(t.contract.conId==cid and t.order.account==account and t.order.orderRef in {g['ref'] for g in self.group_choices(account,cid) if g['id'] != (self.group_id or '')} for t in conn.ib.openTrades()):
             raise ValueError('Multiple order groups: manage each order separately; position actions require reconciliation')
@@ -2181,6 +2209,9 @@ class PaperChart:
             tick=Decimal(str(increments[-1])); amount=Decimal(str(number))
             if abs(amount/tick-(amount/tick).to_integral_value())>Decimal('0.000001'): raise ValueError('Price does not match contract tick size')
             return number
+        if action == 'resize_add' or action in ('amend_add', 'cancel_add') and 'expected_orders' in body:
+            from api.services.chart_add_quantity import edit
+            return edit(self, conn, account, cid, contract, body, request_id, price)
         standalone_id=body.get('order_id') or ((body.get('expected_orders') or [{}])[0].get('order_id'))
         if action in ('amend','resize_trim') and any(r['order_id']==standalone_id and r.get('standalone') for r in current.get('pending_exits',[])):
             return self.edit_standalone_trim(conn,account,cid,contract,current,group,body,request_id,price)

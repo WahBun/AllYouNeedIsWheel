@@ -2229,3 +2229,33 @@ Synthetic before/after 1–4 panes, two four-pane pages, 100Hz stress, eight dis
 symbols, OHLC extremes and lifecycle checks passed. The 10Hz chart-apply p95
 remained 2–6ms in the matrix. These are local mock/browser measurements, not
 broker latency or phone background execution guarantees.
+
+## 2026-10-14 pending Add quantity editing
+
+The Add label now has the same separate clickable quantity segment as Trim.
+Its editor provides minus/plus, direct whole-unit input, Back and Confirm quantity.
+A paired futures Add uses one plan identity across its unit brackets; increasing
+adds only the requested pending units, decreasing cancels only the selected
+unfilled units. Existing filled lots are retained. Standalone Add edits amend the
+exact unfilled parent. Grouped price/cancel actions retain exact selected IDs.
+Asset-capacity checks constrain increases; existing larger Add plans can reduce.
+
+REA rechecked the deployed frame implementation: Trim had a quantity editor while
+Add had only drag/cancel controls (ev_3499a65295b7133e05fce29828751f014ea0ddc7d1035825979f4b2d3a3de018).
+The implementation follows that existing quantity-segment UI. Broker operations
+are Wheel-specific and keep UUID, ownership, exact terms, position and account
+checks. A persisted edit journal reconciles outcomes from broker evidence and
+never replays missing legs after disconnect/restart. Uncertain partial sends
+block further edits; fill/cancel races keep filled-lot protection intact.
+
+Validation: 58 focused backend/policy regressions; Add editor at desktop/mobile
+widths in both themes; compact labels, One-click on/off, entry/TP/SL drag,
+pending-stop display and quantity recovery all passed with mocked writes.
+No actual broker acceptance or physical iPhone installation was performed.
+This change requires a separately authorized Wheel Backend restart to deploy;
+Gateway must remain running. Local signing/localization changes are excluded.
+
+The prior background-quote commit fe3fd3c is deployed separately. Read-only
+verification against Mini used a genuinely hidden four-pane Chrome tab: 105 SSE
+packets arrived over eight seconds and the tab quote changed, with one transport
+and no trading writes. Backend and Gateway process state remained unchanged.
