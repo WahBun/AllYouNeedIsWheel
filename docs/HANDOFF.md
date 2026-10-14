@@ -2017,3 +2017,12 @@ focus departure, keyboard movement, favorite focus, viewport bounds and English
 toolbar labels with zero order writes. Existing pane controls/magnet and header
 checks passed. No order, streaming, aggregation or iOS asset changes. Static web
 deployment only; no backend/Gateway restart or phone installation required.
+
+### 2026-10-14 — Bracket explanation moved to hover
+
+Removed the new-order panel's persistent “Optional · GTC exit orders” note.
+Bracket now has the English hover explanation: “TP/SL orders remain active until
+filled or canceled.” Existing-position editing guidance remains available. This
+is copy-only and uses the REA text-change exception; no order behavior changed.
+The existing template is handled by the static host script, so no service restart
+is needed. Verify the hidden note and tooltip with a synthetic browser page.

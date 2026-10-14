@@ -225,7 +225,8 @@ function renderTradingContext(){
  $('close').title=['OPT','STK'].includes(packet.security_type)?'Limit exit at the latest valid midpoint; no automatic repricing.':protectedClose?(zh?'多仓按 Bid、空仓按 Ask 挂限价退出，仍需等待成交。':'Limit exit at Bid for longs / Ask for shorts; may remain working.'):(zh?'核对撤单和剩余持仓后提交退出。':'Exit after reconciling cancellations and remaining position.');
  $('new-order').title=zh?'新建独立订单组；不会加到当前组，也不取消原订单。':'Start an independent group; existing orders remain.';
  const note=$('protection-note');note.removeAttribute('data-en');note.removeAttribute('data-zh');
- note.textContent=size?(zh?'改价：Enter 或离开输入框 · 增删保护：管理 TP / SL':'Edit: Enter or leave field · Add/remove: Manage TP / SL'):(zh?'独立可选 · GTC 退出单':'Optional · GTC exit orders');
+ note.hidden=!size;note.textContent=size?'Edit: Enter or leave field · Add/remove: Manage TP / SL':'';
+ $('bracket-control').title='TP/SL orders remain active until filled or canceled.';
  const progress=state.close_progress;
  const plan=$('exit-plan');plan.hidden=!exits.length&&!progress&&!pendingEntry&&!(size&&state.manual_stop_quantity);plan.replaceChildren();
  if(size&&state.manual_stop_quantity){const line=document.createElement('div');const q=state.protection?.sl||0;line.textContent=zh?`止损数量手动管理：${q} · 持仓 ${size}。Trim 成交后请调整止损数量。`:`Manual stop quantity: ${q} · Position ${size}. Adjust stop quantity after Trim fills.`;plan.append(line);}
