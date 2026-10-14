@@ -2140,3 +2140,16 @@ hit testing and 3m/5m selection, verified through the rendered chart title at
 keyboard navigation, dismiss behavior and retained-frame tests also pass.
 Synthetic read-only fixtures; no orders. Static assets only: no backend/Gateway
 restart and no iOS app installation required.
+
+
+### Desktop-only toolbar follow-up
+
+User canceled further small-screen layout work. Do not pursue narrow-width
+centering in this task. Reuse the still-applicable full-toolbar REA screenshot
+above: pill-shaped symbol group, quiet icon/text controls, aligned heights and
+neutral hover. Apply the polish only under the existing `unified-chart-toolbar`
+class (normal desktop); keep current header height, centering, menu behavior,
+chart layout and narrow/fullscreen styles. No new controls or features.
+Existing toolbar checks pass in both themes, including actual interval/menu
+selection and a new assertion that desktop icon height is 34 px while narrow
+controls retain their prior 40 px. No broker writes or service restart.

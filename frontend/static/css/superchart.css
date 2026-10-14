@@ -262,3 +262,22 @@ body.light #intervals button:hover,body.light #interval:hover{background:#131722
 body.light #intervals button.active,body.light #interval[aria-expanded=true]{background:#13172217}
 #interval{min-width:24px;width:24px;margin-left:-5px}
 #intervals button:focus-visible,#interval:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+/* Desktop toolbar polish only; retain the existing narrow/fullscreen layout. */
+body.unified-chart-toolbar>header{--toolbar-hover:#ffffff0f}
+body.light.unified-chart-toolbar>header{--toolbar-hover:#1317220a}
+body.unified-chart-toolbar .toolbar-instrument{border:0;border-radius:17px}
+body.unified-chart-toolbar .toolbar-instrument #option-search{height:34px;padding:0 12px;border-radius:17px 0 0 17px}
+body.unified-chart-toolbar .toolbar-instrument #favorite-contract{border:0;border-radius:0 17px 17px 0}
+body.unified-chart-toolbar #favorite-contracts,body.unified-chart-toolbar #session-button,
+body.unified-chart-toolbar #layout-button,body.unified-chart-toolbar #maximize-chart,
+body.unified-chart-toolbar #fullscreen,body.unified-chart-toolbar #theme,
+body.unified-chart-toolbar #trade-sounds,body.unified-chart-toolbar #settings{height:34px;border:0;border-radius:4px;background:transparent;padding:6px}
+body.unified-chart-toolbar #layout-button,body.unified-chart-toolbar #maximize-chart,
+body.unified-chart-toolbar #fullscreen,body.unified-chart-toolbar #theme,
+body.unified-chart-toolbar #trade-sounds,body.unified-chart-toolbar #settings{width:34px;min-width:34px}
+body.unified-chart-toolbar #theme svg,body.unified-chart-toolbar #trade-sounds svg,
+body.unified-chart-toolbar #settings svg{width:20px;height:20px}
+body.unified-chart-toolbar .toolbar-views{gap:2px}
+body.unified-chart-toolbar>header :is(.toolbar-instrument button,#favorite-contracts,#session-button,#layout-button,#maximize-chart,#fullscreen,#theme,#trade-sounds,#settings):hover{background:var(--toolbar-hover)}
+body.unified-chart-toolbar>header button:focus-visible,body.unified-chart-toolbar #favorite-contracts:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
