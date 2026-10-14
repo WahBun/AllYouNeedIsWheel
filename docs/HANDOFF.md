@@ -2040,3 +2040,22 @@ sidebar gutter and panel toggle, multi-pane sizing and fullscreen rules intact.
 The targeted geometry assertion failed before the fix (32 versus 16), then the
 pane maximize/restore, shortcut, magnet and history regression passed afterward.
 Static CSS deployment; no service restart or order operations.
+
+### 2026-10-14 — Unified desktop chart toolbar
+
+User requested combining the page header and chart toolbar into one row. REA
+confirmed the current two-row page layout (viewport evidence
+`ev_fd9e71133ba6593c0720325bc36a88141f471b08f1af3e532e6570decb7e0967`).
+At widths of at least 1280 px, move the existing nav into the existing header:
+branding, connection status, instrument/favorites, periods, session/layout/view
+controls and settings share a 58 px row instead of roughly 115 px. Preserve every
+control and chart iframe node. Narrow screens retain the workspace toolbar and
+allow many favorite periods to wrap. In workspace fullscreen, return the same nav
+to the fullscreen subtree; restore the unified row after exit. No chart data,
+order or saved pane configuration changes. Static JS/CSS only.
+
+`unified-toolbar.cjs` checks 1920/1400/1280/1024/393 px, dark/light themes, normal
+and all favorite periods, row geometry, no horizontal overflow, menu access,
+fullscreen entry/exit and retained chart/control nodes with zero order writes.
+Pane maximize/restore, duplicate-gutter, Command magnet and shortcut regressions
+also passed. Deploy without restarting backend/Gateway; no phone build needed.

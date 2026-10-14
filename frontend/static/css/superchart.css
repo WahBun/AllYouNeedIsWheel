@@ -231,3 +231,15 @@ body.trading-panel-collapsed main{grid-template-columns:minmax(0,1fr)}
 #chart-grid.resizing-rows iframe{pointer-events:none}
 
 #interval-menu button:focus-visible,#layout-menu button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+/* One desktop toolbar row. Keep narrow-screen and fullscreen workspace controls local. */
+body.unified-chart-toolbar>header{gap:12px}
+body.unified-chart-toolbar>header>.spacer{display:none}
+body.unified-chart-toolbar>header>a,body.unified-chart-toolbar>header>strong,body.unified-chart-toolbar #connection{flex-shrink:0;white-space:nowrap}
+body.unified-chart-toolbar>header>nav{display:flex;flex:1;min-width:0;flex-wrap:nowrap;gap:12px;padding:0}
+body.unified-chart-toolbar .toolbar-center{flex-wrap:nowrap;justify-content:flex-start;gap:7px}
+body.unified-chart-toolbar .toolbar-end{margin-left:auto;flex-shrink:0}
+body.unified-chart-toolbar .toolbar-instrument{min-width:0}
+body.unified-chart-toolbar #option-search{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+@media(max-width:1279px){.toolbar-center #intervals{flex-wrap:wrap;justify-content:center;min-width:0;max-width:100%}}

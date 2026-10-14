@@ -18,6 +18,16 @@ window.installOptionSearch=({api,select,symbol,canSelect})=>{
  for(const id of ['layout-picker','maximize-chart','fullscreen'])if($(id))views.append($(id));
  end.append($('session-picker'),views);
  $('fullscreen').title='Fullscreen workspace';$('fullscreen').setAttribute('aria-label',$('fullscreen').title);
+ // Reuse the same controls in one desktop row; fullscreen keeps them in its workspace.
+ const header=document.querySelector('body>header'),workspace=nav.parentElement,desktopToolbar=matchMedia('(min-width:1280px)');
+ function placeToolbar(){
+  const unified=desktopToolbar.matches&&!document.fullscreenElement;
+  document.body.classList.toggle('unified-chart-toolbar',unified);
+  if(unified&&nav.parentElement!==header)header.insertBefore(nav,$('theme'));
+  else if(!unified&&nav.parentElement!==workspace)workspace.prepend(nav);
+ }
+ desktopToolbar.addEventListener('change',placeToolbar);document.addEventListener('fullscreenchange',placeToolbar);placeToolbar();
+
 
  function mode(options){form.hidden=!options;stockPanel.hidden=options;stockTab.classList.toggle('active',!options);optionTab.classList.toggle('active',options);stockTab.setAttribute('aria-pressed',String(!options));optionTab.setAttribute('aria-pressed',String(options));}
  stockTab.onclick=()=>{mode(false);$('symbol').focus();};optionTab.onclick=()=>{mode(true);if(!loaded)dates();};
