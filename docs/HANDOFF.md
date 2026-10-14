@@ -2026,3 +2026,17 @@ filled or canceled.” Existing-position editing guidance remains available. Thi
 is copy-only and uses the REA text-change exception; no order behavior changed.
 The existing template is handled by the static host script, so no service restart
 is needed. Verify the hidden note and tooltip with a synthetic browser page.
+
+### 2026-10-14 — Remove duplicate maximized-chart gutter
+
+REA inspected the current Wheel viewport (evidence
+`ev_6c78f427b41b4629bad060abb388c2b02b22307edf96cf663fed321ef5aa05f6`).
+The current live page was in normal multi-pane mode; the synthetic full-page
+maximize path reproduced a 32 px right gap instead of the normal 16 px sidebar
+gutter. The absolute pane is positioned inside the grid content area, which
+already excludes the sidebar padding; its extra right inset exposed a gray strip.
+Changed only the maximized pane inset from `0 16px 0 0` to `0`. Kept the normal
+sidebar gutter and panel toggle, multi-pane sizing and fullscreen rules intact.
+The targeted geometry assertion failed before the fix (32 versus 16), then the
+pane maximize/restore, shortcut, magnet and history regression passed afterward.
+Static CSS deployment; no service restart or order operations.

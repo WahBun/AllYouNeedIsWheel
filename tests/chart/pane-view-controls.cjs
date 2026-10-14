@@ -10,6 +10,7 @@ const {start}=require('./market-feed/harness.cjs');
  for(const f of frames)await f.evaluate(()=>{optionQuote.hidden=false;});
  assert.deepEqual(await Promise.all(frames.map(f=>f.locator('#option-quote').evaluate(e=>(e.hidden=false,getComputedStyle(e).display==='none')))),[false,true,true,true]);
  const aux=frames[1];await p.mouse.move(5,5);assert.equal(await aux.locator('#pane-view-controls').evaluate(e=>getComputedStyle(e).opacity),'0');await aux.locator('#pane-view-controls').hover();await aux.waitForFunction(()=>getComputedStyle(document.getElementById('pane-view-controls')).opacity==='1');await aux.locator('[data-pane-maximize]').click({force:true});await p.waitForFunction(()=>document.querySelector('#chart-grid').classList.contains('pane-maximized'));
+ assert.equal(await p.evaluate(()=>{const grid=document.getElementById('chart-grid'),pane=grid.querySelector('.chart-pane.active iframe');return Math.round(grid.getBoundingClientRect().right-pane.getBoundingClientRect().right);}),16,'Maximized pane keeps only the existing sidebar gutter, without an extra gray strip');
  assert.equal(await aux.evaluate(()=>chart.options().layout.attributionLogo),true);
  await aux.evaluate(()=>{optionQuote.hidden=false;});assert.notEqual(await aux.locator('#option-quote').evaluate(e=>(e.hidden=false,getComputedStyle(e).display)),'none');
  // Command temporarily enables snapping in the expanded auxiliary itself.
