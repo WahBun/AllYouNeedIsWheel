@@ -543,9 +543,9 @@ function updateLines(){
  if(displayOptions.holdingsVisible===false||canceled||!entry||!qty||!previous.length){document.getElementById('cancel').hidden=true;document.getElementById('entry').hidden=true;for(const k of ['tp','sl']){document.getElementById(k).hidden=true;if(lines[k])series.removePriceLine(lines[k]);}lines={};if(entryLine)series.removePriceLine(entryLine);entryLine=null;return;}
  if(!paperConfig.active&&paperConfig.preview_tif==='OVERNIGHT')levels={tp:0,sl:0};
  if(!paperConfig.active&&paperConfig.preview_tif!=='OVERNIGHT'&&(templateVersion>appliedTemplate||(!levels.tp&&appliedTemplate!==templateVersion)))applyTemplate();
- for(const k of ['tp','sl']){if(!levels[k]){document.getElementById(k).hidden=true;if(lines[k]){series.removePriceLine(lines[k]);delete lines[k];}continue;}const options={price:levels[k],color:k==='tp'?'#72aaa1':'#c8986c',lineWidth:1,lineStyle:2,lineVisible:displayOptions.orderExtensionLines!==false,axisLabelVisible:true,title:''};if(lines[k])lines[k].applyOptions(options);else lines[k]=series.createPriceLine(options);const h=document.getElementById(k);h.hidden=false;h.replaceChildren(Object.assign(document.createElement('span'),{textContent:label(k)}));h.setAttribute('aria-label',label(k));if(k==='sl'&&paperConfig.webEntryDrag&&paperConfig.enabled&&!paperConfig.busy){const row=(paperConfig.orders||[]).find(r=>r.role==='sl'&&(paperConfig.editable_stop_ids||[]).includes(r.order_id));if(row){const edit=document.createElement('button');edit.textContent='×'+row.quantity;edit.setAttribute('aria-label','Edit stop quantity');edit.style.cssText='pointer-events:auto;cursor:pointer';edit.onpointerdown=e=>e.stopPropagation();edit.onclick=e=>{e.stopPropagation();window.editStopQuantity?.(row.order_id);};h.append(edit);}}if((paperConfig.protection_cancelable||paperConfig.webEntryDrag&&(paperConfig.cancelable_exits||[]).some(x=>x.role===k))&&!paperConfig.busy){const cancel=document.createElement('span');cancel.textContent='×';cancel.setAttribute('role','button');cancel.tabIndex=0;cancel.setAttribute('aria-label','Cancel '+k.toUpperCase());cancel.title=k==='tp'?'Cancel ordinary TP; keep Trim / Close plans':'Cancel stop-loss protection';cancel.style.cssText='margin-left:0;min-width:26px;cursor:pointer;pointer-events:auto';cancel.onpointerdown=e=>e.stopPropagation();cancel.onclick=e=>{e.stopPropagation();e.preventDefault();paperAction({action:'cancelProtectionPreview',role:k,expected_ref:paperConfig.order_ref});};cancel.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();cancel.click();}};h.append(cancel);}}
+ for(const k of ['tp','sl']){if(!levels[k]){document.getElementById(k).hidden=true;if(lines[k]){series.removePriceLine(lines[k]);delete lines[k];}continue;}const options={price:levels[k],color:k==='tp'?'#72aaa1':'#c8986c',lineWidth:1,lineStyle:2,lineVisible:displayOptions.orderExtensionLines!==false,axisLabelVisible:false,title:''};if(lines[k])lines[k].applyOptions(options);else lines[k]=series.createPriceLine(options);const h=document.getElementById(k);h.hidden=false;h.replaceChildren(Object.assign(document.createElement('span'),{textContent:label(k)}));h.setAttribute('aria-label',label(k));if(k==='sl'&&paperConfig.webEntryDrag&&paperConfig.enabled&&!paperConfig.busy){const row=(paperConfig.orders||[]).find(r=>r.role==='sl'&&(paperConfig.editable_stop_ids||[]).includes(r.order_id));if(row){const edit=document.createElement('button');edit.textContent='×'+row.quantity;edit.setAttribute('aria-label','Edit stop quantity');edit.style.cssText='pointer-events:auto;cursor:pointer';edit.onpointerdown=e=>e.stopPropagation();edit.onclick=e=>{e.stopPropagation();window.editStopQuantity?.(row.order_id);};h.append(edit);}}if((paperConfig.protection_cancelable||paperConfig.webEntryDrag&&(paperConfig.cancelable_exits||[]).some(x=>x.role===k))&&!paperConfig.busy){const cancel=document.createElement('span');cancel.textContent='×';cancel.setAttribute('role','button');cancel.tabIndex=0;cancel.setAttribute('aria-label','Cancel '+k.toUpperCase());cancel.title=k==='tp'?'Cancel ordinary TP; keep Trim / Close plans':'Cancel stop-loss protection';cancel.style.cssText='margin-left:0;min-width:26px;cursor:pointer;pointer-events:auto';cancel.onpointerdown=e=>e.stopPropagation();cancel.onclick=e=>{e.stopPropagation();e.preventDefault();paperAction({action:'cancelProtectionPreview',role:k,expected_ref:paperConfig.order_ref});};cancel.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();cancel.click();}};h.append(cancel);}}
  syncBE();const eh=document.getElementById('entry');eh.hidden=false;const color=side>0?'#2962ff':'#c6384d';eh.style.color=color;document.getElementById('cancel').style.color=color;const entryControlsKey=JSON.stringify([paperCID,paperConfig.web_account_epoch,paperConfig.order_ref,paperConfig.edit_snapshot,entry,qty,side,entryType,!!paperConfig.active,!!paperConfig.enabled,!!paperConfig.busy,submitPending,paperConfig.entry_target,!!quantityDraft]);
- if(paperConfig.position||eh.dataset.controlsKey!==entryControlsKey){eh.dataset.controlsKey=entryControlsKey;eh.replaceChildren(Object.assign(document.createElement('span'),{textContent:(paperConfig.position&&displayOptions.nativeCompact?(paperConfig.position>0?'Long ':'Short ')+Math.abs(paperConfig.position)+' · '+priceText(entry):(paperConfig.position?(paperConfig.position>0?'Long ':'Short '):(side>0?'Buy ':'Sell ')+entryType+' ')+ ' $'+priceText(entry)+'  × '+(paperConfig.position?Math.abs(paperConfig.position):qty))}));
+ if(paperConfig.position||eh.dataset.controlsKey!==entryControlsKey){eh.dataset.controlsKey=entryControlsKey;eh.replaceChildren(Object.assign(document.createElement('span'),{textContent:paperConfig.position?String(Math.abs(paperConfig.position)):(side>0?'Buy ':'Sell ')+entryType+' $'+priceText(entry)+' × '+qty}));
  if(!paperConfig.position){
   eh.replaceChildren();
   const cell=(text,id,action)=>{const el=document.createElement('span');el.textContent=text;el.id=id;el.style.cssText='padding:0 8px;border-radius:0;cursor:pointer';if(action){el.setAttribute('role','button');el.tabIndex=0;el.onpointerdown=e=>e.stopPropagation();el.onclick=e=>{e.preventDefault();e.stopPropagation();if(action==='editQuantity')openQuantityPopup();else paperAction({action});};el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();if(action==='editQuantity')openQuantityPopup();else paperAction({action});}};}eh.append(el);return el;};
@@ -560,9 +560,18 @@ function updateLines(){
   document.getElementById('preview-order-quantity').style.borderRadius='3px 0 0 3px';
   eh.setAttribute('aria-label',(side>0?'Buy':'Sell')+' '+qty+' '+entryType+' '+priceText(entry));
  }
- if(paperConfig.position&&displayOptions.profit!==false&&displayOptions.positions===true&&previous.length)eh.firstChild.textContent+='  '+profitText(previous.at(-1).close,displayOptions.positionUnit,Math.abs(paperConfig.position));
+ if(paperConfig.position){
+  eh.firstChild.id='position-quantity';eh.firstChild.style.borderRadius='3px 0 0 3px';
+  eh.setAttribute('aria-label',(paperConfig.position>0?'Long ':'Short ')+Math.abs(paperConfig.position)+' at '+priceText(entry));
+  if(displayOptions.profit!==false){
+   const pnl=document.createElement('span');pnl.id='position-pnl';pnl.style.cssText='border-left:0;border-radius:0';
+   const last=previous.at(-1)?.close;
+   pnl.textContent=Number.isFinite(last)&&entry>0&&contractMultiplier>0?profitText(last,displayOptions.positionUnit,Math.abs(paperConfig.position)):'—';
+   eh.append(pnl);
+  }
  }
- if(entryLine)entryLine.applyOptions({price:entry,title:'',color,lineVisible:displayOptions.orderExtensionLines!==false});else entryLine=series.createPriceLine({price:entry,color,lineWidth:1,lineStyle:2,lineVisible:displayOptions.orderExtensionLines!==false,axisLabelVisible:true,title:''});
+ }
+ if(entryLine)entryLine.applyOptions({price:entry,title:'',color,lineVisible:displayOptions.orderExtensionLines!==false});else entryLine=series.createPriceLine({price:entry,color,lineWidth:1,lineStyle:2,lineVisible:displayOptions.orderExtensionLines!==false,axisLabelVisible:false,title:''});
  if(displayOptions.holdingsVisible===false&&paperConfig.position){eh.hidden=true;document.getElementById('cancel').hidden=true;if(entryLine){series.removePriceLine(entryLine);entryLine=null;}}
  renderChartConfirmation();
 }
@@ -900,12 +909,7 @@ function updateCurrentPriceRay(bar){
  if(!currentPriceRay.hidden){currentPriceRay.style.top=y+'px';currentPriceRay.style.left=plotLeft()+'px';currentPriceRay.style.width=Math.max(0,Math.min(x-plotLeft(),pane.width))+'px';}
 }
 function updateCountdown(){updateOptionQuote();const el=document.getElementById('countdown'),bar=previous.at(-1);updateCurrentPriceRay(bar);el.hidden=!bar;if(!bar)return;const down=bar.close<bar.open;el.style.background=down?series.options().downColor:'#e0e0e0';el.style.color=down?'#f4f5f3':'#242424';const y=series.priceToCoordinate(bar.close);el.hidden=y===null||y<9||y>innerHeight-50;if(el.hidden)return;el.style.top=(y-9)+'px';el.style.width=axisBadgeWidth()+'px';document.getElementById('countdown-price').textContent=priceText(bar.close);const p=countdownPacket,elapsed=Math.max(0,(Date.now()-countdownReceived)/1000),left=p?.bar_closes_at-(p?.server_time+elapsed),timer=document.getElementById('countdown-time');timer.hidden=!(Number.isFinite(left)&&left>0);timer.textContent=timer.hidden?'':formatCountdown(Math.ceil(left));
- const height=el.offsetHeight,limit=chart.paneSize().height;
- const occupied=[entryLine,...Object.values(lines),...holdingLines.values()].filter(Boolean).map(line=>line.options()).filter(o=>o.axisLabelVisible!==false).map(o=>series.priceToCoordinate(o.price)).filter(y=>y!==null&&y>=0&&y<=limit).map(y=>[y-11,y+11]);
- const desired=y-9,candidates=[desired,0,limit-height,...occupied.flatMap(([a,b])=>[a-height-3,b+3])].filter(t=>t>=0&&t+height<=limit).sort((a,b)=>Math.abs(a-desired)-Math.abs(b-desired));
- const top=candidates.find(t=>occupied.every(([a,b])=>t+height+2<=a||t-2>=b));
- if(top!==undefined)el.style.top=top+'px';
- }
+}
 function formatCountdown(s){const days=Math.floor(s/86400);const hours=Math.floor(s%86400/3600);const mins=Math.floor(s%3600/60);const secs=s%60;return days?days+'d '+hours+'h':hours?hours+':'+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0'):String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0');}
 // WebKit suspends animation frames in the background. Reconcile immediately on
 // return using wall time, without waiting for transport or inventing another bar.
@@ -919,16 +923,12 @@ function updateLatestBarButton(){const r=chart.timeScale().getVisibleLogicalRang
 // Visible candle extrema: use timestamps, since indicator-only points can shift logical indices.
 let extremaBars=null,extremaRange='',extremaLines={},extremaLabels={};
 function positionExtremaLabels(){
- const current=document.getElementById('countdown'),currentTop=parseFloat(current.style.top),currentBottom=currentTop+current.offsetHeight;
- const avoidCurrent=!current.hidden&&Number.isFinite(currentTop),height=15,gap=3;
+ const height=15;
  for(const [name,label] of Object.entries(extremaLabels)){
   const price=extremaLines[name]?.options().price;if(!Number.isFinite(price)){label.style.display='none';continue;}const y=series.priceToCoordinate(price);
   label.style.display=y===null||y<8||y>innerHeight-40?'none':'flex';
   if(y!==null){
-   let top=y-height/2;
-   if(avoidCurrent&&top<currentBottom+gap&&top+height>currentTop-gap){
-    top=name==='High'?currentTop-gap-height:currentBottom+gap;
-   }
+   const top=y-height/2;
    label.style.top=top+'px';
    if(top<0||top+height>chart.paneSize().height)label.style.display='none';
   }
@@ -949,6 +949,35 @@ function updateVisibleExtrema(){
 
   if(extremaLines[name])extremaLines[name].applyOptions(options);else extremaLines[name]=series.createPriceLine(options);
  }
+}
+// Order badges stay at their price anchors; only the live-price badge yields.
+const tradeAxisBadges=new Map();
+function separatePriceAxisLabels(){
+ const height=chart.paneSize().height,occupied=[];
+ const priceLines=new Map([['entry',entryLine],...Object.entries(lines),...(window.additionalOrderPriceLines?.()||[])]);
+ for(const [name,line] of priceLines){
+  if(!line)continue;
+  let badge=tradeAxisBadges.get(name);
+  if(!badge){badge=document.createElement('div');badge.className='holding-axis';badge.dataset.axisRole=name;document.body.append(badge);tradeAxisBadges.set(name,badge);}
+  const options=line.options(),y=series.priceToCoordinate(options.price);
+  badge.hidden=y===null||y<0||y>height||(name==='entry'&&!positionEdgeBadge.hidden);badge.textContent=priceText(options.price);badge.style.background=options.color;badge.style.width=axisBadgeWidth()+'px';
+  if(!badge.hidden)badge.style.top=(y-badge.offsetHeight/2)+'px';
+ }
+ for(const [name,badge] of tradeAxisBadges){if(!priceLines.get(name)){badge.remove();tradeAxisBadges.delete(name);}}
+ for(const el of [...tradeAxisBadges.values(),...holdingAxisBadges.values(),positionEdgeBadge,...Object.values(extremaLabels)]){
+  if(el.hidden||getComputedStyle(el).display==='none')continue;
+  const top=parseFloat(el.style.top);if(Number.isFinite(top))occupied.push([top,top+el.offsetHeight]);
+ }
+ const current=document.getElementById('countdown');
+ if(current.hidden)return;
+ const size=current.offsetHeight,desired=parseFloat(current.style.top),gap=3;
+ // Choose the nearest complete gap without moving any order or holding badge.
+ const candidates=[desired,0,height-size,...occupied.flatMap(([top,bottom])=>[top-size-gap,bottom+gap])]
+  .filter(top=>Number.isFinite(top)&&top>=0&&top+size<=height)
+  .sort((a,b)=>Math.abs(a-desired)-Math.abs(b-desired));
+ const top=candidates.find(top=>occupied.every(([start,end])=>top+size+gap<=start||top>=end+gap));
+ current.style.visibility=top===undefined?'hidden':'';
+ if(top!==undefined)current.style.top=top+'px';
 }
 // Offset labels only: their price lines remain anchored to the true price.
 function separateHoldingLabels(){
@@ -1000,7 +1029,7 @@ window.configurePriceAxis=side=>{
  if(!old.autoScale&&prices)activePriceScale().setVisibleRange(prices);else activePriceScale().applyOptions({autoScale:true});if(range)chart.timeScale().setVisibleLogicalRange(range);
  closePriceMenu();priceAdd.hidden=true;chart.clearCrosshairPosition();
 };
-function position(){document.body.style.setProperty('--axis-width',priceAxisWidth(window.priceAxisSide||'right')+'px');document.getElementById('chart-header').style.left=(plotLeft()+8)+'px';indicatorRow.style.left=(plotLeft()+8)+'px';window.drawVolatility?.();positionHoldingEdge();updateVisibleExtrema();updateCountdown();positionExtremaLabels();document.getElementById('chart-header').style.right=(priceAxisWidth('right')+7)+'px';updateLatestBarButton();drawPV();drawFVG();drawBarCount();for(const badge of holdingAxisBadges.values()){const price=Number(badge.dataset.price),y=series.priceToCoordinate(price);badge.hidden=y===null;badge.textContent=(y!==null&&y<16?'↑ ':y!==null&&y>chart.paneSize().height-16?'↓ ':'')+priceText(price);badge.style.width=axisBadgeWidth()+'px';if(y!==null)badge.style.top=(Math.min(chart.paneSize().height-16,Math.max(16,y))-9)+'px';}const axisRight=Math.ceil(priceAxisWidth(window.priceAxisSide||'right'))+(innerWidth<500?48:64);for(const badge of holdingBadges.values()){const y=badge.dataset.price===''?innerHeight-65:series.priceToCoordinate(Number(badge.dataset.price));badge.hidden=y===null;placeByPriceAxis(badge,axisRight);if(y!==null)badge.style.top=Math.min(chart.paneSize().height-16,Math.max(16,y))+'px';}for(const id of ['tp','sl','cancel'])placeByPriceAxis(document.getElementById(id),axisRight);placeByPriceAxis(document.getElementById('entry'),axisRight+23);for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}separateHoldingLabels();requestAnimationFrame(position);}position();
+function position(){document.body.style.setProperty('--axis-width',priceAxisWidth(window.priceAxisSide||'right')+'px');document.getElementById('chart-header').style.left=(plotLeft()+8)+'px';indicatorRow.style.left=(plotLeft()+8)+'px';window.drawVolatility?.();positionHoldingEdge();updateVisibleExtrema();updateCountdown();positionExtremaLabels();document.getElementById('chart-header').style.right=(priceAxisWidth('right')+7)+'px';updateLatestBarButton();drawPV();drawFVG();drawBarCount();for(const badge of holdingAxisBadges.values()){const price=Number(badge.dataset.price),y=series.priceToCoordinate(price);badge.hidden=y===null;badge.textContent=(y!==null&&y<16?'↑ ':y!==null&&y>chart.paneSize().height-16?'↓ ':'')+priceText(price);badge.style.width=axisBadgeWidth()+'px';if(y!==null)badge.style.top=(Math.min(chart.paneSize().height-16,Math.max(16,y))-9)+'px';}const axisRight=Math.ceil(priceAxisWidth(window.priceAxisSide||'right'))+(innerWidth<500?48:64);for(const badge of holdingBadges.values()){const y=badge.dataset.price===''?innerHeight-65:series.priceToCoordinate(Number(badge.dataset.price));badge.hidden=y===null;placeByPriceAxis(badge,axisRight);if(y!==null)badge.style.top=Math.min(chart.paneSize().height-16,Math.max(16,y))+'px';}for(const id of ['tp','sl','cancel'])placeByPriceAxis(document.getElementById(id),axisRight);placeByPriceAxis(document.getElementById('entry'),axisRight+23);for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}separateHoldingLabels();separatePriceAxisLabels();requestAnimationFrame(position);}position();
 // A WKWebView changes size in place when native full-screen controls appear.
 // Resize the canvas and restore the time window together; stale manual Y scaling
 // must not carry the full-screen pixel range into the shorter chart.

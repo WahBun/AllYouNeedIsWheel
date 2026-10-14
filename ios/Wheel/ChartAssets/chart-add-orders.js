@@ -129,7 +129,7 @@
   for(const row of config.paper?.pending_exits||[]){
    if(!(row.price>0&&row.quantity>0))continue;
    const id=`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${row.order_id}`;live.add(id);
-   const options={price:row.price,color:'#b27bcd',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:''};
+   const options={price:row.price,color:'#b27bcd',lineWidth:1,lineStyle:2,axisLabelVisible:false,title:''};
    if(exitLines.has(id)){if(exitGesture?.id!==id)exitLines.get(id).applyOptions(options);}else exitLines.set(id,series.createPriceLine(options));
    if(!exitHandles.has(id))exitHandles.set(id,{button:createExitHandle(id,row),cancel:createExitCancel(row),edit:createPlanEditor(row),row});const handle=exitHandles.get(id);handle.row=row;const label=row.action==='close'?'Close':'Trim';handle.button.textContent=`${label} ×${row.quantity} @ ${priceText(row.price)}`;handle.edit.disabled=row.editable===false||row.action!=='trim'||config.paper.busy||!config.paper.enabled||row.status!=='Submitted'&&row.status!=='PreSubmitted';handle.button.setAttribute('aria-label',`Drag ${label.toLowerCase()} limit price`);handle.button.title=`Drag to amend this ${label.toLowerCase()} order`;handle.cancel.setAttribute('aria-label',`Cancel ${label.toLowerCase()} plan`);handle.cancel.disabled=config.paper.busy||!config.paper.enabled||(!row.restore_price&&!row.standalone)||row.status==='PendingCancel';handle.button.disabled=row.editable===false||config.paper.busy||!config.paper.enabled||row.status==='PendingCancel';
   }
@@ -143,6 +143,8 @@
  window.addEventListener('chart-viewport-resized',repositionCancels);
 
  const brokerLines=new Map();
+ // Read-only view for fixed price-axis badges; order ownership stays in this module.
+ window.additionalOrderPriceLines=()=>[...Array.from(exitLines,([id,line])=>['exit:'+id,line]),...Array.from(pendingLines,([id,row])=>['add:'+id,row.line]),...Array.from(brokerLines,([id,row])=>['broker:'+id,row.line])];
  function brokerIdentity(o){return `${paperConfig.web_account_epoch}:${paperCID}:${o.client_id}:${o.perm_id}:${o.order_id}`;}
  function brokerEdit(order,cancel=false){
   if(!paperConfig.enabled||paperConfig.busy||!(cancel?order.cancelable:order.editable))return;
@@ -178,7 +180,7 @@
   for(const [id,row] of brokerLines)if(!ids.has(id)){series.removePriceLine(row.line);row.badge.remove();brokerLines.delete(id);}
   for(const order of rows){
    const id=order.displayId,color=order.chart_role==='tp'?'#00897b':order.chart_role==='sl'?'#c87851':order.action==='BUY'?'#315fc4':'#c6384d';
-   const options={price:order.price,color,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:''};
+   const options={price:order.price,color,lineWidth:1,lineStyle:2,axisLabelVisible:false,title:''};
    let row=brokerLines.get(id);
    if(!row){const badge=document.createElement('div');badge.className='broker-order-label';badge.style.cssText='position:absolute;z-index:6;padding:0;border:1px solid;border-radius:4px;font:600 11px -apple-system;display:flex;align-items:center';document.body.append(badge);row={line:series.createPriceLine(options),badge};brokerLines.set(id,row);}
    row.line.applyOptions(options);row.price=order.price;row.badge.style.color=color;row.badge.style.background=darkAppearance?'#20242a':'#f4f5f3';row.badge.replaceChildren();
@@ -197,7 +199,7 @@
   const live=new Set(pending.map(o=>`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${o.order_id}`));
   for(const [id,row] of pendingLines)if(!live.has(id)){series.removePriceLine(row.line);row.button.remove();row.cancel?.remove();pendingLines.delete(id);if(addGesture?.id===id)addGesture=null;}
   for(const order of pending){
-   const id=`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${order.order_id}`,options={price:order.price,color:'#638ddd',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:''};
+   const id=`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${order.order_id}`,options={price:order.price,color:'#638ddd',lineWidth:1,lineStyle:2,axisLabelVisible:false,title:''};
    if(pendingLines.has(id)){if(addGesture?.id!==id)pendingLines.get(id).line.applyOptions(options);}
    else {
     const button=document.createElement('button');button.style.cssText='position:absolute;right:85px;min-height:32px;z-index:6;transform:translateY(-50%);background:#638ddd;color:white;border:1px solid #bdd0ff;border-radius:3px;padding:4px 7px;font:12px -apple-system;cursor:pointer';document.body.append(button);

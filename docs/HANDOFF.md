@@ -1749,3 +1749,45 @@ shares across Paper/Live and intervals, different expiries/conIds stay separate.
 Python tests cover merge, replay, deletion, conflict and validation; two-browser
 clients cover web/native-message transport, merge and delete propagation. Native
 Simulator build passes and unused rows warning removed. User installs/Runs phone.
+
+## Wheel 1.6 — fixed order price labels and live-price avoidance
+
+Development branch: `codex/chart-labels-1.6`, based on GitHub commit
+`11dfd40d7860784131435d03a6b525938d64a642` (both 1.5 and ios-native branches).
+The position handle shows quantity and a separate P&L segment, retaining side,
+contract multiplier, fractional quantity, and money/percent/ticks preferences.
+Entry, TP/SL, Add, Trim/Close and other broker-order axis badges remain centered
+on their actual price coordinates. Only the live price/countdown badge moves
+to the nearest free gap. Price lines and order controls retain their anchors.
+Canceled order badges are removed; near-edge positions use one edge indicator.
+If the axis has no complete free gap, the live badge is hidden until space is
+available; the underlying price ray and chart data are unaffected.
+
+REA analyzed the current shared ChartAssets bundle (parent Evidence
+`ev_f2d3a69bf8a156a1ce5cc0d177669a19cfda8ec11a72d499a65ee797ea844974`;
+semantic coverage partial) and passively inspected the isolated Wheel fixture
+(`ev_dd53493dce98e8b98930a719dc1fac60c5c19e37cac842b49a48abad41f9ce0d`).
+With explicit screenshot authorization, REA captured the user's TV viewport
+(`ev_56405ed5791cb48977ef45d52499cbc2acad79e9f8ec022491131dba3f6ed230`).
+The visible limit-order label aligns with its order line. That single viewport
+is not proof of TV's dynamic collision algorithm; moving only the live label
+implements the user's explicitly requested behavior as a Wheel adaptation.
+
+Passed: position-segments (desktop/mobile, appearance settings, STK/OPT/FUT,
+short/long P&L, tick changes, units, fixed axes during crossings, additional
+orders, removal, left axis and edge recovery), quantity-confirm, add-price-drag,
+live-management (8 desktop/mobile, EN/ZH, light/dark combinations with mocked
+writes), and pane-view-controls. Passed the existing market-feed latency matrix,
+interactions, stress and distinct-symbols checks: 1–4 panes, two four-pane pages,
+200-tick extremes, 100Hz stress, context isolation, bounds and recovery.
+A same-host run of unmodified 1.5 and this version delivered all 30/30 steady
+updates in every matrix pane; dual-page price-apply p95 was 2–5ms in both runs.
+These are synthetic browser measurements, not broker or physical display latency.
+Evidence logs and screenshots are under `/tmp/wheel16-*`; temporary fixture
+servers, workers and browsers were closed. No broker writes were performed.
+
+Known baseline failures: `submit-button.cjs:14` tries to click a hidden working
+order direction label, and `pending-exit-lines.cjs:19` expects an immediate amend
+message. Both failures reproduce on unmodified 1.5; those tests were left intact.
+No Mini deployment/restart or physical iPhone build/install occurred in this task.
+Existing local project signing and localization edits remain outside this commit.
