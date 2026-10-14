@@ -14,6 +14,24 @@ Read `docs/HANDOFF.md` and `docs/MAC_MINI_TAILSCALE.md` before deployment change
 - Run the relevant tests and record material limitations. Do not promise bug-free trading or guaranteed fills.
 - Conversation history is not a source of deployed state: inspect Git, local configuration and service status on the current host.
 
+## iPhone Run and Backend restart: user-operated by default
+
+This rule applies across computers and new conversations. The user performs
+iPhone Run and Backend restarts by default. Explain when either is needed and
+leave the action to the user. Perform it only when the user explicitly asks the
+agent to do so for the current task; a general repair, deployment or verification
+request and previous one-time authorization do not grant permission.
+
+- Do not install or launch the app on a physical iPhone, or run device tests
+  that implicitly install or launch it, without that explicit authorization.
+- Do not restart Backend through a service manager, process termination/relaunch,
+  deployment script or another indirect mechanism without that authorization.
+- Continue authorized code changes, local builds, simulator/mock checks and
+  static web updates that require neither action. Report what still needs the
+  user's Run or restart; do not treat a code push as an installed/deployed update.
+- Gateway restarts remain separately restricted and are never implied by
+  permission to restart Backend.
+
 ## Order changes: physical-device Run gate
 
 Before installing a changed order workflow on the user's iPhone, finish relevant
