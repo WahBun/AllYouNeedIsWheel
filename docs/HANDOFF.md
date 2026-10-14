@@ -1884,3 +1884,26 @@ and Discard are excluded from segment drag/anti-click handling so immediate
 confirmation after a drag remains usable. This is a requested Wheel adaptation
 of the already analyzed controls, not a claim about TradingView placement.
 Desktop/mobile confirmation and drag tests cover the unified anchor and actions.
+
+### 2026-10-14 — Entry drag regression: direct mode and persistent draft
+
+REA passively inspected the actual Wheel page (evidence
+`ev_29a7d6b53dcbc8fe49244f0ae5d57daee0c69b1bf6ec8606b0501b96a59e5cdc`).
+User video and settings screenshot exposed two frontend regressions: direct
+mode excluded entry price amendments, and configuration refresh restored the
+broker entry instead of retaining its unconfirmed draft. Confirm/Discard was
+also rebuilt on every render, making clicks vulnerable to concurrent refresh.
+
+One-click now includes entry price drags; when off, the entry draft remains at
+the target until Confirm/Discard or a real identity/state invalidation. TP/SL
+retain the same policy. Confirmation nodes are reused across ordinary refresh;
+position P&L text still updates without replacing the controls. Help text now
+states the entry-drag behavior. Original broker identity/confirmation guards and
+request tracking remain intact; no order writes were performed against IB.
+
+Verification: `entry-one-click-page.cjs` exercises the actual settings checkbox,
+full host/frame bridge, mock POST and returned confirmed entry at 1400/393 widths,
+with direct mode on/off and delayed confirmation across polling. The confirmation
+test holds the mouse button across 50 configuration updates and still confirms
+the intended price. Fast segment drag/capture-loss and position P&L tests pass.
+Static deployment only; no backend or Gateway restart required.
