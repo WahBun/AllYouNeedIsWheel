@@ -1845,3 +1845,34 @@ write replay and one explicit simulated cancellation after authoritative recover
 Temporary evidence stays outside Git. No production order, Live switch, Gateway
 restart or iPhone installation was performed. Backend activation requires an
 explicitly authorized Wheel backend restart and fresh broker/read-only UI checks.
+
+### 2026-10-14 — Full-line order dragging and segment cursors
+
+The preceding identity repair (`68e2d09`) was activated on Mini after the user's
+explicit Wheel-backend restart authorization. Read-only reconciliation reported
+known working orders with entry editing enabled and no sync error; TP/SL labels
+returned to nonzero planned amounts. Gateway remained unchanged. Broker writes
+were not performed by the agent.
+
+REA inspected the current TradingView page and its loaded trading-module hash,
+which matched the previously exported source. The line hit test uses vertical
+distance across the visible line, excludes separately handled label bodies, and
+returns a vertical-resize cursor. The user supplied the long-press/hand-cursor
+observation; no TradingView order was dragged or submitted for this comparison.
+
+Wheel now routes visible entry, TP, SL, Add and Trim line hits into their existing
+guarded drag handlers. The nearest line wins within the pointer tolerance, with
+axes, hidden lines and non-canvas controls excluded. Dragging a line uses the
+vertical-resize cursor; label/button drags use grabbing. Quantity, type and cancel
+segments support long press, while short clicks retain their actions. Unchanged
+release does not amend. Grab offsets, account/order identity, confirmation and
+existing order ownership checks remain in place. No feed or layout changes.
+
+Validation: `order-line-drag.cjs` covers desktop/mobile widths, mouse and touch,
+left/middle/right line hits, entry/TP/SL, cursor states, confirmation, short clicks,
+unchanged release, hidden lines and account changes. `add-price-drag.cjs` covers
+full-line Add, exact order identity, refresh/capture loss and fill races.
+`quantity-confirm.cjs` and `entry-recovery.cjs` passed. iOS Simulator build passed;
+no iPhone installation or Run was performed. Deploy these shared static assets
+without restarting Wheel or Gateway; retain a rollback ref and verify the served
+frame equals the committed source.

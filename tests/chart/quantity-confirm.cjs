@@ -7,7 +7,7 @@ const {start}=require('./market-feed/harness.cjs');
  });
  assert.match(await p.locator('#order-type').textContent(),/LMT/);
  const control=await p.locator('#preview-order-quantity').boundingBox();await p.mouse.move(control.x+control.width/2,control.y+control.height/2);await p.mouse.down();
- await p.evaluate(()=>{window.pressedControl=document.getElementById('preview-order-quantity');for(let i=0;i<20;i++)updateLines();});await p.waitForTimeout(400);
+ await p.evaluate(()=>{window.pressedControl=document.getElementById('preview-order-quantity');for(let i=0;i<20;i++)updateLines();});await p.waitForTimeout(80);
  assert.equal(await p.evaluate(()=>pressedControl===document.getElementById('preview-order-quantity')&&dragging!=='entry'),true);await p.mouse.up();
  assert.equal(await p.locator('#order-quantity-popup').isVisible(),true);
 await p.locator('#order-quantity-popup').getByRole('button',{name:'+',exact:true}).click();

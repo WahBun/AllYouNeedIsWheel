@@ -25,7 +25,7 @@
   const button=document.createElement('button');button.style.cssText='position:absolute;right:65px;height:28px;padding:0 7px;background:#f4f5f3;color:#825095;border:1px solid #b27bcd;border-radius:3px;z-index:6;touch-action:none;font:600 12px -apple-system;cursor:ns-resize';
   button.setAttribute('aria-label','Drag trim limit price');button.title='Drag to amend this trim order';document.body.append(button);
   button.onpointerdown=e=>{if(e.button!==0||paperConfig.busy||!paperConfig.enabled)return;const current=paperConfig.pending_exits?.find(r=>r.order_id===row.order_id);if(!current||!['Submitted','PreSubmitted'].includes(current.status))return;
-   exitGesture={id,row:{...current},offset:e.clientY-series.priceToCoordinate(current.price),pointer:e.pointerId,cid:paperCID,ref:paperConfig.order_ref,epoch:paperConfig.web_account_epoch};button.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();};
+   exitGesture={id,row:{...current},offset:e.clientY-series.priceToCoordinate(current.price),pointer:e.pointerId,cid:paperCID,ref:paperConfig.order_ref,epoch:paperConfig.web_account_epoch};orderDragCursor('grabbing');button.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();};
   button.onlostpointercapture=()=>{}; // A capture loss is not an actual release.
   return button;
  }
@@ -145,6 +145,11 @@
  const brokerLines=new Map();
  // Read-only view for fixed price-axis badges; order ownership stays in this module.
  window.additionalOrderPriceLines=()=>[...Array.from(exitLines,([id,line])=>['exit:'+id,line]),...Array.from(pendingLines,([id,row])=>['add:'+id,row.line]),...Array.from(brokerLines,([id,row])=>['broker:'+id,row.line])];
+ window.additionalOrderDragTargets=()=>paperConfig.enabled&&!paperConfig.busy?[
+  ...Array.from(pendingLines.values()).filter(row=>!row.button.disabled).map(row=>({line:row.line,start:e=>row.button.onpointerdown(e)})),
+  ...Array.from(exitLines,([id,line])=>({line,button:exitHandles.get(id)})).filter(row=>row.button&&!row.button.disabled).map(row=>({line:row.line,start:e=>row.button.onpointerdown(e)}))
+ ]:[];
+
  function brokerIdentity(o){return `${paperConfig.web_account_epoch}:${paperCID}:${o.client_id}:${o.perm_id}:${o.order_id}`;}
  function brokerEdit(order,cancel=false){
   if(!paperConfig.enabled||paperConfig.busy||!(cancel?order.cancelable:order.editable))return;
@@ -211,7 +216,7 @@
     button.onpointerdown=e=>{const current=paperConfig.orders?.find(r=>r.order_id===oid);
      if(e.button!==0||!paperConfig.enabled||paperConfig.busy||!current||current.filled||!['Submitted','PreSubmitted'].includes(current.status))return;
      addGesture={id,cid,ref,epoch,oid,offset:e.clientY-series.priceToCoordinate(current.price),pointer:e.pointerId,start:current.price,quantity:current.quantity,price:current.price};
-     button.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();
+     orderDragCursor('grabbing');button.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();
     };
     pendingLines.set(id,{line:series.createPriceLine(options),button,cancel});
    }

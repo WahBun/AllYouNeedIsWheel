@@ -16,6 +16,10 @@ assert.equal(await page.getByRole('button',{name:'Drag add order 123',exact:true
 await page.evaluate(()=>configure({...fixture,paper:{...fixture.paper,orders:fixture.paper.orders.map(o=>({...o,entry_kind:'entry'}))}}));
 assert.equal(await page.getByRole('button',{name:'Drag add order 123',exact:true}).count(),0);
 await page.evaluate(()=>configure(fixture));
+const linePoint=await page.evaluate(()=>({x:30,y:series.priceToCoordinate(10.5)}));
+await page.mouse.move(linePoint.x,linePoint.y);await page.mouse.down();assert.equal(await page.evaluate(()=>document.body.dataset.orderCursor),'ns-resize');await page.mouse.move(linePoint.x,linePoint.y-30,{steps:4});await page.mouse.up();
+assert.equal(await page.evaluate(()=>sent.at(-1).action),'amend_add');assert.equal(await page.evaluate(()=>sent.at(-1).order_id),123);await page.evaluate(()=>{sent.length=0;configure(fixture)});
+await page.evaluate(()=>configure(fixture));
 const handle=page.getByRole('button',{name:'Drag add order 123',exact:true});
 let b=await handle.boundingBox();
 await page.mouse.move(b.x+15,b.y+16);await page.mouse.down();
