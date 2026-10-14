@@ -1921,3 +1921,29 @@ Chromium native-mode geometry and screenshot checks confirmed equal top/bottom
 edges and the shared 1px boundary. Position-label and order-line-drag regressions
 passed. iOS Simulator build passed with matching bundled chart resource. Local
 Playwright WebKit is unavailable; no physical iPhone install/Run was performed.
+
+### 2026-10-14 — Keep pending replacement SL visible after quantity edits
+
+REA inspected the current Wheel page (evidence
+`ev_0889890b80dd8060f6a70b5f93bd8482848cad66da9051e2d1222e8cf9f40a89`).
+The user's video shows SL disappearing during quantity replacement's unknown
+outcome and returning after reconciliation; TP remains. Read-only saved request
+results confirm the eventual matching bracket prices, but intermediate results
+have been overwritten by reconciliation. Source analysis explains the asymmetry:
+the grouped SL summary is zero until Submitted/PreSubmitted/PendingCancel, while
+individual PendingSubmit rows can already contain the replacement stop price.
+
+The shared chart now derives a display-only stop level from the current snapshot
+when all nonterminal stop rows are PendingSubmit/ApiPending with the same valid
+price. It keeps the existing line and adds an ellipsis until confirmed. It never
+caches a prior account/symbol/order price, promotes broker state to confirmed, or
+uses canceled, filled, Unknown, missing or conflicting rows. Backend state,
+replacement operations, confirmation policy and no-replay guards are unchanged.
+
+`stop-pending-display.cjs` reproduced the disappearance before the fix and passed
+afterward. `quantity-stop-recovery.cjs` tests actual webpage quantity Confirm,
+unknown replacement, polling and reconciliation at desktop/mobile widths, with
+one mock write and retained line identity. Quantity-confirm, one-click-protection,
+order-line-drag and entry-one-click-page regressions passed. iOS Simulator build
+passed with matching bundled chart resource; no physical device Run or IB write.
+Deploy static assets without restarting Wheel/Gateway; preserve a rollback point.

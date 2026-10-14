@@ -507,6 +507,15 @@ function profitText(price,unit,quantity=qty){
  const value=change*quantity*contractMultiplier;return (value>=0?'+':'−')+'$'+Math.abs(value).toFixed(2);
 }
 let trimPricePreview=null;
+// A replacement stop can have a submitted price before its summary is confirmed.
+// Use only this snapshot's pending rows; never carry a canceled or old price over.
+function pendingStopDisplayPrice(){
+ if(!paperConfig.active||paperConfig.sl>0)return 0;
+ const stops=(paperConfig.orders||[]).filter(row=>row.role.split('_')[0]==='sl'&&!['Filled','Cancelled','ApiCancelled'].includes(row.status));
+ if(!stops.length||!stops.every(row=>['PendingSubmit','ApiPending'].includes(row.status)&&Number.isFinite(row.price)&&row.price>0))return 0;
+ return stops.every(row=>row.price===stops[0].price)?stops[0].price:0;
+}
+function protectionDisplayLevels(){return {tp:paperConfig.tp,sl:paperConfig.sl||pendingStopDisplayPrice()};}
 function unfilledEntryProjection(){
  const entries=(paperConfig.orders||[]).filter(row=>row.role.split('_')[0]==='entry');
  return !paperConfig.position&&(paperConfig.entry_editable||entries.length>0&&entries.every(row=>row.filled===0)&&entries.some(row=>['PendingSubmit','PreSubmitted','Submitted','PendingCancel'].includes(row.status)));
@@ -526,7 +535,7 @@ function totalSLText(){
  for(const row of projection.targets||[]){const target=preview?levels.sl:row.price;total+=(target-row.entry)*row.side*row.quantity*row.multiplier;}
  return (total>=0?'+':'−')+'$'+Math.abs(total).toFixed(2);
 }
-function label(k){const total=paperConfig.active?(k==='tp'?totalTPText():k==='sl'?totalSLText():null):null;return k.toUpperCase()+(total!==null?' Σ':'')+(paperConfig.protection_drag_role===k?' …':'')+(displayOptions.profit!==false&&displayOptions.brackets!==false?'  '+(total??profitText(levels[k],displayOptions.bracketUnit)):'');}
+function label(k){const total=paperConfig.active?(k==='tp'?totalTPText():k==='sl'?totalSLText():null):null;return k.toUpperCase()+(total!==null?' Σ':'')+(paperConfig.protection_drag_role===k||k==='sl'&&pendingStopDisplayPrice()?' …':'')+(displayOptions.profit!==false&&displayOptions.brackets!==false?'  '+(total??profitText(levels[k],displayOptions.bracketUnit)):'');}
 
 function templatePrices(base,direction,quantity=qty){
  const values={tp:0,sl:0};
@@ -642,7 +651,7 @@ function renderChartConfirmation(){
  chartConfirmation.element=row;handle.prepend(row);
 }
 function confirmationIdentity(){return JSON.stringify([paperCID,paperConfig.web_account_epoch,paperConfig.order_ref,paperConfig.position,paperConfig.tp,paperConfig.sl,paperConfig.edit_snapshot,paperConfig.cancelable_exits,(paperConfig.orders||[]).map(o=>[o.order_id,o.role,o.status,o.quantity,o.filled,o.price])]);}
-function discardChartConfirmation(){chartConfirmation=null;document.getElementById('chart-confirmation')?.remove();levels={tp:paperConfig.tp,sl:paperConfig.sl};if(paperConfig.entry)entry=paperConfig.entry;updateLines();}
+function discardChartConfirmation(){chartConfirmation=null;document.getElementById('chart-confirmation')?.remove();levels=protectionDisplayLevels();if(paperConfig.entry)entry=paperConfig.entry;updateLines();}
 function stageChartConfirmation(body){
  const cancel=body.action==='cancelProtectionPreview',protection=body.action==='amend'&&['tp','sl'].includes(body.role),edit=body.action==='edit_entry'&&Number.isFinite(body.price)&&!body.cancel;
  if(body.chart_confirmed||!(cancel||protection||edit))return false;
@@ -710,7 +719,7 @@ function submitPreview(source){
 let appliedPriceFormat=null;
 window.configure=(config)=>{optionQuoteDark=!!config.dark;accountExecutions=config.executions||[];syncHoldingOverlays(config);displayOptions=config.display||{};document.body.classList.toggle('native-compact',!!displayOptions.nativeCompact);document.body.dataset.dark=String(!!config.dark);contractMultiplier=config.multiplier||1;if(profitMultiplier!==Number(config.multiplier)&&(config.tpMode==='profit'||config.slMode==='profit'))appliedTemplate=-1;profitMultiplier=Number(config.multiplier);paperConfig=config.paper||{};if(webProtectionDrag&&(webProtectionDrag.cid!==(config.con_id||0)||webProtectionDrag.ref!==paperConfig.order_ref||webProtectionDrag.epoch!==paperConfig.web_account_epoch||!paperConfig.active))cancelWebProtectionDrag('Order changed; price unchanged.');if(paperConfig.webEntryDrag&&dragging==='entry'&&paperConfig.position){dragging=null;entryDragSnapshot=null;clearOrderDragCursor();}if((paperConfig.submit_revision||0)!==lastSubmitRevision){lastSubmitRevision=paperConfig.submit_revision||0;submitPending=false;cancelPending=false;}if(paperCID!==(config.con_id||0))explicitPreviewSide=null;if(paperConfig.busy)submitSawBusy=true;if(paperConfig.active||(submitSawBusy&&!paperConfig.busy)||paperCID!==(config.con_id||0)){submitPending=false;submitSawBusy=false;if(!paperConfig.active||paperCID!==(config.con_id||0))cancelPending=false;}paperCID=config.con_id||0;updateExecutionMarks();let submitPaper=false;if(dragging==='entry')config={...config,entry};priceRules=config.priceRules||priceRules;const formatKey=JSON.stringify(priceRules);if(appliedPriceFormat!==formatKey){appliedPriceFormat=formatKey;series.applyOptions({priceFormat:{type:'custom',minMove:priceRules.length?Math.min(...priceRules.map(r=>r.increment)):.01,formatter:axisPriceText}});}template={tp:config.tpDistance||0,sl:config.slDistance||0,tpEnabled:config.tpEnabled!==false,slEnabled:config.slEnabled!==false,tpMode:config.tpMode||'distance',slMode:config.slMode||'distance'};templateVersion=config.templateRevision||0;if(config.entry===0){explicitPreviewSide=null;canceled=false;levels={tp:0,sl:0};appliedTemplate=-1;breakEven=false;dragging=null;validation();}const changed=entry!==config.entry||entryType!==(config.entryType||'LMT');const snapped=config.entry>0?snapPrice(config.entry):0;entry=snapped??config.entry;if(snapped!==null&&snapped!==config.entry)window.webkit?.messageHandlers.entryChanged?.postMessage(snapped);if(qty!==config.quantity&&(template.tpMode==='profit'||template.slMode==='profit'))appliedTemplate=-1;qty=config.quantity;entryType=config.entryType||'LMT';if(changed){breakEven=false;if(!levels.tp||(!paperConfig.active&&(template.tpMode!=='distance'||template.slMode!=='distance')))appliedTemplate=-1;}if(config.beRevision>lastBERevision){lastBERevision=config.beRevision;const target=stepPrice(entry,side);if(target!==null&&template.slEnabled!==false){levels.sl=target;breakEven=true;}}if(config.joinRevision>lastJoinRevision&&(config.joinSide===1||config.joinSide===-1)){lastJoinRevision=config.joinRevision;explicitPreviewSide=config.joinSide;submitPaper=paperConfig.enabled===true&&!paperConfig.active;breakEven=false;canceled=false;levels={tp:0,sl:0};appliedTemplate=-1;setSide(config.joinSide);}else if(changed&&!paperConfig.active){inferSide();clampLevels();}
  if(config.previewRevision>lastPreviewRevision){lastPreviewRevision=config.previewRevision;if(!paperConfig.active&&(config.previewSide===1||config.previewSide===-1)){explicitPreviewSide=config.previewSide;setSide(config.previewSide);canceled=false;levels={tp:0,sl:0};appliedTemplate=-1;}}
- if(paperConfig.active&&paperConfig.entry>0){if(dragging!=='entry')entry=paperConfig.entry_target??paperConfig.entry;entryType=paperConfig.entry_type||entryType;qty=Math.abs(paperConfig.position)||paperConfig.quantity||paperConfig.orders?.find(o=>o.role==='entry')?.quantity||qty;side=paperConfig.side;breakEven=paperConfig.be_applied===true;if(!dragging){levels={tp:paperConfig.tp,sl:paperConfig.sl};if(paperConfig.protection_drag_role&&paperConfig.protection_target!=null)levels[paperConfig.protection_drag_role]=paperConfig.protection_target;}canceled=false;}
+ if(paperConfig.active&&paperConfig.entry>0){if(dragging!=='entry')entry=paperConfig.entry_target??paperConfig.entry;entryType=paperConfig.entry_type||entryType;qty=Math.abs(paperConfig.position)||paperConfig.quantity||paperConfig.orders?.find(o=>o.role==='entry')?.quantity||qty;side=paperConfig.side;breakEven=paperConfig.be_applied===true;if(!dragging){levels=protectionDisplayLevels();if(paperConfig.protection_drag_role&&paperConfig.protection_target!=null)levels[paperConfig.protection_drag_role]=paperConfig.protection_target;}canceled=false;}
  if(quantityDraft){if(quantityDraftValid()&&!paperConfig.busy)qty=quantityDraft.value;else {quantityDraft=null;quantityPopup.hidden=true;}}
  if(chartConfirmation){if(chartConfirmation.identity!==confirmationIdentity()||paperConfig.busy)discardChartConfirmation();else if(chartConfirmation.body.action==='amend'&&dragging!==chartConfirmation.body.role)levels[chartConfirmation.body.role]=chartConfirmation.body.price;else if(chartConfirmation.body.action==='edit_entry'&&dragging!=='entry')entry=chartConfirmation.body.price;}
  updateLines();
@@ -868,7 +877,7 @@ let webProtectionDrag=null;
 function reportWebDrag(role,message,interrupted=false){if(paperConfig.webEntryDrag&&parent!==window)parent.postMessage({wheelChart:true,name:'chartDiagnostic',body:{role,message,interrupted}},location.origin);}
 function cancelWebProtectionDrag(reason){
  if(!webProtectionDrag)return;const role=webProtectionDrag.role;webProtectionDrag=null;dragging=null;clearOrderDragCursor();
- levels={tp:paperConfig.tp,sl:paperConfig.sl};updateLines();
+ levels=protectionDisplayLevels();updateLines();
  reportWebDrag(role,reason,true);
 }
 function finishWebProtectionDrag(pointerId){
