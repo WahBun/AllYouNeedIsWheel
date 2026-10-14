@@ -2186,3 +2186,16 @@ Trim editor/cancel path is separately covered by compact-pending-labels.cjs.
 
 Static deployment only, without backend or Gateway restart. Shared iOS assets
 are source-synced; no physical-device Run or installed-app verification.
+
+### Pending-label anchor correction
+
+REA passively inspected the current Wheel page
+(`ev_42809d642413bf526162f8de493ef2d062aef46f12ffb248a7a22e1cbd3715ea`).
+The supplied screenshot and source identified vertical collision displacement:
+Add near SL moved off its actual price line. Pending labels now preserve their
+price height and yield horizontally when controls collide, including pointer
+updates. Add shows `Add 1` without redundant direction; blue/red reflects side.
+Trim shows `Trim | 1 | ×`; the quantity segment opens the existing guarded editor.
+No broker/confirmation semantics changed. Compact-label checks cover the near-SL
+regression on both axes and desktop/mobile, exact labels, and real quantity/cancel
+clicks. Add drag/fill-race and One-click/Confirm/Discard regressions also pass.

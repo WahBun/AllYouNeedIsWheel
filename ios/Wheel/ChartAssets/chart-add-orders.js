@@ -83,24 +83,32 @@
   };
   return button;
  }
- function positionExitHandles(){
+ function positionExitHandles(schedule=true){
   const height=chart.paneSize().height,right=priceAxisWidth(window.priceAxisSide||'right'),items=[];
   for(const [id,h] of exitHandles){const price=exitGesture?.id===id&&trimPricePreview?trimPricePreview.price:h.row.price;items.push({h,y:series.priceToCoordinate(price),exit:true});}
   for(const h of pendingLines.values())items.push({h,y:series.priceToCoordinate(h.price),exit:false});
   const visible=items.filter(x=>x.y!==null&&x.y>=20&&x.y<=height-20).sort((a,b)=>a.y-b.y);
-  const occupied=['entry','tp','sl'].map(id=>document.getElementById(id)).filter(el=>el&&!el.hidden).map(el=>{const r=el.getBoundingClientRect();return r.top+r.height/2;});
+  const occupied=['entry','tp','sl'].map(id=>document.getElementById(id)).filter(el=>el&&!el.hidden).map(el=>el.getBoundingClientRect());
   for(const item of items){const hidden=!visible.includes(item);for(const b of [item.h.button,item.h.cancel,item.h.edit])if(b)b.hidden=hidden;}
   for(let i=0;i<visible.length;i++){
    const item=visible[i],h=item.h;
-   let y=item.y;
-   for(let step=0;step<Math.ceil(height/46);step++){const candidates=step?[item.y+step*46,item.y-step*46]:[item.y];const free=candidates.find(v=>v>=20&&v<=height-20&&occupied.every(other=>Math.abs(other-v)>=44));if(free!==undefined){y=free;break;}}
-   occupied.push(y);
-   const gap=right+(innerWidth<500?48:64);
+   const y=item.y,left=window.priceAxisSide==='left',width=h.button.offsetWidth+(item.exit?48:24);
+   let gap=right+(innerWidth<500?48:64);
+   // Preserve the price coordinate. Nearby controls yield horizontally instead.
+   for(let attempt=0;attempt<=occupied.length;attempt++){
+    const x=left?gap:innerWidth-gap-width;
+    const collisions=occupied.filter(r=>y+22>r.top&&y-22<r.bottom&&x+width>r.left&&x<r.right);
+    if(!collisions.length)break;
+    const next=left?Math.max(...collisions.map(r=>r.right))+8:innerWidth-Math.min(...collisions.map(r=>r.left))+8;
+    if(next+width>innerWidth-8)break;
+    gap=next;
+   }
+   const x=left?gap:innerWidth-gap-width;occupied.push({left:x,right:x+width,top:y-22,bottom:y+22});
    h.button.style.top=(y-22)+'px';placeByPriceAxis(h.button,gap+(item.exit?48:24));
    h.cancel.style.top=(y-22)+'px';placeByPriceAxis(h.cancel,gap);
    if(h.edit){h.edit.style.top=(y-22)+'px';placeByPriceAxis(h.edit,gap+24);}
   }
-  requestAnimationFrame(positionExitHandles);
+  if(schedule)requestAnimationFrame(()=>positionExitHandles());
  }positionExitHandles();
  window.editStopQuantity=(oid)=>{
   const row=paperConfig.orders?.find(r=>r.order_id===oid);
@@ -149,13 +157,13 @@
    const id=`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${row.order_id}`;live.add(id);
    const options={price:row.price,color:'#b27bcd',lineWidth:1,lineStyle:2,lineVisible:config.display?.orderExtensionLines!==false,axisLabelVisible:false,title:''};
    if(exitLines.has(id)){if(exitGesture?.id!==id)exitLines.get(id).applyOptions(options);}else exitLines.set(id,series.createPriceLine(options));
-   if(!exitHandles.has(id))exitHandles.set(id,{button:createExitHandle(id,row),cancel:createExitCancel(row),edit:createPlanEditor(row),row});const handle=exitHandles.get(id);handle.row=row;const label=row.action==='close'?'Close':'Trim';labelText(handle.button,`${label} ${row.quantity}`);handle.edit.disabled=row.editable===false||row.action!=='trim'||config.paper.busy||!config.paper.enabled||row.status!=='Submitted'&&row.status!=='PreSubmitted';handle.button.setAttribute('aria-label',`Drag ${label.toLowerCase()} limit price`);handle.button.title=`Drag to amend this ${label.toLowerCase()} order @ ${priceText(row.price)}`;handle.cancel.setAttribute('aria-label',`Cancel ${label.toLowerCase()} plan`);handle.cancel.disabled=config.paper.busy||!config.paper.enabled||(!row.restore_price&&!row.standalone)||row.status==='PendingCancel';handle.button.disabled=row.editable===false||config.paper.busy||!config.paper.enabled||row.status==='PendingCancel';
+   if(!exitHandles.has(id))exitHandles.set(id,{button:createExitHandle(id,row),cancel:createExitCancel(row),edit:createPlanEditor(row),row});const handle=exitHandles.get(id);handle.row=row;const label=row.action==='close'?'Close':'Trim';labelText(handle.button,label);labelText(handle.edit,String(row.quantity));handle.edit.disabled=row.editable===false||row.action!=='trim'||config.paper.busy||!config.paper.enabled||row.status!=='Submitted'&&row.status!=='PreSubmitted';handle.button.setAttribute('aria-label',`Drag ${label.toLowerCase()} limit price`);handle.button.title=`Drag to amend this ${label.toLowerCase()} order @ ${priceText(row.price)}`;handle.cancel.setAttribute('aria-label',`Cancel ${label.toLowerCase()} plan`);handle.cancel.disabled=config.paper.busy||!config.paper.enabled||(!row.restore_price&&!row.standalone)||row.status==='PendingCancel';handle.button.disabled=row.editable===false||config.paper.busy||!config.paper.enabled||row.status==='PendingCancel';
   }
   for(const [id,line] of exitLines)if(!live.has(id)){series.removePriceLine(line);exitLines.delete(id);exitHandles.get(id)?.button.remove();exitHandles.get(id)?.cancel.remove();exitHandles.get(id)?.edit.remove();exitHandles.delete(id);if(exitGesture?.id===id)clearExitGesture();}
  }
 
- function positionCancelButton(row){const y=series.priceToCoordinate(row.price),gap=priceAxisWidth(window.priceAxisSide||'right')+(innerWidth<500?48:64);row.button.hidden=y===null||y<20||y>chart.paneSize().height-20;if(!row.button.hidden)row.button.style.top=(y-22)+'px';if(row.cancel){row.cancel.hidden=row.button.hidden;row.cancel.style.top=(y-22)+'px';placeByPriceAxis(row.cancel,gap);placeByPriceAxis(row.button,gap+24);}}
- const repositionCancels=()=>{for(const row of pendingLines.values())positionCancelButton(row);};
+ function positionCancelButton(){positionExitHandles(false);}
+ const repositionCancels=()=>positionExitHandles(false);
  chart.timeScale().subscribeVisibleLogicalRangeChange(repositionCancels);
  document.addEventListener('pointermove',repositionCancels,{passive:true});
  window.addEventListener('chart-viewport-resized',repositionCancels);
@@ -222,7 +230,7 @@
   const live=new Set(pending.map(o=>`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${o.order_id}`));
   for(const [id,row] of pendingLines)if(!live.has(id)){series.removePriceLine(row.line);row.button.remove();row.cancel?.remove();pendingLines.delete(id);if(addGesture?.id===id)addGesture=null;}
   for(const order of pending){
-   const id=`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${order.order_id}`,options={price:order.price,color:'#638ddd',lineWidth:1,lineStyle:2,lineVisible:config.display?.orderExtensionLines!==false,axisLabelVisible:false,title:''};
+   const id=`${config.paper.web_account_epoch}:${config.con_id}:${config.paper.order_ref}:${order.order_id}`,options={price:order.price,color:config.paper.side===1?'#2962ff':'#c6384d',lineWidth:1,lineStyle:2,lineVisible:config.display?.orderExtensionLines!==false,axisLabelVisible:false,title:''};
    if(pendingLines.has(id)){if(addGesture?.id!==id)pendingLines.get(id).line.applyOptions(options);}
    else {
     const button=document.createElement('button');document.body.append(button);
@@ -239,8 +247,8 @@
     };
     pendingLines.set(id,{line:series.createPriceLine(options),button,cancel});
    }
-   const row=pendingLines.get(id);if(addGesture?.id!==id)row.price=order.price;
-   labelText(row.button,`${order.entry_kind==='entry'?'Entry':order.entry_kind==='unknown'?'Pending':'Add'} ${config.paper.side===1?'Buy':'Sell'} ${order.quantity}${order.status==='PendingCancel'?' · Canceling…':''}`);
+   const row=pendingLines.get(id);row.button.style.color=row.cancel.style.color=options.color;if(addGesture?.id!==id)row.price=order.price;
+   labelText(row.button,`${order.entry_kind==='entry'?'Entry':order.entry_kind==='unknown'?'Pending':'Add'} ${order.quantity}${order.status==='PendingCancel'?' · Canceling…':''}`);
    row.button.setAttribute('aria-label',`${order.entry_kind==='entry'?'Drag entry order':order.entry_kind==='unknown'?'Drag pending entry':'Drag add order'} ${order.order_id}`);row.button.title='Drag to amend this unfilled add order @ '+priceText(row.price);
    row.button.disabled=!config.paper.enabled||config.paper.busy||!['Submitted','PreSubmitted'].includes(order.status);
    row.cancel.setAttribute('aria-label',`Cancel ${order.entry_kind==='entry'?'entry':order.entry_kind==='unknown'?'pending entry':'add'} order ${order.order_id}`);row.cancel.disabled=row.button.disabled;positionCancelButton(row);

@@ -13,6 +13,14 @@ for(const width of [1200,393])for(const axis of ['right','left']){
   const button=p.getByRole('button',{name,exact:true});const size=await button.evaluate(e=>({hit:e.getBoundingClientRect().height,visible:e.firstChild.getBoundingClientRect().height,text:e.textContent,background:getComputedStyle(e.firstChild).backgroundColor}));
   assert.equal(size.hit,44);assert.equal(size.visible,width===393?24:21);assert.ok(!size.text.includes('@'));assert.equal(size.background,'rgb(255, 255, 255)');
  }
+ assert.equal(await p.getByRole('button',{name:'Drag add order 1',exact:true}).textContent(),'Add 1');
+ assert.equal(await p.getByRole('button',{name:'Drag trim limit price',exact:true}).textContent(),'Trim');
+ assert.equal(await p.getByRole('button',{name:'Edit trim quantity',exact:true}).textContent(),'1');
+ // Reproduce a pending Add very close to SL: controls may shift horizontally, never in price.
+ await p.evaluate(()=>configure({...cfg,paper:{...cfg.paper,orders:cfg.paper.orders.map(o=>o.order_id===1?{...o,price:94.25}:o)}}));await p.waitForTimeout(80);
+ const anchored=await p.getByRole('button',{name:'Drag add order 1',exact:true}).evaluate(e=>{const r=e.firstChild.getBoundingClientRect(),sl=document.getElementById('sl').getBoundingClientRect();return {delta:r.top+r.height/2-series.priceToCoordinate(94.25),clear:r.right<=sl.left||r.left>=sl.right};});
+ assert.ok(Math.abs(anchored.delta)<1,JSON.stringify(anchored));assert.ok(anchored.clear,JSON.stringify(anchored));
+ await p.evaluate(()=>configure(cfg));await p.waitForTimeout(80);
  // Real pointer movement crosses each descriptive axis label. Price anchors stay fixed.
  for(const [role,price] of [['sl',90],['tp',110]]){
   const pts=await p.evaluate(({role,price})=>({x:plotLeft()+.2*(plotRight()-plotLeft()),from:series.priceToCoordinate(levels[role]),to:series.priceToCoordinate(price)}),{role,price});
