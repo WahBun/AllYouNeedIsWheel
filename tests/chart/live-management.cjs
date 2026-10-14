@@ -46,6 +46,13 @@ for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [
  await dialog.locator('footer button').last().click();await chosenRequest;
  await page.waitForFunction(()=>!document.getElementById('close').disabled);
  assert.equal(writes.at(-1).action,'trim');assert.equal(writes.at(-1).exit_price,.46);assert.equal(writes.at(-1).exit_type,'LMT');assert.equal(writes.at(-1).expected_position,-3);
+ if(['OPT','STK'].includes(asset)){
+  await pricedFrame.evaluate(()=>paperAction({action:'amend',source:'protection-drag',role:'sl',price:.47,expected_ref:'position-test'}));
+  const closeRequest=page.waitForRequest(r=>r.method()==='POST'&&r.postDataJSON()?.source==='sl-drag-mid');
+  await pricedFrame.getByRole('button',{name:'Confirm',exact:true}).click();await closeRequest;
+  await page.waitForFunction(()=>!document.getElementById('close').disabled);
+  const b=writes.at(-1);assert.equal(b.action,'close');assert.equal(b.exit_type,'LMT');assert.equal(b.exit_price,2.15);assert.equal(b.expected_position,-3);assert.equal(b.quantity,3);
+ }
  if(await panel.getAttribute('aria-expanded')==='false')await panel.click();
  stale=true;await page.reload();await page.waitForFunction(()=>!document.getElementById('close').disabled);const n=writes.length;await page.locator('#close').click();await page.waitForTimeout(100);assert.equal(writes.length,n);
  for(const id of ['orders','positions']){await page.locator('#toggle-trade').click();await page.locator('#'+id+' button').first().click();assert.equal(await page.locator('#chart-detail').isVisible(),false);assert.equal(await page.locator('#toggle-trade').getAttribute('aria-expanded'),'false');await page.waitForFunction(()=>!document.getElementById('close').disabled);}

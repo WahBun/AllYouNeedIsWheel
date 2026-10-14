@@ -45,6 +45,16 @@ final class ChartLiveManagementTests: XCTestCase {
         }
     }
 
+    func testCrossedStopCloseUsesFreshMidpointAndOriginalPositionGuard() throws {
+        let q = packet.merging(["security_type": "OPT", "bid": 0.51, "ask": 0.53]) { _, n in n }
+        let fields: [String: Any] = ["source": "sl-drag-mid", "expected_position": -2.0, "chart_confirmed": true]
+        let body = try request("close", position: -2, fields: fields, quote: q)
+        XCTAssertEqual(body["exit_price"] as? Double, 0.52)
+        XCTAssertEqual(body["exit_type"] as? String, "LMT")
+        XCTAssertThrowsError(try request("close", position: -1, fields: fields, quote: q))
+        XCTAssertThrowsError(try request("close", position: -2, fields: fields, quote: q, received: now.addingTimeInterval(-4)))
+    }
+
     func testChosenOptionAndStockPricesAreNeverReplacedByMidpoint() throws {
         for kind in ["OPT", "STK"] { for position in [-2.0, 2.0] { for action in ["add", "trim", "close"] {
             let priceKey = action == "add" ? "entry" : "exit_price"

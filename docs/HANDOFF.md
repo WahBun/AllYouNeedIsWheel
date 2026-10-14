@@ -1,3 +1,26 @@
+## 2026-10-14 SL drag across midpoint closes OPT/STK positions
+
+User explicitly requested this exception to existing stop-drag semantics.
+Reused applicable REA deployed host/frame evidence from the same 0c88da2 base:
+protection drags pass through shared confirmation before host/native management.
+Only OPT/STK SL drags are classified at release using fresh account/contract
+bid/ask: short SL <= midpoint or long SL >= midpoint chooses Close at mid;
+otherwise the original stop amendment remains. FUT, TP and non-drag edits retain
+existing behavior. Missing/expired/crossed quotes block classification.
+
+One-click ON dispatches immediately; OFF retains the selected draft and existing
+Confirm/Discard controls, with a visible Close at mid label when appropriate.
+Routine quotes cannot flip the selected action; position/order/account changes
+invalidate the draft. At confirmation, existing host/native Close processing uses
+the latest fresh midpoint and retains the original expected position/ref. No
+backend change, automatic retry or live order test. A midpoint limit is not a
+market order and does not guarantee immediate execution.
+
+Validation includes both sides, equality, direct/confirm/discard, quote updates,
+position invalidation, invalid quotes, desktop/mobile, original line dragging,
+web host-to-mocked-API payloads, and native Close midpoint guards.
+Web deployment is static only. iPhone needs the rebuilt bundled chart asset.
+
 ## 2026-10-14 preserve chart-selected option Trim limits
 
 REA 6.5 inspected the deployed web host/iframe and found `midManagement`
