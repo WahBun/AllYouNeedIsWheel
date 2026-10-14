@@ -41,14 +41,16 @@ for(const [unit,expected] of [['percent','+5.00%'],['ticks','+50.0 ticks']]){awa
 for(const profit of [true,false])for(const positions of [true,false,undefined])for(const brackets of [true,false]){
  await p.evaluate(({profit,positions,brackets})=>configure({...positionFixture,display:{...positionFixture.display,profit,positions,brackets}}),{profit,positions,brackets});
  const show=profit&&positions===true;assert.equal(await p.locator('#position-pnl').count(),show?1:0);
- assert.equal(await p.locator('#position-order-type').count(),show?0:1);
- if(!show)assert.equal(await p.locator('#position-order-type').textContent(),'Sell LMT');
+ assert.equal(await p.locator('#position-order-type').count(),0);
+ if(!show)assert.equal(await p.locator('#entry').textContent(),'2');
  assert.equal(await p.locator('#position-quantity').textContent(),'2');
  assert.equal(await p.locator('#cancel span').evaluate(e=>getComputedStyle(e).borderLeftWidth),'1px');
 }
 await p.screenshot({path:`/tmp/wheel-position-off-${width}-${dark?'dark':'light'}.png`});
 await p.evaluate(()=>configure({...positionFixture,display:{positions:false},paper:{...positionFixture.paper,position:2,side:1}}));
-assert.equal(await p.locator('#position-order-type').textContent(),'Buy LMT');
+assert.equal(await p.locator('#entry').textContent(),'2');
+await p.evaluate(()=>configure({...positionFixture,entryType:'STP',display:{positions:false},paper:{...positionFixture.paper,entry_type:'STP',position:2,side:1}}));
+assert.equal(await p.locator('#entry').textContent(),'2','A filled position must not inherit the draft entry type');
 await p.evaluate(()=>configure({...positionFixture,display:{holdingsVisible:false}}));await p.waitForTimeout(80);
 assert.equal(await p.locator('#entry').isVisible(),false);assert.equal(await p.locator('[data-axis-role=entry]').isVisible(),false);
 await p.evaluate(()=>{configure(positionFixture);activePriceScale().applyOptions({autoScale:false,scaleMargins:{top:0,bottom:0}});activePriceScale().setVisibleRange({from:9,to:10.005});});await p.waitForTimeout(80);

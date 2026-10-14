@@ -576,16 +576,13 @@ function updateLines(){
   eh.setAttribute('aria-label',(side>0?'Buy':'Sell')+' '+qty+' '+entryType+' '+priceText(entry));
  }
  if(paperConfig.position){
-  eh.firstChild.id='position-quantity';eh.firstChild.style.borderRadius='3px 0 0 3px';
+  eh.firstChild.id='position-quantity';eh.firstChild.style.borderRadius='3px 0 0 3px';eh.firstChild.style.background=color;eh.firstChild.style.borderColor=color;eh.firstChild.style.color='#fff';
   eh.setAttribute('aria-label',(paperConfig.position>0?'Long ':'Short ')+Math.abs(paperConfig.position)+' at '+priceText(entry));
   if(displayOptions.profit!==false&&displayOptions.positions===true){
    const pnl=document.createElement('span');pnl.id='position-pnl';pnl.style.cssText='border-left:0;border-radius:0';
    const last=previous.at(-1)?.close;
    pnl.textContent=Number.isFinite(last)&&entry>0&&contractMultiplier>0?profitText(last,displayOptions.positionUnit,Math.abs(paperConfig.position)):'—';
    eh.append(pnl);
-  }else{
-   const type=document.createElement('span');type.id='position-order-type';type.style.cssText='border-left:0;border-radius:0';
-   type.textContent=(side>0?'Buy ':'Sell ')+entryType;eh.append(type);
   }
  }
  }
@@ -994,7 +991,7 @@ function updateVisibleExtrema(){
   if(extremaLines[name])extremaLines[name].applyOptions(options);else extremaLines[name]=series.createPriceLine(options);
  }
 }
-// Order badges stay at their price anchors; only the live-price badge yields.
+// Order badges stay at their price anchors; extrema and live-price labels yield.
 const tradeAxisBadges=new Map();
 function separatePriceAxisLabels(){
  const height=chart.paneSize().height,occupied=[];
@@ -1008,20 +1005,21 @@ function separatePriceAxisLabels(){
   if(!badge.hidden)badge.style.top=(y-badge.offsetHeight/2)+'px';
  }
  for(const [name,badge] of tradeAxisBadges){if(!priceLines.get(name)){badge.remove();tradeAxisBadges.delete(name);}}
- for(const el of [...tradeAxisBadges.values(),...holdingAxisBadges.values(),positionEdgeBadge,...Object.values(extremaLabels)]){
+ for(const el of [...tradeAxisBadges.values(),...holdingAxisBadges.values(),positionEdgeBadge]){
   if(el.hidden||getComputedStyle(el).display==='none')continue;
   const top=parseFloat(el.style.top);if(Number.isFinite(top))occupied.push([top,top+el.offsetHeight]);
  }
- const current=document.getElementById('countdown');
- if(current.hidden)return;
- const size=current.offsetHeight,desired=parseFloat(current.style.top),gap=3;
- // Choose the nearest complete gap without moving any order or holding badge.
- const candidates=[desired,0,height-size,...occupied.flatMap(([top,bottom])=>[top-size-gap,bottom+gap])]
-  .filter(top=>Number.isFinite(top)&&top>=0&&top+size<=height)
-  .sort((a,b)=>Math.abs(a-desired)-Math.abs(b-desired));
- const top=candidates.find(top=>occupied.every(([start,end])=>top+size+gap<=start||top>=end+gap));
- current.style.visibility=top===undefined?'hidden':'';
- if(top!==undefined)current.style.top=top+'px';
+ // High/Low are descriptive labels: move them before placing the live quote.
+ for(const current of [...Object.values(extremaLabels),document.getElementById('countdown')]){
+  if(current.hidden||getComputedStyle(current).display==='none')continue;
+  const size=current.offsetHeight,desired=parseFloat(current.style.top),gap=3;
+  const candidates=[desired,0,height-size,...occupied.flatMap(([top,bottom])=>[top-size-gap,bottom+gap])]
+   .filter(top=>Number.isFinite(top)&&top>=0&&top+size<=height)
+   .sort((a,b)=>Math.abs(a-desired)-Math.abs(b-desired));
+  const top=candidates.find(top=>occupied.every(([start,end])=>top+size+gap<=start||top>=end+gap));
+  current.style.visibility=top===undefined?'hidden':'';
+  if(top!==undefined){current.style.top=top+'px';occupied.push([top,top+size]);}
+ }
 }
 // Offset labels only: their price lines remain anchored to the true price.
 function separateHoldingLabels(){

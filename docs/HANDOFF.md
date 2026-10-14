@@ -2153,3 +2153,36 @@ chart layout and narrow/fullscreen styles. No new controls or features.
 Existing toolbar checks pass in both themes, including actual interval/menu
 selection and a new assertion that desktop icon height is 34 px while narrow
 controls retain their prior 40 px. No broker writes or service restart.
+
+## 2026-10-14 — Filled positions and compact pending-order labels
+
+REA inspected the user's current TradingView Paper chart
+(`ev_e503fc9297c276385de382604bcd5d309fd21e7c37e58b3036f926ca289d2f0c`)
+and captured its filled-position UI
+(`ev_d2c93c739039c8094fdee802a3ea834adc5f2b2eaf6bba42809a0e06255d685a`).
+Observed: with position P&L hidden, the blue position segment shows quantity
+and close, without an entry-order type; bracket amounts remain visible.
+Wheel previously rendered the shared entryType field on filled positions, so
+that label was not reliable evidence of the executed order type. Remove that
+filled-position fallback, retain quantity, side color and close, and keep the
+existing master/position/bracket P&L switches and unit formatting. This does not
+claim reconciliation of the user's historical Join fill or modify order routing.
+
+Add/Trim use compact joined segments with 44px touch targets and retain their
+existing drag/edit/cancel guards. Prices remain on the axis and in tooltips;
+this is a Wheel adaptation, not an assertion that TV implements Add/Trim this way.
+Pending-order extension lines honor the existing Chart Display setting.
+High/Low labels yield to fixed order-axis badges during dragging; the live-price
+badge then uses the remaining space. No price, feed, scheduling or layout changes.
+
+Ten focused browser checks passed, including actual TP/SL pointer drags across
+High/Low on both axes, desktop/native-width labels, Trim editor/cancel bridge,
+Add drag/capture-loss/fill-race, position display matrix, protected One-click and
+Confirm/Discard, full-line/fast drags and quantity-stop recovery. Mock requests
+only; no broker orders. Screenshots reviewed at 1200 and 393 px. The older
+standalone-trim.cjs fails at its cancelProtectionPreview expectation on both
+base a9f5d0b and the changed tree; it is not reported as passing. The compact
+Trim editor/cancel path is separately covered by compact-pending-labels.cjs.
+
+Static deployment only, without backend or Gateway restart. Shared iOS assets
+are source-synced; no physical-device Run or installed-app verification.
