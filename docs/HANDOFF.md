@@ -2059,3 +2059,29 @@ and all favorite periods, row geometry, no horizontal overflow, menu access,
 fullscreen entry/exit and retained chart/control nodes with zero order writes.
 Pane maximize/restore, duplicate-gutter, Command magnet and shortcut regressions
 also passed. Deploy without restarting backend/Gateway; no phone build needed.
+
+### 2026-10-14 — Centered toolbar group and native-size axis settings icon
+
+The user requested the instrument/favorites/interval group return to the center
+of the single desktop toolbar. Center it on the whole header when it fits between
+connection status and right-side controls; retain the non-overlapping inline
+layout when space is insufficient. Observe only control sizing/text changes, not
+market packets. Preserve fullscreen/narrow-screen placement and existing nodes.
+
+REA inspected current TV page/scripts (evidence
+`ev_b99304d032f108084f17c19d5c90f54eb9c3c6f1eeeec5c09268fe6e6d4f765b`).
+Its loaded `62766.1efe8c749b4c28f0453c.js` matches the earlier retained source
+SHA-256 `20550a5624197c012efcab64aaaa3d37382c44f6e9026bce3c6d7701c05282da`
+(source evidence `ev_1f744bc99761235fe3d7f4ce2ff0b205c2ca713122775a24f9adc8d858f63fa0`).
+Module 766998 supplies the 15x13 filled hexagon/circle SVG. Axis stub `_drawLabel`
+centers its native view box using rounded device-pixel coordinates. Reused this
+geometry and sizing instead of shrinking a 24x24 stroked substitute. The button
+now uses the existing price/time-axis corner dimensions, a transparent background
+and English title. Wheel adaptation: retain existing menu contents and button
+availability; do not claim TV menu execution or full menu parity.
+
+Unified-toolbar and toolbar-menu checks passed across desktop/narrow widths,
+themes, favorite counts and fullscreen. Price-axis tests passed at 1x/2x device
+scale, including native icon size and pixel alignment, both axis sides, menu
+operation, drawing anchors and visible ranges. Synthetic checks only; no orders.
+Static frontend deployment, no iOS bundle change or service restart.

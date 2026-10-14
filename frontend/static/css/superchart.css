@@ -243,3 +243,6 @@ body.unified-chart-toolbar .toolbar-instrument{min-width:0}
 body.unified-chart-toolbar #option-search{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 @media(max-width:1279px){.toolbar-center #intervals{flex-wrap:wrap;justify-content:center;min-width:0;max-width:100%}}
+
+body.unified-chart-toolbar>header{position:relative}
+body.unified-chart-toolbar>header.centered-chart-controls .toolbar-center{position:absolute;left:50%;top:50%;width:var(--centered-controls-width);transform:translate(-50%,-50%)}

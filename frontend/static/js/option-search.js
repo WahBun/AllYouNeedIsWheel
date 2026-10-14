@@ -20,12 +20,21 @@ window.installOptionSearch=({api,select,symbol,canSelect})=>{
  $('fullscreen').title='Fullscreen workspace';$('fullscreen').setAttribute('aria-label',$('fullscreen').title);
  // Reuse the same controls in one desktop row; fullscreen keeps them in its workspace.
  const header=document.querySelector('body>header'),workspace=nav.parentElement,desktopToolbar=matchMedia('(min-width:1280px)');
+ function centerToolbar(){
+  header.classList.remove('centered-chart-controls');center.style.removeProperty('--centered-controls-width');
+  if(!document.body.classList.contains('unified-chart-toolbar'))return;
+  const box=header.getBoundingClientRect(),width=center.getBoundingClientRect().width,left=box.left+(box.width-width)/2;
+  if(left>=$('connection').getBoundingClientRect().right+12&&left+width<=end.getBoundingClientRect().left-12){center.style.setProperty('--centered-controls-width',width+'px');header.classList.add('centered-chart-controls');}
+ }
  function placeToolbar(){
   const unified=desktopToolbar.matches&&!document.fullscreenElement;
   document.body.classList.toggle('unified-chart-toolbar',unified);
   if(unified&&nav.parentElement!==header)header.insertBefore(nav,$('theme'));
   else if(!unified&&nav.parentElement!==workspace)workspace.prepend(nav);
+  centerToolbar();
  }
+ const toolbarSize=new ResizeObserver(centerToolbar);for(const node of [header,center,end,$('connection')])toolbarSize.observe(node);
+ new MutationObserver(centerToolbar).observe(center,{childList:true,subtree:true,characterData:true});
  desktopToolbar.addEventListener('change',placeToolbar);document.addEventListener('fullscreenchange',placeToolbar);placeToolbar();
 
 
