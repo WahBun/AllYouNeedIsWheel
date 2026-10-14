@@ -328,6 +328,8 @@ function applyMarket(bars,push=false){
  const nextConfig=JSON.stringify([cid,bars.generation,interval,session,bars.security_type,bars.multiplier,bars.price_rules]);
  if(nextConfig!==quoteConfigKey){quoteConfigKey=nextConfig;sync();if($('protection-editor').open&&protectionContext?.cid===cid)estimateProtection();}else if(pushedPnL)renderDailyPnL();
  syncJoinControls();clearAccountNotice();
+ // Hidden tabs throttle timers/rAF; accepted SSE packets also update browser chrome.
+ updateTabTitle();
 }
 let legacyMarket=null,legacyStarted=0,legacyContext=null;
 async function refreshLegacyMarket(context){
@@ -342,7 +344,7 @@ async function refreshLegacyMarket(context){
 }
 const streamSupported=()=>[1,3,5,10,15,60,480].includes(interval)&&!(interval===480&&session==='rth');
 async function refreshMarket({full=false}={}){
- if(marketBusy||!ready||!cid||!epoch||document.hidden)return;
+ if(marketBusy||!ready||!cid||!epoch)return;
  const request=marketBusy=new AbortController();lastFallback=Date.now();const context=marketContext(),revision=marketRevision;
  const timeout=setTimeout(()=>request.abort(),12000);
  try{
@@ -385,7 +387,7 @@ async function refreshPnL({force=false}={}){
  }finally{if(pnlBusy===request)pnlBusy=null;}
 }
 function ensureMarket(){
- if(!ready||!cid||!epoch||document.hidden){marketStream.stop();return;}
+ if(!ready||!cid||!epoch){marketStream.stop();return;}
  const supported=streamSupported();
  // Bootstrap with one finite history request before starting SSE, as native does.
  if(supported&&packet.bars?.length)marketStream.ensure(marketContext());else marketStream.stop();
@@ -583,7 +585,8 @@ setInterval(ensureMarket,250);
 setInterval(refreshEMA,2000);
 setInterval(refreshExecutions,2000);
 setInterval(refreshVolatility,2000);
-document.addEventListener('visibilitychange',()=>{if(document.hidden){marketStream.stop();marketRevision++;marketBusy?.abort();marketBusy=null;resumedAt=0;}else resumeMarket();});
+// A hidden tab keeps its bounded shared quote transport. Page exit still closes it.
+document.addEventListener('visibilitychange',()=>{if(document.hidden){resumedAt=0;ensureMarket();}else resumeMarket();});
 window.addEventListener('focus',resumeMarket);
 window.addEventListener('online',resumeMarket);
 window.addEventListener('pageshow',resumeMarket);

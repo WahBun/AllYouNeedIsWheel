@@ -2209,3 +2209,23 @@ Remove pending-label collision displacement entirely: Add/Trim now use the same
 fixed price anchor and axis gap as entry/TP/SL. High/Low still yield separately.
 The focused browser test varies the visible price range on both axes at desktop
 and native widths and asserts unchanged axis gap and exact price anchoring.
+
+## 2026-10-14 background chart quotes
+
+Hidden browser tabs now retain their existing bounded shared SSE transport for
+all retained panes. Accepted packets update the tab quote directly, so background
+timer/rAF throttling cannot freeze the title. Page exit still closes transports;
+sequence, epoch, reconnect and snapshot guards are unchanged. Optional indicator
+history and position polling remain foreground work. No quote throttle or layout
+change; no backend or Gateway restart is required.
+
+REA inspected the deployed host scripts and confirmed both hidden-tab stop paths
+(evidence ev_3499a65295b7133e05fce29828751f014ea0ddc7d1035825979f4b2d3a3de018).
+TV was passively inspected, but its background implementation was not established.
+Normal Chrome with no forced-focus or background-throttle overrides verified a
+truly hidden four-pane tab: 35 updates per pane over 3.5 seconds, changing title,
+one shared stream, hidden disconnect/resnapshot, foreground recovery and close.
+Synthetic before/after 1–4 panes, two four-pane pages, 100Hz stress, eight distinct
+symbols, OHLC extremes and lifecycle checks passed. The 10Hz chart-apply p95
+remained 2–6ms in the matrix. These are local mock/browser measurements, not
+broker latency or phone background execution guarantees.

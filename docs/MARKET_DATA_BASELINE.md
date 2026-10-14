@@ -132,3 +132,13 @@ Optional same-owner synthetic reconciliation load is available via
 `WHEEL_TEST_PENDING_ORDERS=1` for the browser fixtures. It runs eight cached fake
 order-status checks before each tick callback; it does not simulate network waits,
 production Flask dispatch, real journal I/O or a broker order write.
+
+## Background browser coverage — 2026-10-14
+
+`node tests/chart/market-feed/background-tabs.cjs` uses a temporary normal Chrome
+profile and `connectOverCDP({noDefaults:true})` so Playwright does not force focus
+or disable background throttling. It verifies native document visibility, four
+panes and browser-title updates while hidden, reconnect/resnapshot while hidden,
+foreground recovery and transport release on close. Market streams remain open
+while the document is hidden. Browser/OS freezing or process suspension is outside
+this short background-tab test; optional non-price work remains foreground-only.
