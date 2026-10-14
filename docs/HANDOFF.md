@@ -2199,3 +2199,13 @@ Trim shows `Trim | 1 | ×`; the quantity segment opens the existing guarded edit
 No broker/confirmation semantics changed. Compact-label checks cover the near-SL
 regression on both axes and desktop/mobile, exact labels, and real quantity/cancel
 clicks. Add drag/fill-race and One-click/Confirm/Discard regressions also pass.
+
+### Price-scale compression follow-up
+
+REA rechecked the current Wheel page
+(`ev_9c1e812232e9985e9e8b6de0211ca39c204b9b842fe7fe0c5534b37e5234912c`).
+The user's video shows Add changing horizontal lanes as the price axis compresses.
+Remove pending-label collision displacement entirely: Add/Trim now use the same
+fixed price anchor and axis gap as entry/TP/SL. High/Low still yield separately.
+The focused browser test varies the visible price range on both axes at desktop
+and native widths and asserts unchanged axis gap and exact price anchoring.

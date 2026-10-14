@@ -88,22 +88,11 @@
   for(const [id,h] of exitHandles){const price=exitGesture?.id===id&&trimPricePreview?trimPricePreview.price:h.row.price;items.push({h,y:series.priceToCoordinate(price),exit:true});}
   for(const h of pendingLines.values())items.push({h,y:series.priceToCoordinate(h.price),exit:false});
   const visible=items.filter(x=>x.y!==null&&x.y>=20&&x.y<=height-20).sort((a,b)=>a.y-b.y);
-  const occupied=['entry','tp','sl'].map(id=>document.getElementById(id)).filter(el=>el&&!el.hidden).map(el=>el.getBoundingClientRect());
   for(const item of items){const hidden=!visible.includes(item);for(const b of [item.h.button,item.h.cancel,item.h.edit])if(b)b.hidden=hidden;}
   for(let i=0;i<visible.length;i++){
    const item=visible[i],h=item.h;
-   const y=item.y,left=window.priceAxisSide==='left',width=h.button.offsetWidth+(item.exit?48:24);
-   let gap=right+(innerWidth<500?48:64);
-   // Preserve the price coordinate. Nearby controls yield horizontally instead.
-   for(let attempt=0;attempt<=occupied.length;attempt++){
-    const x=left?gap:innerWidth-gap-width;
-    const collisions=occupied.filter(r=>y+22>r.top&&y-22<r.bottom&&x+width>r.left&&x<r.right);
-    if(!collisions.length)break;
-    const next=left?Math.max(...collisions.map(r=>r.right))+8:innerWidth-Math.min(...collisions.map(r=>r.left))+8;
-    if(next+width>innerWidth-8)break;
-    gap=next;
-   }
-   const x=left?gap:innerWidth-gap-width;occupied.push({left:x,right:x+width,top:y-22,bottom:y+22});
+   // Match entry/TP/SL: scale changes must never move labels into another lane.
+   const y=item.y,gap=right+(innerWidth<500?48:64);
    h.button.style.top=(y-22)+'px';placeByPriceAxis(h.button,gap+(item.exit?48:24));
    h.cancel.style.top=(y-22)+'px';placeByPriceAxis(h.cancel,gap);
    if(h.edit){h.edit.style.top=(y-22)+'px';placeByPriceAxis(h.edit,gap+24);}

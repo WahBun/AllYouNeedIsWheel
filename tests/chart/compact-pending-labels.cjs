@@ -16,10 +16,17 @@ for(const width of [1200,393])for(const axis of ['right','left']){
  assert.equal(await p.getByRole('button',{name:'Drag add order 1',exact:true}).textContent(),'Add 1');
  assert.equal(await p.getByRole('button',{name:'Drag trim limit price',exact:true}).textContent(),'Trim');
  assert.equal(await p.getByRole('button',{name:'Edit trim quantity',exact:true}).textContent(),'1');
- // Reproduce a pending Add very close to SL: controls may shift horizontally, never in price.
+ // Reproduce a pending Add very close to SL: controls retain their lane and price anchor.
  await p.evaluate(()=>configure({...cfg,paper:{...cfg.paper,orders:cfg.paper.orders.map(o=>o.order_id===1?{...o,price:94.25}:o)}}));await p.waitForTimeout(80);
  const anchored=await p.getByRole('button',{name:'Drag add order 1',exact:true}).evaluate(e=>{const r=e.firstChild.getBoundingClientRect(),sl=document.getElementById('sl').getBoundingClientRect();return {delta:r.top+r.height/2-series.priceToCoordinate(94.25),clear:r.right<=sl.left||r.left>=sl.right};});
- assert.ok(Math.abs(anchored.delta)<1,JSON.stringify(anchored));assert.ok(anchored.clear,JSON.stringify(anchored));
+ assert.ok(Math.abs(anchored.delta)<1,JSON.stringify(anchored));
+ const lane=await p.getByRole('button',{name:'Drag add order 1',exact:true}).evaluate(e=>{const r=e.getBoundingClientRect();return window.priceAxisSide==='left'?r.left-priceAxisWidth('left'):innerWidth-priceAxisWidth('right')-r.right;});
+ for(const range of [{from:80,to:120},{from:0,to:200},{from:90,to:110}]){
+  await p.evaluate(range=>{activePriceScale().applyOptions({autoScale:false});activePriceScale().setVisibleRange(range);},range);await p.waitForTimeout(80);
+  const actual=await p.getByRole('button',{name:'Drag add order 1',exact:true}).evaluate(e=>{const r=e.getBoundingClientRect();return {gap:window.priceAxisSide==='left'?r.left-priceAxisWidth('left'):innerWidth-priceAxisWidth('right')-r.right,delta:r.top+r.height/2-series.priceToCoordinate(94.25)};});
+  assert.ok(Math.abs(actual.gap-lane)<1,JSON.stringify(actual));assert.ok(Math.abs(actual.delta)<1,JSON.stringify(actual));
+ }
+ await p.evaluate(()=>activePriceScale().applyOptions({autoScale:true}));
  await p.evaluate(()=>configure(cfg));await p.waitForTimeout(80);
  // Real pointer movement crosses each descriptive axis label. Price anchors stay fixed.
  for(const [role,price] of [['sl',90],['tp',110]]){
