@@ -72,3 +72,31 @@ Cover One-click on/off, desktop/mobile, draft persistence across polling, delaye
 confirmation and a click held through refresh. Preserve tick-level delivery and
 the existing 1/2/3/4-chart layouts. Report mock/browser results separately from
 broker acceptance; do not place real orders merely to verify UI changes.
+
+## Protected TP/SL presentation after quantity changes
+
+The user approved this behavior at commit
+`454c63ea008336fb61e8eed149c0b4e508bd43f2`. Preserve it across computers,
+new conversations and all future UI changes unless the user explicitly requests
+a behavioral change.
+
+- After a quantity change is confirmed, TP and SL must retain the same ordinary
+  label style throughout submission, waiting and reconciliation. Neither line
+  should flash, disappear and reappear, or jump merely because a replacement
+  order is awaiting confirmation. Do not add an extra `…` to either label for
+  this quantity-change waiting state.
+- Show waiting/unknown outcomes through the existing page-level order status.
+  Consistent label styling does not mean the broker has confirmed the change.
+- Preserve the display-only pending-stop handling: use valid, consistent prices
+  from pending stop rows in the current snapshot, not cached prices from another
+  account, contract or order. Do not fabricate confirmed protection or retain
+  canceled, filled, missing, unknown or conflicting stop rows to hide a flicker.
+- Keep order submission, replacement, reconciliation, One-click trading,
+  Confirm/Discard and no-replay guards unchanged. This presentation rule does
+  not override genuine broker state changes or the shared price-drag in-flight
+  indication outside quantity changes.
+
+For related UI changes, run `tests/chart/stop-pending-display.cjs` and
+`tests/chart/quantity-stop-recovery.cjs`. Verify desktop/mobile rendering,
+matching TP/SL styles, stable line identity through pending-to-confirmed updates,
+and exactly one intended quantity-change request with no automatic replay.
