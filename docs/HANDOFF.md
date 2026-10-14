@@ -1,3 +1,20 @@
+## 2026-10-14 dense price-axis label spacing
+
+REA inspected the current deployed frame and confirmed the existing allocator
+placed High/Low before the live-price block. Prioritize the complete current
+price plus countdown block, then move High/Low around it with six pixels of
+clearance and rendered-height measurement. Order price anchors and lines remain
+unchanged. Verified close/equal prices at both axis sides, mobile/desktop and
+light/dark, with a rendered phone-width screenshot and existing extrema/order
+label regressions. No quote transport or order behavior change.
+
+The user now explicitly runs iPhone builds themselves. The attempted final
+install/launch for 2077f56 was rejected before execution after that instruction;
+13 targeted physical-device tests had already passed before the instruction.
+Do not install, launch or run more physical-device tests without new authorization.
+2077f56 was deployed to Mini static assets with unchanged Backend/Gateway.
+This shared-chart update also requires the user's iPhone Run.
+
 ## 2026-10-14 SL drag across midpoint closes OPT/STK positions
 
 User explicitly requested this exception to existing stop-drag semantics.

@@ -1020,10 +1020,10 @@ function separatePriceAxisLabels(){
   if(el.hidden||getComputedStyle(el).display==='none')continue;
   const top=parseFloat(el.style.top);if(Number.isFinite(top))occupied.push([top,top+el.offsetHeight]);
  }
- // High/Low are descriptive labels: move them before placing the live quote.
- for(const current of [...Object.values(extremaLabels),document.getElementById('countdown')]){
+ // Reserve the entire live-price/countdown block first; High/Low yield around it.
+ for(const current of [document.getElementById('countdown'),...Object.values(extremaLabels)]){
   if(current.hidden||getComputedStyle(current).display==='none')continue;
-  const size=current.offsetHeight,desired=parseFloat(current.style.top),gap=3;
+  const size=Math.ceil(current.getBoundingClientRect().height),desired=parseFloat(current.style.top),gap=6;
   const candidates=[desired,0,height-size,...occupied.flatMap(([top,bottom])=>[top-size-gap,bottom+gap])]
    .filter(top=>Number.isFinite(top)&&top>=0&&top+size<=height)
    .sort((a,b)=>Math.abs(a-desired)-Math.abs(b-desired));
