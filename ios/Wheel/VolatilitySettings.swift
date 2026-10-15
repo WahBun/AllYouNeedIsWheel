@@ -25,7 +25,7 @@ struct VolatilitySettings: Codable, Equatable {
     var oil: String = "OVX"
     var gauge: Bool = true
     var curve: String = "Auto"
-    var position: String = "Bottom Right"
+    var position: String = "Bottom Center"
     var background: String = "#ECF1EC"
     var track: String = "#C5CFC5"
     var lowColor: String = "#22c55e"
@@ -85,7 +85,7 @@ struct VolatilitySettingsSections: View {
         Section("Intraday Extreme Gauge") {
             Toggle("Enable gauge", isOn: $settings.gauge)
             Picker("Curve", selection: $settings.curve) { ForEach(["Auto", "ES", "NQ"], id: \.self) { Text($0).tag($0) } }
-            Picker("Position", selection: $settings.position) { ForEach(["Top Left", "Top Right", "Bottom Left", "Bottom Right"], id: \.self) { Text($0).tag($0) } }
+            Picker("Position", selection: $settings.position) { ForEach(["Top Left", "Top Right", "Bottom Left", "Bottom Center", "Bottom Right"], id: \.self) { Text($0).tag($0) } }
         }
         Section("Gauge Colors") {
             ColorPicker("Background", selection: color(\.background), supportsOpacity: false)

@@ -1,3 +1,23 @@
+## 2026-10-15 native centered two-row ATR/gauge footer
+
+The accepted native trading lock remains unchanged. The footer now places ATR
+above the gauge with a fixed 6px vertical gap, both independently centered in
+the full chart. Native indicator settings expose Bottom Center and select it
+by default; a one-time migration moves prior bottom-left/right preferences to
+Bottom Center. Explicit top placements remain selected. Web gauge code and
+layout remain unchanged; no Mini deployment is needed for this native update.
+
+REA refreshed the actual web reference
+(ev_61fc628e10dcb3559074b4fd12abfb8f00fde0615b59993262f818a87ac57eea).
+The user's native screenshot establishes the unwanted previous side-by-side
+appearance and collision with return-to-latest; the adopted two-row arrangement
+is the explicitly requested iOS adaptation. Browser native-asset checks pass
+at 320/393/852 widths in both themes, with exact horizontal centers, fixed gap,
+return-to-latest clearance and navigation while locked. Existing native lock
+checks pass unchanged. Screenshot inspected and iOS simulator build passed.
+Physical device visual acceptance awaits the user's Run. Local signing and
+generated localization changes remain excluded.
+
 ## 2026-10-15 native trading lock and right-aligned gauge/ATR footer
 
 Native chart status controls gain a lock beside collapse. New chart-view state
