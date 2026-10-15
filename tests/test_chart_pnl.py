@@ -100,3 +100,54 @@ class ChartPnLTests(unittest.TestCase):
         with patch.object(self.ib, 'sleep', side_effect=AssertionError('push must not yield')), patch.object(self.ib, 'reqPnLSingle', side_effect=AssertionError('push must not subscribe')):
             self.assertEqual(self.conn._chart_pnl.snapshot(7, cached_only=True)['value'], 42)
             self.assertIsNone(self.conn._chart_pnl.snapshot(8, cached_only=True)['value'])
+
+    def test_silent_subscription_recovers_with_backoff_and_keeps_last_value_stale(self):
+        with patch('api.services.chart_pnl.time.monotonic', return_value=100):
+            snapshot(self.conn, 7)
+            self.emit(8.65)
+        old = self.ib.calls[-1]
+        with patch('api.services.chart_pnl.time.monotonic', return_value=131):
+            cached = self.conn._chart_pnl.snapshot(7, cached_only=True)
+            self.assertFalse(cached['fresh'])
+            self.assertIsNone(cached['value'])
+            self.assertEqual(cached['last_value'], 8.65)
+            self.assertEqual(len(self.ib.calls), 1)
+            result = snapshot(self.conn, 7)
+            self.assertEqual(len(self.ib.calls), 2)
+            self.assertEqual(self.ib.canceled, [('paper-test', 7)])
+            self.assertEqual(result['last_value'], 8.65)
+            old.dailyPnL = 999
+            self.ib.pnlSingleEvent.emit(old)
+            self.assertEqual(snapshot(self.conn, 7)['last_value'], 8.65)
+        with patch('api.services.chart_pnl.time.monotonic', return_value=162):
+            snapshot(self.conn, 7)
+            self.assertEqual(len(self.ib.calls), 3)
+        with patch('api.services.chart_pnl.time.monotonic', return_value=200):
+            snapshot(self.conn, 7)
+            self.assertEqual(len(self.ib.calls), 3, 'silent retries back off to 60 seconds')
+            self.emit(9.12)
+            result = snapshot(self.conn, 7)
+            self.assertTrue(result['fresh'])
+            self.assertEqual(result['value'], 9.12)
+            self.assertEqual(result['age_seconds'], 0)
+        self.ib.disconnectedEvent.emit()
+        self.assertIsNone(snapshot(self.conn, 7)['last_value'])
+
+    def test_initial_subscription_failure_is_bounded(self):
+        with patch('api.services.chart_pnl.time.monotonic', return_value=100):
+            with patch.object(self.ib, 'reqPnLSingle', side_effect=RuntimeError('offline')) as request:
+                snapshot(self.conn, 7)
+                snapshot(self.conn, 7)
+                request.assert_called_once()
+        with patch('api.services.chart_pnl.time.monotonic', return_value=131):
+            snapshot(self.conn, 7)
+            self.assertEqual(len(self.ib.calls), 1)
+
+    def test_realized_last_value_does_not_reuse_open_position_pnl(self):
+        snapshot(self.conn, 7)
+        self.emit(99)
+        with patch('api.services.chart_realized_pnl.realized_snapshot',
+                   return_value=dict(flat=True, value=12, basis='realized')):
+            result = snapshot(self.conn, 7, '/unused/mock.db')
+        self.assertEqual(result['value'], 12)
+        self.assertEqual(result['last_value'], 12)

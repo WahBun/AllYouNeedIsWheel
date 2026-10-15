@@ -182,16 +182,20 @@ function validateJoin(body){
  return '';
 }
 function renderDailyPnL(){
- if(!$('daily-pnl'))return; // Compatible with an already-running server template during asset updates.
- const pnl=packet.daily_pnl,zh=document.documentElement.lang==='zh',age=(pnl?.age_seconds??Infinity)+(Date.now()-pnlReceived)/1000;
- const fresh=profile.verified&&!!epoch&&packet.account_epoch===epoch&&pnl?.con_id===cid&&pnl.fresh===true&&typeof pnl.value==='number'&&Number.isFinite(pnl.value)&&age<15;
- const value=fresh?new Intl.NumberFormat(zh?'zh-CN':'en-US',{minimumFractionDigits:2,maximumFractionDigits:2,signDisplay:'exceptZero'}).format(Math.abs(pnl.value)<.005?0:pnl.value):profile.verified&&epoch&&pnlPhase==='loading'?'…':'—';
- $('daily-pnl-value').textContent=value;$('daily-pnl-value').dataset.direction=fresh&&Math.abs(pnl.value)>=.005?(pnl.value>0?'positive':'negative'):'neutral';$('daily-pnl-currency').textContent=fresh?(pnl.currency||'BASE'):'';
+ if(!$('daily-pnl'))return;
+ const pnl=packet.daily_pnl,age=(pnl?.age_seconds??Infinity)+(Date.now()-pnlReceived)/1000;
+ const matching=profile.verified&&!!epoch&&packet.account_epoch===epoch&&pnl?.con_id===cid;
+ const fresh=matching&&pnl.fresh===true&&typeof pnl.value==='number'&&Number.isFinite(pnl.value)&&age<15;
+ const last=pnl?.last_value??pnl?.value;
+ const stale=matching&&!fresh&&typeof last==='number'&&Number.isFinite(last)&&Number.isFinite(age);
+ const available=fresh||stale,amount=fresh?pnl.value:last;
+ const value=available?new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:2,signDisplay:'exceptZero'}).format(Math.abs(amount)<.005?0:amount):matching&&pnlPhase==='loading'?'…':'—';
+ $('daily-pnl-value').textContent=value;$('daily-pnl-value').dataset.direction=fresh&&Math.abs(amount)>=.005?(amount>0?'positive':'negative'):'neutral';$('daily-pnl-currency').textContent=available?(pnl.currency||'BASE'):'';
  const realized=pnl?.basis==='realized';
- const label=$('daily-pnl').querySelector('span');label.textContent=realized?(zh?'当日已实现':'Realized today'):(zh?'当日盈亏':'Daily P&L');
- const scope=realized?(zh?`当前合约 · 当前账户 · IB 成交已实现盈亏，已保存。交易日 ${pnl.trading_day}，每日分界 ${pnl.day_boundary}；与 IB 持仓盯市盈亏口径不同。`:`Current contract · selected account · persisted IB execution realized P&L. Trading day ${pnl.trading_day}, boundary ${pnl.day_boundary}; distinct from IB daily mark-to-market P&L.`):(zh?'当前合约 · 当前账户 · IB 当日盈亏（账户基准币种），按 IB 的日重置时间统计。':'Current contract · selected account · IB daily P&L in account base currency, following IB’s daily reset.');
- $('daily-pnl').title=scope+(fresh?' '+value+' '+(pnl.currency||'BASE'):(zh?' 数据未返回或已过期；不代表零盈亏。':(pnlPhase==='loading'?' Loading current account P&L…':' Data unavailable or stale; this does not mean zero P&L.')));
- $('daily-pnl').setAttribute('aria-label',(zh?'当日盈亏 ':'Daily P&L ')+value+'. '+$('daily-pnl').title);
+ $('daily-pnl').querySelector('span').textContent=(realized?'Realized today':'Daily P&L')+(stale?' · Stale':'');
+ const scope=realized?`Current contract · selected account · persisted IB execution realized P&L. Trading day ${pnl.trading_day}, boundary ${pnl.day_boundary}; distinct from IB daily mark-to-market P&L.`:'Current contract · selected account · IB daily P&L in account base currency, following IB’s daily reset.';
+ $('daily-pnl').title=scope+(fresh?' '+value+' '+(pnl.currency||'BASE'):stale?` Last reported ${Math.floor(age)} seconds ago: ${value} ${pnl.currency||'BASE'}. Waiting for an IB update; this is not a current value.`:pnlPhase==='loading'?' Loading current account P&L…':' Data unavailable; this does not mean zero P&L.');
+ $('daily-pnl').setAttribute('aria-label','Daily P&L '+value+(stale?' (stale)':'')+'. '+$('daily-pnl').title);
 }
 let ticketProtectionKey='',ticketProtectionState='',ticketDraft={};
 function protectionMultiplier(){const value=Number(packet.multiplier??(packet.security_type==='STK'?1:NaN));return Number.isFinite(value)&&value>0?value:NaN;}

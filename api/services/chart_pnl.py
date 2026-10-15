@@ -12,6 +12,8 @@ from collections import OrderedDict
 class ChartPnL:
     MAX_SUBSCRIPTIONS = 4
     FRESH_SECONDS = 15
+    RETRY_SECONDS = 30
+    MAX_RETRY_SECONDS = 300
 
     def __init__(self, connection):
         self.connection = connection
@@ -30,11 +32,13 @@ class ChartPnL:
             value = pnl.dailyPnL
             row['value'] = value if isinstance(value, (int, float)) and math.isfinite(value) and abs(value) < 1e100 else None
             row['at'] = time.monotonic()
+            row['retry_delay'] = self.RETRY_SECONDS
+            row['retry_at'] = row['at'] + self.RETRY_SECONDS
 
     def snapshot(self, con_id, cached_only=False):
         ib = self.connection.ib
         account = self.connection.account_id
-        empty = dict(con_id=con_id, value=None, fresh=False, age_seconds=None,
+        empty = dict(con_id=con_id, value=None, last_value=None, fresh=False, age_seconds=None,
                      currency=None, source='IBKR contract daily P&L')
         if not ib.isConnected() or not account or account not in ib.managedAccounts():
             return empty
@@ -48,8 +52,20 @@ class ChartPnL:
         if key not in self.rows:
             if len(self.rows) >= self.MAX_SUBSCRIPTIONS:
                 self.cancel(next(iter(self.rows)))
-            pnl = ib.reqPnLSingle(account, '', con_id)
-            self.rows[key] = dict(pnl=pnl, value=None, at=None)
+            now = time.monotonic()
+            self.rows[key] = dict(pnl=None, value=None, at=None,
+                                  retry_at=now, retry_delay=self.RETRY_SECONDS)
+        row = self.rows[key]
+        if not cached_only and time.monotonic() >= row['retry_at']:
+            # A silent P&L subscription must recover without reconnecting IB or
+            # touching orders. Back off when no callback follows a retry.
+            row['retry_at'] = time.monotonic() + row['retry_delay']
+            row['retry_delay'] = min(row['retry_delay'] * 2, self.MAX_RETRY_SECONDS)
+            previous = row['pnl']
+            row['pnl'] = None  # Reject callbacks from the canceled subscription.
+            if previous is not None:
+                ib.cancelPnLSingle(account, '', con_id)
+            row['pnl'] = ib.reqPnLSingle(account, '', con_id)
         self.rows.move_to_end(key)
         if not cached_only:
             ib.sleep(0)  # Drain callbacks, never wait for an initial response.
@@ -69,12 +85,13 @@ class ChartPnL:
             currencies = {v.value for v in ib.accountValues(account)
                           if v.account == account and v.tag == 'Currency'
                           and isinstance(v.value, str) and len(v.value) == 3}
-        return dict(empty, value=row['value'] if fresh else None, fresh=fresh,
+        return dict(empty, value=row['value'] if fresh else None, last_value=row['value'], fresh=fresh,
                     age_seconds=age, currency=next(iter(currencies)) if len(currencies) == 1 else None)
 
     def cancel(self, key):
-        self.rows.pop(key, None)
-        self.connection.ib.cancelPnLSingle(key[0], '', key[1])
+        row = self.rows.pop(key, None)
+        if row and row['pnl'] is not None:
+            self.connection.ib.cancelPnLSingle(key[0], '', key[1])
 
 
 def snapshot(connection, con_id, path=None):
@@ -89,7 +106,7 @@ def snapshot(connection, con_id, path=None):
             try:
                 realized = realized_snapshot(connection, con_id, path)
                 if realized and realized['flat']:
-                    return dict(result, **realized, fresh=True, age_seconds=0)
+                    return dict(result, **realized, last_value=realized['value'], fresh=True, age_seconds=0)
             except Exception:
                 pass  # Execution reports must never break the live P&L path.
         return result

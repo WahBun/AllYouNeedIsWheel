@@ -1,3 +1,13 @@
+## 2026-10-15 recover silent contract daily P&L independently of quotes
+
+REA inspected the actual option page (ev_3edcb619571cecb910764263b33ec74a1b11b10d416a0bc4d8356323823fff98). Read-only API observations confirmed a 327-second-old P&L callback with value withheld by freshness guards, followed by a fresh broker callback; the page subsequently returned to unavailable. This is separate from executable bid/ask freshness. The cause of intermittent IB callback delivery is not established.
+
+The P&L service now renews only silent PnLSingle subscriptions on its existing serialized connection, with 30-second initial retry and exponential backoff capped at 300 seconds. Cached stream reads never subscribe or drain IB. Freshness remains 15 seconds; old subscription callbacks and different accounts/contracts cannot revive data. Retain a separate last_value for display, without promoting it to fresh value. Disconnect clears it, and realized P&L retains its own basis/value.
+
+The web header shows the last broker value with a neutral Daily P&L · Stale label and age tooltip until a new value arrives, instead of repeatedly hiding it behind an ellipsis. Missing/unverified/mismatched data remains unavailable. All updated text is English; layout and protected quote/order/drag semantics are unchanged.
+
+Validation: 17 focused P&L unit tests; browser regression covering fresh/stale/missing values, refresh failures, fresh recovery, account/contract isolation and desktop/narrow layouts in both themes passed. Mock checks are not live resubscription acceptance. Backend deployment/restart is required for recovery and last_value; user operates restart. No Gateway restart or broker order actions.
+
 ## 2026-10-15 side-specific size updates preserve live quote freshness
 
 REA rechecked the current TSLL option page (ev_23fb6f77096d1c6900d0c0a90a909cec785aa32313efef727737413998ff4bc9); prior read-only frame diagnostics showed current SSE packets but missing executable bid/ask. Local ib_async wrapper inspection confirms size ticks carry the matching side price. The chart handler previously ignored those events, allowing an unchanged price to expire despite an updated size.
