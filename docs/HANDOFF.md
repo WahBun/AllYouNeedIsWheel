@@ -1,3 +1,11 @@
+## 2026-10-15 preserve SL draft before quote validation
+
+REA rechecked the live page (ev_1a745396c8f08ee03b90f064f4eec17828b437c9809295414236f1cb638442f9). The follow-up video/log reproduced stale bid/ask rejection before stageChartConfirmation, explaining snap-back and absent Confirm even after the offscreen-controls fix. That earlier fix did not cover stale-quote staging.
+
+With One-click off, missing/expired quote now creates a persistent SL draft with visible Confirm/Discard and Waiting for live quote. Confirm rechecks the quote; failure preserves the draft. A recovered quote that changes intent to Close at mid requires explicit review and another confirmation. Direct mode and invalid broker identity still block without submission. Cached quotes are never promoted to live quotes, and the actual stop is not changed until guarded submission.
+
+The new stale-quote-protection-draft browser regression covers actual drag, repeated refresh, failed confirm without snap-back, fresh-quote amendment, explicit Close review, both desktop/native widths and zero broker writes. Existing offscreen confirmation, One-click, SL midpoint, fast-entry and full-line drag regressions passed. This is a shared static chart fix; no Backend/Gateway restart or actual order modification is required.
+
 ## 2026-10-15 reachable protection confirmation with offscreen entry
 
 REA inspected the actual Wheel page (ev_8e228673d0a30cde35bfb5273b8a60e3844225707ca3a885fbede24229d1068a). Read-only page diagnostics and supplied video showed two independent conditions: stale executable bid/ask blocked multiple SL releases; with One-click off, a valid confirmation existed under the entry handle whose price was outside the visible candle scale. The broker-backed stop remained unchanged. Cached display-only quotes were not promoted to executable quotes.
