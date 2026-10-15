@@ -79,7 +79,7 @@ const savedSession=stored('wheel.web.chart.session'),urlSession=startupURL.searc
 session=['all','rth'].includes(urlSession)?urlSession:!explicitContract&&['all','rth'].includes(savedPane?.session)?savedPane.session:['all','rth'].includes(savedSession)?savedSession:'all';
 function rememberSession(){
  $('session').value=session;
- $('session-button').textContent=(session==='all'?'ETH':'RTH')+' ▾';
+ $('session-button').textContent=(session==='all'?'ETH':'RTH');
  for(const button of $('session-menu').children)button.setAttribute('aria-checked',String(button.dataset.session===session));
  try{localStorage.setItem('wheel.web.chart.session',JSON.stringify(session));}catch{}
  const url=new URL(location);url.searchParams.set('session',session);history.replaceState(null,'',url);
