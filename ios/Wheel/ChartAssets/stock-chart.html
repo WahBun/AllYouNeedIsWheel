@@ -553,7 +553,8 @@ function pendingStopDisplayPrice(){
  if(!stops.length||!stops.every(row=>['PendingSubmit','ApiPending'].includes(row.status)&&Number.isFinite(row.price)&&row.price>0))return 0;
  return stops.every(row=>row.price===stops[0].price)?stops[0].price:0;
 }
-function protectionDisplayLevels(){return {tp:paperConfig.tp,sl:paperConfig.sl||pendingStopDisplayPrice()};}
+let stopQuoteWait=null;
+function protectionDisplayLevels(){return {tp:paperConfig.tp,sl:stopQuoteWait?.body.price??(paperConfig.sl||pendingStopDisplayPrice())};}
 function unfilledEntryProjection(){
  const entries=(paperConfig.orders||[]).filter(row=>row.role.split('_')[0]==='entry');
  return !paperConfig.position&&(paperConfig.entry_editable||entries.length>0&&entries.every(row=>row.filled===0)&&entries.some(row=>['PendingSubmit','PreSubmitted','Submitted','PendingCancel'].includes(row.status)));
@@ -742,9 +743,35 @@ function stopDragRequest(body){
  if(crossed&&paperConfig.close_allowed===false)throw Error('Wait for reconciled position before Close.');
  return {...body,close_at_mid:crossed,expected_position:position};
 }
+// One release may wait briefly for a real quote before any trading request exists.
+// This never retries an already submitted or unknown-outcome broker request.
+function cancelStopQuoteWait(message=''){
+ if(!stopQuoteWait)return;clearTimeout(stopQuoteWait.timer);stopQuoteWait=null;
+ levels=protectionDisplayLevels();updateLines();if(message)validation(message);
+}
+function waitForStopQuote(body){
+ const p=countdownPacket;
+ if(displayOptions.rightClickTrading!==true||body.chart_confirmed||nativeTradingLocked()||body.source!=='protection-drag'||body.role!=='sl'||p?.con_id!==paperCID||p.account_epoch!==paperConfig.web_account_epoch)return false;
+ cancelStopQuoteWait();
+ const pending=stopQuoteWait={body:{...body},identity:confirmationIdentity(),deadline:performance.now()+1000};
+ levels.sl=body.price;updateLines();validation('Waiting up to 1 second for a fresh quote before sending SL.');
+ function check(){
+  if(stopQuoteWait!==pending)return;
+  if(pending.identity!==confirmationIdentity()||paperConfig.busy||nativeTradingLocked()||displayOptions.rightClickTrading!==true||!paperConfig.active){cancelStopQuoteWait('SL not sent: order or trading context changed.');return;}
+  if(performance.now()>=pending.deadline){cancelStopQuoteWait('SL not sent: fresh bid and ask unavailable. Drag again when quotes recover.');return;}
+  try{stopDragRequest(pending.body);}
+  catch(error){if(error.quoteUnavailable){pending.timer=setTimeout(check,25);return;}cancelStopQuoteWait(error.message);return;}
+  clearTimeout(pending.timer);stopQuoteWait=null;validation();paperAction(pending.body);
+ }
+ pending.timer=setTimeout(check,25);return true;
+}
+document.addEventListener('pointerdown',()=>cancelStopQuoteWait('SL not sent: a new gesture started.'),true);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')cancelStopQuoteWait('SL not sent: canceled.');},true);
+window.addEventListener('blur',()=>cancelStopQuoteWait('SL not sent: window lost focus.'));
+document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelStopQuoteWait('SL not sent: chart hidden.');});
 for(const type of ['pointerdown','click','dblclick','contextmenu'])window.addEventListener(type,e=>{if(nativeTradingLocked()&&e.target.closest?.('#entry,#tp,#sl,#cancel,#price-order-add,#price-order-menu,.pending-order-segment,.broker-order-label,#priced-add-dialog')){e.preventDefault();e.stopImmediatePropagation();}},{capture:true});
 function nativeTradingLocked(){return displayOptions.nativeCompact===true&&displayOptions.tradingLocked===true;}
-function paperAction(body){if(nativeTradingLocked()&&!['indicatorSettings','indicatorToggle','indicatorCollapse'].includes(body.action))return;try{body=stopDragRequest(body);}catch(error){if(error.quoteUnavailable&&displayOptions.rightClickTrading!==true&&!body.chart_confirmed){stageChartConfirmation({...body,quote_pending:true});validation(error.message);return;}levels=protectionDisplayLevels();updateLines();validation(error.message);return;}if(stageChartConfirmation(body))return;
+function paperAction(body){cancelStopQuoteWait();if(nativeTradingLocked()&&!['indicatorSettings','indicatorToggle','indicatorCollapse'].includes(body.action))return;try{body=stopDragRequest(body);}catch(error){if(error.quoteUnavailable&&waitForStopQuote(body))return;if(error.quoteUnavailable&&displayOptions.rightClickTrading!==true&&!body.chart_confirmed){stageChartConfirmation({...body,quote_pending:true});validation(error.message);return;}levels=protectionDisplayLevels();updateLines();validation(error.message);return;}if(stageChartConfirmation(body))return;
  if(body.close_at_mid)body={action:'close',source:'sl-drag-mid',quantity:Math.abs(body.expected_position),expected_position:body.expected_position,expected_ref:body.expected_ref,chart_confirmed:true};const settings=['editQuantity','editOrderSettings'].includes(body.action)?{side,entry_type:entryType}:{};window.webkit?.messageHandlers.paperAction?.postMessage({...settings,...body,con_id:paperCID});}
 const quantityPopup=document.createElement('div');quantityPopup.id='order-quantity-popup';quantityPopup.hidden=true;quantityPopup.style.cssText='position:absolute;z-index:30;width:210px;padding:12px;background:#202020;color:#eee;border:1px solid #555;border-radius:9px;box-shadow:0 5px 16px #0005';document.body.append(quantityPopup);
 let quantityDraft=null;
@@ -966,10 +993,11 @@ function cancelWebProtectionDrag(reason){
  levels=protectionDisplayLevels();updateLines();
  reportWebDrag(role,reason,true);
 }
-function finishWebProtectionDrag(pointerId){
+function finishWebProtectionDrag(pointerId,clientY){
  const gesture=webProtectionDrag;if(!gesture||gesture.pointerId!==pointerId)return;
  const valid=gesture.cid===paperCID&&gesture.ref===paperConfig.order_ref&&gesture.epoch===paperConfig.web_account_epoch&&paperConfig.active&&paperConfig.known===true&&!paperConfig.sync_error&&canDragProtection(gesture.role)&&paperConfig.orders?.some(o=>o.role.split('_')[0]===gesture.role&&['Submitted','PreSubmitted'].includes(o.status));
  if(!valid){cancelWebProtectionDrag('Order state changed; refresh before dragging again.');return;}
+ if(Number.isFinite(clientY)&&clientY>=0&&clientY<=chart.paneSize().height&&(gesture.moved||Math.abs(clientY-gesture.y)>3)){suppressOrderClickUntil=performance.now()+600;move(gesture.role,clientY-gesture.offset);}
  const price=levels[gesture.role];if(!(Number.isFinite(price)&&price>0)){cancelWebProtectionDrag('No valid target price; price unchanged.');return;}webProtectionDrag=null;dragging=null;clearOrderDragCursor();
  reportWebDrag(gesture.role,price===gesture.start?'released at unchanged price':displayOptions.rightClickTrading===true?'released; sending amendment':'released; awaiting confirmation');
  if(price!==gesture.start)paperAction({action:'amend',source:'protection-drag',role:gesture.role,price,expected_ref:gesture.ref});
@@ -977,7 +1005,7 @@ function finishWebProtectionDrag(pointerId){
 window.finishWebProtectionDrag=finishWebProtectionDrag;
 // Capture on the document so release remains observable after capture retargeting.
 document.addEventListener('pointermove',e=>{if(webProtectionDrag&&e.pointerId===webProtectionDrag.pointerId&&(e.buttons&1)){if(Math.abs(e.clientY-webProtectionDrag.y)>3){webProtectionDrag.moved=true;suppressOrderClickUntil=performance.now()+600;}if(webProtectionDrag.moved)move(webProtectionDrag.role,e.clientY-webProtectionDrag.offset);e.preventDefault();}},true);
-document.addEventListener('pointerup',e=>finishWebProtectionDrag(e.pointerId),true);
+document.addEventListener('pointerup',e=>finishWebProtectionDrag(e.pointerId,e.clientY),true);
 document.addEventListener('pointercancel',e=>{if(webProtectionDrag?.pointerId===e.pointerId)cancelWebProtectionDrag('Gesture canceled; price unchanged.');},true);
 window.addEventListener('blur',()=>cancelWebProtectionDrag('Window lost focus; price unchanged.'));
 for(const k of ['tp','sl','entry']){

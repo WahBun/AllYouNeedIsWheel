@@ -1,3 +1,11 @@
+## 2026-10-16 complete fast SL releases with a bounded quote wait
+
+REA captured the current Wheel page/scripts (ev_02830a8479f012e5e1332877f89052cc01960ff93b9128595f7afd52b930255c). Read-only runtime inspection showed fresh chart packets but a missing executable bid while ask remained valid. The screenshot separately showed a confirmed request around 562 ms; no claim that this change reduces broker response or fill latency.
+
+Use the final pointerup coordinate for web protection drags, including parent-frame coordinate conversion; ignore outside-pane final coordinates. In One-click mode, a released SL edit blocked only by unavailable quotes may remain unsent for at most one second while existing chart updates arrive. Revalidate context and quote before sending exactly once. Expiry, new gestures, Escape, focus/visibility loss, account/order/position changes, trading lock or disabling One-click cancel the unsent action. No new quote polling, broker-write retry or quote freshness relaxation. Confirm/Discard mode retains its existing persistent draft behavior.
+
+Validation: the new regression reproduced the original dropped release and passes desktop/narrow widths for quote recovery, midpoint classification, deadline, cancellation and final release position. Existing sl-mid-close, stale-quote-protection-draft, entry-one-click-page, one-click-protection, fast-entry-drag and order-line-drag passed. All are isolated browser/mock checks; no real order was submitted. Web assets require reload; iPhone bundled assets require user-operated Run. The separate Orders history backend fix requires the user's Backend restart after source synchronization. Gateway remains untouched.
+
 ## 2026-10-16 recover persisted chart executions in Orders history
 
 The Orders completed endpoint returned legacy local orders plus the broker's current completed/trade cache, but ignored chart_execution_marks after prior-session completed orders left that cache. Read-only Mini inspection found two exact TSLL Nov 20 2026 $11 Call BUY executions still persisted, while the endpoint omitted both. Original timestamps are Oct 14 New York. No deletion or trade replay is involved.
