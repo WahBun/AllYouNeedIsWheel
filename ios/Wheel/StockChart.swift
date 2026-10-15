@@ -35,6 +35,34 @@ import WebKit
     }
 }
 
+private struct PositionActionFlow: View {
+    var color: Color
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
+        if isEnabled && !reduceMotion && scenePhase == .active {
+            TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
+                GeometryReader { geometry in
+                    let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
+                    LinearGradient(stops: [
+                        .init(color: .clear, location: 0.25),
+                        .init(color: color.opacity(0.45), location: 0.48),
+                        .init(color: color.mix(with: .white, by: 0.35), location: 0.50),
+                        .init(color: color.opacity(0.45), location: 0.52),
+                        .init(color: .clear, location: 0.75)
+                    ], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .frame(width: geometry.size.width * 0.6)
+                    .offset(x: geometry.size.width * (-0.6 + phase * 2.2))
+                    .opacity(0.45)
+                }
+            }
+            .clipped().allowsHitTesting(false).accessibilityHidden(true)
+        }
+    }
+}
+
 private struct ChartPositionActionsLayout: Layout {
     private let spacing: CGFloat = 8
 
@@ -512,6 +540,7 @@ struct StockChartView: View {
     @AppStorage("futureChartSLDistance") private var futureSLDistance = "1.00"
     @AppStorage("chartShowProfit") private var showProfit = true
     @AppStorage("chartOneClickTrading") private var oneClickTrading = false
+    @AppStorage("chartPlusButton") private var showPlusButton = true
     @AppStorage("chartShowHoldings") private var showHoldings = true
     @AppStorage("chartOrderExtensionLines") private var showOrderExtensionLines = true
     @AppStorage("chartBarCount") private var rthBarCount = true
@@ -955,7 +984,7 @@ struct StockChartView: View {
     private var adjustmentLimit: Int { adjustmentAction == "trim" ? min(positionSize, (paperState["trim_available"] as? NSNumber)?.intValue ?? positionSize) : ((paperState["add_available"] as? NSNumber)?.intValue ?? 0) }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["rightClickTrading": oneClickTrading, "volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
+        ["plusButton": showPlusButton, "rightClickTrading": oneClickTrading, "volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
          "emaDynamic": emaDynamic, "emaColor": emaColor + "ab", "emaWidth": emaWidth, "emaStyle": emaStyle,
          "atr": showATR && indicatorVisible, "atrLength": atrLength, "profit": showHoldings && showProfit, "positions": showHoldings && showPositionProfit, "brackets": showHoldings && showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
@@ -1206,11 +1235,11 @@ struct StockChartView: View {
                     }
                     if positionSize > 0 {
                     HStack(spacing: 8) {
-                        Button { adjustmentAction = "add"; adjustmentQuantity = 1; adjustmentRef = paperState["order_ref"] as? String ?? ""; adjustmentCID = chartID; showAdjustment = true } label: { Text("Add").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }
+                        Button { adjustmentAction = "add"; adjustmentQuantity = 1; adjustmentRef = paperState["order_ref"] as? String ?? ""; adjustmentCID = chartID; showAdjustment = true } label: { Text("Add").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30).overlay { PositionActionFlow(color: .blue) } }
                             .tint(.blue).disabled(!paperEnabled || paperBusy || !canAdd || positionSize == 0)
-                        Button { adjustmentAction = "trim"; adjustmentQuantity = 1; adjustmentRef = paperState["order_ref"] as? String ?? ""; adjustmentCID = chartID; showAdjustment = true } label: { Text("Trim").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }
+                        Button { adjustmentAction = "trim"; adjustmentQuantity = 1; adjustmentRef = paperState["order_ref"] as? String ?? ""; adjustmentCID = chartID; showAdjustment = true } label: { Text("Trim").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30).overlay { PositionActionFlow(color: .purple) } }
                             .tint(.purple).disabled(!paperEnabled || paperBusy || !canTrim || positionSize == 0)
-                        Button { if paperEnabled { paperAction(["action": "be", "expected_ref": paperState["order_ref"] ?? "", "expected_snapshot": paperState["edit_snapshot"] ?? ""]) } else { beRevision += 1 } } label: { Text("BE").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.purple).disabled(paperBusy || (store.chartTradingAvailable && !paperEnabled) || (paperEnabled && (paperState["be_allowed"] as? Bool != true)) || (!paperEnabled && protectionOption(chartType, "sl") == "off") || (!paperEnabled && beApplied) || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
+                        Button { if paperEnabled { paperAction(["action": "be", "expected_ref": paperState["order_ref"] ?? "", "expected_snapshot": paperState["edit_snapshot"] ?? ""]) } else { beRevision += 1 } } label: { Text("BE").frame(minWidth: 0, maxWidth: .infinity, minHeight: 30).overlay { PositionActionFlow(color: .purple) } }.tint(.purple).disabled(paperBusy || (store.chartTradingAvailable && !paperEnabled) || (paperEnabled && (paperState["be_allowed"] as? Bool != true)) || (!paperEnabled && protectionOption(chartType, "sl") == "off") || (!paperEnabled && beApplied) || validEntry <= 0 || (packet["price_rules"] as? [[String: Any]])?.isEmpty != false)
                     }
                     Button { if paperEnabled { paperAction(["action": "close", "expected_ref": paperState["order_ref"] ?? ""]) } else if validEntry > 0 { entry = "0" } else { showClosePreview = true } } label: { Text("Close Position").font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.65).frame(minWidth: 0, maxWidth: .infinity, minHeight: 30) }.tint(.orange).disabled(paperBusy || paperState["close_allowed"] as? Bool == false || (paperState["position_only"] as? Bool == true && paperState["position_manageable"] as? Bool != true) || paperState["closing"] as? Bool == true || (store.chartTradingAvailable ? (!paperEnabled || !paperActive) : validEntry <= 0))
                     }
@@ -1346,6 +1375,7 @@ struct StockChartView: View {
             NavigationStack {
                 Form {
                     Section("General") {
+                        Toggle("Plus button", isOn: $showPlusButton)
                         Toggle("One-click trading", isOn: $oneClickTrading)
                         Text("Submit chart right-click Buy/Sell and drag or remove TP/SL without confirmation. Other order edits still require confirmation.").font(.caption).foregroundStyle(.secondary)
                     }

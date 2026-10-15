@@ -1,3 +1,26 @@
+## 2026-10-15 native iOS Plus control and action flow
+
+Chart display > General now includes a default-on Plus button toggle, persisted
+with the other native chart preferences and forwarded through the existing
+WebKit display configuration. The shared chart hides only the plus action;
+the cursor price remains visible. This is a native global chart preference,
+consistent with the existing iOS display settings, rather than web per-pane storage.
+Add, Trim and BE labels gain a five-second sweep in their existing button color.
+The noninteractive overlay reads the actual enabled environment and stops when
+disabled, Reduce Motion is enabled, or the scene is inactive. Existing button
+actions, disabled predicates, geometry and chart update delivery are unchanged.
+
+REA refreshed the actual Wheel page and inspected the Add click registration
+(ev_c7dda0a7c1b3ea36d20330ba8b7b15208eb0784b7eb986e085f5bf2af7771797,
+ev_434688f934ed52271841e66c1214a5c1ac1ba375da76493e79c891ff82e123ff).
+Adopted the already verified shared Plus renderer and enabled-only colored flow;
+native settings and SwiftUI overlay are iOS-specific adaptations.
+Validation: simulator builds passed for both the working tree and an isolated
+copy containing only the staged changes. Shared Plus behavior passed across
+four panes, reload, desktop/narrow widths and both themes, with zero broker writes.
+Native visual/touch acceptance and physical iPhone Run remain user-operated and
+unverified. No backend restart is needed. Pre-existing iOS edits remain unstaged.
+
 ## 2026-10-15 remove native crosshair-label underpaint
 
 The prior DOM-height check missed a canvas layer: the native crosshair price
