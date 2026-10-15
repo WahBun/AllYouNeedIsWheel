@@ -1,3 +1,18 @@
+## 2026-10-15 remove native crosshair-label underpaint
+
+The prior DOM-height check missed a canvas layer: the native crosshair price
+label remained beneath the custom badge, leaving a #131722 strip below its
+18px edge. REA inspected the actual Wheel page
+(ev_b8bb1b65b2723418ffeed1a8667a81ebf2aa274e2026ce0f6a44e56cb4507f4b).
+A pointer-only live screenshot and pixel scan confirmed the extra native strip.
+Observe custom badge visibility and suppress only the native horizontal-axis
+label while it is shown; restore the native label when the custom badge hides.
+The cursor line, price, plus action and chart-only auxiliary labels remain.
+Eight screenshot combinations (left/right, desktop/narrow, DPR 1/2) verify no
+native/custom dark pixels beyond either edge, exact equal geometry, restoration
+and menu clicks. Label collision checks pass. No broker writes or service restart.
+Unrelated local quote/iOS edits remain excluded.
+
 ## 2026-10-15 cursor plus height alignment
 
 Use the same 18px height and exact top/bottom coordinates for the plus segment
