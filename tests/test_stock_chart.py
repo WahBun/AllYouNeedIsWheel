@@ -466,6 +466,36 @@ class StockChartTests(unittest.TestCase):
             self.assertIsNone(result['bid']);self.assertIsNone(result['ask'])
         finally:feed.stop();close_test_loop()
 
+    def test_size_updates_refresh_only_the_matching_live_quote(self):
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn,ticker=self.connection();feed=StockChart()
+        try:
+            ticker.marketDataType=1
+            feed.snapshot(conn,7,1,'all')
+            old=datetime.now(timezone.utc)-timedelta(seconds=35)
+            ticker.ticks=[S(tickType=k,time=old,price=p) for k,p in ((1,.20),(2,.23))]
+            ticker.updateEvent.emit(ticker)
+            def update(kind, price, size):
+                ticker.ticks=[S(tickType=kind,time=datetime.now(timezone.utc),price=price,size=size)]
+                ticker.updateEvent.emit(ticker)
+                return feed.packet(feed.active,1,'all')
+            packet=update(0,.20,5)
+            self.assertEqual(packet['bid'],.20)
+            self.assertIsNone(packet['ask'])
+            packet=update(3,.23,7)
+            self.assertEqual((packet['bid'],packet['ask']),(.20,.23))
+            self.assertGreater(packet['quote_expires_at'],packet['server_time'])
+            packet=update(0,.20,0)
+            self.assertIsNone(packet['bid'])
+            self.assertEqual(packet['ask'],.23)
+            update(0,.20,5)
+            packet=update(69,.20,5)
+            self.assertIsNone(packet['bid'])
+            packet=update(70,.23,7)
+            self.assertIsNone(packet['ask'])
+            conn.ib.placeOrder.assert_not_called()
+        finally:feed.stop();close_test_loop()
+
     def test_contract_timeout_cools_down_then_retries(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
         conn,ticker=self.connection();feed=StockChart()

@@ -1,3 +1,11 @@
+## 2026-10-15 side-specific size updates preserve live quote freshness
+
+REA rechecked the current TSLL option page (ev_23fb6f77096d1c6900d0c0a90a909cec785aa32313efef727737413998ff4bc9); prior read-only frame diagnostics showed current SSE packets but missing executable bid/ask. Local ib_async wrapper inspection confirms size ticks carry the matching side price. The chart handler previously ignored those events, allowing an unchanged price to expire despite an updated size.
+
+Accept positive real-time bidSize/askSize events with their attached price for that side only. Zero size and delayed side events invalidate that side. Last trades, cached ticker reads and historical bars cannot refresh a quote. Existing freshness windows, marketDataType checks, layout and order submission guards remain unchanged.
+
+Validation: all 33 stock chart unit tests passed, including side independence, live size-only recovery, zero-size and delayed-size invalidation, and no order submissions. This establishes the handler defect, not the actual raw event sequence on Mini. Backend deployment/restart and observation of the real contract are still required; no claim of broker acceptance. Preserve user signing/localization edits; no Gateway restart or live trade authorized.
+
 ## 2026-10-15 preserve SL draft before quote validation
 
 REA rechecked the live page (ev_1a745396c8f08ee03b90f064f4eec17828b437c9809295414236f1cb638442f9). The follow-up video/log reproduced stale bid/ask rejection before stageChartConfirmation, explaining snap-back and absent Confirm even after the offscreen-controls fix. That earlier fix did not cover stale-quote staging.

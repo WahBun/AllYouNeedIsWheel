@@ -301,12 +301,15 @@ class StockChart:
                         state['model_greeks']=greeks
                         value=positive(getattr(greeks,'impliedVol',None))
                         state['iv_quote']=(time.time(),value*100 if value and getattr(updated,'marketDataType',None)==1 else None)
-                # Only actual bid/ask price events establish quote freshness.
+                # Actual side-specific price or size events establish quote freshness.
+                # ib_async carries the matching price on a size-only update.
                 for quote in getattr(updated, 'ticks', []):
-                    side = {1: 'bid', 2: 'ask', 66: 'bid', 67: 'ask'}.get(quote.tickType)
+                    side = {0: 'bid', 1: 'bid', 2: 'ask', 3: 'ask',
+                            66: 'bid', 67: 'ask', 69: 'bid', 70: 'ask'}.get(quote.tickType)
                     if side:
                         state['quotes'][side] = (quote.time.timestamp(),
-                            positive(quote.price) if quote.tickType in (1, 2) else None)
+                            positive(quote.price) if (quote.tickType in (1, 2) or
+                                (quote.tickType in (0, 3) and positive(getattr(quote, 'size', None)))) else None)
                 for tick in ([] if option_bars else updated.tickByTicks):
                     if hasattr(tick, 'bidPrice'):
                         for side, value in [('bid', tick.bidPrice), ('ask', tick.askPrice)]:
