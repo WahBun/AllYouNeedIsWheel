@@ -181,8 +181,10 @@ let optionQuoteDark=false,optionQuoteIdentity='',optionQuoteKey='',optionPreviou
 let optionDisplayIdentity='',optionLastQuote=null,optionLastIV=null;
 const optionStale=document.createElement('small');optionStale.id='option-quote-status';optionStale.style.cssText='grid-column:1 / -1;font-size:10px;line-height:13px;min-height:13px;color:#666;white-space:normal;max-width:240px';optionQuote.append(optionStale);
 const optionQuoteFormat=new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
+let quoteStatusIdentity='';
+function publishQuoteStatus(p,message){const body={action:'quoteStatus',con_id:p?.con_id||0,symbol:p?.symbol||'',message};const identity=JSON.stringify(body);if(identity===quoteStatusIdentity)return;quoteStatusIdentity=identity;window.webkit?.messageHandlers.paperAction?.postMessage(body);}
 function updateOptionQuote(){
- const p=countdownPacket;optionQuote.hidden=p?.security_type!=='OPT';if(optionQuote.hidden){optionPreviousMid=null;optionQuoteKey='';return;}
+ const p=countdownPacket;optionQuote.hidden=p?.security_type!=='OPT';if(optionQuote.hidden){optionPreviousMid=null;optionQuoteKey='';publishQuoteStatus(p,'');return;}
  const now=p.server_time+Math.max(0,(Date.now()-countdownReceived)/1000);
  const valid=Number.isFinite(p.bid)&&Number.isFinite(p.ask)&&p.bid>=0&&p.ask>0&&p.ask>=p.bid&&Number.isFinite(now)&&Number.isFinite(p.quote_expires_at)&&p.quote_expires_at>now;
  const displayIdentity=String(p.con_id)+':'+String(p.generation);
@@ -207,11 +209,13 @@ function updateOptionQuote(){
  if(ivValid)optionLastIV=iv;
  const displayIV=ivValid?iv:optionLastIV;
  const ivElement=document.getElementById('option-iv'),ivText=displayIV!==null?displayIV.toFixed(1)+'%':'—';
- const stale=(!valid&&displayQuote)||(!ivValid&&displayIV!==null);optionStale.textContent=stale?'Last quote · waiting for update':'';optionStale.title='Last quote · waiting for update';optionStale.setAttribute('aria-label',stale?'Last quote · waiting for update':'');optionStale.style.color='#b67e24';
+ const stale=(!valid&&displayQuote)||(!ivValid&&displayIV!==null);optionStale.textContent=stale?'Stale':'';optionStale.title='Last quote · waiting for update';optionStale.setAttribute('aria-label',stale?'Last quote · waiting for update':'');optionStale.style.color='#b67e24';
  if(ivElement.textContent!==ivText)ivElement.textContent=ivText;
  ivElement.style.color=ivValid?colors[iv<=30?'low':iv<=70?'medium':'high']:'#666';
  ivElement.dataset.band=ivValid?(iv<=30?'low':iv<=70?'medium':'high'):'unavailable';
- const noQuote=!displayQuote&&displayIV===null;for(const el of optionQuote.querySelectorAll('span'))el.hidden=noQuote;if(noQuote){optionStale.textContent='No quote available';optionStale.style.color='#666';}
+ const noQuote=!displayQuote&&displayIV===null;for(const el of optionQuote.querySelectorAll('span'))el.hidden=noQuote;if(noQuote){optionStale.textContent='No quote';optionStale.style.color='#666';}
+ const statusMessage=noQuote?'No quote available':stale?'Last quote · waiting for update':'';
+ optionStale.title=statusMessage;optionStale.setAttribute('aria-label',statusMessage);publishQuoteStatus(p,statusMessage);
  optionStale.style.visibility=optionStale.textContent?'visible':'hidden';
  optionQuote.style.opacity='1';
 }

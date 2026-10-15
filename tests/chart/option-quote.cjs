@@ -16,7 +16,7 @@ for(const [width,native] of [[1440,false],[393,false],[393,true],[320,true]])for
  assert.equal(await page.locator('#option-spread').evaluate(e=>getComputedStyle(e).animationDuration),'5s');
  // Expired/frozen data retains display values with a readable status underneath.
  await page.evaluate(p=>receive({...p,quote_expires_at:999,iv_expires_at:999}),packet);
- await page.waitForFunction(()=>document.getElementById('option-quote-status').textContent==='Last quote · waiting for update');
+ await page.waitForFunction(()=>document.getElementById('option-quote-status').textContent==='Stale');
  for(const height of [650,350]){
   await page.setViewportSize({width,height});if(native)await page.evaluate(({width,height})=>setNativeViewport(width,height),{width,height});
   await page.waitForTimeout(60);
@@ -27,7 +27,7 @@ for(const [width,native] of [[1440,false],[393,false],[393,true],[320,true]])for
   if(height===650)await page.screenshot({path:`/tmp/wheel-option-overlay-${width}-${native}-${dark}.png`});
  }
  await page.evaluate(p=>{configure({con_id:8,display:{}});receive({...p,con_id:8,bid:null,ask:null,iv_percent:null});},packet);
- await page.waitForFunction(()=>document.getElementById('option-quote-status').textContent==='No quote available');
+ await page.waitForFunction(()=>document.getElementById('option-quote-status').textContent==='No quote');
  assert.equal(await page.locator('#option-mid').isVisible(),false,'no cached quote leaks across contracts');
  await page.evaluate(p=>receive({...p,con_id:8,security_type:'STK'}),packet);await page.waitForFunction(()=>document.getElementById('option-quote').hidden);
  assert.deepEqual(errors,[]);await page.close();

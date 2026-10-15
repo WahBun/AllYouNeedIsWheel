@@ -1,3 +1,25 @@
+## 2026-10-15 compact quote freshness and consistent settings categories
+
+The shared option overlay now shows only Stale or No quote. Full freshness
+messages go through a deduplicated quoteStatus host notification and clear on
+fresh data or a contract change. iOS shows the current contract's message under
+Chart status > Market data and marks the existing status icon. Web Chart status
+in Detail lists messages from all current panes and removes discarded panes.
+Origin and iframe membership are checked; status messages never submit trades.
+Display/indicator/status categories now use Chart display, Indicators and Chart
+status on both platforms. The web display settings also expose the existing Plus
+button preference, matching native classification; axis menu access is retained.
+No palette, label avoidance, chart refresh or order interaction changes.
+
+REA rechecked the actual web page
+(ev_a30b80f7f0df739bf2cc302f1647b7e6dbfa4ea1f9ab565cf04ef652c9f01f1d).
+Shared stale rendering and existing separate settings sections informed this
+small presentation adaptation. Browser checks passed for quote states, native
+compact/desktop sizes, four-pane host routing/clear, both themes and category
+entry points; narrow screenshot inspected, no overflow or broker writes.
+iOS simulator build passed. Physical device acceptance awaits user Run.
+Local signing and generated localization changes remain excluded.
+
 ## 2026-10-15 move validation banners out of the chart
 
 Shared chart validation messages no longer render over candles. Deduplicated
