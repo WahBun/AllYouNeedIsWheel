@@ -1,3 +1,12 @@
+## 2026-10-15 cursor plus height alignment
+
+Use the same 18px height and exact top/bottom coordinates for the plus segment
+and cursor price badge, centered on the crosshair. REA rechecked TV
+(ev_242126a85e45143ca692307473a198550c2a43141551efc9797ed3b8db54f950)
+and an actual pointer-only screenshot confirmed flush segment edges. Browser
+geometry checks verify identical bounds on both axes at desktop/narrow widths;
+price-menu interaction remains intact. Exclude unrelated local quote changes.
+
 ## 2026-10-15 axis menu icon column
 
 Reserve a consistent left icon column for all price-axis menu rows; align labels
