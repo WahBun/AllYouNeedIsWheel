@@ -1161,10 +1161,11 @@ function positionNativeATR(){
  if(displayOptions.nativeCompact&&countdownPacket?.security_type!=='OPT'&&!atrBadge.hidden&&gauge&&!gauge.hidden&&gauge.style.display!=='none'){
   const g=gauge.getBoundingClientRect(),a=atrBadge.getBoundingClientRect();
   const pos=displayOptions.volatility?.position||'Bottom Right',logo=document.getElementById('tv-attr-logo')?.getBoundingClientRect();
-  const left=pos==='Bottom Right'?g.left-6-a.width:g.right+6;
+  const left=(innerWidth-a.width)/2;
+  const fits=pos==='Bottom Right'?left+a.width+6<=g.left:g.right+6<=left;
   if(pos.startsWith('Bottom')&&left>=Math.max(plotLeft()+4,(logo?.right||0)+8)&&left+a.width<=plotRight()-4){
    atrBadge.style.setProperty('--footer-atr-left',left+'px');
-   atrBadge.style.setProperty('--footer-atr-top',(g.top+(g.height-a.height)/2)+'px');aligned=true;
+   atrBadge.style.setProperty('--footer-atr-top',(fits?g.top+(g.height-a.height)/2:g.top-a.height-6)+'px');aligned=true;
   }
  }
  atrBadge.classList.toggle('native-footer-atr',aligned);

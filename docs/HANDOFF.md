@@ -12,11 +12,13 @@ replays these actions. Existing One-click/Confirm/Discard behavior applies when
 unlocked. Web/native detection prevents enabling the lock on desktop charts.
 
 On iOS, the gauge defaults to Bottom Right and sits just inside the price axis;
-ATR sits immediately to its left on the same horizontal centerline, leaving the
+ATR keeps its original horizontal center in the full chart and lowers to the
+gauge centerline when there is room, leaving the
 attribution logo clear. A one-time native preference migration moves the old
 Bottom Left setting to Bottom Right, while top placements remain selected.
 Subsequent explicit position changes are respected. If the pair cannot fit, ATR
-retains its separate position instead of overlapping. Web gauge layout is unchanged.
+retains its original centered position above the gauge instead of shifting
+sideways or overlapping. Web gauge layout is unchanged.
 
 REA inspected the current web reference
 (ev_36e7e80c2ee92f8703926f7c201ac33cb4cd0ae6e52312113b62979276196f4c).
