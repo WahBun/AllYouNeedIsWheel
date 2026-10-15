@@ -1,3 +1,18 @@
+## 2026-10-15 extension toggle retains axis connectors
+
+When Order and TP/SL extension lines is off, hide the plot-side extension but
+retain the label-to-scale connector for entry/position, TP/SL and additional
+orders. Left scales mirror the connector. Hidden extensions no longer hit-test;
+visible connectors retain guarded dragging and confirmation semantics.
+REA statically parsed the shared chart and additional-order scripts (Evidence
+`ev_dc4666d6f31506c3dd7f8fe084eea1475cf076074a639cd6960e2299b63e3780`).
+Manual source inspection identified whole-line visibility as the original cause;
+static REA evidence does not establish runtime behavior. Browser fixtures verify
+connector bounds, both scales, desktop/mobile, toggle restoration and SL drag.
+Existing line-drag, fast-entry, One-click protection and full-host entry tests pass.
+All trading checks use mocks. Static deployment needs no service restart;
+iPhone bundled assets require the user's Run.
+
 ## 2026-10-15 option overlay and strike-list latency
 
 REA passively inspected the running shared chart script (Evidence

@@ -195,9 +195,10 @@
  const brokerLines=new Map();
  // Read-only view for fixed price-axis badges; order ownership stays in this module.
  window.additionalOrderPriceLines=()=>[...Array.from(exitLines,([id,line])=>['exit:'+id,line]),...Array.from(pendingLines,([id,row])=>['add:'+id,row.line]),...Array.from(brokerLines,([id,row])=>['broker:'+id,row.line])];
+ window.additionalOrderConnectorRows=()=>[...Array.from(exitLines,([id,line])=>({line,handles:[exitHandles.get(id)?.button,exitHandles.get(id)?.edit,exitHandles.get(id)?.cancel]})),...Array.from(pendingLines.values(),row=>({line:row.line,handles:[row.button,row.edit,row.cancel]})),...Array.from(brokerLines.values(),row=>({line:row.line,handles:[row.badge]}))];
  window.additionalOrderDragTargets=()=>paperConfig.enabled&&!paperConfig.busy?[
   ...Array.from(pendingLines.values()).filter(row=>!row.button.disabled).map(row=>({line:row.line,start:e=>row.button.onpointerdown(e)})),
-  ...Array.from(exitLines,([id,line])=>({line,button:exitHandles.get(id)})).filter(row=>row.button&&!row.button.disabled).map(row=>({line:row.line,start:e=>row.button.onpointerdown(e)}))
+  ...Array.from(exitLines,([id,line])=>({line,button:exitHandles.get(id)?.button})).filter(row=>row.button&&!row.button.disabled).map(row=>({line:row.line,start:e=>row.button.onpointerdown(e)}))
  ]:[];
 
  function brokerIdentity(o){return `${paperConfig.web_account_epoch}:${paperCID}:${o.client_id}:${o.perm_id}:${o.order_id}`;}

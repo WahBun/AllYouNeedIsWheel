@@ -38,7 +38,19 @@ for(const width of [1200,393])for(const axis of ['right','left']){
  }
  await p.evaluate(()=>configure({...cfg,display:{...cfg.display,orderExtensionLines:false}}));
  assert.equal(await p.evaluate(()=>additionalOrderPriceLines().every(([,l])=>l.options().lineVisible===false)),true);
+ await p.waitForTimeout(80);
+ const connectors=await p.evaluate(()=>[...orderConnectors].map(([line,el])=>{const r=el.getBoundingClientRect();return {price:line.options().price,left:r.left,right:r.right,y:r.top,expectedY:series.priceToCoordinate(line.options().price),axis:window.priceAxisSide==='left'?plotLeft():plotRight()};}));
+ assert.equal(connectors.length,5,'Position, TP, SL, Add and Trim retain scale connectors');
+ for(const c of connectors){assert.ok(c.right>c.left);assert.ok(Math.abs((axis==='left'?c.left:c.right)-c.axis)<1);assert.ok(Math.abs(c.y-c.expectedY)<1);}
+ await p.screenshot({path:`/tmp/wheel-extension-off-${width}-${axis}.png`});
+ // Only the retained connector responds to line dragging while extensions are off.
+ const hit=await p.evaluate(()=>{const el=orderConnectors.get(lines.sl),r=el.getBoundingClientRect(),x=(r.left+r.right)/2,y=series.priceToCoordinate(levels.sl);return {x,y};});
+ await p.mouse.move(hit.x,hit.y);await p.mouse.down();await p.mouse.move(hit.x,hit.y-25,{steps:4});await p.mouse.up();
+ assert.equal(await p.evaluate(()=>sent.length),0);assert.equal(await p.locator('#chart-confirmation').isVisible(),true);
+ await p.locator('#chart-confirmation').getByRole('button',{name:'Discard',exact:true}).click();
+
  await p.evaluate(()=>configure(cfg));await p.waitForTimeout(80);
+ assert.equal(await p.locator('.order-axis-connector').count(),0,'Enabling extensions removes duplicate connectors');
  await p.screenshot({path:`/tmp/wheel-compact-pending-${width}-${axis}.png`});
  // The compact segments still reach the exact Trim editor/cancel bridge.
  await p.evaluate(()=>configure({...cfg,paper:{...cfg.paper,position:3}}));
