@@ -351,6 +351,8 @@ struct StockChartView: View {
     @State private var paperBusy = false
     @State private var submitRevision = 0
     @State private var joinSubmissionGate = ChartJoinGate()
+    @State private var chartValidationMessage = ""
+    @State private var chartValidationCID: Int?
     @State private var paperMessage: String?
     @State private var pendingActionLabel = ""
     @State private var protectionCancelRef: String?
@@ -416,6 +418,12 @@ struct StockChartView: View {
     }
     private func paperAction(_ incoming: [String: Any]) {
         var body = incoming
+        if body["action"] as? String == "chartValidation" {
+            guard body["con_id"] as? Int == chartID else { return }
+            chartValidationCID = chartID
+            chartValidationMessage = body["message"] as? String ?? ""
+            return
+        }
         if body["action"] as? String == "submitBlocked" { paperMessage = "Trading unavailable; waiting for order status"; return }
         if body["action"] as? String == "be" { body["manual_stop_quantity"] = true }
         if body["action"] as? String == "cancelProtectionPreview", body["chart_confirmed"] as? Bool == true {
@@ -1005,6 +1013,7 @@ struct StockChartView: View {
     @State private var showChartStatus = false
     private var chartNotices: [String] {
         var messages: [String] = []
+        if chartValidationCID == chartID, !chartValidationMessage.isEmpty { messages.append(chartValidationMessage) }
         if let message = paperMessage, !message.isEmpty { messages.append(message) }
         if positionSize > 0 {
             if let reason = paperState["protection_block_reason"] as? String, !reason.isEmpty { messages.append(reason) }

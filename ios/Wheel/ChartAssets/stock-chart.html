@@ -526,7 +526,8 @@ function updateEMA(){
  indicatorName.textContent='𝔹𝕖𝕟';
 }
 
-function validation(message=''){const el=document.getElementById('validation');el.textContent=message;el.style.display=message?'block':'none';}
+let validationIdentity='';
+function validation(message=''){const el=document.getElementById('validation');el.textContent=message;el.style.display='none';const identity=JSON.stringify([paperCID,message]);if(identity===validationIdentity)return;validationIdentity=identity;window.webkit?.messageHandlers.paperAction?.postMessage({action:'chartValidation',con_id:paperCID,message});}
 function setSide(next){if(next!==side){side=next;levels={tp:0,sl:0};appliedTemplate=-1;breakEven=false;}sideReady=true;}
 function inferSide(){if(explicitPreviewSide!==null){setSide(explicitPreviewSide);return;}const ref=previous.at(-1)?.close;if(!ref||entry===ref)return;setSide((entryType==='LMT'?entry<ref:entry>ref)?1:-1);}
 function clampLevels(){if(!levels.tp)return;const edge=stepPrice(entry,side);if(edge!==null)levels.tp=snapPrice(side>0?Math.max(levels.tp,edge):Math.min(levels.tp,edge));/* SL may intentionally lock profit. */}

@@ -1,3 +1,20 @@
+## 2026-10-15 move validation banners out of the chart
+
+Shared chart validation messages no longer render over candles. Deduplicated
+chartValidation notifications use the existing host bridge. The active web chart
+logs them in Activity; iOS keeps the current contract's message in Chart status,
+with its notice icon, and clears it when validation clears. Validation return
+values, tick requirements and all order guards are retained. This targets the
+white system/validation banner, not quote freshness labels or price/order labels.
+REA refreshed the actual web page
+(ev_30ae42d2bb49ec367421d3b2f803877e441a808c30c9e91b08ce987c67bcf2a2);
+the supplied native screenshot and shared validation implementation identify the
+overlay source. Host status routing is the adopted presentation change.
+Validation: narrow/desktop isolated browser checks passed for hidden banner,
+message deduplication/clear and missing-tick blocking, with zero trading writes.
+Existing one-click protection checks and iOS simulator build passed. No physical
+iPhone Run was performed; local signing/generated localization remain excluded.
+
 ## 2026-10-15 center native chart status independently of side controls
 
 The status text and notice icon now occupy a centered layer across the full
