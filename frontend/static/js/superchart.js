@@ -1,5 +1,10 @@
 /* Browser host only. Chart geometry and gestures are shared with iOS verbatim. */
-(()=>{'use strict';
+(async()=>{'use strict';
+// A running backend may still have the previous template cached until restart.
+if(!window.WheelContractFavorites){
+ await new Promise(resolve=>{const script=document.createElement('script');script.src='/static/js/contract-favorites.js';script.onload=script.onerror=resolve;document.head.append(script);});
+}
+if(!window.WheelContractFavorites)window.WheelContractFavorites=({onError})=>({items:[],ready:false,busy:false,refresh:async()=>onError('Favorites unavailable. Reload after updating the backend.'),toggle:async()=>{}});
 const $=id=>document.getElementById(id);let frame=$('chart');
 // An opaque footer clips scrolling content behind the entire Close area.
 const closeFooter=document.createElement('div');closeFooter.className='close-footer';$('close').before(closeFooter);closeFooter.append($('close'));
@@ -55,12 +60,12 @@ function updateTabTitle(){
 }
 setInterval(updateTabTitle,250);
 function stored(key){try{return JSON.parse(localStorage.getItem(key)||'{}');}catch{return {};}}
-const contractFavoritesKey='wheel.web.favorite-contracts';
-function readContractFavorites(){const items=stored(contractFavoritesKey);return Array.isArray(items)?items.filter(x=>Number.isSafeInteger(x?.id)&&x.id>0&&typeof x.label==='string').slice(0,100):[];}
-let contractFavorites=readContractFavorites();
+let contractFavorites=[];
+const favoritesSync=WheelContractFavorites({api,onChange:items=>{contractFavorites=items;renderContractFavorites();},onError:message=>log(message)});
+contractFavorites=favoritesSync.items;
 $('favorite-contracts').setAttribute('aria-label','Favorite contracts');
 function renderContractFavorites(){
- const saved=contractFavorites.some(x=>x.id===cid),button=$('favorite-contract');button.disabled=!cid;button.textContent=saved?'★':'☆';button.setAttribute('aria-pressed',String(saved));
+ const saved=contractFavorites.some(x=>x.id===cid),button=$('favorite-contract');button.disabled=!cid||!favoritesSync.ready||favoritesSync.busy;button.textContent=saved?'★':'☆';button.setAttribute('aria-pressed',String(saved));
  button.title=saved?'Remove favorite':'Favorite current contract';button.setAttribute('aria-label',button.title);
  const menu=$('favorite-contracts');menu.replaceChildren(new Option('Favorites',''),...contractFavorites.map(x=>new Option(x.label,String(x.id))));menu.value='';
 }
@@ -68,13 +73,14 @@ $('favorite-contract').onclick=()=>{
  if(!cid)return;
  const label=packet.display_symbol||packet.local_symbol||$('contracts').selectedOptions[0]?.textContent||String(cid);
  if(!contractFavorites.some(x=>x.id===cid)&&(!label||/^\d+$/.test(label)||label==='Loading contract…'))return log('Contract name is still loading; retry shortly');
- const next=contractFavorites.some(x=>x.id===cid)?contractFavorites.filter(x=>x.id!==cid):[...contractFavorites,{id:cid,label}];
- if(next.length>100)return log('Favorites limit: 100');
- try{localStorage.setItem(contractFavoritesKey,JSON.stringify(next));contractFavorites=next;renderContractFavorites();}catch{log('Unable to save favorites');}
+ void favoritesSync.toggle({id:cid,label});
 };
 $('favorite-contracts').onchange=()=>{const item=contractFavorites.find(x=>String(x.id)===$('favorite-contracts').value);if(item)select(item.id,item.label);$('favorite-contracts').value='';};
-window.addEventListener('storage',event=>{if(event.key===contractFavoritesKey){contractFavorites=readContractFavorites();renderContractFavorites();}});
-renderContractFavorites();
+window.addEventListener('storage',event=>{if(event.key==='wheel.web.synced-favorite-contracts')void favoritesSync.refresh();});
+window.addEventListener('focus',()=>{void favoritesSync.refresh();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)void favoritesSync.refresh();});
+setInterval(()=>{if(!document.hidden)void favoritesSync.refresh();},15000);
+renderContractFavorites();queueMicrotask(()=>{void favoritesSync.refresh();});
 const savedLayout=stored('wheel.chart-layout')||{};
 const savedActive=Number.isInteger(savedLayout.active)&&savedLayout.active>=0&&savedLayout.active<savedLayout.count?savedLayout.active:0;
 const savedPane=savedLayout.panes?.[savedActive];

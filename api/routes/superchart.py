@@ -35,3 +35,17 @@ def drawings(cid):
         return jsonify(exchange(cid,body.get('operations',[]))),200,{'Cache-Control':'no-store'}
     except ValueError as error:
         return jsonify(error=str(error)),400
+
+
+@bp.route('/api/chart-favorites', methods=['GET', 'POST'])
+def favorites():
+    from api.services.chart_favorites import exchange
+    if request.content_length and request.content_length > 100_000:
+        return jsonify(error='Favorite payload too large'), 413
+    try:
+        body = request.get_json(silent=True) if request.method == 'POST' else {}
+        if not isinstance(body, dict):
+            raise ValueError('Invalid favorite payload')
+        return jsonify(exchange(body.get('operations', []))), 200, {'Cache-Control': 'no-store'}
+    except ValueError as error:
+        return jsonify(error=str(error)), 400

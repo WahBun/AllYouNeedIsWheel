@@ -26,6 +26,17 @@ class ChartContractsTests(unittest.TestCase):
         for bad in ['nan','inf','-1','0']:
             with self.assertRaises(ValueError):service.search_option(conn,'QQQ','20991016','C',bad)
 
+    def test_saved_option_id_is_described_without_substitution_or_orders(self):
+        service=ChartContracts();conn=Mock()
+        contract=Option('QQQ','20991016',775,'P','SMART',currency='USD',multiplier='100',conId=123)
+        service.contracts[123]=contract
+        result=service.describe(conn,123)
+        self.assertEqual(result['con_id'],123)
+        self.assertEqual(result['local_symbol'],'QQQ 20991016 775 PUT')
+        self.assertEqual(result['right'],'P')
+        conn.ib.placeOrder.assert_not_called()
+        with self.assertRaises(ValueError):service.describe(conn,0)
+
     def test_option_dates_include_weeklies(self):
         conn=Mock();conn.get_option_definition.return_value=(Stock('QQQ'),S(expirations={'20991016','20991015','20000101'}))
         self.assertEqual(ChartContracts().option_dates(conn,'qqq'),['20991015','20991016'])

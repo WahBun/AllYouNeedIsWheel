@@ -528,21 +528,16 @@ struct StockChartView: View {
     }
     @State private var selectedContract: [String: Any] = [:]
     @State private var showSymbols = false
-    @State private var symbolQuery = "QQQ"
-    @State private var symbolResults: [[String: Any]] = []
-    @State private var symbolError: String?
-    @State private var searching = false
     private var chartID: Int? { selectedContract["con_id"] as? Int ?? position.con_id }
     private var chartSymbol: String { selectedContract["local_symbol"] as? String ?? position.chartLabel }
     private var chartType: String { selectedContract["security_type"] as? String ?? position.security_type }
-    private func searchSymbols() async {
-        guard !searching else { return }; searching = true; symbolError = nil
-        defer { searching = false }
-        do {
-            let result = try await store.trading.get("api/portfolio/chart-contracts", base: store.address, query: [URLQueryItem(name: "q", value: symbolQuery)])
-            symbolResults = result["contracts"] as? [[String: Any]] ?? []
-            if symbolResults.isEmpty { symbolError = "No matching contract" }
-        } catch { symbolError = connectionMessage(error) }
+    private var currentInstrument: ChartInstrument? {
+        var contract = selectedContract
+        contract["con_id"] = chartID
+        contract["local_symbol"] = chartSymbol
+        contract["security_type"] = chartType
+        contract["symbol"] = selectedContract["symbol"] as? String ?? position.symbol
+        return ChartInstrument(contract)
     }
     @Environment(WheelStore.self) private var store
     @Environment(\.scenePhase) private var phase
@@ -1307,29 +1302,11 @@ struct StockChartView: View {
         .toolbar(fullScreen ? .hidden : .visible, for: .navigationBar, .tabBar)
         .modifier(KeyboardDismissal())
         .sheet(isPresented: $showSymbols) {
-            NavigationStack {
-                List {
-                    HStack {
-                        TextField("Symbol", text: $symbolQuery).textInputAutocapitalization(.characters).autocorrectionDisabled()
-                            .onSubmit { Task { await searchSymbols() } }
-                        Button("Search") { Task { await searchSymbols() } }.disabled(searching)
-                    }
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3)) { ForEach(["TSLA", "ES", "NQ", "NVDA", "MES", "MNQ"], id: \.self) { symbol in Button(symbol) { symbolQuery = symbol; Task { await searchSymbols() } }.buttonStyle(.bordered) } }
-                    if searching { ProgressView() }
-                    if let symbolError { Text(symbolError).foregroundStyle(.red) }
-                    ForEach(symbolResults.indices, id: \.self) { index in
-                        let result = symbolResults[index]
-                        Button {
-                            selectedContract = result; previewTIF = "DAY"; showQuantityEditor = false; entry = "0"; beApplied = false; paperState = [:]; paperMessage = nil
-                            showSymbols = false
-                        } label: {
-                            VStack(alignment: .leading) {
-                                Text(result["local_symbol"] as? String ?? "")
-                                Text("\(result["exchange"] as? String ?? "") · \(result["expiration"] as? String ?? "")").font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }.navigationTitle("Chart symbol").toolbar { Button("Done") { showSymbols = false } }
+            ChartInstrumentPicker(current: currentInstrument, canSelect: !paperBusy && !store.trading.busy) { instrument in
+                guard !paperBusy && !store.trading.busy else { return }
+                selectedContract = instrument.contract; previewTIF = "DAY"; showQuantityEditor = false
+                entry = "0"; beApplied = false; paperState = [:]; paperMessage = nil
+                showSymbols = false
             }
         }
         .alert("Close Position · Preview", isPresented: $showClosePreview) {

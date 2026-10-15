@@ -225,6 +225,8 @@ def chart_contract_search():
     from api.services.chart_contracts import contracts
     try:
         conn = portfolio_service._ensure_connection()
+        if request.args.get('type') == 'ID':
+            return _no_store_json({'contracts': [contracts.describe(conn, int(request.args.get('con_id', '0')))]})
         if request.args.get('type') == 'OPT_DATES':
             return _no_store_json({'expirations': contracts.option_dates(conn, request.args.get('q', ''))})
         if request.args.get('type') == 'OPT':

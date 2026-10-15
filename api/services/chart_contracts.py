@@ -72,6 +72,17 @@ class ChartContracts:
             local_symbol=f'{symbol} {expiration} {strike:g} {"CALL" if right == "C" else "PUT"}',
             exchange='SMART', expiration=expiration, strike=strike, right=right, multiplier='100')]
 
+    def describe(self, conn, con_id):
+        if con_id <= 0:
+            raise ValueError('Invalid contract ID')
+        c = self.resolve(conn, con_id)
+        label = c.localSymbol or c.symbol
+        if c.secType == 'OPT':
+            label = f'{c.symbol} {c.lastTradeDateOrContractMonth} {c.strike:g} {"CALL" if c.right == "C" else "PUT"}'
+        return dict(con_id=c.conId, symbol=c.symbol, security_type=c.secType,
+                    local_symbol=label, exchange=c.exchange, expiration=c.lastTradeDateOrContractMonth,
+                    right=c.right, strike=c.strike, multiplier=c.multiplier or '1')
+
     def resolve(self, conn, con_id):
         if con_id in self.contracts: return self.contracts[con_id]
         held = conn.get_option_position_by_con_id(con_id)
