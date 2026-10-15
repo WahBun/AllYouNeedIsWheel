@@ -1,3 +1,22 @@
+## 2026-10-15 center native chart status independently of side controls
+
+The status text and notice icon now occupy a centered layer across the full
+chart width. A separate horizontal layer anchors collapse at the leading edge
+and display settings/sound at the trailing edge. Equal 88-point horizontal
+reservations keep the status hit area clear of the 80-point trailing controls
+plus 8-point spacing; long text truncates. The 32-point row height and all button
+actions remain unchanged, including full-screen collapse placeholder behavior.
+
+The supplied iPhone screenshot and current SwiftUI source establish the cause:
+one leading control versus two trailing controls shifted the old flexible center.
+REA refreshed the actual web reference page
+(ev_4a7ba9e4ccbc64d35db9f670b0aae13185872ece522295d115b90dac268e160a).
+Native placement intentionally retains the existing external settings button;
+this is not a claim of REA inspection of the installed native layout.
+Validation: iOS simulator compilation passed. Physical iPhone layout and touch
+acceptance remain for the user's Run. No chart asset/backend change or Mini
+deployment is required. Local signing and generated catalog edits are excluded.
+
 ## 2026-10-15 publish retained iOS status and quote layout changes
 
 The native chart uses a fixed 32-point status button opening Chart status.

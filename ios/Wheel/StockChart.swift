@@ -1162,28 +1162,33 @@ struct StockChartView: View {
             }
             StockChartWeb(backendAddress: store.address, executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, previewSide: previewSide, previewRevision: previewRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", slMode: protectionOption(chartType, "slMode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "webEntryDrag": true, "web_account_epoch": store.trading.accountEpoch ?? "", "adjustment_quantity": adjustmentQuantity, "quantity_limit": quantityLimit, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
-            HStack(spacing: 8) {
-                if !fullScreen {
-                    Button { tradingPanelCollapsed.toggle() } label: {
-                        Image(systemName: tradingPanelCollapsed ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 12, weight: .medium))
-                            .frame(width: 24, height: 18)
-                            .overlay(RoundedRectangle(cornerRadius: 3).stroke(.secondary.opacity(0.5), lineWidth: 1))
-                            .frame(width: 36, height: 32).contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                        .accessibilityLabel(tradingPanelCollapsed ? "Show trading controls" : "Hide trading controls")
-                } else {
-                    Color.clear.frame(width: 36, height: 32).accessibilityHidden(true)
-                }
+            ZStack {
                 ChartStatusControl(text: chartStatusText, highlighted: paperEnabled, hasNotice: !chartNotices.isEmpty) {
                     showChartStatus = true
                 }
-                Button { showDisplaySettings = true } label: {
-                    Image(systemName: "gearshape").frame(width: 36, height: 32)
-                }.buttonStyle(.plain).accessibilityLabel("Chart display")
-                Button { tradingSoundsEnabled.toggle(); if !tradingSoundsEnabled { tradeSounds.stop() } } label: {
-                    Image(systemName: tradingSoundsEnabled ? "speaker.wave.2" : "speaker.slash").frame(width: 36, height: 32)
-                }.buttonStyle(.plain).accessibilityLabel(tradingSoundsEnabled ? "Mute trading sounds" : "Enable trading sounds")
+                // Reserve equal space for both side controls; long text truncates before them.
+                .padding(.horizontal, 88)
+                HStack(spacing: 8) {
+                    if !fullScreen {
+                        Button { tradingPanelCollapsed.toggle() } label: {
+                            Image(systemName: tradingPanelCollapsed ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 12, weight: .medium))
+                                .frame(width: 24, height: 18)
+                                .overlay(RoundedRectangle(cornerRadius: 3).stroke(.secondary.opacity(0.5), lineWidth: 1))
+                                .frame(width: 36, height: 32).contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                            .accessibilityLabel(tradingPanelCollapsed ? "Show trading controls" : "Hide trading controls")
+                    } else {
+                        Color.clear.frame(width: 36, height: 32).accessibilityHidden(true)
+                    }
+                    Spacer(minLength: 0)
+                    Button { showDisplaySettings = true } label: {
+                        Image(systemName: "gearshape").frame(width: 36, height: 32)
+                    }.buttonStyle(.plain).accessibilityLabel("Chart display")
+                    Button { tradingSoundsEnabled.toggle(); if !tradingSoundsEnabled { tradeSounds.stop() } } label: {
+                        Image(systemName: tradingSoundsEnabled ? "speaker.wave.2" : "speaker.slash").frame(width: 36, height: 32)
+                    }.buttonStyle(.plain).accessibilityLabel(tradingSoundsEnabled ? "Mute trading sounds" : "Enable trading sounds")
+                }
             }
             if !fullScreen && !tradingPanelCollapsed && store.chartTradingAvailable {
                 HStack {
