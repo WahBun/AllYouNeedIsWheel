@@ -1,3 +1,12 @@
+## 2026-10-15 axis menu icon column
+
+Reserve a consistent left icon column for all price-axis menu rows; align labels
+at 34px padding. Place the Plus button checkmark and More settings gear in that
+column. REA inspected the open TV menu (ev_8b815d3545262299f4a9a89a7c7dd021f867f0c0a06584fc3a8165f5ad052897);
+read-only DOM measurements confirmed identical text starts for Auto, Plus button
+and More settings. Four-pane desktop/narrow light/dark checks verified aligned
+text, gear presence and settings activation; no trading writes.
+
 ## 2026-10-15 compact Favorites-to-interval gap
 
 Remove the obsolete 18px interval margin. The existing 7px group gap now separates
