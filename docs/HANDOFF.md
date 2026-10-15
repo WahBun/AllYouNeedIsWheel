@@ -1,3 +1,28 @@
+## 2026-10-15 Text in-place editing
+
+REA passively inspected the user's current TradingView chart and shipped Text
+editor scripts (Evidence `ev_41684b3dfba36eff971e7892a63ea42bbcb1a3b2b173daa92b58848cb4f600a2`).
+The captured editor uses a positioned textarea, live text, multiline input,
+blur/Escape completion and an undoable text change; the current DOM exposes a
+floating color/font-size toolbar. These are runtime/source observations, not a
+claim that REA performed editing actions on the user's reference drawings.
+Wheel independently adopts in-place Text input and a compact nearby toolbar for
+color, size, bold/italic, edit, lock and delete. Anchoring the toolbar near the
+text, explicit Done/Cancel, Cmd/Ctrl+Enter, and discarding empty new drafts are
+Wheel adaptations. Note retains its existing editor. Legacy text keeps its
+appearance; new text styles persist through existing annotation storage.
+Editing guards also cover a remote request started before text editing. Same-touch
+trailing clicks cannot activate the newly displayed toolbar. No broker paths,
+price aggregation, layout, or quote transport changes.
+Validated desktop/narrow rendering, actual touch placement, keyboard-sized viewport,
+multiline/style save and restore, blank drafts, cancel, lock, undo, drag, contract
+isolation and delayed remote-read protection; drawing timeframes/axis labels,
+light/dark toolbar menus, and 1–4-pane feed/reconnect fixtures pass with no trading
+writes. The old drawing-cancel-fib context-menu assertion fails identically on the
+unmodified pre-change script; it is not represented as a passing check.
+Static webpage deployment needs no Backend/Gateway restart. iPhone bundled asset
+requires the user's Run; no physical-device installation is implied.
+
 ## 2026-10-15 extension toggle retains axis connectors
 
 When Order and TP/SL extension lines is off, hide the plot-side extension but
