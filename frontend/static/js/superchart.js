@@ -1,6 +1,8 @@
 /* Browser host only. Chart geometry and gestures are shared with iOS verbatim. */
 (()=>{'use strict';
 const $=id=>document.getElementById(id);let frame=$('chart');
+// An opaque footer clips scrolling content behind the entire Close area.
+const closeFooter=document.createElement('div');closeFooter.className='close-footer';$('close').before(closeFooter);closeFooter.append($('close'));
 // Keep runtime diagnostics in Detail instead of overlaying the chart.
 $('activity').before($('market-status'));
 // Production servers may retain the previous template until a user-managed restart.

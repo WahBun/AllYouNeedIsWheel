@@ -65,7 +65,10 @@ body.light #daily-pnl-value[data-direction=negative]{color:#b73544}
 /* Keep the ticket in one scrollable column and the close action in reach. */
 #trade:not([hidden]){flex-wrap:nowrap;min-height:0}
 #trade>*{flex-shrink:0}
-#trade #close{position:sticky;bottom:0;z-index:5;background:var(--panel);border-color:#a57445;box-shadow:0 -8px 12px var(--panel);min-height:44px}
+#trade .close-footer{position:sticky;bottom:-18px;z-index:5;background:var(--panel);margin:0 -18px -18px;padding:8px 18px 18px}
+#trade .close-footer:has(#close[hidden]){display:none}
+#trade #close{position:relative;background:var(--panel);border-color:#a57445;min-height:44px}
+@media(max-width:850px){#trade .close-footer{bottom:-16px;margin:0 -16px -16px;padding:8px 16px 16px}}
 #trade #close:disabled{opacity:1;color:color-mix(in srgb,var(--fg) 40%,var(--panel));border-color:color-mix(in srgb,#a57445 40%,var(--panel))}
 
 .protection-settings{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.protection-settings>small{grid-column:1/-1}.protection-settings .exit-card{padding:10px}.protection-settings .exit-fields{grid-template-columns:1fr;gap:7px}.protection-settings .exit-heading{margin-bottom:9px!important}#trade .exit-fields input,#trade .exit-fields select{font-size:12px;min-height:36px;padding:7px}.protection-settings .exit-fields input{text-align:left}

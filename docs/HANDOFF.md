@@ -1,3 +1,9 @@
+## 2026-10-15 fully opaque Close footer
+
+REA re-inspected the live Wheel page (ev_fc278cd15adce67c8bbd1bc1166317e330f2d0e1b1d9ef7fb347f385b210cc0c). The new screenshot showed underlying content at the rounded edges and below Close; the earlier button-only check missed that area. Wrap the existing button in a solid sticky footer spanning the panel padding, replacing its fading shadow. Preserve the same button, handlers, hidden/disabled states and geometry; hide the footer when Close is hidden. Runtime wrapping also supports cached server templates without restart.
+
+Browser pixel comparisons now include the button edges and full bottom padding with contrasting scrolling content underneath, in light/dark and enabled/disabled states. Desktop checks passed; no trading requests or service restarts.
+
 ## 2026-10-15 shared no-overlapping price-axis labels
 
 REA inspected the current TradingView page and shipped scripts (ev_42385f3e9fced2c51211b25fd1f7659d7141dfcfb3abf130990cb775da8de01f). The current 78312 bundle (SHA256 9220b8e18a335c4a6ff6d09947140c22258ae144603a00deb994e0bd7961ed87) arranges labels under alignLabels; the settings and price-scale menu expose No overlapping labels. Adopt label-only displacement, preserving actual prices, lines and drag handles.
