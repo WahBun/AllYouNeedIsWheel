@@ -665,19 +665,23 @@ struct StatusView: View {
                         .opacity(busy && !reduceMotion ? 0.35 : 1)
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: busy)
                         .accessibilityHidden(true)
-                    if !store.demo { Text(LocalizedStringKey(store.accountModeLabel)).fontWeight(.semibold) }
-                    Text(LocalizedStringKey(status))
+                    Text(LocalizedStringKey(store.accountModeLabel)).fontWeight(.semibold)
                     Spacer()
-                    if let date = updated { Text(date.formatted(.dateTime.hour().minute().second())).monospacedDigit() }
                     Image(systemName: "info.circle").accessibilityHidden(true)
                 }.font(.caption).foregroundStyle(.secondary).contentShape(Rectangle())
             }.buttonStyle(.plain)
+                .accessibilityLabel("\(store.accountModeLabel), \(status)")
+                .accessibilityHint("Show data status")
         }
         .sheet(isPresented: $showHealth) {
             NavigationStack {
                 Form {
                     Section("Data status") {
                         LabeledContent("Account mode") { Text(LocalizedStringKey(store.accountModeLabel)) }
+                        LabeledContent("Connection status") {
+                            Text(LocalizedStringKey(DataHealth.status(demo: store.demo, failed: error != nil, updated: updated,
+                                frozen: !orders && store.portfolio?.summary.is_frozen == true, now: .now)))
+                        }
                         LabeledContent("Trading access") { Text(LocalizedStringKey(store.tradingAccessLabel)) }
                         if let date = updated { LabeledContent("Last backend response", value: date.formatted(.dateTime.hour().minute().second())) }
                         Text("The time shown is the last successful backend refresh, not the exchange quote time.")
