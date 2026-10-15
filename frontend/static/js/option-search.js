@@ -17,7 +17,11 @@ window.installOptionSearch=({api,select,symbol,canSelect})=>{
  center.append(instrument,favorites,$('intervals'),nav.querySelector('.interval-picker'));
  const views=document.createElement('div');views.className='toolbar-views';
  for(const id of ['layout-picker','maximize-chart','fullscreen'])if($(id))views.append($(id));
- end.append($('session-picker'),views);
+ const clock=document.createElement('time');clock.id='market-clock';clock.title='New York time · automatic daylight saving';
+ const clockFormat=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23',timeZoneName:'shortOffset'});
+ function updateClock(){const now=new Date(),parts=Object.fromEntries(clockFormat.formatToParts(now).map(p=>[p.type,p.value]));clock.dateTime=now.toISOString();clock.textContent=`${parts.hour}:${parts.minute}:${parts.second} ${parts.timeZoneName.replace('GMT','UTC')}`;}
+ updateClock();setInterval(updateClock,1000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)updateClock();});
+ end.append(clock,$('session-picker'),views);
  $('fullscreen').title='Fullscreen workspace';$('fullscreen').setAttribute('aria-label',$('fullscreen').title);
  // Reuse the same controls in one desktop row; fullscreen keeps them in its workspace.
  const header=document.querySelector('body>header'),workspace=nav.parentElement,desktopToolbar=matchMedia('(min-width:1280px)');

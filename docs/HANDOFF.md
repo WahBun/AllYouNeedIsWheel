@@ -1,3 +1,15 @@
+## 2026-10-15 New York toolbar clock
+
+Show HH:mm:ss UTC offset immediately before RTH/ETH, using America/New_York
+through Intl so daylight-saving changes follow the timezone database rather than
+a fixed UTC-4 offset. Update once per second and immediately on page visibility
+return; no market-data or broker reads. REA inspected the current TV clock
+(ev_52d6b7067a46c3d516ac12f8cf1513ce1e5b2e4c089620506dc46506af91c593).
+Adopt its quiet single-line time/offset presentation in Wheel's upper toolbar.
+Browser checks passed at 1920/1280/393px in both themes, with explicit Nov 2026
+fall-back and Mar 2027 spring-forward boundaries, correct placement, no overflow
+and zero broker writes. Static assets only; refresh the page after deployment.
+
 ## 2026-10-15 compact Favorites label
 
 Remove the duplicate star from the Favorites placeholder and narrow its fixed
