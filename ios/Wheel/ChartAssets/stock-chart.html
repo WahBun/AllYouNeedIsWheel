@@ -47,7 +47,8 @@ body[data-order-cursor] *{cursor:var(--order-drag-cursor)!important}
 for(const type of ['selectstart','contextmenu','dragstart'])document.addEventListener(type,e=>{
  if(!e.target.closest?.('input,textarea,[contenteditable="true"]'))e.preventDefault();
 });
-const chart=LightweightCharts.createChart(document.getElementById('chart'),{autoSize:false,crosshair:{mode:LightweightCharts.CrosshairMode.Normal},layout:{background:{color:'#b8b8b8'},textColor:'#171919',fontSize:10,attributionLogo:true},grid:{vertLines:{visible:false},horzLines:{visible:false}},rightPriceScale:{borderVisible:false,scaleMargins:{top:.18,bottom:.18}},timeScale:{borderVisible:false,tickMarkMaxCharacterLength:5,timeVisible:true,secondsVisible:false,tickMarkFormatter:t=>new Date(t*1000).toLocaleTimeString('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false})},localization:{timeFormatter:t=>new Date(t*1000).toLocaleString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})}});
+let axisTickPrices=[];
+const chart=LightweightCharts.createChart(document.getElementById('chart'),{autoSize:false,crosshair:{mode:LightweightCharts.CrosshairMode.Normal},layout:{background:{color:'#b8b8b8'},textColor:'#171919',fontSize:10,attributionLogo:true},grid:{vertLines:{visible:false},horzLines:{visible:false}},rightPriceScale:{borderVisible:false,scaleMargins:{top:.18,bottom:.18}},timeScale:{borderVisible:false,tickMarkMaxCharacterLength:5,timeVisible:true,secondsVisible:false,tickMarkFormatter:t=>new Date(t*1000).toLocaleTimeString('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false})},localization:{tickmarksPriceFormatter:prices=>{axisTickPrices=prices;return prices.map(axisPriceText);},timeFormatter:t=>new Date(t*1000).toLocaleString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})}});
 function activePriceScale(){return chart.priceScale(window.priceAxisSide||'right');}
 // Axis widgets are recreated on the next library frame when changing sides.
 const lastAxisWidths={left:54,right:54};
@@ -1068,12 +1069,10 @@ function updateVisibleExtrema(){
   if(extremaLines[name])extremaLines[name].applyOptions(options);else extremaLines[name]=series.createPriceLine(options);
  }
 }
-// Order badges stay at their price anchors; extrema and live-price labels yield.
-const tradeAxisBadges=new Map();
+// Only labels move; order prices, lines and drag handles keep their true anchors.
+const tradeAxisBadges=new Map(),axisTickMasks=[];
 function separatePriceAxisLabels(){
- const height=chart.paneSize().height,occupied=[];
- // Crosshair is the foreground axis label. Reserve the actual order-cursor
- // badge too; it can remain open while the pointer moves into its menu.
+ const height=chart.paneSize().height,occupied=[],enabled=displayOptions.noOverlappingLabels!==false;
  if(crosshairAxisY!==null&&crosshairAxisY>=0&&crosshairAxisY<=height){
   const half=Math.ceil(chart.options().layout.fontSize*1.5/2)+3;
   occupied.push([crosshairAxisY-half,crosshairAxisY+half]);
@@ -1089,14 +1088,14 @@ function separatePriceAxisLabels(){
   if(!badge.hidden)badge.style.top=(y-badge.offsetHeight/2)+'px';
  }
  for(const [name,badge] of tradeAxisBadges){if(!priceLines.get(name)){badge.remove();tradeAxisBadges.delete(name);}}
- for(const el of [...tradeAxisBadges.values(),...holdingAxisBadges.values(),positionEdgeBadge]){
-  if(el.hidden||getComputedStyle(el).display==='none')continue;
-  const top=parseFloat(el.style.top);if(Number.isFinite(top))occupied.push([top,top+el.offsetHeight]);
- }
- // Reserve the entire live-price/countdown block first; High/Low yield around it.
- for(const current of [document.getElementById('countdown'),...Object.values(extremaLabels)]){
+ const labels=[...tradeAxisBadges.values(),...holdingAxisBadges.values(),positionEdgeBadge,document.getElementById('countdown'),...Object.values(extremaLabels),...document.querySelectorAll('.volatility-price')];
+ for(const current of labels){
+  current.style.visibility='';
   if(current.hidden||getComputedStyle(current).display==='none')continue;
-  const size=Math.ceil(current.getBoundingClientRect().height),desired=parseFloat(current.style.top),gap=6;
+  const size=Math.ceil(current.getBoundingClientRect().height);
+  if(current.classList.contains('volatility-price')&&current.dataset.price){const y=series.priceToCoordinate(Number(current.dataset.price));if(y!==null)current.style.top=(y-size/2)+'px';}
+  const desired=parseFloat(current.style.top),gap=6;
+  if(!enabled)continue;
   const candidates=[desired,0,height-size,...occupied.flatMap(([top,bottom])=>[top-size-gap,bottom+gap])]
    .filter(top=>Number.isFinite(top)&&top>=0&&top+size<=height)
    .sort((a,b)=>Math.abs(a-desired)-Math.abs(b-desired));
@@ -1104,6 +1103,17 @@ function separatePriceAxisLabels(){
   current.style.visibility=top===undefined?'hidden':'';
   if(top!==undefined){current.style.top=top+'px';occupied.push([top,top+size]);}
  }
+ // The library cannot see DOM labels. Cover whole conflicting scale ticks,
+ // including glyph ascenders/descenders, without touching its pinned bundle.
+ const side=window.priceAxisSide||'right',font=chart.options().layout.fontSize,half=Math.ceil(font*.75)+2;
+ const regions=enabled?axisTickPrices.map(price=>series.priceToCoordinate(price)).filter(y=>y!==null&&y>=0&&y<=height&&occupied.some(([a,b])=>y+half+2>a&&y-half-2<b)):[];
+ regions.forEach((y,i)=>{
+  let mask=axisTickMasks[i];if(!mask){mask=document.createElement('div');mask.className='axis-tick-mask';mask.style.cssText='position:absolute;pointer-events:none;z-index:2';document.body.append(mask);axisTickMasks.push(mask);}
+  mask.hidden=false;mask.style.background=chart.options().layout.background.color;mask.style.top=Math.max(0,y-half)+'px';mask.style.height=(Math.min(height,y+half)-Math.max(0,y-half))+'px';mask.style.width=priceAxisWidth(side)+'px';mask.style.left=side==='left'?'0':'auto';mask.style.right=side==='right'?'0':'auto';
+  // Native crosshair is drawn inside the chart canvas; keep it above masking.
+  if(priceAdd.hidden&&crosshairAxisY!==null&&Math.abs(y-crosshairAxisY)<half+12)mask.hidden=true;
+ });
+ axisTickMasks.slice(regions.length).forEach(mask=>mask.hidden=true);
 }
 // Offset labels only: their price lines remain anchored to the true price.
 function separateHoldingLabels(){
@@ -1119,8 +1129,8 @@ function separateHoldingLabels(){
   if(badge.dataset.kind==='strike'&&(y<16||y>limit-16)){badge.hidden=true;if(axis)axis.hidden=true;continue;}
   const base=Math.max(16,Math.min(limit-16,y));
   let lower=Math.max(16,i?(anchors[i-1].y+y)/2:16),upper=Math.min(limit-16,i+1<anchors.length?(y+anchors[i+1].y)/2:limit-16);
-  // Keep numeric axis badges at their true coordinates. Only the text can move,
-  // and never across a neighboring price's anchor.
+  // Holding text stays near its anchor; numeric axis labels are arranged
+  // separately below, without moving the underlying holding price.
   for(const el of fixed){const r=el.getBoundingClientRect(),center=r.top+r.height/2;if(center<base)lower=Math.max(lower,center+12);else if(center>base)upper=Math.min(upper,center-12);}
   let placed=false;
   for(let step=0;step<21;step++){

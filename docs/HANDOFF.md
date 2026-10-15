@@ -1,3 +1,11 @@
+## 2026-10-15 shared no-overlapping price-axis labels
+
+REA inspected the current TradingView page and shipped scripts (ev_42385f3e9fced2c51211b25fd1f7659d7141dfcfb3abf130990cb775da8de01f). The current 78312 bundle (SHA256 9220b8e18a335c4a6ff6d09947140c22258ae144603a00deb994e0bd7961ed87) arranges labels under alignLabels; the settings and price-scale menu expose No overlapping labels. Adopt label-only displacement, preserving actual prices, lines and drag handles.
+
+Wheel adaptation: include DOM High/Low, last price/countdown, order/holding and volatility labels in one collision pass. Capture ordinary scale ticks via the library formatter and mask whole conflicting tick glyphs beneath foreground labels, instead of leaving partial digits visible. Keep the pinned library unchanged. Volatility labels restore from their price anchors even when their renderer is cached. Default-on switch is available in the web axis menu and Display settings (per-pane persistence) and iOS Display settings (AppStorage), with shared rendering logic.
+
+Validation: no-overlapping-labels and price-label-spacing checks cover desktop/mobile, left/right axes, both themes, DPR2, inverted scale and off/on restoration. Browser four-pane menu/persistence checks passed. Market-feed interactions passed 1/2/3/4 panes, reconnect and simulated visibility resume with 455 pushed updates, zero errors and zero trading writes. Native trading lock and order-line drag checks passed; iOS Simulator build passed. No physical iPhone Run, real-order acceptance or service restart was performed. Existing signing and localization edits remain local and excluded.
+
 ## 2026-10-15 opaque sticky Close button
 
 REA inspected the running Wheel page (ev_b4b79556e74d86d4cfb4b7b8f7f193cfa058e47dd92f9dfcf3ec6dacb6ff), and the supplied video confirmed scrolling hints under the sticky Close button. Global disabled opacity made its background translucent. Keep Close fully opaque and mute only its disabled text/border. GET-only browser verification compared button pixels with red/blue content underneath, in both themes and enabled/disabled states; all four passed. Trading eligibility and handlers are unchanged.

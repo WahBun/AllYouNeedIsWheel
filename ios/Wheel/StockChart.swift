@@ -580,6 +580,7 @@ struct StockChartView: View {
     @AppStorage("futureChartSLDistance") private var futureSLDistance = "1.00"
     @AppStorage("chartShowProfit") private var showProfit = true
     @AppStorage("chartOneClickTrading") private var oneClickTrading = false
+    @AppStorage("chartNoOverlappingLabels") private var noOverlappingLabels = true
     @AppStorage("chartPlusButton") private var showPlusButton = true
     @AppStorage("chartShowHoldings") private var showHoldings = true
     @AppStorage("chartOrderExtensionLines") private var showOrderExtensionLines = true
@@ -1041,7 +1042,7 @@ struct StockChartView: View {
     }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["tradingLocked": tradingLocked, "plusButton": showPlusButton, "rightClickTrading": oneClickTrading, "volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
+        ["tradingLocked": tradingLocked, "noOverlappingLabels": noOverlappingLabels, "plusButton": showPlusButton, "rightClickTrading": oneClickTrading, "volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
          "emaDynamic": emaDynamic, "emaColor": emaColor + "ab", "emaWidth": emaWidth, "emaStyle": emaStyle,
          "atr": showATR && indicatorVisible, "atrLength": atrLength, "profit": showHoldings && showProfit, "positions": showHoldings && showPositionProfit, "brackets": showHoldings && showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
@@ -1455,6 +1456,7 @@ struct StockChartView: View {
             NavigationStack {
                 Form {
                     Section("General") {
+                        Toggle("No overlapping labels", isOn: $noOverlappingLabels)
                         Toggle("Plus button", isOn: $showPlusButton)
                         Toggle("One-click trading", isOn: $oneClickTrading)
                         Text("Submit chart right-click Buy/Sell and drag or remove TP/SL without confirmation. Other order edits still require confirmation.").font(.caption).foregroundStyle(.secondary)
