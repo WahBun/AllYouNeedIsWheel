@@ -1,3 +1,12 @@
+## 2026-10-15 compact Favorites label
+
+Remove the duplicate star from the Favorites placeholder and narrow its fixed
+width from 110px to 96px. Keep the separate symbol favorite control and dropdown
+chevron. REA rechecked the current toolbar (ev_4a708a9f52c22a69011d1471d00f1d94fbf7e21f08db9eb0039e670a31780027).
+Desktop/narrow light/dark browser checks passed with no overflow or trading writes.
+This static change needs a page refresh; the prior fractional Trim backend fix
+still requires the separately user-operated Backend restart if not yet performed.
+
 ## 2026-10-15 fractional holding Trim, enabled action sweep and fullscreen
 
 Restore whole-share Trim for settled positive fractional stock holdings. Side-panel

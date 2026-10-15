@@ -287,7 +287,7 @@ body.unified-chart-toolbar>header button:focus-visible,body.unified-chart-toolba
 
 /* Match the interval chevron while retaining the native favorites picker. */
 .favorite-contract-picker{position:relative;display:flex;flex-shrink:0;align-items:center}
-#favorite-contracts,body.unified-chart-toolbar #favorite-contracts{width:110px;min-width:110px;max-width:110px;height:34px;padding:0 24px 0 6px;appearance:none;-webkit-appearance:none}
+#favorite-contracts,body.unified-chart-toolbar #favorite-contracts{width:96px;min-width:96px;max-width:96px;height:34px;padding:0 24px 0 6px;appearance:none;-webkit-appearance:none}
 .favorite-contract-picker::after{position:absolute;right:9px;pointer-events:none}
 
 /* iOS Settings GildedSignature: the same lettering, gold base and 5s sweep. */

@@ -55,7 +55,7 @@ $('favorite-contracts').setAttribute('aria-label','Favorite contracts');
 function renderContractFavorites(){
  const saved=contractFavorites.some(x=>x.id===cid),button=$('favorite-contract');button.disabled=!cid;button.textContent=saved?'★':'☆';button.setAttribute('aria-pressed',String(saved));
  button.title=saved?'Remove favorite':'Favorite current contract';button.setAttribute('aria-label',button.title);
- const menu=$('favorite-contracts');menu.replaceChildren(new Option('★ Favorites',''),...contractFavorites.map(x=>new Option(x.label,String(x.id))));menu.value='';
+ const menu=$('favorite-contracts');menu.replaceChildren(new Option('Favorites',''),...contractFavorites.map(x=>new Option(x.label,String(x.id))));menu.value='';
 }
 $('favorite-contract').onclick=()=>{
  if(!cid)return;
