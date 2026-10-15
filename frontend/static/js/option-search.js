@@ -34,7 +34,7 @@ window.installOptionSearch=({api,select,symbol,canSelect})=>{
   else if(!unified&&nav.parentElement!==workspace)workspace.prepend(nav);
   centerToolbar();
  }
- const toolbarSize=new ResizeObserver(centerToolbar);for(const node of [header,center,end,$('connection')])toolbarSize.observe(node);
+ const toolbarSize=new ResizeObserver(centerToolbar);for(const node of [header,center,end,$('connection'),...center.children])toolbarSize.observe(node);
  new MutationObserver(centerToolbar).observe(center,{childList:true,subtree:true,characterData:true});
  desktopToolbar.addEventListener('change',placeToolbar);document.addEventListener('fullscreenchange',placeToolbar);placeToolbar();
 
