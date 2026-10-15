@@ -1,3 +1,17 @@
+## 2026-10-15 settings through each chart gear
+
+Hide the header Settings control and add More settings... beneath a separator
+in every price-axis gear menu. Reuse the existing settings dialog; a message
+from an auxiliary pane activates that pane before opening its settings, with
+same-origin and exact-frame checks. No order requests originate from this entry.
+The existing right-aligned header closes the removed button's space naturally;
+RTH/ETH text starts within about 2px of the trading panel boundary at 1920px.
+REA inspected current TV and Wheel pages (ev_9274acfb82d3a820a737f19cae3c73031f741d511cc9f6162c243ef860dcce9b,
+ev_9cb334427d1b9ae64969339e94a531144859e4fe9a439073da4cdab008c2792e),
+using the supplied reference for menu placement. Browser checks opened settings
+from all four panes at desktop/narrow widths in both themes, verified the correct
+active frame, no overflow and no broker writes. Static deployment only.
+
 ## 2026-10-15 New York toolbar clock
 
 Show HH:mm:ss UTC offset immediately before RTH/ETH, using America/New_York

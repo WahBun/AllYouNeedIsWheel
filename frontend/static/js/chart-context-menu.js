@@ -143,6 +143,8 @@
    item('Auto (fits data to screen)',()=>activePriceScale().applyOptions({autoScale:true}));
    const side=window.priceAxisSide==='left'?'right':'left';
    item('Move scale to '+side,()=>{window.configurePriceAxis(side);parent.postMessage({wheelChart:true,name:'priceAxisChanged',body:{side}},location.origin);});
+   const separator=document.createElement('div');separator.style.cssText='height:1px;background:currentColor;opacity:.2;margin:4px 0';menu.append(separator);
+   item('More settings...',()=>parent.postMessage({wheelChart:true,name:'chartSettings'},location.origin));
   }else{
   refreshOrderMenu=orderItems(price,(label,run,disabled,presets)=>entryItem(label,()=>{if(contract===paperCID)run();},disabled,presets),true);
   const n=window.chartDrawingActions?.count()||0;if(n>0)item(`Remove ${n} drawings`,()=>window.chartDrawingActions?.removeAll());

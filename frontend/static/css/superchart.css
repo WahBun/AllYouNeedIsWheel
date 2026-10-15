@@ -311,3 +311,6 @@ body>header>strong{position:relative;top:-1px}
 #fullscreen svg{display:block;width:28px;height:28px;flex:none}
 
 #market-clock{display:inline-block;flex-shrink:0;white-space:nowrap;font-size:14px;font-weight:400;font-variant-numeric:tabular-nums;color:var(--fg);line-height:34px}
+
+/* Settings are reached from each chart's price-axis gear. */
+body>header #settings{display:none!important}
