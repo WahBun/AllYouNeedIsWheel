@@ -1,3 +1,10 @@
+## 2026-10-15 compact Favorites-to-interval gap
+
+Remove the obsolete 18px interval margin. The existing 7px group gap now separates
+Favorites from the divider, reducing the entire centered group by 18px. REA
+rechecked the toolbar (ev_b4893d132fac06a526e6059ab16766f06d6b623808c7fe0cfd60d9ea9a1e50cb).
+Desktop/narrow light/dark geometry checks passed; menu behavior is unchanged.
+
 ## 2026-10-15 centered cursor price and optional Plus button
 
 Center the crosshair price badge and match the live-price typography (11px,

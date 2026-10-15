@@ -255,7 +255,7 @@ body>header{position:relative;z-index:50}
 .workspace>nav{position:relative;z-index:40}
 
 /* Compact interval strip: quiet defaults, neutral selected state, one chevron. */
-#intervals{gap:0;align-items:center}
+#intervals{gap:0;align-items:center;margin-left:0}
 #intervals::before{content:"";height:22px;width:1px;flex-shrink:0;margin-right:6px;background:var(--border)}
 #intervals button,#interval{height:34px;min-height:34px;min-width:28px;padding:0 6px;border:0;border-radius:4px;background:transparent;color:var(--fg);font-weight:400}
 #intervals button{font-size:14px}
