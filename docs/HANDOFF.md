@@ -1,3 +1,7 @@
+## 2026-10-15 opaque sticky Close button
+
+REA inspected the running Wheel page (ev_b4b79556e74d86d4cfb4b7b8f7f193cfa058e47dd92f9dfcf3ec6dacb6ff), and the supplied video confirmed scrolling hints under the sticky Close button. Global disabled opacity made its background translucent. Keep Close fully opaque and mute only its disabled text/border. GET-only browser verification compared button pixels with red/blue content underneath, in both themes and enabled/disabled states; all four passed. Trading eligibility and handlers are unchanged.
+
 ## 2026-10-15 native centered two-row ATR/gauge footer
 
 The accepted native trading lock remains unchanged. The footer now places ATR

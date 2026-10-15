@@ -66,6 +66,7 @@ body.light #daily-pnl-value[data-direction=negative]{color:#b73544}
 #trade:not([hidden]){flex-wrap:nowrap;min-height:0}
 #trade>*{flex-shrink:0}
 #trade #close{position:sticky;bottom:0;z-index:5;background:var(--panel);border-color:#a57445;box-shadow:0 -8px 12px var(--panel);min-height:44px}
+#trade #close:disabled{opacity:1;color:color-mix(in srgb,var(--fg) 40%,var(--panel));border-color:color-mix(in srgb,#a57445 40%,var(--panel))}
 
 .protection-settings{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.protection-settings>small{grid-column:1/-1}.protection-settings .exit-card{padding:10px}.protection-settings .exit-fields{grid-template-columns:1fr;gap:7px}.protection-settings .exit-heading{margin-bottom:9px!important}#trade .exit-fields input,#trade .exit-fields select{font-size:12px;min-height:36px;padding:7px}.protection-settings .exit-fields input{text-align:left}
 
