@@ -1,3 +1,13 @@
+## 2026-10-16 recover persisted chart executions in Orders history
+
+The Orders completed endpoint returned legacy local orders plus the broker's current completed/trade cache, but ignored chart_execution_marks after prior-session completed orders left that cache. Read-only Mini inspection found two exact TSLL Nov 20 2026 $11 Call BUY executions still persisted, while the endpoint omitted both. Original timestamps are Oct 14 New York. No deletion or trade replay is involved.
+
+REA inspected the local device-build Orders endpoint string and native references (ev_bafcc6d049103fa010b8005b99de3c2518a5bdedfabcbe58f3f5ed5da5ce2c67; ev_352ab6e933eea2cfbd85878b253aea5671687493d4dd0a5b7ad818549b0cfce6). Source inspection and actual API/SQLite reads establish the missing backend join; this is not proof of the installed phone binary.
+
+The completed feed now supplements missing permanent broker identities from the existing execution ledger, scoped to the verified account and an exact broker-resolved conId. It does not write orders or the ledger. Deduplicate against local/current broker rows; aggregate only consistent sides/contracts; match realized P&L by exact execution revision. Missing order type, TIF and commission stay unknown. Saved fills are labeled Execution recorded, without asserting an unknown remaining quantity or terminal broker order status. Rollovers and pending-order paths remain unchanged. This recovers already persisted chart fills; it is not a historical broker backfill for trades never captured locally. Contract lookup failures remain unavailable rather than guessed.
+
+Validation: 42 focused tests cover the completed-service path, cache loss, account/Paper isolation, exact identity, partial-fill aggregation, revision mismatch, conflicting/invalid evidence and read-only DB behavior, alongside existing futures/external-order regressions. Backend restart is user-operated and required after code deployment. No iPhone Run is needed for this backend response fix; no Gateway restart or broker order actions.
+
 ## 2026-10-16 preserve scale ticks beside the moving crosshair
 
 The supplied desktop video showed ordinary prices disappearing near the moving cursor. REA captured the current Wheel page and its executed-source inventory (ev_7521ecc0a3516dd3fb75ade54115b6405d375fe710d4b01abd0cf3d611435c5e); its separatePriceAxisLabels implementation matches the local source. Cursor clearance was incorrectly included in whole-tick masking, erasing neighboring ticks outside the opaque cursor badge.

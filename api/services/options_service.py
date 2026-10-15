@@ -98,7 +98,11 @@ class OptionsService:
                             order.update(self.db.get_order(order['id']))
                     except Exception as error:
                         logger.warning('Could not enrich broker fill metadata: %s', type(error).__name__)
-            return local_orders + (futures_orders(conn, completed=True, db_path=self.db.db_path) if is_rollover is None else [])
+            if is_rollover is not None:
+                return local_orders
+            from api.services.chart_order_history import saved_chart_orders
+            history = local_orders + futures_orders(conn, completed=True, db_path=self.db.db_path)
+            return history + saved_chart_orders(conn, self.db.db_path, history)
         if is_rollover is not None:
             return local_orders
 
