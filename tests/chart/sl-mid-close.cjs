@@ -4,7 +4,7 @@ const {start}=require('./market-feed/harness.cjs');
 (async()=>{const h=await start(),browser=await chromium.launch();try{
 for(const width of [1400,393]){
  const page=await browser.newPage({viewport:{width,height:900}});await page.goto(h.url+'/superchart/frame');
- await page.evaluate(()=>{window.sent=[];window.webkit={messageHandlers:{paperAction:{postMessage:b=>sent.push(b)}}};window.setup=(position,on=false,kind='OPT')=>{
+ await page.evaluate(()=>{window.sent=[];window.webkit={messageHandlers:{paperAction:{postMessage:b=>{if(!['chartValidation','quoteStatus'].includes(b.action))sent.push(b)}}}};window.setup=(position,on=false,kind='OPT')=>{
  window.cfg={con_id:7,entry:.78,quantity:2,priceRules:[{low:0,increment:.01}],display:{rightClickTrading:on},paper:{enabled:true,known:true,active:true,position,side:Math.sign(position),entry:.78,tp:.3,sl:position<0?.74:.3,order_ref:'owned',web_account_epoch:'a',close_allowed:true,orders:[{role:'sl',order_id:5,status:'Submitted',quantity:Math.abs(position),price:position<0?.74:.3}]}};
  configure(cfg);window.quote=(bid=.51,ask=.53)=>receive({security_type:kind,con_id:7,account_epoch:'a',generation:'test',server_time:Date.now()/1000,quote_expires_at:Date.now()/1000+3,bid,ask,interval:5,bars:[{time:1000,open:.5,high:.8,low:.25,close:.52}]});quote();};
  window.drag=price=>paperAction({action:'amend',source:'protection-drag',role:'sl',price,expected_ref:'owned'});

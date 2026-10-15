@@ -1,3 +1,11 @@
+## 2026-10-15 reachable protection confirmation with offscreen entry
+
+REA inspected the actual Wheel page (ev_8e228673d0a30cde35bfb5273b8a60e3844225707ca3a885fbede24229d1068a). Read-only page diagnostics and supplied video showed two independent conditions: stale executable bid/ask blocked multiple SL releases; with One-click off, a valid confirmation existed under the entry handle whose price was outside the visible candle scale. The broker-backed stop remained unchanged. Cached display-only quotes were not promoted to executable quotes.
+
+Keep the existing entry-attached confirmation when visible. When entry is offscreen, retain the same confirmation DOM/actions in a bounded floating row near the selected protection price; no scale expansion or order-price change. Refresh preserves identity and held clicks. One-click, stale-quote guards, cancellation, and broker invalidation remain unchanged.
+
+Tests: offscreen-protection-confirmation reproduces actual option SL drag at desktop/native widths, confirms visible controls and held-click refresh, discard, changed order identity, direct mode and stale quote rejection. one-click-protection, sl-mid-close, fast-entry-drag and order-line-drag passed. The SL-mid test now excludes read-only chartValidation/quoteStatus notifications from its trading-write count. No real order modification or Gateway/Backend restart; iPhone Run is user-operated.
+
 ## 2026-10-15 native initial price-axis spacing
 
 REA inspected the running Wheel page (ev_ad41832cf92f082bcc688b221d3bc267857934068091ee320eaf487dc4edd2ed), and reproduced the supplied mobile initial-autoscale geometry: 30200 is 18.31px above the 30186 last-price center, but the old 10px tick half-height plus 2px clearance incorrectly treated it as overlapping the 18px badge. Native compact mode now reserves 6px tick half-height and 1px clearance at the existing 10px font. Web behavior stays unchanged. Genuine overlaps remain hidden; no prices or scale ranges change.
