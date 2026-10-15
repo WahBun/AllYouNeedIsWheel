@@ -26,19 +26,41 @@ class StrikeSelectionTests(unittest.TestCase):
             self.assertTrue(kwargs['exact_strike'])
         service._adjust_to_standard_strike.assert_not_called()
 
-    def test_strikes_filtered_by_expiry_right_and_cached(self):
+    def connection_with_definition(self):
         conn = object.__new__(IBConnection)
         conn.ib = Mock()
         conn.ib.RequestTimeout = 0
-        conn.order_preflight_timeout = 10
-        def detail(strike, expiry='20261016', right='P'):
-            return SimpleNamespace(contract=SimpleNamespace(symbol='TEST',
-                lastTradeDateOrContractMonth=expiry, right=right, currency='USD', multiplier='100', strike=strike))
-        conn.ib.reqContractDetails.return_value = [detail(80), detail(85), detail(80), detail(90, right='C'), detail(95, expiry='20261120')]
-        self.assertEqual(conn.get_option_strikes('TEST', '20261016', 'P'), [80, 85])
-        self.assertEqual(conn.get_option_strikes('TEST', '20261016', 'P'), [80, 85])
-        conn.ib.reqContractDetails.assert_called_once()
+        conn._qualified_stock_cache = {}
+        conn._option_definition_cache = {}
+        conn.ib.qualifyContracts.return_value = [SimpleNamespace(symbol='TEST', conId=7, secType='STK')]
+        conn.ib.reqSecDefOptParams.return_value = [SimpleNamespace(exchange='SMART', multiplier='100',
+            expirations={'20261016', '20261120'}, strikes=[80, 85, 80, 77.5, float('nan'), 0, -1])]
+        return conn
+
+    def test_strike_candidates_reuse_definition_across_expiries_and_rights(self):
+        conn = self.connection_with_definition()
+        for expiry, right in [('20261016', 'P'), ('20261120', 'C'), ('20261016', 'P')]:
+            self.assertEqual(conn.get_option_strikes('TEST', expiry, right), [77.5, 80, 85])
+        conn.ib.reqSecDefOptParams.assert_called_once_with('TEST', '', 'STK', 7)
+        conn.ib.reqContractDetails.assert_not_called()
         self.assertEqual(conn.ib.RequestTimeout, 0)
+
+    def test_unlisted_expiry_and_nonstandard_definition_are_not_offered(self):
+        conn = self.connection_with_definition()
+        self.assertEqual(conn.get_option_strikes('TEST', '20270101', 'P'), [])
+        conn.ib.reqSecDefOptParams.return_value[0].multiplier = '10'
+        with self.assertRaises(ValueError):
+            conn.get_option_strikes('TEST', '20261016', 'P')
+        conn.ib.reqContractDetails.assert_not_called()
+
+    def test_definition_timeout_restores_timeout_and_does_not_cache_failure(self):
+        conn = self.connection_with_definition()
+        conn.ib.reqSecDefOptParams.side_effect = TimeoutError()
+        with self.assertRaises(TimeoutError):
+            conn.get_option_strikes('TEST', '20261016', 'P')
+        self.assertEqual(conn.ib.RequestTimeout, 0)
+        self.assertEqual(conn._option_definition_cache, {})
+        conn.ib.reqContractDetails.assert_not_called()
 
     def test_exact_strike_route_validation_and_forwarding(self):
         app = Flask(__name__)

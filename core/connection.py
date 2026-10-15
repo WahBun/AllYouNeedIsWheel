@@ -518,28 +518,25 @@ class IBConnection:
         return significant_errors[-1] if significant_errors else None
     
     def get_option_strikes(self, symbol, expiration, right):
-        key = (symbol, expiration, right)
-        cache = getattr(self, '_expiry_strike_cache', {})
-        self._expiry_strike_cache = cache
-        cached = self._cached_value(cache, key, 1800)
-        if cached is not None:
-            return cached
-        previous_timeout = self.ib.RequestTimeout
-        self.ib.RequestTimeout = self.order_preflight_timeout
-        try:
-            details = self.ib.reqContractDetails(Option(symbol=symbol,
-                lastTradeDateOrContractMonth=expiration, right=right,
-                exchange='SMART', currency='USD', multiplier='100'))
-            strikes = sorted({float(d.contract.strike) for d in details
-                if d.contract.symbol == symbol and d.contract.right == right
-                and d.contract.lastTradeDateOrContractMonth == expiration
-                and d.contract.currency == 'USD' and d.contract.multiplier == '100'
-                and self._valid_price(d.contract.strike) is not None})
-            if strikes:
-                cache[key] = (time.time(), strikes)
-            return strikes
-        finally:
-            self.ib.RequestTimeout = previous_timeout
+        """Fast strike candidates from IB security-definition metadata.
+
+        IB's expiry and strike sets are not a Cartesian contract guarantee.
+        The selected strike still goes through exact-contract qualification in
+        get_option_chain(exact_strike=True) before a quote or staged order.
+        Reuse the same bounded 30-minute chain cache used by option quotes;
+        never enumerate every contract merely to open the picker.
+        """
+        if right not in ('C', 'P'):
+            raise ValueError('Invalid option right')
+        stock, chain = self.get_option_definition(symbol, 'SMART')
+        if stock is None or chain is None:
+            raise ValueError('Option definition unavailable')
+        if chain.exchange != 'SMART' or str(chain.multiplier) != '100':
+            raise ValueError('Standard option definition unavailable')
+        if expiration not in chain.expirations:
+            return []
+        return sorted({float(strike) for strike in chain.strikes
+                       if self._valid_price(strike) is not None})
 
     def get_stock_previous_close(self, symbol):
         """Read IB's prior-close tick from the existing stock subscription only."""

@@ -18,9 +18,6 @@ body.native-compact #chart-title{display:none}
 body.native-compact #chart-header{min-height:14px}
 body.native-compact #entry span{font-size:11px;padding:0 5px}
 body.native-compact #entry span,body.native-compact #cancel span{height:24px}
-body.quote-footer #option-quote{bottom:0;left:0;right:0;height:44px;transform:none;justify-content:center;gap:22px;background:#f4f5f3;border-top:1px solid #7774;font-size:17px}
-body.quote-footer #option-quote-status{position:absolute;right:10px;font-size:10px;max-width:18px;overflow:hidden}
-body.quote-footer[data-dark=true] #option-quote{background:#1c1c1e}
 
 body.axis-left #countdown,body.axis-left .holding-axis,body.axis-left .position-edge,body.axis-left .volatility-price,body.axis-left .extrema-label{left:3px!important;right:auto!important}
 body.axis-left .extrema-label{flex-direction:row-reverse}
@@ -179,13 +176,13 @@ const optionQuote=document.createElement('div');optionQuote.id='option-quote';op
 optionQuote.setAttribute('aria-label','Option midpoint, bid-ask spread and implied volatility');
 optionQuote.innerHTML='<span><strong aria-label="Spread" id="option-spread">—</strong></span><span><strong aria-label="Mid" id="option-mid">—</strong></span><span><strong aria-label="IV" id="option-iv">—</strong></span>';
 document.body.append(optionQuote);
-const quoteStyle=document.createElement('style');quoteStyle.textContent='#option-quote{position:absolute;bottom:32px;left:50%;transform:translateX(-50%);white-space:nowrap;z-index:3;display:flex;gap:18px;pointer-events:none;font:18px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums;color:#353938}#option-quote[hidden]{display:none}#option-quote strong{font-weight:600}@media(max-width:600px){#option-quote{gap:16px;font-size:16px}}';quoteStyle.textContent+=' #option-quote[data-band=high] #option-spread,#option-iv[data-band=high]{background:linear-gradient(105deg,currentColor 25%,#d62117 40%,#ffd652 50%,#944d0d 60%,currentColor 75%);background-size:250% 100%;background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:option-quote-flow 5s linear infinite}@keyframes option-quote-flow{from{background-position:150% 0}to{background-position:-150% 0}}@media(prefers-reduced-motion:reduce){#option-quote[data-band=high] #option-spread,#option-iv[data-band=high]{animation:none;background:none;-webkit-text-fill-color:currentColor}}';quoteStyle.textContent+=' @media(max-width:600px){#atr-value[data-option="true"]{top:6px!important;right:44px!important;font-size:12px!important;padding:3px 5px!important}}';quoteStyle.textContent+=' #atr-value:not([data-option="true"]){top:auto!important;right:auto!important;bottom:32px;left:50%;transform:translateX(-50%)}';quoteStyle.textContent+=' @media(max-width:600px){#atr-value:not([data-option="true"]){font-size:11px!important;line-height:15px!important;padding:2px 4px!important;bottom:56px}}';document.head.append(quoteStyle);
+const quoteStyle=document.createElement('style');quoteStyle.textContent='#option-quote{position:absolute;bottom:32px;left:50%;transform:translateX(-50%);white-space:nowrap;z-index:3;display:grid;grid-template-columns:repeat(3,max-content);justify-content:center;align-items:center;column-gap:18px;row-gap:3px;text-align:center;pointer-events:none;font:18px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums;color:#353938}#option-quote[hidden]{display:none}#option-quote strong{font-weight:600}@media(max-width:600px){#option-quote{column-gap:14px;font-size:13px}}';quoteStyle.textContent+=' #option-quote[data-band=high] #option-spread,#option-iv[data-band=high]{background:linear-gradient(105deg,currentColor 25%,#d62117 40%,#ffd652 50%,#944d0d 60%,currentColor 75%);background-size:250% 100%;background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:option-quote-flow 5s linear infinite}@keyframes option-quote-flow{from{background-position:150% 0}to{background-position:-150% 0}}@media(prefers-reduced-motion:reduce){#option-quote[data-band=high] #option-spread,#option-iv[data-band=high]{animation:none;background:none;-webkit-text-fill-color:currentColor}}';quoteStyle.textContent+=' @media(max-width:600px){#atr-value[data-option="true"]{top:6px!important;right:44px!important;font-size:12px!important;padding:3px 5px!important}}';quoteStyle.textContent+=' #atr-value:not([data-option="true"]){top:auto!important;right:auto!important;bottom:32px;left:50%;transform:translateX(-50%)}';quoteStyle.textContent+=' @media(max-width:600px){#atr-value:not([data-option="true"]){font-size:11px!important;line-height:15px!important;padding:2px 4px!important;bottom:56px}}';document.head.append(quoteStyle);
 let optionQuoteDark=false,optionQuoteIdentity='',optionQuoteKey='',optionPreviousMid=null,optionMidDirection=0;
 let optionDisplayIdentity='',optionLastQuote=null,optionLastIV=null;
-const optionStale=document.createElement('small');optionStale.id='option-quote-status';optionStale.style.cssText='font-size:.7em;color:#666';optionQuote.append(optionStale);
+const optionStale=document.createElement('small');optionStale.id='option-quote-status';optionStale.style.cssText='grid-column:1 / -1;font-size:10px;line-height:13px;color:#666;white-space:normal;max-width:240px';optionQuote.append(optionStale);
 const optionQuoteFormat=new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
 function updateOptionQuote(){
- const p=countdownPacket;optionQuote.hidden=p?.security_type!=='OPT';const footer=!!displayOptions.nativeCompact&&!optionQuote.hidden;if(document.body.classList.contains('quote-footer')!==footer){document.body.classList.toggle('quote-footer',footer);if(nativeViewport)window.setNativeViewport(nativeViewport.width,nativeViewport.height);}if(optionQuote.hidden){optionPreviousMid=null;optionQuoteKey='';return;}
+ const p=countdownPacket;optionQuote.hidden=p?.security_type!=='OPT';if(optionQuote.hidden){optionPreviousMid=null;optionQuoteKey='';return;}
  const now=p.server_time+Math.max(0,(Date.now()-countdownReceived)/1000);
  const valid=Number.isFinite(p.bid)&&Number.isFinite(p.ask)&&p.bid>=0&&p.ask>0&&p.ask>=p.bid&&Number.isFinite(now)&&Number.isFinite(p.quote_expires_at)&&p.quote_expires_at>now;
  const displayIdentity=String(p.con_id)+':'+String(p.generation);
@@ -197,24 +194,25 @@ function updateOptionQuote(){
  const percentage=displayQuote?(displayQuote.ask-displayQuote.bid)/((displayQuote.bid+displayQuote.ask)/2)*100:null;
  const mid=displayQuote?optionQuoteFormat.format((displayQuote.bid+displayQuote.ask)/2):'—',spread=displayQuote?percentage.toFixed(1)+'%':'—';
  const band=valid?(percentage<=10?'low':percentage<20?'medium':'high'):'unavailable';
- const colors={low:displayOptions.nativeCompact&&optionQuoteDark?'#72b7ff':'#174A8B',medium:'#FFB87A',high:optionQuoteDark?'#AD6417':'#854A0F'};
+ const colors={low:'#174A8B',medium:'#FFB87A',high:optionQuoteDark?'#AD6417':'#854A0F'};
  optionQuote.dataset.band=band;optionQuote.style.color='#171919';
  document.getElementById('option-spread').style.color=colors[band]||'#666';
  const identity=String(p.con_id)+':'+String(p.generation),key=JSON.stringify([p.quote_time,p.bid,p.ask]);
  if(identity!==optionQuoteIdentity||!valid){optionPreviousMid=null;optionMidDirection=0;optionQuoteKey='';optionQuoteIdentity=identity;}
  if(valid&&key!==optionQuoteKey){const value=(p.bid+p.ask)/2;optionMidDirection=optionPreviousMid===null?0:value>optionPreviousMid?1:value<optionPreviousMid?-1:0;optionPreviousMid=value;optionQuoteKey=key;}
  const midElement=document.getElementById('option-mid');midElement.dataset.direction=String(optionMidDirection);
- midElement.style.color=!valid?'#888':optionMidDirection>0?(optionQuoteDark?'#B3FF4D':'#477505'):optionMidDirection<0?'#FF5E5E':displayOptions.nativeCompact&&optionQuoteDark?'#eee':'#353938';
+ midElement.style.color=!valid?'#888':optionMidDirection>0?(optionQuoteDark?'#B3FF4D':'#477505'):optionMidDirection<0?'#FF5E5E':'#353938';
  for(const [id,value] of [['option-mid',mid],['option-spread',spread]]){const el=document.getElementById(id);if(el.textContent!==value)el.textContent=value;}
  const iv=p.iv_percent,ivValid=Number.isFinite(iv)&&iv>0&&Number.isFinite(p.iv_expires_at)&&p.iv_expires_at>now;
  if(ivValid)optionLastIV=iv;
  const displayIV=ivValid?iv:optionLastIV;
  const ivElement=document.getElementById('option-iv'),ivText=displayIV!==null?displayIV.toFixed(1)+'%':'—';
- const stale=(!valid&&displayQuote)||(!ivValid&&displayIV!==null);optionStale.textContent=stale?(displayOptions.nativeCompact?'●':' · Last quote · waiting for update'):'';optionStale.title='Last quote · waiting for update';optionStale.setAttribute('aria-label',stale?'Last quote · waiting for update':'');optionStale.style.color='#b67e24';
+ const stale=(!valid&&displayQuote)||(!ivValid&&displayIV!==null);optionStale.textContent=stale?'Last quote · waiting for update':'';optionStale.title='Last quote · waiting for update';optionStale.setAttribute('aria-label',stale?'Last quote · waiting for update':'');optionStale.style.color='#b67e24';
  if(ivElement.textContent!==ivText)ivElement.textContent=ivText;
  ivElement.style.color=ivValid?colors[iv<=30?'low':iv<=70?'medium':'high']:'#666';
  ivElement.dataset.band=ivValid?(iv<=30?'low':iv<=70?'medium':'high'):'unavailable';
- const noQuote=!displayQuote&&displayIV===null;for(const el of optionQuote.querySelectorAll('span'))el.hidden=noQuote;if(noQuote){optionStale.textContent=document.documentElement.lang.startsWith('zh')?'暂无报价':'No quote available';optionStale.style.color='#666';}
+ const noQuote=!displayQuote&&displayIV===null;for(const el of optionQuote.querySelectorAll('span'))el.hidden=noQuote;if(noQuote){optionStale.textContent='No quote available';optionStale.style.color='#666';}
+ optionStale.hidden=!optionStale.textContent;
  optionQuote.style.opacity='1';
 }
 
@@ -1130,7 +1128,7 @@ function position(){drawExecutionMarks();document.body.style.setProperty('--axis
 // must not carry the full-screen pixel range into the shorter chart.
 let viewportFrame=0,lastViewportWidth=0,lastViewportHeight=0,nativeViewport=null,pendingNativeState=null;
 function applyViewport(width,height){
- width=Math.floor(width);height=Math.floor(height)-(document.body.classList.contains('quote-footer')?44:0);
+ width=Math.floor(width);height=Math.floor(height);
  if(width<1||height<1||width===lastViewportWidth&&height===lastViewportHeight)return;
  const range=chart.timeScale().getVisibleLogicalRange();
  lastViewportWidth=width;lastViewportHeight=height;
@@ -1142,7 +1140,7 @@ function applyViewport(width,height){
 window.setNativeViewport=(width,height)=>{
  if(!(width>0&&height>0))return;
  nativeViewport={width,height};
- const host=document.getElementById('chart');host.style.width=width+'px';host.style.height=(height-(document.body.classList.contains('quote-footer')?44:0))+'px';
+ const host=document.getElementById('chart');host.style.width=width+'px';host.style.height=height+'px';
  applyViewport(width,height);
  if(pendingNativeState){const state=pendingNativeState;pendingNativeState=null;window.applyChartState({...state,width,height});}
 };

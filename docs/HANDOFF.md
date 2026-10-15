@@ -1,3 +1,34 @@
+## 2026-10-15 option overlay and strike-list latency
+
+REA passively inspected the running shared chart script (Evidence
+`ev_9652ecf866a1900399a7a54a04e4db961994ec5e83f59c1bc637f821e5588499`):
+nativeCompact enabled a separate 44px quote footer and reduced chart height;
+its status was clipped to a dot. Remove that reservation. Web and native now
+share an in-plot three-value row with status on the next line; mobile uses 13px
+numbers and 10px status. Quote freshness, identity isolation and price delivery
+remain unchanged. Browser screenshots cover 320/393/1440 widths, two heights,
+web/native-compact and light/dark. Physical iPhone rendering awaits user Run.
+
+Read-only Mini logs show repeated TQQQ strike-list requests timing out inside
+reqContractDetails after about 10 seconds (including December/January expiries).
+This corroborates the screenshot's 503 failure class; the exact screenshot
+request ID was not found in the bounded log slice. Replace wildcard contract
+enumeration with the existing reqSecDefOptParams definition/cache shared by
+quote and expiration reads. Require SMART, standard multiplier and listed expiry.
+The returned strikes are chain candidates: IB does not guarantee every
+expiry/strike combination exists. Selected values still require existing exact
+contract qualification before quote/staging; no rounded/substituted contract.
+See https://interactivebrokers.github.io/tws-api/options.html .
+
+The native picker caches metadata per server/demo/ticker/right/expiry for up to
+30 minutes, bounded to 12 lists, and ignores canceled/obsolete completions.
+Validation: 13 Python strike/qualification/quote-readiness tests; browser overlay
+and stale/identity tests; generic iOS Simulator build. No device install, broker
+orders, Gateway restart or Backend restart. No measured post-fix live latency
+claim: backend runtime remains the prior version until the user restarts it.
+After source/static deployment, web layout is active; backend strike optimization
+requires the user's Backend restart, and native changes require the user's Run.
+
 ## 2026-10-15 chart detail refinements
 
 REA inspected the deployed Wheel frame and TradingView's shipped browser scripts

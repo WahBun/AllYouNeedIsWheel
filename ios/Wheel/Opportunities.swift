@@ -672,6 +672,8 @@ struct OpportunityDetail: View {
     @State private var strikeError: String?
     @State private var showStrikes = false
     @State private var strikesLoading = false
+    @State private var strikeLists: [String: (at: Date, values: [Double])] = [:]
+    @State private var strikeLoadID = UUID()
     @State private var strikeRetry = 0
     @State private var strikeInput = ""
     @Environment(WheelStore.self) private var store
@@ -823,10 +825,16 @@ struct OpportunityDetail: View {
             }.presentationDetents([.medium, .large])
         }
         .task(id: "strikes-\(showStrikes)-\(strikeRetry)-\(store.demo)-\(store.address)-\(key)-\(preference.expiration)") {
-            strikes = []; strikeError = nil
+            let requestID = UUID()
+            strikeLoadID = requestID
+            let cacheKey = "\(store.demo)-\(store.address)-\(key)-\(preference.expiration)"
+            let saved = strikeLists[cacheKey]
+            strikes = saved?.values ?? []; strikeError = nil
+            strikesLoading = false
             guard showStrikes, !preference.expiration.isEmpty else { return }
+            if let saved, Date().timeIntervalSince(saved.at) < 1800 { return }
             strikesLoading = true
-            defer { strikesLoading = false }
+            defer { if strikeLoadID == requestID { strikesLoading = false } }
             do {
                 try Task.checkCancellation()
                 let next: [Double]
@@ -835,11 +843,15 @@ struct OpportunityDetail: View {
                     let payload = try await store.trading.get("api/options/strikes", base: store.address, query: [URLQueryItem(name: "ticker", value: ticker), URLQueryItem(name: "optionType", value: type), URLQueryItem(name: "expiration", value: preference.expiration)])
                     next = payload["strikes"] as? [Double] ?? []
                 }
-                guard !Task.isCancelled else { return }
-                strikes = next.filter { $0.isFinite && $0 > 0 }
+                guard !Task.isCancelled, strikeLoadID == requestID else { return }
+                strikes = Array(Set(next.filter { $0.isFinite && $0 > 0 })).sorted()
                 if strikes.isEmpty { strikeError = "No matching option quote." }
+                else {
+                    if strikeLists.count >= 12 { strikeLists.removeAll() }
+                    strikeLists[cacheKey] = (Date(), strikes)
+                }
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, strikeLoadID == requestID else { return }
                 strikeError = connectionMessage(error)
             }
         }
