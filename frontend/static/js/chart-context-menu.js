@@ -143,6 +143,7 @@
    item('Auto (fits data to screen)',()=>activePriceScale().applyOptions({autoScale:true}));
    const side=window.priceAxisSide==='left'?'right':'left';
    item('Move scale to '+side,()=>{window.configurePriceAxis(side);parent.postMessage({wheelChart:true,name:'priceAxisChanged',body:{side}},location.origin);});
+   const plus=item('Plus button',()=>parent.postMessage({wheelChart:true,name:'plusButtonChanged',body:{enabled:displayOptions.plusButton===false}},location.origin));plus.setAttribute('role','menuitemcheckbox');plus.setAttribute('aria-checked',String(displayOptions.plusButton!==false));plus.style.position='relative';plus.style.paddingLeft='32px';if(displayOptions.plusButton!==false){const check=document.createElement('span');check.textContent='✓';check.setAttribute('aria-hidden','true');check.style.cssText='position:absolute;left:12px';plus.prepend(check);}
    const separator=document.createElement('div');separator.style.cssText='height:1px;background:currentColor;opacity:.2;margin:4px 0';menu.append(separator);
    item('More settings...',()=>parent.postMessage({wheelChart:true,name:'chartSettings'},location.origin));
   }else{

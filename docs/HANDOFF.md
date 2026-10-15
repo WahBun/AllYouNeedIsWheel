@@ -1,3 +1,19 @@
+## 2026-10-15 centered cursor price and optional Plus button
+
+Center the crosshair price badge and match the live-price typography (11px,
+500 weight, 14px line height, 18px single-price box). Preserve the cursor color
+and independent 20px plus target. The axis-gear menu now offers a checked Plus
+button item; default on, per-pane persistence through existing display settings.
+Turning it off removes only the interactive plus, retaining the cursor price.
+Main and auxiliary panes route through same-origin, exact-frame selection.
+REA rechecked Wheel's price controls and TV's reference menu
+(ev_e5e38458998fb13b271cd108822d34fee8d7dff421c6358e3df943d9d72c80bf,
+ev_b12d6ebd52246a58e575be5fcec2673851409273358ce6a2c68f16748c343f0b).
+Browser checks passed for all four panes, reload persistence, both price-axis
+sides, desktop/narrow and light/dark; centered text geometry, clickable menu and
+live/countdown/extrema collision checks passed. Zero broker writes. Unrelated
+local quote-display and iOS changes are excluded. Static web deployment only.
+
 ## 2026-10-15 settings through each chart gear
 
 Hide the header Settings control and add More settings... beneath a separator
