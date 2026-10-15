@@ -278,7 +278,7 @@ final class OpportunityBook {
             if previous?.quote?.id == row.quote?.id, previous?.manualPrice == true {
                 row.price = previous?.price ?? ""; row.manualPrice = true
             } else { row.price = row.quote?.mid.map { String(format: "%.2f", $0) } ?? ""; row.manualPrice = false }
-            row.quantity = type == "CALL" ? min(max(0, preference.quantity ?? row.capacity), min(100, row.capacity)) : max(1, min(100, preference.quantity ?? (shares >= 100 ? Int(shares / 100) : 1)))
+            row.quantity = type == "CALL" ? min(100, max(0, row.capacity)) : max(1, min(100, preference.quantity ?? (shares >= 100 ? Int(shares / 100) : 1)))
             row.priceDirection = TradingMath.priceDirection(previous: previous?.stockPrice, current: row.stockPrice)
             row.midDirection = previous?.quote?.id == row.quote?.id
                 ? TradingMath.priceDirection(previous: previous?.quote?.mid, current: row.quote?.mid) : 0
@@ -286,9 +286,10 @@ final class OpportunityBook {
             if previous?.quote != nil, let latest = rows[key] {
                 if type != "CALL" {
                     row.quantity = latest.quantity
-                } else if latest.staged || preference.quantity != nil || latest.quantity != previous?.capacity {
+                } else if latest.staged || latest.manualQuantity {
                     // Preserve an edited/staged amount, while still respecting refreshed coverage.
                     row.quantity = min(max(0, latest.quantity), min(100, row.capacity))
+                    row.manualQuantity = latest.manualQuantity
                 }
                 row.staged = latest.staged
                 if latest.manualPrice, latest.quote?.id == row.quote?.id {
@@ -446,6 +447,7 @@ struct OpportunityRow: Identifiable {
     var shares = 0.0
     var capacity = 0
     var quantity = 1
+    var manualQuantity = false
     var price = ""
     var manualPrice = false
     var error: String?
@@ -509,7 +511,7 @@ struct OpportunitiesView: View {
             ForEach(symbols, id: \.self) { symbol in
                 let row = book.rows[book.key(symbol, type)]
                 let displayQuantity = type == "CALL" && row?.quote == nil
-                    ? min(book.preferences[book.key(symbol, type)]?.quantity ?? book.defaultCallQuantity(symbol, store: store), book.defaultCallQuantity(symbol, store: store))
+                    ? book.defaultCallQuantity(symbol, store: store)
                     : (row?.quantity ?? 1)
                 ArrowlessNavigationLink { OpportunityDetail(ticker: symbol, type: type) } label: {
                     VStack(alignment: .leading, spacing: 8) {
@@ -727,7 +729,8 @@ struct OpportunityDetail: View {
                             Text("×").foregroundStyle(.secondary).accessibilityHidden(true)
                             Picker("Contracts", selection: Binding(get: { row.quantity }, set: { value in
                                 book.rows[key]?.quantity = value
-                                var pref = preference; pref.quantity = value
+                                book.rows[key]?.manualQuantity = true
+                                var pref = preference; pref.quantity = type == "CALL" ? nil : value
                                 book.preferences[key] = pref; book.save()
                             })) {
                                 ForEach(1...max(1, min(100, type == "CALL" ? row.capacity : 100)), id: \.self) { count in

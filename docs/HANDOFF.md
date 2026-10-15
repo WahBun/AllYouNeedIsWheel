@@ -1,3 +1,11 @@
+## 2026-10-16 default native CC opportunities to current coverage
+
+Read-only Mini option data returned covered_call_capacity=3 for TSLL while the phone card displayed 2. Native source retained an old saved quantity and used quantity-versus-capacity differences as a manual-edit heuristic. REA decompiled the local device-build defaultCallQuantity function (ev_a46e5b669f87d1fff79d791f3eb097ff9618f8b3ace64e4f6a937990c7ea2a65); source inspection confirms the later preference/refresh override. This does not identify the phone's private saved preference value.
+
+CALL defaults now use the current backend coverage cap. Legacy stored CALL quantity no longer overrides that default; explicit quantity edits are tracked on the current row and preserved across refresh, as are staged quantities, always clamped to refreshed coverage. New CALL edits no longer persist as future default quantities. PUT preferences and all submission/coverage guards remain unchanged. The prequote card uses the existing held/pending-adjusted capacity estimate.
+
+Validation: three selected Simulator XCTest cases passed with zero failures, covering old quantity recovery to 3, automatic refresh, manual quantity preservation, a new row returning to maximum, pending-call reservation and staged-row preservation. Build succeeded. This is native logic/Simulator evidence; physical phone verification requires user-operated Run. No backend deployment/restart or broker order action is needed. Keep unrelated local signing/localization edits uncommitted.
+
 ## 2026-10-16 complete fast SL releases with a bounded quote wait
 
 REA captured the current Wheel page/scripts (ev_02830a8479f012e5e1332877f89052cc01960ff93b9128595f7afd52b930255c). Read-only runtime inspection showed fresh chart packets but a missing executable bid while ask remained valid. The screenshot separately showed a confirmed request around 562 ms; no claim that this change reduces broker response or fill latency.

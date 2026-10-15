@@ -1359,6 +1359,35 @@ final class TradingTests: XCTestCase {
         XCTAssertEqual(portfolio.summary.account_value, portfolio.summary.cash_balance + portfolio.positions.reduce(0) { $0 + ($1.market_value ?? 0) }, accuracy: 0.01)
         XCTAssertTrue(portfolio.positions.allSatisfy { $0.avg_cost != nil })
     }
+    func testCallDefaultIgnoresOldQuantityAndTracksCoverage() async {
+        let store = WheelStore()
+        await store.refreshPortfolio()
+        let book = store.opportunities
+        book.preferences = ["TSLL:CALL": OpportunityPreference(quantity: 2)]
+        await book.load("TSLL", type: "CALL", store: store)
+        XCTAssertEqual(book.rows["TSLL:CALL"]?.quantity, 3)
+        book.rows["TSLL:CALL"]?.quantity = 2
+        await book.load("TSLL", type: "CALL", store: store, background: true)
+        XCTAssertEqual(book.rows["TSLL:CALL"]?.quantity, 3, "An old automatic quantity is not a manual edit")
+        book.rows["TSLL:CALL"]?.quantity = 1
+        book.rows["TSLL:CALL"]?.manualQuantity = true
+        await book.load("TSLL", type: "CALL", store: store, background: true)
+        XCTAssertEqual(book.rows["TSLL:CALL"]?.quantity, 1)
+        XCTAssertTrue(book.rows["TSLL:CALL"]!.manualQuantity)
+        book.rows = [:]
+        await book.load("TSLL", type: "CALL", store: store)
+        XCTAssertEqual(book.rows["TSLL:CALL"]?.quantity, 3)
+    }
+    func testCallPreviewReservesHeldAndPendingContracts() async {
+        let store = WheelStore()
+        await store.refreshPortfolio()
+        let book = store.opportunities
+        XCTAssertEqual(book.defaultCallQuantity("TSLL", store: store), 3)
+        store.orders = [Order(id: 1, ticker: "TSLL", action: "SELL", option_type: "CALL", quantity: 2, status: "submitted", filled: 0)]
+        XCTAssertEqual(book.defaultCallQuantity("TSLL", store: store), 1)
+        store.orders[0].status = "canceled"
+        XCTAssertEqual(book.defaultCallQuantity("TSLL", store: store), 3)
+    }
     func testBackgroundOpportunityDefaultsAndEditsSurviveRefresh() async {
         let store = WheelStore()
         await store.refreshPortfolio()
