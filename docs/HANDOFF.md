@@ -1,3 +1,9 @@
+## 2026-10-15 native initial price-axis spacing
+
+REA inspected the running Wheel page (ev_ad41832cf92f082bcc688b221d3bc267857934068091ee320eaf487dc4edd2ed), and reproduced the supplied mobile initial-autoscale geometry: 30200 is 18.31px above the 30186 last-price center, but the old 10px tick half-height plus 2px clearance incorrectly treated it as overlapping the 18px badge. Native compact mode now reserves 6px tick half-height and 1px clearance at the existing 10px font. Web behavior stays unchanged. Genuine overlaps remain hidden; no prices or scale ranges change.
+
+Native initial-autoscale regression verifies 30200 stays visible before any scale drag, on both axes and themes, with off/on and inverted-scale checks. Existing price-label and no-overlap regressions passed. iPhone Run remains user-operated; no Mini deployment or Backend restart is needed for this native-only adjustment.
+
 ## 2026-10-15 fully opaque Close footer
 
 REA re-inspected the live Wheel page (ev_fc278cd15adce67c8bbd1bc1166317e330f2d0e1b1d9ef7fb347f385b210cc0c). The new screenshot showed underlying content at the rounded edges and below Close; the earlier button-only check missed that area. Wrap the existing button in a solid sticky footer spanning the panel padding, replacing its fading shadow. Preserve the same button, handlers, hidden/disabled states and geometry; hide the footer when Close is hidden. Runtime wrapping also supports cached server templates without restart.

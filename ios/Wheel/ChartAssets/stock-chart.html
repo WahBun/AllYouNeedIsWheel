@@ -1105,8 +1105,9 @@ function separatePriceAxisLabels(){
  }
  // The library cannot see DOM labels. Cover whole conflicting scale ticks,
  // including glyph ascenders/descenders, without touching its pinned bundle.
- const side=window.priceAxisSide||'right',font=chart.options().layout.fontSize,half=Math.ceil(font*.75)+2;
- const regions=enabled?axisTickPrices.map(price=>series.priceToCoordinate(price)).filter(y=>y!==null&&y>=0&&y<=height&&occupied.some(([a,b])=>y+half+2>a&&y-half-2<b)):[];
+ // Native autoscale has tighter tick spacing; reserve glyph height, not a badge.
+ const side=window.priceAxisSide||'right',font=chart.options().layout.fontSize,half=displayOptions.nativeCompact?Math.ceil(font/2)+1:Math.ceil(font*.75)+2,tickGap=displayOptions.nativeCompact?1:2;
+ const regions=enabled?axisTickPrices.map(price=>series.priceToCoordinate(price)).filter(y=>y!==null&&y>=0&&y<=height&&occupied.some(([a,b])=>y+half+tickGap>a&&y-half-tickGap<b)):[];
  regions.forEach((y,i)=>{
   let mask=axisTickMasks[i];if(!mask){mask=document.createElement('div');mask.className='axis-tick-mask';mask.style.cssText='position:absolute;pointer-events:none;z-index:2';document.body.append(mask);axisTickMasks.push(mask);}
   mask.hidden=false;mask.style.background=chart.options().layout.background.color;mask.style.top=Math.max(0,y-half)+'px';mask.style.height=(Math.min(height,y+half)-Math.max(0,y-half))+'px';mask.style.width=priceAxisWidth(side)+'px';mask.style.left=side==='left'?'0':'auto';mask.style.right=side==='right'?'0':'auto';
