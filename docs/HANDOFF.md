@@ -1,3 +1,12 @@
+## 2026-10-15 signature optical correction
+
+Per the user's visual review, move the Ben signature itself up 2px, including its
+flow overlay; retain its 24px size. The previous title adjustment remains.
+REA rechecked the current header (Evidence
+`ev_542d2e8cb764e4f84167c80ad45421431a020a8103ea0d53fbb3abf555488eb2`).
+Rendered screenshots and DOM geometry confirm the signature moved exactly 2px,
+with title/status unchanged; desktop/narrow light/dark and animation checks pass.
+
 ## 2026-10-15 header optical alignment
 
 Reduced the Ben signature from 26px to 24px and raised the adjacent Superchart
