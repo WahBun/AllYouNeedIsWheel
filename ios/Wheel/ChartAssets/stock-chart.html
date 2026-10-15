@@ -1106,7 +1106,7 @@ function updateVisibleExtrema(){
 // Only labels move; order prices, lines and drag handles keep their true anchors.
 const tradeAxisBadges=new Map(),axisTickMasks=[];
 function separatePriceAxisLabels(){
- const height=chart.paneSize().height,occupied=[],enabled=displayOptions.noOverlappingLabels!==false;
+ const height=chart.paneSize().height,occupied=[],labelRegions=[],enabled=displayOptions.noOverlappingLabels!==false;
  if(crosshairAxisY!==null&&crosshairAxisY>=0&&crosshairAxisY<=height){
   const half=Math.ceil(chart.options().layout.fontSize*1.5/2)+3;
   occupied.push([crosshairAxisY-half,crosshairAxisY+half]);
@@ -1135,13 +1135,15 @@ function separatePriceAxisLabels(){
    .sort((a,b)=>Math.abs(a-desired)-Math.abs(b-desired));
   const top=candidates.find(top=>occupied.every(([start,end])=>top+size+gap<=start||top>=end+gap));
   current.style.visibility=top===undefined?'hidden':'';
-  if(top!==undefined){current.style.top=top+'px';occupied.push([top,top+size]);}
+  if(top!==undefined){current.style.top=top+'px';occupied.push([top,top+size]);labelRegions.push([top,top+size]);}
  }
  // The library cannot see DOM labels. Cover whole conflicting scale ticks,
  // including glyph ascenders/descenders, without touching its pinned bundle.
  // Native autoscale has tighter tick spacing; reserve glyph height, not a badge.
  const side=window.priceAxisSide||'right',font=chart.options().layout.fontSize,half=displayOptions.nativeCompact?Math.ceil(font/2)+1:Math.ceil(font*.75)+2,tickGap=displayOptions.nativeCompact?1:2;
- const regions=enabled?axisTickPrices.map(price=>series.priceToCoordinate(price)).filter(y=>y!==null&&y>=0&&y<=height&&occupied.some(([a,b])=>y+half+tickGap>a&&y-half-tickGap<b)):[];
+ // Cursor clearance arranges badges only; the opaque cursor itself covers ticks.
+ // Do not erase neighboring ticks merely because they enter its clearance zone.
+ const regions=enabled?axisTickPrices.map(price=>series.priceToCoordinate(price)).filter(y=>y!==null&&y>=0&&y<=height&&labelRegions.some(([a,b])=>y+half+tickGap>a&&y-half-tickGap<b)):[];
  regions.forEach((y,i)=>{
   let mask=axisTickMasks[i];if(!mask){mask=document.createElement('div');mask.className='axis-tick-mask';mask.style.cssText='position:absolute;pointer-events:none;z-index:2';document.body.append(mask);axisTickMasks.push(mask);}
   mask.hidden=false;mask.style.background=chart.options().layout.background.color;mask.style.top=Math.max(0,y-half)+'px';mask.style.height=(Math.min(height,y+half)-Math.max(0,y-half))+'px';mask.style.width=priceAxisWidth(side)+'px';mask.style.left=side==='left'?'0':'auto';mask.style.right=side==='right'?'0':'auto';

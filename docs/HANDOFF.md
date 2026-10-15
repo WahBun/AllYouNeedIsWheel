@@ -1,3 +1,11 @@
+## 2026-10-16 preserve scale ticks beside the moving crosshair
+
+The supplied desktop video showed ordinary prices disappearing near the moving cursor. REA captured the current Wheel page and its executed-source inventory (ev_7521ecc0a3516dd3fb75ade54115b6405d375fe710d4b01abd0cf3d611435c5e); its separatePriceAxisLabels implementation matches the local source. Cursor clearance was incorrectly included in whole-tick masking, erasing neighboring ticks outside the opaque cursor badge.
+
+Keep cursor clearance for label arrangement, but generate scale masks only from actual non-cursor labels. Preserve the opaque cursor, label avoidance, chart layout, quote delivery and order behavior. The new isolated browser regression fails on the old source and passes on the fix at offsets above/below a normal tick, on both axes, themes and desktop/narrow widths at DPR2. Existing no-overlap and native initial-spacing regressions pass. Screenshots were inspected. This is mock/browser evidence, not broker acceptance.
+
+This shared chart HTML is served dynamically: a static Mini update and browser reload apply it without Backend/Gateway restart. iPhone uses the bundled asset and requires user-operated Run to update. Preserve unrelated local signing/localization changes.
+
 ## 2026-10-16 preserve native futures chart session preference
 
 Remove the two forced ETH assignments when entering a futures chart or selecting a futures contract. Existing stockChartSession AppStorage defaults to RTH and persists explicit RTH/ETH choices; recent-chart restoration remains intact. Existing ETH preferences are retained, so users affected by the old override should select RTH once after updating.
