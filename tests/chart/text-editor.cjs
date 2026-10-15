@@ -21,6 +21,19 @@ const {start}=require('./market-feed/harness.cjs');
  // Two genuine taps on existing text reopen the editor; a drag moves it instead.
  const text=p.locator('[data-drawing] text').first();await text.click();await text.click();await input.waitFor({state:'visible'});await input.fill('Double-click edited');await input.press('Control+Enter');await p.waitForTimeout(60);
  const before=await p.evaluate(()=>saved.at(-1).drawings[0].p[0]);const r=await text.boundingBox();await p.mouse.move(r.x+r.width/2,r.y+r.height/2);await p.mouse.down();await p.mouse.move(r.x+r.width/2+20,r.y+r.height/2+25,{steps:5});await p.mouse.up();assert.equal(await input.isVisible(),false);assert.notDeepEqual(await p.evaluate(()=>saved.at(-1).drawings[0].p[0]),before);
+ // Formatting toolbar moves independently and remains in place across edits and text drags.
+ const panel=p.locator('#draw-text-properties'),grip=await p.getByRole('button',{name:'Move text toolbar',exact:true}).boundingBox();
+ const textBefore=await p.evaluate(()=>saved.at(-1).drawings[0]);
+ await p.mouse.move(grip.x+grip.width/2,grip.y+grip.height/2);await p.mouse.down();await p.mouse.move(grip.x+grip.width/2-50,grip.y+grip.height/2+120,{steps:5});await p.mouse.up();
+ const panelMoved=await panel.boundingBox();assert.deepEqual(await p.evaluate(()=>saved.at(-1).drawings[0]),textBefore);
+ await p.getByRole('button',{name:'Bold',exact:true}).click();assert.equal((await panel.boundingBox()).y,panelMoved.y);
+ await p.locator('body').click({position:{x:width-15,y:700}});await p.keyboard.press('Meta+z');assert.equal(await p.evaluate(()=>saved.at(-1).drawings[0].bold),textBefore.bold);
+ await p.keyboard.press('Meta+Shift+z');assert.equal(await p.evaluate(()=>saved.at(-1).drawings[0].bold),!textBefore.bold);
+ await p.keyboard.press('Meta+z');await p.keyboard.press('Meta+z');assert.deepEqual(await p.evaluate(()=>saved.at(-1).drawings[0].p[0]),before,'Undo drag');
+ await p.keyboard.press('Meta+Shift+z');assert.deepEqual(await p.evaluate(()=>saved.at(-1).drawings[0].p),textBefore.p,'Redo drag');
+ await p.locator('[data-drawing] text').first().click();const r2=await p.locator('[data-drawing] text').first().boundingBox();
+ await p.mouse.move(r2.x+5,r2.y+5);await p.mouse.down();await p.mouse.move(r2.x+15,r2.y+35,{steps:5});await p.mouse.up();assert.equal((await panel.boundingBox()).y,panelMoved.y,'Text drag does not move toolbar');
+ assert.equal(await p.evaluate(()=>chartDrawingActions.redo()),false,'New edit clears redo');
  // Saved text/style round-trip and next drawing reuse the persisted style.
  await p.evaluate(()=>{const v=saved.at(-1);configureDrawings({key:'text-restored',value:v});});await p.getByRole('button',{name:'Show drawing tools',exact:true}).click();
  await p.getByRole('button',{name:'Text',exact:true}).click();await p.mouse.click(width*.55,450);await input.waitFor({state:'visible'});assert.equal(await p.getByLabel('Font size',{exact:true}).inputValue(),'20');await input.press('Escape');assert.equal(await p.evaluate(()=>chartDrawingActions.count()),1,'Blank draft is discarded');

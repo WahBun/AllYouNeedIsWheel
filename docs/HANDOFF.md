@@ -1,3 +1,29 @@
+## 2026-10-15 drawing shortcuts and independent Text toolbar
+
+REA inspected the current TradingView page for Undo and reused the still-applicable
+captured toolbar/command-stack source from the Text analysis below. Evidence:
+`ev_e0284a74d9798e9f7b86f057dd3262b56e5e361c3ac3cd99a3c88fb52a2a37fe`
+(page Undo accessibility) and `ev_41684b3dfba36eff971e7892a63ea42bbcb1a3b2b173daa92b58848cb4f600a2`
+(shipped scripts). The floating toolbar has a draggable handle; undo/redo moves
+commands between stacks and a new command clears redo. No user reference drawing
+was modified during analysis.
+
+Text and its formatting toolbar now move independently. Drag the toolbar grip to
+position it; moving the drawing, editing text, or changing style keeps that screen
+position. Viewport clamps keep the toolbar reachable; placement is session-local.
+Cmd/Ctrl+Z undoes drawing changes; Cmd/Ctrl+Shift+Z redoes them. No new undo buttons.
+Text fields keep native input undo. Only analysis drawings are affected. Per-ID
+history preserves unrelated peer drawings and declines conflicting newer edits;
+contract changes reset history. These synchronization guards and shortcut routing
+are Wheel adaptations, not claims about TradingView's broker behavior.
+
+Passed text-editor and drawing-history browser checks (desktop/narrow editing,
+drag separation, style/position undo, create/delete redo, host/frame shortcuts,
+input focus, peer conflicts and contract reset), dark/light toolbar menu matrix,
+and existing 1–4-pane market-feed interaction/reconnect fixtures. No trading writes.
+Static deployment needs no Backend or Gateway restart. Phone bundled assets still
+require the user's Run. Existing unrelated iOS edits remain uncommitted and excluded.
+
 ## 2026-10-15 Text in-place editing
 
 REA passively inspected the user's current TradingView chart and shipped Text
