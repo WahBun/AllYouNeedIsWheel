@@ -176,8 +176,9 @@ header #theme,header #trade-sounds,header #settings{width:42px;height:40px;paddi
 @media(max-width:700px){.toolbar-end{width:100%;justify-content:flex-end}.toolbar-instrument{max-width:100%}.toolbar-instrument #option-search{max-width:calc(100vw - 70px)}}
 
 #layout-menu:not([hidden]){display:grid;grid-template-columns:repeat(4,40px)}
-#layout-menu button.layout-sync{grid-column:1 / -1;width:100%;display:flex;gap:8px;justify-content:flex-start;white-space:nowrap;font-size:12px}
-#layout-menu button.layout-sync::before{content:"□"}#layout-menu button.layout-sync[aria-checked="true"]::before{content:"✓"}
+#layout-menu button.layout-sync{grid-column:1 / -1;width:100%;display:flex;gap:12px;justify-content:space-between;white-space:nowrap;font-size:12px;background:transparent;color:var(--fg);border-color:transparent}
+#layout-menu button.layout-sync::after{content:"";flex:none;width:30px;height:18px;border-radius:12px;background:radial-gradient(circle at 9px 9px,var(--bg) 6px,transparent 6.5px),var(--muted)}
+#layout-menu button.layout-sync[aria-checked="true"]::after{background:radial-gradient(circle at 21px 9px,var(--bg) 6px,transparent 6.5px),var(--fg)}
 
 #chart-group-loading{flex-direction:column;gap:12px;text-align:center;padding:20px;position:absolute;inset:0;z-index:25;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--fg);font-size:14px;pointer-events:auto}
 #chart-group-loading[hidden]{display:none}

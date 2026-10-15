@@ -310,7 +310,7 @@ const marketStream=new WheelChartStream({receive:(bars,context)=>{if(currentMark
 function applyMarket(bars,push=false){
  if(bars.con_id!==cid||bars.interval!==interval||bars.session!==session||bars.account_epoch!==epoch)return;
  if(Number.isFinite(bars.server_time)&&Number.isFinite(packet.server_time)&&bars.server_time<packet.server_time)return;
- const pushedPnL=push&&state.position&&bars.account_epoch===epoch&&bars.daily_pnl?.fresh===true;
+ const pushedPnL=push&&bars.daily_pnl?.con_id===cid&&bars.daily_pnl.fresh===true&&!(packet.daily_pnl?.basis==='realized'&&!state.position);
  const pnl=pushedPnL?{daily_pnl:bars.daily_pnl,account_epoch:bars.account_epoch}:{daily_pnl:packet.daily_pnl};
  if(pushedPnL){pnlReceived=Date.now();pnlPhase='ready';}
  packet={...mergeHistory(bars),...pnl};loadProtection();
@@ -380,10 +380,10 @@ async function refreshPnL({force=false}={}){
  try{
   const result=await api(`portfolio/chart-pnl/${context.cid}`,undefined,AbortSignal.any([request.signal,AbortSignal.timeout(12000)]));
   if(pnlBusy!==request||!currentMarket(context)||pnlReceived>started)return;
-  if(result.account_epoch!==epoch||result.daily_pnl?.con_id!==cid)throw Error('P&L identity mismatch');
+  if(result.account_epoch!==epoch||result.daily_pnl?.con_id!==cid){packet.daily_pnl=null;throw Error('P&L identity mismatch');}
   packet.daily_pnl=result.daily_pnl;pnlReceived=Date.now();pnlPhase=result.daily_pnl.fresh?'ready':'unavailable';renderDailyPnL();
  }catch{
-  if(pnlBusy===request&&currentMarket(context)&&!request.signal.aborted&&pnlReceived<=started){packet.daily_pnl=null;pnlPhase='unavailable';renderDailyPnL();}
+  if(pnlBusy===request&&currentMarket(context)&&!request.signal.aborted&&pnlReceived<=started){pnlPhase='unavailable';renderDailyPnL();}
  }finally{if(pnlBusy===request)pnlBusy=null;}
 }
 function ensureMarket(){

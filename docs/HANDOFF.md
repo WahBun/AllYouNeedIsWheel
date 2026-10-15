@@ -1,3 +1,36 @@
+## 2026-10-15 chart detail refinements
+
+REA inspected the deployed Wheel frame and TradingView's shipped browser scripts
+(Evidence `ev_aecdda1cfb2599457b326f4f17fee993326479897a52482cbf8c598a6016b867`).
+TV aligns ordinary price labels using rendered heights and draws the crosshair
+last; Wheel now reserves crosshair/order-cursor space in its DOM label allocator.
+This reservation is a Wheel adaptation, not a claim that TV moves High/Low around
+its cursor. Order numeric anchors and trading/drag semantics are unchanged.
+
+Empty drawing menus omit Remove. Sync keeps its existing two settings and
+semantics, now with right-aligned pill switches matching the supplied reference.
+TV's execution renderer uses a narrow 3px stem and 1px outline; an independently
+implemented plot-clipped overlay renders that silhouette while preserving Wheel's
+fill grouping, marker geometry and touch targets. Cached bar lookup avoids
+scanning full history for every marker on every animation frame.
+
+Daily P&L accepts valid account/contract push updates before a separate position
+snapshot catches up. A transient read failure no longer erases a still-fresh
+value; original 15-second expiry and identity invalidation remain. Flat persisted
+realized totals retain their existing basis. No fabricated P&L or quote-derived
+estimate; unavailable IB data still displays unavailable.
+
+Verified browser fixtures: cursor label clearance on both axes, mobile/desktop,
+light/dark; real Sync/menu/arrow taps; P&L transient failure, early push, expiry and
+account isolation; compact order labels and TP/SL drag anchors. Multi-pane
+interaction passed repeated 1/2/3/4 layouts and reconnect recovery. The 100Hz
+synthetic stress passed single, four and two-page/eight-pane workloads: 180
+updates per pane, final OHLC integrity, no errors or trading writes (measured
+apply p95 2–7ms; this is local fixture latency, not IB latency). No broker orders.
+Static web deployment requires no Backend/Gateway restart. The shared iOS chart
+and previously completed footer swap require the user's own iPhone Run. Local
+signing and localization edits are preserved and excluded from this change.
+
 ## 2026-10-14 dense price-axis label spacing
 
 REA inspected the current deployed frame and confirmed the existing allocator

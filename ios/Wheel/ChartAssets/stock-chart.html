@@ -62,7 +62,40 @@ function screenToLogical(x){return chart.timeScale().coordinateToLogical(x-plotL
 function placeByPriceAxis(el,gap){const left=window.priceAxisSide==='left';el.style[left?'left':'right']=gap+'px';el.style[left?'right':'left']='auto';}
 function fitPlotLayer(el,height){const left=plotLeft(),width=plotRight()-left;el.style.left=left+'px';el.style.right='auto';el.setAttribute('width',width);el.setAttribute('height',height);el.setAttribute('viewBox',`${left} 0 ${width} ${height}`);}
 const series=chart.addSeries(LightweightCharts.CandlestickSeries,{priceLineVisible:false,lastValueVisible:false,upColor:'rgba(0,0,0,0)',downColor:'#303332',borderVisible:true,borderUpColor:'#303332',borderDownColor:'#303332',wickUpColor:'#303332',wickDownColor:'#303332',priceLineColor:'#303332'});
-const executionMarkers=LightweightCharts.createSeriesMarkers(series,[],{autoScale:false});
+// Keep the library's marker layout; render the narrow arrow and its text
+// in a plot-clipped layer with the reference's one-pixel outline.
+const libraryExecutionMarkers=LightweightCharts.createSeriesMarkers(series,[],{autoScale:false});
+let visibleExecutionMarks=[];
+const executionMarkers={markers:()=>visibleExecutionMarks,setMarkers(marks){visibleExecutionMarks=marks;libraryExecutionMarkers.setMarkers(marks.map(mark=>({...mark,color:'transparent'})));}};
+const executionLayer=document.createElementNS('http://www.w3.org/2000/svg','svg');
+executionLayer.id='execution-marks';executionLayer.setAttribute('aria-hidden','true');
+executionLayer.style.cssText='position:absolute;top:0;pointer-events:none;z-index:2;overflow:hidden';document.body.append(executionLayer);
+let executionLayoutKey='',executionBars=null,executionBarCount=0,executionBarIndex=new Map();
+function drawExecutionMarks(){
+ const height=chart.paneSize().height,stacks=new Map(),rows=[];
+ if(executionBars!==previous||executionBarCount!==previous.length){executionBars=previous;executionBarCount=previous.length;executionBarIndex=new Map(previous.map(bar=>[bar.time,bar]));}
+ else if(previous.length)executionBarIndex.set(previous.at(-1).time,previous.at(-1));
+ const odd=n=>{const v=Math.ceil(n);return v%2?v:v-1;};
+ const base=Math.min(30,Math.max(12,chart.timeScale().options().barSpacing));
+ const shape=odd(base)-1,margin=Math.max(3,odd(base*.1)),font=chart.options().layout.fontSize;
+ for(const mark of executionMarkers.markers()){
+  const buy=mark.position==='belowBar',key=mark.time+'-'+buy,offset=stacks.get(key)||margin;
+  stacks.set(key,offset+shape+margin+(mark.text?font*1.2:0));
+  const bar=executionBarIndex.get(mark.time),x=timeToScreenCoordinate(mark.time),anchor=bar?series.priceToCoordinate(buy?bar.low:bar.high):null;
+  if(x===null||anchor===null||x<plotLeft()-20||x>plotRight()+20)continue;
+  const direction=buy?1:-1,center=anchor+direction*(offset+shape/2);
+  rows.push({...mark,x,y:center-direction*7.75,direction,textY:anchor+direction*(offset+shape+font*.6)});
+ }
+ const key=JSON.stringify([rows,height,plotLeft(),plotRight(),font]);if(key===executionLayoutKey)return;executionLayoutKey=key;
+ fitPlotLayer(executionLayer,height);executionLayer.replaceChildren();
+ for(const row of rows){
+  const arrow=document.createElementNS(executionLayer.namespaceURI,'path');
+  arrow.setAttribute('d','M0 0 L-6.5 6 L-4.5 8 L-1.5 5.5 L-1.5 15.5 L1.5 15.5 L1.5 5.5 L4.5 8 L6.5 6 Z');
+  arrow.setAttribute('transform',`translate(${row.x} ${row.y}) scale(1 ${row.direction})`);
+  arrow.setAttribute('fill',row.color);arrow.setAttribute('stroke','#fff');arrow.setAttribute('stroke-width','1');arrow.setAttribute('stroke-linejoin','round');executionLayer.append(arrow);
+  if(row.text){const label=document.createElementNS(executionLayer.namespaceURI,'text');label.textContent=row.text;label.setAttribute('x',row.x);label.setAttribute('y',row.textY+row.direction*3);label.setAttribute('fill',row.color);label.setAttribute('font-size',font);label.setAttribute('font-family','-apple-system,BlinkMacSystemFont,sans-serif');label.setAttribute('text-anchor','middle');label.setAttribute('dominant-baseline','middle');executionLayer.append(label);}
+ }
+}
 let executionFingerprint='',selectedExecution=null;
 const executionDetails=new Map();
 const executionPopup=document.createElement('div');executionPopup.id='execution-popup';executionPopup.hidden=true;
@@ -760,7 +793,9 @@ function updateReadout(){
  readout.style.fontSize=innerWidth>=768?'14px':'11px';
  for(let i=0;b&&i<3&&readout.scrollWidth>readout.clientWidth;i++)readout.style.fontSize=Math.max(8,parseFloat(readout.style.fontSize)*readout.clientWidth/readout.scrollWidth*.98)+'px';
 }
+let crosshairAxisY=null;
 function handleReadoutMove(p){
+ crosshairAxisY=p.point?.y??null;
  const b=p.seriesData?.get(series),last=previous.at(-1);
  const logical=p.logical??(p.point?chart.timeScale().coordinateToLogical(p.point.x):null);
  readoutLatest=!!last&&!!p.point&&!b&&logical!==null&&logical>previous.length-1;
@@ -1006,6 +1041,13 @@ function updateVisibleExtrema(){
 const tradeAxisBadges=new Map();
 function separatePriceAxisLabels(){
  const height=chart.paneSize().height,occupied=[];
+ // Crosshair is the foreground axis label. Reserve the actual order-cursor
+ // badge too; it can remain open while the pointer moves into its menu.
+ if(crosshairAxisY!==null&&crosshairAxisY>=0&&crosshairAxisY<=height){
+  const half=Math.ceil(chart.options().layout.fontSize*1.5/2)+3;
+  occupied.push([crosshairAxisY-half,crosshairAxisY+half]);
+ }
+ if(!priceAdd.hidden){const r=priceAdd.getBoundingClientRect();occupied.push([r.top,r.bottom]);}
  const priceLines=new Map([['entry',entryLine],...Object.entries(lines),...(window.additionalOrderPriceLines?.()||[])]);
  for(const [name,line] of priceLines){
   if(!line)continue;
@@ -1082,7 +1124,7 @@ window.configurePriceAxis=side=>{
  if(!old.autoScale&&prices)activePriceScale().setVisibleRange(prices);else activePriceScale().applyOptions({autoScale:true});if(range)chart.timeScale().setVisibleLogicalRange(range);
  closePriceMenu();priceAdd.hidden=true;chart.clearCrosshairPosition();
 };
-function position(){document.body.style.setProperty('--axis-width',priceAxisWidth(window.priceAxisSide||'right')+'px');document.getElementById('chart-header').style.left=(plotLeft()+8)+'px';indicatorRow.style.left=(plotLeft()+8)+'px';window.drawVolatility?.();positionHoldingEdge();updateVisibleExtrema();updateCountdown();positionExtremaLabels();document.getElementById('chart-header').style.right=(priceAxisWidth('right')+7)+'px';updateLatestBarButton();drawPV();drawFVG();drawBarCount();for(const badge of holdingAxisBadges.values()){const price=Number(badge.dataset.price),y=series.priceToCoordinate(price);badge.hidden=y===null;badge.textContent=(y!==null&&y<16?'↑ ':y!==null&&y>chart.paneSize().height-16?'↓ ':'')+priceText(price);badge.style.width=axisBadgeWidth()+'px';if(y!==null)badge.style.top=(Math.min(chart.paneSize().height-16,Math.max(16,y))-9)+'px';}const axisRight=Math.ceil(priceAxisWidth(window.priceAxisSide||'right'))+(innerWidth<500?48:64);for(const badge of holdingBadges.values()){const y=badge.dataset.price===''?innerHeight-65:series.priceToCoordinate(Number(badge.dataset.price));badge.hidden=y===null;placeByPriceAxis(badge,axisRight);if(y!==null)badge.style.top=Math.min(chart.paneSize().height-16,Math.max(16,y))+'px';}for(const id of ['tp','sl','cancel'])placeByPriceAxis(document.getElementById(id),axisRight);placeByPriceAxis(document.getElementById('entry'),axisRight+23);for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}separateHoldingLabels();separatePriceAxisLabels();requestAnimationFrame(position);}position();
+function position(){drawExecutionMarks();document.body.style.setProperty('--axis-width',priceAxisWidth(window.priceAxisSide||'right')+'px');document.getElementById('chart-header').style.left=(plotLeft()+8)+'px';indicatorRow.style.left=(plotLeft()+8)+'px';window.drawVolatility?.();positionHoldingEdge();updateVisibleExtrema();updateCountdown();positionExtremaLabels();document.getElementById('chart-header').style.right=(priceAxisWidth('right')+7)+'px';updateLatestBarButton();drawPV();drawFVG();drawBarCount();for(const badge of holdingAxisBadges.values()){const price=Number(badge.dataset.price),y=series.priceToCoordinate(price);badge.hidden=y===null;badge.textContent=(y!==null&&y<16?'↑ ':y!==null&&y>chart.paneSize().height-16?'↓ ':'')+priceText(price);badge.style.width=axisBadgeWidth()+'px';if(y!==null)badge.style.top=(Math.min(chart.paneSize().height-16,Math.max(16,y))-9)+'px';}const axisRight=Math.ceil(priceAxisWidth(window.priceAxisSide||'right'))+(innerWidth<500?48:64);for(const badge of holdingBadges.values()){const y=badge.dataset.price===''?innerHeight-65:series.priceToCoordinate(Number(badge.dataset.price));badge.hidden=y===null;placeByPriceAxis(badge,axisRight);if(y!==null)badge.style.top=Math.min(chart.paneSize().height-16,Math.max(16,y))+'px';}for(const id of ['tp','sl','cancel'])placeByPriceAxis(document.getElementById(id),axisRight);placeByPriceAxis(document.getElementById('entry'),axisRight+23);for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}separateHoldingLabels();separatePriceAxisLabels();requestAnimationFrame(position);}position();
 // A WKWebView changes size in place when native full-screen controls appear.
 // Resize the canvas and restore the time window together; stale manual Y scaling
 // must not carry the full-screen pixel range into the shorter chart.
