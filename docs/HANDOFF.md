@@ -1,3 +1,37 @@
+## 2026-10-15 native trading lock and right-aligned gauge/ATR footer
+
+Native chart status controls gain a lock beside collapse. New chart-view state
+starts unlocked; a single tap toggles it without another confirmation dialog.
+The native trading panel is disabled while locked, and both the WebKit action
+bridge and the native pre-write boundary reject trading actions. Status and
+indicator actions remain available; chart pan/zoom and data delivery continue.
+The lock is scoped to this chart screen, not the account or Orders tab. It does
+not cancel submitted broker orders. Locking discards local unconfirmed edits,
+closes trading menus and cancels local pending Add/Trim gestures; unlock never
+replays these actions. Existing One-click/Confirm/Discard behavior applies when
+unlocked. Web/native detection prevents enabling the lock on desktop charts.
+
+On iOS, the gauge defaults to Bottom Right and sits just inside the price axis;
+ATR sits immediately to its left on the same horizontal centerline, leaving the
+attribution logo clear. A one-time native preference migration moves the old
+Bottom Left setting to Bottom Right, while top placements remain selected.
+Subsequent explicit position changes are respected. If the pair cannot fit, ATR
+retains its separate position instead of overlapping. Web gauge layout is unchanged.
+
+REA inspected the current web reference
+(ev_36e7e80c2ee92f8703926f7c201ac33cb4cd0ae6e52312113b62979276196f4c).
+The supplied iPhone screenshot and native bundled gauge/ATR code informed this
+iOS-specific layout and safety adaptation. Validation passed at widths 320/393/852
+in both themes, including lock action/drag rejection, draft discard, navigation,
+indicator access, no unlock replay and desktop exclusion. Native fixture screenshot
+inspected and iOS simulator build passed. Required One-click protection, full-host
+entry confirmation, fast-entry and full-line drag regressions passed with mocks.
+The full-host regression now uses the current axis settings menu, replacing the
+obsolete hidden header button. Empty status-clear notifications are suppressed
+until a message actually needs clearing, avoiding spurious host bridge events.
+No real broker writes, physical iPhone Run, Mini deployment or service restart.
+Local signing and generated localization changes remain uncommitted.
+
 ## 2026-10-15 cached-template static compatibility
 
 Mini's running Flask renderer retains its prior HTML template. Initialize the

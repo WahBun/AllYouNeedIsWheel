@@ -25,7 +25,7 @@ struct VolatilitySettings: Codable, Equatable {
     var oil: String = "OVX"
     var gauge: Bool = true
     var curve: String = "Auto"
-    var position: String = "Bottom Left"
+    var position: String = "Bottom Right"
     var background: String = "#ECF1EC"
     var track: String = "#C5CFC5"
     var lowColor: String = "#22c55e"

@@ -355,6 +355,7 @@ struct StockChartView: View {
     @State private var quoteStatusCID: Int?
     @State private var chartValidationMessage = ""
     @State private var chartValidationCID: Int?
+    @State private var tradingLocked = false
     @State private var paperMessage: String?
     @State private var pendingActionLabel = ""
     @State private var protectionCancelRef: String?
@@ -420,6 +421,8 @@ struct StockChartView: View {
     }
     private func paperAction(_ incoming: [String: Any]) {
         var body = incoming
+        let readOnlyActions = ["quoteStatus", "chartValidation", "indicatorSettings", "indicatorToggle", "indicatorCollapse"]
+        guard !tradingLocked || readOnlyActions.contains(body["action"] as? String ?? "") else { return }
         if body["action"] as? String == "quoteStatus" {
             guard body["con_id"] as? Int == chartID else { return }
             quoteStatusCID = chartID
@@ -512,6 +515,7 @@ struct StockChartView: View {
                         request["mode"] = "overnight_entry"; request.removeValue(forKey: "tp"); request.removeValue(forKey: "sl")
                     }
                 }
+                guard !tradingLocked else { return }
                 let result = try await store.trading.paperChartWrite(base: store.address, conID: cid, body: request)
                 guard chartID == cid, selectedOrderGroup == requestGroup else { return }
                 paperMessage = result["message"] as? String
@@ -621,6 +625,7 @@ struct StockChartView: View {
     @AppStorage("chartExtraEMAsV1") private var extraEMAJSON = ""
     @AppStorage("chartVolatilityV1") private var volatilityJSON = ""
     @AppStorage("chartVolatilityMobileDefaultV2") private var volatilityMobileDefaultApplied = false
+    @AppStorage("chartVolatilityGaugeRightV1") private var volatilityGaugeRightApplied = false
     @State private var volatilityData: [String: Any] = [:]
     @State private var volatilityContext = ""
     private var volatilitySettings: VolatilitySettings {
@@ -1036,7 +1041,7 @@ struct StockChartView: View {
     }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["plusButton": showPlusButton, "rightClickTrading": oneClickTrading, "volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
+        ["tradingLocked": tradingLocked, "plusButton": showPlusButton, "rightClickTrading": oneClickTrading, "volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
          "emaDynamic": emaDynamic, "emaColor": emaColor + "ab", "emaWidth": emaWidth, "emaStyle": emaStyle,
          "atr": showATR && indicatorVisible, "atrLength": atrLength, "profit": showHoldings && showProfit, "positions": showHoldings && showPositionProfit, "brackets": showHoldings && showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
@@ -1198,6 +1203,13 @@ struct StockChartView: View {
                     } else {
                         Color.clear.frame(width: 36, height: 32).accessibilityHidden(true)
                     }
+                    Button { tradingLocked.toggle() } label: {
+                        Image(systemName: tradingLocked ? "lock.fill" : "lock.open")
+                            .foregroundStyle(tradingLocked ? Color.orange : Color.secondary)
+                            .frame(width: 36, height: 32).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                        .accessibilityLabel(tradingLocked ? "Unlock trading" : "Lock trading")
+                        .accessibilityValue(tradingLocked ? "Locked" : "Unlocked")
                     Spacer(minLength: 0)
                     Button { showDisplaySettings = true } label: {
                         Image(systemName: "gearshape").frame(width: 36, height: 32)
@@ -1207,6 +1219,7 @@ struct StockChartView: View {
                     }.buttonStyle(.plain).accessibilityLabel(tradingSoundsEnabled ? "Mute trading sounds" : "Enable trading sounds")
                 }
             }
+            Group {
             if !fullScreen && !tradingPanelCollapsed && store.chartTradingAvailable {
                 HStack {
                     Menu {
@@ -1287,6 +1300,7 @@ struct StockChartView: View {
                 }.font(.system(size: 13, weight: .semibold))
             }.buttonStyle(.bordered)
             }
+            }.disabled(tradingLocked)
         }.padding(.horizontal, 12).padding(.bottom, 8)
         .navigationTitle(chartSymbol).navigationBarTitleDisplayMode(.inline)
         .toolbar(fullScreen ? .hidden : .visible, for: .navigationBar, .tabBar)
@@ -1549,6 +1563,14 @@ struct StockChartView: View {
                 settings.distance = false
                 volatilityBinding.wrappedValue = settings
                 volatilityMobileDefaultApplied = true
+            }
+            if !volatilityGaugeRightApplied {
+                var settings = volatilitySettings
+                if settings.position == "Bottom Left" {
+                    settings.position = "Bottom Right"
+                    volatilityBinding.wrappedValue = settings
+                }
+                volatilityGaugeRightApplied = true
             }
             if !barCountOpacityMigrated {
                 if barCountColor.lowercased() == "#351044" { barCountColor = "#521c6e" }

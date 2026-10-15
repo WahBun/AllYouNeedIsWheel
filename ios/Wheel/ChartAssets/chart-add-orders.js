@@ -398,5 +398,6 @@
   orderItems(price,(label,run,disabled)=>{const b=document.createElement('button');b.textContent=label;b.disabled=disabled;b.style.cssText='display:block;min-height:44px;padding:12px;background:transparent;color:inherit;border:0';b.onclick=()=>{closePriceMenu();run();};priceMenu.append(b);});
   priceMenu.hidden=false;priceMenu.style.top=Math.max(35,Math.min(parseFloat(priceAdd.style.top)+24,innerHeight-priceMenu.offsetHeight-32))+'px';
  };
+ window.cancelNativeOrderGestures=()=>{cancelAddDrag();if(exitGesture)clearExitGesture();if(addDialog.open)addDialog.close();};
  window.wheelOrderItems=orderItems;
 })();
