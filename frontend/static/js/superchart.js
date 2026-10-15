@@ -1,6 +1,11 @@
 /* Browser host only. Chart geometry and gestures are shared with iOS verbatim. */
 (()=>{'use strict';
 const $=id=>document.getElementById(id);let frame=$('chart');
+// Keep runtime diagnostics in Detail instead of overlaying the chart.
+$('activity').before($('market-status'));
+// Reuse the Settings GildedSignature lettering and palette.
+const brand=document.querySelector('body>header>a[href="/superchart"]');
+brand.textContent='𝓑𝓮𝓷';brand.classList.add('brand-signature');brand.dataset.signature='𝓑𝓮𝓷';brand.setAttribute('aria-label','Ben');
 const updateSymbolClear=()=>{$('clear-symbol').hidden=!$('symbol').value;};
 $('symbol').addEventListener('input',updateSymbolClear);
 $('clear-symbol').onclick=()=>{$('symbol').value='';updateSymbolClear();$('symbol').focus();};

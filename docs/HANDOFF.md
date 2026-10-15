@@ -1,3 +1,30 @@
+## 2026-10-15 chart edge, diagnostics and Ben signature
+
+Runtime market messages now live inside Detail's Activity section rather than
+appearing as chart overlays. Existing status updates and diagnostic logs remain;
+request, retry, order and market-feed behavior is unchanged. The right chart rail
+is 8px instead of 16px; Detail's right edge uses the same inset. The panel toggle
+retains its original hit area and works in collapsed/expanded layouts.
+
+The header home link uses the iOS Settings GildedSignature's exact 𝓑𝓮𝓷 lettering,
+gold base colors and red/gold five-second sweep from WheelApp.swift. CSS animation
+adapts that existing signature to the web header and respects reduced motion.
+The original home navigation and accessible name Ben are retained.
+
+REA inspected the live page structure for the overlay, header and right rail
+(Evidence `ev_c33b5ce6c11d8a07f5d0feeba03096635b6a346e57971490387373fdc91378b2`
+and `ev_ecfcef509ca9de77a5bdd0ddec9ee7edce69d9f17eea96f7492a8c8a564369c8`);
+read-only geometry confirmed a 16px rail and 14px footer inset before the change.
+The signature's implementation came from the committed iOS Settings source,
+not an inferred replacement font or an unverified native-app runtime capture.
+
+Isolated browser checks passed for a real mocked 503 busy response (hidden on
+chart, visible in Detail and Activity), 1920/393px 1–4-pane layouts, panel toggle,
+maximized pane, signature light/dark rendering, five-second animation and reduced
+motion. Screenshots were inspected; no trading writes. This static-only update
+requires no Backend/Gateway restart or phone Run. Unrelated local iOS edits remain
+uncommitted and excluded from deployment.
+
 ## 2026-10-15 compact Favorites and Fib drag precision
 
 Favorites uses a 110px native selector with a shared interval-chevron CSS rule
