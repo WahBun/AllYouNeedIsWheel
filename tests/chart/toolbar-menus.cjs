@@ -7,6 +7,9 @@ const {start}=require('./market-feed/harness.cjs');
   await page.goto(server.url+'/superchart?con_id=7&session=all');
   await page.waitForFunction(()=>[...document.querySelectorAll('.chart-pane iframe')].every(f=>f.contentDocument.querySelector('#pane-view-controls'))&&!document.querySelector('#chart-grid').hasAttribute('aria-busy'));
   assert.equal(await page.locator('body').evaluate(e=>e.classList.contains('light')),!dark);
+  const favoriteGeometry=await page.evaluate(()=>{const e=document.querySelector('#favorite-contracts'),s=getComputedStyle(e),a=getComputedStyle(e.parentElement,'::after'),b=getComputedStyle(document.querySelector('#interval'),'::after');const signature=x=>[x.width,x.height,x.borderRightWidth,x.borderBottomWidth,x.transform];const c=document.createElement('canvas').getContext('2d');c.font=s.font;return {font:s.font,textWidth:c.measureText(e.options[0].text).width,innerWidth:e.clientWidth-parseFloat(s.paddingLeft)-parseFloat(s.paddingRight),width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height,appearance:s.appearance,arrow:signature(a),intervalArrow:signature(b),labelFits:c.measureText(e.options[0].text).width<=e.clientWidth-parseFloat(s.paddingLeft)-parseFloat(s.paddingRight)};});
+  assert.equal(favoriteGeometry.width,110);assert.equal(favoriteGeometry.height,34);assert.equal(favoriteGeometry.appearance,'none');assert.deepEqual(favoriteGeometry.arrow,favoriteGeometry.intervalArrow);assert.equal(favoriteGeometry.labelFits,true,JSON.stringify(favoriteGeometry));
+
   for(const [button,menu] of [['#interval','#interval-menu'],['#layout-button','#layout-menu'],['#session-button','#session-menu']]){
    await page.locator(button).click();assert.equal(await page.locator(menu).isVisible(),true);
    const rect=await page.locator('#chart').boundingBox();await page.mouse.click(rect.x+rect.width/2,rect.y+rect.height-45);

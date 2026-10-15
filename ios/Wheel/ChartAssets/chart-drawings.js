@@ -303,8 +303,11 @@ function timeLogical(time){
  if(time<previous[0].time||lo===previous.length-1)return base+(time-previous[lo].time)/((countdownPacket?.interval||1)*60);
  const next=candleLogical(lo+1);return next===null?null:base+(time-previous[lo].time)/(previous[lo+1].time-previous[lo].time)*(next-base);
 }
-function anchor(x,y){
- if(!previous.length)return null;const l=screenToLogical(x),price=series.coordinateToPrice(y);if(l===null||price===null||price<=0)return null;
+function anchor(x,y,continuous=false){
+ if(!previous.length)return null;let l=screenToLogical(x);const price=series.coordinateToPrice(y);
+ // The chart API rounds pixel coordinates to bars. Fib manipulation keeps the
+ // sub-bar offset so free dragging does not jump one candle at a time.
+ if(continuous&&l!==null){const scale=chart.timeScale(),x0=scale.logicalToCoordinate(l),x1=scale.logicalToCoordinate(l+1);if(x0!==null&&x1!==null&&x1!==x0)l+=(x-plotLeft()-x0)/(x1-x0);}if(l===null||price===null||price<=0)return null;
  let lo=0,hi=previous.length-1;while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(candleLogical(mid)<=l)lo=mid;else hi=mid-1;}
  const base=candleLogical(lo);if(base===null)return null;
  let time;
@@ -341,13 +344,15 @@ function paint(d,isDraft=false){const p=d.p.map(xy);if(p.some(v=>!v))return;cons
   let handles=p.map((point,index)=>({point,index}));
   if(d.type==='rect'&&p.length>=2)handles=[{point:a,index:0},{point:b,index:1},{point:{x:a.x,y:b.y},axis:[0,1]},{point:{x:b.x,y:a.y},axis:[1,0]},{point:{x:(a.x+b.x)/2,y:a.y},axis:[null,0]},{point:{x:(a.x+b.x)/2,y:b.y},axis:[null,1]},{point:{x:a.x,y:(a.y+b.y)/2},axis:[0,null]},{point:{x:b.x,y:(a.y+b.y)/2},axis:[1,null]}];
   if(['long','short'].includes(d.type)&&p.length===3){const right=xy({time:positionEnd(d),price:d.p[0].price});handles=[{point:a,role:'entry'},{point:{x:a.x,y:b.y},role:'stop'},{point:{x:a.x,y:c.y},role:'target'},{point:right,role:'width'}];}
-  for(const h of handles){if(!h.point)continue;const {x,y}=h.point;element('circle',{cx:x,cy:y,r:3,fill:'#eef4ee',stroke:'#315fc4','pointer-events':'none'},g);const hit=element('circle',{cx:x,cy:y,r:14,fill:'transparent',stroke:'none','pointer-events':'all','data-handle':h.role||String(h.index??h.axis),style:'touch-action:none'},g);hit.onpointerdown=e=>{if(e.button!==0)return;e.preventDefault();e.stopPropagation();remember();drag={d,index:h.index,axis:h.axis,role:h.role,origin:anchor(e.clientX,e.clientY),points:d.p.map(p=>({...p})),endTime:d.endTime};touch.style.display='block';touch.setPointerCapture(e.pointerId);};}
+  for(const h of handles){if(!h.point)continue;const {x,y}=h.point;element('circle',{cx:x,cy:y,r:3,fill:'#eef4ee',stroke:'#315fc4','pointer-events':'none'},g);const hit=element('circle',{cx:x,cy:y,r:14,fill:'transparent',stroke:'none','pointer-events':'all','data-handle':h.role||String(h.index??h.axis),style:'touch-action:none'},g);hit.onpointerdown=e=>{if(e.button!==0)return;e.preventDefault();e.stopPropagation();remember();drag={d,index:h.index,axis:h.axis,role:h.role,origin:anchor(e.clientX,e.clientY),points:d.p.map(p=>({...p})),endTime:d.endTime,...(['fib','fibext'].includes(d.type)?{pointerOffset:{x:e.clientX-x,y:e.clientY-y}}:{})};touch.style.display='block';touch.setPointerCapture(e.pointerId);};}
  }
 
 }
 function commit(){if(!draft)return;if(drawings.length>=200){hint.textContent='200 drawings maximum; delete drawings first';return;}remember();drawings.push(draft);selected=draft.id;draft=null;save();choose(null);}
 function capture(e){
- const raw=anchor(e.clientX,e.clientY);
+ const fib=['fib','fibext'].includes(drag?.d.type||active);
+ if(fib&&drag?.pointerOffset)e={clientX:e.clientX-drag.pointerOffset.x,clientY:e.clientY-drag.pointerOffset.y,pointerType:e.pointerType};
+ const raw=anchor(e.clientX,e.clientY,fib);
  if(!raw||effectiveMagnet()==='off'||active==='highlight'||(drag?.index===null||drag?.role==='entry')){snapFeedback=null;return raw;}
  const bar=previous.reduce((best,b)=>!best||Math.abs(b.time-raw.time)<Math.abs(best.time-raw.time)?b:best,null);
  if(!bar){snapFeedback=null;return raw;}
@@ -416,7 +421,13 @@ touch.onpointermove=e=>{
   cursor=capture({clientX:Math.max(1,Math.min(plotRight()-5,gesture.cursorX+dx)),clientY:Math.max(1,Math.min(innerHeight-35,gesture.cursorY+dy)),pointerType:'touch'});
   ghost=cursor;revision++;return;
  }
- const p=capture(e);if(!p)return;if(drag){if(drag.index===null){if(!drag.origin)return;if(!drag.moved&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4)return;if(!drag.moved)remember();const dt=p.time-drag.origin.time,dp=p.price-drag.origin.price;if(drag.endTime!==undefined)drag.d.endTime=drag.endTime+dt;if(drag.points.some(point=>point.price+dp<=0))return;drag.d.p=drag.points.map(point=>({time:point.time+dt,price:point.price+dp}));}else if(drag.role){const d=drag.d,sign=d.type==='long'?1:-1;if(drag.role==='width'){if(p.time>d.p[0].time)d.endTime=p.time;}else if(drag.role==='entry'){
+ const p=capture(e);if(!p)return;if(drag){if(drag.index===null){if(!drag.origin)return;if(!drag.moved&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4)return;if(!drag.moved)remember();if(['fib','fibext'].includes(drag.d.type)){
+ // Translate each anchor through chart coordinates, not elapsed seconds: RTH
+ // gaps must not stretch or shrink a Fib while its body follows the pointer.
+ const dx=e.clientX-drag.startX,dy=e.clientY-drag.startY;
+ const points=drag.points.map(point=>{const screen=xy(point);return screen?anchor(screen.x+dx,screen.y+dy,true):null;});
+ if(points.some(point=>!point))return;drag.d.p=points;
+ }else {const dt=p.time-drag.origin.time,dp=p.price-drag.origin.price;if(drag.endTime!==undefined)drag.d.endTime=drag.endTime+dt;if(drag.points.some(point=>point.price+dp<=0))return;drag.d.p=drag.points.map(point=>({time:point.time+dt,price:point.price+dp}));}}else if(drag.role){const d=drag.d,sign=d.type==='long'?1:-1;if(drag.role==='width'){if(p.time>d.p[0].time)d.endTime=p.time;}else if(drag.role==='entry'){
  const dt=p.time-drag.origin.time,dp=p.price-drag.origin.price;
  if(drag.points.some(point=>point.price+dp<=0))return;
  d.p=drag.points.map(point=>({time:point.time+dt,price:point.price+dp}));

@@ -13,7 +13,8 @@ window.installOptionSearch=({api,select,symbol,canSelect})=>{
  const nav=launcher.closest('nav'),center=document.createElement('div'),end=document.createElement('div');
  center.className='toolbar-center';end.className='toolbar-end';nav.append(center,end);
  const instrument=document.createElement('div');instrument.className='toolbar-instrument';instrument.append(launcher,$('favorite-contract'));
- center.append(instrument,$('favorite-contracts'),$('intervals'),nav.querySelector('.interval-picker'));
+ const favorites=document.createElement('div');favorites.className='favorite-contract-picker';favorites.append($('favorite-contracts'));
+ center.append(instrument,favorites,$('intervals'),nav.querySelector('.interval-picker'));
  const views=document.createElement('div');views.className='toolbar-views';
  for(const id of ['layout-picker','maximize-chart','fullscreen'])if($(id))views.append($(id));
  end.append($('session-picker'),views);

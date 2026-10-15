@@ -1,3 +1,30 @@
+## 2026-10-15 compact Favorites and Fib drag precision
+
+Favorites uses a 110px native selector with a shared interval-chevron CSS rule
+instead of the platform arrow; desktop and narrow layouts retain a 34px height.
+The label remains complete and native favorite selection behavior is retained.
+
+REA inspected the current Wheel and TradingView pages, then verified that the
+current TV Fib and common drawing-source script hashes match the previously
+captured source (Evidence `ev_eb541647f4985547551286b22de2f808e87cc94afa432d94df37be67fa0cc548`;
+source Evidence `ev_41684b3dfba36eff971e7892a63ea42bbcb1a3b2b173daa92b58848cb4f600a2`).
+TV Fib uses two anchors and its common drawing move path translates chart indices
+and screen coordinates. Wheel previously added elapsed seconds to every anchor.
+A replay spanning an RTH gap reproduced a 75px pointer movement translating the
+Fib edges by about 57.47px and 71.75px, deforming its width. The fix converts each
+original anchor through chart coordinates; both edges now move 75px. Fib/Fib
+extension also retain sub-bar offsets with magnet off and preserve the handle's
+grab offset. Continuous sub-bar movement is a Wheel adaptation; TV's captured
+whole-object code rounds its index delta. Existing colors, levels and layouts
+remain unchanged, as do non-Fib drawing and broker drag paths.
+
+Focused browser checks cover desktop/narrow, mouse and real touch endpoints,
+cross-session translation, cancellation, undo/redo, OHLC magnet, normal creation,
+and 5→15→60→5 timeframe changes. Text/history checks and dark/light toolbar matrix
+also pass. Existing 1–4-pane feed/reconnect checks run against the final source;
+these are isolated fixture evidence, not broker acceptance. Static deployment needs
+no Backend/Gateway restart; iPhone bundled assets require the user's Run.
+
 ## 2026-10-15 drawing shortcuts and independent Text toolbar
 
 REA inspected the current TradingView page for Undo and reused the still-applicable
