@@ -1,3 +1,25 @@
+## 2026-10-15 publish retained iOS status and quote layout changes
+
+The native chart uses a fixed 32-point status button opening Chart status.
+Trading progress, market data/EMA history notices and trading warnings move to
+that sheet so their text does not resize the chart. Order execution and refresh
+logic are unchanged. Users must open the sheet to inspect these details.
+The shared option quote reserves a 13px status row and toggles visibility rather
+than removing that row, keeping quote numbers stable when status appears/disappears.
+
+The string catalog retains its original formatting and all existing translations.
+Only eight new English source keys are added. Automatic stale flags and pruning
+were not accepted. Local signing team and bundle settings remain uncommitted.
+REA passively refreshed the actual Wheel page
+(ev_8a8669cf26609779b28a3f9e39243f73168068f0c02aa2930db29eb34bdd9fc2);
+the previously inspected web status separation informs the native sheet, which
+is an iOS adaptation, not a claim of REA-observed native execution.
+Validation: iOS simulator build passed; option quote checks passed for web/native
+compact modes, narrow/desktop widths, light/dark, stale/current transitions and
+contract isolation. Additional geometry assertions confirmed no vertical movement
+when status appears or disappears. Physical iPhone visual/touch acceptance is
+not performed. This task publishes code only; no Mini deployment or service restart.
+
 ## 2026-10-15 native iOS Plus control and action flow
 
 Chart display > General now includes a default-on Plus button toggle, persisted

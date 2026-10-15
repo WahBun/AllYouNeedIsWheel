@@ -1,6 +1,14 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Buy" : {},
+    "Off" : {},
+    "On" : {},
+    "Quick Add, Trim and Close use fresh midpoint limits. Prices selected on the chart are preserved. Orders do not automatically follow quotes; immediate fill is not guaranteed." : {},
+    "Sell" : {},
+    "Submit chart right-click Buy/Sell and drag or remove TP/SL without confirmation. Other order edits still require confirmation." : {},
+    "Trim" : {},
+    "● NDX" : {},
     "SL input" : {
       "extractionState" : "manual",
       "localizations" : {

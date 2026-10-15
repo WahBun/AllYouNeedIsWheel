@@ -91,6 +91,26 @@ private struct ChartPositionActionsLayout: Layout {
     }
 }
 
+// Status text never participates in the chart's vertical sizing.
+struct ChartStatusControl: View {
+    var text: String
+    var highlighted: Bool
+    var hasNotice: Bool
+    var open: () -> Void
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 5) {
+                Text(verbatim: text).lineLimit(1).truncationMode(.tail)
+                Image(systemName: hasNotice ? "exclamationmark.circle" : "info.circle")
+                    .font(.caption2).fixedSize()
+            }.font(.caption).foregroundStyle(highlighted ? .orange : .secondary)
+                .frame(maxWidth: .infinity).frame(height: 32).contentShape(Rectangle())
+        }.buttonStyle(.plain)
+            .accessibilityLabel("Chart status: " + text)
+            .accessibilityHint("Open market data status and trading notices")
+    }
+}
+
 struct ChartOrderProgressView: View {
     var state: [String: Any]
     @Environment(\.locale) private var locale
@@ -982,6 +1002,21 @@ struct StockChartView: View {
     }
     private var positionSize: Int { Int(abs(paperState["position"] as? Double ?? 0)) }
     private var adjustmentLimit: Int { adjustmentAction == "trim" ? min(positionSize, (paperState["trim_available"] as? NSNumber)?.intValue ?? positionSize) : ((paperState["add_available"] as? NSNumber)?.intValue ?? 0) }
+    @State private var showChartStatus = false
+    private var chartNotices: [String] {
+        var messages: [String] = []
+        if let message = paperMessage, !message.isEmpty { messages.append(message) }
+        if positionSize > 0 {
+            if let reason = paperState["protection_block_reason"] as? String, !reason.isEmpty { messages.append(reason) }
+            if paperState["manual_stop_quantity"] as? Bool == true && (paperState["sl"] as? Double ?? 0) > 0 {
+                messages.append("Adjust SL quantity manually after Trim fills.")
+            }
+            if paperState["add_block_reason"] as? String == "option_opposite_orders" {
+                messages.append("Cancel TP/SL/Trim and wait for confirmed cancellation before Add; IB forbids opposite orders on this option.")
+            }
+        }
+        return messages
+    }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
         ["plusButton": showPlusButton, "rightClickTrading": oneClickTrading, "volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
@@ -1125,13 +1160,6 @@ struct StockChartView: View {
                         .frame(width: 36, height: 44)
                 }.buttonStyle(.plain).accessibilityLabel(fullScreen ? "Exit full screen" : "Full screen")
             }
-            if !fullScreen {
-            TimelineView(.periodic(from: .now, by: 1)) { time in
-                Text(verbatim: localizedNotice(received.map { time.date.timeIntervalSince($0) > 3 } == true ? "Chart updates paused · verify connection" : notice, locale: locale))
-                    .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-            }
-            }
-            if let emaHistoryNotice { NoticeText(emaHistoryNotice).font(.caption2).foregroundStyle(.secondary) }
             StockChartWeb(backendAddress: store.address, executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, previewSide: previewSide, previewRevision: previewRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", slMode: protectionOption(chartType, "slMode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "webEntryDrag": true, "web_account_epoch": store.trading.accountEpoch ?? "", "adjustment_quantity": adjustmentQuantity, "quantity_limit": quantityLimit, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             HStack(spacing: 8) {
@@ -1147,9 +1175,9 @@ struct StockChartView: View {
                 } else {
                     Color.clear.frame(width: 36, height: 32).accessibilityHidden(true)
                 }
-                Text(verbatim: chartStatusText)
-                    .font(.caption).foregroundStyle(paperEnabled ? .orange : .secondary)
-                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity)
+                ChartStatusControl(text: chartStatusText, highlighted: paperEnabled, hasNotice: !chartNotices.isEmpty) {
+                    showChartStatus = true
+                }
                 Button { showDisplaySettings = true } label: {
                     Image(systemName: "gearshape").frame(width: 36, height: 32)
                 }.buttonStyle(.plain).accessibilityLabel("Chart display")
@@ -1187,15 +1215,6 @@ struct StockChartView: View {
                     }
                 }.disabled(paperBusy || store.trading.busy)
             }
-            if !hasOrderPreview && !fullScreen && !tradingPanelCollapsed { ChartOrderProgressView(state: paperState) }
-            if positionSize > 0, let reason = paperState["protection_block_reason"] as? String, !reason.isEmpty { Text(reason).font(.caption).foregroundStyle(.secondary) }
-            if positionSize > 0 && paperState["manual_stop_quantity"] as? Bool == true && (paperState["sl"] as? Double ?? 0) > 0 {
-                Text(locale.language.languageCode?.identifier == "zh" ? "止损数量手动管理；Trim 成交后请点 SL 数量调整。" : "Adjust SL quantity manually after Trim fills.").font(.caption).foregroundStyle(.secondary)
-            }
-            if positionSize > 0 && paperState["add_block_reason"] as? String == "option_opposite_orders" {
-                Text(locale.language.languageCode?.identifier == "zh" ? "IB 不允许同一期权同时挂买卖两侧订单；撤销 TP/SL/Trim 并确认后才能 Add。" : "Cancel TP/SL/Trim and wait for confirmed cancellation before Add; IB forbids opposite orders on this option.").font(.caption).foregroundStyle(.secondary)
-            }
-            if let paperMessage, !paperMessage.isEmpty { NoticeText(paperMessage).font(.caption).foregroundStyle(.secondary) }
             if !fullScreen && !tradingPanelCollapsed {
             HStack(spacing: 8) {
                 TextField(chartType == "STK" ? "Shares" : "Contracts", text: $quantity).keyboardType(chartType == "STK" ? .decimalPad : .numberPad)
@@ -1371,6 +1390,30 @@ struct StockChartView: View {
             }.presentationDetents([.medium])
         }
         .sheet(isPresented: $showIndicatorSettings) { indicatorSettings }
+        .sheet(isPresented: $showChartStatus) {
+            NavigationStack {
+                Form {
+                    Section("Trading") {
+                        Text(verbatim: chartStatusText)
+                        if !hasOrderPreview { ChartOrderProgressView(state: paperState) }
+                    }
+                    Section("Market data") {
+                        TimelineView(.periodic(from: .now, by: 1)) { time in
+                            Text(verbatim: received.map { time.date.timeIntervalSince($0) > 3 } == true ? "Chart updates paused · verify connection" : notice)
+                        }
+                        if let emaHistoryNotice { Text(verbatim: emaHistoryNotice) }
+                    }
+                    if !chartNotices.isEmpty {
+                        Section("Trading notices") {
+                            ForEach(Array(chartNotices.enumerated()), id: \.offset) { _, message in
+                                Text(verbatim: message)
+                            }
+                        }
+                    }
+                }.navigationTitle("Chart status").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showChartStatus = false } } }
+            }.presentationDetents([.medium, .large])
+        }
         .sheet(isPresented: $showDisplaySettings) {
             NavigationStack {
                 Form {
