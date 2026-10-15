@@ -1321,7 +1321,6 @@ struct StockChartView: View {
                         let result = symbolResults[index]
                         Button {
                             selectedContract = result; previewTIF = "DAY"; showQuantityEditor = false; entry = "0"; beApplied = false; paperState = [:]; paperMessage = nil
-                            if chartType == "FUT" { session = "all" }
                             showSymbols = false
                         } label: {
                             VStack(alignment: .leading) {
@@ -1589,7 +1588,6 @@ struct StockChartView: View {
                         if let saved = record["session"] as? String, ["rth", "all"].contains(saved) { session = saved }
                     } else if position.con_id == nil { showSymbols = true }
                 }
-                if chartType == "FUT" && !resumeLast { session = "all" }
                 initialized = true
                 rememberChart()
             }

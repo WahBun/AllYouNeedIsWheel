@@ -1,3 +1,11 @@
+## 2026-10-16 preserve native futures chart session preference
+
+Remove the two forced ETH assignments when entering a futures chart or selecting a futures contract. Existing stockChartSession AppStorage defaults to RTH and persists explicit RTH/ETH choices; recent-chart restoration remains intact. Existing ETH preferences are retained, so users affected by the old override should select RTH once after updating.
+
+REA inspected the local device-build Wheel.debug.dylib (SHA256 cc20d5b245962564819c13e3cf5294e69404e990e82ff85d074c859a64cec93d), found stockChartSession and its references, and decompiled its AppStorage initializer (ev_225e50aef318ddccaed53c225187d2744d600895790c3bc1ceb2e39fb7b67d4b). Combined with source inspection, this supports retaining existing persistence and removing only the overrides; it does not establish the installed iPhone version.
+
+Validation: Swift replay of extracted production initialization/selection blocks changed fresh futures, saved-RTH reentry and saved-RTH symbol selection from ETH to RTH, while saved ETH remained ETH. Debug Simulator build succeeded. Physical iPhone UI acceptance remains user-operated after Run. No backend/web deployment or service restart required; preserve unrelated signing/localization edits.
+
 ## 2026-10-15 recover silent contract daily P&L independently of quotes
 
 REA inspected the actual option page (ev_3edcb619571cecb910764263b33ec74a1b11b10d416a0bc4d8356323823fff98). Read-only API observations confirmed a 327-second-old P&L callback with value withheld by freshness guards, followed by a fresh broker callback; the page subsequently returned to unavailable. This is separate from executable bid/ask freshness. The cause of intermittent IB callback delivery is not established.
