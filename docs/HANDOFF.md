@@ -1,3 +1,13 @@
+## 2026-10-15 header optical alignment
+
+Reduced the Ben signature from 26px to 24px and raised the adjacent Superchart
+label by 1px to align the visible glyph centers with the connection status.
+REA confirmed the current page structure before the adjustment (Evidence
+`ev_22f6373162dccb831f35cfba1e9aa2a923ddf48b84ccbbc36aa80a41765165bc`).
+Inspected rendered header screenshots and glyph bounds; desktop/narrow light/dark,
+link behavior, five-second sweep and reduced-motion checks passed. CSS-only
+presentation change; no layout, quote or order behavior changed.
+
 ## 2026-10-15 chart edge, diagnostics and Ben signature
 
 Runtime market messages now live inside Detail's Activity section rather than
