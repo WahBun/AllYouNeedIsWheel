@@ -1,3 +1,10 @@
+## 2026-10-15 cached-template static compatibility
+
+Mini's running Flask renderer retains its prior HTML template. Initialize the
+Chart status summary and missing quote-status slot from the static host script
+as well, so this update works without restarting the backend. Fresh templates
+reuse the same slot. No duplicate elements or service restart are needed.
+
 ## 2026-10-15 compact quote freshness and consistent settings categories
 
 The shared option overlay now shows only Stale or No quote. Full freshness

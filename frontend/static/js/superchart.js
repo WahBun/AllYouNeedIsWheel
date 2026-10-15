@@ -3,6 +3,11 @@
 const $=id=>document.getElementById(id);let frame=$('chart');
 // Keep runtime diagnostics in Detail instead of overlaying the chart.
 $('activity').before($('market-status'));
+// Production servers may retain the previous template until a user-managed restart.
+const statusSummary=$('activity').closest('details')?.querySelector('summary');
+if(statusSummary){statusSummary.textContent='Chart status';statusSummary.removeAttribute('data-en');statusSummary.removeAttribute('data-zh');}
+if(!$('quote-status')){const status=document.createElement('div');status.id='quote-status';status.setAttribute('role','status');status.style.whiteSpace='pre-line';$('activity').before(status);}
+
 // Reuse the Settings GildedSignature lettering and palette.
 const brand=document.querySelector('body>header>a[href="/superchart"]');
 brand.textContent='𝓑𝓮𝓷';brand.classList.add('brand-signature');brand.dataset.signature='𝓑𝓮𝓷';brand.setAttribute('aria-label','Ben');
