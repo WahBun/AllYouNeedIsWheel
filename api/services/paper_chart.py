@@ -327,7 +327,9 @@ class PaperChart:
                 if (position.contract.secType == 'STK' and size > 0 and math.isfinite(size)
                         and math.isfinite(basis) and basis > 0 and not working and not result['group_choices']):
                     result.update(stock_add_only=True, add_allowed=True)
-                    if size != int(size): result['protection_block_reason'] = 'Fractional holding: whole-share Add available; exits unavailable'
+                    if size != int(size):
+                        result.update(stock_trim_only=True, trim_allowed=True, trim_available=size, unprotected_trim=True)
+                        result['protection_block_reason'] = 'Fractional holding: whole-share Add/Trim available; full-position protection unavailable'
             self.action_availability(conn, account, position.contract if position else None, result)
             return result
         # A reused API order number is not sufficient ownership evidence. Do not
@@ -801,9 +803,12 @@ class PaperChart:
             if contract.secType != 'STK' or result.get('position', 0) <= 0: result['add_available'] = 0
             if contract.secType == 'STK': result['be_allowed'] = result['close_allowed'] = False
         if contract.secType == 'STK' and size != int(size):
-            # This change supports whole-share Add, not fractional exit/protection.
-            for name in ('trim_allowed', 'close_allowed', 'be_allowed', 'protection_manageable', 'unprotected_trim', 'protected_stock_scaling'):
+            # Whole-share adjustments preserve the fractional remainder. Full-position
+            # exits and paired protection still require a whole holding.
+            for name in ('close_allowed', 'be_allowed', 'protection_manageable', 'protected_stock_scaling'):
                 result[name] = False
+            if result.get('position', 0) <= 0:
+                result['trim_allowed'] = result['unprotected_trim'] = False
         result['add_allowed'] = bool(ready and result.get('add_allowed') and result['add_available'] >= 1)
         result['trim_allowed'] = bool(ready and result.get('trim_allowed') and size > 1 and result['trim_available'] >= 1)
 
@@ -1629,13 +1634,14 @@ class PaperChart:
             raise ValueError('Close covered CALLs before selling shares.')
 
     def adopt_existing_position(self, conn, account, cid, current, body):
-        """Claim an unchanged holding; fractional stock supports whole-share Add only.
+        """Claim an unchanged holding; fractional stock supports whole-share Add/Trim.
 
         Reads may deliver callbacks, so recheck both the fresh position and chart
         snapshot after all-client order reconciliation. This creates no IB order.
         """
-        add_only = body.get('action') == 'add' and current.get('stock_add_only')
-        if not (current.get('position_manageable') or add_only) or not current.get('known'):
+        adjustment_only = (body.get('action') == 'add' and current.get('stock_add_only')
+                           or body.get('action') == 'trim' and current.get('stock_trim_only'))
+        if not (current.get('position_manageable') or adjustment_only) or not current.get('known'):
             raise ValueError('Existing position is not ready for management')
         if body.get('expected_ref') != current.get('order_ref') or body.get('expected_position') != current.get('position'):
             raise ValueError('Position changed; reopen position management')
@@ -1644,7 +1650,7 @@ class PaperChart:
         actual = sum(float(p.position) for p in positions if p.account == account and p.contract.conId == cid)
         fresh = self.state(conn, cid)
         if (actual != current['position'] or fresh.get('edit_snapshot') != current.get('edit_snapshot')
-                or fresh.get('order_ref') != current.get('order_ref') or not (fresh.get('position_manageable') or add_only and fresh.get('stock_add_only'))
+                or fresh.get('order_ref') != current.get('order_ref') or not (fresh.get('position_manageable') or adjustment_only and fresh.get('stock_add_only' if body.get('action') == 'add' else 'stock_trim_only'))
                 or self.group(account, cid) or self.group_choices(account, cid)):
             raise ValueError('Position changed during reconciliation')
         if any(t.order.account == account and t.contract.conId == cid and not t.isDone() for t in opened):
@@ -2135,8 +2141,9 @@ class PaperChart:
             conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
         current=self.state(conn,cid)
         if (contract.secType == 'STK' and abs(current.get('position', 0)) % 1
-                and body.get('action') in ('trim', 'close', 'be', 'set_protection')):
-            raise ValueError('Fractional holding supports whole-share Add only')
+                and (body.get('action') in ('close', 'be', 'set_protection')
+                     or body.get('action') == 'trim' and not (current.get('position', 0) > 0 and current.get('unprotected_trim')))):
+            raise ValueError('Fractional holding supports whole-share Add and unprotected long-stock Trim only')
         if self.group(account,cid) and self.group(account,cid).get('stock_adjustment', {}).get('pending'):
             raise ValueError('Previous stock adjustment needs reconciliation; do not resubmit')
         if self.group(account,cid) and self.group(account,cid).get('pending_stop_trim'):
@@ -2316,7 +2323,7 @@ class PaperChart:
             return
         if not current['known']: raise ValueError('Orders need Gateway reconciliation before another action')
         group=self.group(account,cid)
-        if not group and (current.get('position_manageable') or action == 'add' and current.get('stock_add_only')) and action in ('add','trim','close'):
+        if not group and (current.get('position_manageable') or action == 'add' and current.get('stock_add_only') or action == 'trim' and current.get('stock_trim_only')) and action in ('add','trim','close'):
             # Validate the explicit limit before persisting ownership or canceling anything.
             if not account.startswith('DU') or ('entry' if action == 'add' else 'exit_price') in body:
                 price(body.get('entry') if action == 'add' else body.get('exit_price'))
@@ -2375,7 +2382,7 @@ class PaperChart:
                 raise ValueError('Priced Trim requires a valid limit price')
             qty=body.get('quantity')
             if isinstance(qty,bool) or not isinstance(qty,(int,float)) or not math.isfinite(qty) or qty!=int(qty) or not 1<=qty<abs(current['position']):
-                raise ValueError('Trim must leave a whole position; use Close for a full exit')
+                raise ValueError('Trim quantity must be whole shares/contracts and leave a position; use Close for a full exit')
             # No cancellations, no reverse order overlap, and no automatic replay.
             positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
             actual=self.group_size(conn,account,cid,positions)

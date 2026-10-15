@@ -32,7 +32,7 @@ class FractionalStockAddTests(unittest.TestCase):
         f.service.execute(f.conn,7,body);self.assertEqual(f.conn.ib.placeOrder.call_count,1)
         f.conn.ib.cancelOrder.assert_not_called()
         f.trades[-1].orderStatus.status='Filled';f.trades[-1].orderStatus.filled=1;f.pos.position=303.1533
-        s=f.service.state(f.conn,7);self.assertTrue(s['add_allowed']);self.assertFalse(s['trim_allowed']);self.assertFalse(s['close_allowed'])
+        s=f.service.state(f.conn,7);self.assertTrue(s['add_allowed']);self.assertTrue(s['trim_allowed']);self.assertFalse(s['close_allowed'])
 
     def test_stale_position_and_foreign_order_block_without_writes(self):
         f=self.f;body=self.body();f.pos.position=303.1533

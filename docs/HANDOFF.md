@@ -1,3 +1,33 @@
+## 2026-10-15 fractional holding Trim, enabled action sweep and fullscreen
+
+Restore whole-share Trim for settled positive fractional stock holdings. Side-panel
+and right-click exits use the same unreserved-share budget, including short CALLs,
+pending CALL sales and stock exits. Keep exact position/ref checks, all-client
+reconciliation, integer quantities, and persisted no-replay behavior. A 302.1533
+holding with one standard short CALL has 202.1533 unreserved shares and permits an
+integer Trim of at most 202. Full-position BE/Close/protection remain restricted.
+The right-click dialog exposes the integer cap; unavailable-capacity text no longer
+incorrectly asserts that all shares have exit plans.
+
+Add/Trim/BE have a five-second sweep only when enabled, preserving their existing
+colors and reduced-motion preference. The fullscreen control now uses a 28px
+rounded-corner SVG inside a 38px button. Existing click/Shift+F behavior remains.
+REA observed the current Wheel page (ev_b11c4d396eeaf8eddfc6d43220f3725af22a642d7446abb00c6fe0e76442567b)
+and current TradingView reference (ev_495d5a1adb1845af047ac9fa67cb91ca978e88aa8cb683f18f6dcf8df408c4a4);
+read-only DOM measurements established TV's 28px SVG/38px button versus Wheel's
+small font glyph. No interaction was performed on TradingView.
+
+Validation: 114 focused backend tests passed (fractional Add/Trim, coverage,
+unprotected stock/options/futures); side-panel and actual right-click Trim pass
+in desktop/narrow and light/dark mocked pages. Normal-position flows, enabled-only
+sweep, reduced motion, fullscreen entry/exit, and protected One-click/entry/TP/SL
+drag checks passed. No broker orders or physical-device installation were used.
+Mini read-only state confirmed the reported fractional holding and one short CALL.
+
+Deployment requires Wheel Backend restart after source sync. The user performs
+that restart unless explicitly authorizing the agent for this task; Gateway must
+remain running. Local iOS signing/localization/StockChart edits are excluded.
+
 ## 2026-10-15 signature optical correction
 
 Per the user's visual review, move the Ben signature itself up 2px, including its

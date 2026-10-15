@@ -5,13 +5,13 @@ const asset=fractional?'STK':process.env.WHEEL_TEST_ASSET||'OPT';
 const root=path.resolve(__dirname,'../..'),assets=root+'/ios/Wheel/ChartAssets';
 let chart=fs.readFileSync(assets+'/stock-chart.html','utf8').replace('/*LIBRARY*/',()=>fs.readFileSync(assets+'/lightweight-charts.standalone.production.js','utf8'));
 const bridge="window.webkit={messageHandlers:Object.fromEntries(['paperAction','entryChanged','drawingsChanged','chartReady','beState','historyRequest'].map(name=>[name,{postMessage:body=>parent.postMessage({wheelChart:true,name,body,sentAt:performance.timeOrigin+performance.now()},location.origin)}]))};";
-chart=chart.replace('<head>','<head><script>'+bridge+'</script>').replace('</body>',()=>'<script>'+fs.readFileSync(assets+'/chart-drawings.js','utf8')+'</script><script>'+fs.readFileSync(assets+'/chart-add-orders.js','utf8')+'</script></body>');
+chart=chart.replace('<head>','<head><script>'+bridge+'</script>').replace('</body>',()=>'<script>'+fs.readFileSync(assets+'/chart-drawings.js','utf8')+'</script><script>'+fs.readFileSync(assets+'/chart-add-orders.js','utf8')+'</script><script src="/static/js/chart-context-menu.js"></script></body>');
 const server=http.createServer((req,res)=>{const url=new URL(req.url,'http://localhost');if(req.method!=='GET'||url.pathname.startsWith('/api/')){res.writeHead(405);return res.end('No backend or broker is connected');}let file;if(url.pathname==='/superchart/frame'){res.setHeader('Content-Type','text/html');return res.end(chart);}if(url.pathname==='/superchart')file=root+'/frontend/templates/superchart.html';else if(url.pathname.startsWith('/static/'))file=path.resolve(root+'/frontend',url.pathname.slice(1));if(!file||!file.startsWith(root+'/frontend/')||!fs.existsSync(file)){res.writeHead(404);return res.end();}res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(file));});
 (async()=>{await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;let browser;try{browser=await chromium.launch();
 for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [false,true]){
  const page=await browser.newPage({viewport:{width,height:950}}),writes=[],errors=[];page.on('pageerror',e=>errors.push(e.message));
  let stale=false,state={enabled:true,known:true,active:true,status:'filled',position:-3,position_only:true,position_manageable:true,live_chart_scope:true,live_options_scope:asset==='OPT',side:-1,entry:2.12,tp:0,sl:0,order_ref:'position-test',edit_snapshot:[{position:-3,entry:2.12}],orders:[],protection_manageable:true,be_allowed:true,close_allowed:true,add_allowed:true,add_available:2,trim_allowed:true,trim_available:3,unprotected_trim:true};
- if(fractional)state={...state,position:302.1533,side:1,position_manageable:false,protection_manageable:false,be_allowed:false,close_allowed:false,trim_allowed:false,add_available:697,edit_snapshot:[{position:302.1533,entry:2.12}]};
+ if(fractional)state={...state,position:302.1533,side:1,position_manageable:false,protection_manageable:false,be_allowed:false,close_allowed:false,trim_allowed:true,trim_available:202.1533,unprotected_trim:true,add_available:697,edit_snapshot:[{position:302.1533,entry:2.12}]};
  await page.route('**/*',async route=>{const req=route.request(),u=new URL(req.url());if(u.origin!==base)return route.abort();if(!u.pathname.startsWith('/api/'))return route.continue();let result={};
  if(req.method()==='POST'){const b=req.postDataJSON();writes.push(b);assert.equal(req.headers()['x-wheel-account-epoch'],'offline-live');result={success:true,status:'acknowledged',state};}
  else if(u.pathname.endsWith('/profiles'))result={selected:'live',verified:true,epoch:'offline-live',chart_execution_enabled:true};
@@ -23,11 +23,31 @@ for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [
  await page.goto(base+'/superchart?con_id=7');await page.waitForFunction(()=>!document.getElementById('add').disabled);
  await page.evaluate(({lang,light})=>{document.documentElement.lang=lang;document.body.classList.toggle('light',light)},{lang,light});
  if(fractional){
-  for(const id of ['trim','be','close'])assert.equal(await page.locator('#'+id).isDisabled(),true);
+  for(const id of ['be','close'])assert.equal(await page.locator('#'+id).isDisabled(),true);
   await page.locator('#add').click();await page.waitForFunction(()=>!document.getElementById('add').disabled);
   assert.equal(writes.at(-1).action,'add');assert.equal(writes.at(-1).expected_position,302.1533);assert.equal(writes.at(-1).quantity,1);assert.equal(writes.at(-1).entry,2.15);assert.equal(writes.at(-1).entry_type,'LMT');
+  assert.equal(await page.locator('#trim').isDisabled(),false);
+  await page.locator('#adjustment-quantity').fill('203');await page.locator('#adjustment-quantity').dispatchEvent('input');
+  assert.equal(await page.locator('#trim').isDisabled(),true);
+  await page.locator('#adjustment-quantity').fill('202');await page.locator('#adjustment-quantity').dispatchEvent('input');
+  await page.locator('#trim').click();await page.waitForFunction(()=>!document.getElementById('trim').disabled);
+  assert.equal(writes.at(-1).action,'trim');assert.equal(writes.at(-1).quantity,202);assert.equal(writes.at(-1).expected_position,302.1533);
+  for(const id of ['add','trim','be'])assert.equal(await page.locator('#'+id).evaluate(e=>getComputedStyle(e,'::after').animationName),id==='be'?'none':'position-action-flow');
+  await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await page.locator('#trim').evaluate(e=>getComputedStyle(e,'::after').animationName),'none');await page.emulateMedia({reducedMotion:'no-preference'});
+  if(await page.locator('#chart-detail').isVisible())await page.locator('#toggle-trade').click();
+  if(await page.locator('#toggle-trading-panel').getAttribute('aria-expanded')==='true')await page.locator('#toggle-trading-panel').click();
+  const frame=page.frames().find(f=>f.url().includes('/superchart/frame'));
+  await frame.waitForFunction(()=>window.wheelOrderItems&&document.getElementById('desktop-chart-menu')&&series.priceToCoordinate(2.16)>0);
+  const point=await frame.evaluate(()=>({x:Math.min(180,chart.paneSize().width/2),y:series.priceToCoordinate(2.16)}));
+  await frame.locator('body').click({button:'right',position:point});
+  const trim=frame.locator('#desktop-chart-menu button').filter({hasText:'Trim · Sell Limit'});assert.equal(await trim.isDisabled(),false);
+  if(lang==='en')await page.screenshot({path:`/tmp/wheel-fractional-trim-${width}-${light?'light':'dark'}.png`});
+  await trim.click();const dialog=frame.locator('#priced-add-dialog');const input=dialog.getByRole('spinbutton',{name:'Exit quantity'});assert.equal(await input.getAttribute('max'),'202');
+  await input.fill('202');await dialog.locator('footer button').last().click();await page.waitForFunction(()=>!document.getElementById('trim').disabled);
+  assert.equal(writes.at(-1).action,'trim');assert.equal(writes.at(-1).quantity,202);assert.equal(writes.at(-1).exit_type,'LMT');
   assert.deepEqual(errors,[]);await page.close();continue;
  }
+ for(const id of ['add','trim','be'])assert.equal(await page.locator('#'+id).evaluate(e=>getComputedStyle(e,'::after').animationName),'position-action-flow');
  for(const id of ['manage-protection','add','trim','be','close'])assert.equal(await page.locator('#'+id).isDisabled(),false,id);
  await page.locator('#manage-protection').click();await page.locator('#protection-form button[type=submit]').click();await page.waitForFunction(()=>!document.getElementById('close').disabled);
  assert.equal(writes.at(-1).action,'set_protection');assert.equal(writes.at(-1).tp,.53);
@@ -67,5 +87,5 @@ for(const width of [1440,393])for(const lang of ['en','zh'])for(const light of [
  await page.locator('#quantity').fill('3');await page.locator('#quantity').dispatchEvent('change');await frame.waitForFunction(()=>Math.abs(levels.tp-3.12)<1e-8&&Math.abs(levels.sl-1.12)<1e-8);assert.equal(writes.length,before);
  assert.deepEqual(errors,[]);await page.close();
 }
-console.log('PASS: 8 desktop/mobile, EN/ZH, light/dark combinations; TP/SL, Add, Trim, BE, Close payloads and stale quote guard; all API writes mocked.');
+console.log((fractional?'Fractional stock: side-panel + actual right-click Trim, 202-share cap, enabled-only shimmer/reduced motion. ':'')+'PASS: 8 desktop/mobile, EN/ZH, light/dark combinations; TP/SL, Add, Trim, BE, Close payloads and stale quote guard; all API writes mocked.');
 }finally{await browser?.close();server.closeAllConnections();await new Promise(r=>server.close(r));}})().catch(e=>{console.error(e);process.exitCode=1});
