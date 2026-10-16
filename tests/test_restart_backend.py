@@ -1,10 +1,21 @@
 import unittest
+import contextlib
+import io
 from types import SimpleNamespace
 from unittest.mock import patch
 from ops import restart_backend as backend
 
 
 class RestartBackendTests(unittest.TestCase):
+    def test_failure_is_visible_in_ssh_stderr(self):
+        out, err = io.StringIO(), io.StringIO()
+        with patch('sys.argv', ['restart_backend.py', 'check']), \
+             patch.object(backend, 'service_pid', return_value=None), \
+             contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            self.assertEqual(backend.main(), 1)
+        self.assertEqual(out.getvalue(), '')
+        self.assertIn('not responding', err.getvalue())
+
     def test_running_service_gets_one_graceful_restart_and_new_pid_health(self):
         with patch.object(backend, 'service_pid', side_effect=[10, 10, 11]), patch.object(backend, 'healthy', return_value=True) as health, \
              patch.object(backend.time, 'sleep'), patch.object(backend.subprocess, 'run', return_value=SimpleNamespace(returncode=0)) as run:
