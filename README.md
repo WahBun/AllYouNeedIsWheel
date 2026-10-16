@@ -1,4 +1,6 @@
-# AllYouNeedIsWheel iOS
+# AllYouNeedIsWheel — Wheel Trading for IBKR
+
+An unofficial, self-hosted iOS trading workstation for Interactive Brokers.
 
 **Wheel 策略的原生 iPhone 工作台。** 用一个 App 查看 IBKR 持仓、比较收益、筛选现金担保看跌期权（CSP）和备兑看涨期权（CC），并管理订单。
 
@@ -12,14 +14,14 @@ SwiftUI 构建，支持 iOS 18 及以上，以及浅色／深色模式。当前 
 
 截至 **2026-10-16**，项目以日常使用和稳定性维护为主：先持续使用，遇到实际问题再做最小修复，暂不扩展大量新功能或重构现有布局。保留现有 1／2／3／4 图布局、tick 级行情刷新及已验证的交易交互；这一维护方向不代表所有场景或 Live 交易均已验收。
 
-正式代码以 [WahBun/AllYouNeedIsWheel](https://github.com/WahBun/AllYouNeedIsWheel) 的指定分支和 commit SHA 为准。本文更新所在分支为 **`codex/chart-labels-1.7`**，不默认 `main` 是最新版本。开发代码、经过验证的版本、Mini 已部署代码和 iPhone 已安装 App 分别核对，不能用文件夹日期或一次 Push 代替版本确认。
+正式代码以 [WahBun/AllYouNeedIsWheel](https://github.com/WahBun/AllYouNeedIsWheel) 的指定分支和 commit SHA 为准。本文更新所在分支为 **`codex/chart-labels-1.7`**，不默认 `main` 是最新版本。开发代码、经过验证的版本、后端主机已部署代码和 iPhone 已安装 App 分别核对，不能用文件夹日期或一次 Push 代替版本确认。
 
-日常分工：**MacBook Pro** 负责开发、Xcode 与手机构建；**Mac mini** 长期运行 Gateway、Backend 和 API；Pro 与 iPhone 通过 Tailscale 访问。部署与重启由用户在电脑或手机上选择执行，手机 App 的 Xcode Run 也由用户操作。
+推荐分工：**开发 Mac** 负责开发、Xcode 与手机构建；**后端主机** 长期运行 Gateway、Backend 和 API；开发 Mac 与 iPhone 通过 Tailscale 访问后端主机。部署与重启由用户在电脑或手机上选择执行，手机 App 的 Xcode Run 也由用户操作。
 
 ## 阅读导航
 
 - 日常使用：[功能与数据边界](#app-能做什么)、[更新流程](#更新流程)、[常见问题](#常见问题)。
-- 首次安装：按下文第 1–7 节完成；已有 Mini 服务请直接查看更新流程，不重复执行首次启动步骤。
+- 首次安装：按下文第 1–7 节完成；后端主机已安装服务时请直接查看更新流程，不重复执行首次启动步骤。
 - 专项说明：[iOS 构建与操作](ios/README.md)、[账户与运维](docs/MAC_MINI_TAILSCALE.md)、[Performance](docs/PERFORMANCE.md)、[行情刷新基线](docs/MARKET_DATA_BASELINE.md)。
 
 ## 界面预览
@@ -107,7 +109,7 @@ Executed records 默认 **Today**，可切换 **7 Days** 或 **MTD**（美东本
 
 ## 部署架构
 
-“后端主机”指运行 IB Gateway、Wheel API 和数据库的常开电脑，不限定 Mac mini 型号；“开发 Mac”指运行 Xcode 的 Mac，两者可以是同一台。以下安装、自启动和维护示例以 **macOS** 为准；Linux／Windows 的服务管理与默认路径需自行适配，其他系统的部署尚未验证。
+“后端主机”指运行 IB Gateway、Wheel API 和数据库的常开电脑，不限定具体 Mac 型号；“开发 Mac”指运行 Xcode 的 Mac，两者可以是同一台。以下安装、自启动和维护示例以 **macOS** 为准；Linux／Windows 的服务管理与默认路径需自行适配，其他系统的部署尚未验证。
 
 ```mermaid
 flowchart LR
@@ -341,14 +343,14 @@ Token 不放进 App、Git 或 `connection.json`。Flex 使用独立私有配置�
 
 ### 更新流程
 
-1. **Pro 修改并推送**：确认当前分支和工作区，完成直接相关验证，再 Commit → Push。保留未提交改动；配置、IB／Flex 凭据、数据库、日志、私有地址及个人签名信息不进入 Git。
+1. **开发 Mac 修改并推送**：确认当前分支和工作区，完成直接相关验证，再 Commit → Push。保留未提交改动；配置、IB／Flex 凭据、数据库、日志、私有地址及个人签名信息不进入 Git。
 2. **电脑或手机预览版本**：打开已配置的 **Wheel Backend** 快捷指令，选择 **Deploy latest**，核对分支、当前 SHA、目标 SHA、提交说明和重启建议。确认后部署固定的目标 SHA，不随之后的新提交改变。
 3. **用户选择部署方式**：在第二层菜单选择 **Deploy only** 或 **Deploy & Restart Backend**；只想重启现有版本时使用外层的 **Restart Backend only**。取消预览或选择菜单不会部署或重启。
-4. **按变更核实结果**：核对 Mini 的目标 SHA、Backend 健康和实际页面；网页资源更新后刷新页面。涉及 iOS 原生代码或 App 内置图表资源时，还需在 Pro 用 Xcode 构建安装，GitHub Push 和 Mini 部署不会自动更新手机 App。
+4. **按变更核实结果**：核对后端主机的目标 SHA、Backend 健康和实际页面；网页资源更新后刷新页面。涉及 iOS 原生代码或 App 内置图表资源时，还需在开发 Mac 用 Xcode 构建安装，GitHub Push 和后端主机部署不会自动更新手机 App。
 
 | 选项／提示 | 含义 |
 | --- | --- |
-| **Deploy only** | 更新 Mini 代码并检查健康，保持 Backend 进程不变；不代表运行中的 Python 已加载新代码。文档等无需重启的更新通常选此项。 |
+| **Deploy only** | 更新后端主机代码并检查健康，保持 Backend 进程不变；不代表运行中的 Python 已加载新代码。文档等无需重启的更新通常选此项。 |
 | **Deploy & Restart Backend** | 更新到确认的 SHA，再重启 Wheel Backend 并检查新进程和健康；不会重启 Gateway。应在没有订单请求进行中或结果待确认时执行。 |
 | **No restart expected** | 已识别的变更预计不需要 Backend 重启；网页刷新或 iPhone 重新构建仍可能需要。 |
 | **Restart recommended** | 存在 Backend Python、缓存模板等变更，建议部署并重启；也会考虑此前仅部署但尚待重启的变更。 |
@@ -356,11 +358,11 @@ Token 不放进 App、Git 或 `connection.json`。Flex 使用独立私有配置�
 
 重启建议只是提示，最终由用户选择。每次修复交付应说明验证范围、建议的部署方式和原因；后端、网页及手机端的实际验收分别记录。健康检查通过不等于券商连接、账户、行情或下单已验收。
 
-快捷指令由 Mini 自行从 GitHub 获取已推送代码；完成首次配置后，电脑或手机均可操作，Pro 不必保持开机。Mini、Tailscale、GitHub 访问和设备已有 SSH 授权仍需可用。手机端已确认版本预览可用，不能把预览成功当作手机端完整部署已验收。Mini 读取 GitHub 的认证与手机连接 Mini 的 SSH 授权是两回事，首次配置需分别核对。
+快捷指令由后端主机自行从 GitHub 获取已推送代码；完成首次配置后，电脑或手机均可操作，开发 Mac 不必保持开机。后端主机、Tailscale、GitHub 访问和设备已有 SSH 授权仍需可用。版本预览只确认代码版本和更新建议，不代表完整部署成功或手机 App 已更新。后端主机读取 GitHub 的认证与手机连接后端主机的 SSH 授权是两回事，首次配置需分别核对。
 
 部署会检查工作区、分支和前进方向，并保留代码回退点；不会强制覆盖冲突、自动安装依赖或迁移数据库。更新前按需要备份私有配置和数据库；运行中的 SQLite 使用在线 backup API／`.backup`。不要用 `git reset --hard`、删除数据库或清除未完成部署记录来绕过问题，也不要在断线后盲目重发交易请求。
 
-详细说明见 [Wheel Backend 快捷指令](docs/BACKEND_SHORTCUT.md#choose-whether-to-restart-2026-10-16) 与 [Pro → Mini 部署工具](docs/DEPLOY_MINI.md)。后者是另一种部署入口，其命令会请求 Backend 重启，不等同于快捷指令的 Deploy only。
+详细说明见 [Wheel Backend 快捷指令](docs/BACKEND_SHORTCUT.md#choose-whether-to-restart-2026-10-16) 与 [开发 Mac → 后端主机部署工具](docs/DEPLOY_MINI.md)。后者是另一种部署入口，其命令会请求 Backend 重启，不等同于快捷指令的 Deploy only。
 
 ### 日常问题反馈
 

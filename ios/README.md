@@ -1,6 +1,6 @@
 # Wheel iOS
 
-原生 SwiftUI iPhone 客户端，最低 iOS 18.0，无外部 Swift 包依赖。项目定位、Docker Gateway、Mini 后端、Tailscale HTTPS、Flex 和手机安装的完整流程见[主 README](../README.md)。
+原生 SwiftUI iPhone 客户端，最低 iOS 18.0，无外部 Swift 包依赖。项目定位、Docker Gateway、后端主机、Tailscale HTTPS、Flex 和手机安装的完整流程见[主 README](../README.md)。
 
 ## 构建与签名
 
@@ -52,7 +52,7 @@ Trade 自动报价参考后端 NYSE 日历，处理假期、提前收盘和夏�
 
 Performance 图表的浮框用二分查找定位历史日期；装饰动画限定刷新频率，并按可见性、标签页、后台和减少动态效果设置暂停。上述设计降低不必要工作，不是帧率或响应时间保证。
 
-Supercharts 的行情通过 SSE／原生流桥接按 tick 更新，独立于列表轮询。绘图仅有 Main chart only 与 All charts，两项都跨电脑／手机同步：前者只在主图显示，后者同时在主图及副图显示，不按周期筛选。仅部署 Mini 不会更新 App 内置图表资源，手机仍需用户 Run。
+Supercharts 的行情通过 SSE／原生流桥接按 tick 更新，独立于列表轮询。绘图仅有 Main chart only 与 All charts，两项都跨电脑／手机同步：前者只在主图显示，后者同时在主图及副图显示，不按周期筛选。仅部署后端主机不会更新 App 内置图表资源，手机仍需用户 Run。
 
 ## 验证
 
@@ -65,7 +65,7 @@ xcodebuild -project ios/Wheel.xcodeproj -scheme Wheel \
 
 测试使用 mocked transport／Demo，覆盖数据有效性、过期报价、刷新退避、用户编辑保留、订单权限和不确定提交等路径。2026-10-01 本地开发版本通过 89 项模拟器回归；这个记录不代表任意 GitHub 提交都已通过同样检查。
 
-安装新版本前先确保 Mini 后端具备对应接口。模拟器测试不能代替真机的语言／主题、点击区域、无线安装、盘中行情与成交验收。推送代码不会自动部署 Mini，也不会自动更新手机。
+安装新版本前先确保后端主机具备对应接口。模拟器测试不能代替真机的语言／主题、点击区域、无线安装、盘中行情与成交验收。推送代码不会自动部署后端主机，也不会自动更新手机。
 
 ### Stock sell timing
 
