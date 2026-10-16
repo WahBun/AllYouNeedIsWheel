@@ -16,9 +16,15 @@ SwiftUI 构建，支持 iOS 18 及以上，以及浅色／深色模式。当前 
 
 日常分工：**MacBook Pro** 负责开发、Xcode 与手机构建；**Mac mini** 长期运行 Gateway、Backend 和 API；Pro 与 iPhone 通过 Tailscale 访问。部署与重启由用户在电脑或手机上选择执行，手机 App 的 Xcode Run 也由用户操作。
 
+## 阅读导航
+
+- 日常使用：[功能与数据边界](#app-能做什么)、[更新流程](#更新流程)、[常见问题](#常见问题)。
+- 首次安装：按下文第 1–7 节完成；已有 Mini 服务请直接查看更新流程，不重复执行首次启动步骤。
+- 专项说明：[iOS 构建与操作](ios/README.md)、[账户与运维](docs/MAC_MINI_TAILSCALE.md)、[Performance](docs/PERFORMANCE.md)、[行情刷新基线](docs/MARKET_DATA_BASELINE.md)。
+
 ## 界面预览
 
-以下截图来自 Device Hub 中的 iPhone 18 Pro 模拟器，使用 App 内置 **Demo 合成数据**，不代表真实账户或成交。不同 iOS 版本的系统导航栏外观可能不同。
+以下为此前保存的 iPhone 模拟器截图，使用 App 内置 **Demo 合成数据**，不代表真实账户或成交，也不保证与当前分支每个控件完全一致。实际布局以当前安装版本为准。
 
 | Portfolio · 持仓概览 | Trade · CSP / CC | Orders · 订单管理 |
 | :---: | :---: | :---: |
@@ -41,12 +47,15 @@ SGOV、VTI、QQQ、SPY、VOO 有专属名称与资产分配动效。VTI／QQQ／
 
 ### Supercharts 与 𝔹𝕖𝕟 指标
 
-从持仓详情的 **𝑺𝒖𝒑𝒆𝒓𝒄𝒉𝒂𝒓𝒕𝒔** 或 Trade 的图表入口打开。进入图表以看走势为主，不自动铺设下单预览；需要时点击价格旁的 **+**。支持周期切换、RTH／ETH、全屏和可保存样式的绘图工具。
+从持仓详情的 **𝑺𝒖𝒑𝒆𝒓𝒄𝒉𝒂𝒓𝒕𝒔** 或 Trade 的图表入口打开。进入图表以看走势为主，不自动铺设下单预览；需要时点击价格旁的 **+**。支持 1／2／3／4 图布局、周期切换、RTH／ETH、全屏和可保存样式的绘图工具。
 
 - **持仓与成交**：正股显示股数，期权／期货显示合约数，空头用负号；正股图可同时显示相关期权的行权价。Positions 开关隐藏／显示这些持仓标记。成交箭头按订单归组，同一订单分批成交合并数量，独立订单分别显示；点击箭头查看详情。
 - **𝔹𝕖𝕟**：指标栏默认收起，设置按 Inputs／Style／Visibility 分组。包含三组可独立配置的 EMA（默认长度 20，支持多周期）、ATR 和 Bar Count。普通计数紫色默认不透明度 66%，浅金色计数为 50%；个人调整会保存。
 - **加载与状态**：历史 K 线和已获取的多周期 EMA 历史可在重启后先从缓存显示，再刷新。首次打开仍依赖 IB 历史数据；缓存、冻结、延迟和缺失状态不等于实时行情。Demo 不提供完整图表行情，图表需连接后端。
-- **交易边界**：期权图表目前用于查看行情、持仓和成交。图表 Join、TP／SL、加仓、Trim、BE 等操作以当前账户及后端返回的可用状态为准；模拟盘流程验证不等于实盘验收完成。
+- **绘图同步**：同一合约的 **Same timeframe** 通过后端跨设备同步，但只在相同周期显示；**All timeframes** 跨设备、跨周期显示；**Sync in layout** 仅在本地当前布局共享。跨设备同步需要连接同一后端，绘图不是券商订单。
+- **交易能力**：股票、期货与受支持的标准 USD 期权可按账户能力使用图表交易。Join、入场、TP／SL、Add、Trim、BE、Close 是否可用，以当前账户、持仓、合约及后端能力开关为准；已有保护单、覆盖数量和未确认结果可能限制操作。Live 并非连接后即可任意交易，模拟测试也不等于实盘验收。
+- **价格拖动**：One-click trading 开启时，松开可编辑的入场或 TP／SL 线会通过现有校验提交修改；关闭时保留草稿，等待 Confirm／Discard。普通行情刷新不应丢失草稿，真实成交、撤单或订单身份变化仍会触发重新核对。
+- **图表盈亏**：Daily P&L 对应当前精确合约与所选账户的 IBKR 数据；超过 15 秒未更新时显示 `Daily P&L · Stale`，不可用不显示成零。显示 `Realized today` 时使用已保存的 IB 成交已实现盈亏，含义与 IB 的每日盯市 P&L 不同。
 
 ### 成交记录筛选
 
@@ -68,22 +77,25 @@ Executed records 默认 **Today**，可切换 **7 Days** 或 **MTD**（美东本
 
 **Live ⇄ Paper 快速切换**：可选的同容器双会话模式让 Live 和 Paper 保持后台登录。切换时只更换 Wheel 的账户连接，不重启 Gateway；会话有效时无需反复进行 IB Key 验证。两边使用各自的账户连接、数据库和行情，订单仍归属经过核对的当前账户。
 
-**已验证体验（2026-10-07）**：用户已在手机确认双向切换流畅；后端正式接口最近一轮测得 Live → Paper 约 **0.78 秒**、Paper → Live 约 **0.95 秒**，两边均恢复实时行情。此为账户核对完成的接口耗时，不等于手机整页或首次图表加载时间。已修复旧账户的图表订阅冷却影响新账户首次加载的问题；本轮复测未出现该场景的 503。
+**历史验收记录（2026-10-07，并非当前在线状态检查）**：用户已在手机确认双向切换流畅；当时后端接口测得 Live → Paper 约 **0.78 秒**、Paper → Live 约 **0.95 秒**，两边均恢复实时行情。此为账户核对完成的接口耗时，不等于手机整页或首次图表加载时间。已修复旧账户的图表订阅冷却影响新账户首次加载的问题；当次复测未出现该场景的 503。
 
-首次启动、会话失效或 IB 要求重新认证时，仍需等待登录及本人确认，不能保证固定秒数。当前部署已验证同一容器内的双会话可共享现有行情订阅，无需为这次优化另购 Paper 行情；这不代表两个独立容器或任意设备组合都支持共享。双会话模式需显式配置，原单 Gateway 与单向预热方案保留作回退；下方首次部署示例仍是 Paper／只读单实例。实现、启用配置与验证记录见[双 Gateway 会话与切换验收](docs/acceptance/2026-10-07-dual-gateway.md)。
+首次启动、会话失效或 IB 要求重新认证时，仍需等待登录及本人确认，不能保证固定秒数。上述历史验收中，同一容器内的双会话取得了现有订阅的实时行情；这不代表两个独立容器或任意设备组合都支持共享。双会话模式需显式配置，原单 Gateway 与单向预热方案保留作回退；下方首次部署示例仍是 Paper／只读单实例。实现、启用配置与验证记录见[双 Gateway 会话与切换验收](docs/acceptance/2026-10-07-dual-gateway.md)。
 
-本轮连接与行情验收未下单、改单或撤单，不替代交易流程及开市负载验收。
+上述历史连接与行情验收未下单、改单或撤单，不替代交易流程及开市负载验收。
 
 ### 数据与订单的含义
 
 - **Demo** 是合成数据和本地模拟操作，不是 IB 模拟盘。连接 Paper Gateway 才是在使用 IB 模拟账户。
-- **暂存不等于成交**：Trade 先建立草稿，Orders 的 Execute 才提交到 IB。执行／撤单确认偏好可在订单设置中调整。
+- **暂存不等于成交**：Trade 票据先建立草稿，Orders 的 Execute 才提交到 IB；图表交易使用自己的预览／确认和 One-click 路径，并非所有操作都会先进入草稿列表。执行／撤单确认偏好可在订单设置中调整。
 - 外部 IB 订单只读；提交结果不确定时锁定进一步写入，先核实 IB 的订单与成交，再解除锁定。不会因超时自动补发交易请求。
 - Frozen、过期或缺失报价不会变成可执行的实时价格。连接成功不代表具备全部市场数据权限。
 - 收益历史来自 Flex 每日 TWR；SPX／NQ100 是 FRED 每日价格指数，不含股息再投资。日内估算不是正式 TWR，最终以之后的 Flex 报表为准。
 - 移仓的两条腿分别暂存、分别执行，不是原子组合单；保证金影响是 IB what-if 估算，不是各持仓可相加的保证金分摊。
 
 ### 刷新、成本与诊断
+
+- **图表与列表分别刷新**：图表使用 SSE 推送和 tick 驱动的价格／OHLC 更新，断线后按序列与快照恢复；下述 1／2 秒间隔是列表和票据读取，不是图表刷新上限。实际数据到达频率受 IB、行情权限、市场活动及网络影响。基线与测量边界见[行情刷新基线](docs/MARKET_DATA_BASELINE.md)。
+- **报价新鲜度**：最新成交价与可执行 bid／ask 不等价；只有有效实时盘口更新或同侧有效价格配合正数量更新才能刷新相应可执行报价状态，缓存、延迟数据和本地计时不能冒充。图表 OHLC 更新也不证明实时成交量完整，未知成交量不填零。
 
 - 单标的交易详情和平仓页约每 1 秒刷新；Portfolio 和 Trade 列表通常约每 2 秒刷新。读取顺序执行，失败退避，隐藏页面暂停，实际间隔受请求耗时影响。
 - 持仓期权指标在确认休市且行情冻结时每 30 秒检查，避免把正常缺失的 Delta／IV 当成故障持续重试。盘中缺失仍快速重试；开市也不保证全部指标可用，取决于 IB 数据返回和权限。
@@ -128,21 +140,30 @@ flowchart LR
 ```sh
 mkdir -p "$HOME/Projects"
 cd "$HOME/Projects"
-git clone https://github.com/WahBun/AllYouNeedIsWheel.git
+git clone --branch codex/chart-labels-1.7 https://github.com/WahBun/AllYouNeedIsWheel.git
 cd AllYouNeedIsWheel
+git branch --show-current
+git rev-parse HEAD
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 cp connection.json.example connection.json
 ```
 
-已有安装不要覆盖配置或数据库。先查看 `git status`；干净工作区再用 `git pull --ff-only`。
+本例明确使用本文对应分支；若维护分支变更，应先核对 GitHub 的目标分支和 SHA。已有安装不要重新克隆到运行目录、覆盖配置或数据库；先查看 `git status`、当前分支和 SHA，再按[更新流程](#更新流程)操作。
 
 ## 2. 后端主机：Docker 运行 IB Gateway
 
 使用 [gnzsnz/ib-gateway-docker](https://github.com/gnzsnz/ib-gateway-docker) 的镜像；它是独立上游项目。下面为首次部署的 Paper／只读示例，不是现有服务的重置命令。
 
-在仓库外创建私有目录，例如 `~/Services/wheel-gateway`。保存 `docker-compose.yml`：
+在仓库外创建私有目录并进入：
+
+```sh
+mkdir -p "$HOME/Services/wheel-gateway"
+cd "$HOME/Services/wheel-gateway"
+```
+
+在该目录保存 `docker-compose.yml`：
 
 ```yaml
 services:
@@ -189,7 +210,7 @@ Docker Desktop 需要随用户登录启动；容器重启策略不能代替它�
 
 ## 3. 后端主机：连接 Python 后端
 
-编辑项目内的 `connection.json`，与上一步保持一致：
+回到克隆的项目根目录（本例为 `~/Projects/AllYouNeedIsWheel`），再编辑 `connection.json`，与上一步保持一致：
 
 ```json
 {
@@ -205,6 +226,7 @@ Docker Desktop 需要随用户登录启动；容器重启策略不能代替它�
 `client_id` 要固定且不与其他应用冲突；`account_id` 必须是实际目标账户。文件名不决定 Paper／Live，实际 Gateway 会话、端口及账户才决定。
 
 ```sh
+cd "$HOME/Projects/AllYouNeedIsWheel"
 source .venv/bin/activate
 python run_api.py
 ```
@@ -221,7 +243,9 @@ curl --fail http://127.0.0.1:8000/api/options/market-session
 
 后端维持 **一个进程、八个 HTTP 线程、一个串行 IB 执行线程**。相同读取可以合并等待，写入不合并、不自动重试。不要通过增加 Gunicorn worker 数来提速，也不要重复启动后端。
 
-准备开启交易时，分别核对 Gateway 的 Read-Only API、后端 `readonly` 和目标账户。使用 Live 时还需对应的 Gateway 会话与端口；`python run_api.py --realmoney` 仅选择 `connection_real.json`，本身不会证明当前是正确实盘账户。
+`run_api.py` 是首次手动启动入口，会检查并尝试补装缺失依赖；已有常驻服务时不要再运行它。它按命令行参数设置连接配置，自定义 `CONNECTION_CONFIG` 应使用运维指南中的直接 Gunicorn 启动方式，不能假设该环境变量会被此脚本保留。
+
+准备开启交易时，分别核对 Gateway 的 Read-Only API、后端 `readonly`、目标账户及对应资产的 Live 能力开关。使用 Live 时还需对应的 Gateway 会话与端口；`python run_api.py --realmoney` 仅选择 `connection_real.json`，本身不会证明当前是正确实盘账户。
 
 ## 4. 后端主机 → iPhone：Tailscale 私有 HTTPS
 
@@ -272,7 +296,7 @@ Simulator 可直接运行 Demo；它不证明真机签名、无线连接或实�
 
 ## 6. 配置 Performance 收益历史
 
-Portfolio 能读取不代表收益历史已配置。后端主机还需要 IBKR Flex 的每日 Change in NAV，包含 TWR、From／To Date 和 Ending Value，并按日拆分；账户需与 Gateway 配置一致。
+Portfolio 能读取不代表收益历史已配置。后端主机还需要 IBKR Flex 的每日 Change in NAV，包含 TWR、From／To Date、Starting／Ending Value，并按日拆分；CSV 需包含 CNAV section code；账户需与 Gateway 配置一致。
 
 在后端主机创建私有文件：
 
@@ -291,7 +315,7 @@ Portfolio 能读取不代表收益历史已配置。后端主机还需要 IBKR F
 
 先创建父目录，将文件权限设为 `600`；`history_path` 的父目录也应存在且可写。也可用后端环境变量 `WHEEL_PERFORMANCE_CONFIG` 指定另一个私有配置文件，或用 `report_path` 导入已有 CSV／XML。
 
-Token 不放进 App、Git 或 `connection.json`。该连接配置存在旧式日志输出，不能当作 Flex 密钥容器。收益档案要单独备份；ALL 展示实际保存的历史，不会凭空补全建仓以来缺失的日期。报表格式、缓存与估算边界见 [Performance 配置说明](docs/PERFORMANCE.md)。
+Token 不放进 App、Git 或 `connection.json`。Flex 使用独立私有配置，连接配置和诊断文件不应充当密钥容器。收益档案要单独备份；ALL 展示实际保存的历史，不会凭空补全建仓以来缺失的日期。报表格式、缓存与估算边界见 [Performance 配置说明](docs/PERFORMANCE.md)。
 
 ## 7. 长期运行与更新
 
@@ -362,9 +386,12 @@ Trade 自动报价参考 NYSE 常规交易日历，包括假期、提前收盘�
 ## 开发与验证
 
 ```sh
-# 后端：在已安装依赖的虚拟环境中执行，使用项目 mocks
-python -m unittest discover -s tests
-node --test tests/*.js
+# 从仓库根目录执行；后端先激活已安装依赖的虚拟环境
+# 隔离回归禁止网络、真实 IB 构造及持久数据库访问
+python tests/run_chart_offline.py
+
+# 前端单元测试：需已安装支持 node:test 的 Node.js
+npm run test:frontend
 
 # iOS：先列出可用模拟器，再将 SIMULATOR_ID 替换为本机目标
 xcrun simctl list devices available
@@ -374,7 +401,9 @@ xcodebuild -project ios/Wheel.xcodeproj -scheme Wheel \
 git diff --check
 ```
 
-模拟测试不提交真实订单。通过编译和回归不等于已验证盘中延迟、真实成交、所有网络故障或所有 iOS 设备。
+以上是验证入口，不表示当前提交已运行全部测试。图表浏览器交互回归位于 `tests/chart/*.cjs`，不包含在 `npm run test:frontend` 内；它们需要独立的 Playwright／浏览器环境，配置和行情矩阵见[行情刷新基线](docs/MARKET_DATA_BASELINE.md#repeatable-checks)。按变更选择相关检查，避免直接在生产配置上启动测试服务。
+
+模拟测试不构成券商验收。通过编译和回归不等于已验证盘中延迟、真实成交、所有网络故障或所有 iOS 设备；真实 Paper 订单需明确授权，Live 交易由用户操作。
 
 ```text
 iOS 开发入口：ios/Wheel.xcodeproj
