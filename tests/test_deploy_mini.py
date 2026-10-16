@@ -97,6 +97,10 @@ class DeployTests(unittest.TestCase):
         self.assertFalse(self.restarts)
         self.assertFalse((self.repo / '.git/wheel-deploy-pending.json').exists())
         self.assertIn('Python changes are not active until restart', output.getvalue())
+        advice = deploy.restart_advice(self.repo, self.target, self.target)
+        self.assertEqual(advice['status'], 'Review required')
+        self.assertIn('app.txt', advice['files'])
+        self.assertTrue(any('earlier Deploy only' in reason for reason in advice['reasons']))
 
     def test_code_only_retains_uncertainty_if_process_changes(self):
         with self.assertRaisesRegex(RuntimeError, 'No restart was requested'):
@@ -213,6 +217,60 @@ class DeployTests(unittest.TestCase):
             self.pid.side_effect = [100, 100, 100, 101]
             deploy.deploy_from_github(self.target, restart=True)
             self.assertEqual(len(self.restarts), 1)
+            self.assertFalse(deploy.deferred_restart_path(self.repo).exists())
+
+    def test_restart_classification_is_conservative(self):
+        cases = [(['api/services/orders.py'], 'Restart recommended'),
+                 (['frontend/templates/superchart.html'], 'Restart recommended'),
+                 (['frontend/static/js/superchart.js', 'ios/Wheel/ChartAssets/chart-drawings.js'], 'No restart expected'),
+                 (['ops/deploy_mini.py', 'tests/test_deploy_mini.py', 'docs/BACKEND_SHORTCUT.md'], 'No restart expected'),
+                 (['ios/Wheel/StockChart.swift'], 'No restart expected'),
+                 (['requirements.txt', 'api/services/orders.py'], 'Review required'),
+                 (['config.json'], 'Review required'),
+                 (['db/migrations/change.py'], 'Review required'),
+                 (['ios/Wheel/ChartAssets/new-loader.js'], 'Review required'),
+                 ([], 'No restart expected')]
+        for paths, expected in cases:
+            with self.subTest(paths=paths):
+                advice = deploy.classify_restart(paths)
+                self.assertEqual(advice['status'], expected)
+                self.assertTrue(advice['reasons'])
+
+    def test_invalid_deferred_state_never_claims_no_restart(self):
+        deploy.deferred_restart_path(self.repo).write_text('{broken')
+        self.assertEqual(deploy.restart_advice(self.repo, self.before, self.target)['status'], 'Review required')
+
+    def test_rename_includes_both_old_and_new_paths(self):
+        self.g(self.source, 'mv', 'app.txt', 'app.py')
+        self.g(self.source, 'commit', '-m', 'rename runtime')
+        target = self.g(self.source, 'rev-parse', 'HEAD')
+        self.g(self.repo, 'fetch', str(self.source), 'release')
+        advice = deploy.restart_advice(self.repo, self.before, target)
+        self.assertEqual(advice['files'], ['app.py', 'app.txt'])
+        self.assertEqual(advice['status'], 'Review required')
+
+    def test_deferred_backend_change_survives_later_docs_update(self):
+        self.g(self.source, 'restore', '--source=' + self.before, 'app.txt')
+        (self.source / 'api').mkdir()
+        (self.source / 'api/runtime.py').write_text('VERSION = 2\n')
+        self.g(self.source, 'add', '.')
+        self.g(self.source, 'commit', '-m', 'backend change')
+        self.target = self.g(self.source, 'rev-parse', 'HEAD')
+        self.make_bundle()
+        self.pid.side_effect = None
+        self.pid.return_value = 100
+        deploy.apply(self.repo, 'release', self.target, self.before,
+                     str(self.bundle), 'refs/heads/release', restart=False)
+        (self.source / 'docs').mkdir()
+        (self.source / 'docs/note.md').write_text('Docs only')
+        self.g(self.source, 'add', '.')
+        self.g(self.source, 'commit', '-m', 'docs later')
+        later = self.g(self.source, 'rev-parse', 'HEAD')
+        self.g(self.repo, 'fetch', str(self.source), 'release')
+        advice = deploy.restart_advice(self.repo, self.target, later)
+        self.assertEqual(advice['status'], 'Restart recommended')
+        self.assertIn('api/runtime.py', advice['files'])
+        self.assertFalse(self.restarts)
 
     def test_existing_unhealthy_backend_stops(self):
         self.health.return_value = False

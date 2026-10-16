@@ -91,3 +91,30 @@ same-version no-op behavior. Gateway remains outside both deployment choices.
 Validation: 24 focused Git/mock-service, SSH allowlist and workflow-structure tests
 passed. REA inspected the 19-action generated workflow, including the nested menu
 and pinned SHA references (ev_65deec5a856ba0c021595dcd8069f673c92ade47b86a2a7de5f491b0d00f2cae).
+
+### Automatic restart advice
+
+The version preview now includes Restart recommended, No restart expected or
+Review required, with reasons and representative changed files. This is advice
+only: the existing second menu and explicit user choice still control deployment.
+The comparison uses exact commits and disables rename detection so neither the
+old nor new path is missed. Backend Python and cached templates recommend restart;
+known request-loaded chart assets, static assets, docs/tests and on-demand helper
+scripts do not. Dependencies, migrations, startup/configuration and unclassified
+files require review; a restart alone may not activate those changes. Native iPhone
+changes still need an app rebuild.
+
+Code-only updates that may need restart retain their original baseline privately
+in `.git/wheel-deferred-restart.json`. Later previews include those changes even
+when the next update only changes docs. A verified deployment restart or standalone
+shortcut restart clears the advisory record. An external restart may leave a
+conservative recommendation; an invalid record produces Review required. This is
+not proof of the running process's loaded version and does not weaken pending
+deployment, broker or no-replay guards.
+
+The existing 19-action workflow was rechecked with REA
+(ev_228bb4645fb753d78f42e33688e153643b284fc86f62e248c9d5b9670c864db2).
+No workflow replacement is needed: its existing summary field carries the advice.
+29 focused tests cover classification, rename paths, deferred backend changes
+across a later docs update, invalid state, confirmed restart clearing, timeout,
+SSH allowlisting and the unchanged manual selection workflow.

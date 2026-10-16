@@ -105,6 +105,72 @@ def preflight(repo, branch):
     return before
 
 
+def classify_restart(paths):
+    """Conservative update advice, never authorization to restart or migrate."""
+    reasons = set()
+    status = 'No restart expected'
+    for path in paths:
+        if path.startswith(('docs/', 'tests/', '.github/')) or path in {'README.md', 'AGENTS.md', 'LICENSE', '.gitignore'}:
+            continue
+        if path in {'ops/deploy_mini.py', 'ops/restart_backend.py', 'ops/build_backend_shortcut.py'}:
+            reasons.add('Deployment helpers load on their next invocation.')
+        elif path.startswith('frontend/static/') or path in {
+                'ios/Wheel/ChartAssets/stock-chart.html',
+                'ios/Wheel/ChartAssets/chart-drawings.js',
+                'ios/Wheel/ChartAssets/chart-add-orders.js',
+                'ios/Wheel/ChartAssets/lightweight-charts.standalone.production.js'}:
+            reasons.add('Web assets load on page refresh; bundled iPhone assets need an app rebuild.')
+        elif path.startswith('ios/') and not path.startswith('ios/Wheel/ChartAssets/'):
+            reasons.add('iPhone app changes need an app rebuild, not a Backend restart.')
+        elif path.startswith('db/migrations/'):
+            status = 'Review required'
+            reasons.add('Database migrations need review; restarting does not apply migrations automatically.')
+        elif path.startswith('frontend/templates/') or (path.endswith('.py') and not path.startswith('ops/')):
+            if status != 'Review required':
+                status = 'Restart recommended'
+            reasons.add('Backend Python or cached web templates changed.')
+        else:
+            status = 'Review required'
+            reasons.add('Dependencies, configuration, migrations or other unclassified files need review; restarting alone may not be sufficient.')
+    if not reasons:
+        reasons.add('Only documentation/tests changed, or there are no code changes.')
+    return dict(status=status, reasons=sorted(reasons), files=sorted(paths))
+
+
+def deferred_restart_path(repo):
+    return repo / git(repo, 'rev-parse', '--git-path', 'wheel-deferred-restart.json')
+
+
+def restart_advice(repo, before, target):
+    baseline = before
+    deferred = deferred_restart_path(repo)
+    if deferred.exists():
+        try:
+            baseline = json.loads(deferred.read_text())['base']
+            if not isinstance(baseline, str) or not re.fullmatch(r'[0-9a-f]{40}', baseline):
+                raise ValueError('Invalid baseline')
+        except (OSError, ValueError, KeyError, TypeError):
+            return dict(status='Review required', reasons=['Earlier Deploy only restart state could not be verified.'], files=[])
+    try:
+        # Disable rename detection so both the old and new paths are classified.
+        paths = git(repo, 'diff', '--no-renames', '--name-only', '-z', baseline, target).split('\0')
+        advice = classify_restart([path for path in paths if path])
+    except RuntimeError:
+        return dict(status='Review required', reasons=['The code comparison could not be verified.'], files=[])
+    if deferred.exists():
+        advice['reasons'].insert(0, 'Includes earlier Deploy only changes not followed by a verified restart.')
+    return advice
+
+
+def clear_deferred_restart(repo):
+    try:
+        deferred_restart_path(repo).unlink(missing_ok=True)
+    except (OSError, RuntimeError):
+        # A bookkeeping error must not turn a verified restart into a retry.
+        print('Backend restart succeeded; restart advice could not be cleared. '
+              'A future preview may be conservative.', file=sys.stderr)
+
+
 def apply(repo, branch, target, expected, bundle, bundle_ref, wait=90, restart=True):
     folder = Path.home() / 'Library/Application Support/Wheel'
     folder.mkdir(parents=True, exist_ok=True)
@@ -142,6 +208,9 @@ def apply(repo, branch, target, expected, bundle, bundle_ref, wait=90, restart=T
                                    'No restart was requested. Inspect Mini before retrying.')
             if identity(repo, branch) != target:
                 raise RuntimeError('Repository changed during code-only update. No restart was requested.')
+            deferred = deferred_restart_path(repo)
+            if not deferred.exists() and restart_advice(repo, before, target)['status'] != 'No restart expected':
+                deferred.write_text(json.dumps({'base': before}) + '\n')
             pending.unlink()
             print(f'Code update verified: {target}\nBackend PID unchanged: {old_pid}\n'
                   'Backend was not restarted. Backend Python changes are not active until restart. '
@@ -157,6 +226,7 @@ def apply(repo, branch, target, expected, bundle, bundle_ref, wait=90, restart=T
                 if identity(repo, branch) != target:
                     raise RuntimeError('Repository changed during restart; deployment is not verified.')
                 pending.unlink()
+                clear_deferred_restart(repo)
                 print(f'Deployment verified: {target}\nBackend PID: {pid}\nHealth: healthy', flush=True)
                 return
         raise RuntimeError(f'Health recovery not confirmed. Code is at {target}; rollback point is {rollback}. '
@@ -174,13 +244,20 @@ def preview_latest():
         target = git(repo, 'rev-parse', ref + '^{commit}')
         git(repo, 'merge-base', '--is-ancestor', before, target)
         subject = git(repo, 'show', '-s', '--format=%s', target)
+        advice = restart_advice(repo, before, target)
+        explanation = '\n'.join(advice['reasons'])
+        shown_files = ', '.join(advice['files'][:4])
+        if len(advice['files']) > 4:
+            shown_files += f" (+{len(advice['files']) - 4} more)"
         summary = (f'Branch: {branch}\nMini current: {before}\nGitHub latest: {target}\n'
-                   f'Commit: {subject}\n\n'
+                   f'Commit: {subject}\n\nRestart advice: {advice["status"]}\n{explanation}\n'
+                   + (f'Changed files: {shown_files}\n' if shown_files else '')
+                   + '\n'
                    + ('Code is already at this version. ' if target == before else '')
                    + 'Confirm this exact commit, then choose whether to restart Backend. '
                      'Deploy only leaves Backend Python changes inactive until restart. '
                      'Continue only when no order request is pending. Gateway stays running.')
-        return dict(sha=target, current=before, branch=branch, summary=summary)
+        return dict(sha=target, current=before, branch=branch, summary=summary, restart_advice=advice)
     finally:
         git(repo, 'update-ref', '-d', ref)
 

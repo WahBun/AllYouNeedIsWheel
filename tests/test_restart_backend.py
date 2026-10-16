@@ -7,6 +7,22 @@ from ops import restart_backend as backend
 
 
 class RestartBackendTests(unittest.TestCase):
+    def test_verified_standalone_restart_clears_deferred_advice(self):
+        from unittest.mock import Mock
+        from pathlib import Path
+        import sys
+        import tempfile
+        clear = Mock()
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(Path, 'home', return_value=Path(folder)), \
+             patch('sys.argv', ['restart_backend.py', 'restart']), \
+             patch.object(backend, 'restart', return_value='Backend restart verified') as restart, \
+             patch.dict(sys.modules, {'deploy_mini': SimpleNamespace(clear_deferred_restart=clear)}), \
+             patch('builtins.print'):
+            self.assertEqual(backend.main(), 0)
+            restart.assert_called_once()
+            clear.assert_called_once()
+
     def test_failure_is_visible_in_ssh_stderr(self):
         out, err = io.StringIO(), io.StringIO()
         with patch('sys.argv', ['restart_backend.py', 'check']), \

@@ -87,7 +87,10 @@ def main():
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 raise RuntimeError('Another restart is already in progress. Wait for its result.')
-            print(restart())
+            result = restart()
+            from deploy_mini import clear_deferred_restart
+            clear_deferred_restart(Path(__file__).resolve().parents[1])
+            print(result)
         return 0
     except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
         # Shortcuts displays stderr on a nonzero SSH exit; stdout is discarded.
