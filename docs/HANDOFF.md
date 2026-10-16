@@ -1,3 +1,29 @@
+## 2026-10-16 — per-drawing sync scope
+
+REA inspected TradingView's current page and captured runtime script sources
+(Evidence `ev_07f0b67147f5c7dd9d1e42ed77df50285579c8455c489b719efa3870860671c1`).
+The supplied video and captured shared line-tool actions show per-object
+No sync / Sync in layout / Sync globally choices using NotShared,
+SharedInLayout and GloballyShared states. Adopt the shared object-level menu for
+all 20 Wheel drawing tools, including the separate text toolbar.
+
+Existing and new drawings retain the previous global default. No sync belongs to
+a stable pane identity; layout sync shares same-contract annotations within the
+saved browser layout. These two scopes use local browser storage and never enter
+the cross-device operation queue. Global sync retains the existing backend.
+Scope transitions retire the old scope's ID and create a new one so a remote
+refresh cannot replace the private copy. Pane identities survive reordering and
+reload. Wheel has one saved web layout per browser profile; local/layout drawings
+are not cross-device backups. Native assets are shared, but physical iPhone Run
+and native persistence acceptance are not part of this web update.
+
+Validation: drawing-sharing covers all 20 menus, scope transitions, isolated
+browser contexts, other-layout exclusion, polling/reload/delete, global request
+payloads, small/desktop widths and both themes. drawing-sharing-layout exercises
+the actual four-pane host through 4 -> 2 -> 1 -> 4, reload, layout sharing and
+removal. drawing-history and crosshair-drawing-priority pass. Browser fixtures use
+simulated drawing transport/market data; no broker writes or service restart.
+
 ## 2026-10-16 — uninterrupted cursor across dense drawing hit areas
 
 REA refreshed the live Wheel page/scripts (Evidence

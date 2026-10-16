@@ -63,6 +63,7 @@ function renderTextProperties(){
  const size=document.createElement('select');size.setAttribute('aria-label','Font size');for(const n of [...new Set([10,12,14,16,18,20,24,28,32,40,48,textSize(d)])].sort((a,b)=>a-b)){const o=document.createElement('option');o.value=String(n);o.textContent=String(n);size.append(o);}size.value=String(textSize(d));size.disabled=disabled;size.onchange=()=>changeTextStyle('fontSize',Number(size.value));textProperties.append(size);
  for(const [key,label] of [['bold','Bold'],['italic','Italic']]){const control=button(key==='bold'?'B':'I',label,()=>changeTextStyle(key,textDrawing()?.[key]===false));control.style.fontWeight=key==='bold'?'700':'400';control.style.fontStyle=key==='italic'?'italic':'normal';control.setAttribute('aria-pressed',String(d[key]!==false));control.disabled=disabled;textProperties.append(control);}
  const edit=button(textEdit?'✓':'T',textEdit?'Done editing text':'Edit drawing text',()=>textEdit?finishTextEdit():beginTextEdit(d));edit.disabled=disabled;textProperties.append(edit);
+ if(!textEdit)textProperties.append(drawingSyncButton(d));
  if(textEdit)textProperties.append(button('×','Cancel text edit',()=>finishTextEdit(true)));
  else {textProperties.append(lockButton(!!d.locked,'Lock selected drawing',()=>{if(locked)return;remember();d.locked=!d.locked;save();renderTextProperties();}));const remove=button('⌫','Delete drawing',deleteSelected);remove.disabled=disabled;textProperties.append(remove);}
 }
@@ -107,10 +108,60 @@ const drawingOperationID=()=>Array.from(crypto.getRandomValues(new Uint8Array(16
 const clone=v=>JSON.parse(JSON.stringify(v));
 const syncCID=()=>Number(String(loadedKey||'').match(/(?:-|:)(\d+)$/)?.[1]);
 function queueDrawingChanges(){
- const before=new Map(syncBaseline.map(d=>[d.id,d])),after=new Map(drawings.map(d=>[d.id,d]));
+ persistScopedDrawings();
+ const before=new Map(syncBaseline.filter(isGlobalDrawing).map(d=>[d.id,d])),after=new Map(drawings.filter(isGlobalDrawing).map(d=>[d.id,d]));
  for(const id of new Set([...before.keys(),...after.keys()]))if(JSON.stringify(before.get(id))!==JSON.stringify(after.get(id)))syncState.pending.push({op:drawingOperationID(),id,base:syncState.revision,kind:after.has(id)?'put':'delete',value:after.get(id)});
  syncBaseline=clone(drawings);
 }
+// Local and layout annotations never enter the cross-device operation queue.
+const sharingMode=d=>['local','layout'].includes(d?.sharing)?d.sharing:'global';
+const isGlobalDrawing=d=>sharingMode(d)==='global';
+const drawingPane=()=>window.frameElement?.dataset.drawingPane||'native';
+const scopedStorageKey=()=> 'wheel.scoped-drawings:'+ (window.frameElement?.dataset.drawingLayout||'native')+':'+loadedKey;
+function scopedStore(){try{const value=JSON.parse(localStorage.getItem(scopedStorageKey())||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{}}catch{return {}}}
+function readScopedDrawings(fallback=[]){
+ const stored=Object.values(scopedStore());
+ const values=new Map([...fallback.filter(d=>!isGlobalDrawing(d)),...stored].map(d=>[d.id,d]));
+ return [...values.values()].filter(d=>!isGlobalDrawing(d)&&(sharingMode(d)==='layout'||d.pane===drawingPane()));
+}
+function persistScopedDrawings(){
+ if(!loadedKey)return;
+ const stored=scopedStore(),before=new Map(syncBaseline.map(d=>[d.id,d])),after=new Map(drawings.map(d=>[d.id,d]));let changed=false;
+ for(const id of new Set([...before.keys(),...after.keys()])){
+  const a=before.get(id),b=after.get(id);if(JSON.stringify(a)===JSON.stringify(b))continue;
+  if(a&&!isGlobalDrawing(a)){delete stored[id];changed=true;}
+  if(b&&!isGlobalDrawing(b)){stored[id]=b;changed=true;}
+ }
+ if(changed)localStorage.setItem(scopedStorageKey(),JSON.stringify(stored));
+}
+let scopedRefreshTimer;
+function refreshScopedDrawings(){
+ if(drag||draft||gesture||textEdit||editor.style.display==='block'){clearTimeout(scopedRefreshTimer);scopedRefreshTimer=setTimeout(refreshScopedDrawings,50);return;}
+ drawings=[...drawings.filter(isGlobalDrawing),...readScopedDrawings()];syncBaseline=clone(drawings);
+ if(selected&&!drawings.some(d=>d.id===selected))selected=null;revision++;renderToolbar();save(false);
+}
+window.addEventListener('storage',e=>{if(e.key===scopedStorageKey())refreshScopedDrawings();});
+const syncMenu=document.createElement('div');syncMenu.id='draw-sync-menu';syncMenu.setAttribute('role','menu');syncMenu.style.cssText='display:none;position:absolute;z-index:24;min-width:155px;padding:4px;background:#252726;color:#eee;border:1px solid #555;border-radius:6px;box-shadow:0 2px 8px #0004';document.body.append(syncMenu);
+function closeDrawingSyncMenu(){syncMenu.style.display='none';}
+function drawingSyncButton(d){
+ const label={local:'No sync',layout:'Sync in layout',global:'Sync globally'}[sharingMode(d)];
+ const b=button('⇄','Drawing sync: '+label,()=>{
+  syncMenu.replaceChildren();
+  for(const [mode,title] of [['local','No sync'],['layout','Sync in layout'],['global','Sync globally']]){
+   const item=button((sharingMode(d)===mode?'✓  ':'    ')+title,title,()=>{
+    closeDrawingSyncMenu();const current=drawings.find(value=>value.id===d.id);if(!current||locked||current.locked||sharingMode(current)===mode)return;
+    remember();const replacement={...current,id:drawingOperationID(),sharing:mode};
+    if(mode==='local')replacement.pane=drawingPane();else delete replacement.pane;
+    drawings=drawings.map(value=>value.id===d.id?replacement:value);selected=replacement.id;save();renderToolbar();
+   });
+   item.setAttribute('role','menuitemradio');item.setAttribute('aria-checked',String(sharingMode(d)===mode));item.style.cssText='display:block;width:100%;height:32px;text-align:left;background:transparent;color:inherit;border:0;border-radius:3px;padding:0 10px;font:13px -apple-system';syncMenu.append(item);
+  }
+  syncMenu.style.display='block';const r=b.getBoundingClientRect();syncMenu.style.left=Math.max(4,Math.min(r.right+5,innerWidth-syncMenu.offsetWidth-4))+'px';syncMenu.style.top=Math.max(4,Math.min(r.top,innerHeight-syncMenu.offsetHeight-34))+'px';
+ });b.disabled=locked||d.locked;b.setAttribute('aria-haspopup','menu');return b;
+}
+document.addEventListener('pointerdown',e=>{if(!e.target.closest?.('#draw-sync-menu,[aria-label^="Drawing sync:"]'))closeDrawingSyncMenu();},true);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawingSyncMenu();});
+window.addEventListener('resize',closeDrawingSyncMenu);
 // Same-page peers receive idempotent operations immediately, without resetting tools.
 const peerDrawingOps=new Map(),seenPeerOps=new Set();let peerDrawingTimer;
 window.receivePeerDrawings=message=>{
@@ -140,7 +191,7 @@ async function syncDrawings(){
  // Remote changes wait until a local gesture finishes; never overwrite a dragged line.
  if(drag||draft||gesture||textEdit){save(false);return;}
  syncState.revision=result.revision;
- const merged=new Map((result.drawings||[]).map(d=>[d.id,d]));for(const op of syncState.pending){if(op.kind==='delete')merged.delete(op.id);else merged.set(op.id,op.value);}
+ const merged=new Map([...(result.drawings||[]).filter(isGlobalDrawing),...drawings.filter(d=>!isGlobalDrawing(d))].map(d=>[d.id,d]));for(const op of syncState.pending){if(op.kind==='delete')merged.delete(op.id);else merged.set(op.id,op.value);}
  drawings=[...merged.values()];syncBaseline=clone(drawings);if(selected&&!merged.has(selected))selected=null;revision++;save(false);renderToolbar();
  }catch(error){console.debug('Drawing sync pending',error.message);}finally{syncBusy=false;}
 }
@@ -154,7 +205,7 @@ function save(track=true){
  if(track){commitHistory();queueDrawingChanges();for(const op of syncState.pending)seenPeerOps.add(op.op);queueMicrotask(syncDrawings);}
  revision++;if(!loadedKey)return;
  // Freeze both payload and originating key; a later chart switch must not mix them.
- pendingDrawingSave=JSON.parse(JSON.stringify({key:loadedKey,drawings,favorites,collapsed,order,magnet,toolsVisible,toolStyles,locked,hidden,syncState}));
+ pendingDrawingSave=JSON.parse(JSON.stringify({key:loadedKey,drawings:window.frameElement?drawings.filter(isGlobalDrawing):drawings,favorites,collapsed,order,magnet,toolsVisible,toolStyles,locked,hidden,syncState}));
  window.webkit?.messageHandlers.drawingsChanged?.postMessage(pendingDrawingSave);
  clearTimeout(drawingSaveTimer);drawingSaveTimer=setTimeout(flushDrawingSave,2000);
 }
@@ -290,6 +341,7 @@ function renderProperties(){
  properties.append(button(d.dash?'┄':'—','Drawing line style',()=>{if(locked||d.locked)return;remember();d.dash=!d.dash;rememberStyle(d);renderProperties();}));
  if(['text','note'].includes(d.type))properties.append(button('T','Edit drawing text',()=>{editor.dataset.drawing=d.id;editor.querySelector('input').value=d.text||'';editor.style.display='block';editor.querySelector('input').focus();}));
  properties.append(lockButton(!!d.locked,'Lock selected drawing',()=>{if(locked)return;remember();d.locked=!d.locked;save();renderProperties();}));
+ properties.append(drawingSyncButton(d));
  const remove=button('⌫','Delete drawing',deleteSelected);remove.disabled=locked||d.locked;remove.style.color=remove.disabled?'#888':'#ff9393';properties.append(remove);
 }
 function renderMenu(){menu.replaceChildren();menu.append(button('Reset tool order','Reset tool order',()=>{order=[...referenceOrder];save();renderMenu();renderToolbar();}));for(const t of orderedTools()){ const row=document.createElement('div');row.className='row';const name=button(t[2]+'  '+t[1],t[1],()=>choose(t[0]));name.className='name';const star=button(favorites.includes(t[0])?'★':'☆','Favorite '+t[1],()=>{favorites=favorites.includes(t[0])?favorites.filter(f=>f!==t[0]):[...favorites,t[0]];save();renderMenu();renderToolbar();});star.className='star';row.append(name,star);const grip=button('⠿','Reorder '+t[1],()=>{});grip.style.touchAction='none';row.dataset.tool=t[0];let sorting=false;grip.onpointerdown=e=>{e.preventDefault();e.stopPropagation();sorting=true;grip.setPointerCapture(e.pointerId);row.style.background='#52675f';};grip.onpointermove=e=>{if(!sorting)return;e.preventDefault();const bounds=menu.getBoundingClientRect();if(e.clientY<bounds.top+35)menu.scrollTop-=12;if(e.clientY>bounds.bottom-35)menu.scrollTop+=12;const rows=[...menu.querySelectorAll('.row')].filter(r=>r!==row);const target=rows.find(r=>{const b=r.getBoundingClientRect();return e.clientY>=b.top&&e.clientY<=b.bottom;});if(!target)return;const middle=target.getBoundingClientRect().top+target.offsetHeight/2;menu.insertBefore(row,e.clientY<middle?target:target.nextSibling);grip.setPointerCapture(e.pointerId);order=[...menu.querySelectorAll('.row')].map(r=>r.dataset.tool);renderToolbar();};grip.onpointerup=grip.onpointercancel=()=>{if(!sorting)return;sorting=false;row.style.background='';save();};row.append(grip);menu.append(row);}
@@ -444,7 +496,7 @@ document.addEventListener('contextmenu',e=>{
 },true);
 editor.querySelector('#draw-save').onclick=()=>{const existing=drawings.find(d=>d.id===editor.dataset.drawing);if(existing&&!existing.locked&&!locked){remember();existing.text=editor.querySelector('input').value.trim()||'Text';save();}delete editor.dataset.drawing;if(draft){draft.text=editor.querySelector('input').value.trim()||'Text';commit();}editor.style.display='none';};editor.querySelector('#draw-cancel').onclick=()=>{editor.style.display='none';delete editor.dataset.drawing;choose(null);};
 window.chartDrawingActions={undo:()=>applyHistory(),redo:()=>applyHistory(true),shortcut:drawingHistoryShortcut,count:()=>drawings.length,removeAll:()=>{if(!drawings.length)return;remember();drag=null;drawings=[];selected=null;choose(null);save();renderToolbar();}};
-window.configureDrawings=(config)=>{if(config.key===loadedKey)return;if(textEdit)finishTextEdit(true);flushDrawingSave();clearTimeout(peerDrawingTimer);peerDrawingOps.clear();seenPeerOps.clear();syncGeneration++;loadedKey=config.key;revision++;const value=config.value||{};toolStyles={};for(const t of tools){const v=value.toolStyles?.[t[0]];if(!v)continue;const clean={};if(/^#[0-9a-f]{6}$/i.test(v.color))clean.color=v.color;if([1,2,3,4].includes(v.width))clean.width=v.width;if(typeof v.dash==='boolean')clean.dash=v.dash;if(t[0]==='text'){if(Number.isFinite(v.fontSize)&&v.fontSize>=8&&v.fontSize<=72)clean.fontSize=v.fontSize;for(const key of ['bold','italic'])if(typeof v[key]==='boolean')clean[key]=v[key];}toolStyles[t[0]]=clean;}order=Array.isArray(value.order)?[...new Set([...value.order.filter(id=>referenceOrder.includes(id)),...referenceOrder])]:[...referenceOrder];magnet=['off','weak','strong'].includes(value.magnet)?value.magnet:'weak';drawings=Array.isArray(value.drawings)?value.drawings.filter(d=>tools.some(t=>t[0]===d.type)&&Array.isArray(d.p)&&d.p.length<=400&&d.p.every(p=>Number.isFinite(p.time)&&Number.isFinite(p.price)&&p.price>0)).slice(0,200):[];for(const d of drawings){if(!value.toolStyles?.[d.type]&&(d.color||d.width||d.dash!==undefined))toolStyles[d.type]=JSON.parse(JSON.stringify({color:d.color,width:d.width,dash:d.dash}));}favorites=Array.isArray(value.favorites)?value.favorites.filter(id=>tools.some(t=>t[0]===id)):tools.map(t=>t[0]);collapsed=value.collapsed!==false;locked=value.locked===true;hidden=value.hidden===true;toolsVisible=false;syncToolVisibility();selected=null;undo=[];redo=[];historyBefore=null;choose(null);renderToolbar();syncState=clone(value.syncState||{revision:0,pending:[],migrated:false});syncBaseline=clone(drawings);if(!syncState.migrated){for(const d of drawings)syncState.pending.push({op:drawingOperationID(),id:d.id,base:0,kind:'import',value:clone(d)});syncState.migrated=true;save(false);}void syncDrawings();};
+window.configureDrawings=(config)=>{if(config.key===loadedKey)return;if(textEdit)finishTextEdit(true);flushDrawingSave();closeDrawingSyncMenu();clearTimeout(scopedRefreshTimer);clearTimeout(peerDrawingTimer);peerDrawingOps.clear();seenPeerOps.clear();syncGeneration++;loadedKey=config.key;revision++;const value=config.value||{};toolStyles={};for(const t of tools){const v=value.toolStyles?.[t[0]];if(!v)continue;const clean={};if(/^#[0-9a-f]{6}$/i.test(v.color))clean.color=v.color;if([1,2,3,4].includes(v.width))clean.width=v.width;if(typeof v.dash==='boolean')clean.dash=v.dash;if(t[0]==='text'){if(Number.isFinite(v.fontSize)&&v.fontSize>=8&&v.fontSize<=72)clean.fontSize=v.fontSize;for(const key of ['bold','italic'])if(typeof v[key]==='boolean')clean[key]=v[key];}toolStyles[t[0]]=clean;}order=Array.isArray(value.order)?[...new Set([...value.order.filter(id=>referenceOrder.includes(id)),...referenceOrder])]:[...referenceOrder];magnet=['off','weak','strong'].includes(value.magnet)?value.magnet:'weak';drawings=Array.isArray(value.drawings)?value.drawings.filter(d=>tools.some(t=>t[0]===d.type)&&Array.isArray(d.p)&&d.p.length<=400&&d.p.every(p=>Number.isFinite(p.time)&&Number.isFinite(p.price)&&p.price>0)).slice(0,200):[];for(const d of drawings){if(!value.toolStyles?.[d.type]&&(d.color||d.width||d.dash!==undefined))toolStyles[d.type]=JSON.parse(JSON.stringify({color:d.color,width:d.width,dash:d.dash}));}favorites=Array.isArray(value.favorites)?value.favorites.filter(id=>tools.some(t=>t[0]===id)):tools.map(t=>t[0]);collapsed=value.collapsed!==false;locked=value.locked===true;hidden=value.hidden===true;toolsVisible=false;syncToolVisibility();selected=null;undo=[];redo=[];historyBefore=null;choose(null);renderToolbar();syncState=clone(value.syncState||{revision:0,pending:[],migrated:false});drawings=[...drawings.filter(isGlobalDrawing),...readScopedDrawings(drawings)];syncBaseline=clone(drawings);revision++;if(!syncState.migrated){for(const d of drawings.filter(isGlobalDrawing))syncState.pending.push({op:drawingOperationID(),id:d.id,base:0,kind:'import',value:clone(d)});syncState.migrated=true;save(false);}void syncDrawings();};
 touch.addEventListener('dblclick',e=>{if(active==='path'){e.preventDefault();if(draft?.p.length>2){const last=draft.p.at(-1),prev=draft.p.at(-2);const a=xy(last),b=xy(prev);if(a&&b&&Math.hypot(a.x-b.x,a.y-b.y)<10)draft.p.pop();}finish();}});
  document.addEventListener('keydown',e=>{if(drawingHistoryShortcut(e))return;if(e.isComposing||e.target?.isContentEditable)return;if(e.target instanceof HTMLInputElement||e.target instanceof HTMLTextAreaElement||e.target instanceof HTMLSelectElement)return;if(e.key==='Escape'){selected=null;choose(null);revision++;}else if(['Delete','Backspace'].includes(e.key)&&selected){e.preventDefault();deleteSelected();}else if(e.key==='Enter'&&active==='path')finish();});
 // Capture the gesture before the chart library consumes touch events. A chart
