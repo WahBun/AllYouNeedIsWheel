@@ -54,3 +54,20 @@ REA inspected the original exported workflow, evidence
 The actual iPhone still needs Tailscale and its existing authorized Shortcuts SSH
 key. iCloud sync and successful execution on that physical device must be verified
 there; a successful Mac import is not proof of iPhone execution.
+
+### SSH timeout repair (2026-10-16)
+
+The native runner logged NMSSH error 0 with an empty message after exactly 120
+seconds. Mini's direct GitHub connection timed out while the same read-only Git
+request through its existing system proxy succeeded. Git invoked from SSH does
+not automatically use the macOS system proxy. GitHub fetches now inherit that
+existing proxy for the subprocess only, respect explicit environment settings,
+and stop after 20 seconds. Errors go to stderr so Shortcuts can display them.
+No system proxy, SSH permissions, broker state or retry policy is changed.
+
+REA inspected the exported workflow and its SHA references
+(`ev_1434a7d54732f335ec958cbe4049ef73cecb2e0e258be60d6c08b4f724b8aad7`).
+The actual Mac shortcut completed preview, confirmation and the read-only
+deployment-check action. Diagnostic action edits were restored afterward.
+The helper-only repair can be advanced independently of chart changes, without
+restarting Backend; the user performs the subsequent full deployment.
