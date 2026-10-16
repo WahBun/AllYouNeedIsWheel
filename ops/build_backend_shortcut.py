@@ -30,8 +30,8 @@ def build(original):
     result = copy.deepcopy(original)
     originals = original['WFWorkflowActions']
     ssh = next(a for a in originals if a['WFWorkflowActionIdentifier'] == 'is.workflow.actions.runsshscript')
-    group, ask, deploy, restart = uid(), uid(), uid(), uid()
-    labels = ['Deploy commit & Restart Backend', 'Restart Backend only']
+    group, preview, summary, sha, deploy, restart = [uid() for _ in range(6)]
+    labels = ['Deploy latest & Restart Backend', 'Restart Backend only']
 
     def connection(command, output):
         row = copy.deepcopy(ssh)
@@ -44,10 +44,14 @@ def build(original):
         action('choosefrommenu', WFControlFlowMode=0, GroupingIdentifier=group,
                WFMenuPrompt='Wheel Backend', WFMenuItems=labels),
         action('choosefrommenu', WFControlFlowMode=1, GroupingIdentifier=group, WFMenuItemTitle=labels[0]),
-        action('ask', WFAskActionPrompt='GitHub commit SHA (7-40 characters)', WFInputType='Text', UUID=ask),
+        connection('wheel-backend-deploy-preview', preview),
+        action('getvalueforkey', WFDictionaryKey='summary', WFInput=token(preview, 'Release preview'),
+               WFGetDictionaryValueType='Value', UUID=summary),
         action('alert', WFAlertActionTitle='Deploy & Restart Backend?',
-               WFAlertActionMessage='Deploy the GitHub commit to Mini and restart Backend. Continue only when no order request is pending. Gateway stays running.'),
-        connection(token(ask, 'Commit SHA', 'wheel-backend-deploy '), deploy),
+               WFAlertActionMessage=token(summary, 'Deployment summary')),
+        action('getvalueforkey', WFDictionaryKey='sha', WFInput=token(preview, 'Release preview'),
+               WFGetDictionaryValueType='Value', UUID=sha),
+        connection(token(sha, 'Confirmed commit SHA', 'wheel-backend-deploy '), deploy),
         action('showresult', Text=token(deploy, 'Deployment result')),
         action('choosefrommenu', WFControlFlowMode=1, GroupingIdentifier=group, WFMenuItemTitle=labels[1]),
         action('alert', WFAlertActionTitle='Restart Backend only?',

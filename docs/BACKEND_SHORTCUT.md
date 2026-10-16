@@ -22,8 +22,11 @@ SSH key synchronization must be checked on the device; Tailscale must be connect
 
 The combined private shortcut works through the same SSH action on macOS and iOS:
 
-- **Deploy commit & Restart Backend** asks for a GitHub SHA and confirmation,
-  then sends exactly `wheel-backend-deploy <SHA>`.
+- **Deploy latest & Restart Backend** fetches the selected branch tip using
+  `wheel-backend-deploy-preview`, shows the branch, current SHA, latest SHA and
+  commit subject for confirmation, then sends `wheel-backend-deploy <SHA>` with
+  the exact SHA from that preview. Cancel performs no deployment or restart.
+  A later branch update does not change the confirmed deployment target.
 - **Restart Backend only** retains the existing confirmation and
   `wheel-backend-restart` command.
 

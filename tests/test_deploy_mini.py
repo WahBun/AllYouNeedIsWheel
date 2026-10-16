@@ -154,6 +154,29 @@ class DeployTests(unittest.TestCase):
             self.assertEqual(len(self.restarts), 1)
             self.assertEqual(self.g(self.repo, 'for-each-ref', 'refs/wheel-deploy/'), '')
 
+    def test_preview_pins_sha_even_if_branch_advances_before_confirmation(self):
+        branch = 'codex/chart-labels-1.7'
+        self.g(self.source, 'branch', '-m', branch)
+        self.g(self.repo, 'branch', '-m', branch)
+        self.g(self.repo, 'remote', 'set-url', 'origin', str(self.source))
+        with patch.object(deploy, '__file__', str(self.repo / 'ops/deploy_mini.py')), \
+             patch.object(deploy, 'ORIGINS', {str(self.source)}):
+            preview = deploy.preview_latest()
+            self.assertEqual(preview['sha'], self.target)
+            self.assertIn(self.before, preview['summary'])
+            self.assertIn(self.target, preview['summary'])
+            self.assertIn(branch, preview['summary'])
+            self.assertFalse(self.restarts)
+            self.assertEqual(self.g(self.repo, 'rev-parse', 'HEAD'), self.before)
+            (self.source / 'app.txt').write_text('newer unconfirmed')
+            self.g(self.source, 'commit', '-am', 'later update')
+            newer = self.g(self.source, 'rev-parse', 'HEAD')
+            self.pid.side_effect = [100, 100, 100, 101]
+            deploy.deploy_from_github(preview['sha'])
+            self.assertEqual(self.g(self.repo, 'rev-parse', 'HEAD'), self.target)
+            self.assertNotEqual(self.target, newer)
+            self.assertEqual(len(self.restarts), 1)
+
     def test_existing_unhealthy_backend_stops(self):
         self.health.return_value = False
         with self.assertRaisesRegex(RuntimeError, 'not healthy'): self.apply()

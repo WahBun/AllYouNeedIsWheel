@@ -58,3 +58,19 @@ class RestartBackendTests(unittest.TestCase):
             with patch('sys.argv', ['restart_backend.py', 'ssh']), \
                  patch.dict(backend.os.environ, {'SSH_ORIGINAL_COMMAND': command}), patch('builtins.print'):
                 self.assertEqual(backend.main(), 1)
+
+    def test_preview_command_is_read_only_and_rejects_extra_input(self):
+        from unittest.mock import Mock
+        import sys
+        preview = Mock(return_value={'sha': 'a' * 40, 'summary': 'Preview'})
+        with patch.dict(sys.modules, {'deploy_mini': SimpleNamespace(preview_latest=preview)}), \
+             patch('sys.argv', ['restart_backend.py', 'ssh']), \
+             patch.dict(backend.os.environ, {'SSH_ORIGINAL_COMMAND': 'wheel-backend-deploy-preview'}), \
+             patch.object(backend, 'restart') as restart, patch('builtins.print'):
+            self.assertEqual(backend.main(), 0)
+            preview.assert_called_once_with()
+            restart.assert_not_called()
+        with patch('sys.argv', ['restart_backend.py', 'ssh']), \
+             patch.dict(backend.os.environ, {'SSH_ORIGINAL_COMMAND': 'wheel-backend-deploy-preview main'}), \
+             patch('builtins.print'):
+            self.assertEqual(backend.main(), 1)

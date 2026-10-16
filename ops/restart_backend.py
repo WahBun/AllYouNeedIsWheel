@@ -59,6 +59,10 @@ def main():
         if args.action == 'ssh':
             commands = {'wheel-backend-check': 'check', 'wheel-backend-restart': 'restart'}
             action = commands.get(os.environ.get('SSH_ORIGINAL_COMMAND', ''))
+            if os.environ.get('SSH_ORIGINAL_COMMAND') == 'wheel-backend-deploy-preview':
+                from deploy_mini import preview_latest
+                print(json.dumps(preview_latest()))
+                return 0
             if action is None:
                 deploy = re.fullmatch(r'wheel-backend-deploy(-check)? ([0-9a-fA-F]{7,40})',
                                       os.environ.get('SSH_ORIGINAL_COMMAND', ''))

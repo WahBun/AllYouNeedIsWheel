@@ -1,3 +1,14 @@
+## 2026-10-16 — preview latest commit before Shortcut deployment
+
+Wheel Backend now fetches the tip of codex/chart-labels-1.7 without manual SHA
+entry. The read-only preview returns current/target SHA, branch and commit subject.
+The native confirmation shows that summary, and the second SSH command uses the
+exact preview SHA even if GitHub advances meanwhile. Restart-only is unchanged.
+REA inspected the preceding generated workflow: evidence
+`ev_91561c3f1ae5c74a655846972fd3f6a1c4471ef57b23e1e72af9544f31d2488a`.
+Tests exercise branch movement between preview and confirmation, and a strict
+read-only preview command. No production restart is part of this UI update.
+
 ## 2026-10-16 — combined cross-device Backend shortcut
 
 The private Wheel Backend shortcut adds Deploy commit & Restart Backend alongside

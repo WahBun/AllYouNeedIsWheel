@@ -130,6 +130,27 @@ def apply(repo, branch, target, expected, bundle, bundle_ref, wait=90):
                            'No automatic rollback or second restart was attempted.')
 
 
+def preview_latest():
+    """Resolve once for the confirmation UI; never deploy or restart here."""
+    repo = Path(__file__).resolve().parents[1]
+    branch = 'codex/chart-labels-1.7'
+    before = preflight(repo, branch)
+    ref = 'refs/wheel-deploy/' + uuid.uuid4().hex
+    try:
+        git(repo, 'fetch', '--no-tags', 'origin', f'refs/heads/{branch}:{ref}')
+        target = git(repo, 'rev-parse', ref + '^{commit}')
+        git(repo, 'merge-base', '--is-ancestor', before, target)
+        subject = git(repo, 'show', '-s', '--format=%s', target)
+        summary = (f'Branch: {branch}\nMini current: {before}\nGitHub latest: {target}\n'
+                   f'Commit: {subject}\n\n'
+                   + ('Already at this version. No restart is needed.' if target == before else
+                      'Confirm to deploy this exact commit and restart Backend. '
+                      'Continue only when no order request is pending. Gateway stays running.'))
+        return dict(sha=target, current=before, branch=branch, summary=summary)
+    finally:
+        git(repo, 'update-ref', '-d', ref)
+
+
 def deploy_from_github(commit, check=False):
     """Fixed-repository entry point for the restricted cross-device SSH shortcut."""
     if not re.fullmatch(r'[0-9a-fA-F]{7,40}', commit):
