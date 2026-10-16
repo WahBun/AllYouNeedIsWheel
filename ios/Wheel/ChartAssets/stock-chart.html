@@ -878,7 +878,16 @@ priceAdd.style.cssText='position:absolute;right:60px;width:20px;height:18px;padd
 priceMenu.id='price-order-menu';priceMenu.hidden=true;priceMenu.style.cssText='position:absolute;right:8px;z-index:16;background:#20242d;color:#eee;border-radius:6px;padding:4px;box-shadow:0 3px 10px #0005;max-width:calc(100% - 16px)';
 document.body.append(priceAdd,priceMenu);
 // The custom cursor badge replaces, rather than covers, the native canvas label.
-new MutationObserver(()=>{const visible=priceAdd.hidden;if(chart.options().crosshair.horzLine.labelVisible!==visible)chart.applyOptions({crosshair:{horzLine:{labelVisible:visible}}});}).observe(priceAdd,{attributes:true,attributeFilter:['hidden']});
+const passiveCursor=document.createElement('div');passiveCursor.id='crosshair-price-label';passiveCursor.hidden=true;
+passiveCursor.style.cssText='position:absolute;z-index:6;pointer-events:none;height:18px;padding:2px 3px;background:#191919;color:#fff;border-radius:1px;text-align:center;white-space:nowrap;font:500 11px/14px -apple-system,BlinkMacSystemFont,sans-serif;font-variant-numeric:tabular-nums';document.body.append(passiveCursor);
+function updateCrosshairPriceLabel(){
+ const height=chart.paneSize().height,y=crosshairAxisY,side=window.priceAxisSide||'right';
+ const price=y===null?null:series.coordinateToPrice(y);
+ passiveCursor.hidden=!priceAdd.hidden||y===null||y<0||y>height||!Number.isFinite(price);
+ if(!passiveCursor.hidden){passiveCursor.textContent=axisPriceText(price);passiveCursor.style.top=(y-9)+'px';passiveCursor.style.width=Math.ceil(priceAxisWidth(side))+'px';passiveCursor.style.left=side==='left'?'0':'auto';passiveCursor.style.right=side==='right'?'0':'auto';}
+}
+chart.applyOptions({crosshair:{horzLine:{labelVisible:false}}});
+new MutationObserver(updateCrosshairPriceLabel).observe(priceAdd,{attributes:true,attributeFilter:['hidden']});
 const cursorBadgeStyle=document.createElement('style');cursorBadgeStyle.textContent='#price-order-add:not([hidden]){display:flex;align-items:stretch}#price-order-add .price-cursor-add{width:20px;display:flex;align-items:center;justify-content:center;border-right:1px solid #666}#price-order-add .price-cursor-value{position:absolute;left:20px;top:0;height:18px;background:#191919;border-radius:1px;pointer-events:none;display:flex;align-items:center;justify-content:center;padding:2px 3px;font:500 11px/14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums;box-sizing:border-box}';cursorBadgeStyle.textContent+='#price-order-add:disabled{opacity:1}body.cursor-plus-hidden #price-order-add{width:0!important;pointer-events:none}body.cursor-plus-hidden .price-cursor-add{display:none!important}body.cursor-plus-hidden #price-order-add .price-cursor-value{left:0}body.axis-left.cursor-plus-hidden #price-order-add .price-cursor-value{left:auto;right:0}';document.head.append(cursorBadgeStyle);
 let cursorOrderPrice=null,menuOrderPrice=null,menuOrderCID=null,menuOrderEpoch=null,priceControlTouchUntil=0;
 function closePriceMenu(){priceMenu.hidden=true;menuOrderPrice=null;}
@@ -1134,6 +1143,7 @@ function updateVisibleExtrema(){
 // Only labels move; order prices, lines and drag handles keep their true anchors.
 const tradeAxisBadges=new Map(),axisTickMasks=[];
 function separatePriceAxisLabels(){
+ updateCrosshairPriceLabel();
  const height=chart.paneSize().height,occupied=[],labelRegions=[],enabled=displayOptions.noOverlappingLabels!==false;
  // The cursor paints above fixed labels and never participates in their spacing.
  const priceLines=new Map([['entry',entryLine],...Object.entries(lines),...(window.additionalOrderPriceLines?.()||[]),...(window.drawingPriceAxisLines?.()||[])]);

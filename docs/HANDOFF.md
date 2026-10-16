@@ -1,3 +1,26 @@
+## 2026-10-16 — foreground cursor for chart-only and synchronized panes
+
+REA inspected the current Wheel page/scripts (Evidence
+`ev_45404270da401f072cf5fc13f5f7651bf27d555c109458ad4d4e377f58ff3ce6`).
+The supplied video exposed the remaining native canvas cursor under DOM drawing
+badges when the order-plus cursor is absent. Add a noninteractive DOM price-only
+cursor at foreground level, retaining the existing order-plus cursor. Disable
+native price-label underpaint. Neither cursor participates in fixed-label spacing.
+
+Refresh its Y coordinate on every pointer event independently of the optimized
+OHLC readout; explicitly update/clear it for programmatic peer crosshairs because
+the chart library does not emit their move events. Keep existing trade actions,
+fixed labels, actual drawing prices and chart layout unchanged.
+
+Validation: crosshair-drawing-priority checks actual chart-only pointer motion
+and peer cursor updates across a horizontal-ray price badge, top paint order,
+unchanged drawing label position and cleanup, for both axes/themes and widths.
+Price-label-spacing and crosshair-axis-ticks pass. Four-pane controls test has
+an existing stale 16px gutter assertion (both b0f5fb4 and this change render 8px).
+A temporary test copy using that existing 8px value passes the remaining checks;
+no repository test expectation or production layout changed. Browser fixtures
+are isolated from the broker. Device Run and broker acceptance are not claimed.
+
 ## 2026-10-16 — 1.7 drawing labels participate in fixed-label spacing
 
 Follow-up screenshot exposed blue drawing price labels painted by the library

@@ -57,6 +57,8 @@
  chart.unsubscribeCrosshairMove(handleReadoutMove);
  chart.subscribeCrosshairMove(p=>{
   if(applyingCrosshair)return;
+  crosshairAxisY=p.point?.y??null;
+  updateCrosshairPriceLabel();
   const bar=p.seriesData?.get(series),last=previous.at(-1);
   const logical=p.logical??(p.point?chart.timeScale().coordinateToLogical(p.point.x):null);
   const latest=!!last&&!!p.point&&!bar&&logical!==null&&logical>previous.length-1;
@@ -66,7 +68,7 @@
   priceAdd.hidden=true;cursorOrderPrice=null;
   applyingCrosshair=true;
   try{
-   const clear=()=>{lastPeerPoint=null;chart.clearCrosshairPosition();if(readoutTime!==null||readoutLatest){readoutTime=null;readoutLatest=false;updateReadout();}};
+   const clear=()=>{lastPeerPoint=null;crosshairAxisY=null;chart.clearCrosshairPosition();updateCrosshairPriceLabel();if(readoutTime!==null||readoutLatest){readoutTime=null;readoutLatest=false;updateReadout();}};
    if(!point||!Number.isFinite(point.time)||!Number.isFinite(point.price)||!previous.length){clear();return;}
    let lo=0,hi=previous.length;
    while(lo<hi){const mid=(lo+hi)>>1;if(previous[mid].time<=point.time)lo=mid+1;else hi=mid;}
@@ -76,6 +78,7 @@
    if(lastPeerPoint?.context!==key||lastPeerPoint?.time!==bar.time||lastPeerPoint?.price!==point.price){
     chart.setCrosshairPosition(point.price,bar.time,series);lastPeerPoint={context:key,time:bar.time,price:point.price};
    }
+   crosshairAxisY=series.priceToCoordinate(point.price);updateCrosshairPriceLabel();
    // The chart library's programmatic API does not emit crosshairMove.
    if(readoutTime!==bar.time||readoutLatest){readoutTime=bar.time;readoutLatest=false;updateReadout();}
   }finally{applyingCrosshair=false;}
@@ -87,7 +90,7 @@
   const price=valid?series.coordinateToPrice(p.point.y):null;
   publishCrosshair(valid&&Number.isFinite(price)?{time:p.time,price}:null);
  });
- document.documentElement.addEventListener('pointerleave',()=>{pointerInPlot=false;priceAdd.hidden=true;cursorOrderPrice=null;publishCrosshair(null);});
+ document.documentElement.addEventListener('pointerleave',()=>{pointerInPlot=false;crosshairAxisY=null;priceAdd.hidden=true;cursorOrderPrice=null;updateCrosshairPriceLabel();publishCrosshair(null);});
  let refreshOrderMenu=()=>{};
  window.addEventListener('order-configured',()=>refreshOrderMenu());
  const orderItems=(...args)=>window.wheelOrderItems(...args);
