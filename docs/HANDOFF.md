@@ -3114,3 +3114,24 @@ The prior background-quote commit fe3fd3c is deployed separately. Read-only
 verification against Mini used a genuinely hidden four-pane Chrome tab: 105 SSE
 packets arrived over eight seconds and the tab quote changed, with one transport
 and no trading writes. Backend and Gateway process state remained unchanged.
+
+## 2026-10-16 drawing timeframe sharing
+
+Drawing scope now offers Same timeframe, Sync in layout and All timeframes.
+Same timeframe uses the existing cross-device operation queue while filtering
+rendering, price labels and bulk removal by the current interval. Legacy private
+drawings remain recoverable. No market-data delivery or order logic changed.
+
+REA parsed the current drawing asset without parse failures and inspected its
+structure (ev_546efd6e5ae6f90fec97abda53ba7a09e81969828b3a1bd0e9a520e667a9eedb).
+Review retained the existing synchronization and chart-context reset paths.
+Local browser checks passed: drawing-sharing, drawing-sharing-layout,
+drawing-history and crosshair-drawing-priority. Coverage includes isolated
+web/native-shaped contexts, 20 tools, interval visibility and price labels,
+polling/reload, layout transitions, undo/redo and mobile/desktop menu bounds.
+These are mock/browser checks, not physical iPhone acceptance.
+
+User will deploy Mini with the Wheel Backend shortcut. Mini was not deployed
+or restarted for this change. The iPhone uses bundled chart assets and needs
+the user's Xcode Run to receive this UI change. Unrelated local Xcode signing
+and localization changes remain outside this commit.

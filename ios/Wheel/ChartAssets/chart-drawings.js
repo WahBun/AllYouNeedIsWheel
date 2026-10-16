@@ -113,9 +113,11 @@ function queueDrawingChanges(){
  for(const id of new Set([...before.keys(),...after.keys()]))if(JSON.stringify(before.get(id))!==JSON.stringify(after.get(id)))syncState.pending.push({op:drawingOperationID(),id,base:syncState.revision,kind:after.has(id)?'put':'delete',value:after.get(id)});
  syncBaseline=clone(drawings);
 }
-// Local and layout annotations never enter the cross-device operation queue.
-const sharingMode=d=>['local','layout'].includes(d?.sharing)?d.sharing:'global';
-const isGlobalDrawing=d=>sharingMode(d)==='global';
+// Display scope is independent of cross-device storage. Legacy private drawings stay recoverable.
+const sharingMode=d=>['local','layout','timeframe'].includes(d?.sharing)?d.sharing:'global';
+const isGlobalDrawing=d=>['global','timeframe'].includes(sharingMode(d));
+const drawingVisible=d=>sharingMode(d)!=='timeframe'||Number(d.timeframe)===Number(countdownPacket?.interval);
+const visibleDrawings=()=>drawings.filter(drawingVisible);
 const drawingPane=()=>window.frameElement?.dataset.drawingPane||'native';
 const scopedStorageKey=()=> 'wheel.scoped-drawings:'+ (window.frameElement?.dataset.drawingLayout||'native')+':'+loadedKey;
 function scopedStore(){try{const value=JSON.parse(localStorage.getItem(scopedStorageKey())||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{}}catch{return {}}}
@@ -144,14 +146,15 @@ window.addEventListener('storage',e=>{if(e.key===scopedStorageKey())refreshScope
 const syncMenu=document.createElement('div');syncMenu.id='draw-sync-menu';syncMenu.setAttribute('role','menu');syncMenu.style.cssText='display:none;position:absolute;z-index:24;min-width:155px;padding:4px;background:#252726;color:#eee;border:1px solid #555;border-radius:6px;box-shadow:0 2px 8px #0004';document.body.append(syncMenu);
 function closeDrawingSyncMenu(){syncMenu.style.display='none';}
 function drawingSyncButton(d){
- const label={local:'No sync',layout:'Sync in layout',global:'Sync globally'}[sharingMode(d)];
+ const label={local:'This chart (legacy)',timeframe:'Same timeframe',layout:'Sync in layout',global:'All timeframes'}[sharingMode(d)];
  const b=button('⇄','Drawing sync: '+label,()=>{
   syncMenu.replaceChildren();
-  for(const [mode,title] of [['local','No sync'],['layout','Sync in layout'],['global','Sync globally']]){
+  for(const [mode,title] of [['timeframe','Same timeframe'],['layout','Sync in layout'],['global','All timeframes']]){
    const item=button((sharingMode(d)===mode?'✓  ':'    ')+title,title,()=>{
     closeDrawingSyncMenu();const current=drawings.find(value=>value.id===d.id);if(!current||locked||current.locked||sharingMode(current)===mode)return;
     remember();const replacement={...current,id:drawingOperationID(),sharing:mode};
-    if(mode==='local')replacement.pane=drawingPane();else delete replacement.pane;
+    delete replacement.pane;
+    if(mode==='timeframe')replacement.timeframe=Number(countdownPacket?.interval)||5;else delete replacement.timeframe;
     drawings=drawings.map(value=>value.id===d.id?replacement:value);selected=replacement.id;save();renderToolbar();
    });
    item.setAttribute('role','menuitemradio');item.setAttribute('aria-checked',String(sharingMode(d)===mode));item.style.cssText='display:block;width:100%;height:32px;text-align:left;background:transparent;color:inherit;border:0;border-radius:3px;padding:0 10px;font:13px -apple-system';syncMenu.append(item);
@@ -495,7 +498,7 @@ document.addEventListener('contextmenu',e=>{
  renderToolbar();
 },true);
 editor.querySelector('#draw-save').onclick=()=>{const existing=drawings.find(d=>d.id===editor.dataset.drawing);if(existing&&!existing.locked&&!locked){remember();existing.text=editor.querySelector('input').value.trim()||'Text';save();}delete editor.dataset.drawing;if(draft){draft.text=editor.querySelector('input').value.trim()||'Text';commit();}editor.style.display='none';};editor.querySelector('#draw-cancel').onclick=()=>{editor.style.display='none';delete editor.dataset.drawing;choose(null);};
-window.chartDrawingActions={undo:()=>applyHistory(),redo:()=>applyHistory(true),shortcut:drawingHistoryShortcut,count:()=>drawings.length,removeAll:()=>{if(!drawings.length)return;remember();drag=null;drawings=[];selected=null;choose(null);save();renderToolbar();}};
+window.chartDrawingActions={undo:()=>applyHistory(),redo:()=>applyHistory(true),shortcut:drawingHistoryShortcut,count:()=>visibleDrawings().length,removeAll:()=>{if(!visibleDrawings().length)return;remember();drag=null;drawings=drawings.filter(d=>!drawingVisible(d));selected=null;choose(null);save();renderToolbar();}};
 window.configureDrawings=(config)=>{if(config.key===loadedKey)return;if(textEdit)finishTextEdit(true);flushDrawingSave();closeDrawingSyncMenu();clearTimeout(scopedRefreshTimer);clearTimeout(peerDrawingTimer);peerDrawingOps.clear();seenPeerOps.clear();syncGeneration++;loadedKey=config.key;revision++;const value=config.value||{};toolStyles={};for(const t of tools){const v=value.toolStyles?.[t[0]];if(!v)continue;const clean={};if(/^#[0-9a-f]{6}$/i.test(v.color))clean.color=v.color;if([1,2,3,4].includes(v.width))clean.width=v.width;if(typeof v.dash==='boolean')clean.dash=v.dash;if(t[0]==='text'){if(Number.isFinite(v.fontSize)&&v.fontSize>=8&&v.fontSize<=72)clean.fontSize=v.fontSize;for(const key of ['bold','italic'])if(typeof v[key]==='boolean')clean[key]=v[key];}toolStyles[t[0]]=clean;}order=Array.isArray(value.order)?[...new Set([...value.order.filter(id=>referenceOrder.includes(id)),...referenceOrder])]:[...referenceOrder];magnet=['off','weak','strong'].includes(value.magnet)?value.magnet:'weak';drawings=Array.isArray(value.drawings)?value.drawings.filter(d=>tools.some(t=>t[0]===d.type)&&Array.isArray(d.p)&&d.p.length<=400&&d.p.every(p=>Number.isFinite(p.time)&&Number.isFinite(p.price)&&p.price>0)).slice(0,200):[];for(const d of drawings){if(!value.toolStyles?.[d.type]&&(d.color||d.width||d.dash!==undefined))toolStyles[d.type]=JSON.parse(JSON.stringify({color:d.color,width:d.width,dash:d.dash}));}favorites=Array.isArray(value.favorites)?value.favorites.filter(id=>tools.some(t=>t[0]===id)):tools.map(t=>t[0]);collapsed=value.collapsed!==false;locked=value.locked===true;hidden=value.hidden===true;toolsVisible=false;syncToolVisibility();selected=null;undo=[];redo=[];historyBefore=null;choose(null);renderToolbar();syncState=clone(value.syncState||{revision:0,pending:[],migrated:false});drawings=[...drawings.filter(isGlobalDrawing),...readScopedDrawings(drawings)];syncBaseline=clone(drawings);revision++;if(!syncState.migrated){for(const d of drawings.filter(isGlobalDrawing))syncState.pending.push({op:drawingOperationID(),id:d.id,base:0,kind:'import',value:clone(d)});syncState.migrated=true;save(false);}void syncDrawings();};
 touch.addEventListener('dblclick',e=>{if(active==='path'){e.preventDefault();if(draft?.p.length>2){const last=draft.p.at(-1),prev=draft.p.at(-2);const a=xy(last),b=xy(prev);if(a&&b&&Math.hypot(a.x-b.x,a.y-b.y)<10)draft.p.pop();}finish();}});
  document.addEventListener('keydown',e=>{if(drawingHistoryShortcut(e))return;if(e.isComposing||e.target?.isContentEditable)return;if(e.target instanceof HTMLInputElement||e.target instanceof HTMLTextAreaElement||e.target instanceof HTMLSelectElement)return;if(e.key==='Escape'){selected=null;choose(null);revision++;}else if(['Delete','Backspace'].includes(e.key)&&selected){e.preventDefault();deleteSelected();}else if(e.key==='Enter'&&active==='path')finish();});
@@ -539,7 +542,7 @@ const drawingPriceLabels=new Map();
 window.drawingPriceAxisLines=()=>[...drawingPriceLabels].map(([key,item])=>['drawing:'+key,item.line]);
 function syncDrawingPriceLabels(){
  const wanted=new Map();
- if(!hidden)for(const d of [...drawings,...(draft?[draft]:[])]){
+ if(!hidden)for(const d of [...visibleDrawings(),...(draft?[draft]:[])]){
   let prices=[];
   if(['hray','price','up','down'].includes(d.type))prices=d.p.slice(0,1).map(p=>p.price);
   else if(['trend','info','channel','long','short','range','arrow','rect','triangle','curve'].includes(d.type))prices=d.p.map(p=>p.price);
@@ -555,5 +558,5 @@ function syncDrawingPriceLabels(){
   else if(old.signature!==signature){old.line.applyOptions(options);old.signature=signature;}
  }
 }
-let lastRender='';function render(){requestAnimationFrame(render);if(textEdit||textProperties.style.display!=='none')positionTextControls();const range=chart.timeScale().getVisibleLogicalRange();const fingerprint=JSON.stringify([range,innerWidth,innerHeight,plotLeft(),drawingChartKey,previous.length,previous[0],previous.at(-1),revision,draft,ghost,cursor,snapFeedback,selected,active,locked,hidden,series.priceToCoordinate(1),series.priceToCoordinate(2)]);if(fingerprint!==lastRender){lastRender=fingerprint;syncDrawingPriceLabels();const oldLayer=svg;const rebuildTextLayer=drawings.some(d=>d.type==='text'||d.type==='note')||draft?.type==='text'||draft?.type==='note';if(rebuildTextLayer){svg=oldLayer.cloneNode(false);}fitPlotLayer(svg,innerHeight-30);svg.replaceChildren();if(!hidden){drawings.forEach(d=>paint(d));if(draft){const count=tools.find(t=>t[0]===draft.type)[3];paint(ghost&&(draft.p.length<count||draft.type==='path')?{...draft,p:[...draft.p,ghost]}:draft,true);}paintSnap();paintCursor();}if(rebuildTextLayer)oldLayer.replaceWith(svg);}}syncToolVisibility();renderToolbar();render();
+let lastRender='';function render(){requestAnimationFrame(render);if(textEdit||textProperties.style.display!=='none')positionTextControls();const range=chart.timeScale().getVisibleLogicalRange();const fingerprint=JSON.stringify([range,innerWidth,innerHeight,plotLeft(),drawingChartKey,previous.length,previous[0],previous.at(-1),revision,draft,ghost,cursor,snapFeedback,selected,active,locked,hidden,series.priceToCoordinate(1),series.priceToCoordinate(2)]);if(fingerprint!==lastRender){lastRender=fingerprint;syncDrawingPriceLabels();const oldLayer=svg;const rebuildTextLayer=drawings.some(d=>d.type==='text'||d.type==='note')||draft?.type==='text'||draft?.type==='note';if(rebuildTextLayer){svg=oldLayer.cloneNode(false);}fitPlotLayer(svg,innerHeight-30);svg.replaceChildren();if(!hidden){visibleDrawings().forEach(d=>paint(d));if(draft){const count=tools.find(t=>t[0]===draft.type)[3];paint(ghost&&(draft.p.length<count||draft.type==='path')?{...draft,p:[...draft.p,ghost]}:draft,true);}paintSnap();paintCursor();}if(rebuildTextLayer)oldLayer.replaceWith(svg);}}syncToolVisibility();renderToolbar();render();
 })();
