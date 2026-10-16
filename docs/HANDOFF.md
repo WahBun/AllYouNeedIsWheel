@@ -1,3 +1,28 @@
+## 2026-10-16 — 1.7 cursor overlay without label displacement
+
+Base: GitHub `codex/chart-labels-1.6` at `d35144ef5dda2c9f31f45617827b7f070bcb76f6`.
+Continue on `codex/chart-labels-1.7`. Fixed price labels retain the existing
+No overlapping labels allocator. The mouse crosshair and its price badge no
+longer reserve space in that allocator; the existing opaque foreground badge
+covers the fixed labels without moving them. No quote, order, or layout changes.
+This supersedes the cursor-reservation adaptation in the October 15 chart-detail note.
+
+REA inspected the current TradingView page and shipped scripts (Evidence
+`ev_62065e6ecada3bf92fe7ecfbca6d7ecbb94ad37c3b893e95289d68eeace720b9`).
+Bundle SHA-256 `20550a5624197c012efcab64aaaa3d37382c44f6e9026bce3c6d7701c05282da`
+aligns ordinary views and then draws the crosshair separately, last on its top
+canvas. Adopt that separation; the evidence is shipped-script inspection,
+not a claim that REA moved the reference cursor. User-supplied video was reviewed.
+
+Validation: price-label-spacing, no-overlapping-labels, crosshair-axis-ticks,
+and native-axis-initial-spacing browser checks pass. Mouse sweeps preserve fixed
+label rectangles; cursor paint-stack and pointer-coordinate checks pass across
+mobile/desktop widths, both axes and themes. Indicator overlaps, tick masks,
+setting toggle, inverted scale and native compact spacing remain covered.
+These are isolated browser fixtures, not physical-iPhone or deployed acceptance.
+No Backend/Gateway restart, device Run, or broker writes. Existing uncommitted
+Xcode project/localization edits are excluded from this change.
+
 ## 2026-10-16 native instrument search and shared contract favorites
 
 REA parsed the existing web option picker and favorite implementation: option-search.js evidence ev_b16ef3ef3a53d558f5e6346d894e96f61ae7f468f6b8bc9329f9598ec6ab02a7; superchart.js evidence ev_15f46e9eda5d989a57fbce9319b17917448238b15af3b6b52155052ba267b795. These are static source analyses, not observations of the user's running browser. The native sheet adapts the existing stock/futures and underlying → expiration → Call/Put → strike flow to SwiftUI, uses the same read-only endpoints, selects a nearest strike only when a valid underlying price exists, and rejects stale responses and nonmatching exact option identities. Saved favorites resolve their exact contract ID before opening; no order is created by selection.

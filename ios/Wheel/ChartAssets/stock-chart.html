@@ -1135,11 +1135,7 @@ function updateVisibleExtrema(){
 const tradeAxisBadges=new Map(),axisTickMasks=[];
 function separatePriceAxisLabels(){
  const height=chart.paneSize().height,occupied=[],labelRegions=[],enabled=displayOptions.noOverlappingLabels!==false;
- if(crosshairAxisY!==null&&crosshairAxisY>=0&&crosshairAxisY<=height){
-  const half=Math.ceil(chart.options().layout.fontSize*1.5/2)+3;
-  occupied.push([crosshairAxisY-half,crosshairAxisY+half]);
- }
- if(!priceAdd.hidden){const r=priceAdd.getBoundingClientRect();occupied.push([r.top,r.bottom]);}
+ // The cursor paints above fixed labels and never participates in their spacing.
  const priceLines=new Map([['entry',entryLine],...Object.entries(lines),...(window.additionalOrderPriceLines?.()||[])]);
  for(const [name,line] of priceLines){
   if(!line)continue;
@@ -1169,7 +1165,7 @@ function separatePriceAxisLabels(){
  // including glyph ascenders/descenders, without touching its pinned bundle.
  // Native autoscale has tighter tick spacing; reserve glyph height, not a badge.
  const side=window.priceAxisSide||'right',font=chart.options().layout.fontSize,half=displayOptions.nativeCompact?Math.ceil(font/2)+1:Math.ceil(font*.75)+2,tickGap=displayOptions.nativeCompact?1:2;
- // Cursor clearance arranges badges only; the opaque cursor itself covers ticks.
+ // The opaque cursor itself covers ticks without reserving any label space.
  // Do not erase neighboring ticks merely because they enter its clearance zone.
  const regions=enabled?axisTickPrices.map(price=>series.priceToCoordinate(price)).filter(y=>y!==null&&y>=0&&y<=height&&labelRegions.some(([a,b])=>y+half+tickGap>a&&y-half-tickGap<b)):[];
  regions.forEach((y,i)=>{

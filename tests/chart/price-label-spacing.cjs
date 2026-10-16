@@ -13,13 +13,20 @@ for(const width of [393,1200])for(const axis of ['left','right'])for(const dark 
   for(let i=0;i<d.rects.length;i++)for(let j=i+1;j<d.rects.length;j++){const a=d.rects[i],b=d.rects[j];assert.ok(a.bottom+5.9<=b.top||b.bottom+5.9<=a.top,JSON.stringify(d));}
  }
  await p.evaluate(()=>receive({...q,mode:'delta',server_time:Date.now()/1000,bars:q.bars}));await check();
- // Actual pointer movement exposes the foreground crosshair/order price badge.
- const point=await p.evaluate(()=>({x:plotLeft()+70,y:series.priceToCoordinate(7792)+2}));
- await p.mouse.move(point.x,point.y);await p.waitForTimeout(60);
- const hover=await check();
- const cursor=await p.evaluate(()=>({y:crosshairAxisY,rect:priceAdd.getBoundingClientRect().toJSON(),hidden:priceAdd.hidden}));
- assert.ok(cursor.y!==null,'crosshair event received');
- for(const r of hover.rects){assert.ok(r.bottom+5.9<=cursor.y-11||r.top>=cursor.y+11+5.9,JSON.stringify({r,cursor}));if(!cursor.hidden)assert.ok(r.bottom+5.9<=cursor.rect.top||r.top>=cursor.rect.bottom+5.9);}
+ // Sweep the cursor across each fixed label: only the cursor may move.
+ const baseline=await check();
+ for(const rect of baseline.rects)for(const offset of [-7,0,7]){
+  await p.mouse.move(width/2,(rect.top+rect.bottom)/2+offset);await p.waitForTimeout(60);
+  const hover=await check();assert.deepEqual(hover.rects,baseline.rects,'cursor must not displace fixed price labels');
+  const cursor=await p.evaluate(()=>{
+   const value=priceAdd.querySelector('.price-cursor-value'),r=value.getBoundingClientRect();
+   // Include pointer-events:none labels when checking the actual paint stack.
+   const style=document.createElement('style');style.textContent='.price-cursor-value,.extrema-label,.extrema-label *,.holding-axis,#countdown,#countdown *{pointer-events:auto!important}';document.head.append(style);
+   const top=document.elementFromPoint((r.left+r.right)/2,(r.top+r.bottom)/2);const onTop=priceAdd.contains(top);style.remove();
+   return {hidden:priceAdd.hidden,y:crosshairAxisY,center:(r.top+r.bottom)/2,onTop};
+  });
+  assert.equal(cursor.hidden,false);assert.ok(Math.abs(cursor.center-cursor.y)<1,'cursor remains at mouse price');assert.equal(cursor.onTop,true,'cursor paints above fixed labels');
+ }
  await p.mouse.move(0,0);await p.waitForTimeout(40);await check();
  if(width===393&&axis==='right'&&!dark)await p.screenshot({path:'/tmp/wheel-price-label-spacing.png'});
  await p.close();
