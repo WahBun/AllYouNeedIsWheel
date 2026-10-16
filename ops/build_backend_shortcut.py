@@ -35,8 +35,9 @@ def build(original):
     result = copy.deepcopy(original)
     originals = original['WFWorkflowActions']
     ssh = next(a for a in originals if a['WFWorkflowActionIdentifier'] == 'is.workflow.actions.runsshscript')
-    group, preview, summary, sha, deploy, restart = [uid() for _ in range(6)]
-    labels = ['Deploy latest & Restart Backend', 'Restart Backend only']
+    group, preview, summary, sha, deploy, restart, mode, code_only = [uid() for _ in range(8)]
+    labels = ['Deploy latest', 'Restart Backend only']
+    modes = ['Deploy only', 'Deploy & Restart Backend']
 
     def connection(command, output):
         row = copy.deepcopy(ssh)
@@ -52,12 +53,20 @@ def build(original):
         connection('wheel-backend-deploy-preview', preview),
         action('getvalueforkey', WFDictionaryKey='summary', WFInput=reference(preview, 'Release preview'),
                WFGetDictionaryValueType='Value', UUID=summary),
-        action('alert', WFAlertActionTitle='Deploy & Restart Backend?',
+        action('alert', WFAlertActionTitle='Confirm deployment version',
                WFAlertActionMessage=token(summary, 'Deployment summary')),
         action('getvalueforkey', WFDictionaryKey='sha', WFInput=reference(preview, 'Release preview'),
                WFGetDictionaryValueType='Value', UUID=sha),
+        action('choosefrommenu', WFControlFlowMode=0, GroupingIdentifier=mode,
+               WFMenuPrompt='Restart Backend? Deploy only leaves Backend Python changes inactive until restart.',
+               WFMenuItems=modes),
+        action('choosefrommenu', WFControlFlowMode=1, GroupingIdentifier=mode, WFMenuItemTitle=modes[0]),
+        connection(token(sha, 'Confirmed commit SHA', 'wheel-backend-deploy-only '), code_only),
+        action('showresult', Text=token(code_only, 'Code update result')),
+        action('choosefrommenu', WFControlFlowMode=1, GroupingIdentifier=mode, WFMenuItemTitle=modes[1]),
         connection(token(sha, 'Confirmed commit SHA', 'wheel-backend-deploy '), deploy),
         action('showresult', Text=token(deploy, 'Deployment result')),
+        action('choosefrommenu', WFControlFlowMode=2, GroupingIdentifier=mode),
         action('choosefrommenu', WFControlFlowMode=1, GroupingIdentifier=group, WFMenuItemTitle=labels[1]),
         action('alert', WFAlertActionTitle='Restart Backend only?',
                WFAlertActionMessage='Restart Backend without updating code. Continue only when no order request is pending. Gateway stays running.'),

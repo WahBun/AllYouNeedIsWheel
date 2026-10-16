@@ -105,7 +105,7 @@ def preflight(repo, branch):
     return before
 
 
-def apply(repo, branch, target, expected, bundle, bundle_ref, wait=90):
+def apply(repo, branch, target, expected, bundle, bundle_ref, wait=90, restart=True):
     folder = Path.home() / 'Library/Application Support/Wheel'
     folder.mkdir(parents=True, exist_ok=True)
     # Share the lock with the existing explicit Backend restart shortcut.
@@ -131,10 +131,22 @@ def apply(repo, branch, target, expected, bundle, bundle_ref, wait=90):
         if not old_pid:
             raise RuntimeError('Backend stopped during preflight. No restart requested.')
         pending = repo / git(repo, 'rev-parse', '--git-path', 'wheel-deploy-pending.json')
-        pending.write_text(json.dumps(dict(before=before, target=target, rollback=rollback, old_pid=old_pid)) + '\n')
+        pending.write_text(json.dumps(dict(before=before, target=target, rollback=rollback,
+                                          old_pid=old_pid, restart=restart)) + '\n')
         git(repo, '-c', 'core.hooksPath=/dev/null', 'merge', '--ff-only', '--no-overwrite-ignore', target)
         if git(repo, 'rev-parse', 'HEAD') != target:
             raise RuntimeError('Post-update SHA mismatch; restart was not requested.')
+        if not restart:
+            if service_pid(repo) != old_pid or not healthy():
+                raise RuntimeError('Code updated, but the existing Backend changed or is unhealthy. '
+                                   'No restart was requested. Inspect Mini before retrying.')
+            if identity(repo, branch) != target:
+                raise RuntimeError('Repository changed during code-only update. No restart was requested.')
+            pending.unlink()
+            print(f'Code update verified: {target}\nBackend PID unchanged: {old_pid}\n'
+                  'Backend was not restarted. Backend Python changes are not active until restart. '
+                  'Refresh web pages to load updated assets. Gateway was not restarted.', flush=True)
+            return
         print('Requesting one Backend restart. Gateway is untouched.', flush=True)
         run(['/bin/launchctl', 'kill', 'SIGTERM', f'gui/{os.getuid()}/{LABEL}'], timeout=5)
         deadline = time.monotonic() + wait
@@ -164,15 +176,16 @@ def preview_latest():
         subject = git(repo, 'show', '-s', '--format=%s', target)
         summary = (f'Branch: {branch}\nMini current: {before}\nGitHub latest: {target}\n'
                    f'Commit: {subject}\n\n'
-                   + ('Already at this version. No restart is needed.' if target == before else
-                      'Confirm to deploy this exact commit and restart Backend. '
-                      'Continue only when no order request is pending. Gateway stays running.'))
+                   + ('Code is already at this version. ' if target == before else '')
+                   + 'Confirm this exact commit, then choose whether to restart Backend. '
+                     'Deploy only leaves Backend Python changes inactive until restart. '
+                     'Continue only when no order request is pending. Gateway stays running.')
         return dict(sha=target, current=before, branch=branch, summary=summary)
     finally:
         git(repo, 'update-ref', '-d', ref)
 
 
-def deploy_from_github(commit, check=False):
+def deploy_from_github(commit, check=False, restart=True):
     """Fixed-repository entry point for the restricted cross-device SSH shortcut."""
     if not re.fullmatch(r'[0-9a-fA-F]{7,40}', commit):
         raise RuntimeError('A 7-40 character hexadecimal commit SHA is required.')
@@ -189,11 +202,12 @@ def deploy_from_github(commit, check=False):
         if check:
             print('Preflight passed. No deployment or restart performed.')
             return
-        if before == target:
-            print('Already at target and healthy. No restart performed.')
+        if before == target and not restart:
+            print('Code is already at target. No deployment or restart performed. '
+                  'This does not confirm which Python code the running Backend has loaded.')
             return
         git(repo, 'update-ref', ref, target)
-        apply(repo, branch, target, before, str(repo), ref)
+        apply(repo, branch, target, before, str(repo), ref, restart=restart)
     finally:
         git(repo, 'update-ref', '-d', ref)
 

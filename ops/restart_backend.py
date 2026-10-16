@@ -65,12 +65,13 @@ def main():
                 print(json.dumps(preview_latest()))
                 return 0
             if action is None:
-                deploy = re.fullmatch(r'wheel-backend-deploy(-check)? ([0-9a-fA-F]{7,40})',
+                deploy = re.fullmatch(r'wheel-backend-deploy(-check|-only)? ([0-9a-fA-F]{7,40})',
                                       os.environ.get('SSH_ORIGINAL_COMMAND', ''))
                 if not deploy:
                     raise RuntimeError('Only Backend check, restart or deploy with a commit SHA is permitted.')
                 from deploy_mini import deploy_from_github
-                deploy_from_github(deploy.group(2), check=bool(deploy.group(1)))
+                deploy_from_github(deploy.group(2), check=deploy.group(1) == '-check',
+                                   restart=deploy.group(1) != '-only')
                 return 0
             args.action = action
         if args.action == 'check':

@@ -71,3 +71,23 @@ The actual Mac shortcut completed preview, confirmation and the read-only
 deployment-check action. Diagnostic action edits were restored afterward.
 The helper-only repair can be advanced independently of chart changes, without
 restarting Backend; the user performs the subsequent full deployment.
+
+### Choose whether to restart (2026-10-16)
+
+Deploy latest first previews and confirms an exact SHA. A second menu then offers
+Deploy only or Deploy & Restart Backend; canceling either step performs no update.
+Both branches use the same confirmed SHA. The fixed SSH allowlist adds
+`wheel-backend-deploy-only <SHA>` without permitting arbitrary shell commands.
+
+Deploy only retains clean-worktree, branch/ancestry, rollback, lock and pending
+operation checks. It verifies the updated checkout, unchanged Backend PID and
+health, but does not claim the running Python process loaded that commit. Refresh
+web pages for assets read dynamically; Backend Python changes require a later
+restart, and bundled iPhone assets still require the user's Xcode Run. Explicit
+Deploy & Restart Backend restarts even at the same SHA, supporting a later restart
+after a code-only update. The standalone Pro deployment CLI retains its previous
+same-version no-op behavior. Gateway remains outside both deployment choices.
+
+Validation: 24 focused Git/mock-service, SSH allowlist and workflow-structure tests
+passed. REA inspected the 19-action generated workflow, including the nested menu
+and pinned SHA references (ev_65deec5a856ba0c021595dcd8069f673c92ade47b86a2a7de5f491b0d00f2cae).

@@ -55,17 +55,19 @@ class RestartBackendTests(unittest.TestCase):
         from unittest.mock import Mock
         from types import SimpleNamespace
         import sys
-        for command, sha, check in [('wheel-backend-deploy 82ac78b', '82ac78b', False),
-                                    ('wheel-backend-deploy-check 82ac78b', '82ac78b', True)]:
+        for command, sha, check, restart in [('wheel-backend-deploy 82ac78b', '82ac78b', False, True),
+                                    ('wheel-backend-deploy-check 82ac78b', '82ac78b', True, True),
+                                    ('wheel-backend-deploy-only 82ac78b', '82ac78b', False, False)]:
             deploy = Mock()
             with patch.dict(sys.modules, {'deploy_mini': SimpleNamespace(deploy_from_github=deploy)}), \
                  patch('sys.argv', ['restart_backend.py', 'ssh']), \
                  patch.dict(backend.os.environ, {'SSH_ORIGINAL_COMMAND': command}):
                 self.assertEqual(backend.main(), 0)
-                deploy.assert_called_once_with(sha, check=check)
+                deploy.assert_called_once_with(sha, check=check, restart=restart)
         for command in ('wheel-backend-deploy main', 'wheel-backend-deploy 82ac78b;id',
                         'wheel-backend-deploy 82ac78b\n', 'wheel-backend-deploy $(id)',
-                        'wheel-backend-deploy 82ac78b --force'):
+                        'wheel-backend-deploy 82ac78b --force',
+                        'wheel-backend-deploy-only main', 'wheel-backend-deploy-only 82ac78b;id'):
             with patch('sys.argv', ['restart_backend.py', 'ssh']), \
                  patch.dict(backend.os.environ, {'SSH_ORIGINAL_COMMAND': command}), patch('builtins.print'):
                 self.assertEqual(backend.main(), 1)

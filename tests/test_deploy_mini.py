@@ -86,6 +86,25 @@ class DeployTests(unittest.TestCase):
                 else: p.unlink()
         self.assertFalse(self.restarts)
 
+    def test_code_only_updates_checkout_without_restart(self):
+        self.pid.side_effect = None
+        self.pid.return_value = 100
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            deploy.apply(self.repo, 'release', self.target, self.before,
+                         str(self.bundle), 'refs/heads/release', restart=False)
+        self.assertEqual(self.g(self.repo, 'rev-parse', 'HEAD'), self.target)
+        self.assertFalse(self.restarts)
+        self.assertFalse((self.repo / '.git/wheel-deploy-pending.json').exists())
+        self.assertIn('Python changes are not active until restart', output.getvalue())
+
+    def test_code_only_retains_uncertainty_if_process_changes(self):
+        with self.assertRaisesRegex(RuntimeError, 'No restart was requested'):
+            deploy.apply(self.repo, 'release', self.target, self.before,
+                         str(self.bundle), 'refs/heads/release', restart=False)
+        self.assertFalse(self.restarts)
+        self.assertTrue((self.repo / '.git/wheel-deploy-pending.json').exists())
+
     def test_changed_head_and_wrong_branch_stop(self):
         with self.assertRaisesRegex(RuntimeError, 'HEAD changed'):
             deploy.apply(self.repo, 'release', self.target, '0' * 40, str(self.bundle), 'refs/heads/release')
@@ -175,6 +194,24 @@ class DeployTests(unittest.TestCase):
             deploy.deploy_from_github(preview['sha'])
             self.assertEqual(self.g(self.repo, 'rev-parse', 'HEAD'), self.target)
             self.assertNotEqual(self.target, newer)
+            self.assertEqual(len(self.restarts), 1)
+
+    def test_explicit_restart_after_code_only_at_same_sha(self):
+        branch = 'codex/chart-labels-1.7'
+        self.g(self.source, 'branch', '-m', branch)
+        self.g(self.repo, 'branch', '-m', branch)
+        self.g(self.repo, 'remote', 'set-url', 'origin', str(self.source))
+        with patch.object(deploy, '__file__', str(self.repo / 'ops/deploy_mini.py')), \
+             patch.object(deploy, 'ORIGINS', {str(self.source)}):
+            self.pid.side_effect = None
+            self.pid.return_value = 100
+            deploy.deploy_from_github(self.target, restart=False)
+            self.assertFalse(self.restarts)
+            self.assertEqual(self.g(self.repo, 'rev-parse', 'HEAD'), self.target)
+            deploy.deploy_from_github(self.target, restart=False)
+            self.assertFalse(self.restarts)
+            self.pid.side_effect = [100, 100, 100, 101]
+            deploy.deploy_from_github(self.target, restart=True)
             self.assertEqual(len(self.restarts), 1)
 
     def test_existing_unhealthy_backend_stops(self):

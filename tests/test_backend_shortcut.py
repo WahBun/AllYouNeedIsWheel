@@ -15,8 +15,14 @@ class ShortcutTests(unittest.TestCase):
         self.assertEqual(actions[4]['WFWorkflowActionIdentifier'], 'is.workflow.actions.alert')
         self.assertEqual(actions[3]['WFWorkflowActionParameters']['WFDictionaryKey'], 'summary')
         self.assertEqual(actions[5]['WFWorkflowActionParameters']['WFDictionaryKey'], 'sha')
-        command = actions[6]['WFWorkflowActionParameters']['WFSSHScript']['Value']
-        self.assertEqual(command['string'], 'wheel-backend-deploy \ufffc')
-        self.assertEqual(next(iter(command['attachmentsByRange'].values()))['OutputUUID'],
-                         actions[5]['WFWorkflowActionParameters']['UUID'])
+        self.assertEqual(actions[6]['WFWorkflowActionIdentifier'], 'is.workflow.actions.choosefrommenu')
+        self.assertEqual(actions[6]['WFWorkflowActionParameters']['WFMenuItems'],
+                         ['Deploy only', 'Deploy & Restart Backend'])
+        for index, prefix in ((8, 'wheel-backend-deploy-only '), (11, 'wheel-backend-deploy ')):
+            command = actions[index]['WFWorkflowActionParameters']['WFSSHScript']['Value']
+            self.assertEqual(command['string'], prefix + '\ufffc')
+            self.assertEqual(next(iter(command['attachmentsByRange'].values()))['OutputUUID'],
+                             actions[5]['WFWorkflowActionParameters']['UUID'])
+        self.assertNotEqual(actions[0]['WFWorkflowActionParameters']['GroupingIdentifier'],
+                            actions[6]['WFWorkflowActionParameters']['GroupingIdentifier'])
         self.assertFalse(any(a['WFWorkflowActionIdentifier'].endswith('.ask') for a in actions))
