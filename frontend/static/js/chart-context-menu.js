@@ -35,14 +35,19 @@
   if(packet.bars?.length||packet.generation==='clear'){accountTransition=false;document.body.style.opacity='';}
  };
  // Keep the shared price button in the plot, but never over the price axis.
- let overPriceAxis=false,pointerInPlot=false;
+ let overPriceAxis=false,pointerInPlot=false,drawingHoverPoint=null,drawingHoverQueued=false;
  chart.unsubscribeCrosshairMove(updatePriceCursor);
- chart.subscribeCrosshairMove(p=>{if(!pointerInPlot||overPriceAxis||applyingCrosshair){priceAdd.hidden=true;cursorOrderPrice=null;return;}updatePriceCursor(p);});
+ chart.subscribeCrosshairMove(p=>{if(keepDrawingHover(p))return;if(!pointerInPlot||overPriceAxis||applyingCrosshair){priceAdd.hidden=true;cursorOrderPrice=null;return;}updatePriceCursor(p);});
  const trackPointer=e=>{
+  const hadDrawingHover=drawingHoverPoint!==null;
   overPriceAxis=e.clientX<plotLeft()||e.clientX>=plotRight();
   pointerInPlot=!overPriceAxis&&e.clientY>=0&&e.clientY<chart.paneSize().height;
+  drawingHoverPoint=pointerInPlot&&e.pointerType!=='touch'&&!e.buttons&&e.target.closest?.('#draw-svg [data-drawing]')?{x:e.clientX-plotLeft(),y:e.clientY}:null;
+  if(drawingHoverPoint)refreshDrawingHover();
+  else if(hadDrawingHover&&(!pointerInPlot||!e.target.closest?.('#chart'))){crosshairAxisY=null;chart.clearCrosshairPosition();priceAdd.hidden=true;cursorOrderPrice=null;updateCrosshairPriceLabel();publishCrosshair(null);}
   if(!pointerInPlot){priceAdd.hidden=true;cursorOrderPrice=null;publishCrosshair(null);}
  };
+ document.addEventListener('pointerover',trackPointer,true);
  document.addEventListener('pointermove',trackPointer,true);
  document.addEventListener('pointerdown',trackPointer,true);
  // Same-origin panes share pointer updates directly, without queued message lag.
@@ -52,11 +57,29 @@
  }
  // Programmatic crosshair moves must never echo back into the pane group.
  let applyingCrosshair=false,lastPeerPoint=null;
+ // Drawing hit areas remain editable, but hovering them is still inside the plot.
+ // The underlying canvas emits mouseleave; restore only visual cursor state.
+ function keepDrawingHover(p){
+  if(p.point||!drawingHoverPoint||applyingCrosshair)return false;
+  if(!drawingHoverQueued){drawingHoverQueued=true;queueMicrotask(()=>{drawingHoverQueued=false;if(drawingHoverPoint)refreshDrawingHover();});}
+  return true;
+ }
+ function refreshDrawingHover(){
+  const point=drawingHoverPoint;if(!point)return;
+  const time=chart.timeScale().coordinateToTime(point.x),price=series.coordinateToPrice(point.y);
+  if(!Number.isFinite(price))return;
+  applyingCrosshair=true;
+  try{if(time!==null)chart.setCrosshairPosition(price,time,series);}finally{applyingCrosshair=false;}
+  crosshairAxisY=point.y;priceAdd.hidden=true;cursorOrderPrice=null;updateCrosshairPriceLabel();
+  if(readoutTime!==time||readoutLatest){readoutTime=time;readoutLatest=false;updateReadout();}
+  publishCrosshair(time!==null?{time,price}:null);
+ }
+
  // OHLC text only changes when the selected bar changes. Re-fitting its font on
  // every mouse pixel forces synchronous layout in every iframe.
  chart.unsubscribeCrosshairMove(handleReadoutMove);
  chart.subscribeCrosshairMove(p=>{
-  if(applyingCrosshair)return;
+  if(applyingCrosshair||keepDrawingHover(p))return;
   crosshairAxisY=p.point?.y??null;
   updateCrosshairPriceLabel();
   const bar=p.seriesData?.get(series),last=previous.at(-1);
@@ -84,13 +107,13 @@
   }finally{applyingCrosshair=false;}
  };
  chart.subscribeCrosshairMove(p=>{
-  if(applyingCrosshair||!pointerInPlot||!p.sourceEvent)return;
+  if(applyingCrosshair||keepDrawingHover(p)||!pointerInPlot||!p.sourceEvent)return;
   lastPeerPoint=null;
   const size=chart.paneSize(),valid=p.point&&p.time!=null&&p.point.x>=0&&p.point.x<=size.width&&p.point.y>=0&&p.point.y<=size.height;
   const price=valid?series.coordinateToPrice(p.point.y):null;
   publishCrosshair(valid&&Number.isFinite(price)?{time:p.time,price}:null);
  });
- document.documentElement.addEventListener('pointerleave',()=>{pointerInPlot=false;crosshairAxisY=null;priceAdd.hidden=true;cursorOrderPrice=null;updateCrosshairPriceLabel();publishCrosshair(null);});
+ document.documentElement.addEventListener('pointerleave',()=>{pointerInPlot=false;drawingHoverPoint=null;crosshairAxisY=null;priceAdd.hidden=true;cursorOrderPrice=null;updateCrosshairPriceLabel();publishCrosshair(null);});
  let refreshOrderMenu=()=>{};
  window.addEventListener('order-configured',()=>refreshOrderMenu());
  const orderItems=(...args)=>window.wheelOrderItems(...args);

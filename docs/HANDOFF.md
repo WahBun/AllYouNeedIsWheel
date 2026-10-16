@@ -1,3 +1,29 @@
+## 2026-10-16 — uninterrupted cursor across dense drawing hit areas
+
+REA refreshed the live Wheel page/scripts (Evidence
+`ev_5cfdbad596c02948f94cdbd7d8f597e7e4259ad167ea72c7d2c204a2f65e0e3c`).
+Reviewed the supplied video and reproduced the brief disappearance with actual
+mouse movement through the drawings' transparent 22px hit strokes. The previous
+priority test moved before the ray origin, so it missed canvas mouseleave caused
+by entering those editable drawing elements.
+
+Treat mouse hover over existing drawing geometry as remaining inside the plot.
+Bridge its coordinates to the chart's visual crosshair and peer panes, suppress
+only the intermediate canvas-leave clear, and clear on exit to axes/controls.
+Pointer down, touch drawing, selection and drag handlers stay intact. The
+foreground cursor and fixed-label allocator are unchanged; no quote scheduling
+or broker actions are added.
+
+Validation: the strengthened crosshair-drawing-priority test fails before this
+change and passes afterward, sampling every animation frame while traversing
+three clustered rays. Covers both axes/themes and desktop/mobile widths, current
+pointer price, drawing drag, direct axis exit, and the actual four-pane host's
+owner/follower cursor continuity and exit cleanup. Order-line-drag and
+no-overlapping-labels pass. A separate legacy trading-panel-integration check
+stalled at its four-pane loading gate before reaching the new
+scenario; its temporary additions were removed and the scenario runs in the
+working read-only market-feed harness instead. No broker writes or service restart.
+
 ## 2026-10-16 — foreground cursor for chart-only and synchronized panes
 
 REA inspected the current Wheel page/scripts (Evidence
