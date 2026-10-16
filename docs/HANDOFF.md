@@ -3172,3 +3172,27 @@ User will deploy Mini with the Wheel Backend shortcut. Mini was not deployed
 or restarted for this change. The iPhone uses bundled chart assets and needs
 the user's Xcode Run to receive this UI change. Unrelated local Xcode signing
 and localization changes remain outside this commit.
+
+## 2026-10-16 Long Text annotations and resizing
+
+REA statically analyzed the current shared drawing asset (parent Evidence
+`ev_fe141dd23db78e1b84c4a969f9c9cffaea3831f79459f79896ca0190f127a988`).
+Source inspection found both a 120-character textarea limit and save-time slice;
+CSS also disabled native resizing. The earlier TradingView textarea/multiline
+findings above still apply to this editor; no new TradingView limit or resize
+behavior was inferred from the static analysis. A literal feature trace returned
+no matches and was not treated as proof of absence.
+
+Text now retains its complete value, wraps within a persisted width and offers a
+bottom-right resize handle during editing or selection. Height grows to fit text;
+editing a note taller than the viewport scrolls, including reopening at its end.
+New notes use a bounded initial width; legacy notes retain their original wrapping
+until resized. Resize is undoable and remote drawing updates wait for its gesture.
+These sizing details are Wheel adaptations. Note's separate editor is unchanged.
+
+Verified: 5,000+ mixed-language characters, actual typing past 120, wrap, resizing,
+undo/redo, complete reload/re-edit, desktop/mobile widths and both theme settings;
+existing inline-text tests and actual 4→2→1→4 shared-pane tests pass. Three isolated
+SQLite tests cover long text/dimensions, concurrency and duplicate/tombstone behavior.
+No broker writes or market-data/order logic changes. Physical iPhone not tested.
+Deploy only plus web refresh is sufficient; bundled iOS assets require the user's Run.

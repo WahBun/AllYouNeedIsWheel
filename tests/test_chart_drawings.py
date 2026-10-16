@@ -17,6 +17,13 @@ class DrawingsTests(unittest.TestCase):
   with self.assertRaises(ValueError):self.call([self.op('good'),self.op('bad',price=float('nan'))])
   self.assertEqual(self.call()['drawings'],[])
 
+ def test_long_text_and_dimensions_round_trip(self):
+  text=('Market analysis 中英文 🧭\n'*600)+'END'
+  op=self.op('long-text');op['value'].update(type='text',text=text,textWidth=280,textHeight=160)
+  self.call([op])
+  self.assertEqual(self.call()['drawings'],[op['value']])
+  self.assertEqual(self.call(cid=2)['drawings'],[])
+
  def test_full_app_dispatcher_keeps_annotations_separate_from_trading(self):
   from api import create_app
   from unittest.mock import patch
