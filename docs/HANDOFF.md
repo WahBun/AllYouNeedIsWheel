@@ -1,3 +1,26 @@
+## 2026-10-16 — 1.7 drawing labels participate in fixed-label spacing
+
+Follow-up screenshot exposed blue drawing price labels painted by the library
+canvas beneath DOM High/Low and live-price/countdown labels. The previous cursor
+fix did not cover this distinct fixed-label collision. REA inspected the actual
+Wheel page and shipped frame scripts (Evidence
+`ev_da43aef69f99d881279b871e1a8fc3cb3d336447716c867419d1de3e36fb881b`),
+confirming the separate drawing `axisLabelVisible:true` path. Reused the current
+TV fixed-label alignment evidence recorded below.
+
+Expose drawing price lines to the existing DOM allocator and suppress their
+native canvas badges. Drawing numeric labels now move above/below occupied
+fixed labels, preserving actual drawing prices/geometry, precision and colors.
+Crosshair remains an independent foreground overlay. Drawing hide/delete/drag
+lifecycle is retained. No trading or market-data path changes.
+
+Validation: drawing-price-axis reproduces collisions with High and the two-row
+live price, checks all labels visible and separated, and covers both axes/themes
+at mobile/desktop widths, updates, dragging, hiding and cleanup. Existing
+price-label-spacing and no-overlapping-labels checks pass. Screenshots visually
+checked. Isolated browser verification only; Mini and physical iPhone have not
+been updated by this task. Existing Xcode/localization edits remain excluded.
+
 ## 2026-10-16 — 1.7 cursor overlay without label displacement
 
 Base: GitHub `codex/chart-labels-1.6` at `d35144ef5dda2c9f31f45617827b7f070bcb76f6`.

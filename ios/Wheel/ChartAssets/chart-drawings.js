@@ -481,9 +481,10 @@ window.receive=packet=>{
  }
  return receiveChart(packet);
 };
-// Native price-axis labels share the chart's precision, scale and collision layout.
+// Drawing prices join the shared DOM price-axis label allocator.
 // These are analysis annotations only; no order state or broker action is involved.
 const drawingPriceLabels=new Map();
+window.drawingPriceAxisLines=()=>[...drawingPriceLabels].map(([key,item])=>['drawing:'+key,item.line]);
 function syncDrawingPriceLabels(){
  const wanted=new Map();
  if(!hidden)for(const d of [...drawings,...(draft?[draft]:[])]){
@@ -493,7 +494,7 @@ function syncDrawingPriceLabels(){
   for(const [i,price] of prices.entries()){
    if(!Number.isFinite(price)||price<=0)continue;
    const color=d.color||(['long','short'].includes(d.type)?['#315fc4','#b54747','#287b56'][i]:'#315fc4');
-   wanted.set(d.id+':'+i,{price,color,lineVisible:false,axisLabelVisible:true,title:''});
+   wanted.set(d.id+':'+i,{price,color,lineVisible:false,axisLabelVisible:false,title:''});
   }
  }
  for(const [key,item] of drawingPriceLabels)if(!wanted.has(key)){series.removePriceLine(item.line);drawingPriceLabels.delete(key);}

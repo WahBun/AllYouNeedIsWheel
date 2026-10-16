@@ -1136,7 +1136,7 @@ const tradeAxisBadges=new Map(),axisTickMasks=[];
 function separatePriceAxisLabels(){
  const height=chart.paneSize().height,occupied=[],labelRegions=[],enabled=displayOptions.noOverlappingLabels!==false;
  // The cursor paints above fixed labels and never participates in their spacing.
- const priceLines=new Map([['entry',entryLine],...Object.entries(lines),...(window.additionalOrderPriceLines?.()||[])]);
+ const priceLines=new Map([['entry',entryLine],...Object.entries(lines),...(window.additionalOrderPriceLines?.()||[]),...(window.drawingPriceAxisLines?.()||[])]);
  for(const [name,line] of priceLines){
   if(!line)continue;
   let badge=tradeAxisBadges.get(name);
@@ -1146,7 +1146,9 @@ function separatePriceAxisLabels(){
   if(!badge.hidden)badge.style.top=(y-badge.offsetHeight/2)+'px';
  }
  for(const [name,badge] of tradeAxisBadges){if(!priceLines.get(name)){badge.remove();tradeAxisBadges.delete(name);}}
- const labels=[...tradeAxisBadges.values(),...holdingAxisBadges.values(),positionEdgeBadge,document.getElementById('countdown'),...Object.values(extremaLabels),...document.querySelectorAll('.volatility-price')];
+ const drawingBadges=[],orderBadges=[];
+ for(const [name,badge] of tradeAxisBadges)(name.startsWith('drawing:')?drawingBadges:orderBadges).push(badge);
+ const labels=[...orderBadges,...holdingAxisBadges.values(),positionEdgeBadge,document.getElementById('countdown'),...Object.values(extremaLabels),...drawingBadges,...document.querySelectorAll('.volatility-price')];
  for(const current of labels){
   current.style.visibility='';
   if(current.hidden||getComputedStyle(current).display==='none')continue;
