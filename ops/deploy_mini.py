@@ -130,6 +130,32 @@ def apply(repo, branch, target, expected, bundle, bundle_ref, wait=90):
                            'No automatic rollback or second restart was attempted.')
 
 
+def deploy_from_github(commit, check=False):
+    """Fixed-repository entry point for the restricted cross-device SSH shortcut."""
+    if not re.fullmatch(r'[0-9a-fA-F]{7,40}', commit):
+        raise RuntimeError('A 7-40 character hexadecimal commit SHA is required.')
+    repo = Path(__file__).resolve().parents[1]
+    branch = 'codex/chart-labels-1.7'
+    before = preflight(repo, branch)
+    ref = 'refs/wheel-deploy/' + uuid.uuid4().hex
+    try:
+        git(repo, 'fetch', '--no-tags', 'origin', f'refs/heads/{branch}:{ref}')
+        target = git(repo, 'rev-parse', '--verify', commit + '^{commit}')
+        git(repo, 'merge-base', '--is-ancestor', target, ref)
+        git(repo, 'merge-base', '--is-ancestor', before, target)
+        print(f'Mini current: {before}\nGitHub verified target: {target}', flush=True)
+        if check:
+            print('Preflight passed. No deployment or restart performed.')
+            return
+        if before == target:
+            print('Already at target and healthy. No restart performed.')
+            return
+        git(repo, 'update-ref', ref, target)
+        apply(repo, branch, target, before, str(repo), ref)
+    finally:
+        git(repo, 'update-ref', '-d', ref)
+
+
 def remote_main():
     action, repo, branch = sys.argv[2:5]
     repo = Path(repo).expanduser().resolve()

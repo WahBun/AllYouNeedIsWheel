@@ -88,3 +88,10 @@ mocked Backend calls. It never connects to SSH or IB. REA inspected the actual
 Mini LaunchAgent before implementation: fixed service label, project working
 directory, KeepAlive enabled, one Gunicorn worker. Evidence:
 `ev_4dcdb4b4b687abf82cdd8f3ec3268c33185ff5299587268dd8626a743f02f150`.
+
+## Use from iPhone or Mac Shortcuts
+
+The private **Wheel Backend** shortcut offers deployment and restart-only branches.
+See [shortcut setup](BACKEND_SHORTCUT.md). This route performs the GitHub fetch on
+Mini and does not require Pro to be awake. It checks Mini's worktree; the Pro CLI
+checks both worktrees. Neither route commits unreviewed local changes.

@@ -1,3 +1,16 @@
+## 2026-10-16 — combined cross-device Backend shortcut
+
+The private Wheel Backend shortcut adds Deploy commit & Restart Backend alongside
+Restart Backend only. The forced SSH entry accepts only those fixed commands and
+hexadecimal SHAs, with a separate deployment-check command. No key permissions,
+Gateway service or trading path changes. Deployments use the shared guarded
+implementation; phone-triggered deployment reads GitHub on Mini, so Pro need not
+be awake. Commit/push remains on Pro. See BACKEND_SHORTCUT.md for scope and REA.
+
+Validation: 10 disposable Git/mock-deployment checks and 5 restart/SSH allowlist
+checks pass. The generated shortcut imports with the intended native menu and
+input actions. Physical iPhone execution remains to be confirmed by its user.
+
 ## 2026-10-16 — Pro-to-Mini deployment command
 
 `python3 ops/deploy_mini.py <commit>` verifies GitHub branch membership on Pro,

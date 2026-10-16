@@ -39,3 +39,22 @@ class RestartBackendTests(unittest.TestCase):
              patch.object(backend, 'restart') as restart, patch('builtins.print'):
             self.assertEqual(backend.main(), 1)
             restart.assert_not_called()
+
+    def test_restricted_deploy_accepts_only_sha_and_explicit_check_mode(self):
+        from unittest.mock import Mock
+        from types import SimpleNamespace
+        import sys
+        for command, sha, check in [('wheel-backend-deploy 82ac78b', '82ac78b', False),
+                                    ('wheel-backend-deploy-check 82ac78b', '82ac78b', True)]:
+            deploy = Mock()
+            with patch.dict(sys.modules, {'deploy_mini': SimpleNamespace(deploy_from_github=deploy)}), \
+                 patch('sys.argv', ['restart_backend.py', 'ssh']), \
+                 patch.dict(backend.os.environ, {'SSH_ORIGINAL_COMMAND': command}):
+                self.assertEqual(backend.main(), 0)
+                deploy.assert_called_once_with(sha, check=check)
+        for command in ('wheel-backend-deploy main', 'wheel-backend-deploy 82ac78b;id',
+                        'wheel-backend-deploy 82ac78b\n', 'wheel-backend-deploy $(id)',
+                        'wheel-backend-deploy 82ac78b --force'):
+            with patch('sys.argv', ['restart_backend.py', 'ssh']), \
+                 patch.dict(backend.os.environ, {'SSH_ORIGINAL_COMMAND': command}), patch('builtins.print'):
+                self.assertEqual(backend.main(), 1)

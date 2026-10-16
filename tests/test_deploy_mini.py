@@ -138,6 +138,22 @@ class DeployTests(unittest.TestCase):
         self.assertEqual(self.g(self.repo, 'rev-parse', 'HEAD'), self.target)
         self.assertFalse(self.restarts)
 
+    def test_cross_device_fetch_check_and_deploy(self):
+        branch = 'codex/chart-labels-1.7'
+        self.g(self.source, 'branch', '-m', branch)
+        self.g(self.repo, 'branch', '-m', branch)
+        self.g(self.repo, 'remote', 'set-url', 'origin', str(self.source))
+        with patch.object(deploy, '__file__', str(self.repo / 'ops/deploy_mini.py')), \
+             patch.object(deploy, 'ORIGINS', {str(self.source)}):
+            deploy.deploy_from_github(self.target[:7], check=True)
+            self.assertEqual(self.g(self.repo, 'rev-parse', 'HEAD'), self.before)
+            self.assertFalse(self.restarts)
+            self.pid.side_effect = [100, 100, 100, 101]
+            deploy.deploy_from_github(self.target[:7])
+            self.assertEqual(self.g(self.repo, 'rev-parse', 'HEAD'), self.target)
+            self.assertEqual(len(self.restarts), 1)
+            self.assertEqual(self.g(self.repo, 'for-each-ref', 'refs/wheel-deploy/'), '')
+
     def test_existing_unhealthy_backend_stops(self):
         self.health.return_value = False
         with self.assertRaisesRegex(RuntimeError, 'not healthy'): self.apply()

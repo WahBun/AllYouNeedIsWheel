@@ -60,7 +60,13 @@ def main():
             commands = {'wheel-backend-check': 'check', 'wheel-backend-restart': 'restart'}
             action = commands.get(os.environ.get('SSH_ORIGINAL_COMMAND', ''))
             if action is None:
-                raise RuntimeError('This SSH key only permits Wheel Backend check or restart.')
+                deploy = re.fullmatch(r'wheel-backend-deploy(-check)? ([0-9a-fA-F]{7,40})',
+                                      os.environ.get('SSH_ORIGINAL_COMMAND', ''))
+                if not deploy:
+                    raise RuntimeError('Only Backend check, restart or deploy with a commit SHA is permitted.')
+                from deploy_mini import deploy_from_github
+                deploy_from_github(deploy.group(2), check=bool(deploy.group(1)))
+                return 0
             args.action = action
         if args.action == 'check':
             pid = service_pid()
