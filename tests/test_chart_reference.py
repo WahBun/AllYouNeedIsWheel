@@ -33,9 +33,22 @@ class ChartReferenceTests(unittest.TestCase):
         self.ticker.marketDataType = 3
         self.assertIsNone(self.feed.packet(self.state, 5, 'all')['previous_close'])
 
+    def test_reference_reads_separate_market_ticker_without_mutating_tick_feed(self):
+        quote = Mock(close=9.25, marketDataType=1)
+        self.conn.get_market_ticker.return_value = quote
+        self.ticker.close = float('nan')
+        with patch.dict(chart_reference.stock_chart.states, {7: self.state}, clear=True):
+            self.assertEqual(chart_reference.subscribe(self.conn, 7), {'con_id': 7, 'previous_close': 9.25})
+            self.assertIsNone(self.feed.packet(self.state, 5, 'all')['previous_close'])
+            for value, data_type in [(0,1), (float('nan'),1), (float('inf'),1), (9.25,3), (9.25,4)]:
+                quote.close, quote.marketDataType = value, data_type
+                self.assertIsNone(chart_reference.subscribe(self.conn, 7)['previous_close'])
+        self.conn.ib.placeOrder.assert_not_called()
+        self.conn.ib.cancelOrder.assert_not_called()
+
     def test_subscription_uses_current_connection_and_existing_bounded_cache(self):
         with patch.dict(chart_reference.stock_chart.states, {7: self.state}, clear=True):
-            self.assertEqual(chart_reference.subscribe(self.conn, 7), {'con_id': 7})
+            self.assertEqual(chart_reference.subscribe(self.conn, 7), {'con_id': 7, 'previous_close': None})
             self.conn.get_market_ticker.assert_called_once_with(self.state['contract'])
             for conn, cid in [(self.conn, 8), (Mock(), 7)]:
                 with self.assertRaises(ValueError): chart_reference.subscribe(conn, cid)

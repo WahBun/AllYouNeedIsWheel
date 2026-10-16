@@ -3228,3 +3228,29 @@ fast-entry-drag and order-line-drag checks pass. No real broker writes, deployme
 service restart or physical-device Run. The frontend files and chart_document's
 per-request asset reads need Deploy only and a webpage reload; templates and
 backend Python are unchanged. The preceding long-text commit is included.
+
+## 2026-10-16 Cross-symbol active-pane title percentage
+
+REA statically analyzed the current host and pane-layout assets (parent Evidence
+`ev_dcc03f31c6f5e2b5eeffdb58c888851a45513b31d7dd5976c099bef0cb2e298d`).
+Read-only live inspection confirmed TSLL delivered a live last_price but null
+previous_close, including after chart-reference returned 200. Mini HEAD was
+0576dc5632b308a49ebfe5bbe04e71a5f0c16365; no deployment or restart was performed.
+
+The reference service discarded the returned bounded-cache ticker, although it
+can differ from the chart's tick-by-tick ticker. It now returns that ticker's
+finite positive broker close (live/frozen only). The title consumes this value
+only for the exact current contract/account epoch, expiring it after 30 seconds;
+it still prefers a valid chart-packet close. Delayed responses cannot cross
+contexts. No historical/session-open fallback, extra subscriptions, quote
+freshness changes, chart aggregation, or stream-pump edits were introduced.
+The actual live cached ticker was not introspected; the distinct-ticker case
+was reproduced with an isolated test rather than asserted as a runtime observation.
+
+Three offline service tests pass, including distinct-ticker identity, invalid
+and delayed values, and broker-action exclusion. Four-symbol browser fixtures
+pass at desktop/mobile widths: positive/negative/zero change, missing close,
+reference-only close, ongoing ticks, pane activation and delayed cross-symbol
+responses. Live result after deployment remains unverified. Because Python
+service code changed, use user-operated Deploy & Restart Backend, then reload
+web pages; do not restart Gateway or run the phone for this web-title fix.
