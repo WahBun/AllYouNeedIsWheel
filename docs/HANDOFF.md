@@ -3196,3 +3196,35 @@ existing inline-text tests and actual 4→2→1→4 shared-pane tests pass. Thre
 SQLite tests cover long text/dimensions, concurrency and duplicate/tombstone behavior.
 No broker writes or market-data/order logic changes. Physical iPhone not tested.
 Deploy only plus web refresh is sufficient; bundled iOS assets require the user's Run.
+
+## 2026-10-16 Web Trading lock
+
+REA analyzed the web host/layout (parent Evidence
+`ev_d2fae2c136ef40a55e767c592efada82217ab88ada45e0c71b2523c1a722528a`)
+and shared order asset. The HTML inventory explicitly excluded inline scripts,
+so the largest actual script body was extracted unchanged and analyzed separately
+(`ev_7357aba92de54c7557c50e473a3794e43f56f03c79b8e6ac6ec8092adde95525`).
+These are static observations, not broker execution evidence. Source inspection
+of StockChart.swift confirmed the reference iOS action allowlist and disabled
+trading controls. The shared lock previously required nativeCompact; it now
+honors tradingLocked independently of layout.
+
+An English-accessible lock button beside Trading disables panel order controls,
+frame order gestures and the host write/action paths. Indicators, drawings,
+quotes, P&L and outcome reconciliation continue. The default remains unlocked,
+matching iOS; sessionStorage additionally retains this tab's selection on reload.
+It is not an account/server lock or a cross-tab/device setting. All panes receive
+the current flag, independently of their display presets. Locking closes trade
+editors, discards chart confirmation and queued Join/drag intent, and prevents
+further cancellation-loop requests. Already-sent requests retain normal outcome
+reconciliation; unlocking never resends discarded intent.
+
+Verification: web lock browser fixtures cover Paper/Live mock profiles,
+desktop/mobile and light/dark, real text analysis while locked, forged frame
+messages, disabled controls and order drags, persisted reload, 1–4 pane switches,
+confirmation disposal and locking during a pending request with queued amendment.
+Existing native-trading-lock, entry-one-click-page, one-click-protection,
+fast-entry-drag and order-line-drag checks pass. No real broker writes, deployment,
+service restart or physical-device Run. The frontend files and chart_document's
+per-request asset reads need Deploy only and a webpage reload; templates and
+backend Python are unchanged. The preceding long-text commit is included.

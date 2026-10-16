@@ -318,3 +318,8 @@ body>header>strong{position:relative;top:-1px}
 
 /* Settings are reached from each chart's price-axis gear. */
 body>header #settings{display:none!important}
+
+#trade #trading-lock{display:flex;align-items:center;justify-content:center;flex:0 0 32px;width:32px;height:32px;padding:5px;margin:0;border:0;background:transparent;color:var(--muted)}
+#trade #trading-lock[aria-pressed=true]{color:#d99a39;background:#d99a391a}
+#trade #trading-lock:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.trade-heading #daily-pnl{margin-left:auto}
