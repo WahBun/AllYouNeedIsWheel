@@ -3288,3 +3288,28 @@ Use user-operated Deploy & Restart Backend, then refresh the webpage. New code
 has not been deployed or restarted by the agent; verify the returned reference
 and actual browser title after the user deploys it. Existing iOS project and
 localization changes remain excluded.
+
+## 2026-10-16 8h RTH historical-page candle identity
+
+User confirmed the tab percentage works after deploying 330af7957f9b533fcb47e8d7fcc503cd6c009429;
+that SHA was also verified on Mini and GitHub before this change. They reported
+repeated-looking TSLL auxiliary 8h candle extremes. REA analyzed chart-layout.js
+(parent ev_69d9deac3d0963cdd842a475fed1efb3dc3439bee436150af892da9d9835f871):
+panes retain and merge historical bars by exact timestamp. Live read-only API
+comparison confirmed 8h RTH snapshots use session-open timestamps while the
+history endpoint returned daily bars at New York midnight. Both identities can
+survive an overlapping page/snapshot merge. The user's browser's in-memory rows
+were not inspected; do not assert that every equal high/low is erroneous.
+
+History pagination now uses the same 30-minute RTH trade source and session-open
+8h aggregation as the initial non-CME snapshot, with bounded one-month pages.
+CME keeps its existing session-aware source. Daily/weekly/monthly and ETH paths,
+frontend layout/merge, tick aggregation, live delivery and trading are unchanged.
+Reload the webpage after user-operated Deploy & Restart Backend to discard old
+in-memory midnight bars. No agent deployment, restart or broker writes.
+
+Validation: three history tests plus existing RTH 8h DST/trade-close and option
+8h cooldown checks pass. The desktop/mobile two-symbol browser fixture verifies
+main and auxiliary historical loading, snapshot overlap, exact OHLC retention
+and one candle per trading date. This is fixture evidence; the user's actual
+page after deployment remains to be checked. Existing iOS edits are excluded.
