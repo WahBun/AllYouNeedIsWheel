@@ -6,10 +6,17 @@ not the IB execution queue. Live P&L uses the existing single Gateway connection
 serialized dispatcher and one `reqPnL` subscription. It does not place orders.
 Only the visible foreground screen polls (five seconds for P&L).
 
+## Benchmark names
+
+The app displays **SPX** and **NDX** (Nasdaq-100), with Portfolio only,
+SPX, NDX and SPX + NDX comparison choices. The initial selection is YTD with both
+benchmarks. The response field `nq100` and FRED series ID `NASDAQ100` remain
+unchanged for compatibility; NQ100 is no longer the displayed benchmark name.
+
 ## Private configuration
 
 Set `WHEEL_PERFORMANCE_CONFIG` on the backend process to an absolute private JSON
-file. Do not put tokens in connection.json (which has legacy logging), Git, the
+file. Do not put tokens in connection.json, Git, the
 phone, or a command argument. Example shape (placeholders only):
 
 ```json
