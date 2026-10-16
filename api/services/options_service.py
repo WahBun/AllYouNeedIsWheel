@@ -669,6 +669,12 @@ class OptionsService:
                     "error": "IB could not qualify the exact option contract; refresh and recreate the order"
                 }, 422
 
+            from api.routes.account import profiles
+            if not account.startswith('DU') and profiles().get('live', {}).get('chart_options_live_enabled') is True:
+                from api.services.live_options import contract_allowed
+                if not contract_allowed(conn, contract) or not 1 <= quantity <= 10:
+                    return {'success': False, 'error': 'Live entry requires an enabled standard option and quantity from 1 to 10', 'status': 'pending'}, 403
+
             ib_order = conn.create_order(
                 action=action,
                 quantity=quantity,

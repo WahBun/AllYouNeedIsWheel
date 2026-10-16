@@ -578,7 +578,7 @@ struct OpportunitiesView: View {
             if symbols.isEmpty { ContentUnavailableView("No opportunities", systemImage: "list.bullet.rectangle") }
             Section("Selected-contract estimates") {
                 LabeledContent("Premium") { PremiumValue(amount: ready.reduce(0) { $0 + ($1.total ?? 0) }) }
-                if type == "PUT" { LabeledContent("Cash required", value: money(ready.reduce(0) { $0 + ($1.quote?.strike ?? 0) * 100 * Double($1.quantity) })) }
+                if type == "PUT" { LabeledContent("Assignment notional", value: money(ready.reduce(0) { $0 + ($1.quote?.strike ?? 0) * 100 * Double($1.quantity) })) }
                 Button {
                     let snapshot = ready
                     Task { await book.stageAndOpenOrders(snapshot, store: store) }
@@ -752,7 +752,7 @@ struct OpportunityDetail: View {
                     }
                     LabeledContent("Premium") { PremiumValue(amount: row.total, perSymbol: true) }
                     if type == "PUT" {
-                        LabeledContent("Cash required", value: money(quote.strike * 100 * Double(row.quantity)))
+                        LabeledContent("Assignment notional", value: money(quote.strike * 100 * Double(row.quantity)))
                         EntryMarginRow(ticker: ticker, expiration: quote.expiration, strike: quote.strike, quantity: row.quantity, price: row.price)
                     }
                     LabeledContent("Annualized premium estimate", value: money(row.total.flatMap { TradingMath.annualized(premium: $0, expiration: quote.expiration) }))

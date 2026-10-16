@@ -42,11 +42,12 @@ class CSPLifecycleTests(unittest.TestCase):
         self.assertTrue(r['success'],r);self.assertEqual(self.trades[-1].order.action,'BUY')
         self.fill(self.trades[-1],1,1)
         s=self.service.state(self.conn,7);self.assertEqual(s['position'],-1);self.assertEqual(s['entry'],2.5)
-    def test_insufficient_cash_add_sends_nothing(self):
+    def test_margin_put_add_does_not_require_assignment_cash(self):
         self.conn.fresh_csp_cash.return_value=20009
         before=self.conn.ib.placeOrder.call_count
-        _,r=self.add(1);self.assertFalse(r['success']);self.assertIn('cash',r['message'])
-        self.assertEqual(self.conn.ib.placeOrder.call_count,before)
+        _,r=self.add(1);self.assertTrue(r['success'],r)
+        self.assertEqual(self.conn.ib.placeOrder.call_count,before+1)
+        self.conn.fresh_csp_cash.assert_not_called()
     def test_lost_add_response_reconciles_without_replay(self):
         original=self.conn.ib.placeOrder.side_effect
         def lost(c,o):original(c,o);raise ConnectionError('reply lost')
@@ -56,13 +57,14 @@ class CSPLifecycleTests(unittest.TestCase):
         self.assertTrue(PaperChart(self.service.path).request_status(self.conn,7,b['request_id'])['confirmed'])
         self.assertEqual(self.conn.ib.placeOrder.call_count,count)
 
-    def test_collateral_read_position_change_blocks_add(self):
-        def changed(account):
-            self.pos.position=-2
-            return 40050
-        self.conn.fresh_csp_cash.side_effect=changed
+    def test_changed_position_blocks_add(self):
+        state=self.service.state(self.conn,7)
+        self.pos.position=-2
         count=self.conn.ib.placeOrder.call_count
-        _,r=self.add(1);self.assertFalse(r['success']);self.assertIn('changed',r['message'])
+        body=dict(action='add',request_id=str(uuid4()),quantity=1,entry_type='LMT',entry=3,
+                  expected_ref=state['order_ref'],expected_position=-1)
+        r=self.service.execute(self.conn,7,body)
+        self.assertFalse(r['success']);self.assertIn('reconciled',r['message'])
         self.assertEqual(self.conn.ib.placeOrder.call_count,count)
     def test_duplicate_add_does_not_double_reserve_or_write(self):
         b,r=self.add(1);self.assertTrue(r['success'],r)

@@ -3313,3 +3313,53 @@ Validation: three history tests plus existing RTH 8h DST/trade-close and option
 main and auxiliary historical loading, snapshot overlap, exact OHLC retention
 and one candle per trading date. This is fixture evidence; the user's actual
 page after deployment remains to be checked. Existing iOS edits are excluded.
+
+## 2026-10-17 Margin-backed short puts and mobile Trade staging
+
+The user explicitly clarified that short puts are backed by IB margin against
+SGOV, with collateral sales performed manually before taking assignment. This
+supersedes the cash-only put requirement in earlier CSP notes. The observed web
+error was Wheel's `Fresh settled USD cash is unavailable; CSP is blocked`, not
+an IB rejection. The phone Trade screenshot separately showed HTTP 403 from the
+blanket legacy-options write guard. Current broker state was read only; no real
+orders, cancellations, collateral sales or service restarts were performed.
+
+Chart short puts no longer call the full-assignment settled-cash guard. Broker
+acceptance determines available margin; Wheel does not estimate SGOV collateral,
+substitute market value for buying power, liquidate holdings or replay a prior
+failed request. Covered-call share coverage, exact-account capability gates,
+quantity/price checks and the chart request journal remain in place. Paper and
+Live share this put behavior. The standalone cash-only helper is retained but
+is no longer imposed on every chart put order.
+
+Mobile Trade retains its existing stage-then-confirm workflow. Only the existing
+option entry draft/execute/edit/cancel/delete routes are reopened under verified
+Live options capability and current account epoch, with the same 1–10 quantity
+limit. Unknown legacy operations, rollover and close staging remain blocked.
+The existing Orders execution path still qualifies the exact contract, claims
+the draft once, runs IB what-if, sends only after preflight success, and records
+unknown outcomes without returning them to pending. Standard-option capability
+is rechecked at execution. Stage all still creates drafts only, never orders.
+The iOS estimate label is now Assignment notional, not Cash required.
+
+REA's unchanged superchart.js order path analysis was reused (parent
+`ev_3ec51afa0fd7dd2003d454941e86e862f14261843d9f94d6c867986d6860ef18`),
+together with the supplied recording, actual HTTP rejection, native Trade call
+site and backend route/journal inspection. No reference-product claim is made.
+98 focused offline tests pass: real Flask staging/execution routes with mocked
+broker, no-cash margin put entry/Add, covered-call preservation, IB preflight
+rejection, stale epoch/wrong account/read-only/quantity gates, duplicate requests,
+unknown submissions, amendments and replay boundaries. No live broker acceptance
+was tested. Earlier broad test loading hit imported fixture classes and the
+runner's deliberate production-DB guard; the final focused run is isolated.
+
+User deployment: Deploy & Restart Backend enables the functional fix for both
+existing web and installed phone clients. Refresh/reconcile before submitting a
+new intentional request; old failures are never replayed. Phone Run is only
+needed for the new estimate label and remains user-operated. Pre-existing iOS
+project and localization changes are excluded from this commit.
+
+Simulator validation: Wheel/TradingTests and ChartLiveManagementTests completed
+109 tests with zero failures; iOS Simulator build/test succeeded. No physical
+phone installation or launch. This verifies mocked client workflows and build,
+not live margin availability or broker order acceptance.

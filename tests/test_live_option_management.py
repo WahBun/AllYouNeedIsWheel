@@ -110,12 +110,12 @@ class LiveOptionManagementTests(unittest.TestCase):
                 self.assertEqual((f.trades[-1].order.action,f.trades[-1].order.totalQuantity),('BUY' if side<0 else 'SELL',1))
                 self.assertEqual(result['state']['trim_available'],2)
 
-    def test_direct_add_put_checks_cash(self):
+    def test_direct_add_put_uses_broker_margin(self):
         f=self.f;f.contract.right='P';f.contract.strike=100;f.conn.fresh_csp_cash.return_value=50000
         result=self.execute('add')
         self.assertTrue(result['success'],result)
         self.assertEqual((f.trades[-1].order.action,f.trades[-1].order.orderType,f.trades[-1].order.lmtPrice),('SELL','LMT',2))
-        f.conn.fresh_csp_cash.assert_called()
+        f.conn.fresh_csp_cash.assert_not_called()
 
     def test_long_stop_add_uses_explicit_price_without_market_fallback(self):
         f=self.f;f.pos.position=2
@@ -131,10 +131,10 @@ class LiveOptionManagementTests(unittest.TestCase):
         self.assertIn('shares',result['message'])
         f.conn.ib.placeOrder.assert_not_called()
 
-    def test_direct_add_put_insufficient_cash(self):
+    def test_direct_add_put_without_cash_can_use_margin(self):
         f=self.f;f.contract.right='P';f.contract.strike=100;f.conn.fresh_csp_cash.return_value=0
-        self.assertFalse(self.execute('add')['success'])
-        f.conn.ib.placeOrder.assert_not_called()
+        self.assertTrue(self.execute('add')['success'])
+        f.conn.fresh_csp_cash.assert_not_called()
 
     def test_direct_manage_foreign_order_blocks(self):
         from ib_async import Trade,LimitOrder,OrderStatus

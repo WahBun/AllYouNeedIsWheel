@@ -85,3 +85,30 @@ class LiveOptionEntryTests(unittest.TestCase):
         restarted=PaperChart(f.service.path)
         self.assertEqual(restarted.execute(f.conn,7,body)['status'],'unknown')
         self.assertEqual(f.conn.ib.placeOrder.call_count,calls)
+
+    def test_margin_put_without_cash_uses_broker_and_replay_never_resubmits(self):
+        f=self.f;f.contract.right='P'
+        f.conn.fresh_csp_cash.side_effect=AssertionError('Cash-only check must not run')
+        body=self.body(side=-1,entry=2,tp=None,sl=None,quantity=1)
+        result=f.service.execute(f.conn,7,body)
+        self.assertTrue(result['success'],result)
+        self.assertEqual((f.trades[0].order.action,f.trades[0].order.account),('SELL','U_TEST'))
+        self.assertEqual(f.conn.ib.placeOrder.call_count,1)
+        self.assertEqual(f.service.execute(f.conn,7,body),result)
+        self.assertEqual(f.conn.ib.placeOrder.call_count,1)
+
+    def test_margin_put_inactive_broker_response_is_not_success_or_replayed(self):
+        from ib_async import TradeLogEntry
+        from datetime import datetime,timezone
+        f=self.f;f.contract.right='P';original=f.conn.ib.placeOrder.side_effect
+        def reject(c,o):
+            trade=original(c,o);trade.orderStatus.status='Inactive'
+            trade.log.append(TradeLogEntry(datetime.now(timezone.utc),'Inactive','Insufficient margin',201))
+            return trade
+        f.conn.ib.placeOrder.side_effect=reject
+        body=self.body(side=-1,entry=2,tp=None,sl=None,quantity=1)
+        result=f.service.execute(f.conn,7,body)
+        self.assertFalse(result['success'],result)
+        self.assertEqual(result['status'],'unknown')
+        f.service.execute(f.conn,7,body)
+        self.assertEqual(f.conn.ib.placeOrder.call_count,1)

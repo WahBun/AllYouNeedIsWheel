@@ -35,9 +35,10 @@ def require_call_coverage(conn, account, contract, quantity):
     Pending purchases/buybacks never release it before actual position updates.
     This guard supports standard USD 100-share equity calls only.
     """
-    if contract.secType == 'OPT' and contract.right == 'P':
-        from api.services.csp_coverage import require_put_cash
-        return require_put_cash(conn,account,contract,quantity)
+    # Short puts may be margin-backed (for example by Treasury ETF collateral).
+    # IB validates account buying power when accepting each order; assignment
+    # notional is not a cash-on-hand requirement. Never infer collateral from
+    # a holding's market value or sell collateral automatically.
     if contract.secType != 'OPT' or contract.right != 'C': return
     if contract.currency != 'USD' or contract.multiplier != '100' or contract.tradingClass != contract.symbol:
         raise ValueError('CC coverage requires a standard USD 100-share call')

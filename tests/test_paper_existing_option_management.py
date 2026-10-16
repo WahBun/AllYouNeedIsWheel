@@ -14,14 +14,14 @@ class PaperExistingOptionManagementTests(unittest.TestCase):
         s=self.f.service.state(self.f.conn,7)
         return dict(request_id=str(uuid4()),action=action,quantity=1,expected_ref=s['order_ref'],expected_position=s['position'],**extra)
 
-    def test_losing_short_put_add_is_available_and_cash_checked(self):
+    def test_losing_short_put_add_uses_broker_margin(self):
         f=self.f;s=f.service.state(f.conn,7)
         self.assertTrue(s['add_allowed']);self.assertTrue(s['position_manageable'])
         # A buyback price above the short basis represents an unrealized loss.
         result=f.service.execute(f.conn,7,self.body(entry_type='LMT',entry=3))
         self.assertTrue(result['success'],result)
         self.assertEqual((f.trades[-1].order.action,f.trades[-1].order.totalQuantity),('SELL',1))
-        f.conn.fresh_csp_cash.assert_called()
+        f.conn.fresh_csp_cash.assert_not_called()
 
     def test_paper_panel_market_add_keeps_exact_account(self):
         f=self.f;result=f.service.execute(f.conn,7,self.body())
@@ -34,10 +34,10 @@ class PaperExistingOptionManagementTests(unittest.TestCase):
         self.assertEqual((f.trades[-1].order.action,f.trades[-1].order.totalQuantity),('BUY',1))
         f.conn.ib.cancelOrder.assert_not_called()
 
-    def test_insufficient_cash_still_blocks_add(self):
+    def test_no_cash_does_not_imply_no_margin(self):
         f=self.f;f.conn.fresh_csp_cash.return_value=0
-        self.assertFalse(f.service.execute(f.conn,7,self.body())['success'])
-        f.conn.ib.placeOrder.assert_not_called()
+        self.assertTrue(f.service.execute(f.conn,7,self.body())['success'])
+        f.conn.fresh_csp_cash.assert_not_called()
 
     def test_changed_position_or_foreign_working_order_is_not_adopted(self):
         from ib_async import Trade, LimitOrder, OrderStatus

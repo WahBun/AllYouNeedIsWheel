@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import logging
+import re
 from pathlib import Path
 from uuid import uuid4
 from flask import Blueprint, jsonify, request, current_app
@@ -40,12 +41,30 @@ def epoch():
 def write_guard():
     from api.routes.portfolio import portfolio_service
     configured=str(portfolio_service.config.get('account_id',''))
-    status_refresh = request.method == 'POST' and request.path == '/api/options/check-orders'
-    if not status_refresh and profiles().get('live',{}).get('chart_options_live_enabled') is True and configured.startswith('U') and request.method in {'POST','PUT','PATCH','DELETE'} and request.path.startswith('/api/options/'):
-        return jsonify(status='rejected',error='Live options use the chart execution path; legacy write endpoints are disabled.'),403
     token = epoch()
     if token and request.method in {'POST','PUT','PATCH','DELETE'} and request.headers.get('X-Wheel-Account-Epoch') != token:
         return jsonify(status='rejected', code='ACCOUNT_EPOCH_CHANGED', error='Account connection changed. Refresh and verify the account before continuing.'), 409
+    status_refresh = request.method == 'POST' and request.path == '/api/options/check-orders'
+    if not status_refresh and profiles().get('live',{}).get('chart_options_live_enabled') is True and configured.startswith('U') and request.method in {'POST','PUT','PATCH','DELETE'} and request.path.startswith('/api/options/'):
+        # Trade stages local drafts; Orders explicitly executes them through its
+        # existing claim, IB what-if, acknowledgement and no-replay lifecycle.
+        # Do not reopen unrelated legacy rollout/close endpoints.
+        supported = (
+            request.method == 'POST' and (request.path == '/api/options/order' or re.fullmatch(r'/api/options/(execute|cancel)/[0-9]+', request.path))
+            or request.method == 'PUT' and re.fullmatch(r'/api/options/order/[0-9]+/(quantity|premium|amend)', request.path)
+            or request.method == 'DELETE' and re.fullmatch(r'/api/options/order/[0-9]+', request.path))
+        if not supported:
+            return jsonify(status='rejected',error='Use chart trading for this Live operation.'),403
+        from api.services.live_options import allowed
+        try:
+            conn = portfolio_service._ensure_connection()
+        except Exception:
+            return jsonify(status='rejected',error='Verify the Live account connection before continuing.'),503
+        if not allowed(conn, 'OPT'):
+            return jsonify(status='rejected',error='Live option trading is not enabled for this account.'),403
+        quantity = (request.get_json(silent=True) or {}).get('quantity')
+        if quantity is not None and (isinstance(quantity,bool) or not isinstance(quantity,(int,float)) or not 1 <= quantity <= 10 or quantity != int(quantity)):
+            return jsonify(status='rejected',error='Live options require a whole quantity from 1 to 10.'),400
 
 def status():
     from api.routes.portfolio import portfolio_service
