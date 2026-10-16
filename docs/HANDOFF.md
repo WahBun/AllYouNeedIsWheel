@@ -1,3 +1,33 @@
+## 2026-10-16 — consistent CME futures RTH candles
+
+REA inspected TradingView runtime session resolution and bar construction
+(Evidence `ev_422e823a1cff5853ac710acfa4b3939dab5df620d2176ab31e6e851c5670032e`).
+Read-only runtime inspection confirmed MNQ US regular 08:30–15:15 Chicago,
+81 five-minute bars on October 13–15, and holiday/early-close corrections.
+Wheel mixed the stock 16:00 close with IB historical RTH ending at 17:00 New York.
+
+Centralize CME-group futures display sessions at 09:30–16:15 New York (405
+minutes). Apply the same windows to current candles, paginated history, EMA,
+8h RTH aggregation, countdowns and Moonshine session extrema. Request intraday
+source bars whose edges preserve the final 15 minutes, then filter and aggregate
+locally. Normal 5m sessions contain 81 candles, ending at 16:10; holidays and
+early closes remain calendar-aware. Stocks/options retain their existing session;
+true daily/weekly/monthly bars and broker settlement/previous-close values retain
+their existing semantics. Executable quote freshness and Daily P&L are unchanged.
+
+Validation: six focused session tests and 45 existing chart/history/EMA/volatility
+tests pass; 65 frontend tests pass. Real chart-page fixtures at mobile/desktop
+widths in both themes verify 81 candles, the final close, CoY, EMA and overlays.
+The 1/2/3/4-chart and dual-four-chart latency comparison, stream lifecycle,
+interaction/reconnect, 100Hz stress and eight-distinct-symbol checks pass.
+These are isolated synthetic checks, not deployed broker or physical iPhone proof.
+Full offline suite: 177/180 pass; three existing fill-metadata/terminal-fee fixture
+errors reproduce unchanged on baseline 26f665b. No unrelated test repair included.
+
+Deployment pending: this Python change requires a user-authorized Mini Backend
+restart. Previous deployed rollback point is 26f665b69a1c242a464927e7a5bdc3c893c3db78.
+Native bundled asset updated in source only; physical iPhone Run remains user-owned.
+
 ## 2026-10-16 — per-drawing sync scope
 
 REA inspected TradingView's current page and captured runtime script sources

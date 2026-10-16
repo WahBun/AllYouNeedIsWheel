@@ -4,7 +4,8 @@ import asyncio
 from datetime import datetime, date, time as clock_time, timedelta
 from bisect import bisect_right
 from zoneinfo import ZoneInfo
-from api.services.stock_chart import stock_chart, calendars
+from api.services.stock_chart import stock_chart, calendars, aggregate
+from api.services.chart_sessions import cme_regular, windows_for_bars, rth_source_size
 
 SPECS = {1:('10 D','1 min'),3:('1 M','3 mins'),5:('1 M','5 mins'),10:('2 M','10 mins'),15:('1 M','15 mins'),30:('6 M','30 mins'),60:('3 M','1 hour'),240:('2 Y','4 hours'),1440:('10 Y','1 day'),10080:('30 Y','1 week'),43200:('30 Y','1 month')}
 
@@ -30,13 +31,15 @@ def snapshot(conn, cid, frames, session):
             retry=state.setdefault('ema_retry',{})
             if time.monotonic()<retry.get(key,0): continue
             duration,size=SPECS[frame]
+            futures_rth = session == 'rth' and frame < 1440 and cme_regular(state['contract'])
+            if futures_rth: size=rth_source_size(frame)
             # Fetch on the existing IB event loop, without holding an API job.
             # Limit concurrent cold indicator requests; later polls use the cache.
             if key in pending or len(pending)>=2: continue
             retry[key]=time.monotonic()+60
-            async def load(key=key,duration=duration,size=size):
+            async def load(key=key,duration=duration,size=size,futures_rth=futures_rth):
                 try:
-                    history=await conn.ib.reqHistoricalDataAsync(state['contract'],'',duration,size,'TRADES',useRTH=key[1]=='rth',formatDate=2,keepUpToDate=True,timeout=15)
+                    history=await conn.ib.reqHistoricalDataAsync(state['contract'],'',duration,size,'TRADES',useRTH=key[1]=='rth' and not futures_rth,formatDate=2,keepUpToDate=True,timeout=15)
                     valid=(stock_chart.states.get(cid) is state or stock_chart.active is state)
                     if not valid or key not in state.get('ema_wanted',set()) or not history:
                         conn.ib.cancelHistoricalData(history)
@@ -63,6 +66,14 @@ def snapshot(conn, cid, frames, session):
             if not l<=min(o,c)<=max(o,c)<=h: continue
             row=dict(time=int(stamp.timestamp()),open=o,high=h,low=l,close=c)
             bars.append(row)
+        futures_rth = session == 'rth' and frame < 1440 and cme_regular(state['contract'])
+        if futures_rth:
+            bars=sorted({b['time']:b for b in bars}.values(),key=lambda b:b['time'])
+            windows=windows_for_bars(bars,state['contract'])
+            bars=aggregate(bars,frame,windows)
+            for row in bars:
+                close=next(end for start,end in windows if start<=row['time']<end)
+                ends[row['time']]=min(row['time']+frame*60,close)
         missing=[b for b in bars if b['time'] not in ends]
         if missing:
             if session=='all' and frame<1440:

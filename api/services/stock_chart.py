@@ -11,6 +11,7 @@ from datetime import date, datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from functools import lru_cache
 import pandas_market_calendars as calendars
+from api.services.chart_sessions import cme_regular, session_windows, rth_source_size
 
 
 def option_data_notice(data_type, bars, now, live=False, interval_seconds=60):
@@ -84,10 +85,9 @@ def apply_tick(bars, timestamp, price):
 
 
 @lru_cache(maxsize=16)
-def regular_sessions(day):
+def regular_sessions(day, cme=False):
     date = datetime.fromisoformat(day).date()
-    schedule = calendars.get_calendar('NYSE').schedule(start_date=date - timedelta(days=14), end_date=date + timedelta(days=1))
-    return tuple((int(row.market_open.timestamp()), int(row.market_close.timestamp())) for row in schedule.itertuples())
+    return session_windows((date - timedelta(days=14)).isoformat(), (date + timedelta(days=1)).isoformat(), cme)
 
 
 def aggregate(bars, minutes, sessions=None):
@@ -110,7 +110,7 @@ def aggregate(bars, minutes, sessions=None):
 
 
 @lru_cache(maxsize=128)
-def period_close(day, minutes, session):
+def period_close(day, minutes, session, cme=False):
     start = date.fromisoformat(day)
     if minutes == 10080:
         end = start + timedelta(days=6-start.weekday())
@@ -122,23 +122,25 @@ def period_close(day, minutes, session):
     if schedule.empty:
         return None
     close = schedule.iloc[-1].market_close.to_pydatetime()
+    if session == 'rth' and cme and minutes < 1440:
+        close += timedelta(minutes=15)
     if session == 'all':
         close = close.astimezone(ZoneInfo('America/New_York')).replace(hour=20,minute=0,second=0)
     return close.timestamp()
 
 
-def bar_close_time(bar, minutes, session, now):
+def bar_close_time(bar, minutes, session, now, contract=None):
     if not bar:
         return None
     start = bar['time']
     nyday = datetime.fromtimestamp(start, ZoneInfo('America/New_York')).date()
     daily = minutes >= 1440 or (minutes == 480 and session == 'rth')
     if daily:
-        end = period_close(nyday.isoformat(), minutes, session)
+        end = period_close(nyday.isoformat(), minutes, session, cme_regular(contract))
     else:
         end = start + minutes*60
         if session == 'rth':
-            window = next(((a,b) for a,b in regular_sessions(nyday.isoformat()) if a<=start<b),None)
+            window = next(((a,b) for a,b in regular_sessions(nyday.isoformat(), cme_regular(contract)) if a<=start<b),None)
             if not window:
                 return None
             end = min(end, window[1])
@@ -395,8 +397,8 @@ class StockChart:
             # futures bars can contain settlement prices and are not an 8h source.
             if time.monotonic() >= state.get('rth_eight_retry', 0):
                 state['rth_eight_retry'] = time.monotonic() + 60
-                history = conn.ib.reqHistoricalData(contract, '', '1 M', '30 mins', 'TRADES',
-                    useRTH=True, formatDate=2, keepUpToDate=False, timeout=2 if contract.secType == 'OPT' else 5)
+                history = conn.ib.reqHistoricalData(contract, '', '1 M', rth_source_size(minutes) if cme_regular(contract) else '30 mins', 'TRADES',
+                    useRTH=not cme_regular(contract), formatDate=2, keepUpToDate=False, timeout=2 if contract.secType == 'OPT' else 5)
                 older = []
                 for bar in history:
                     if not isinstance(bar.date, datetime) or bar.date.tzinfo is None: continue
@@ -414,8 +416,7 @@ class StockChart:
                 cached = state.get('rth_eight_calendar')
                 if cached and cached[:2] == (first,last): windows = cached[2]
                 else:
-                    schedule = calendars.get_calendar('NYSE').schedule(start_date=first,end_date=last)
-                    windows = tuple((int(r.market_open.timestamp()),int(r.market_close.timestamp())) for r in schedule.itertuples())
+                    windows = session_windows(first.isoformat(),last.isoformat(),cme_regular(contract))
                     state['rth_eight_calendar']=(first,last,windows)
                 combined = {b['time']:b for b in aggregate(older,minutes,windows)}
                 for bar in aggregate(state['bars'],minutes,windows):
@@ -497,7 +498,7 @@ class StockChart:
         con_id = state['con_id']
         last = state['last_tick']
         age = time.time() - last if last is not None else None
-        sessions = regular_sessions(datetime.now(timezone.utc).date().isoformat()) if session == 'rth' else None
+        sessions = regular_sessions(datetime.now(timezone.utc).date().isoformat(), cme_regular(contract)) if session == 'rth' else None
         in_session = last is not None and (sessions is None or any(start <= last < end for start, end in sessions))
         ticker = state['ticker']
         now = time.time()
@@ -533,7 +534,7 @@ class StockChart:
         server_time = time.time()
         # A known current bar has a scheduled close before the first Last tick.
         # Countdown eligibility is independent of quote freshness/trading eligibility.
-        closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time)
+        closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time, contract)
         iv_time,iv=state.get('iv_quote',(0,None))
         iv_valid=contract.secType=='OPT' and iv is not None and server_time-iv_time<30 and in_session and getattr(ticker,'marketDataType',None)==1
         cc_capacity = None
@@ -565,7 +566,7 @@ class StockChart:
             exchange=getattr(contract, "primaryExchange", "") or getattr(contract, "exchange", ""),
             multiplier=positive(getattr(contract, "multiplier", 1)) or 1, interval=minutes,
             server_time=server_time, bar_closes_at=closes_at, price_rules=state.get('price_rules', []),
-            bars=output_bars, session=session, generation=str(state['generation']),
+            bars=output_bars, session=session, rth_close_minutes=975 if cme_regular(contract) else 960, generation=str(state['generation']),
             bid=bid, ask=ask, quote_time=quote_time,
             quote_expires_at=min(quote_time + 30, activity + 10) if quote_time is not None else None,
             source='IB option historical updates' if state.get('option_bars') else 'IB Last tick-by-tick', status='live' if in_session and age is not None and age < 10 and (not state.get('option_bars') or ticker.marketDataType==1) else 'waiting',

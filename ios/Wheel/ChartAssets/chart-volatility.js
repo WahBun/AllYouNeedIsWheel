@@ -11,15 +11,17 @@ const clockCache=new Map();
 function clock(t){if(clockCache.has(t))return clockCache.get(t);const x=Object.fromEntries(fmt.formatToParts(new Date(t*1000)).map(p=>[p.type,p.value]));const value=Object.freeze({day:`${x.year}-${x.month}-${x.day}`,minute:Number(x.hour)*60+Number(x.minute)});clockCache.set(t,value);if(clockCache.size>20000)clockCache.delete(clockCache.keys().next().value);return value;}
 function calculate(p,data,o){
  const g=family(p),bars=p.bars||[],last=bars.at(-1);if(data?.con_id!==undefined&&data.con_id!==p.con_id)data=null;if(!g||!last)return {sessions:[],gauge:null};
- const lc=clock(last.time),rth=lc.minute>=570&&lc.minute<960;
+ const anchors=new Map((data?.session_anchors||[]).map(a=>[a.day,a]));
+ const inRTH=(bar,c)=>{const anchor=anchors.get(c.day);return c.minute>=570&&(Number.isFinite(anchor?.end)?bar.time<anchor.end:c.minute<(p.rth_close_minutes||960));};
+ const lc=clock(last.time),rth=inRTH(last,lc);
  const curve=o.curve==='NQ'||o.curve==='Auto'&&g==='ndx'?'NQ':'ES',idx=Math.min(90,Math.max(0,lc.minute-570));
  const gauge=o.gauge&&['spx','ndx'].includes(g)&&rth?{value:PROBS[curve][idx],after:lc.minute-570>90}:null;
  const sessions=[],byDay=new Map();
- for(const b of bars){const c=clock(b.time);if(c.minute<570||c.minute>=960)continue;if(!byDay.has(c.day))byDay.set(c.day,[]);byDay.get(c.day).push(b);}
+ for(const b of bars){const c=clock(b.time);if(!inRTH(b,c))continue;if(!byDay.has(c.day))byDay.set(c.day,[]);byDay.get(c.day).push(b);}
  if(o.channels&&p.interval<1440&&(!o.rthOnly||(rth&&p.session!=='all')))for(const [day,rows] of byDay){
   // Every pane shares confirmed B1 C (NY 09:30-09:35), independently
   // of its display interval. Never substitute a pane open or partial candle.
-  const anchor=(data?.session_anchors||[]).find(a=>a.day===day);
+  const anchor=anchors.get(day);
   if(!anchor||!(anchor.close>0)||!Number.isFinite(anchor.ready_at))continue;
   const vol=(data?.intraday||[]).filter(v=>v.time+60<=anchor.ready_at&&clock(v.time).day===day).at(-1)?.close??(data?.daily||[]).filter(v=>v.day<day).at(-1)?.close;
   if(!(vol>0))continue;

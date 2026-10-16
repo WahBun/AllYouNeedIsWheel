@@ -6,6 +6,7 @@ from datetime import datetime, date
 from zoneinfo import ZoneInfo
 from ib_async import Index
 from api.services.stock_chart import stock_chart
+from api.services.chart_sessions import cme_regular, windows_for_bars
 
 GROUPS = {
  'spx': {'SPY','SPX','XSP','SP500','US500','ES','MES'},
@@ -21,7 +22,7 @@ def group(contract):
     if contract.secType not in ('STK','FUT','IND'): return None
     return next((k for k,v in GROUPS.items() if contract.symbol.upper() in v),None)
 
-def session_anchors(bars, now):
+def session_anchors(bars, now, contract=None):
     """Confirmed NY first-five-minute closes from the existing minute cache.
 
     Missing minutes or a still-open 09:34 candle cannot establish B1 C.
@@ -30,6 +31,8 @@ def session_anchors(bars, now):
     days = {}
     extremes = {}
     ny = ZoneInfo('America/New_York')
+    windows = windows_for_bars(bars,contract) if cme_regular(contract) else None
+    closes = {datetime.fromtimestamp(start,ny).date().isoformat():end for start,end in windows or ()}
     for bar in bars:
         stamp = bar.get('time')
         close = bar.get('close')
@@ -39,7 +42,9 @@ def session_anchors(bars, now):
         local = datetime.fromtimestamp(stamp, ny)
         minute = local.hour * 60 + local.minute
         day = local.date().isoformat()
-        if 575 <= minute < 960 and stamp <= now:
+        if windows is not None and (day not in closes or minute < 570 or stamp >= closes[day]):
+            continue
+        if 575 <= minute < (975 if windows is not None else 960) and stamp <= now:
             for key, choose in [('high', max), ('low', min)]:
                 value = bar.get(key)
                 if isinstance(value, (int, float)) and math.isfinite(value) and value > 0:
@@ -56,7 +61,7 @@ def session_anchors(bars, now):
             continue
         if now < start + 300:
             continue
-        result.append(dict(day=day, start=start, ready_at=start+300, close=rows[574][1], **extremes.get(day, {})))
+        result.append(dict(day=day, start=start, ready_at=start+300, close=rows[574][1], **({'end':closes[day]} if windows is not None else {}), **extremes.get(day, {})))
     return result
 
 def snapshot(conn,cid,source=None):
@@ -112,4 +117,4 @@ def snapshot(conn,cid,source=None):
         # Bound qualification too; all work remains on the existing IB event loop.
         state['volatility_pending'][source]=asyncio.get_event_loop().create_task(load())
     conn.ib.sleep(.005)
-    return dict(con_id=cid,supported=True,group=family,source=source,session_anchors=session_anchors(state.get('bars', []), time.time()),**{k:item[k] for k in ('status','intraday','daily')})
+    return dict(con_id=cid,supported=True,group=family,source=source,session_anchors=session_anchors(state.get('bars', []), time.time(), state['contract']),**{k:item[k] for k in ('status','intraday','daily')})

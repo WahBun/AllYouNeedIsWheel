@@ -4,6 +4,8 @@ from datetime import date, datetime, timezone
 import math
 import time
 from api.services.chart_contracts import contracts
+from api.services.chart_sessions import cme_regular, windows_for_bars, rth_source_size
+from api.services.stock_chart import aggregate
 
 class ChartHistory:
     def __init__(self):
@@ -20,9 +22,10 @@ class ChartHistory:
             self.cache.move_to_end(key)
             return cached[1]
         contract = contracts.resolve(conn,cid)
-        effective = 1440 if minutes==480 and session=='rth' else minutes
+        futures_rth = session == 'rth' and minutes < 1440 and cme_regular(contract)
+        effective = minutes if futures_rth else 1440 if minutes==480 and session=='rth' else minutes
         duration = '1 W' if effective<60 else '1 M' if effective<1440 else '1 Y' if effective==1440 else '5 Y' if effective==10080 else '10 Y'
-        history = conn.ib.reqHistoricalData(contract,datetime.fromtimestamp(before,timezone.utc),duration,sizes[effective],'TRADES',useRTH=session=='rth',formatDate=2,keepUpToDate=False,timeout=8)
+        history = conn.ib.reqHistoricalData(contract,datetime.fromtimestamp(before,timezone.utc),duration,rth_source_size(minutes) if futures_rth else sizes[effective],'TRADES',useRTH=session=='rth' and not futures_rth,formatDate=2,keepUpToDate=False,timeout=8)
         rows={}
         for bar in history:
             day=bar.date
@@ -41,6 +44,8 @@ class ChartHistory:
             o,h,l,c=values
             if l<=min(o,c)<=max(o,c)<=h:rows[int(stamp)]=dict(time=int(stamp),open=o,high=h,low=l,close=c)
         bars=sorted(rows.values(),key=lambda b:b['time'])
+        if futures_rth:
+            bars=aggregate(bars,minutes,windows_for_bars(bars,contract))
         result=dict(con_id=cid,interval=minutes,session=session,bars=bars,before=before,next_before=bars[0]['time'] if bars else None)
         if bars:
             self.cache[key]=(time.monotonic(),result)
