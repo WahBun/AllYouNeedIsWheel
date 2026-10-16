@@ -1,146 +1,147 @@
 # AllYouNeedIsWheel — Wheel Trading for IBKR
 
-> 本页介绍与安装说明对应 [`codex/chart-labels-1.7`](https://github.com/WahBun/AllYouNeedIsWheel/tree/codex/chart-labels-1.7) 分支。`main` 保留其自身代码历史；请按下文指定分支构建，不以首页所在分支推断最新 App 版本。
+**English** · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md)
+
+> This overview and installation guide describe [`codex/chart-labels-1.7`](https://github.com/WahBun/AllYouNeedIsWheel/tree/codex/chart-labels-1.7). The `main` branch retains its own code history. Build the explicitly selected branch below; the homepage branch does not establish the latest app version.
 
 An unofficial, self-hosted iOS trading workstation for Interactive Brokers.
 
-**Wheel 策略的原生 iPhone 工作台。** 用一个 App 查看 IBKR 持仓、比较收益、筛选现金担保看跌期权（CSP）和备兑看涨期权（CC），并管理订单。
+**A native iPhone workspace for the Wheel strategy.** View IBKR holdings, compare returns, screen cash-secured puts (CSP) and covered calls (CC), and manage orders in one app.
 
-SwiftUI 构建，支持 iOS 18 及以上，以及浅色／深色模式。当前 UI 开发统一使用英文；已有本地化资源保留，完整中文本地化待功能与交互成熟后统一整理。App 连接你自己运行的后端；IB 登录、行情连接和数据库留在后端主机，iPhone 不保存 IB 密码。
+Built with SwiftUI for iOS 18 and later, with light and dark themes. Current UI development uses English; existing localization resources remain, with a coordinated Chinese localization pass deferred until the features and interactions mature. The app connects to your own backend. IB authentication, market-data connections and databases stay on the backend host; the iPhone does not store your IB password.
 
-项目保留了原有网页界面，作为同一后端的辅助入口。日常使用与界面开发以 **iOS App** 为主。
+The original web interface remains available as a companion to the same backend. **The iOS app** is the primary focus for everyday use and interface development.
 
-> 本文对应当前 iOS 开发版本。源码构建安装不等于 App Store 发布；更新 GitHub、更新后端服务和安装手机 App 是三个独立步骤。
+> This README describes the current iOS development version. Building from source is not an App Store release. Publishing to GitHub, updating the backend and installing the iPhone app are three separate steps.
 
-## 当前阶段与版本
+## Project status and versions
 
-截至 **2026-10-16**，项目以日常使用和稳定性维护为主：先持续使用，遇到实际问题再做最小修复，暂不扩展大量新功能或重构现有布局。保留现有 1／2／3／4 图布局、tick 级行情刷新及已验证的交易交互；这一维护方向不代表所有场景或 Live 交易均已验收。
+As of **2026-10-16**, the project focuses on everyday use and stability: use it, fix observed problems with minimal changes, and avoid broad feature expansion or layout refactoring. Preserve the existing 1/2/3/4-chart layouts, tick-level market-data updates and verified trading interactions. This maintenance direction does not mean every scenario or Live trading workflow has passed acceptance.
 
-正式代码以 [WahBun/AllYouNeedIsWheel](https://github.com/WahBun/AllYouNeedIsWheel) 的指定分支和 commit SHA 为准。本文更新所在分支为 **`codex/chart-labels-1.7`**，不默认 `main` 是最新版本。开发代码、经过验证的版本、后端主机已部署代码和 iPhone 已安装 App 分别核对，不能用文件夹日期或一次 Push 代替版本确认。
+Official source is identified by the repository [WahBun/AllYouNeedIsWheel](https://github.com/WahBun/AllYouNeedIsWheel), a specific branch and a commit SHA. This README is maintained on **`codex/chart-labels-1.7`**; do not assume `main` is the latest version. Check development code, validated versions, code deployed on the backend host and the installed iPhone app separately. A folder date or a successful push does not establish all of those versions.
 
-推荐分工：**开发 Mac** 负责开发、Xcode 与手机构建；**后端主机** 长期运行 Gateway、Backend 和 API；开发 Mac 与 iPhone 通过 Tailscale 访问后端主机。部署与重启由用户在电脑或手机上选择执行，手机 App 的 Xcode Run 也由用户操作。
+Recommended roles: the **development Mac** handles development, Xcode and iPhone builds; the **backend host** runs Gateway, Backend and the API continuously. The development Mac and iPhone reach the backend host through Tailscale. The user chooses deployments and restarts from a computer or phone, and performs the iPhone Xcode Run.
 
-## 阅读导航
+## Reading guide
 
-- 日常使用：[功能与数据边界](#app-能做什么)、[更新流程](#更新流程)、[常见问题](#常见问题)。
-- 首次安装：按下文第 1–7 节完成；后端主机已安装服务时请直接查看更新流程，不重复执行首次启动步骤。
-- 专项说明：[iOS 构建与操作](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/ios/README.md)、[账户与运维](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/MAC_MINI_TAILSCALE.md)、[Performance](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/PERFORMANCE.md)、[行情刷新基线](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/MARKET_DATA_BASELINE.md)。
+- Everyday use: [features and data boundaries](#features), [updating](#updating) and [troubleshooting](#troubleshooting).
+- First installation: follow sections 1–7 below. If a backend service is already installed, use the update workflow instead of repeating first-start instructions.
+- Detailed guides: [iOS builds and usage](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/ios/README.md), [account configuration and operations](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/MAC_MINI_TAILSCALE.md), [Performance](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/PERFORMANCE.md) and [market-data baseline](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/MARKET_DATA_BASELINE.md).
 
-## 界面预览
+## Screenshots
 
-以下为此前保存的 iPhone 模拟器截图，使用 App 内置 **Demo 合成数据**，不代表真实账户或成交，也不保证与当前分支每个控件完全一致。实际布局以当前安装版本为准。
+These are previously captured iPhone Simulator screenshots using the app's **synthetic Demo data**. They do not represent real accounts or fills, and individual controls may differ from the current branch. The installed version determines the actual interface.
 
-| Portfolio · 持仓概览 | Trade · CSP / CC | Orders · 订单管理 |
+| Portfolio | Trade · CSP / CC | Orders |
 | :---: | :---: | :---: |
-| <img src="https://raw.githubusercontent.com/WahBun/AllYouNeedIsWheel/codex/chart-labels-1.7/docs/screenshots/portfolio.png" width="250" alt="Wheel Portfolio Demo：资产、保证金和股票期权持仓"> | <img src="https://raw.githubusercontent.com/WahBun/AllYouNeedIsWheel/codex/chart-labels-1.7/docs/screenshots/trade.png" width="250" alt="Wheel Trade Demo：CSP 和 CC 合约筛选及权利金估算"> | <img src="https://raw.githubusercontent.com/WahBun/AllYouNeedIsWheel/codex/chart-labels-1.7/docs/screenshots/orders.png" width="250" alt="Wheel Orders Demo：待处理订单和成交记录入口"> |
+| <img src="https://raw.githubusercontent.com/WahBun/AllYouNeedIsWheel/codex/chart-labels-1.7/docs/screenshots/portfolio.png" width="250" alt="Wheel Portfolio Demo: assets, margin, stock and option holdings"> | <img src="https://raw.githubusercontent.com/WahBun/AllYouNeedIsWheel/codex/chart-labels-1.7/docs/screenshots/trade.png" width="250" alt="Wheel Trade Demo: CSP and CC screening and premium estimates"> | <img src="https://raw.githubusercontent.com/WahBun/AllYouNeedIsWheel/codex/chart-labels-1.7/docs/screenshots/orders.png" width="250" alt="Wheel Orders Demo: pending orders and execution history"> |
 
-## App 能做什么
+## Features
 
-| 页面 | 主要功能 |
+| Screen | Capabilities |
 | --- | --- |
-| **Portfolio** | 净资产、可折叠现金与流动性、初始保证金及杠杆占比；股票与期权持仓、成交入场价、剩余天数和盈亏；资产分配、持仓分享、平仓与移仓入口。 |
-| **Performance** | MTD／YTD／ALL 收益曲线（默认 YTD），可选 Portfolio only、SPX、NDX 或 SPX + NDX（默认两项对比），拖动查看日期与收益，日内盈亏及临时收益估算。 |
-| **Trade** | CSP → CC 工作流，选择到期日与行权价、查看 bid／mid／ask、价差及 Greeks；合约数量和限价编辑、权利金估算、CSP 初始保证金变化预估、单笔或批量暂存订单。 |
-| **Orders** | 待处理订单、部分及全部成交记录；Today／7 Days／MTD 日期筛选、标的搜索、Stock／Future／Option 分类；手续费保留两位小数；订单详情、编辑、执行、撤单与成交通知。 |
-| **Supercharts** | 股票、期货和期权图表入口；持仓均价、关联期权行权价、成交标记、多周期 EMA、ATR、Bar Count、FVG、Previous values、波动通道／极值仪表与绘图工具；标的搜索和跨端收藏。 |
-| **Settings** | Demo／Live／Paper 切换、Gateway 自动登录状态、私有 HTTPS 连接、语言、主题及自定义颜色。 |
+| **Portfolio** | Net liquidation value, expandable cash and liquidity, initial margin and leverage; stock and option holdings, entry fill prices, days remaining and P&L; allocation, position sharing, closing and rolling workflows. |
+| **Performance** | MTD/YTD/ALL return curves, initially YTD; Portfolio only, SPX, NDX or SPX + NDX comparisons, initially both benchmarks; drag to inspect dates and returns; daily P&L and provisional intraday estimates. |
+| **Trade** | CSP → CC workflow; expiration and strike selection, bid/mid/ask, spreads and Greeks; contract quantity and limit editing, premium estimates, CSP initial-margin-change estimates, individual or batch order drafts. |
+| **Orders** | Pending orders and partial/full execution records; Today/7 Days/MTD, symbol search and Stock/Future/Option filters; commissions displayed to two decimals; order details, edits, execution, cancellation and fill notifications. |
+| **Supercharts** | Stock, futures and option charts; position average prices, related option strikes, execution markers, multi-timeframe EMA, ATR, Bar Count, FVG, Previous values, volatility channels/extreme gauge and drawing tools; instrument search and shared favorites. |
+| **Settings** | Demo/Live/Paper selection, Gateway auto-login status, private HTTPS connection, language, themes and custom colors. |
 
-CC 可用数量依据持股数量、已有空头 CALL 和占用中的卖出订单计算，而不是简单地把全部股票除以 100。持仓的入场价来自可靠匹配的成交记录；无法确定时留空，不用委托价或扣费后持仓成本冒充。
+Available CC quantity accounts for shares held, existing short CALLs and active sell-order reservations. It is not simply total shares divided by 100. Position entry prices come from reliably matched fills; uncertain values remain unavailable rather than using a limit price or fee-adjusted position cost.
 
-SGOV、VTI、QQQ、SPY、VOO 有专属名称与资产分配动效。VTI／QQQ／SPY／VOO 仍可用于 Trade；SGOV 排除在 Trade 候选之外。装饰动画支持减少动态效果，并在后台或对应视图离开时暂停。
+SGOV, VTI, QQQ, SPY and VOO have dedicated names and allocation animations. VTI/QQQ/SPY/VOO remain eligible in Trade; SGOV is excluded from Trade candidates. Decorative animations respect Reduce Motion and pause in the background or when their view is not visible.
 
-### Supercharts 与 𝔹𝕖𝕟 指标
+### Supercharts and the 𝔹𝕖𝕟 indicator
 
-从持仓详情的 **𝑺𝒖𝒑𝒆𝒓𝒄𝒉𝒂𝒓𝒕𝒔** 或 Trade 的图表入口打开。进入图表以看走势为主，不自动铺设下单预览；需要时点击价格旁的 **+**。支持 1／2／3／4 图布局、周期切换、RTH／ETH、全屏和可保存样式的绘图工具。
+Open **𝑺𝒖𝒑𝒆𝒓𝒄𝒉𝒂𝒓𝒕𝒔** from position details or the chart entry in Trade. Charts open for analysis without automatically creating an order preview; use the **+** beside a price when needed. Features include 1/2/3/4-chart layouts, timeframe selection, RTH/ETH, full screen and drawings with saved styles.
 
-- **持仓与成交**：正股显示股数，期权／期货显示合约数，空头用负号；正股图可同时显示相关期权的行权价。Positions 开关隐藏／显示这些持仓标记。成交箭头按订单归组，同一订单分批成交合并数量，独立订单分别显示；点击箭头查看详情。
-- **𝔹𝕖𝕟**：指标栏默认收起，设置按 Inputs／Style／Visibility 分组。包含三组可独立配置的 EMA（默认长度 20，支持多周期）、ATR、Bar Count、FVG、Previous values、Volatility Channels 和 Intraday Extreme Gauge。各项显示与样式可配置，指标的可用性取决于标的及相关数据。
-- **加载与状态**：历史 K 线和已获取的多周期 EMA 历史可在重启后先从缓存显示，再刷新。首次打开仍依赖 IB 历史数据；缓存、冻结、延迟和缺失状态不等于实时行情。Demo 不提供完整图表行情，图表需连接后端。
-- **标的与收藏**：搜索股票／期货，或按标的 → 到期日 → Call／Put → 行权价选择精确期权合约。网页与原生 App 通过同一后端共享合约收藏（最多 100 项）；选择标的不会创建订单，收藏同步也不等于交易状态或全部显示设置同步。
-- **绘图同步**：同一合约只提供 **Main chart only**（电脑／手机主图显示，副图隐藏）和 **All charts**（两端主图及副图均显示）。两项都通过同一后端跨设备同步，不按 K 线周期筛选；激活或放大副图不会改变它的主副图身份。绘图不是券商订单。
-- **交易能力**：股票、期货与受支持的标准 USD 期权可按账户能力使用图表交易。Join、入场、TP／SL、Add、Trim、BE、Close 是否可用，以当前账户、持仓、合约及后端能力开关为准；已有保护单、覆盖数量和未确认结果可能限制操作。Live 并非连接后即可任意交易，模拟测试也不等于实盘验收。
-- **价格拖动**：One-click trading 开启时，松开可编辑的入场或 TP／SL 线会通过现有校验提交修改；关闭时保留草稿，等待 Confirm／Discard。普通行情刷新不应丢失草稿，真实成交、撤单或订单身份变化仍会触发重新核对。
-- **图表盈亏**：Daily P&L 对应当前精确合约与所选账户的 IBKR 数据；超过 15 秒未更新时显示 `Daily P&L · Stale`，不可用不显示成零。显示 `Realized today` 时使用已保存的 IB 成交已实现盈亏，含义与 IB 的每日盯市 P&L 不同。
+- **Positions and executions:** stocks show shares, options/futures show contracts, and short quantities are negative. Stock charts can also show related option strikes. Positions toggles these position markers. Fill arrows group partial fills of the same order while keeping separate orders distinct; select an arrow for details.
+- **𝔹𝕖𝕟:** the indicator bar starts collapsed, with Inputs/Style/Visibility settings. It includes three independently configurable EMAs (default length 20, with multiple timeframes), ATR, Bar Count, FVG, Previous values, Volatility Channels and Intraday Extreme Gauge. Visibility and styles are configurable; availability depends on the instrument and data.
+- **Loading and state:** cached historical bars and previously fetched multi-timeframe EMA history can appear after a restart before refreshing. First access still depends on IB history. Cached, frozen, delayed or missing data is not live market data. Demo does not provide the complete chart feed; charts need the backend.
+- **Instruments and favorites:** search stocks/futures, or select an exact option through underlying → expiration → Call/Put → strike. Web and native clients share contract favorites through the same backend, up to 100 favorites. Selecting an instrument creates no order; favorite synchronization does not synchronize trading state or all display settings.
+- **Drawing synchronization:** each contract offers **Main chart only** (main charts on computer and phone; hidden on auxiliary charts) and **All charts** (main and auxiliary charts on both). Both synchronize through the same backend, independently of timeframe. Activating or maximizing an auxiliary chart does not change its pane role. Drawings are analysis annotations, not broker orders.
+- **Trading capabilities:** stocks, futures and supported standard USD options can use chart trading according to account capabilities. Join, entry, TP/SL, Add, Trim, BE and Close depend on the account, position, contract and backend capability switches. Existing protection, coverage and unresolved outcomes may restrict actions. A Live connection alone does not enable unrestricted trading; mock tests are not Live acceptance.
+- **Price dragging:** with One-click trading on, releasing an editable entry or TP/SL line submits the amendment through existing guards. With it off, the draft stays until Confirm/Discard. Routine quote updates must not discard drafts; actual fills, cancellations or order-identity changes still require reconciliation.
+- **Chart P&L:** Daily P&L uses IBKR data for the exact current contract and selected account. After 15 seconds without a fresh update, the label becomes `Daily P&L · Stale`; unavailable does not mean zero. `Realized today` uses persisted IB execution realized P&L, which differs from IB daily mark-to-market P&L.
 
-### 成交记录筛选
+### Execution-history filters
 
-Executed records 默认 **Today**，可切换 **7 Days** 或 **MTD**（美东本月 1 日至今）。右侧 **🔍** 点击展开搜索，**Filter** 按 Stock／Future／Option 筛选，三个条件可以组合。搜索键、Done 或滑动列表可收起键盘。
+Executed records defaults to **Today**, with **7 Days** and **MTD** (from the first day of the current US Eastern month). Select **🔍** to expand search and **Filter** to choose Stock/Future/Option. The three filters combine. Search, Done or scrolling can dismiss the keyboard.
 
-日期筛选作用于 App 已取得的成交记录，不承诺补全 IB 全部历史；没有可靠成交时间的记录不混入日期范围。手续费仅在显示时四舍五入为两位小数，原始计算精度保留。
+Date filters apply to records already obtained by the app, not all IB history. Records without reliable execution times are excluded from date ranges. Commissions round to two decimals for display only; original calculation precision is retained.
 
 ### Demo / Live / Paper
 
-<img src="https://raw.githubusercontent.com/WahBun/AllYouNeedIsWheel/codex/chart-labels-1.7/docs/screenshots/settings.png" width="280" alt="Wheel Settings：Demo、Live、Paper；Demo 隐藏后端地址和连接按钮">
+<img src="https://raw.githubusercontent.com/WahBun/AllYouNeedIsWheel/codex/chart-labels-1.7/docs/screenshots/settings.png" width="280" alt="Wheel Settings: Demo, Live and Paper; Demo hides the backend address and Connect button">
 
-- **Demo**：使用本地合成数据，不连接 IB。隐藏地址和 Connect，已保存的后端地址仍保留。
-- **Paper**：使用 IBKR 模拟账户。配置好自动登录后，选择即切换后端连接，复用已登录的 Paper 会话或启动 Gateway，核对实际账户后自动恢复数据。
-- **Live**：复用已登录的 Live 会话；需要重新认证时自动选择 IB Key 验证设备，收到通知后需本人在手机确认。App 核对实际账户，不会仅凭选中 Live 就显示实盘已连接。
+- **Demo:** synthetic local data, without IB. The address and Connect button are hidden, while a previously saved backend address is retained.
+- **Paper:** the IBKR simulated account. With auto-login configured, selection switches the backend connection, reuses a signed-in Paper session or starts Gateway, verifies the account and restores data.
+- **Live:** reuses a signed-in Live session. If authentication is needed, it selects the configured IB Key device and requires the user's phone approval. The app verifies the actual account; selecting Live alone does not establish a verified Live connection.
 
-首次使用需在后端主机配置 `paper`／`live` 两份连接配置、独立数据库及本机私有登录凭据；凭据不进入 GitHub，也不发送到 iPhone。自动登录是可选功能，未配置时仍需手动登录 Gateway。具体配置见[账户切换与自动登录](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/MAC_MINI_TAILSCALE.md#ios-account-selector)。单 Gateway 自动登录控制器默认使用 `~/Docker/ib-gateway/docker-compose.yml`；若采用下方的 `~/Services/wheel-gateway`，请设置 `WHEEL_GATEWAY_COMPOSE_DIR` 指向该目录。
+First configure separate `paper`/`live` connection profiles, databases and private login credentials on the backend host. Credentials do not enter GitHub or the iPhone. Auto-login is optional; without it, log into Gateway manually. See [account selection and auto-login](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/MAC_MINI_TAILSCALE.md#ios-account-selector). The single-Gateway controller defaults to `~/Docker/ib-gateway/docker-compose.yml`; if using `~/Services/wheel-gateway` below, set `WHEEL_GATEWAY_COMPOSE_DIR` accordingly.
 
-后端只有一个当前账户，所有客户端共享这个选择。切换不平仓、不撤单；App 清理旧账户画面，后端拒绝旧会话的写入请求。启用账户配置后，不支持账户会话标识的旧网页客户端只能读取。
+The backend has one selected account shared by all clients. Switching does not close positions or cancel orders. The app clears the previous account's views, and the backend rejects writes from old sessions. With account profiles enabled, legacy web clients without account-session identifiers are read-only.
 
-**Live ⇄ Paper 快速切换**：可选的同容器双会话模式让 Live 和 Paper 保持后台登录。切换时只更换 Wheel 的账户连接，不重启 Gateway；会话有效时无需反复进行 IB Key 验证。两边使用各自的账户连接、数据库和行情，订单仍归属经过核对的当前账户。
+**Fast Live ⇄ Paper switching:** optional same-container dual sessions keep Live and Paper signed in. Switching changes Wheel's account connection without restarting Gateway; valid sessions avoid repeated IB Key authentication. Each uses its own verified account connection, database and market data.
 
-**历史验收记录（2026-10-07，并非当前在线状态检查）**：用户已在手机确认双向切换流畅；当时后端接口测得 Live → Paper 约 **0.78 秒**、Paper → Live 约 **0.95 秒**，两边均恢复实时行情。此为账户核对完成的接口耗时，不等于手机整页或首次图表加载时间。已修复旧账户的图表订阅冷却影响新账户首次加载的问题；当次复测未出现该场景的 503。
+**Historical acceptance record (2026-10-07, not a current online-state check):** the user confirmed smooth switching in both directions on the phone. At that time, verified account selection took about **0.78 seconds** for Live → Paper and **0.95 seconds** for Paper → Live, with live quotes restored on both. These are API account-verification timings, not whole-screen or first-chart load times. The old account's chart-subscription cooldown no longer affected the new account's first load; that run did not reproduce the associated 503.
 
-首次启动、会话失效或 IB 要求重新认证时，仍需等待登录及本人确认，不能保证固定秒数。上述历史验收中，同一容器内的双会话取得了现有订阅的实时行情；这不代表两个独立容器或任意设备组合都支持共享。双会话模式需显式配置，原单 Gateway 与单向预热方案保留作回退；下方首次部署示例仍是 Paper／只读单实例。实现、启用配置与验证记录见[双 Gateway 会话与切换验收](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/acceptance/2026-10-07-dual-gateway.md)。
+Cold startup, expired sessions or IB authentication requests still require login and user approval; no fixed timing is guaranteed. That historical test obtained live data from the existing subscription in same-container dual sessions; this does not establish subscription sharing for independent containers or arbitrary devices. Dual sessions require explicit configuration. Original single-Gateway and one-way prewarming modes remain available as fallbacks; the first-install example below uses one Paper/read-only instance. See [dual Gateway sessions and acceptance](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/acceptance/2026-10-07-dual-gateway.md).
 
-上述历史连接与行情验收未下单、改单或撤单，不替代交易流程及开市负载验收。
+Those historical connection/data checks placed, amended and canceled no orders. They do not replace trading-workflow or market-open load acceptance.
 
-### 数据与订单的含义
+### Data and order semantics
 
-- **Demo** 是合成数据和本地模拟操作，不是 IB 模拟盘。连接 Paper Gateway 才是在使用 IB 模拟账户。
-- **暂存不等于成交**：Trade 票据先建立草稿，Orders 的 Execute 才提交到 IB；图表交易使用自己的预览／确认和 One-click 路径，并非所有操作都会先进入草稿列表。执行／撤单确认偏好可在订单设置中调整。
-- 外部 IB 订单只读；提交结果不确定时锁定进一步写入，先核实 IB 的订单与成交，再解除锁定。不会因超时自动补发交易请求。
-- Frozen、过期或缺失报价不会变成可执行的实时价格。连接成功不代表具备全部市场数据权限。
-- 收益历史来自 Flex 每日 TWR；SPX／NDX 使用 FRED 的 SP500／NASDAQ100 每日价格指数，不含股息再投资。日内估算不是正式 TWR，最终以之后的 Flex 报表为准。
-- 移仓的两条腿分别暂存、分别执行，不是原子组合单；保证金影响是 IB what-if 估算，不是各持仓可相加的保证金分摊。
+- **Demo** uses synthetic data and local simulated actions. It is not IB Paper Trading; that requires a Paper Gateway connection.
+- **A draft is not a fill:** Trade tickets create drafts, and Execute in Orders submits them to IB. Chart trading has its own preview/confirmation and One-click paths; not every action first enters the draft list. Execution/cancellation confirmation preferences are configurable in order settings.
+- External IB orders are read-only. An uncertain submission locks further writes until IB orders and fills are reconciled. A timeout never automatically resubmits a trading request.
+- Frozen, stale or missing quotes do not become executable live prices. Connectivity does not establish all market-data permissions.
+- Return history uses Flex daily TWR. SPX/NDX use FRED SP500/NASDAQ100 daily price indices without dividend reinvestment. Intraday estimates are not official TWR; the subsequent Flex report is authoritative.
+- Rolling drafts and executes two legs separately; it is not an atomic combination order. Margin impact is an IB what-if estimate, not an additive allocation of account margin across positions.
 
-### 刷新、成本与诊断
+### Refresh, cost and diagnostics
 
-- **图表与列表分别刷新**：图表使用 SSE 推送和 tick 驱动的价格／OHLC 更新，断线后按序列与快照恢复；下述 1／2 秒间隔是列表和票据读取，不是图表刷新上限。实际数据到达频率受 IB、行情权限、市场活动及网络影响。基线与测量边界见[行情刷新基线](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/MARKET_DATA_BASELINE.md)。
-- **报价新鲜度**：最新成交价与可执行 bid／ask 不等价；只有有效实时盘口更新或同侧有效价格配合正数量更新才能刷新相应可执行报价状态，缓存、延迟数据和本地计时不能冒充。图表 OHLC 更新也不证明实时成交量完整，未知成交量不填零。
+- **Charts and lists refresh separately:** charts use SSE push and tick-driven price/OHLC updates, with sequence and snapshot recovery after disconnects. The 1/2-second intervals below describe list/ticket reads, not a chart refresh ceiling. Arrival frequency depends on IB, entitlements, market activity and networking. See the [market-data baseline](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/MARKET_DATA_BASELINE.md) for measurements and limits.
+- **Quote freshness:** the last trade and executable bid/ask are different. Only valid live bid/ask updates or positive same-side size updates with a valid price refresh the corresponding executable quote. Cached/delayed data and local clocks cannot manufacture freshness. Chart OHLC updates also do not prove complete real-time volume; unknown volume is not zero.
+- Single-symbol Trade details and close tickets target about one second; Portfolio and Trade lists usually target about two seconds. Reads are sequential, failures back off, hidden views pause, and request duration affects actual intervals.
+- Portfolio option metrics check every 30 seconds when the market is confirmed closed and quotes are frozen, avoiding repeated retries for normally unavailable Delta/IV. Missing intraday values retry faster; availability still depends on IB and entitlements.
+- Stock details may show matched IB report average cost, report date and quantity, separately from current Gateway cost. Report values do not replace trading inputs or live P&L; quantity mismatches request reconciliation.
+- CSP initial margin is the expected change returned by IB what-if, refreshable on demand. Positive means increased usage and negative means decreased usage; it is not cash collateral. Estimation submits no real order.
+- Once an order leaves Pending, details retain confirmed terminal and fill data. Unresolved results remain explicitly unconfirmed; disappearance alone proves neither a fill nor a successful cancellation.
+- Select the **Portfolio/Orders status bar → Diagnostics** to preview and copy redacted diagnostics: version, refresh state, error category and available request identifiers. Raw errors, accounts, positions, private addresses and credentials are excluded. Clipboard content is local-only and expires after five minutes.
 
-- 单标的交易详情和平仓页约每 1 秒刷新；Portfolio 和 Trade 列表通常约每 2 秒刷新。读取顺序执行，失败退避，隐藏页面暂停，实际间隔受请求耗时影响。
-- 持仓期权指标在确认休市且行情冻结时每 30 秒检查，避免把正常缺失的 Delta／IV 当成故障持续重试。盘中缺失仍快速重试；开市也不保证全部指标可用，取决于 IB 数据返回和权限。
-- 股票详情可显示匹配的 IB 报表平均成本、报表日期及数量，与 Gateway 当前成本分别标注。报表数据不直接覆盖交易输入或实时盈亏，数量不一致时提示核对。
-- CSP 的初始保证金是 IB What-if 返回的预计变化，可手动刷新；正值表示增加占用，负值表示减少占用，不等于现金担保金额。预估不会提交真实订单。
-- 订单移出待处理列表后，详情保留已确认的结束记录与成交数据；未取得最终结果时明确显示待核实，不能仅凭“消失”判断成交或撤单成功。
-- 点击 **Portfolio／Orders 顶部状态栏 → Diagnostics** 可预览和复制脱敏诊断。内容包括版本、刷新状态、错误类别及可用的请求编号；不复制原始错误、账户、持仓、私人地址或凭据。剪贴板仅本机可用，5 分钟后过期。
+## Deployment architecture
 
-## 部署架构
-
-“后端主机”指运行 IB Gateway、Wheel API 和数据库的常开电脑，不限定具体 Mac 型号；“开发 Mac”指运行 Xcode 的 Mac，两者可以是同一台。以下安装、自启动和维护示例以 **macOS** 为准；Linux／Windows 的服务管理与默认路径需自行适配，其他系统的部署尚未验证。
+The **backend host** is the always-on computer running IB Gateway, Wheel API and databases; no particular Mac model is required. The **development Mac** runs Xcode. They can be the same machine. Installation, startup and maintenance examples below target **macOS**. Linux/Windows service management and paths require adaptation; deployments on those systems are unverified.
 
 ```mermaid
 flowchart LR
-    Dev[开发 Mac · Xcode / 签名 / 构建] -->|安装| Phone[iPhone · Wheel iOS]
-    Phone -->|Tailscale 私有 HTTPS| Serve[后端主机 · Tailscale Serve]
-    Serve -->|127.0.0.1:8000| API[Python / Flask · 单进程]
-    API --> DB[(SQLite · 订单与成交)]
-    API -->|本机 API 端口| Gateway[Docker · IB Gateway]
+    Dev[Development Mac · Xcode / signing / builds] -->|install| Phone[iPhone · Wheel iOS]
+    Phone -->|Private Tailscale HTTPS| Serve[Backend host · Tailscale Serve]
+    Serve -->|127.0.0.1:8000| API[Python / Flask · one web worker]
+    API --> DB[(SQLite · orders / fills)]
+    API -->|Local API port| Gateway[Docker · IB Gateway]
     Gateway --> IB[Interactive Brokers]
-    API --> History[Flex / FRED · 收益历史]
+    API --> History[Flex / FRED · return history]
 ```
 
-| 设备／组件 | 职责 |
+| Device/component | Role |
 | --- | --- |
-| 开发 Mac | 主开发机：Xcode、Simulator、SwiftUI、签名与真机安装。 |
-| 后端主机 | 长期运行：Docker Gateway、Python 后端、SQLite、Tailscale。 |
-| iPhone | 查看和操作 App，通过 Tailnet 访问后端主机。 |
-| GitHub | 正式代码来源；换电脑前 Commit → Push，另一台 Pull 后再开发。 |
+| Development Mac | Xcode, Simulator, SwiftUI, signing and physical-device installation. |
+| Backend host | Continuous Docker Gateway, Python backend, SQLite and Tailscale services. |
+| iPhone | App views and actions over the Tailnet connection to the backend host. |
+| GitHub | Official source: Commit → Push before changing computers, then Pull on the other computer before development. |
 
-**下文的 Docker 只运行 IB Gateway。Wheel 后端运行在后端主机的 Python 虚拟环境里**，不是整个项目都放进一个容器。仓库没有一键全栈 Docker 部署脚本。
+**Docker below runs only IB Gateway. The Wheel backend runs in a Python virtual environment on the backend host.** The repository has no one-command full-stack Docker deployment script.
 
-## 1. 准备环境
+## 1. Prerequisites
 
-- **后端主机**：Git、Python 3.10+、Docker Desktop、Tailscale；保持联网，避免系统休眠。
-- **开发 Mac**：Git、能编译本项目并支持目标设备的 Xcode、Apple ID／开发签名；真机需 iOS 18+。
-- **iPhone**：Tailscale，与后端主机加入同一 Tailnet。
-- **IBKR**：有效的 Gateway 登录、目标账户及需要的行情权限。先用 Paper／只读路径验证。
+- **Backend host:** Git, Python 3.10+, Docker Desktop and Tailscale; stable connectivity and system sleep disabled.
+- **Development Mac:** Git, Xcode compatible with the project and target device, and Apple ID/development signing; physical iPhones require iOS 18+.
+- **iPhone:** Tailscale in the same Tailnet as the backend host.
+- **IBKR:** a valid Gateway login, the intended account and required data permissions. Start with Paper/read-only verification.
 
-先在后端主机克隆并安装后端依赖：
+Clone and install backend dependencies on the backend host:
 
 ```sh
 mkdir -p "$HOME/Projects"
@@ -155,20 +156,20 @@ python -m pip install -r requirements.txt
 cp connection.json.example connection.json
 ```
 
-本例明确使用本文对应分支；若维护分支变更，应先核对 GitHub 的目标分支和 SHA。已有安装不要重新克隆到运行目录、覆盖配置或数据库；先查看 `git status`、当前分支和 SHA，再按[更新流程](#更新流程)操作。
+This example explicitly selects the documented branch. If the maintenance branch changes, verify its GitHub branch and SHA first. For an existing installation, do not clone over the running directory or overwrite settings/databases. Check `git status`, branch and SHA, then follow [updating](#updating).
 
-## 2. 后端主机：Docker 运行 IB Gateway
+## 2. Backend host: IB Gateway in Docker
 
-使用 [gnzsnz/ib-gateway-docker](https://github.com/gnzsnz/ib-gateway-docker) 的镜像；它是独立上游项目。下面为首次部署的 Paper／只读示例，不是现有服务的重置命令。
+Use the independent upstream [gnzsnz/ib-gateway-docker](https://github.com/gnzsnz/ib-gateway-docker) image. This is a first-install Paper/read-only example, not a reset procedure for an existing service.
 
-在仓库外创建私有目录并进入：
+Create and enter a private directory outside the repository:
 
 ```sh
 mkdir -p "$HOME/Services/wheel-gateway"
 cd "$HOME/Services/wheel-gateway"
 ```
 
-在该目录保存 `docker-compose.yml`：
+Save `docker-compose.yml` there:
 
 ```yaml
 services:
@@ -192,7 +193,7 @@ volumes:
   gateway-settings:
 ```
 
-同目录新建 `.env`，仅在后端主机本地填写：
+Create `.env` in the same directory, with credentials filled in only on the backend host:
 
 ```dotenv
 TWS_USERID=YOUR_PAPER_USERNAME
@@ -207,15 +208,15 @@ docker compose up -d
 docker compose ps
 ```
 
-在后端主机上用屏幕共享／VNC 客户端连接 `vnc://127.0.0.1:5900`，检查 Gateway 登录与 API 设置，按要求完成 IB Key／双重验证。不要把 VNC 或 IB API 端口暴露到公网。Docker 启动成功不等于 Gateway 已登录。
+On the backend host, use a screen-sharing/VNC client at `vnc://127.0.0.1:5900` to check Gateway login and API settings and complete IB Key/two-factor authentication when required. Do not expose VNC or IB API ports publicly. A running container does not establish a signed-in Gateway.
 
-该镜像的 **Paper 转发端口是容器内 4004 → 后端主机 4002**；Live 对应容器内 4003 → 后端主机 4001。不要把容器转发端口与 Gateway 内部端口混用。Apple Silicon 应选择上游支持 ARM64 的镜像版本；验证成功后固定版本或 digest，避免无计划升级。端口与配置细节见[上游部署说明](https://github.com/gnzsnz/ib-gateway-docker#ports)。
+The image forwards **Paper through container port 4004 → host port 4002**; Live uses container port 4003 → host port 4001. Do not confuse forwarding ports with Gateway's internal ports. On Apple Silicon, select an upstream ARM64-compatible image. After verification, pin a version or digest to avoid unplanned upgrades. See [upstream deployment details](https://github.com/gnzsnz/ib-gateway-docker#ports).
 
-Docker Desktop 需要随用户登录启动；容器重启策略不能代替它，也不能绕过 IB 身份验证。不要为 Wheel 再启动一个与既有账户会话冲突的 Gateway。
+Docker Desktop must start when the user logs in. Container restart policy cannot start Docker Desktop or bypass IB authentication. Do not start another Gateway that conflicts with an existing account session.
 
-## 3. 后端主机：连接 Python 后端
+## 3. Backend host: connect the Python backend
 
-回到克隆的项目根目录（本例为 `~/Projects/AllYouNeedIsWheel`），再编辑 `connection.json`，与上一步保持一致：
+Return to the cloned repository root (`~/Projects/AllYouNeedIsWheel` in this example) and edit `connection.json` consistently with the previous step:
 
 ```json
 {
@@ -228,7 +229,7 @@ Docker Desktop 需要随用户登录启动；容器重启策略不能代替它�
 }
 ```
 
-`client_id` 要固定且不与其他应用冲突；`account_id` 必须是实际目标账户。文件名不决定 Paper／Live，实际 Gateway 会话、端口及账户才决定。
+Use a stable `client_id` that does not conflict with other apps and the actual target `account_id`. Filenames do not determine Paper/Live; the Gateway session, port and verified account do.
 
 ```sh
 cd "$HOME/Projects/AllYouNeedIsWheel"
@@ -236,7 +237,7 @@ source .venv/bin/activate
 python run_api.py
 ```
 
-另一个终端验证：
+Verify from another terminal:
 
 ```sh
 curl --fail http://127.0.0.1:8000/health
@@ -244,17 +245,17 @@ curl --fail http://127.0.0.1:8000/api/portfolio/bootstrap
 curl --fail http://127.0.0.1:8000/api/options/market-session
 ```
 
-`/health` 只说明 HTTP 服务正常；还要确认持仓接口返回正确账户的数据。不要把账户响应或未经脱敏的日志放到公开 issue。
+`/health` confirms HTTP service health only. Also verify the portfolio response belongs to the intended account. Do not post account responses or unredacted logs in public issues.
 
-后端维持 **一个进程、八个 HTTP 线程、一个串行 IB 执行线程**。相同读取可以合并等待，写入不合并、不自动重试。不要通过增加 Gunicorn worker 数来提速，也不要重复启动后端。
+The backend uses **one web worker process, eight HTTP threads and one serialized IB execution thread**. Identical reads may share work; writes are never coalesced or automatically retried. Do not increase Gunicorn worker count for speed or start duplicate backend instances.
 
-`run_api.py` 是首次手动启动入口，会检查并尝试补装缺失依赖；已有常驻服务时不要再运行它。它按命令行参数设置连接配置，自定义 `CONNECTION_CONFIG` 应使用运维指南中的直接 Gunicorn 启动方式，不能假设该环境变量会被此脚本保留。
+`run_api.py` is the first manual-start entry point and may install missing dependencies. Do not run it alongside an existing persistent service. It sets the connection configuration from command-line flags. For custom `CONNECTION_CONFIG`, use the direct Gunicorn startup in the operations guide; this script does not preserve an arbitrary existing value.
 
-准备开启交易时，分别核对 Gateway 的 Read-Only API、后端 `readonly`、目标账户及对应资产的 Live 能力开关。使用 Live 时还需对应的 Gateway 会话与端口；`python run_api.py --realmoney` 仅选择 `connection_real.json`，本身不会证明当前是正确实盘账户。
+Before enabling trading, verify Gateway Read-Only API, backend `readonly`, the target account and per-asset Live capability switches. Live also needs the correct Gateway session/port. `python run_api.py --realmoney` merely selects `connection_real.json`; it does not verify the intended Live account.
 
-## 4. 后端主机 → iPhone：Tailscale 私有 HTTPS
+## 4. Backend host → iPhone: private Tailscale HTTPS
 
-后端主机、开发 Mac 和 iPhone 加入同一 Tailnet，访问策略只允许所需设备访问。开启 MagicDNS 和 HTTPS 支持，然后在后端主机执行：
+Join the backend host, development Mac and iPhone to the same Tailnet, with access limited to the required devices. Enable MagicDNS and HTTPS, then run on the backend host:
 
 ```sh
 tailscale status
@@ -262,48 +263,48 @@ tailscale serve --bg --https=443 http://127.0.0.1:8000
 tailscale serve status
 ```
 
-使用 Serve 输出的**完整 HTTPS 域名**，例如：
+Use the **complete HTTPS hostname** printed by Serve, for example:
 
 ```text
 https://YOUR-BACKEND.YOUR-TAILNET.ts.net
 ```
 
-在 iPhone 保持 Tailscale 连接，用 Safari 打开该域名的 `/health`，再在 Wheel → Settings 填入同一根地址，点击 Connect。外出使用前再通过蜂窝网络验证一次。
+Keep Tailscale connected on the iPhone, open the hostname's `/health` in Safari, then enter the same root URL in Wheel → Settings and select Connect. Before remote use, also verify over cellular data.
 
-不要使用 Funnel 或路由器公网端口转发；不要跳过 TLS 证书验证。`--bg` 保存后台 Serve 配置，但仍依赖后端主机和 Tailscale 在线。域名证书会进入公开证书透明度日志，因此设备名不宜包含私人信息。见 [Tailscale Serve 官方说明](https://tailscale.com/docs/features/tailscale-serve)和[命令参考](https://tailscale.com/docs/reference/tailscale-cli/serve)。
+Do not use Funnel or public router port forwarding, or disable TLS verification. `--bg` persists the background Serve configuration but still requires the backend host and Tailscale online. Certificate Transparency logs expose certificate hostnames, so avoid private information in device names. See [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) and the [command reference](https://tailscale.com/docs/reference/tailscale-cli/serve).
 
-## 5. 开发 Mac：构建并安装 iOS App
+## 5. Development Mac: build and install the iOS app
 
-在开发 Mac 克隆同一个仓库，打开 `ios/Wheel.xcodeproj`。App 无外部 Swift 包依赖。
+Clone the same repository on the development Mac and open `ios/Wheel.xcodeproj`. The app has no external Swift package dependencies.
 
-在 `ios/Signing.xcconfig` 同目录创建被 Git 忽略的 `Signing.local.xcconfig`：
+Beside `ios/Signing.xcconfig`, create the Git-ignored `Signing.local.xcconfig`:
 
 ```xcconfig
 DEVELOPMENT_TEAM = YOUR_TEAM_ID
 PRODUCT_BUNDLE_IDENTIFIER = com.yourname.wheel
 ```
 
-在 Xcode 的 Signing & Capabilities 确认自己的 Team 与自动签名。保持同一 bundle identifier 才是对现有 App 的更新；换标识会成为另一个安装。
+In Xcode Signing & Capabilities, select your Team and automatic signing. Keep the same bundle identifier to update an existing installation; a different identifier creates a separate app.
 
-1. 首次用线连接并解锁 iPhone，确认信任，按系统要求启用开发者模式。
-2. 选择自己的 iPhone 作为运行目标，构建安装。
-3. 常规体验选择 **Wheel Wireless** scheme：Debug 构建，但启动不附加 LLDB，减少无线调试带来的启动与交互开销。
-4. 需要断点和调试时使用 **Wheel** scheme。
-5. App 首次从 Demo 开始；选择 Paper 或 Live 显示连接区域，填写前一节的 HTTPS 地址，再点 Connect。首次自动登录需先完成上述后端账户配置。
+1. Connect and unlock the iPhone by cable for the first pairing, confirm trust and enable Developer Mode when required.
+2. Select your iPhone as the run destination and build/install.
+3. Use the **Wheel Wireless** scheme for everyday use: a Debug build that launches without LLDB, reducing wireless-debugging overhead.
+4. Use the **Wheel** scheme when breakpoints and debugging are needed.
+5. The app first opens in Demo. Select Paper or Live to reveal connection settings, enter the HTTPS URL and select Connect. Auto-login requires the backend account configuration described earlier.
 
-### 无线 Run
+### Wireless Run
 
-先完成一次有线配对，在 Xcode 的 Devices and Simulators 确认设备可用／网络连接已启用，再拔线。开发 Mac 与 iPhone 应位于允许设备互访的同一局域网；访客 Wi-Fi、客户端隔离或 VPN 规则可能阻断调试。
+Complete wired pairing first and check device/network availability in Xcode Devices and Simulators before unplugging. The development Mac and iPhone should share a local network that permits device-to-device access. Guest Wi-Fi, client isolation and VPN rules can block debugging.
 
-手机屏幕镜像的系统要求与 Xcode 无线安装不是同一件事。Tailscale 解决 App 到后端主机的连接，也不等于已经配置好 Xcode 到 iPhone 的无线调试。
+iPhone screen mirroring and wireless Xcode installation have different requirements. Tailscale connects the app to the backend host; it does not configure wireless Xcode debugging.
 
-Simulator 可直接运行 Demo；它不证明真机签名、无线连接或实盘行情已验证。签名账号的有效期与设备限制以 Apple 当前规则为准。
+Simulator can run Demo directly. This does not verify physical-device signing, wireless access or Live data. Signing validity and device limits depend on Apple's current rules.
 
-## 6. 配置 Performance 收益历史
+## 6. Configure Performance history
 
-Portfolio 能读取不代表收益历史已配置。后端主机还需要 IBKR Flex 的每日 Change in NAV，包含 TWR、From／To Date、Starting／Ending Value，并按日拆分；CSV 需包含 CNAV section code；账户需与 Gateway 配置一致。
+A working Portfolio view does not establish configured return history. The backend host needs IBKR Flex daily Change in NAV with TWR, From/To Date and Starting/Ending Value, broken out by day. CSV needs CNAV section codes. The report account must match the Gateway configuration.
 
-在后端主机创建私有文件：
+Create the private file on the backend host:
 
 ```text
 ~/Library/Application Support/Wheel/performance/config.json
@@ -318,87 +319,87 @@ Portfolio 能读取不代表收益历史已配置。后端主机还需要 IBKR F
 }
 ```
 
-先创建父目录，将文件权限设为 `600`；`history_path` 的父目录也应存在且可写。也可用后端环境变量 `WHEEL_PERFORMANCE_CONFIG` 指定另一个私有配置文件，或用 `report_path` 导入已有 CSV／XML。
+Create parent directories first, set the configuration file to mode `600`, and ensure the `history_path` parent is writable. `WHEEL_PERFORMANCE_CONFIG` can select another private configuration path. Alternatively, `report_path` imports an existing CSV/XML file.
 
-Token 不放进 App、Git 或 `connection.json`。Flex 使用独立私有配置，连接配置和诊断文件不应充当密钥容器。收益档案要单独备份；ALL 展示实际保存的历史，不会凭空补全建仓以来缺失的日期。报表格式、缓存与估算边界见 [Performance 配置说明](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/PERFORMANCE.md)。
+Do not put the token in the app, Git or `connection.json`. Flex uses a separate private configuration; connection settings and diagnostics must not become secret containers. Back up the history archive separately. ALL displays saved history and cannot invent missing periods since account inception. See [Performance configuration](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/PERFORMANCE.md) for report formats, caching and estimation boundaries.
 
-## 7. 长期运行与更新
+## 7. Persistent services and updates
 
-后端主机的 Python 后端可用 LaunchAgent 在用户登录后启动，完整 plist、加载与停止命令见 [后端主机运维指南](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/MAC_MINI_TAILSCALE.md#3-macos-登录后自启动)。默认加载 `connection.json`；若实际使用其他文件，必须在 LaunchAgent 的 `EnvironmentVariables` 中明确配置 `CONNECTION_CONFIG`。自定义 Flex 路径同样通过环境变量传入。
+Use a LaunchAgent to start the Python backend after user login. The full plist and load/stop commands are in the [backend operations guide](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/MAC_MINI_TAILSCALE.md#3-macos-登录后自启动). The default is `connection.json`; other files require explicit `CONNECTION_CONFIG` in the LaunchAgent's `EnvironmentVariables`. Supply custom Flex paths through the environment too.
 
-重启后端主机后，FileVault 解锁、用户登录、Docker Desktop、Gateway 登录、Tailscale 和后端分别确认。不要把“容器自动重启”当成全链路已恢复。
+After rebooting the host, verify FileVault unlock, user login, Docker Desktop, Gateway authentication, Tailscale and Backend separately. Container auto-restart alone does not establish full recovery.
 
-### 后端主机自动维护
+### Optional host maintenance
 
-仓库提供两项独立的用户级维护任务，均需在后端主机安装；仅拉取代码不会自动启用：
+Two separate user-level maintenance tasks are provided and must be explicitly installed on the backend host. Pulling code does not enable them:
 
-| 任务 | 行为与边界 |
+| Task | Behavior and limits |
 | --- | --- |
-| Docker 看护 | 检测异常并按保护条件尝试恢复；涉及重启时会中断 Gateway，仍可能需要 IB Key 或手动登录。不是固定周期无条件重启。 |
-| 数据备份与日志轮转 | 每小时检查；使用 SQLite 在线备份，每个 UTC 日期保存一份订单库和已配置的 Performance 历史库，完整性校验后保留最近 14 份。Gunicorn 访问／错误日志达到 20MiB 后轮转，保留 7 个归档。 |
+| Docker watchdog | Detects failures and attempts guarded recovery. Recovery that restarts Gateway interrupts it and may require IB Key/manual login. It is not an unconditional periodic restart. |
+| Database backup and log rotation | Checks hourly. SQLite online backup saves one orders/history copy per UTC date, verifies integrity and retains the latest 14 copies. Gunicorn access/error logs rotate at 20 MiB, retaining seven archives. |
 
-维护脚本目前使用项目根目录的 `options_dev.db`。若后端使用自定义数据库路径，安装前必须调整脚本与实际配置一致；自定义 Flex 配置路径也需传入维护任务，不能只配置后端进程。
+The maintenance script currently targets `options_dev.db` at the repository root. If using another database path, adapt the script before installation. Custom Flex configuration paths must also reach the maintenance task, not just Backend.
 
-备份保存于后端主机的 `~/Library/Application Support/Wheel/Maintenance` 私有目录，不进入 GitHub。它们可用于本地恢复，**不能抵御同一块磁盘故障或整机丢失**。日志通过 Gunicorn 重新打开文件实现轮转，不重启 worker；此任务不截断 LaunchAgent 输出和其他应用日志。
+Backups remain in the host's private `~/Library/Application Support/Wheel/Maintenance` directory outside GitHub. They support local recovery but **do not protect against disk failure or loss of the whole machine**. Log rotation asks Gunicorn to reopen files without restarting workers; it does not truncate LaunchAgent output or other apps' logs.
 
-安装命令、状态文件、故障检查及恢复注意事项见 [后端主机运维指南](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/MAC_MINI_TAILSCALE.md)。这些任务依赖用户已登录和后端主机在线。系统应避免自动休眠；如后端主机同时通过通用控制共享键鼠，显示器熄屏策略需兼顾日常操作。
+See the [backend operations guide](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/MAC_MINI_TAILSCALE.md) for installation, state files, troubleshooting and recovery. Tasks require user login and an online host. Avoid system sleep; if sharing a keyboard/mouse through Universal Control, choose a display-sleep policy compatible with that use.
 
-### 更新流程
+### Updating
 
-1. **开发 Mac 修改并推送**：确认当前分支和工作区，完成直接相关验证，再 Commit → Push。保留未提交改动；配置、IB／Flex 凭据、数据库、日志、私有地址及个人签名信息不进入 Git。
-2. **电脑或手机预览版本**：打开已配置的 **Wheel Backend** 快捷指令，选择 **Deploy latest**，核对分支、当前 SHA、目标 SHA、提交说明和重启建议。确认后部署固定的目标 SHA，不随之后的新提交改变。
-3. **用户选择部署方式**：在第二层菜单选择 **Deploy only** 或 **Deploy & Restart Backend**；只想重启现有版本时使用外层的 **Restart Backend only**。取消预览或选择菜单不会部署或重启。
-4. **按变更核实结果**：核对后端主机的目标 SHA、Backend 健康和实际页面；网页资源更新后刷新页面。涉及 iOS 原生代码或 App 内置图表资源时，还需在开发 Mac 用 Xcode 构建安装，GitHub Push 和后端主机部署不会自动更新手机 App。
+1. **Develop and push on the development Mac:** verify branch/worktree, run relevant checks, then Commit → Push. Preserve uncommitted changes. Exclude settings, IB/Flex credentials, databases, logs, private addresses and personal signing details from Git.
+2. **Preview from computer or phone:** open the configured **Wheel Backend** shortcut, choose **Deploy latest**, and inspect branch, current/target SHA, commit subject and restart advice. Confirmation pins that exact SHA even if the branch advances afterward.
+3. **Choose deployment mode:** select **Deploy only** or **Deploy & Restart Backend** in the second menu. Use **Restart Backend only** from the outer menu to restart the existing version. Canceling performs no deployment or restart.
+4. **Verify affected components:** check backend-host SHA, Backend health and actual pages. Reload web assets after updates. Native iOS changes and bundled chart assets require a separate Xcode build/install on the development Mac. GitHub pushes and backend deployment do not update the installed iPhone app.
 
-| 选项／提示 | 含义 |
+| Choice/advice | Meaning |
 | --- | --- |
-| **Deploy only** | 更新后端主机代码并检查健康，保持 Backend 进程不变；不代表运行中的 Python 已加载新代码。文档等无需重启的更新通常选此项。 |
-| **Deploy & Restart Backend** | 更新到确认的 SHA，再重启 Wheel Backend 并检查新进程和健康；不会重启 Gateway。应在没有订单请求进行中或结果待确认时执行。 |
-| **No restart expected** | 已识别的变更预计不需要 Backend 重启；网页刷新或 iPhone 重新构建仍可能需要。 |
-| **Restart recommended** | 存在 Backend Python、缓存模板等变更，建议部署并重启；也会考虑此前仅部署但尚待重启的变更。 |
-| **Review required** | 依赖、迁移、配置或未分类文件需要先检查，不能假设一次重启即可完成更新。 |
+| **Deploy only** | Updates backend-host code and checks health without changing the Backend process. It does not prove running Python loaded the new code. Appropriate for documentation and other changes that need no restart. |
+| **Deploy & Restart Backend** | Updates to the confirmed SHA, restarts Wheel Backend and checks the new process/health. It does not restart Gateway. Use only when no order request is in flight or awaiting reconciliation. |
+| **No restart expected** | Recognized changes are not expected to need Backend restart. A web reload or iPhone rebuild may still be needed. |
+| **Restart recommended** | Backend Python, cached templates or similar changes need a restart; advice also considers earlier code-only deployments still awaiting one. |
+| **Review required** | Dependencies, migrations, configuration or unknown files need review. A restart alone may be insufficient. |
 
-重启建议只是提示，最终由用户选择。每次修复交付应说明验证范围、建议的部署方式和原因；后端、网页及手机端的实际验收分别记录。健康检查通过不等于券商连接、账户、行情或下单已验收。
+Advice does not choose for the user. Each fix should state validation scope, recommended deployment mode and why. Record backend, web and phone acceptance separately. Health checks do not establish broker connectivity, correct account routing, market-data quality or order acceptance.
 
-快捷指令由后端主机自行从 GitHub 获取已推送代码；完成首次配置后，电脑或手机均可操作，开发 Mac 不必保持开机。后端主机、Tailscale、GitHub 访问和设备已有 SSH 授权仍需可用。版本预览只确认代码版本和更新建议，不代表完整部署成功或手机 App 已更新。后端主机读取 GitHub 的认证与手机连接后端主机的 SSH 授权是两回事，首次配置需分别核对。
+The shortcut fetches published GitHub code from the backend host. After setup, either computer or phone can trigger it without leaving the development Mac on. The backend host, Tailscale, GitHub access and existing device SSH authorization must be available. Preview confirms code versions/advice, not full deployment or an updated phone app. Backend-host GitHub authentication and phone-to-host SSH authorization are separate setup requirements.
 
-部署会检查工作区、分支和前进方向，并保留代码回退点；不会强制覆盖冲突、自动安装依赖或迁移数据库。更新前按需要备份私有配置和数据库；运行中的 SQLite 使用在线 backup API／`.backup`。不要用 `git reset --hard`、删除数据库或清除未完成部署记录来绕过问题，也不要在断线后盲目重发交易请求。
+Deployment checks worktree, branch and forward ancestry and keeps a code rollback point. It never overwrites conflicts, installs dependencies or migrates databases automatically. Back up private settings/databases as needed; running SQLite needs online backup API/`.backup`. Do not bypass failures with `git reset --hard`, database deletion or removal of unfinished deployment records, and never blindly replay trading writes after disconnects.
 
-详细说明见 [Wheel Backend 快捷指令](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/BACKEND_SHORTCUT.md#choose-whether-to-restart-2026-10-16) 与 [开发 Mac → 后端主机部署工具](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/DEPLOY_MINI.md)。后者是另一种部署入口，其命令会请求 Backend 重启，不等同于快捷指令的 Deploy only。
+See the [Wheel Backend shortcut](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/BACKEND_SHORTCUT.md#choose-whether-to-restart-2026-10-16) and [development Mac → backend host deployment tool](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/DEPLOY_MINI.md). The latter is a separate entry point that requests a Backend restart; it is not the shortcut's Deploy only mode.
 
-### 日常问题反馈
+### Reporting problems
 
-遇到问题时，记录所在页面、操作步骤、预期与实际结果、发生时间，以及 Demo／Paper／Live 模式；附截图或已脱敏的 Diagnostics，并尽量提供后端分支／SHA 和手机安装版本。行情问题说明标的、周期和是否开市；订单问题保留券商侧状态用于核对，不通过删记录或重复提交来复现。
+Record the screen, reproduction steps, expected/actual behavior, time and Demo/Paper/Live mode. Add screenshots or redacted Diagnostics, and backend branch/SHA and installed app version when available. For quotes, include instrument, timeframe and market-open state. For orders, retain broker evidence for reconciliation; do not reproduce problems by deleting records or repeatedly submitting requests.
 
-修复围绕真实使用路径展开，保留现有布局和已稳定行为。涉及 UI、交互、行情刷新、订单链、状态同步或断线恢复时，先用 REA 分析相关实现或运行证据，再做最小修复和必要验证；未在实际页面、设备或券商环境验证的范围明确标注。
+Fix actual user paths with minimal changes while preserving stable layout and behavior. UI, interaction, market-data refresh, order chains, state synchronization and reconnect work require relevant REA analysis before implementation and focused validation afterward. Clearly identify anything unverified on the actual page, device or broker environment.
 
-## 常见问题
+## Troubleshooting
 
-| 现象 | 排查顺序 |
+| Symptom | Check in order |
 | --- | --- |
-| App 无法连接 | 后端主机本机 `/health` → 持仓接口 → 两端 Tailscale → HTTPS 域名与策略。 |
-| 安全连接失败／`-1200` | Safari 打开同一地址，核对时间、证书、Tailscale 和代理干扰；不要关闭证书验证。 |
-| 有持仓但没有报价 | Gateway 登录、行情权限、合约是否可报价、市场状态；旧／冻结数据不是实时价。 |
-| 收益图为空 | Flex 配置、账户对应关系、每日 TWR 与本地收益档案；Demo 不提供真实收益历史。 |
-| HTTP 503／首次报价慢 | 串行 IB 队列或合约首次确认可能耗时；等待读取恢复，不要重复提交交易。 |
-| 无线 iPhone 不可用 | 首次配对、解锁、同网段设备互访、VPN 和路由器隔离规则。 |
-| 无线 Run 后启动卡顿 | 使用不附加调试器的 Wheel Wireless；调试时切回 Wheel。 |
-| 订单状态不确定 | 核对 IB 的准确订单与部分成交，再处理锁定；不自动补单。 |
-| 需要反馈连接或刷新异常 | 点击 Portfolio／Orders 状态栏，预览并复制 Diagnostics；可同时提供界面截图。 |
+| App cannot connect | Host-local `/health` → portfolio API → Tailscale on both ends → HTTPS hostname and access policy. |
+| TLS failure / `-1200` | Open the same address in Safari; check time, certificate, Tailscale and proxy interference. Do not disable verification. |
+| Holdings without quotes | Gateway login, entitlements, instrument availability and market session. Old/frozen data is not live. |
+| Empty Performance chart | Flex configuration, account match, daily TWR and saved history. Demo has no real return history. |
+| HTTP 503 / slow first quote | Serialized IB work or initial contract resolution can take time. Wait for read recovery; do not repeat trading writes. |
+| Wireless iPhone unavailable | Initial pairing, unlock, local-network device access, VPN and router isolation. |
+| Slow launch after wireless Run | Use Wheel Wireless without the debugger; switch to Wheel for debugging. |
+| Uncertain order state | Reconcile the exact IB order and partial fills before clearing a lock. No automatic replacement submission. |
+| Connection/refresh feedback | Select the Portfolio/Orders status bar to preview/copy Diagnostics; include screenshots if useful. |
 
-Trade 自动报价参考 NYSE 常规交易日历，包括假期、提前收盘与夏令时；这不是所有股票、期权或延长交易时段的交易许可判断。Performance 的盘中延长曲线仍是有限条件下的估算。
+Trade automatic quotes use the NYSE regular-session calendar, including holidays, early closes and daylight saving. This is not a trading-permission decision for every stock, option or extended session. Performance's provisional intraday curve also has limited eligibility conditions.
 
-## 开发与验证
+## Development and validation
 
 ```sh
-# 从仓库根目录执行；后端先激活已安装依赖的虚拟环境
-# 隔离回归禁止网络、真实 IB 构造及持久数据库访问
+# Run from the repository root; activate the backend virtual environment first
+# Isolated checks prohibit network access, real IB construction and persistent DB access
 python tests/run_chart_offline.py
 
-# 前端单元测试：需已安装支持 node:test 的 Node.js
+# Frontend unit tests require Node.js with node:test support
 npm run test:frontend
 
-# iOS：先列出可用模拟器，再将 SIMULATOR_ID 替换为本机目标
+# iOS: list available simulators, then replace SIMULATOR_ID with your local target
 xcrun simctl list devices available
 xcodebuild -project ios/Wheel.xcodeproj -scheme Wheel \
   -destination 'platform=iOS Simulator,id=SIMULATOR_ID' test
@@ -406,24 +407,24 @@ xcodebuild -project ios/Wheel.xcodeproj -scheme Wheel \
 git diff --check
 ```
 
-以上是验证入口，不表示当前提交已运行全部测试。图表浏览器交互回归位于 `tests/chart/*.cjs`，不包含在 `npm run test:frontend` 内；它们需要独立的 Playwright／浏览器环境，配置和行情矩阵见[行情刷新基线](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/MARKET_DATA_BASELINE.md#repeatable-checks)。按变更选择相关检查，避免直接在生产配置上启动测试服务。
+These are validation entry points, not a claim that every test ran on this commit. Browser interaction checks in `tests/chart/*.cjs` are separate from `npm run test:frontend` and need an isolated Playwright/browser environment. See the [market-data baseline](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/docs/MARKET_DATA_BASELINE.md#repeatable-checks) for setup and the chart matrix. Select checks relevant to the change and avoid starting test services against production settings.
 
-模拟测试不构成券商验收。通过编译和回归不等于已验证盘中延迟、真实成交、所有网络故障或所有 iOS 设备；真实 Paper 订单需明确授权，Live 交易由用户操作。
+Mock checks are not broker acceptance. Builds/regressions do not establish market-open latency, real fills, every network failure or every iOS device. Real Paper orders require explicit authorization; Live trading is user-operated.
 
 ```text
-iOS 开发入口：ios/Wheel.xcodeproj
-原生界面与状态：ios/Wheel/
-iOS 回归：ios/WheelTests/
-后端路由与服务：api/
-IB 连接与配置：core/、config.py
-订单数据库：db/
-后端与网页回归：tests/
-辅助网页：frontend/
-部署与数据说明：docs/
+iOS project: ios/Wheel.xcodeproj
+Native views and state: ios/Wheel/
+iOS regressions: ios/WheelTests/
+Backend routes and services: api/
+IB connection/configuration: core/, config.py
+Order database: db/
+Backend/web regressions: tests/
+Companion web interface: frontend/
+Deployment/data guides: docs/
 ```
 
-更多开发细节见 [iOS 指南](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/ios/README.md)。原网页与 App 共用后端，适合辅助核对；浏览器偏好不会自动迁移到 App。
+See the [iOS guide](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/ios/README.md) for more detail. Web and app share the backend, and the web interface is useful for cross-checks; browser preferences do not automatically migrate to the app.
 
 ## License & Credits
 
-[Apache License 2.0](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/LICENSE)。项目基于 [xiao81/AllYouNeedIsWheel](https://github.com/xiao81/AllYouNeedIsWheel) 延续开发。感谢 [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts)、[ib_async](https://github.com/ib-api-reloaded/ib_async)、SwiftUI／Charts、Flask，以及 [IB Gateway Docker](https://github.com/gnzsnz/ib-gateway-docker) 与 [Tailscale](https://tailscale.com/) 提供的基础工具。
+[Apache License 2.0](https://github.com/WahBun/AllYouNeedIsWheel/blob/codex/chart-labels-1.7/LICENSE). The project continues development from [xiao81/AllYouNeedIsWheel](https://github.com/xiao81/AllYouNeedIsWheel). Thanks to [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts), [ib_async](https://github.com/ib-api-reloaded/ib_async), SwiftUI/Charts, Flask, [IB Gateway Docker](https://github.com/gnzsnz/ib-gateway-docker) and [Tailscale](https://tailscale.com/) for the underlying tools.
