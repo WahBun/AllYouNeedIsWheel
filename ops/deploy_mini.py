@@ -33,6 +33,19 @@ def git(repo, *args):
     return run(['git', *args], cwd=repo)
 
 
+def fetch_github(repo, branch, ref):
+    # Shortcuts' SSH action expires after 120 seconds. Leave time for the
+    # guarded 90-second health wait; never spend that whole budget fetching.
+    try:
+        return run(['git', '-c', 'credential.interactive=false', 'fetch', '--no-tags',
+                    'origin', f'refs/heads/{branch}:{ref}'], cwd=repo, timeout=20,
+                   env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'})
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError('GitHub fetch timed out after 20 seconds. '
+                           'No deployment or restart was started. '
+                           'Check Mini GitHub connectivity and run the shortcut again.') from error
+
+
 def clean(repo, machine="Mini"):
     if git(repo, 'status', '--porcelain', '--untracked-files=all'):
         raise RuntimeError(f'{machine} has uncommitted or untracked files. Nothing was overwritten.')
@@ -137,7 +150,7 @@ def preview_latest():
     before = preflight(repo, branch)
     ref = 'refs/wheel-deploy/' + uuid.uuid4().hex
     try:
-        git(repo, 'fetch', '--no-tags', 'origin', f'refs/heads/{branch}:{ref}')
+        fetch_github(repo, branch, ref)
         target = git(repo, 'rev-parse', ref + '^{commit}')
         git(repo, 'merge-base', '--is-ancestor', before, target)
         subject = git(repo, 'show', '-s', '--format=%s', target)
@@ -160,7 +173,7 @@ def deploy_from_github(commit, check=False):
     before = preflight(repo, branch)
     ref = 'refs/wheel-deploy/' + uuid.uuid4().hex
     try:
-        git(repo, 'fetch', '--no-tags', 'origin', f'refs/heads/{branch}:{ref}')
+        fetch_github(repo, branch, ref)
         target = git(repo, 'rev-parse', '--verify', commit + '^{commit}')
         git(repo, 'merge-base', '--is-ancestor', target, ref)
         git(repo, 'merge-base', '--is-ancestor', before, target)

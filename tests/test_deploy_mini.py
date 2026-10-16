@@ -182,6 +182,20 @@ class DeployTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'not healthy'): self.apply()
         self.assertFalse(self.restarts)
 
+    def test_github_timeout_stops_before_any_deployment(self):
+        for preview in (True, False):
+            with patch.object(deploy, 'preflight', return_value=self.before), \
+                 patch.object(deploy, 'run', side_effect=subprocess.TimeoutExpired('git', 20)) as run, \
+                 patch.object(deploy, 'git'), patch.object(deploy, 'apply') as apply:
+                with self.assertRaisesRegex(RuntimeError, 'No deployment or restart was started'):
+                    if preview:
+                        deploy.preview_latest()
+                    else:
+                        deploy.deploy_from_github(self.target)
+                self.assertEqual(run.call_args.kwargs['timeout'], 20)
+                self.assertEqual(run.call_args.kwargs['env']['GIT_TERMINAL_PROMPT'], '0')
+                apply.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import time
 import urllib.request
 
@@ -88,7 +89,8 @@ def main():
             print(restart())
         return 0
     except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
-        print(str(error))
+        # Shortcuts displays stderr on a nonzero SSH exit; stdout is discarded.
+        print(str(error) or 'Wheel Backend command failed. Check Mini before retrying.', file=sys.stderr)
         return 1
 
 
