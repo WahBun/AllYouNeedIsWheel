@@ -1,3 +1,17 @@
+## 2026-10-16 — Pro-to-Mini deployment command
+
+`python3 ops/deploy_mini.py <commit>` verifies GitHub branch membership on Pro,
+transfers an incremental bundle, preserves a rollback branch, fast-forwards Mini,
+and requests one Backend-only restart. Both workspaces must be clean. Changed
+HEAD, concurrent restart, ignored-file collisions and unconfirmed prior attempts
+stop. Exact SHA, a new PID and HTTP health are required for success. `--check`
+performs preflight without updating code or restarting. Local settings are ignored.
+See [operator guide](DEPLOY_MINI.md). No Gateway command or broker write is used.
+
+REA inspected Mini's actual LaunchAgent (evidence recorded in the guide). Nine
+isolated real-Git/mock-service tests pass. Tool creation does not authorize a
+production restart; no deployment was executed while implementing this command.
+
 ## 2026-10-16 — consistent CME futures RTH candles
 
 REA inspected TradingView runtime session resolution and bar construction

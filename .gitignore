@@ -47,3 +47,6 @@ options.db
 trades.db 
 
 connection*.json
+
+# Pro-only Mini deployment settings
+/ops/deploy-mini.local.json

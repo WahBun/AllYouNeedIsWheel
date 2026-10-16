@@ -1,5 +1,7 @@
 # Mac mini + Tailscale 部署
 
+从 Pro 部署指定 GitHub commit，参见[一键部署说明](DEPLOY_MINI.md)。
+
 在 Mini 上运行 Python 后端与 IB Gateway，iOS App 通过 Tailnet 私有 HTTPS 访问。
 首次部署（包括 Docker 与 Xcode）以[主 README](../README.md)为入口。本页保留
 LaunchAgent、维护与旧网页访问说明。下面使用占位符，不包含账户、设备 IP 或密码。
