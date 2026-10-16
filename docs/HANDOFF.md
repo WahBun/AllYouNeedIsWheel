@@ -3254,3 +3254,37 @@ reference-only close, ongoing ticks, pane activation and delayed cross-symbol
 responses. Live result after deployment remains unverified. Because Python
 service code changed, use user-operated Deploy & Restart Backend, then reload
 web pages; do not restart Gateway or run the phone for this web-title fix.
+
+
+## 2026-10-16 Missing IB close tick after restart: daily reference fallback
+
+Post-restart Mini HEAD was verified as f404208e06028672d01cf317ae0f82781014d039.
+Read-only stock-quotes diagnostics showed TSLL exact conId 578561429, SMART,
+NASDAQ, requested/actual data type 1, fresh last/bid/ask but null close. CRCL
+on the same connection had a valid close. Thus the preceding cache-reader fix
+was insufficient; a different ticker was not established as the live cause.
+The exact reason IB omitted the TSLL close tick remains unproven.
+Read-only IB daily chart data did contain October 15 close 9.32, distinct from
+the still-forming October 16 daily candle. No broker writes were performed.
+
+REA re-analyzed superchart.js (parent Evidence
+`ev_3ec51afa0fd7dd2003d454941e86e862f14261843d9f94d6c867986d6860ef18`);
+its existing exact-contract/epoch title reference is retained. For USD stocks
+missing a valid close tick, chart-reference now schedules one finite 10-day IB
+RTH daily-history read on the existing owner event loop. It returns immediately,
+uses only the exact previous NYSE calendar session, and caches by chart state
+and New York date. Current-day or older missing-session bars are rejected.
+Late results from replaced/disconnected charts are discarded; failures retry
+at most every five minutes. A valid direct close tick retains precedence.
+This supersedes the earlier no-history-fallback description for this display
+reference only. No live ticker, executable quote, aggregation, layout, trading
+logic or stream-pump changes. Futures/options retain their existing close path.
+
+Six offline reference-service tests and the desktop/mobile four-symbol tab-title
+browser checks pass. Coverage includes pending-read deduplication, previous-day
+selection, holiday/weekend handling, day rollover, failed reads, context rejection
+and direct-close precedence. Browser checks use fixtures, not deployed acceptance.
+Use user-operated Deploy & Restart Backend, then refresh the webpage. New code
+has not been deployed or restarted by the agent; verify the returned reference
+and actual browser title after the user deploys it. Existing iOS project and
+localization changes remain excluded.
