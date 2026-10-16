@@ -196,6 +196,20 @@ class DeployTests(unittest.TestCase):
                 self.assertEqual(run.call_args.kwargs['env']['GIT_TERMINAL_PROMPT'], '0')
                 apply.assert_not_called()
 
+    def test_fetch_reuses_system_proxy_without_changing_explicit_environment(self):
+        with patch.dict(deploy.os.environ, {}, clear=True), \
+             patch.object(deploy.urllib.request, 'getproxies', return_value={'https': 'http://127.0.0.1:12345'}), \
+             patch.object(deploy, 'run', return_value='') as run:
+            deploy.fetch_github(self.repo, 'release', 'refs/test')
+            self.assertEqual(run.call_args.kwargs['env']['https_proxy'], 'http://127.0.0.1:12345')
+            self.assertNotIn('https_proxy', deploy.os.environ)
+        with patch.dict(deploy.os.environ, {'HTTPS_PROXY': 'http://explicit.invalid:8080'}, clear=True), \
+             patch.object(deploy.urllib.request, 'getproxies', return_value={'https': 'http://127.0.0.1:12345'}), \
+             patch.object(deploy, 'run', return_value='') as run:
+            deploy.fetch_github(self.repo, 'release', 'refs/test')
+            self.assertNotIn('https_proxy', run.call_args.kwargs['env'])
+            self.assertEqual(run.call_args.kwargs['env']['HTTPS_PROXY'], 'http://explicit.invalid:8080')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -36,10 +36,18 @@ def git(repo, *args):
 def fetch_github(repo, branch, ref):
     # Shortcuts' SSH action expires after 120 seconds. Leave time for the
     # guarded 90-second health wait; never spend that whole budget fetching.
+    env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    # SSH-launched Git does not read macOS System Configuration proxy settings.
+    # Reuse the existing configuration for this subprocess only; explicit shell
+    # proxy settings retain precedence and no host/Git configuration is changed.
+    for scheme, proxy in urllib.request.getproxies().items():
+        key = scheme + '_proxy'
+        if scheme in ('http', 'https', 'no') and key not in env and key.upper() not in env:
+            env[key] = proxy
     try:
         return run(['git', '-c', 'credential.interactive=false', 'fetch', '--no-tags',
                     'origin', f'refs/heads/{branch}:{ref}'], cwd=repo, timeout=20,
-                   env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'})
+                   env=env)
     except subprocess.TimeoutExpired as error:
         raise RuntimeError('GitHub fetch timed out after 20 seconds. '
                            'No deployment or restart was started. '
