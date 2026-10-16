@@ -26,6 +26,11 @@ def token(output, name, prefix=''):
             '{' + str(len(prefix)) + ', 1}': {'OutputUUID': output, 'Type': 'ActionOutput', 'OutputName': name}}}}
 
 
+def reference(output, name):
+    return {'WFSerializationType': 'WFTextTokenAttachment', 'Value': {
+        'OutputUUID': output, 'Type': 'ActionOutput', 'OutputName': name}}
+
+
 def build(original):
     result = copy.deepcopy(original)
     originals = original['WFWorkflowActions']
@@ -45,11 +50,11 @@ def build(original):
                WFMenuPrompt='Wheel Backend', WFMenuItems=labels),
         action('choosefrommenu', WFControlFlowMode=1, GroupingIdentifier=group, WFMenuItemTitle=labels[0]),
         connection('wheel-backend-deploy-preview', preview),
-        action('getvalueforkey', WFDictionaryKey='summary', WFInput=token(preview, 'Release preview'),
+        action('getvalueforkey', WFDictionaryKey='summary', WFInput=reference(preview, 'Release preview'),
                WFGetDictionaryValueType='Value', UUID=summary),
         action('alert', WFAlertActionTitle='Deploy & Restart Backend?',
                WFAlertActionMessage=token(summary, 'Deployment summary')),
-        action('getvalueforkey', WFDictionaryKey='sha', WFInput=token(preview, 'Release preview'),
+        action('getvalueforkey', WFDictionaryKey='sha', WFInput=reference(preview, 'Release preview'),
                WFGetDictionaryValueType='Value', UUID=sha),
         connection(token(sha, 'Confirmed commit SHA', 'wheel-backend-deploy '), deploy),
         action('showresult', Text=token(deploy, 'Deployment result')),
