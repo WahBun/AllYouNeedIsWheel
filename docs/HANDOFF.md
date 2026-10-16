@@ -1,3 +1,40 @@
+## 2026-10-16 — two cross-device drawing display scopes
+
+The user clarified that both choices must synchronize between computer and phone;
+the distinction is main versus auxiliary panes, never timeframe. This supersedes
+the earlier drawing-timeframe-sharing section below. The English menu now has
+Main chart only and All charts. Both use the existing annotation operation queue.
+The web layout supplies its existing main-pane role independently of active-pane
+selection or maximization; the native standalone chart is a main pane. Main-only
+drawings are excluded from auxiliary SVG rendering, price labels and Remove all.
+
+Legacy local/timeframe scopes map to main-only and layout/global scopes map to
+all charts. Existing device-local drawings are imported through the server's
+non-overwriting import operation; existing server edits and deletion tombstones
+win. Legacy local storage remains a recovery copy, with imported IDs recorded to
+avoid replaying it on ordinary reload. Default/global payloads are not rewritten
+merely by polling, preserving undo history identity across synchronization.
+
+REA rechecked chart-drawings.js before implementation; its unchanged pre-edit
+artifact matched evidence ev_546efd6e5ae6f90fec97abda53ba7a09e81969828b3a1bd0e9a520e667a9eedb.
+This is the user's requested Wheel behavior, not a claim about the reference
+product beyond its supplied menu screenshot. Existing synchronization is reused;
+price/OHLC delivery, order operations and the 1/2/3/4 layout remain unchanged.
+
+Validation: drawing-sharing, drawing-sharing-layout, drawing-history and
+crosshair-drawing-priority browser checks passed, plus four isolated drawing-store
+regressions. Covers all 20 tool menus, browser HTTP and simulated native bridge,
+period independence, auxiliary activation/maximization, actual 4→2→1→4 host
+layouts, legacy migration/deletion, polling, reload, undo/redo, desktop/mobile
+widths and both theme inputs. Menu screenshots were inspected. Tests use local
+fixtures; no broker writes or physical iPhone acceptance were performed.
+
+Deploy only is sufficient for Mini because these assets are read per request;
+refresh web pages. The user must separately Run the iPhone app for its bundled
+asset, and both clients should use the updated asset for matching scope semantics.
+No Backend/Gateway restart or device installation was performed. Pre-existing
+signing/localization edits remain excluded.
+
 ## 2026-10-16 — preview latest commit before Shortcut deployment
 
 Wheel Backend now fetches the tip of codex/chart-labels-1.7 without manual SHA
