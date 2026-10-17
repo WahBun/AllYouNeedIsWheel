@@ -3363,3 +3363,30 @@ Simulator validation: Wheel/TradingTests and ChartLiveManagementTests completed
 109 tests with zero failures; iOS Simulator build/test succeeded. No physical
 phone installation or launch. This verifies mocked client workflows and build,
 not live margin availability or broker order acceptance.
+
+## 2026-10-18 — Option chart Join Mid
+
+Web options now show one full-width Join Mid button in place of Join Bid/Ask.
+Choose Buy or Sell first (selected direction has a visible border); Join Mid then
+uses the existing guarded join submission path with that direction. No direction
+is inferred. Midpoint rounds to the nearest confirmed price increment and must
+remain inside the spread. Both quotes, freshness, account/contract context,
+quantity, state and final submission settings are checked. Stocks/futures keep
+their existing Join Bid/Ask controls. Chart delivery, layouts and native iOS are
+unchanged. Runtime button creation supports an older cached HTML template.
+
+REA statically analyzed the current superchart host before implementation:
+parent evidence ev_5e2a1053c23ab39da04de25f51a205f5c0a786aa4ad7345d044905c756919479.
+Adopted the existing direction-preview → join revision → guarded submit path;
+static analysis is not broker or runtime acceptance.
+
+Validation: join-mid.cjs passed eight actual mocked browser cases across desktop/
+mobile widths, light/dark themes and Buy/Sell: no direction blocks, quote guards,
+cent-increment rounding and exactly one intended submission. Screenshots reviewed.
+entry-one-click-page.cjs passed One-click on/off and stable Confirm/Discard at
+both widths. No broker orders, service restart or physical-device Run performed.
+Recommend user-operated Deploy only followed by browser refresh. Preserve existing
+uncommitted iOS project/localization changes.
+Additional protected-interaction checks passed: one-click-protection.cjs,
+fast-entry-drag.cjs and order-line-drag.cjs. The last script required explicitly
+selecting the existing Python environment; its completed rerun passed.

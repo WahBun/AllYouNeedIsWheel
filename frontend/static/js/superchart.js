@@ -6,6 +6,7 @@ if(!window.WheelContractFavorites){
 }
 if(!window.WheelContractFavorites)window.WheelContractFavorites=({onError})=>({items:[],ready:false,busy:false,refresh:async()=>onError('Favorites unavailable. Reload after updating the backend.'),toggle:async()=>{}});
 const $=id=>document.getElementById(id);let frame=$('chart');
+if(!$('mid')){const button=document.createElement('button');button.id='mid';button.textContent='Join Mid';button.hidden=true;document.querySelector('.join-actions').append(button);}
 // An opaque footer clips scrolling content behind the entire Close area.
 const closeFooter=document.createElement('div');closeFooter.className='close-footer';$('close').before(closeFooter);closeFooter.append($('close'));
 // Keep runtime diagnostics in Detail instead of overlaying the chart.
@@ -189,23 +190,38 @@ function joinBlockReason(id){
  if(!rule||Math.abs(price/rule.increment-Math.round(price/rule.increment))>1e-7)return 'Quote does not match confirmed contract price increments';
  return '';
 }
+let midDirectionContext=null;
+function optionMidPrice(){
+ const {bid,ask}=packet;
+ if(!Number.isFinite(bid)||!Number.isFinite(ask)||bid<=0||ask<bid)return null;
+ const mid=(bid+ask)/2,rule=[...(packet.price_rules||[])].filter(r=>Number.isFinite(r.low)&&r.low<=mid&&Number.isFinite(r.increment)&&r.increment>0).sort((a,b)=>b.low-a.low)[0];
+ if(!rule)return null;
+ const price=Number((Math.round((mid+Number.EPSILON)/rule.increment)*rule.increment).toFixed(10));
+ const actual=[...(packet.price_rules||[])].filter(r=>r.low<=price&&r.increment>0).sort((a,b)=>b.low-a.low)[0];
+ return price>=bid&&price<=ask&&actual&&Math.abs(price/actual.increment-Math.round(price/actual.increment))<1e-7?price:null;
+}
+function midBlockReason(){return packet.security_type!=='OPT'?'Join Mid is available for options':joinBlockReason('bid')||joinBlockReason('ask')||(![1,-1].includes(previewSide)||midDirectionContext!==JSON.stringify(marketContext())?'Choose Buy or Sell before joining midpoint':'')||(optionMidPrice()===null?'No valid midpoint for confirmed price increments':'');}
 function syncJoinControls(){
- const reasons=['bid','ask'].map(id=>{const reason=joinBlockReason(id);$(id).disabled=!!reason;$(id).title=reason||`Submit ${id==='bid'?'Buy':'Sell'} LMT at ${id}`;return reason;});
+ const option=packet.security_type==='OPT';$('bid').hidden=option;$('ask').hidden=option;$('mid').hidden=!option;
+ for(const [id,side] of [['preview-buy',1],['preview-sell',-1]]){const selected=option&&midDirectionContext===JSON.stringify(marketContext())&&previewSide===side;$(id).classList.toggle('mid-selected',selected);$(id).setAttribute('aria-pressed',String(selected));}
+ const midReason=midBlockReason();$('mid').disabled=!!midReason;$('mid').title=midReason||`Submit ${previewSide===1?'Buy':'Sell'} LMT at midpoint`;
+ const reasons=(option?['mid']:['bid','ask']).map(id=>{const reason=id==='mid'?midReason:joinBlockReason(id);$(id).disabled=!!reason;$(id).title=reason||(id==='mid'?`Submit ${previewSide===1?'Buy':'Sell'} LMT at midpoint`:`Submit ${id==='bid'?'Buy':'Sell'} LMT at ${id}`);return reason;});
  const note=$('join-reason');if(note){note.hidden=!reasons.some(Boolean);const text=[...new Set(reasons.filter(Boolean))].join(' · ');if(note.textContent!==text)note.textContent=text;}
 }
 function beginJoin(id,side){
- const reason=joinBlockReason(id);if(reason)return log(reason);
+ const reason=id==='mid'?midBlockReason():joinBlockReason(id);if(reason)return log(reason);
+ const price=id==='mid'?optionMidPrice():packet[id];
  if(pendingJoin&&pendingJoin.context===JSON.stringify(marketContext()))return;
- if($('bracket-enabled').checked&&frame.contentWindow.templatePrices?.(packet[id],side)===null)return log('Set valid enabled TP / SL before joining a quote');
- entry=packet[id];$('type').value='LMT';joinSide=side;joinRevision++;
+ if($('bracket-enabled').checked&&frame.contentWindow.templatePrices?.(price,side)===null)return log('Set valid enabled TP / SL before joining a quote');
+ entry=price;$('type').value='LMT';joinSide=side;joinRevision++;
  pendingJoin={id,side,price:entry,quantity:Number($('quantity').value),tif:$('tif').value,templateRevision:revision,revision:joinRevision,context:JSON.stringify(marketContext())};sync();
 }
 function validateJoin(body){
  const pending=pendingJoin;pendingJoin=null;
  if(!pending||body.join_revision!==pending.revision||pending.context!==JSON.stringify(marketContext()))return 'Join context changed; review the current quote';
- const reason=joinBlockReason(pending.id);if(reason)return reason;
+ const reason=pending.id==='mid'?midBlockReason():joinBlockReason(pending.id);if(reason)return reason;
  if(body.quantity!==pending.quantity||Number($('quantity').value)!==pending.quantity||$('tif').value!==pending.tif||revision!==pending.templateRevision)return 'Join order settings changed; review and click again';
- if(body.entry_type!=='LMT'||body.side!==pending.side||body.entry!==pending.price||packet[pending.id]!==pending.price)return 'Join quote changed; review and click again';
+ if(body.entry_type!=='LMT'||body.side!==pending.side||body.entry!==pending.price||(pending.id==='mid'?optionMidPrice():packet[pending.id])!==pending.price||(pending.id==='mid'&&previewSide!==pending.side))return 'Join quote changed; review and click again';
  return '';
 }
 function renderDailyPnL(){
@@ -613,7 +629,8 @@ $('protection-dismiss').onclick=()=>$('protection-editor').close();
 function protectionCurrent(){return protectionContext&&protectionContext.cid===cid&&protectionContext.ref===state.order_ref&&protectionContext.epoch===epoch&&protectionContext.groupID===groupID&&protectionContext.quantity===Math.abs(state.position)&&protectionContext.entry===state.entry;}
 $('protection-form').onsubmit=e=>{e.preventDefault();if(!protectionCurrent())return log('Order changed; reopen TP / SL.');const tp=$('position-tp-enabled').checked?positionTP():null,sl=$('position-sl-enabled').checked?positionTarget('sl'):null;if([tp,sl].some(v=>v!==null&&(!Number.isFinite(v)||v<=0)))return log('Enter valid enabled protection prices.');$('protection-editor').close();write({action:'set_protection',expected_ref:protectionContext.ref,expected_snapshot:protectionContext.snapshot,confirm_replace_protection:true,tp,sl});};
 $('protection-remove').onclick=()=>{if(!protectionCurrent())return;const ref=protectionContext.ref;$('protection-editor').close();action({action:'cancelProtectionPreview',con_id:cid,expected_ref:ref});};
-for(const [id,side] of [['preview-buy',1],['preview-sell',-1]])$(id).onclick=()=>{if(tradingLocked||!cid||busy||switchingChart||state.active)return;entry=entry||packet.bars?.at(-1)?.close||0;previewSide=side;previewRevision++;sync();};
+for(const [id,side] of [['preview-buy',1],['preview-sell',-1]])$(id).onclick=()=>{if(tradingLocked||!cid||busy||switchingChart||state.active)return;entry=entry||packet.bars?.at(-1)?.close||0;previewSide=side;midDirectionContext=JSON.stringify(marketContext());previewRevision++;sync();};
+$('mid').onclick=()=>beginJoin('mid',previewSide);
 for(const [id,side] of [['bid',1],['ask',-1]])$(id).onclick=()=>beginJoin(id,side);
 $('quantity').addEventListener('input',()=>{quantityEdited=true;});
 $('adjustment-quantity').oninput=sync;

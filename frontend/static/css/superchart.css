@@ -323,3 +323,7 @@ body>header #settings{display:none!important}
 #trade #trading-lock[aria-pressed=true]{color:#d99a39;background:#d99a391a}
 #trade #trading-lock:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .trade-heading #daily-pnl{margin-left:auto}
+
+.join-actions button[hidden]{display:none}.join-actions #mid{grid-column:1 / -1;width:100%;color:var(--fg);font-weight:600}
+
+#preview-buy.mid-selected,#preview-sell.mid-selected{border-color:currentColor;box-shadow:inset 0 0 0 1px currentColor;background:color-mix(in srgb,currentColor 10%,var(--panel))}
