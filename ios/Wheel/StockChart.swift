@@ -493,6 +493,11 @@ struct StockChartView: View {
             }
             if body["source"] as? String == "join" {
                 guard let revision = body["join_revision"] as? Int, revision == joinRevision, joinSubmissionGate.accept(revision) else { return }
+                if chartType == "OPT" {
+                    guard let price = joinMidPrice, body["side"] as? Int == previewSide,
+                          body["entry"] as? Double == price, body["quantity"] as? Double == validQuantity,
+                          body["entry_type"] as? String == "LMT" else { paperMessage = "Quote or direction changed. Review and click Join Mid again."; return }
+                }
             }
             if let type = body["entry_type"] as? String, ["LMT", "STP"].contains(type) { entryType = type }
             if let price = body["entry"] as? Double { entry = String(price) }
@@ -563,6 +568,7 @@ struct StockChartView: View {
     @State private var showInfo = false
     @State private var showClosePreview = false
     @State private var previewSide = 0
+    @State private var midDirectionContext = ""
     @State private var previewRevision = 0
     @State private var beRevision = 0
     @State private var beApplied = false
@@ -1005,7 +1011,7 @@ struct StockChartView: View {
         guard !paperActive, !paperBusy else { return }
         let price = validEntry > 0 ? validEntry : ((packet["bars"] as? [[String: Any]])?.last?["close"] as? Double ?? 0)
         guard price > 0 else { return }
-        entry = String(price); previewSide = side; previewRevision += 1
+        entry = String(price); previewSide = side; midDirectionContext = joinMidContext; previewRevision += 1
     }
     @State private var adjustmentAction = ""
     @State private var adjustmentQuantity = 1
@@ -1106,6 +1112,16 @@ struct StockChartView: View {
     private var context: String { "\(store.demo)-\(store.address)-\(chartID ?? 0)-\(interval)-\(session)-\(phase == .active)-\(visible)" }
     private var validEntry: Double { Double(entry).flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 0 }
     private var validQuantity: Double { Double(quantity).flatMap { $0.isFinite && $0 > 0 && (paperActive || $0 <= Double(quantityLimit)) && $0.rounded(.towardZero) == $0 ? $0 : nil } ?? 0 }
+    private var joinMidContext: String { "\(context)-\(store.trading.accountEpoch ?? "")-\(selectedOrderGroup)" }
+    private var midDirectionSelected: Bool { [-1, 1].contains(previewSide) && midDirectionContext == joinMidContext }
+    private var joinMidPrice: Double? {
+        guard visible, phase == .active, midDirectionSelected else { return nil }
+        return TradeRules.optionJoinMid(packet: packet, conID: chartID ?? 0, epoch: store.trading.accountEpoch, received: received)
+    }
+    private func joinMid() {
+        guard !tradingLocked, paperEnabled, !paperBusy, !paperActive, validQuantity > 0, let price = joinMidPrice else { return }
+        entryType = "LMT"; entry = String(price); joinSide = previewSide; joinRevision += 1
+    }
     private func joinPrice(_ side: String) -> Double? {
         guard visible, phase == .active, let received, Date().timeIntervalSince(received) < 3,
               let expires = packet["quote_expires_at"] as? Double,
@@ -1118,6 +1134,40 @@ struct StockChartView: View {
         guard let price = joinPrice(side) else { return }
         entryType = "LMT"; entry = String(price)
         joinSide = side == "bid" ? 1 : -1; joinRevision += 1
+    }
+    private func loadEarlierHistory() async {
+        guard visible, phase == .active, !store.demo, let cid = chartID, let expectedEpoch = store.trading.accountEpoch, !expectedEpoch.isEmpty,
+              interval >= 1440 || (interval == 480 && session == "rth") else { return }
+        let expectedContext = context, expectedKey = cacheKey
+        var readyAt: Date?
+        while !Task.isCancelled {
+            guard context == expectedContext, store.trading.accountEpoch == expectedEpoch else { return }
+            let ready = received != nil && packet["con_id"] as? Int == cid && packet["interval"] as? Int == interval && packet["session"] as? String == session && packet["account_epoch"] as? String == expectedEpoch && !(packet["bars"] as? [[String: Any]] ?? []).isEmpty
+            if ready, packet["history_expanded"] as? Bool == true, packet["history_refresh_due"] as? Bool != true {
+                if interval != 480 { return }
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                continue
+            }
+            if !ready { readyAt = nil }
+            if ready && readyAt == nil { readyAt = .now }
+            if let readyAt, Date().timeIntervalSince(readyAt) >= 2, !paperBusy, !store.trading.busy {
+                do {
+                    let result = try await store.trading.get("api/portfolio/stock-chart/\(cid)", base: store.address,
+                        query: [URLQueryItem(name: "interval", value: String(interval)), URLQueryItem(name: "session", value: session), URLQueryItem(name: "defer_history", value: "1"), URLQueryItem(name: "expand_history", value: "1")])
+                    try Task.checkCancellation()
+                    guard context == expectedContext, store.trading.accountEpoch == expectedEpoch, result["con_id"] as? Int == cid, result["account_epoch"] as? String == expectedEpoch else { return }
+                    if let server = result["server_time"] as? Double, server >= (packet["server_time"] as? Double ?? 0) {
+                        packet = result; received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970
+                        RecentStockCharts.save(packet, key: expectedKey)
+                    }
+                    if result["history_expanded"] as? Bool == true && interval != 480 { return }
+                } catch { if Task.isCancelled { return } }
+                // Optional history may wait; current candles and order state keep refreshing.
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            } else {
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+            }
+        }
     }
     private var distancePresets: [String] {
         switch templateType {
@@ -1275,12 +1325,18 @@ struct StockChartView: View {
                 VStack(spacing: 6) {
                     if positionSize == 0 {
                     HStack(spacing: 8) {
-                        Button { makePreview(side: 1) } label: { Text("Buy").frame(maxWidth: .infinity, minHeight: 30) }.tint(.blue)
-                        Button { makePreview(side: -1) } label: { Text("Sell").frame(maxWidth: .infinity, minHeight: 30) }.tint(.red)
+                        Button { makePreview(side: 1) } label: { Text("Buy").frame(maxWidth: .infinity, minHeight: 30) }.tint(.blue).overlay(RoundedRectangle(cornerRadius: 8).stroke(chartType == "OPT" && midDirectionSelected && previewSide == 1 ? Color.blue : Color.clear, lineWidth: 2))
+                        Button { makePreview(side: -1) } label: { Text("Sell").frame(maxWidth: .infinity, minHeight: 30) }.tint(.red).overlay(RoundedRectangle(cornerRadius: 8).stroke(chartType == "OPT" && midDirectionSelected && previewSide == -1 ? Color.red : Color.clear, lineWidth: 2))
                     }.disabled(paperBusy || paperActive)
+                    if chartType == "OPT" {
+                        Button { joinMid() } label: { Text("Join Mid").frame(maxWidth: .infinity, minHeight: 30) }
+                            .tint(.primary).disabled(joinMidPrice == nil || !paperEnabled || paperBusy || paperActive || tradingLocked)
+                            .accessibilityHint(midDirectionSelected ? "Submit selected direction at midpoint" : "Choose Buy or Sell first")
+                    } else {
                     HStack(spacing: 8) {
                         Button { join("bid") } label: { Text("Join Bid").frame(maxWidth: .infinity, minHeight: 30) }.tint(.green).disabled(joinPrice("bid") == nil || paperBusy || paperActive)
                         Button { join("ask") } label: { Text("Join Ask").frame(maxWidth: .infinity, minHeight: 30) }.tint(Color(red: 239.0 / 255, green: 144.0 / 255, blue: 144.0 / 255)).disabled(joinPrice("ask") == nil || paperBusy || paperActive)
+                    }
                     }
                     }
                     if positionSize > 0 {
@@ -1526,7 +1582,7 @@ struct StockChartView: View {
             NavigationStack {
                 Form {
                     Section("Entry reference") { TextField("Price", text: $entry).keyboardType(.decimalPad) }
-                    Text(paperEnabled ? "IB Paper: Join Bid / Ask submits Entry and the enabled TP / SL exits. Dragging TP / SL sends an amendment on release. New futures brackets keep protection while Trim / Close sends a limit exit at bid / ask; a moving market may leave the exit working." : "TP / SL preview only · drag the labels. No orders are sent.")
+                    Text(paperEnabled && chartType == "OPT" ? "Choose Buy or Sell, then Join Mid to submit a limit entry at the current midpoint. The price is aligned to the contract increment. Fresh quotes are required." : paperEnabled ? "IB Paper: Join Bid / Ask submits Entry and the enabled TP / SL exits. Dragging TP / SL sends an amendment on release. New futures brackets keep protection while Trim / Close sends a limit exit at bid / ask; a moving market may leave the exit working." : "TP / SL preview only · drag the labels. No orders are sent.")
                     Text("Prices and market-data permissions come from the connected IB account.")
                     Text("ETH includes available extended-hours data. Time: New York.")
                     Text("TradingView Lightweight Charts™ · Copyright © 2025 TradingView, Inc.")
@@ -1672,6 +1728,7 @@ struct StockChartView: View {
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
         }
+        .task(id: "earlier-history-" + context + (store.trading.accountEpoch ?? "")) { await loadEarlierHistory() }
         .task(id: context) {
             // Scene transitions cancel transport, not the chart or its viewport.
             // A fresh stream must validate quotes again before Join is enabled.
@@ -1717,7 +1774,7 @@ struct StockChartView: View {
                         }
                     }
                     let result = try await store.trading.get("api/portfolio/stock-chart/\(conID)", base: store.address,
-                        query: [URLQueryItem(name: "interval", value: String(interval)), URLQueryItem(name: "session", value: session)])
+                        query: [URLQueryItem(name: "interval", value: String(interval)), URLQueryItem(name: "session", value: session), URLQueryItem(name: "defer_history", value: "1")])
                     try Task.checkCancellation()
                     guard context == requestContext else { return }
                     guard result["con_id"] as? Int == conID, result["bars"] is [[String: Any]] else { throw AppError.message("Invalid chart response") }

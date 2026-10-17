@@ -348,7 +348,7 @@ function renderPendingAdds(can){
  list.hidden=!rows.length;
 }
 function applyState(value){window.wheelTradeSounds?.observe(`${epoch}:${cid}:${groupID}`,value);renderGroups(value);const completed=state.active&&!value.active&&['canceled','done'].includes(value.status);state=value;received=Date.now();if(value.active){if(value.position)$('quantity').value=Math.abs(value.position);if(value.tif)$('tif').value=value.tif;if(value.entry_type)$('type').value=value.entry_type;if(value.entry_editable&&!value.position)$('quantity').value=value.orders?.filter(o=>o.role.split('_')[0]==='entry').reduce((sum,o)=>sum+o.quantity,0)||1;}if(value.active&&value.entry>0)entry=value.entry;else if(completed){entry=0;resetNewQuantity();}sync();}
-const historyCaches=new Map();let historyLoading=false;const historyRetry=new Map();
+const historyCaches=new Map();let historyLoading=false,historyRead=null;const historyRetry=new Map();
 function historyKey(){return `${epoch}:${cid}:${interval}:${session}`;}
 function mergeHistory(bars){
  const key=historyKey(),saved=historyCaches.get(key)||[];let merged;
@@ -360,9 +360,10 @@ function mergeHistory(bars){
  }else{const rows=new Map(saved.map(b=>[b.time,b]));for(const b of bars.bars||[])rows.set(b.time,b);merged=[...rows.values()].sort((a,b)=>a.time-b.time).slice(-20000);}
  historyCaches.set(key,merged);if(historyCaches.size>12)historyCaches.delete(historyCaches.keys().next().value);return {...bars,bars:merged,mode:'snapshot'};
 }
-async function loadHistory(body){if(historyLoading||busy||body.con_id!==cid||body.interval!==interval||body.session!==session||!epoch)return;const token=generation,key=historyKey(),requestKey=key+':'+body.before;if(Date.now()<(historyRetry.get(requestKey)||0))return;if((historyCaches.get(key)?.length||0)>=20000){$('market-status').textContent='History limit reached · use a longer interval';return;}historyLoading=true;historyRetry.set(requestKey,Date.now()+30000);$('market-status').textContent='Loading earlier history…';try{const page=await api(`portfolio/stock-chart-history/${cid}?interval=${interval}&session=${session}&before=${body.before}`);if(token!==generation||key!==historyKey())return;const rows=new Map((page.bars||[]).map(b=>[b.time,b]));for(const b of packet.bars||[])rows.set(b.time,b);packet={...packet,mode:'snapshot',bars:[...rows.values()].sort((a,b)=>a.time-b.time)};historyCaches.set(key,packet.bars);frame.contentWindow.receive(packet);$('market-status').textContent=page.bars?.length?'Earlier history loaded':'No earlier bars returned; retry later';}catch(error){if(token===generation&&key===historyKey()){$('market-status').hidden=false;$('market-status').textContent=error.message;if(error.retryableReadBusy){historyRetry.set(requestKey,Date.now()+2000);setTimeout(()=>{if(token===generation&&key===historyKey())void loadHistory(body);},2100);}}}finally{historyLoading=false;}}
+async function loadHistory(body){if(interval===480&&session==='rth'&&!packet.history_expansion_attempted)return;if(historyLoading||busy||body.con_id!==cid||body.interval!==interval||body.session!==session||!epoch)return;const token=generation,key=historyKey(),requestKey=key+':'+body.before;if(Date.now()<(historyRetry.get(requestKey)||0))return;if((historyCaches.get(key)?.length||0)>=20000){$('market-status').textContent='History limit reached · use a longer interval';return;}historyLoading=true;const controller=historyRead=new AbortController();historyRetry.set(requestKey,Date.now()+30000);$('market-status').textContent='Loading earlier history…';try{const page=await api(`portfolio/stock-chart-history/${cid}?interval=${interval}&session=${session}&before=${body.before}`,undefined,controller.signal);if(token!==generation||key!==historyKey())return;const rows=new Map((page.bars||[]).map(b=>[b.time,b]));for(const b of packet.bars||[])rows.set(b.time,b);packet={...packet,mode:'snapshot',bars:[...rows.values()].sort((a,b)=>a.time-b.time)};historyCaches.set(key,packet.bars);frame.contentWindow.receive(packet);$('market-status').textContent=page.bars?.length?'Earlier history loaded':'No earlier bars returned; retry later';}catch(error){if(token===generation&&key===historyKey()){$('market-status').hidden=false;$('market-status').textContent=error.message;if(error.retryableReadBusy){historyRetry.set(requestKey,Date.now()+2000);setTimeout(()=>{if(token===generation&&key===historyKey())void loadHistory(body);},2100);}}}finally{if(historyRead===controller){historyLoading=false;historyRead=null;}}}
 let marketBusy=null,marketRevision=0,pnlBusy=null,lastFallback=0,lastPnL=0,quoteConfigKey="";
-function cancelMarketReads(){marketBusy?.abort();marketBusy=null;legacyMarket?.abort();legacyMarket=null;legacyStarted=0;lastFallback=0;marketRevision++;}
+let expansionRead=null;
+function cancelMarketReads(){historyRead?.abort();historyRead=null;historyLoading=false;expansionRead?.abort();expansionRead=null;marketBusy?.abort();marketBusy=null;legacyMarket?.abort();legacyMarket=null;legacyStarted=0;lastFallback=0;marketRevision++;}
 const marketContext=()=>({cid,interval,session,epoch,generation});
 const currentMarket=c=>JSON.stringify(c)===JSON.stringify(marketContext());
 const marketStream=new WheelChartStream({receive:(bars,context)=>{if(currentMarket(context)){marketRevision++;applyMarket(bars,true);}},status:message=>{if(!switchingChart&&!marketReadError)$('market-status').textContent=message;}});
@@ -389,6 +390,13 @@ function applyMarket(bars,push=false){
  syncJoinControls();clearAccountNotice();
  // Hidden tabs throttle timers/rAF; accepted SSE packets also update browser chrome.
  updateTabTitle();
+}
+async function refreshExtendedHistory(){
+ if(!(interval>=1440||(interval===480&&session==='rth'))||!packet.bars?.length||(packet.history_expanded&&!packet.history_refresh_due)||busy||switchingChart||expansionRead)return;
+ const context=marketContext(),controller=expansionRead=new AbortController();
+ try{const bars=await chartLayout.expandHistory(context,controller.signal);if(bars&&currentMarket(context))applyMarket(bars);}
+ catch{/* Optional earlier history never blocks the current chart. */}
+ finally{if(expansionRead===controller)expansionRead=null;}
 }
 let legacyMarket=null,legacyStarted=0,legacyContext=null;
 async function refreshLegacyMarket(context){
@@ -417,7 +425,7 @@ async function refreshMarket({full=false}={}){
     return;
    }catch(error){if(request.signal.aborted)throw error;if(!marketStream.healthy())refreshLegacyMarket(context);return;}
   }
-  const bars=await api(`portfolio/stock-chart/${context.cid}?interval=${context.interval}&session=${context.session}&fast=1`,undefined,request.signal);
+  const bars=await api(`portfolio/stock-chart/${context.cid}?interval=${context.interval}&session=${context.session}&fast=1&defer_history=1`,undefined,request.signal);
   if(marketBusy===request&&currentMarket(context)&&revision===marketRevision&&!marketStream.healthy())applyMarket(bars);
  }catch(error){if(marketBusy===request&&!request.signal.aborted&&currentMarket(context)&&revision===marketRevision&&!marketStream.healthy()){$('market-status').hidden=false;$('market-status').textContent=error.message;}}finally{clearTimeout(timeout);if(marketBusy===request)marketBusy=null;}
 }
@@ -667,6 +675,7 @@ for(const b of $('intervals').children)b.classList.toggle('active',Number(b.data
 setInterval(()=>{sync();refresh();},2000);
 setInterval(ensureMarket,250);
 setInterval(refreshEMA,2000);
+setInterval(refreshExtendedHistory,2000);
 setInterval(refreshExecutions,2000);
 setInterval(refreshVolatility,2000);
 // A hidden tab keeps its bounded shared quote transport. Page exit still closes it.

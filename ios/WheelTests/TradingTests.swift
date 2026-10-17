@@ -223,6 +223,20 @@ final class TradingTests: XCTestCase {
         XCTAssertEqual(TradeRules.chartTIFs(securityType: "STK", currency: "HKD", side: 1, entryType: "LMT"), ["DAY", "GTC"])
     }
 
+    func testOptionJoinMidRequiresFreshExactQuoteAndConfirmedIncrements() {
+        let now = Date()
+        let quote: [String: Any] = ["security_type": "OPT", "con_id": 7, "account_epoch": "mock", "server_time": 100.0, "quote_expires_at": 103.0, "bid": 0.94, "ask": 0.97, "price_rules": [["low": 0.0, "increment": 0.01]]]
+        func price(_ patch: [String: Any] = [:], age: Double = 0) -> Double? {
+            TradeRules.optionJoinMid(packet: quote.merging(patch) { _, new in new }, conID: 7, epoch: "mock", received: now.addingTimeInterval(-age), now: now)
+        }
+        XCTAssertEqual(price(), 0.96)
+        for patch: [String: Any] in [["bid": 0.0], ["ask": 0.9], ["bid": Double.nan], ["account_epoch": "other"], ["con_id": 8], ["quote_expires_at": 99.0], ["price_rules": []], ["bid": 0.945]] {
+            XCTAssertNil(price(patch))
+        }
+        XCTAssertNil(price(age: 3)); XCTAssertNil(price(age: -1))
+        XCTAssertEqual(price(["bid": 1.0, "ask": 1.0]), 1.0)
+    }
+
     func testJoinBridgeReplayCannotResubmitAfterWebViewReload() {
         var gate = ChartJoinGate()
         XCTAssertFalse(gate.accept(0))

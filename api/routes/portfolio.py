@@ -165,7 +165,8 @@ def get_stock_chart(con_id):
         if con_id <= 0 or minutes not in (1, 3, 5, 10, 15, 60, 480, 1440, 10080, 43200):
             return _no_store_json({'error': 'Invalid stock chart parameters'}, 400)
         connection = portfolio_service._ensure_connection()
-        result = stock_chart.snapshot(connection, con_id, minutes, request.args.get("session", "rth"), fast=True)
+        result = stock_chart.snapshot(connection, con_id, minutes, request.args.get("session", "rth"), fast=True,
+            defer_history=request.args.get("defer_history") == "1", expand_history=request.args.get("expand_history") == "1")
         # Quote identity must not depend on requesting optional P&L.
         from api.routes.account import epoch
         result = dict(result, account_epoch=epoch())

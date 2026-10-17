@@ -305,6 +305,73 @@ class StockChartTests(unittest.TestCase):
                 conn.ib.placeOrder.assert_not_called()
             finally:close_test_loop()
 
+    def test_deferred_eight_hour_first_paint_and_warm_switch_do_not_fetch_older_history(self):
+        from unittest.mock import patch
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn, ticker = self.connection(); feed = StockChart()
+        try:
+            conn.ib.reqHistoricalData.return_value = [S(date=datetime(2026,10,2,14,tzinfo=timezone.utc),open=10,high=11,low=9,close=10)]
+            first = feed.snapshot(conn, 7, 480, fast=True, defer_history=True)
+            self.assertEqual(conn.ib.reqHistoricalData.call_count, 1)
+            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4], ('2 D', '1 min'))
+            self.assertTrue(first['bars']); self.assertFalse(first['history_expanded'])
+            conn.ib.reqHistoricalData.reset_mock()
+            with patch('api.services.chart_contracts.contracts.resolve', side_effect=AssertionError('Warm chart must reuse exact contract')):
+                warm = feed.snapshot(conn, 7, 480, fast=True, defer_history=True)
+            conn.ib.reqHistoricalData.assert_not_called()
+            self.assertEqual(warm['bars'], first['bars'])
+            conn.ib.reqHistoricalData.return_value = [S(date=datetime(2026,4,1,14,tzinfo=timezone.utc), open=3, high=4, low=2, close=3)]
+            expanded = feed.snapshot(conn, 7, 480, fast=True, defer_history=True, expand_history=True)
+            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4], ('6 M', '30 mins'))
+            self.assertEqual(conn.ib.reqHistoricalData.call_count, 1)
+            self.assertTrue(expanded['history_expanded'])
+            self.assertGreater(len(expanded['bars']), len(first['bars']))
+            count = conn.ib.reqHistoricalData.call_count
+            again = feed.snapshot(conn, 7, 480, fast=True, defer_history=True)
+            feed.snapshot(conn, 7, 480, fast=True, defer_history=True, expand_history=True)
+            self.assertEqual(again['bars'], expanded['bars'])
+            self.assertEqual(conn.ib.reqHistoricalData.call_count, count)
+            feed.active['rth_eight_retry'] = 0
+            self.assertTrue(feed.snapshot(conn, 7, 480, fast=True, defer_history=True)['history_refresh_due'])
+            conn.ib.reqHistoricalData.return_value = [S(date=datetime(2026,9,1,14,tzinfo=timezone.utc),open=5,high=6,low=4,close=5)]
+            refreshed = feed.snapshot(conn,7,480,fast=True,defer_history=True,expand_history=True)
+            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4],('1 M','30 mins'))
+            self.assertEqual(refreshed['bars'][0],expanded['bars'][0])
+            self.assertFalse(refreshed['history_refresh_due'])
+
+            conn.ib.placeOrder.assert_not_called()
+        finally: feed.stop(); close_test_loop()
+
+    def test_calendar_periods_load_recent_then_expand_without_discarding_on_failure(self):
+        for minutes, recent, full, size in [(1440,'1 M','1 Y','1 day'),(10080,'6 M','5 Y','1 week'),(43200,'2 Y','10 Y','1 month')]:
+            asyncio.set_event_loop(asyncio.new_event_loop())
+            conn, ticker = self.connection(); feed = StockChart()
+            try:
+                feed.snapshot(conn,7,5)
+                initial = [S(date=datetime(2026,9,1).date(),open=10,high=12,low=9,close=11)]
+                conn.ib.reqHistoricalData.return_value = initial
+                conn.ib.reqHistoricalData.reset_mock()
+                first = feed.snapshot(conn,7,minutes,fast=True,defer_history=True)
+                self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4], (recent,size))
+                self.assertEqual(conn.ib.reqHistoricalData.call_count,1)
+                self.assertFalse(first['history_expanded'])
+                conn.ib.reqHistoricalData.return_value=[]
+                failed = feed.snapshot(conn,7,minutes,fast=True,defer_history=True,expand_history=True)
+                self.assertEqual(failed['bars'],first['bars'])
+                self.assertIs(feed.active['higher'][(minutes,'rth')],initial)
+                self.assertFalse(any(call.args[0] is initial for call in conn.ib.cancelHistoricalData.call_args_list))
+                feed.active['higher_retry'].clear()
+                conn.ib.reqHistoricalData.return_value=[S(date=datetime(2025,9,1).date(),open=8,high=10,low=7,close=9)]+initial
+                expanded = feed.snapshot(conn,7,minutes,fast=True,defer_history=True,expand_history=True)
+                self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4],(full,size))
+                self.assertTrue(expanded['history_expanded']);self.assertEqual(len(expanded['bars']),2)
+                self.assertTrue(any(call.args[0] is initial for call in conn.ib.cancelHistoricalData.call_args_list))
+                count=conn.ib.reqHistoricalData.call_count
+                feed.snapshot(conn,7,minutes,fast=True,defer_history=True)
+                self.assertEqual(conn.ib.reqHistoricalData.call_count,count)
+                conn.ib.placeOrder.assert_not_called()
+            finally:feed.stop();close_test_loop()
+
     def test_calendar_history_cached_and_canceled(self):
         asyncio.set_event_loop(asyncio.new_event_loop())
         conn,ticker=self.connection();feed=StockChart()
@@ -368,6 +435,14 @@ class StockChartTests(unittest.TestCase):
             self.assertEqual(len(expanded['bars']), 2)
             self.assertEqual(expanded['bars'][0]['high'], 4)
             self.assertEqual(expanded['bars'][-1]['close'], 2)
+            feed.active['rth_eight_retry'] = 0
+            conn.ib.reqHistoricalData.return_value = [S(date=datetime(2026,10,1,14,tzinfo=timezone.utc), open=5, high=6, low=4, close=5)]
+            refreshed = feed.snapshot(conn, 7, 480)
+            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4], ('1 M', '30 mins'))
+            self.assertEqual(len(refreshed['bars']), 3)
+            self.assertEqual(refreshed['bars'][0]['high'], 4)
+            self.assertEqual(refreshed['bars'][-1]['close'], 2)
+
 
             conn.ib.placeOrder.assert_not_called()
         finally:

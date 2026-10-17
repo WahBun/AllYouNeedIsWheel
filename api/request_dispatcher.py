@@ -32,6 +32,7 @@ def install_api_dispatcher(app):
 
     lock = RLock()
     pending_reads = {}
+    pending_jobs = set()
     original_dispatch = app.dispatch_request
     app.extensions['ib_api_executor'] = executor
     stop_background = Event()
@@ -100,6 +101,8 @@ def install_api_dispatcher(app):
         from flask import g
         request_id = getattr(g, 'wheel_request_id', 'untracked')
         queued_at = time.monotonic()
+        optional_history = (request.method == 'GET' and request.endpoint == 'portfolio.get_stock_chart'
+                            and request.args.get('expand_history') == '1')
         logger = logging.getLogger('autotrader.api')
         if request.method == 'GET':
             args = tuple(sorted(
@@ -117,7 +120,7 @@ def install_api_dispatcher(app):
         @copy_current_request_context
         def run():
             started = time.monotonic()
-            if started - queued_at >= 10:
+            if started - queued_at >= (2 if optional_history else 10):
                 response = expired_response()
                 return response.get_data(), response.status_code, list(response.headers)
             logger.debug('ib_job_start id=%s queue_ms=%.1f', request_id, (started - queued_at) * 1000)
@@ -139,7 +142,7 @@ def install_api_dispatcher(app):
                 logger.debug('ib_job_shared id=%s owner=%s', request_id, getattr(future, 'wheel_job_id', 'untracked'))
             if future is None:
                 # Capacity counts IB jobs, not clients sharing the same read.
-                if not acquire_slot(key is not None):
+                if (optional_history and pending_jobs) or not acquire_slot(key is not None):
                     logger.warning('ib_queue_full id=%s', request_id)
                     response = jsonify(status='rejected', code='QUEUE_FULL', error='IB requests are busy; please retry shortly')
                     response.status_code = 503
@@ -151,12 +154,14 @@ def install_api_dispatcher(app):
                 except Exception:
                     release_slot(key is not None)
                     raise
+                pending_jobs.add(future)
                 if key is not None:
                     pending_reads[key] = future
 
                 def completed(done):
                     # Jobs retain their slots even when HTTP clients disconnect.
                     with lock:
+                        pending_jobs.discard(done)
                         if key is not None and pending_reads.get(key) is done:
                             pending_reads.pop(key, None)
                         release_slot(key is not None)

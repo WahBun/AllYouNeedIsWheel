@@ -201,15 +201,44 @@ class StockChart:
         else:
             asyncio.get_event_loop().call_later(30, self.expire, state)
 
-    def snapshot(self, conn, con_id, minutes, session="rth", fast=False):
+    def eight_hour_packet(self, state):
+        contract = state['contract']
+        higher_bars = None
+        older = state.get('rth_eight_history', [])
+        source = older + state['bars']
+        if source:
+            first = datetime.fromtimestamp(min(b['time'] for b in source),ZoneInfo('America/New_York')).date()
+            last = datetime.fromtimestamp(max(b['time'] for b in source),ZoneInfo('America/New_York')).date()
+            cached = state.get('rth_eight_calendar')
+            if cached and cached[:2] == (first,last): windows = cached[2]
+            else:
+                windows = session_windows(first.isoformat(),last.isoformat(),cme_regular(contract))
+                state['rth_eight_calendar']=(first,last,windows)
+            combined = {b['time']:b for b in aggregate(older,480,windows)}
+            for bar in aggregate(state['bars'],480,windows):
+                old=combined.get(bar['time'])
+                if old:
+                    combined[bar['time']]=unknown_volume(dict(old,high=max(old['high'],bar['high']),low=min(old['low'],bar['low']),close=bar['close']))
+                else: combined[bar['time']]=bar
+            higher_bars=sorted(combined.values(),key=lambda b:b['time'])
+        packet=self.packet(state,480,'rth',higher_bars)
+        packet['history_expanded'] = bool(state.get('rth_eight_expanded'))
+        packet['history_refresh_due'] = bool(state.get('rth_eight_expanded')) and time.monotonic() >= state.get('rth_eight_retry', 0)
+        packet['history_expansion_attempted'] = bool(state.get('rth_eight_expand_retry'))
+        packet['data_notice']='8h RTH · up to 6 months of intraday trade history' if state.get('rth_eight_expanded') else '8h RTH · recent intraday trade history; earlier bars load separately'
+        return packet
+
+    def snapshot(self, conn, con_id, minutes, session="rth", fast=False, defer_history=False, expand_history=False):
         if minutes not in (1, 3, 5, 10, 15, 60, 480, 1440, 10080, 43200) or session not in ("rth", "all"):
             raise ValueError('Unsupported chart interval')
         if not conn or not conn.is_connected():
             self.stop()
             raise ValueError('Chart connection unavailable')
         from api.services.chart_contracts import contracts
-        contract = contracts.resolve(conn, con_id)
         state = self.states.get(con_id)
+        if expand_history and state is None:
+            raise ValueError('Load the current chart before earlier history')
+        contract = state['contract'] if state and state['conn'] is conn and state['client'] is conn.ib.client else contracts.resolve(conn, con_id)
         if state and (state['conn'] is not conn or state['client'] is not conn.ib.client
                       or conn.ib.ticker(state['contract']) is not state['ticker']):
             self.stop_state(state)
@@ -220,6 +249,12 @@ class StockChart:
                 raise ValueError('Chart contract capacity reached; close an unused chart first')
             self.stop_state(min(idle, key=lambda item: item['used']))
         self.active = state
+        if expand_history and (not (minutes >= 1440 or (minutes == 480 and session == 'rth')) or state is None):
+            raise ValueError('Load the current chart before earlier history')
+        if defer_history and not expand_history and state is not None and minutes == 480 and session == 'rth':
+            state['used'] = time.monotonic()
+            conn.ib.sleep(.005)
+            return self.eight_hour_packet(state)
         if fast and state is not None and minutes in (1,3,5,10,15,60,480) and not (minutes==480 and session=='rth'):
             # Resume quotes without historical backfill; metadata loads independently.
             state['used']=time.monotonic()
@@ -363,7 +398,7 @@ class StockChart:
                 state['minute_history']=historical;state['history_handler']=on_history
                 historical.updateEvent += on_history
             asyncio.get_event_loop().call_later(30, self.expire, state)
-        if not initial and not state.get('backfilled') and time.monotonic() >= state.get('backfill_retry', 0):
+        if not (defer_history and (minutes >= 1440 or (minutes == 480 and session == 'rth'))) and not initial and not state.get('backfilled') and time.monotonic() >= state.get('backfill_retry', 0):
             state['backfill_retry'] = time.monotonic() + 30
             history = conn.ib.reqHistoricalData(contract, '', '5 D', '1 min', 'TRADES',
                 useRTH=False, formatDate=2, keepUpToDate=False, timeout=2 if contract.secType == 'OPT' else 5)
@@ -395,9 +430,13 @@ class StockChart:
         if minutes == 480 and session == 'rth':
             # Intraday bars have session-open timestamps and trade closes. Daily
             # futures bars can contain settlement prices and are not an 8h source.
-            if time.monotonic() >= state.get('rth_eight_retry', 0):
-                state['rth_eight_retry'] = time.monotonic() + 60
-                history = conn.ib.reqHistoricalData(contract, '', '1 M', rth_source_size(minutes) if cme_regular(contract) else '30 mins', 'TRADES',
+            if defer_history and not expand_history:
+                return self.eight_hour_packet(state)
+            expanding = expand_history and not state.get('rth_eight_expanded')
+            retry_key = 'rth_eight_expand_retry' if expanding else 'rth_eight_retry'
+            if time.monotonic() >= state.get(retry_key, 0):
+                state[retry_key] = time.monotonic() + (30 if expanding else 60)
+                history = conn.ib.reqHistoricalData(contract, '', '6 M' if expanding else '1 M', rth_source_size(minutes) if cme_regular(contract) else '30 mins', 'TRADES',
                     useRTH=not cme_regular(contract), formatDate=2, keepUpToDate=False, timeout=2 if contract.secType == 'OPT' else 5)
                 older = []
                 for bar in history:
@@ -407,44 +446,40 @@ class StockChart:
                     o,h,l,c = values
                     if l <= min(o,c) <= max(o,c) <= h:
                         older.append(dict(time=int(bar.date.timestamp()),open=o,high=h,low=l,close=c,**historical_volume(bar)))
-                if older: state['rth_eight_history'] = sorted(older,key=lambda b:b['time'])
-            older = state.get('rth_eight_history', [])
-            source = older + state['bars']
-            if source:
-                first = datetime.fromtimestamp(min(b['time'] for b in source),ZoneInfo('America/New_York')).date()
-                last = datetime.fromtimestamp(max(b['time'] for b in source),ZoneInfo('America/New_York')).date()
-                cached = state.get('rth_eight_calendar')
-                if cached and cached[:2] == (first,last): windows = cached[2]
-                else:
-                    windows = session_windows(first.isoformat(),last.isoformat(),cme_regular(contract))
-                    state['rth_eight_calendar']=(first,last,windows)
-                combined = {b['time']:b for b in aggregate(older,minutes,windows)}
-                for bar in aggregate(state['bars'],minutes,windows):
-                    old=combined.get(bar['time'])
-                    if old:
-                        combined[bar['time']]=unknown_volume(dict(old,high=max(old['high'],bar['high']),low=min(old['low'],bar['low']),close=bar['close']))
-                    else: combined[bar['time']]=bar
-                higher_bars=sorted(combined.values(),key=lambda b:b['time'])
-            packet=self.packet(state,minutes,session,higher_bars)
-            packet['data_notice']='8h RTH · 1 month of intraday trade history'
-            return packet
+                if older:
+                    merged = {b['time']: b for b in state.get('rth_eight_history', [])}
+                    merged.update({b['time']: b for b in older})
+                    state['rth_eight_history'] = sorted(merged.values(),key=lambda b:b['time'])
+                    if expanding:
+                        state['rth_eight_expanded'] = True
+                        state['rth_eight_retry'] = time.monotonic() + 60
+            return self.eight_hour_packet(state)
         if history_minutes >= 1440:
             cache = state.setdefault('higher', {})
             cache_key = (history_minutes, session)
-            if cache_key not in cache:
+            expanded = state.setdefault('higher_expanded', set())
+            full = expand_history or not defer_history
+            if cache_key not in cache or (expand_history and cache_key not in expanded):
                 retry = state.setdefault('higher_retry', {})
-                if time.monotonic() < retry.get(cache_key, 0):
-                    raise ValueError('Historical chart request cooling down')
-                retry[cache_key] = time.monotonic() + 15
-                duration, size = {1440: ('1 Y', '1 day'), 10080: ('5 Y', '1 week'), 43200: ('10 Y', '1 month')}[history_minutes]
-                if contract.secType == 'OPT' and history_minutes == 1440:
-                    duration = '1 M'
-                history = conn.ib.reqHistoricalData(contract, '', duration, size, 'TRADES',
-                    useRTH=session == 'rth', formatDate=2, keepUpToDate=True, timeout=2 if contract.secType == 'OPT' else 5)
-                if not history:
-                    conn.ib.cancelHistoricalData(history)
-                    raise ValueError('Historical stock bars unavailable; retry shortly')
-                cache[cache_key] = history
+                retry_key = (cache_key, full)
+                if time.monotonic() >= retry.get(retry_key, 0):
+                    retry[retry_key] = time.monotonic() + 30
+                    duration, size = {1440: ('1 Y', '1 day'), 10080: ('5 Y', '1 week'), 43200: ('10 Y', '1 month')}[history_minutes]
+                    if not full:
+                        duration = {1440: '1 M', 10080: '6 M', 43200: '2 Y'}[history_minutes]
+                    elif contract.secType == 'OPT' and history_minutes == 1440:
+                        duration = '6 M' if expand_history else '1 M'
+                    history = conn.ib.reqHistoricalData(contract, '', duration, size, 'TRADES',
+                        useRTH=session == 'rth', formatDate=2, keepUpToDate=True, timeout=2 if contract.secType == 'OPT' else 5)
+                    if history:
+                        previous = cache.get(cache_key)
+                        cache[cache_key] = history
+                        if full and not (contract.secType == 'OPT' and history_minutes == 1440 and not expand_history): expanded.add(cache_key)
+                        if previous is not None and previous is not history: conn.ib.cancelHistoricalData(previous)
+                    else:
+                        conn.ib.cancelHistoricalData(history)
+                if cache_key not in cache:
+                    raise ValueError('Historical chart request cooling down; recent bars unavailable')
             higher_bars = []
             for bar in cache[cache_key]:
                 day = bar.date
@@ -463,7 +498,10 @@ class StockChart:
                 if l <= min(o, c) <= max(o, c) <= h:
                     higher_bars.append(dict(time=stamp, open=o, high=h, low=l, close=c, **historical_volume(bar)))
             higher_bars = sorted({bar['time']: bar for bar in higher_bars}.values(), key=lambda bar: bar['time'])
-        return self.packet(state, minutes, session, higher_bars)
+        packet = self.packet(state, minutes, session, higher_bars)
+        if minutes >= 1440:
+            packet['history_expanded'] = (minutes, session) in state.get('higher_expanded', set())
+        return packet
 
     def ensure_price_rules(self, state):
         """Load broker increments on the owner loop, independent of history reads."""

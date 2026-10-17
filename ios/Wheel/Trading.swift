@@ -196,6 +196,26 @@ struct ChartJoinGate {
 }
 
 enum TradeRules {
+    static func optionJoinMid(packet: [String: Any], conID: Int, epoch: String?, received: Date?, now: Date = .now) -> Double? {
+        guard packet["security_type"] as? String == "OPT", let epoch, !epoch.isEmpty,
+              packet["con_id"] as? Int == conID, packet["account_epoch"] as? String == epoch,
+              let received, (0..<3).contains(now.timeIntervalSince(received)),
+              let server = packet["server_time"] as? Double, server.isFinite,
+              let expires = packet["quote_expires_at"] as? Double, expires.isFinite,
+              server + now.timeIntervalSince(received) < expires,
+              let bid = packet["bid"] as? Double, let ask = packet["ask"] as? Double,
+              bid.isFinite, ask.isFinite, bid > 0, ask >= bid else { return nil }
+        let rules = (packet["price_rules"] as? [[String: Double]] ?? []).filter {
+            ($0["low"]?.isFinite ?? false) && ($0["increment"]?.isFinite ?? false) && ($0["increment"] ?? 0) > 0
+        }.sorted { ($0["low"] ?? 0) > ($1["low"] ?? 0) }
+        func tick(_ price: Double) -> Double? { rules.first { ($0["low"] ?? 0) <= price }?["increment"] }
+        func aligned(_ price: Double) -> Bool { guard let step = tick(price) else { return false }; return abs(price / step - (price / step).rounded()) < 1e-7 }
+        let mid = (bid + ask) / 2
+        guard aligned(bid), aligned(ask), let step = tick(mid) else { return nil }
+        let price = (((mid / step + 1e-9).rounded()) * step * 1e10).rounded() / 1e10
+        return price >= bid && price <= ask && aligned(price) ? price : nil
+    }
+
     static func chartQuantityLimit(securityType: String, state: [String: Any]) -> Int {
         state["live_initial_scope"] as? Bool == true ? 1 : securityType == "STK" ? 1000 : 10
     }

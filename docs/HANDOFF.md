@@ -3390,3 +3390,65 @@ uncommitted iOS project/localization changes.
 Additional protected-interaction checks passed: one-click-protection.cjs,
 fast-entry-drag.cjs and order-line-drag.cjs. The last script required explicitly
 selecting the existing Python environment; its completed rerun passed.
+
+## 2026-10-18 — Native Join Mid and foreground-first long-period history
+
+Native option entry now matches web: explicitly choose Buy/Sell, then Join Mid.
+Direction selection is scoped to the chart/account/group; quotes require matching
+account/contract, positive noncrossed bid/ask, confirmed increments and freshness.
+The bridge rechecks current midpoint/direction/quantity and retains its revision
+replay gate. Stock/futures Join Bid/Ask and order-drag behavior are unchanged.
+
+8h RTH, D, W and M now opt into deferred historical expansion in both web and iOS.
+- 8h first paint uses the existing recent minute history aggregated at session open,
+  without another synchronous 5-day/month-range request. Full expansion requests
+  six months of intraday trades, never substitutes daily settlement bars.
+- D/W/M first request correct calendar bars over 1 month / 6 months / 2 years,
+  then expand to 1 year / 5 years / 10 years. Option daily expansion targets
+  six months. Available bars still depend on contract lifetime and IB history.
+- Expansion starts only after initial data and a quiet interval (web: after all
+  panes reveal; native: after matching fresh data is present for two seconds).
+  Client task/controller cancellation and context checks prevent old page results
+  from replacing a newly selected contract. Already-running IB reads retain the
+  existing bounded 2s option / 5s other historical timeout.
+- Optional expansion yields rather than entering the dispatcher behind pending
+  foreground reads/writes; it expires if queued for two seconds. Trading job
+  admission, acknowledgement and no-replay behavior remain unchanged.
+- Warm chart snapshots reuse the exact active connection's resolved contract and
+  cached historical subscriptions. Failed expansion retains recent bars; a larger
+  successful calendar subscription replaces/cancels the smaller one only after
+  receipt. Legacy clients without defer_history retain their existing load path.
+
+REA: inspected the current shared chart artifact; HTML inline-script coverage was
+explicitly absent, so extracted its two script bodies for actual JS analysis
+(artifact digest 658bbbdbcd6acbdc309b51b52bab50e6c4f8aa85c646ca3aded070c7e1df0fb6).
+Then analyzed current chart-layout.js and chart-stream.js for startup sequencing
+and cancellation, parent ev_ec0df47d068f0d6684e97dba355eb1473cda89e0e35aa72fae58cc51ef008ea0.
+Source inspection confirmed serialized cold snapshots and synchronous additional
+8h history as avoidable waits. This is static/source evidence, not a measurement
+of the Mini's live IB response times.
+
+Validation so far: 110 iOS Simulator TradingTests/ChartLiveManagementTests pass;
+8-case browser Join Mid regression passes. deferred-history.cjs verifies actual
+8h/D/W/M page first paint while expansion is held, rapid three-contract switches,
+no expansion for abandoned symbols, and later history merge. Backend aggregate,
+cache, latest-read and dispatcher run: 55 of 56 pass. The existing
+StockChartTests.test_cold_snapshot_countdown_does_not_wait_for_first_trade fails
+with None vs the expected deadline on both unmodified HEAD and this tree;
+not caused by deferred history, not silently counted as passing.
+
+User follow-up: Deploy & Restart Backend, then update iOS using user-operated
+Xcode Run and refresh the web page. Native UI/device acceptance and live IB
+history depth/latency remain for the user's check. No broker order, Mini deploy,
+Gateway/backend restart or physical-device installation was performed. Exclude
+pre-existing iOS project.pbxproj and Localizable.xcstrings changes from this work.
+Final protected-refresh verification: latency-matrix.cjs passed 1/2/3/4 panes,
+two pages with four panes each, 5/10Hz plus 200-tick bursts and long-history
+rendering. No rejected transports or page errors; every pane preserved extremes
+and final close. interactions.cjs passed repeated layouts, symbol/period changes,
+disconnect/resnapshot and account isolation, with zero trading POSTs. These are
+local synthetic measurements, not deployed Mini/IB benchmarks.
+8h recent-history maintenance also stays deferred: after expansion, bounded
+one-month refreshes run separately when due and merge into the retained older
+range. Verified refresh does not discard the six-month prefix. D/W/M keep their
+existing live historical subscription updates.

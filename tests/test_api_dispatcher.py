@@ -27,6 +27,25 @@ class ApiDispatcherTests(unittest.TestCase):
 
         install_api_dispatcher(self.app)
 
+    def test_optional_history_yields_to_foreground_reads_and_writes(self):
+        history_calls = []
+        self.app.add_url_rule('/api/portfolio/stock-chart/7', endpoint='portfolio.get_stock_chart', view_func=lambda: history_calls.append(1) or {'bars': []})
+        for method in ('GET', 'POST'):
+            self.entered.clear(); self.release.clear()
+            with ThreadPoolExecutor(2) as clients:
+                foreground = clients.submit(self.get, '/api/slow?value=' + method, method)
+                self.assertTrue(self.entered.wait(2))
+                try:
+                    response = clients.submit(self.get, '/api/portfolio/stock-chart/7?expand_history=1').result(timeout=1)
+                    self.assertEqual(response.status_code, 503)
+                    self.assertEqual(response.json['code'], 'QUEUE_FULL')
+                    self.assertEqual(history_calls, [])
+                    self.assertFalse(foreground.done())
+                finally:self.release.set()
+                self.assertEqual(foreground.result().status_code,200)
+        self.assertEqual(self.get('/api/portfolio/stock-chart/7?expand_history=1').status_code,200)
+        self.assertEqual(history_calls,[1])
+
     def test_background_sync_uses_same_serial_executor(self):
         class OneTick:
             def __init__(self):
