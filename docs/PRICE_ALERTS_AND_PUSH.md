@@ -2,9 +2,9 @@
 
 This adds two price-alert entries to the shared chart: **Add alert at…** in the chart context menu, and **Add alert on horizontal ray** in the selected ray toolbar (also available by right-clicking the ray). The editor includes saved alerts and a Stop action. All new visible labels are English.
 
-Active standalone price alerts appear as **hot-pink dashed lines with a slow light sweep** in every open pane for the same account and exact contract. Hover or focus reveals the condition, price, edit action and Stop button. Drag anywhere on the line or its label and release to save the new threshold. A short label click opens the price editor; the focused line also accepts Arrow Up/Down for one-tick changes. The sweep pauses in the background and is removed for reduced-motion users. Ray-bound alerts continue to follow their original draggable horizontal ray rather than introducing a second independent threshold.
+Active standalone price alerts appear as **pale-orange dashed lines with a broad, gentle light sweep** in every open pane for the same account and exact contract. Hover or focus reveals the condition, price, edit action and Stop button. Drag anywhere on the line or its label and release to save the new threshold. A short label click opens the price editor; the focused line also accepts Arrow Up/Down for one-tick changes. The sweep spans 45% of the plot (180–640px) and takes 18 seconds per cycle. It pauses in the background and is removed for reduced-motion users. Ray-bound alerts continue to follow their original draggable horizontal ray rather than introducing a second independent threshold.
 
-Price changes compare the alert version and exact contract/account. A concurrent edit, stop or trigger rejects stale changes; the chart reloads the server state without resending the write. Changing account/contract, Escape, loss of pointer capture or an interrupted gesture cancels the local drag. Threshold edits establish a new live-price baseline and ignore queued samples from before the edit. An accepted change is shared immediately with matching panes; other open pages refresh saved alerts every two seconds. Saved-alert reads bypass the broker queue but retain an explicit account-epoch guard.
+Price changes compare the alert version and exact contract/account. A concurrent edit, stop or trigger rejects stale changes; the chart reloads the server state without resending the write. Changing account/contract, Escape, pointer cancellation or window focus loss cancels the local drag. Losing pointer capture alone retains the draft: document-level pointer handling follows the gesture until actual release and saves exactly once. Threshold edits establish a new live-price baseline and ignore queued samples from before the edit. An accepted change is shared immediately with matching panes; other open pages refresh saved alerts every two seconds. Saved-alert reads bypass the broker queue but retain an explicit account-epoch guard.
 
 The web workspace shows price, execution and confirmed-cancellation notifications in the **top right of the chart area**, once per event per page, regardless of pane count. The container is transparent and hidden when empty, so it cannot cover the trading panel. Notifications stay for five seconds, pause dismissal on hover, and can be dismissed manually. The initial feed snapshot is silent. This is an in-page notification feed, not browser Web Push; a closed browser does not receive OS notifications.
 
@@ -62,7 +62,7 @@ If registration fails or the backend is unavailable, Settings reports the failur
 
 REA inspected the current TradingView alert editor and its Notifications tab: Price/Crossing/Value, Only once/Every time, and app/toast/sound destinations. It also inspected the shipped alert/drawing source association: a chart context action supplies the clicked price, while a line source carries an alert association and synchronizes source changes. Evidence IDs: `ev_f3697f033a571def5747ef29539f8a28d333c7053423f7ac777fbfde4183cba9`, `ev_d4500347deb7092c025019c82f426d4f9eca2591e61ecc909dd5d9926846d415`; static analysis had a semantic-node coverage cap. No TradingView alert was created or modified. Wheel uses its own backend implementation and the requested top-right position; no TradingView source is copied into this feature.
 
-For draggable lines, REA captured the user's two existing TradingView alerts (`ev_d5149dae3ab45db5e1cd7bae3aa6a7e949de5f5d9759647decb56fdba3727edd`) and their hovered label (`ev_d7d02b2bfd8d2751142b8a6f4dfba09c2da6ab8fd6f2ff01c8595ec35af5bf54`). Runtime inspection showed a dashed line, price-axis marker, hover label and remove control. A read-only inspection of the existing `AlertLabel.move` and coordinate conversion functions confirmed price-scale conversion and price-precision rounding. The reference alerts were never dragged or changed. Wheel's pink sweep is the user's requested visual variation; guarded persistence and multi-pane delivery are Wheel implementations.
+For draggable lines, REA captured the user's two existing TradingView alerts (`ev_d5149dae3ab45db5e1cd7bae3aa6a7e949de5f5d9759647decb56fdba3727edd`) and their hovered label (`ev_d7d02b2bfd8d2751142b8a6f4dfba09c2da6ab8fd6f2ff01c8595ec35af5bf54`). Runtime inspection showed a dashed line, price-axis marker, hover label and remove control. A read-only inspection of the existing `AlertLabel.move` and coordinate conversion functions confirmed price-scale conversion and price-precision rounding. The reference alerts were never dragged or changed. Wheel's sweep is a user-requested visual variation; guarded persistence and multi-pane delivery are Wheel implementations.
 
 Primary references: [TradingView horizontal ray alerts](https://www.tradingview.com/support/solutions/43000518121-horizontal-ray-drawing-tool/), [server-side alert monitoring](https://www.tradingview.com/support/solutions/43000548327-will-alerts-work-if-tradingview-is-not-open-on-the-computer/), [Apple APNs registration](https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns), [HTTPX HTTP/2](https://www.python-httpx.org/http2/), [PyJWT signing](https://pyjwt.readthedocs.io/en/stable/usage.html).
 
@@ -78,3 +78,23 @@ Local verification is recorded with the feature commit: targeted notification te
 - Layout/recovery interactions, 100Hz stress and eight distinct symbols across two four-pane pages passed. Stress p95 reached 10ms in the dual-page case; all expected 180 updates and OHLC extremes were preserved.
 - Final iOS Simulator Debug build succeeded, and the built app contains `chart-alerts.js`. No physical device was installed or launched.
 - Mini was not deployed or restarted; Gateway and broker orders were not changed. Real APNs acceptance and locked-iPhone receipt remain unverified until setup and user-operated acceptance.
+
+### 2026-10-18 web drag follow-up
+
+The user confirmed iOS price editing works and reported the web line snapping back.
+REA inspected the deployed four-pane Wheel page and its alert reads
+(`ev_2c4b4fb09b29070e84447a3b6b8c5824ddfcfda8ba16f0d802e0123d8be85d57`).
+A controlled replay in the same Chrome 154 version observed capture loss before
+actual release, canceling the draft without a price write. The regression now
+explicitly releases pointer capture on both line and label drags, holds across
+alert polling and verifies one save on release. Old code fails this regression;
+the fix passes desktop/mobile, dark/light and native touch checks. The protected
+entry/TP/SL and One-click regression scripts pass without broker writes.
+
+The user changed the requested color to pale orange and asked for a wider, slower
+sweep. These static chart changes need **Deploy only** and a webpage refresh;
+the native color change requires the user's normal iPhone Run. Mini was read-only
+verified at `cec405947e1e4da672b25feeaece415e7cf8d045` before this follow-up.
+The user's screenshot confirms the Wheel test notification reached Bark on the
+iPhone. It shows a foreground banner, so locked-device display and real price/IB
+event delivery remain separate acceptance checks.

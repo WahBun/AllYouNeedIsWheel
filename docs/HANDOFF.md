@@ -1,3 +1,25 @@
+## 2026-10-18 — web alert drag capture loss and pale-orange sweep
+
+The user corrected the report: iOS editing works; only web drags snap back.
+REA inspected the deployed four-pane Wheel page, then a same-version Chrome
+replay exposed `lostpointercapture` before actual release. Alert gestures now
+follow document-level movement/release; capture loss alone does not cancel or
+save. Explicit cancellation, account/contract changes and stale-alert guards
+remain. The protected order gesture implementation is unchanged.
+
+The user's final color choice is pale orange. The sweep is wider (45%, clamped
+to 180–640px), softer and slower (18 seconds instead of 5). Six shared-chart
+web/native touch cases pass including forced capture loss and held-refresh
+checks; the old gesture implementation fails the same regression. All four
+protected order-drag regression scripts pass. No broker writes were used.
+
+User-operated follow-up: **Deploy only**, then refresh the web page. iPhone Run
+is needed only to update native chart assets. Mini was clean at
+`cec405947e1e4da672b25feeaece415e7cf8d045`; no deployment/restart was performed.
+A user screenshot confirms real iPhone receipt of the Wheel Bark test banner,
+but not locked-screen display or a real price/fill/cancellation event. Existing
+signing/localization edits remain uncommitted and are excluded from this change.
+
 ## 2026-10-18 — draggable pink alerts and Bark lock-screen notifications
 
 Standalone price alerts now render in matching panes as hot-pink dashed lines

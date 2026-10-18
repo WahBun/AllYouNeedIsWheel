@@ -33,10 +33,13 @@ const {start}=require('./market-feed/harness.cjs');
   await p.waitForFunction(count=>document.querySelectorAll('.chart-pane iframe').length===count&&[...document.querySelectorAll('.chart-pane iframe')].every(f=>f.contentDocument.querySelectorAll('.chart-alert-line').length===2)&&document.getElementById('chart-group-loading').hidden,count);
   let f;for(const candidate of p.frames().filter(f=>f.url().includes('/superchart/frame')))if(await candidate.evaluate(()=>!document.body.classList.contains('auxiliary-chrome-hidden')))f=candidate;
   const first=f.locator('[data-alert-id="'+alerts[0].id+'"]'),hit=first.locator('.chart-alert-hit');
-  assert.equal(await hit.evaluate(el=>getComputedStyle(el).color),'rgb(255, 43, 170)');
+  assert.equal(await hit.evaluate(el=>getComputedStyle(el).color),'rgb(231, 177, 123)');
   assert.equal(await hit.evaluate(el=>getComputedStyle(el,'::after').animationName),'alert-line-sheen');
+  assert.equal(await hit.evaluate(el=>getComputedStyle(el,'::after').animationDuration),'18s');
+  assert.ok(await hit.evaluate(el=>parseFloat(getComputedStyle(el,'::after').width))>=180);
+  await f.evaluate(()=>document.addEventListener('pointerdown',e=>{window.testAlertPointer=e.pointerId;},true));
   await hit.hover({position:{x:30,y:8}});await p.screenshot({path:`/tmp/wheel-alert-lines-${width}-${light}.png`});
-  const drag=async(delta,release=true)=>{const box=await hit.boundingBox();await p.mouse.move(box.x+30,box.y+9);await p.mouse.down();await p.mouse.move(box.x+30,box.y+9+delta,{steps:6});await p.waitForTimeout(120);if(release)await p.mouse.up();};
+  const drag=async(delta,release=true)=>{const box=await hit.boundingBox();await p.mouse.move(box.x+30,box.y+9);await p.mouse.down();await hit.evaluate(el=>el.releasePointerCapture(window.testAlertPointer));await p.mouse.move(box.x+30,box.y+9+delta,{steps:6});await p.waitForTimeout(120);if(release)await p.mouse.up();};
   const old=alerts[0].price;await drag(-20,false);assert.equal(writes.length,0,'No price mutation before release');assert.notEqual(await first.evaluate(el=>el.previewPrice),old);await p.mouse.up();
   await p.waitForFunction(()=>[...document.querySelectorAll('.chart-pane iframe')].every(f=>f.contentDocument.querySelector('[data-alert-id="aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"]')?.alert.version===2));
   assert.equal(writes.length,1);assert.notEqual(alerts[0].price,old);
@@ -48,6 +51,19 @@ const {start}=require('./market-feed/harness.cjs');
   await f.waitForFunction(()=>!document.querySelector('[data-dragging]'));await p.mouse.up();assert.equal(writes.length,2);
   await hit.focus();await hit.press('ArrowUp');await f.waitForFunction(()=>document.querySelector('[data-alert-id="aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"]')?.alert.version===5);
   assert.equal(writes.length,3,'Keyboard adjustment changes exactly one tick through the same guarded API');
+  // A label drag must survive capture loss and two saved-alert refreshes until actual release.
+  const edit=first.locator('[data-edit-alert]');await hit.hover({position:{x:30,y:8}});const labelBox=await edit.boundingBox();
+  await p.mouse.move(labelBox.x+labelBox.width/2,labelBox.y+labelBox.height/2);await p.mouse.down();
+  await edit.evaluate(el=>el.releasePointerCapture(window.testAlertPointer));
+  await p.mouse.move(labelBox.x+labelBox.width/2+35,labelBox.y+labelBox.height/2+12,{steps:6});
+  await f.evaluate(()=>chartAlerts.refresh());await p.waitForTimeout(2200);
+  assert.equal(writes.length,3,'Capture loss and polling cannot save or cancel a held drag');
+  assert.equal(await first.evaluate(el=>el.hasAttribute('data-dragging')),true);
+  await p.mouse.up();await f.waitForFunction(()=>document.querySelector('[data-alert-id="aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"]')?.alert.version===6);
+  assert.equal(writes.length,4,'Retargeted release saves exactly once');
+  // Explicit cancellation still restores the last saved threshold without a write.
+  await drag(-12,false);await p.keyboard.press('Escape');await p.mouse.up();
+  assert.equal(writes.length,4);assert.equal(await first.evaluate(el=>el.previewPrice),undefined);
   // Bark enrollment stores no address in the rendered page after saving.
   await hit.press('Enter');await f.getByText('Phone notifications · Bark',{exact:true}).click();
   await f.locator('[data-bark-url]').fill('https://api.day.app/temporaryDeviceKey123');await f.getByRole('button',{name:'Enable Bark',exact:true}).click();
@@ -61,7 +77,7 @@ const {start}=require('./market-feed/harness.cjs');
   const before=await p.evaluate(()=>[...document.querySelectorAll('.chart-pane iframe')].map(e=>e.contentWindow.__latency.length));
   await p.waitForFunction(before=>[...document.querySelectorAll('.chart-pane iframe')].every((e,i)=>e.contentWindow.__latency.length>before[i]),before);
   await f.evaluate(()=>{paperCID=8;paperConfig.web_account_epoch='other';});await f.waitForFunction(()=>!document.querySelector('.chart-alert-line'));
-  assert.deepEqual(errors,[]);assert.equal(h.metrics.posts,0);await context.close();console.log('PASS pink alert lines, drag/save, conflict restore, remote change, keyboard, Bark setup/test/disable, pane sync and scope',width,light?'light':'dark');
+  assert.deepEqual(errors,[]);assert.equal(h.metrics.posts,0);await context.close();console.log('PASS pale-orange alert lines, capture-loss line/label drag, cancellation, conflict restore, remote change, keyboard, Bark setup/test/disable, pane sync and scope',width,light?'light':'dark');
  }
  for(const light of [false,true]){
   const context=await browser.newContext({viewport:{width:393,height:740},isMobile:true,hasTouch:true}),p=await context.newPage(),errors=[];p.on('pageerror',e=>errors.push(e.message));
@@ -77,7 +93,9 @@ const {start}=require('./market-feed/harness.cjs');
    receive({con_id:7,generation:1,interval:5,session:'all',symbol:'SYNTH7',bars:Array.from({length:30},(_,i)=>({time:1000+i*300,open:100,high:110,low:90,close:100}))});
   },light);
   await p.waitForSelector('.chart-alert-line');const hit=p.locator('.chart-alert-hit'),box=await hit.boundingBox(),cdp=await context.newCDPSession(p),x=box.x+35,y=box.y+9;
+  await p.evaluate(()=>document.addEventListener('pointerdown',e=>{window.testAlertPointer=e.pointerId;},true));
   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y,id:1}]});
+  await hit.evaluate(el=>el.releasePointerCapture(window.testAlertPointer));
   for(let i=1;i<=6;i++)await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y:y-5*i,id:1}]});
   assert.equal(await p.evaluate(()=>nativeAlertWrites.length),0);await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
   await p.waitForFunction(()=>nativeAlertWrites.length===1&&!document.querySelector('[data-saving]'));

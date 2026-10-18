@@ -16,16 +16,16 @@
  #chart-alert-editor button{min-height:40px;border:1px solid #8887;border-radius:6px;background:transparent;color:inherit;padding:7px 12px;font:inherit;cursor:pointer}
  #chart-alert-editor button:disabled{opacity:.5}#chart-alert-editor .alert-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
  #chart-alert-editor [data-status]{line-height:1.5;opacity:.85;margin:9px 0}#chart-alert-editor .alert-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid #8884}#chart-alert-editor .alert-row span{flex:1;line-height:1.5}
- #chart-alert-lines{position:absolute;inset:0;z-index:3;pointer-events:none;overflow:hidden;color:#ff2baa}
+ #chart-alert-lines{position:absolute;inset:0;z-index:3;pointer-events:none;overflow:hidden;color:#e7b17b}
  .chart-alert-line{position:absolute;height:18px;transform:translateY(-50%);pointer-events:none;--alert-width:300px}
  .chart-alert-hit{position:absolute;inset:0;touch-action:none;cursor:ns-resize;pointer-events:auto;outline:none;overflow:hidden}
  .chart-alert-hit::before{content:'';position:absolute;left:0;right:0;top:8px;border-top:1px dashed currentColor}
- .chart-alert-hit::after{content:'';position:absolute;left:0;top:7px;width:100px;height:3px;background:linear-gradient(90deg,transparent,#ff85d5,#fff2fb,#ff85d5,transparent);animation:alert-line-sheen 5s linear infinite;pointer-events:none}
- @keyframes alert-line-sheen{from{transform:translateX(-110px)}to{transform:translateX(calc(var(--alert-width) + 110px))}}
+ .chart-alert-hit::after{content:'';position:absolute;left:0;top:7px;width:clamp(180px,45%,640px);height:3px;background:linear-gradient(90deg,transparent,#efc89e88,#fff0dcc0,#efc89e88,transparent);animation:alert-line-sheen 18s linear infinite;pointer-events:none}
+ @keyframes alert-line-sheen{from{transform:translateX(-100%)}to{transform:translateX(var(--alert-width))}}
  .chart-alert-marker{position:absolute;right:0;top:4px;border-left:6px solid currentColor;border-top:5px solid transparent;border-bottom:5px solid transparent}
  body.axis-left .chart-alert-marker{left:0;right:auto;transform:rotate(180deg)}
- .chart-alert-label{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:none;max-width:calc(100% - 20px);height:24px;align-items:center;border:1px solid #ff2baa;border-radius:3px;background:#fff0f9;color:#b90073;box-shadow:0 0 8px #ff2baa25;pointer-events:auto;white-space:nowrap}
- body[data-dark=true] .chart-alert-label{background:#351729;color:#ff8dd7}
+ .chart-alert-label{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:none;max-width:calc(100% - 20px);height:24px;align-items:center;border:1px solid #e7b17b;border-radius:3px;background:#fff5e9;color:#895320;box-shadow:0 0 8px #e7b17b20;pointer-events:auto;white-space:nowrap}
+ body[data-dark=true] .chart-alert-label{background:#34291e;color:#efc89e}
  .chart-alert-label button{height:22px;min-width:24px;border:0;background:transparent;color:inherit;padding:0 5px;font:12px -apple-system,system-ui;touch-action:none}
  .chart-alert-label [data-edit-alert]{overflow:hidden;text-overflow:ellipsis;cursor:grab}
  .chart-alert-line:hover .chart-alert-label,.chart-alert-line:focus-within .chart-alert-label,.chart-alert-line[data-dragging] .chart-alert-label,.chart-alert-line[data-saving] .chart-alert-label{display:flex}
@@ -72,6 +72,27 @@
   finally{delete line.dataset.saving;delete line.previewPrice;nextLoad=0;if(context===contextKey()){loading=false;void reload();}}
  }
  function cancelDrag(){if(!drag)return;const current=drag;drag=null;delete current.line.dataset.dragging;delete current.line.previewPrice;try{current.capture.releasePointerCapture(current.pointer);}catch{}}
+ // Capture loss can retarget the remaining events without ending the gesture.
+ // Observe actual release on the document, as the protected order drags do.
+ function moveDrag(event){
+  if(!drag||drag.pointer!==event.pointerId)return;
+  if(drag.context!==contextKey()){cancelDrag();return;}
+  event.preventDefault();event.stopPropagation();
+  if(Math.abs(event.clientY-drag.startY)>3)drag.moved=true;
+  if(!drag.moved)return;
+  const price=snapPrice(series.coordinateToPrice(event.clientY));
+  if(Number.isFinite(price)&&price>0)drag.line.previewPrice=price;
+ }
+ document.addEventListener('pointermove',event=>{if(drag&&(event.buttons&1))moveDrag(event);},true);
+ document.addEventListener('pointerup',event=>{
+  if(!drag||drag.pointer!==event.pointerId)return;
+  moveDrag(event);if(!drag)return;
+  const current=drag,price=current.line.previewPrice;cancelDrag();
+  if(current.context!==contextKey())return;
+  if(current.moved)void updatePrice(current.alert,price,current.line);
+  else if(current.label)open({price:current.line.alert.price,alert:current.line.alert});
+ },true);
+ document.addEventListener('pointercancel',event=>{if(drag?.pointer===event.pointerId)cancelDrag();},true);
  function makeLine(alert){
   const line=document.createElement('div');line.className='chart-alert-line';line.dataset.alertId=alert.id;line.alert=alert;
   const hit=document.createElement('div');hit.className='chart-alert-hit';hit.tabIndex=0;hit.setAttribute('role','slider');hit.setAttribute('aria-orientation','vertical');
@@ -81,9 +102,7 @@
    if(event.button!==0||line.dataset.saving!==undefined||editor)return;event.preventDefault();event.stopPropagation();cancelDrag();
    const capture=event.currentTarget;capture.focus({preventScroll:true});drag={line,alert:{...line.alert},capture,pointer:event.pointerId,startY:event.clientY,moved:false,context:contextKey(),label:capture===edit};line.dataset.dragging='true';capture.setPointerCapture(event.pointerId);closePriceMenu();
   };
-  const move=event=>{if(!drag||drag.line!==line||drag.pointer!==event.pointerId)return;event.preventDefault();event.stopPropagation();if(drag.context!==contextKey()){cancelDrag();return;}if(Math.abs(event.clientY-drag.startY)>3)drag.moved=true;if(!drag.moved)return;const price=snapPrice(series.coordinateToPrice(event.clientY));if(Number.isFinite(price)&&price>0)line.previewPrice=price;};
-  const end=event=>{if(!drag||drag.line!==line||drag.pointer!==event.pointerId)return;event.preventDefault();event.stopPropagation();const current=drag,price=line.previewPrice;cancelDrag();if(current.context!==contextKey())return;if(current.moved)void updatePrice(current.alert,price,line);else if(current.label)open({price:line.alert.price,alert:line.alert});};
-  for(const target of [hit,edit]){target.onpointerdown=start;target.onpointermove=move;target.onpointerup=end;target.onpointercancel=cancelDrag;target.onlostpointercapture=()=>{if(drag?.capture===target)cancelDrag();};target.onclick=e=>{e.preventDefault();e.stopPropagation();if(e.detail===0&&target===edit)open({price:line.alert.price,alert:line.alert});};}
+  for(const target of [hit,edit]){target.onpointerdown=start;target.onclick=e=>{e.preventDefault();e.stopPropagation();if(e.detail===0&&target===edit)open({price:line.alert.price,alert:line.alert});};}
   hit.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();open({price:line.alert.price,alert:line.alert});}else if(event.key==='Escape'){cancelDrag();}else if(event.key==='ArrowUp'||event.key==='ArrowDown'){event.preventDefault();const price=stepPrice(line.alert.price,event.key==='ArrowUp'?1:-1);if(price!==null)void updatePrice({...line.alert},price,line);}};
   stop.onpointerdown=e=>e.stopPropagation();stop.onclick=async event=>{event.stopPropagation();if(line.dataset.saving!==undefined)return;const cid=paperCID,epoch=paperConfig.web_account_epoch;line.dataset.saving='true';loadSerial++;try{await api('alerts/'+alert.id+'/stop','POST',{},epoch);publish({alerts:saved.map(a=>a.id===alert.id?{...a,state:'stopped'}:a)},cid,epoch);}catch(error){validation(error.message);}finally{delete line.dataset.saving;nextLoad=0;}};
   return line;
