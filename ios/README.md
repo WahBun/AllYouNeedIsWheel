@@ -53,7 +53,13 @@ In macOS Shortcuts, create **Wheel iPhone Renew**, add **Run Shell Script** with
 zsh and administrator privileges off, then **Show Result** for the shell output:
 
 ```sh
-/usr/bin/python3 '/ABSOLUTE/REPOSITORY/PATH/ios/renew_signing.py' --renew 2>&1
+wheel_output=$(/usr/bin/python3 '/ABSOLUTE/REPOSITORY/PATH/ios/renew_signing.py' --renew 2>&1)
+wheel_status=$?
+printf '%s\n' "$wheel_output"
+if [ "$wheel_status" -ne 0 ]; then
+  printf '\nRenewal was not completed (exit %s).\n' "$wheel_status"
+fi
+exit 0
 ```
 
 For a read-only readiness check, replace `--renew` with `--check`. `--build-only`
@@ -63,6 +69,8 @@ expiration is known, a later expiration. Xcode may reuse a still-valid profile;
 that is reported as **not renewed**, and nothing is installed. The script does
 not revoke certificates or delete provisioning profiles to force renewal. Apple
 account authentication or signing errors may still require action in Xcode.
+The shell wrapper returns normally so **Show Result** can display the helper's
+failure details; only the explicit completion message confirms installation.
 
 All logs, build artifacts, personal settings and receipts remain git-ignored.
 Installation failures are not retried automatically. This is an on-demand Pro

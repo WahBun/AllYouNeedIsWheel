@@ -100,12 +100,15 @@ def validate_profile(profile, config, previous_expiry=None, now=None):
             or config["deviceUDID"] not in profile.get("ProvisionedDevices", [])):
         raise RenewalError("The signed profile does not match the expected team, app and iPhone.")
     expiry = date(profile["ExpirationDate"])
+    expiry_text = expiry.astimezone().strftime("%Y-%m-%d %H:%M %Z")
     if expiry < now + timedelta(hours=48):
         raise RenewalError("Xcode did not produce a profile with at least 48 hours remaining. "
-                           "No app was installed. Open Xcode Signing & Capabilities to refresh signing.")
+                           f"Built profile expires: {expiry_text}. No app was installed. "
+                           "Try closer to expiry or open Xcode Signing & Capabilities to refresh signing.")
     if previous_expiry and expiry <= date(previous_expiry):
         raise RenewalError("Apple reused the existing profile; its expiration did not extend. "
-                           "No app was installed. Try closer to expiry or refresh signing in Xcode.")
+                           f"Built profile expires: {expiry_text}. No app was installed. "
+                           "Try closer to expiry or refresh signing in Xcode.")
     return expiry
 
 
@@ -159,7 +162,7 @@ class Renewal:
         (source / "ios/Signing.local.xcconfig").chmod(0o600)
         derived = self.run / "DerivedData"
         command(["/usr/bin/xcodebuild", "-project", "ios/Wheel.xcodeproj", "-scheme", "Wheel",
-                 "-configuration", "Debug", "-destination", "generic/platform=iOS",
+                 "-configuration", "Debug", "-jobs", "2", "-destination", "generic/platform=iOS",
                  "-derivedDataPath", str(derived), "-allowProvisioningUpdates", "build"],
                 cwd=source, timeout=1200, log=self.run / "build.log")
         app = derived / "Build/Products/Debug-iphoneos/Wheel.app"

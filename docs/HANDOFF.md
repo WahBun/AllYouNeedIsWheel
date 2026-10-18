@@ -1,3 +1,46 @@
+## 2026-10-18 — Pro iPhone signing-renewal shortcut
+
+Added `ios/renew_signing.py` and the native **Wheel iPhone Renew** shortcut on
+the Pro. The user requested a Pro-triggered shortcut; no recurring job was
+scheduled and no physical-device installation was performed by the agent.
+The helper requires a clean checkout equal to the configured GitHub branch,
+builds an archive of that exact commit with the existing local signing settings,
+validates app/team/device/profile expiry, and installs only on an explicit
+`--renew` invocation. It checks that Wheel is closed both before building and
+before installing. No uninstall, app launch, process termination, profile
+deletion, certificate revocation, automatic pull or installation retry occurs.
+Device settings, build artifacts and installation receipts remain git-ignored.
+
+REA 6.7 inspected the installed Shortcuts bundle metadata
+(`ev_0933dca741afcaed44cb2f46898db9285796d5730e96e2fc277976f2c249a3bd`)
+and captured the shipped CLI capabilities
+(`ev_a59dfe571e39beed641b9da2e07e50221a83bbb5a20ba4702500aa0ce5ecef78`).
+Native window observation was blocked by universal/arm64e artifact binding;
+the actual editor and shell action were therefore verified through native UI
+automation. Adopted the existing Run Shell Script action without administrator
+privileges, followed by Show Result. The wrapper preserves explicit failure
+messages instead of leaving Shortcuts with an opaque exit-code error.
+REA controlled replay of `--check` verified the remote SHA and correctly stopped
+because the actual iPhone app was running
+(`ev_14068d833e3ae8efd9b11de3952a6923820523695dafafd968c610607353a622`).
+The same read-only path and visible result were verified in the real shortcut.
+
+Validation: nine focused mock tests passed. A local signed iOS build of
+`8ba9a88f7e53ae9d24c0aadbb36af96dbd8c45f6` succeeded and passed codesign
+verification, but Xcode reused the existing profile, issued October 12 and
+expiring October 19 at 14:52:47 UTC. The helper correctly rejected this as
+not renewed and did not install anything. This confirms the guard, not successful
+renewal. Early renewal remains dependent on Xcode/Apple issuing a newer profile;
+account/signing intervention in Xcode may be needed. The profile date describes
+the locally built package, not an independently extracted phone profile.
+
+The final shortcut invokes `--renew`; only its `--check` mode was executed during
+setup. The exported shortcut is kept locally outside the repository. No phone
+installation/launch, Mini deployment, backend/Gateway restart or broker write
+was performed. This helper needs no Mini deployment; if synchronizing the
+repository there, use **Deploy only**, subject to any accumulated earlier backend
+restart advice. The phone's app version is unchanged by this task.
+
 ## 2026-10-18 — REA 6.7.0 UI review: discovery submission and loading recovery
 
 Baseline: GitHub `codex/chart-labels-1.7` at
