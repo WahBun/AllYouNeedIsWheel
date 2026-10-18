@@ -1,9 +1,11 @@
 -- Use Xcode's documented Build command. Never Run, Test, Debug, or install.
 on run arguments
-    if (count arguments) is not 3 then error "Expected project path, device identifier, and build log path."
+    if (count arguments) is not 4 then error "Expected project path, device identifier, build log path, and action."
     set projectPath to item 1 of arguments
     set expectedDevice to item 2 of arguments
     set logPath to item 3 of arguments
+    set requestedAction to item 4 of arguments
+    if requestedAction is not "prepare" and requestedAction is not "build" then error "Unsupported Xcode action."
     set targetWorkspace to missing value
     with timeout of 1300 seconds
         tell application "Xcode"
@@ -11,7 +13,9 @@ on run arguments
             repeat 120 times
                 repeat with candidate in workspace documents
                     try
-                        if (POSIX path of (file of candidate)) is projectPath then
+                        set candidateFile to get file of candidate
+                        set candidatePath to POSIX path of candidateFile
+                        if candidatePath is projectPath or candidatePath is (projectPath & "/") then
                             if loaded of candidate then set targetWorkspace to candidate
                         end if
                     end try
@@ -32,6 +36,7 @@ on run arguments
             end repeat
             if targetDestination is missing value then error "The configured iPhone is unavailable to Xcode. Connect it and try again."
             set active run destination of targetWorkspace to targetDestination
+            if requestedAction is "prepare" then return "Xcode signing preparation started."
             set actionResult to build targetWorkspace
             repeat 2400 times
                 if completed of actionResult then exit repeat
@@ -54,6 +59,7 @@ on run arguments
         end try
         tell application "Xcode"
             if resultStatus is not succeeded then error "Xcode Build failed. See the saved build log."
+            close targetWorkspace saving no
         end tell
         return "Xcode Build completed. No iPhone installation was performed."
     end timeout
