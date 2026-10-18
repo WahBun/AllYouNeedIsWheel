@@ -11,7 +11,9 @@ on run arguments
             repeat 120 times
                 repeat with candidate in workspace documents
                     try
-                        if (POSIX path of (file of candidate)) is projectPath then
+                        set candidateFile to get file of candidate
+                        set candidatePath to POSIX path of candidateFile
+                        if candidatePath is projectPath or candidatePath is (projectPath & "/") then
                             if loaded of candidate then set targetWorkspace to candidate
                         end if
                     end try
