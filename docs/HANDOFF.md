@@ -1,3 +1,63 @@
+## 2026-10-18 — wider project review: account reads and recoverable local data
+
+Baseline: GitHub `codex/chart-labels-1.7` at
+`8285b2e727fd87fc59f3d410d192fc15e2f4e8d2`. The remaining Xcode project
+formatting was committed and pushed first, as requested. This review extended
+beyond the interfaces to API dispatch, notification delivery/context, performance
+storage, maintenance and deployment helpers. Confirmed fixes:
+
+- Coalesced GETs now include the originating account epoch in their key. A
+  concurrent stale/missing-header request must not inherit a current request's
+  successful guarded response, or make the current request inherit its rejection.
+  Same-epoch reads still share work; write admission and serialized execution
+  remain unchanged. Three concurrent stale/current/header-omission cases failed
+  before the fix and passed afterward.
+- Notification feed reads enforce the epoch before and after storage access.
+  The browser sends that epoch and resets its cursor for a new account context,
+  including reconnecting to the same account. A context instance also prevents
+  accepting an old response after switching away and back. Initial history stays
+  silent and duplicate events remain suppressed. Both backend and browser
+  reproductions failed before the fix. The feed stays outside the IB queue.
+- Maintenance discovers both configured Paper/Live stores, the active order
+  database, performance history, and existing drawings, favorites and notification
+  stores. The former fixed database is retained when present. Deduplicate source
+  paths and keep path-specific daily directories so a same-day configuration
+  change cannot reuse another database's backup. Missing configured databases
+  never create empty sources or prevent copying the remaining stores, and the
+  run does not record success. Existing backup directories are preserved.
+- Deployment advice now recognizes the existing alert/volatility chart assets
+  and the maintenance helper. Unknown assets remain subject to review; Backend
+  Python changes still recommend a restart. No deployment command was executed.
+
+REA passively inspected the current browser page and its shipped script sources
+in `ev_74cdfc5d6bccf52633f4461650913b49a31e696dc7678c5ec04f9370d8e82ab7`.
+The notification feed SHA-256
+`96d89a31e98b4c1f0b998d26f5ea81a33540049d35de5f78a101b80da8b0d840`
+and alert module SHA-256
+`5447fa5ad95983f228ff71677ede0230063eff48dd1de4b3055f1a28e5f1a7ae`
+matched the checkout before these changes. Trace their account headers and
+pending-response handling against the dispatcher and storage routes. Reuse the
+existing account-epoch contract and feed lifecycle; no layout or quote pipeline
+was redesigned. The passive capture establishes shipped source, not actual
+broker or notification-delivery acceptance.
+
+Validation passed: 83 distinct isolated backend/operations tests, including
+concurrent dispatch, account routing, notification isolation, restored backup
+contents/integrity, WAL copying, retention, private permissions and deployment
+guards; all 67 frontend unit tests; and four full-page browser scenarios
+(desktop/mobile widths, dark/light themes). The browser scenarios verified alert
+actions, epoch headers, toast placement/expiry/replay suppression and continuing
+ticks in one/four panes. Desktop dark and mobile light renders were visually
+inspected. Tests used synthetic quotes and temporary databases/configuration;
+real network/broker writes and host operations were blocked in backend tests.
+
+Recommend **Deploy & Restart Backend**, then refresh open web pages. Maintenance
+loads the new code on its next scheduled invocation after deployment; actual
+Mini scheduling and backups were not exercised in this pass. This batch changes
+no native app code and requires no new iPhone build on its own. Prior native
+changes still require the user's Run if not yet installed. No Mini deployment,
+service/Gateway restart, physical-device operation or broker order was performed.
+
 ## 2026-10-18 — compact iPhone notification settings
 
 Baseline: GitHub `codex/chart-labels-1.7` at

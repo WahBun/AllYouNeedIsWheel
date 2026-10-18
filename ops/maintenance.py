@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime, timezone
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -73,24 +74,69 @@ def rotate(project, threshold=20 * 1024 * 1024):
             old.unlink()
 
 
+def database_sources(project):
+    """Discover local stores without importing the application or connecting to IB."""
+    def resolve(value):
+        path = Path(value).expanduser()
+        return (path if path.is_absolute() else project / path).resolve()
+
+    def configuration(variable, default):
+        path = resolve(os.environ.get(variable, str(default)))
+        if not path.exists():
+            return {}
+        value = json.loads(path.read_text())
+        if not isinstance(value, dict):
+            raise ValueError('Invalid maintenance database configuration')
+        return value
+
+    sources = {}
+    def add(name, value, optional=False):
+        path = resolve(value)
+        if path not in sources.values() and (not optional or path.exists()):
+            sources[name] = path
+
+    private = Path.home() / 'Library/Application Support/Wheel'
+    profiles = configuration('WHEEL_ACCOUNT_PROFILES', private / 'account-profiles.json')
+    for mode in ('paper', 'live'):
+        profile = profiles.get(mode)
+        if isinstance(profile, dict) and profile.get('db_path'):
+            add('orders-' + mode, profile['db_path'])
+    active = configuration('CONNECTION_CONFIG', project / 'connection.json')
+    add('orders', active.get('db_path') or 'options.db')
+    # Retain recoverable history from the former fixed source when it still exists.
+    add('orders-legacy', 'options_dev.db', optional=True)
+    performance = configuration('WHEEL_PERFORMANCE_CONFIG', private / 'performance/config.json')
+    if performance.get('history_path'):
+        add('performance', performance['history_path'])
+    for name in ('chart_drawings', 'chart_favorites'):
+        add(name, name + '.db', optional=True)
+    add('notifications', os.environ.get('WHEEL_NOTIFICATION_DB', 'notifications.db'), optional=True)
+    return sources
+
+
 def run(project, state):
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.umask(0o077)
     with (state / 'lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         day = datetime.now(timezone.utc).date().isoformat()
-        sources = {'orders': project / 'options_dev.db'}
-        config_path = Path(os.environ.get('WHEEL_PERFORMANCE_CONFIG',
-            str(Path.home() / 'Library/Application Support/Wheel/performance/config.json')))
-        if config_path.exists():
-            config = json.loads(config_path.read_text())
-            if config.get('history_path'):
-                sources['performance'] = Path(config['history_path']).expanduser()
+        sources = database_sources(project)
+        directories = {}
+        failures = []
         for name, source in sources.items():
-            backup(source, state / name, day)
+            # A path change on the same UTC day must not reuse another store's copy.
+            identity = hashlib.sha256(str(source).encode()).hexdigest()[:16]
+            directories[name] = name + '-' + identity
+            try:
+                backup(source, state / directories[name], day)
+            except (sqlite3.Error, OSError, RuntimeError):
+                failures.append(name)
         rotate(project)
+        if failures:
+            raise RuntimeError('Database backup incomplete: ' + ', '.join(failures))
         result = {'last_success_utc': datetime.now(timezone.utc).isoformat(),
-                  'databases': list(sources), 'retained_daily_copies': 14}
+                  'databases': list(sources), 'directories': directories,
+                  'retained_daily_copies': 14}
         temporary = state / 'status.tmp'
         temporary.write_text(json.dumps(result))
         temporary.replace(state / 'status.json')

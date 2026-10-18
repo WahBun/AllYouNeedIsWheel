@@ -283,7 +283,7 @@ class NotificationsTests(unittest.TestCase):
                 with patch('api.routes.account.epoch',side_effect=['current','current','changed']):
                     self.assertEqual(client.get('/api/notifications/bark',headers=headers).status_code,409)
                 self.assertEqual(client.post('/api/notifications/bark/test',json={'id':str(uuid.uuid4())},headers=headers).status_code,200)
-                self.assertEqual(client.get('/api/notifications/events').status_code,200)
+                self.assertEqual(client.get('/api/notifications/events',headers=headers).status_code,200)
                 self.assertEqual(client.post('/api/notifications/alerts/'+body['id']+'/stop',json={},headers=headers).status_code,200)
                 self.assertEqual(self.store.alerts()[0]['state'],'stopped')
                 clear_url=endpoint+'/clear-history'; clear_body={'ids':[body['id']]}
@@ -295,6 +295,34 @@ class NotificationsTests(unittest.TestCase):
                 self.assertEqual(client.post(clear_url,json=clear_body,headers=headers).json['cleared'],0)
         finally:
             app.extensions['ib_background_stop'].set();app.extensions['ib_api_executor'].shutdown(wait=True)
+
+    def test_events_reject_stale_epoch_before_and_after_storage_read(self):
+        from api import create_app
+        app = create_app({'TESTING': True, 'NOTIFICATION_DB': str(self.path)})
+        service = SimpleNamespace(config={'account_id': 'DU_TEST'}, connection=None)
+        token = ['current']
+        try:
+            with patch('api.routes.portfolio.portfolio_service', service), \
+                 patch('api.routes.account.epoch', side_effect=lambda: token[0]):
+                client = app.test_client()
+                headers = {'X-Wheel-Account-Epoch': 'current'}
+                endpoint = '/api/notifications/events?after=0'
+                self.assertEqual(client.get(endpoint).status_code, 409)
+                self.assertEqual(client.get(endpoint, headers={'X-Wheel-Account-Epoch': 'stale'}).status_code, 409)
+                self.assertEqual(client.get(endpoint, headers=headers).status_code, 200)
+                def switch_during_read(*args):
+                    token[0] = 'changed'
+                    return {'events': [{'body': 'Previous account event'}], 'cursor': 1}
+                with patch.object(app.extensions['notifications'].store, 'events', side_effect=switch_during_read):
+                    response = client.get(endpoint, headers=headers)
+                self.assertEqual(response.status_code, 409)
+                self.assertNotIn('events', response.json)
+                # Installations without account profiles retain the existing read path.
+                token[0] = None
+                self.assertEqual(client.get(endpoint).status_code, 200)
+        finally:
+            app.extensions['ib_background_stop'].set()
+            app.extensions['ib_api_executor'].shutdown(wait=True)
 
     def test_apns_headers_payload_and_signature(self):
         import httpx, jwt, os

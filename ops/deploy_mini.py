@@ -112,12 +112,14 @@ def classify_restart(paths):
     for path in paths:
         if path.startswith(('docs/', 'tests/', '.github/')) or path in {'README.md', 'AGENTS.md', 'LICENSE', '.gitignore'}:
             continue
-        if path in {'ops/deploy_mini.py', 'ops/restart_backend.py', 'ops/build_backend_shortcut.py'}:
-            reasons.add('Deployment helpers load on their next invocation.')
+        if path in {'ops/deploy_mini.py', 'ops/restart_backend.py', 'ops/build_backend_shortcut.py', 'ops/maintenance.py'}:
+            reasons.add('Deployment and maintenance helpers load on their next invocation.')
         elif path.startswith('frontend/static/') or path in {
                 'ios/Wheel/ChartAssets/stock-chart.html',
                 'ios/Wheel/ChartAssets/chart-drawings.js',
                 'ios/Wheel/ChartAssets/chart-add-orders.js',
+                'ios/Wheel/ChartAssets/chart-alerts.js',
+                'ios/Wheel/ChartAssets/chart-volatility.js',
                 'ios/Wheel/ChartAssets/lightweight-charts.standalone.production.js'}:
             reasons.add('Web assets load on page refresh; bundled iPhone assets need an app rebuild.')
         elif path.startswith('ios/') and not path.startswith('ios/Wheel/ChartAssets/'):

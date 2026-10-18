@@ -9,7 +9,7 @@ const {start}=require('./market-feed/harness.cjs');
  if(url.pathname.startsWith('/api/chart-drawings/')){const cid=Number(url.pathname.split('/').at(-1));if(req.method()==='POST'){for(const op of req.postDataJSON().operations){if(op.kind==='delete')drawings.delete(op.id);else drawings.set(op.id,op.value);drawingRevision++;}}return route.fulfill({json:{con_id:cid,revision:drawingRevision,drawings:[...drawings.values()]}});}
  if(!url.pathname.startsWith('/api/notifications/'))return route.continue();
  const path=url.pathname.slice('/api/notifications/'.length);let value={};
- if(path==='events'){const after=url.searchParams.has('after')?Number(url.searchParams.get('after')):null;value={scope:'paper-test',cursor,events:after===null?[]:events.filter(e=>e.seq>after)};}
+ if(path==='events'){assert.equal(req.headers()['x-wheel-account-epoch'],'mock-epoch');const after=url.searchParams.has('after')?Number(url.searchParams.get('after')):null;value={scope:'paper-test',cursor,events:after===null?[]:events.filter(e=>e.seq>after)};}
  else if(path==='alerts/7'){
   if(req.method()==='POST'){const body=req.postDataJSON();writes.push(body);assert.equal(req.headers()['x-wheel-account-epoch'],'mock-epoch');if(!alerts.some(a=>a.id===body.id))alerts.push({...body,state:'active'});}
   value={alerts,push_configured:false,scope:'paper-test'};

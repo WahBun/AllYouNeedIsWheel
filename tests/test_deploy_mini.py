@@ -223,6 +223,8 @@ class DeployTests(unittest.TestCase):
         cases = [(['api/services/orders.py'], 'Restart recommended'),
                  (['frontend/templates/superchart.html'], 'Restart recommended'),
                  (['frontend/static/js/superchart.js', 'ios/Wheel/ChartAssets/chart-drawings.js'], 'No restart expected'),
+                 (['ios/Wheel/ChartAssets/chart-alerts.js', 'ios/Wheel/ChartAssets/chart-volatility.js'], 'No restart expected'),
+                 (['ops/maintenance.py', 'api/request_dispatcher.py'], 'Restart recommended'),
                  (['ops/deploy_mini.py', 'tests/test_deploy_mini.py', 'docs/BACKEND_SHORTCUT.md'], 'No restart expected'),
                  (['ios/Wheel/StockChart.swift'], 'No restart expected'),
                  (['requirements.txt', 'api/services/orders.py'], 'Review required'),

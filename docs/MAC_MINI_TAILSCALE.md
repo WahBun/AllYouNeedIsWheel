@@ -213,10 +213,22 @@ launchctl bootout "gui/$(id -u)/com.wahbun.wheel.docker-watchdog"
 ## Online backups and access-log rotation
 
 `ops/maintenance.py` runs hourly through `com.wahbun.wheel.maintenance`.
-It uses SQLite online backup for the order database and configured performance
-history, validates integrity, and retains 14 UTC daily copies in the private
+It discovers both Paper and Live order databases from the private account
+profiles, the active connection database, configured performance history, and
+existing drawing, favorite and notification databases. The former
+`options_dev.db` is also preserved when present. It uses SQLite online backup,
+validates integrity, and retains 14 UTC daily copies per source in the private
 `~/Library/Application Support/Wheel/Maintenance` directory. These are same-disk
 recovery copies, not protection against loss of the Mini or its disk.
+The maintenance process must receive the same `CONNECTION_CONFIG`,
+`WHEEL_ACCOUNT_PROFILES`, `WHEEL_PERFORMANCE_CONFIG` and `WHEEL_NOTIFICATION_DB`
+overrides as Backend if their default locations are not used. Relative database
+paths resolve from the project directory. Duplicate source paths are copied
+once. Each source directory includes a path fingerprint, so changing a database
+path on the same day cannot silently reuse another database's copy. Existing
+backup directories remain available; `status.json` lists the current directories.
+A missing configured order/history database does not create an empty database
+or stop copies of the other stores, and the run is not reported as successful.
 Gunicorn access/error logs rotate at 20 MiB, retaining seven archives. A verified
 Gunicorn master receives USR1 to reopen logs without restarting workers. Launchd
 stdout/stderr and other application logs are not truncated by this task.

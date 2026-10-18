@@ -73,9 +73,61 @@ class ApiDispatcherTests(unittest.TestCase):
         self.release.set()
         self.app.extensions['ib_api_executor'].shutdown(wait=True)
 
-    def get(self, path, method='GET'):
+    def get(self, path, method='GET', headers=None):
         with self.app.test_client() as client:
-            return client.open(path, method=method)
+            return client.open(path, method=method, headers=headers)
+
+    def test_reads_only_share_work_with_the_same_account_epoch(self):
+        epochs = []
+
+        @self.app.get('/api/epoch')
+        def guarded_read():
+            token = request.headers.get('X-Wheel-Account-Epoch')
+            epochs.append(token)
+            self.entered.set()
+            self.release.wait(5)
+            return {'epoch': token}, 200 if token == 'current' else 409
+
+        executor = self.app.extensions['ib_api_executor']
+        submit = executor.submit
+        for first_epoch, second_epoch in [('current', 'stale'), ('stale', 'current'),
+                                           ('current', None), ('current', 'current')]:
+            with self.subTest(epochs=(first_epoch, second_epoch)):
+                self.entered.clear()
+                self.release.clear()
+                epochs.clear()
+                both_waiting = threading.Event()
+                waiters = []
+
+                def instrumented_submit(fn):
+                    future = submit(fn)
+                    result = future.result
+                    def wait(*args, **kwargs):
+                        waiters.append(1)
+                        if len(waiters) == 2:
+                            both_waiting.set()
+                        return result(*args, **kwargs)
+                    future.result = wait
+                    return future
+
+                def read(epoch):
+                    headers = {'X-Wheel-Account-Epoch': epoch} if epoch is not None else {}
+                    return self.get('/api/epoch', headers=headers)
+
+                with patch.object(executor, 'submit', side_effect=instrumented_submit):
+                    with ThreadPoolExecutor(2) as clients:
+                        first = clients.submit(read, first_epoch)
+                        self.assertTrue(self.entered.wait(2))
+                        second = clients.submit(read, second_epoch)
+                        try:
+                            self.assertTrue(both_waiting.wait(2))
+                        finally:
+                            self.release.set()
+                        for future, expected in [(first, first_epoch), (second, second_epoch)]:
+                            response = future.result(timeout=2)
+                            self.assertEqual(response.status_code, 200 if expected == 'current' else 409)
+                            self.assertEqual(response.json['epoch'], expected)
+                        self.assertEqual(len(epochs), 1 if first_epoch == second_epoch else 2)
 
     def test_page_navigation_does_not_wait_for_ib(self):
         with ThreadPoolExecutor(2) as clients:

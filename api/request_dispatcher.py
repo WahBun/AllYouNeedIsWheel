@@ -98,7 +98,8 @@ def install_api_dispatcher(app):
         Thread(target=chart_loop, name='chart-event-pump', daemon=True).start()
 
     def dispatch():
-        # Annotation storage never accesses IB or depends on a trading-account epoch.
+        # Storage/stream endpoints do not occupy the IB owner. Account-scoped
+        # notification reads enforce their epoch inside the endpoint itself.
         # Match the exact endpoint, not a broad URL prefix; trading guards stay intact.
         if request.endpoint in ('portfolio.get_stock_chart_stream','portfolio.get_stock_chart_latest','superchart.drawings','superchart.favorites','notifications.events'):
             return original_dispatch()
@@ -120,7 +121,9 @@ def install_api_dispatcher(app):
                 (name, value) for name, value in request.args.items(multi=True)
                 if name not in {'t', '_'}
             ))
-            key = (request.path, args)
+            # A copied request carries its owner's account context. Stale and
+            # current clients must each run their own endpoint epoch guard.
+            key = (request.path, args, request.headers.get('X-Wheel-Account-Epoch'))
 
         def expired_response():
             response = jsonify(status='rejected', code='NOT_EXECUTED', error='Request expired before execution; no operation was started')

@@ -114,6 +114,13 @@ def bark_test():
 
 @bp.get('/events')
 def events():
+    from api.routes.account import epoch
+    requested_epoch = epoch()
+    if requested_epoch and request.headers.get('X-Wheel-Account-Epoch') != requested_epoch:
+        return jsonify(error='Account connection changed. Refresh notifications.'), 409
     runtime, scope, _ = context()
     after = request.args.get('after', type=int)
-    return jsonify(runtime.store.events(scope, after))
+    result = runtime.store.events(scope, after)
+    if epoch() != requested_epoch:
+        return jsonify(error='Account connection changed. Refresh notifications.'), 409
+    return jsonify(result)
