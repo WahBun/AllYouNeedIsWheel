@@ -11,6 +11,7 @@ import plistlib
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 UTC = timezone.utc
@@ -173,6 +174,23 @@ class ProfileRefresh:
             save_json(self.manifest, dict(status="completed", profiles=self.entries))
 
 
+def wait_for_fresh_profile(refresh, started, timeout=180):
+    # Xcode starts signing preparation asynchronously when the project opens.
+    # A Build before this completes can reference its now-removed cached file.
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for directory in refresh.directories:
+            for path in directory.glob("*.mobileprovision"):
+                try:
+                    profile = read_profile(path)
+                    validate_profile(profile, refresh.config, refresh.previous, started=started)
+                except (RenewalError, OSError, ValueError, KeyError):
+                    continue
+                return
+        time.sleep(1)
+    raise RenewalError("Xcode did not finish preparing a new signing profile. Check Signing & Capabilities; no build was started.")
+
+
 def recover_interrupted(state):
     pending = [p for p in state.glob("*/profile-refresh.json")
                if json.loads(p.read_text()).get("status") == "pending"]
@@ -218,9 +236,12 @@ class Renewal:
         local_signing.chmod(0o600)
         started = datetime.now(UTC)
         with ProfileRefresh(self.config, self.run, previous_expiry) as refresh:
-            command(["/usr/bin/osascript", str(source / "ios/renew_signing.applescript"),
-                     str(source / "ios/Wheel.xcodeproj"), self.config["deviceUDID"],
-                     str(self.run / "build.log")], timeout=1320, log=self.run / "xcode-action.log")
+            action = ["/usr/bin/osascript", str(source / "ios/renew_signing.applescript"),
+                      str(source / "ios/Wheel.xcodeproj"), self.config["deviceUDID"],
+                      str(self.run / "build.log")]
+            command([*action, "prepare"], timeout=180, log=self.run / "xcode-prepare.log")
+            wait_for_fresh_profile(refresh, started)
+            command([*action, "build"], timeout=1320, log=self.run / "xcode-action.log")
             app = products / "Debug-iphoneos/Wheel.app"
             command(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app)])
             profile = read_profile(app / "embedded.mobileprovision")

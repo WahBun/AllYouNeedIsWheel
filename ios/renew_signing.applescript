@@ -1,9 +1,11 @@
 -- Use Xcode's documented Build command. Never Run, Test, Debug, or install.
 on run arguments
-    if (count arguments) is not 3 then error "Expected project path, device identifier, and build log path."
+    if (count arguments) is not 4 then error "Expected project path, device identifier, build log path, and action."
     set projectPath to item 1 of arguments
     set expectedDevice to item 2 of arguments
     set logPath to item 3 of arguments
+    set requestedAction to item 4 of arguments
+    if requestedAction is not "prepare" and requestedAction is not "build" then error "Unsupported Xcode action."
     set targetWorkspace to missing value
     with timeout of 1300 seconds
         tell application "Xcode"
@@ -34,6 +36,7 @@ on run arguments
             end repeat
             if targetDestination is missing value then error "The configured iPhone is unavailable to Xcode. Connect it and try again."
             set active run destination of targetWorkspace to targetDestination
+            if requestedAction is "prepare" then return "Xcode signing preparation started."
             set actionResult to build targetWorkspace
             repeat 2400 times
                 if completed of actionResult then exit repeat

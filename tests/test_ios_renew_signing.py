@@ -100,6 +100,19 @@ class RenewalTests(unittest.TestCase):
                 renew.recover_interrupted(root)
             self.assertEqual(original.read_bytes(), b"original")
 
+    def test_build_waits_for_a_genuinely_new_cached_profile(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "profile.mobileprovision").write_bytes(b"profile")
+            refresh = renew.ProfileRefresh(self.config, root, self.now, directories=[root])
+            old = dict(self.profile, ExpirationDate=self.now)
+            with patch.object(renew, "read_profile", side_effect=[old, self.profile]) as read, patch.object(renew.time, "sleep"), patch.object(renew, "datetime") as clock:
+                clock.now.return_value = self.now
+                renew.wait_for_fresh_profile(refresh, self.now)
+                self.assertEqual(read.call_count, 2)
+            with self.assertRaisesRegex(renew.RenewalError, "no build was started"):
+                renew.wait_for_fresh_profile(refresh, self.now, timeout=0)
+
     def test_dirty_checkout_or_different_remote_commit_is_rejected(self):
         with patch.object(renew, "command", return_value=" M file"):
             with self.assertRaisesRegex(renew.RenewalError, "uncommitted"):
