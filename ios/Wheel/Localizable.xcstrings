@@ -177,6 +177,7 @@
       }
     },
     "Log in to the selected IB Gateway mode on Mini. Connection will complete automatically." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -199,6 +200,7 @@
       }
     },
     "Gateway login is still pending. Complete IB Key if prompted, then retry connection." : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -221,6 +223,7 @@
       }
     },
     "Account verification is incomplete. Retry connection." : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -243,6 +246,7 @@
       }
     },
     "Account data is not ready. Retry connection." : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -265,6 +269,7 @@
       }
     },
     "Loading account…" : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -287,6 +292,7 @@
       }
     },
     "Retry connection" : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -309,6 +315,7 @@
       }
     },
     "Connected" : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -351,6 +358,7 @@
       }
     },
     "Manage TP / SL" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -361,6 +369,7 @@
       }
     },
     "Position TP / SL" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -371,6 +380,7 @@
       }
     },
     "Optional TP / SL · GTC" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -381,6 +391,7 @@
       }
     },
     "Enable TP" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -391,6 +402,7 @@
       }
     },
     "Enable SL" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -401,6 +413,7 @@
       }
     },
     "TP input" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -441,6 +454,7 @@
       }
     },
     "SL distance" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -451,6 +465,7 @@
       }
     },
     "SL target price" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -471,6 +486,7 @@
       }
     },
     "Apply TP / SL" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -481,6 +497,7 @@
       }
     },
     "Cancel all TP / SL" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -491,6 +508,7 @@
       }
     },
     "Back" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -511,6 +529,7 @@
       }
     },
     "Profit % uses the entry premium before fees. A short option sold at 2.12 with 75% profit targets 0.53, rounded to the contract tick." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -531,6 +550,7 @@
       }
     },
     "The selected exits will be canceled. Your position remains open. Check remaining orders after cancellation." : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -541,6 +561,7 @@
       }
     },
     "Cancel TP?" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -551,6 +572,7 @@
       }
     },
     "Cancel SL?" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -561,6 +583,7 @@
       }
     },
     "Remove TP; keep position" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -571,6 +594,7 @@
       }
     },
     "Remove SL; keep position" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -581,6 +605,7 @@
       }
     },
     "tp_only" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -591,6 +616,7 @@
       }
     },
     "sl_only" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -601,6 +627,7 @@
       }
     },
     "not_requested" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -1353,10 +1380,7 @@
         }
       }
     },
-    "+$128.00  +12.8%" : {},
     "×" : {},
-    "−$64.00  −6.4%" : {},
-    "● NQ100" : {},
     "● Portfolio" : {
       "localizations" : {
         "zh-Hans" : {
@@ -2909,6 +2933,7 @@
       }
     },
     "Daily P&L" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -3438,6 +3463,7 @@
       }
     },
     "Frozen" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -3623,6 +3649,7 @@
       }
     },
     "History: compounded daily IBKR TWR. SPX and NQ100: FRED daily price indices, excluding reinvested dividends. Intraday estimate uses daily P&L / last reported NAV; deposits, withdrawals and IB reset times may affect comparability. Final returns follow the next Flex report." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -3740,6 +3767,7 @@
       }
     },
     "IB-managed and unknown orders are excluded. Stops on the first failure. Cancellation remains pending until IB confirms it." : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -7244,7 +7272,6 @@
         }
       }
     },
-    "%@%%" : {},
     "1 day" : {
       "localizations" : {
         "zh-Hans" : {
@@ -7397,7 +7424,6 @@
         }
       }
     },
-    "Enter a positive TP and SL distance." : {},
     "Entry fill · P&L shown on exit" : {
       "localizations" : {
         "zh-Hans" : {
@@ -7706,6 +7732,7 @@
       }
     },
     "7-Day P&L" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -7722,6 +7749,7 @@
       }
     },
     "Month-to-date P&L" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -7738,6 +7766,7 @@
       }
     },
     "Confirmed closed-order net P&L for the selected period · New York dates" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -7752,7 +7781,29 @@
           }
         }
       }
-    }
+    },
+    "%@-%@-%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@-%2$@-%3$@"
+          }
+        }
+      }
+    },
+    "Above 1 hour, only the primary EMA20 is shown. Applies to all indicators in this chart. Hidden indicators return when you switch to an allowed timeframe. Changes apply immediately and are saved." : {},
+    "Call" : {},
+    "From" : {},
+    "Join Mid" : {},
+    "Put" : {},
+    "Select expiration" : {},
+    "Select strike" : {},
+    "Show on timeframes" : {},
+    "Stocks / Futures" : {},
+    "Tap a star to save an instrument across web and iOS." : {},
+    "Wait for the current order request to finish." : {},
+    "to" : {}
   },
   "version" : "1.0"
 }

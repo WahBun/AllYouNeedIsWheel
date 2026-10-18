@@ -215,8 +215,10 @@
 		};
 		B00000000000000000000006 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = C00000000000000000000001 /* Signing.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_ENTITLEMENTS = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wheel.nativeapp.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -227,8 +229,10 @@
 		};
 		B00000000000000000000007 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = C00000000000000000000001 /* Signing.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_ENTITLEMENTS = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wheel.nativeapp.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";

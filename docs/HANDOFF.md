@@ -1,3 +1,29 @@
+## 2026-10-18 — reconcile remaining local iOS configuration
+
+Reviewed the two pre-existing dirty files after `51d4a951881a1debd3ff2a122dbe39ef08d7df1d`.
+The project changes were Xcode ordering/comment noise and personal signing team /
+app identifier overrides. Those values are preserved in the existing ignored
+`ios/Signing.local.xcconfig` mechanism, outside Git. Test targets now read the
+same configuration and explicitly keep app-only entitlements disabled; their
+own bundle identifier still takes precedence. Effective signing, app identity,
+entitlements and platform settings match before/after for app Debug/Release and
+the test target. No certificate, provisioning profile or Apple account changed.
+
+The string catalog's large diff was mostly automatic reformatting. Keep its
+13 newly extracted English keys and remove 5 unused empty entries. Mark 28
+still-used dynamic keys as manual instead of stale, including constructed
+TP/SL cancellation labels. Retain 6 obsolete translated entries marked stale;
+all existing translation values remain unchanged. Repository ordering and
+formatting are preserved to keep the diff reviewable. This does not add Chinese
+UI or change interaction behavior.
+
+Validation: project syntax, semantic catalog comparison and effective Xcode
+settings checks passed. A simulator build and the existing dynamic-notice and
+trading-term localization tests passed. No physical-device Run or service
+operation was performed. This change alone needs no Mini deployment/restart;
+when deploying the preceding web fixes together, choose **Deploy only** unless
+the deployment preview identifies older pending backend changes.
+
 ## 2026-10-18 — stability review and first-use chart interaction
 
 Starting point: GitHub `codex/chart-labels-1.7` at
