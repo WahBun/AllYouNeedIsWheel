@@ -1,3 +1,33 @@
+## 2026-10-18 — shared price-axis Plus button switch
+
+The price-axis Plus button is now one shared preference across primary and
+auxiliary web panes. Both the axis menu and Chart display settings update every
+pane immediately, including hidden/recreated panes. Reload prefers the saved
+shared value over stale per-pane copies. Toggling from an auxiliary menu no longer
+activates that pane; other per-pane settings and trading routing remain intact.
+
+REA inspected the actual open Wheel page and its loaded host/layout scripts:
+ev_68229c4a1f83ecc3e3d42eb510b61ce591b9c74e1052667ec758c99e3fe2792d.
+Both script digests matched local commit 408c60c. Their save/capture/activation
+paths confirmed that the old switch was stored independently for each pane.
+The earlier TV capture ev_d4500347deb7092c025019c82f426d4f9eca2591e61ecc909dd5d9926846d415
+was reused: the same captured 16242 bundle contains module 983331's shared
+`addPlusButtonProperty`, persisted under `add_plus_button`. This is source
+evidence for the shared preference, not a claim of toggling the reference page.
+
+The new actual-host regression fails on the previous code and passes the fix at
+1440px/393px in both themes: main/auxiliary menus, actual glyph visibility,
+settings dialog, unchanged active pane, independent EMA settings, 1/2/3/4 layouts,
+stale saved copies, reload and ongoing synthetic tick updates; zero trading POSTs.
+Existing axis-side and full-host One-click confirmation regressions also pass.
+The older standalone `context-menu.cjs` still fails its first price-menu text
+assertion; it loads only unchanged renderer/menu assets, not either modified
+host script. It is not counted as passed. No live broker acceptance was attempted.
+
+Deploy only and refresh the web page. No native assets changed, so this batch
+does not require iPhone Run. No deployment, service restart or broker write was
+performed; pre-existing signing/localization edits remain outside this commit.
+
 ## 2026-10-18 — price-axis packing, consistent badges and EMA20 above 1h
 
 Scope: shared web/iOS price-axis presentation, every primary/auxiliary pane, and
