@@ -110,7 +110,7 @@ struct PriceInput: View {
 
 extension Order {
     private enum CodingKeys: String, CodingKey {
-        case con_id, chart_con_id, chart_order_ref, chart_protection_ref, chart_protection_group_id
+        case con_id, chart_con_id, chart_order_ref, chart_group_id, chart_protection_ref, chart_protection_group_id
         case gross_pnl, net_pnl, round_trip_commission
         case id, ticker, symbol, action, order_type, option_type, strike, expiration, premium, quantity, status
         case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, amendment_pending, error_message, isRollover, filled, avg_fill_price, fill_time, fill_action, commission, commission_currency, realized_pnl
@@ -150,6 +150,7 @@ extension Order {
         con_id = try brokerID(.con_id)
         chart_con_id = try brokerID(.chart_con_id)
         chart_order_ref = try values.decodeIfPresent(String.self, forKey: .chart_order_ref)
+        chart_group_id = try values.decodeIfPresent(String.self, forKey: .chart_group_id)
         chart_protection_ref = try values.decodeIfPresent(String.self, forKey: .chart_protection_ref)
         chart_protection_group_id = try values.decodeIfPresent(String.self, forKey: .chart_protection_group_id)
         external_ib = try flag(.external_ib)
@@ -464,23 +465,25 @@ final class TradingSession {
     func manageChartEntry(_ order: Order, operation: String, price: Double? = nil, quantity: Int? = nil, tif: String? = nil, confirmRemoveProtection: Bool = false, store: WheelStore) async -> Bool {
         guard !store.demo, store.chartTradingAvailable, TradeRules.chartManageable(order),
               let cid = order.chart_con_id, let ref = order.chart_order_ref else { return false }
+        let base = store.address, groupID = order.chart_group_id ?? "", epoch = accountEpoch
+        let query = groupID.isEmpty ? [] : [URLQueryItem(name: "group_id", value: groupID)]
         var body: [String: Any] = ["action": "manage_entry", "operation": operation, "expected_ref": ref]
         if let price { body["price"] = price; body["expected_price"] = order.premium }
         do {
             if operation == "cancel" {
-                let state = try await get("api/portfolio/paper-chart/\(cid)", base: store.address)
+                let state = try await get("api/portfolio/paper-chart/\(cid)", base: base, query: query)
                 guard state["order_ref"] as? String == ref else { message = "Order changed; refresh before canceling"; return false }
                 if state["entry_editable"] as? Bool == true, let snapshot = state["edit_snapshot"] as? [[String: Any]] {
                     body = ["action": "edit_entry", "cancel": true, "expected_ref": ref, "expected_snapshot": snapshot]
                 } else if state["mode"] as? String != "overnight_entry" { message = "Order changed; refresh before canceling"; return false }
             } else if operation == "amend", let quantity, let tif {
-                let base = store.address
-                let state = try await get("api/portfolio/paper-chart/\(cid)", base: base)
-                guard store.address == base, store.chartTradingAvailable, !store.demo else { return false }
+                let state = try await get("api/portfolio/paper-chart/\(cid)", base: base, query: query)
                 guard let request = TradeRules.chartEditRequest(order, state: state, price: price, quantity: quantity, tif: tif, confirmRemoveProtection: confirmRemoveProtection) else { message = "Order changed or settings unavailable; refresh before editing"; return false }
                 body = request
             }
-            let result = try await paperChartWrite(base: store.address, conID: cid, body: body)
+            guard store.address == base, accountEpoch == epoch, store.chartTradingAvailable, !store.demo else { return false }
+            if !groupID.isEmpty { body["group_id"] = groupID }
+            let result = try await paperChartWrite(base: base, conID: cid, body: body)
             message = result["message"] as? String
             if result["success"] as? Bool == true,
                let state = result["state"] as? [String: Any], let replacement = state["order_ref"] as? String, replacement != ref {

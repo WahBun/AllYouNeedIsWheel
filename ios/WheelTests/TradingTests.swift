@@ -113,6 +113,51 @@ final class TradingTests: XCTestCase {
         XCTAssertFalse(TradeRules.chartManageable(order))
     }
 
+    func testChartEntryManagementKeepsIndependentGroupIdentity() async throws {
+        let saved = UserDefaults.standard.object(forKey: "pendingPaperChartRequests")
+        UserDefaults.standard.removeObject(forKey: "pendingPaperChartRequests")
+        defer {
+            UserDefaults.standard.set(saved, forKey: "pendingPaperChartRequests")
+            MockProtocol.payload = nil; MockProtocol.fail = false; MockProtocol.statusCode = 200
+        }
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        let store = WheelStore(session: URLSession(configuration: config))
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        store.trading.accountEpoch = "mock-paper"
+        store.demo = false; store.address = "https://mock.invalid"; store.updated = .now
+        store.portfolio = Bootstrap(summary: Summary(account_value: 1000, cash_balance: 500), positions: [],
+            connection: AccountConnection(mode: "paper", execution_enabled: false, chart_execution_enabled: true))
+        for group in ["", UUID().uuidString] {
+            for operation in ["amend", "cancel"] {
+                let ref = "WheelPaper:" + UUID().uuidString
+                let data = try JSONSerialization.data(withJSONObject: ["id": "ib-stk-7", "ticker": "TEST", "action": "BUY",
+                    "option_type": "STOCK", "premium": 100, "quantity": 2, "status": "presubmitted", "tif": "DAY",
+                    "chart_con_id": 345678, "chart_order_ref": ref, "chart_group_id": group])
+                let order = try JSONDecoder().decode(Order.self, from: data)
+                let state: [String: Any] = ["order_ref": ref, "group_id": group, "entry_editable": true,
+                    "entry": 100.0, "quantity": 2.0, "tif": "DAY", "allowed_tifs": ["DAY", "GTC"],
+                    "edit_snapshot": [["order_id": 7, "filled": 0]], "mode": "bracket"]
+                MockProtocol.requests = []; MockProtocol.statusCode = 200; MockProtocol.fail = false
+                MockProtocol.payload = { request in
+                    let selected = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "group_id" })?.value ?? ""
+                    if request.httpMethod == "GET" { return selected == group ? state : ["order_ref": "WheelPaper:original"] }
+                    return ["success": selected == group, "status": operation == "cancel" ? "canceled" : "acknowledged", "state": state]
+                }
+                let success = await store.trading.manageChartEntry(order, operation: operation,
+                    price: operation == "amend" ? 101 : nil, quantity: operation == "amend" ? 3 : nil,
+                    tif: operation == "amend" ? "GTC" : nil, store: store)
+                XCTAssertTrue(success, "\(operation) for group \(group): \(store.trading.message ?? "")")
+                XCTAssertEqual(MockProtocol.requests.filter { $0.httpMethod == "POST" }.count, 1)
+                for request in MockProtocol.requests {
+                    XCTAssertEqual(request.url?.path, "/api/portfolio/paper-chart/345678")
+                    let selected = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "group_id" })?.value ?? ""
+                    XCTAssertEqual(selected, group)
+                    XCTAssertEqual(request.value(forHTTPHeaderField: "X-Wheel-Account-Epoch"), "mock-paper")
+                }
+            }
+        }
+    }
+
     func testConfirmedRejectionUnlocksButUnverifiedResponseStaysLocked() async {
         let saved = UserDefaults.standard.object(forKey: "unresolvedTradingWrite")
         defer {

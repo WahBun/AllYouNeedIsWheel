@@ -143,6 +143,7 @@ struct Order: Decodable, Identifiable {
     var con_id: Int? = nil
     var chart_con_id: Int? = nil
     var chart_order_ref: String? = nil
+    var chart_group_id: String? = nil
     var chart_protection_ref: String? = nil
     var chart_protection_group_id: String? = nil
     var chartPosition: Position? {

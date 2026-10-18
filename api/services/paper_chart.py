@@ -2076,14 +2076,24 @@ class PaperChart:
                 raise ValueError('Stop total quantity must be a whole number above filled quantity')
             if body.get('expected_quantity')!=old or body.get('expected_price')!=trade.order.auxPrice:
                 raise ValueError('Stop changed; refresh quantity editor')
-            positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
-            position=sum(float(p.position) for p in positions if p.account==account and p.contract.conId==cid)
-            if not position or (trade.order.action=='SELL')!=(position>0) or qty-filled>abs(position):
-                raise ValueError('Stop quantity exceeds remaining position')
+            def stop_snapshot(target=trade):
+                order=target.order
+                return (order.orderId,order.clientId,order.permId or target.orderStatus.permId,
+                    order.account,target.contract.conId,order.orderRef,order.action,order.orderType,
+                    order.parentId,order.ocaGroup,order.totalQuantity,order.auxPrice,target.orderStatus.filled)
+            original=stop_snapshot()
             if qty>old:
                 others=conn._bounded_order_read(conn.ib.reqAllOpenOrders,timeout_seconds=3)
-                if not current['known'] or current.get('sync_error') or any(t.order.account==account and t.contract.conId==cid and t.order.orderId!=oid for t in others):
+                if not current['known'] or current.get('sync_error') or any(t.order.account==account and t.contract.conId==cid and stop_snapshot(t)[:6]!=original[:6] for t in others):
                     raise ValueError('Reconcile other exits before increasing stop quantity')
+            # These reads pump broker events. Check position after the order read,
+            # then reject changed/canceled/filled stops before the single amendment.
+            positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
+            if trade.orderStatus.status not in ('Submitted','PreSubmitted') or stop_snapshot()!=original:
+                raise ValueError('Stop changed while validating; refresh quantity editor')
+            position=sum(float(p.position) for p in positions if p.account==account and p.contract.conId==cid)
+            if not math.isfinite(position) or not position or (trade.order.action=='SELL')!=(position>0) or qty-filled>abs(position):
+                raise ValueError('Stop quantity exceeds remaining position')
             order=copy.copy(trade.order);order.totalQuantity=qty
             self.modify_exit(conn,trade,order,'totalQuantity')
             return

@@ -1,3 +1,58 @@
+## 2026-10-18 — order logic review: stop resize races and native group routing
+
+Baseline: GitHub `codex/chart-labels-1.7` at
+`9a932bb3441788b454142bb861c0429a123746f8`. This pass reviewed submission,
+amendment/cancellation identity and unknown-outcome recovery, with two scoped
+fixes and no new features.
+
+Stop quantity amendments could use a position captured before an all-client
+order read. If a fill arrived during that read, an oversized stop could still be
+sent. A cancellation, partial fill or price change during the position read also
+failed to invalidate the pending amendment. Reproductions demonstrated broker
+writes in all four cases. The handler now reads positions after the all-client
+order check and rechecks the exact stop identity, terms, fills and working state
+immediately before its single write. Reject nonfinite positions. Another API
+client's order with the same order number is now treated as another order;
+only the full matching identity is excluded from the exit reservation check.
+Ordinary increases/decreases retain the existing stop ID and price. No automatic
+quantity adjustment, order replay, quote rule or OCA change was introduced.
+
+Native Orders discarded the backend's `chart_group_id` entry metadata. As a
+result, editing or canceling an independent entry read the original group and
+was rejected by the reference guard. Preserve this optional field and use it in
+both the state query and write. Keep the originating backend/account context
+through the validation read. Original-group orders still use the existing
+default path. Protection cancellation already preserved its own group field.
+
+REA passively captured the current browser page and script sources in
+`ev_01a5b4614b41be26e63624758bc70930851bbe9bf935cba348519a06330bb639`.
+Its served host still preceded the prior picker fix; the order `write`, action,
+exact-exit cancellation, request-key/path and refresh/reconciliation sections
+were compared and matched the current checkout exactly. Trace those identity
+and no-replay paths against the backend and native implementation. The REA
+capture establishes shipped source, not a live order lifecycle; the races below
+were exercised only with isolated broker/transport fixtures.
+
+Validation passed:
+- 359 distinct backend tests covering the fixes, price/quantity/TIF changes,
+  partial fills, cancel/fill races, crash/restart recovery without replay,
+  independent group attribution and Paper/Live execution gates. The runner
+  blocked real network/broker writes and used temporary databases/configuration.
+- Seven new stop-resize cases: the four races, same-number foreign-client exit,
+  nonfinite position, and ordinary increase/decrease with preserved identity.
+  The race/identity cases failed before their fixes and passed afterward.
+- Simulator build and 128 native trading, completion, fill and chart tests.
+  The new Orders regression exercises default/independent groups for both
+  amendment and cancellation; independent requests failed before the fix.
+- Existing browser checks passed for protected pending-stop presentation,
+  desktop/mobile quantity confirmation and unknown-to-confirmed recovery with
+  exactly one write, and One-click on/off through the real host/frame path.
+
+Recommend **Deploy & Restart Backend** for the stop-resize guard, plus the user's
+separate Xcode Run for native Orders. Neither action was performed. No Gateway
+restart, real account/order mutation or physical-device test occurred; actual
+Paper acceptance of market fills and network recovery remains separate.
+
 ## 2026-10-18 — follow-up review: delayed picker and alert responses
 
 Baseline: GitHub `codex/chart-labels-1.7` at
