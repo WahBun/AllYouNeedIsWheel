@@ -76,6 +76,11 @@ def create_app(config=None):
     app.register_blueprint(options.bp)
     app.register_blueprint(recommendations.bp)
     logger.info("Registered API blueprints")
+    from api.routes.notifications import bp as notifications_bp
+    from api.services.notification_runtime import NotificationRuntime
+    app.register_blueprint(notifications_bp)
+    from api.services.notifications import NotificationStore
+    app.extensions['notifications'] = NotificationRuntime(NotificationStore(app.config.get('NOTIFICATION_DB')))
     from api.request_dispatcher import install_api_dispatcher
     app.extensions['ib_background_sync'] = options.options_service.synchronize_fills
     install_api_dispatcher(app)

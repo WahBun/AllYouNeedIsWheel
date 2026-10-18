@@ -1,4 +1,9 @@
 // Public defaults; personal device signing stays in the ignored local file.
 DEVELOPMENT_TEAM =
 PRODUCT_BUNDLE_IDENTIFIER = com.example.wheel
+// Push stays opt-in so personal-team builds remain usable.
+WHEEL_APNS_ENVIRONMENT = development
+WHEEL_PUSH_ENTITLEMENTS =
+CODE_SIGN_ENTITLEMENTS = $(WHEEL_PUSH_ENTITLEMENTS)
+INFOPLIST_KEY_WheelAPNSEnvironment = $(WHEEL_APNS_ENVIRONMENT)
 #include? "Signing.local.xcconfig"

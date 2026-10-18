@@ -37,6 +37,9 @@ def install_api_dispatcher(app):
     app.extensions['ib_api_executor'] = executor
     stop_background = Event()
     app.extensions['ib_background_stop'] = stop_background
+    notifications = app.extensions.get('notifications')
+    if notifications and not app.testing:
+        notifications.start(stop_background)
 
     def background_loop():
         # One outstanding background job at most, sharing HTTP admission and executor.
@@ -75,11 +78,16 @@ def install_api_dispatcher(app):
         from api.services.chart_latest import latest_charts
         outstanding = None
         while not stop_background.wait(.005):
-            if (not streams.clients and not latest_charts.contexts()) or (outstanding is not None and not outstanding.done()):
+            if (not streams.clients and not latest_charts.contexts() and not (notifications and (notifications.enabled or notifications.conn is not None))) or (outstanding is not None and not outstanding.done()):
                 continue
             def pulse():
                 try:
-                    with app.app_context(): streams.pulse()
+                    with app.app_context():
+                        chart_pumping = bool(streams.clients or latest_charts.contexts())
+                        streams.pulse()
+                        if notifications and (notifications.enabled or notifications.conn is not None):
+                            from api.routes.portfolio import portfolio_service
+                            notifications.pulse(portfolio_service, chart_pumping)
                 except Exception:
                     logging.getLogger('autotrader.api').warning('Chart push paused')
             try:
@@ -92,7 +100,7 @@ def install_api_dispatcher(app):
     def dispatch():
         # Annotation storage never accesses IB or depends on a trading-account epoch.
         # Match the exact endpoint, not a broad URL prefix; trading guards stay intact.
-        if request.endpoint in ('portfolio.get_stock_chart_stream','portfolio.get_stock_chart_latest','superchart.drawings','superchart.favorites'):
+        if request.endpoint in ('portfolio.get_stock_chart_stream','portfolio.get_stock_chart_latest','superchart.drawings','superchart.favorites','notifications.events'):
             return original_dispatch()
         if not request.path.startswith('/api/') or (request.method == 'GET' and request.path in {'/api/options/market-session', '/api/performance/history'}):
             return original_dispatch()

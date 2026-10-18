@@ -2011,6 +2011,7 @@ private struct StockChartWeb: UIViewRepresentable {
         config.websiteDataStore = .nonPersistent()
         config.userContentController.add(context.coordinator, name: "drawingsChanged")
         config.userContentController.add(context.coordinator, name: "drawingSync")
+        config.userContentController.add(context.coordinator, name: "notificationRequest")
         config.userContentController.add(context.coordinator, name: "chartReady")
         config.userContentController.add(context.coordinator, name: "entryChanged")
         config.userContentController.add(context.coordinator, name: "beState")
@@ -2027,10 +2028,11 @@ private struct StockChartWeb: UIViewRepresentable {
         if let html = resource("stock-chart", "html"), let library = resource("lightweight-charts.standalone.production", "js"),
            let template = try? String(contentsOf: html, encoding: .utf8), let js = try? String(contentsOf: library, encoding: .utf8) {
             let drawingJS = resource("chart-drawings", "js").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+            let alertJS = resource("chart-alerts", "js").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
             let addJS = resource("chart-add-orders", "js").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
             let volatilityJS = resource("chart-volatility", "js").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
             let html = template.replacingOccurrences(of: "/*LIBRARY*/", with: js)
-                .replacingOccurrences(of: "</body>", with: "<script>" + drawingJS + "</script><script>" + addJS + "</script><script>" + volatilityJS + "</script></body>")
+                .replacingOccurrences(of: "</body>", with: "<script>" + drawingJS + "</script><script>" + alertJS + "</script><script>" + addJS + "</script><script>" + volatilityJS + "</script></body>")
             web.loadHTMLString(html, baseURL: nil)
         } else { web.loadHTMLString("<p>Chart resources unavailable</p>", baseURL: nil) }
         return web
@@ -2049,6 +2051,7 @@ private struct StockChartWeb: UIViewRepresentable {
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {
         web.configuration.userContentController.removeScriptMessageHandler(forName: "drawingsChanged")
         web.configuration.userContentController.removeScriptMessageHandler(forName: "drawingSync")
+        web.configuration.userContentController.removeScriptMessageHandler(forName: "notificationRequest")
         web.configuration.userContentController.removeScriptMessageHandler(forName: "chartReady")
         web.configuration.userContentController.removeScriptMessageHandler(forName: "entryChanged")
         web.configuration.userContentController.removeScriptMessageHandler(forName: "beState")
@@ -2073,6 +2076,27 @@ private struct StockChartWeb: UIViewRepresentable {
         var onPaper: (([String: Any]) -> Void)?
         var onHistory: (([String: Any]) -> Void)?
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            if message.name == "notificationRequest", let body = message.body as? [String: Any],
+               let requestID = body["requestID"] as? String, let path = body["path"] as? String,
+               path.range(of: #"^alerts/([0-9]+|[a-fA-F0-9-]+/stop)$"#, options: .regularExpression) != nil,
+               let method = body["method"] as? String, ["GET", "POST"].contains(method),
+               let base = URL(string: backendAddress), base.scheme == "https", base.host != nil {
+                var request = URLRequest(url: base.appendingPathComponent("api/notifications/" + path), cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 12)
+                request.httpMethod = method
+                request.setValue("1", forHTTPHeaderField: "X-All-You-Need-Is-Wheel")
+                request.setValue(body["epoch"] as? String ?? "", forHTTPHeaderField: "X-Wheel-Account-Epoch")
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                if method == "POST", let payload = body["body"] as? [String: Any] { request.httpBody = try? JSONSerialization.data(withJSONObject: payload) }
+                drawingSession.dataTask(with: request) { [weak self] data, response, error in
+                    var reply: [String: Any] = ["requestID": requestID]
+                    let value = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+                    if error == nil, (response as? HTTPURLResponse)?.statusCode == 200 { reply["value"] = value ?? [:] }
+                    else { reply["error"] = value?["error"] as? String ?? "Request failed. Check saved alerts before retrying." }
+                    guard let data = try? JSONSerialization.data(withJSONObject: reply), let json = String(data: data, encoding: .utf8) else { return }
+                    DispatchQueue.main.async { self?.web?.evaluateJavaScript("window.receiveNotificationReply?.(\(json))", completionHandler: nil) }
+                }.resume()
+                return
+            }
             if message.name == "drawingSync", let body = message.body as? [String: Any], let requestID = body["requestID"] as? String, let cid = body["cid"] as? Int, cid > 0,
                let operations = body["operations"] as? [[String: Any]], let base = URL(string: backendAddress), base.scheme == "https", base.host != nil {
                 var request = URLRequest(url: base.appendingPathComponent("api/chart-drawings/\(cid)"), cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 12)

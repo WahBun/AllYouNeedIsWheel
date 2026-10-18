@@ -175,6 +175,7 @@
    const more=item('More settings...',()=>parent.postMessage({wheelChart:true,name:'chartSettings'},location.origin));const gear=axisButton.firstElementChild.cloneNode(true);gear.style.cssText='position:absolute;left:8px;top:50%;transform:translateY(-50%);width:16px;height:16px';more.prepend(gear);
    for(const row of menu.querySelectorAll('button')){row.style.position='relative';row.style.paddingLeft='34px';}
   }else{
+  item('Add alert at '+priceText(price),()=>{if(contract===paperCID)window.chartAlerts?.open({price});},!(price>0));
   refreshOrderMenu=orderItems(price,(label,run,disabled,presets)=>entryItem(label,()=>{if(contract===paperCID)run();},disabled,presets),true);
   const n=window.chartDrawingActions?.count()||0;if(n>0)item(`Remove ${n} drawings`,()=>window.chartDrawingActions?.removeAll());
   }

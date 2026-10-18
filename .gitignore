@@ -50,3 +50,9 @@ connection*.json
 
 # Pro-only Mini deployment settings
 /ops/deploy-mini.local.json
+
+# Apple push private keys and SQLite sidecars
+*.p8
+*.db-wal
+*.db-shm
+*.db-journal

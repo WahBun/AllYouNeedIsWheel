@@ -45,9 +45,17 @@ private struct ArrowlessDisclosureStyle: DisclosureGroupStyle {
 
 @main
 struct WheelApp: App {
+    @UIApplicationDelegateAdaptor(WheelNotificationDelegate.self) private var notificationDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @State private var store = WheelStore()
     var body: some Scene {
-        WindowGroup { RootView().environment(store) }
+        WindowGroup {
+            RootView().environment(store)
+                .task(id: "\(store.address):\(store.trading.accountEpoch ?? ""):\(store.demo):\(scenePhase)") {
+                    guard scenePhase == .active else { return }
+                    await WheelPush.shared.refresh(address: store.address, mode: store.demo ? "demo" : (store.portfolio?.connection?.mode ?? ""), epoch: store.trading.accountEpoch)
+                }
+        }
     }
 }
 
@@ -1699,6 +1707,7 @@ struct SettingsView: View {
                 if !switchingAccount, let error = store.error { NoticeText(error).font(.footnote).foregroundStyle(.orange) }
                 }
             }
+            PushNotificationSettings()
             Section("Appearance") {
                 HStack {
                     Label("Language", systemImage: "globe")

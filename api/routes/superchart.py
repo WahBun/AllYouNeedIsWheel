@@ -1,6 +1,6 @@
 """Web host for the exact chart assets shipped in the native app."""
 from pathlib import Path
-from flask import Blueprint, Response, render_template, request, jsonify
+from flask import Blueprint, Response, render_template, request, jsonify, current_app
 
 bp = Blueprint('superchart', __name__)
 ASSETS = Path(__file__).resolve().parents[2] / 'ios' / 'Wheel' / 'ChartAssets'
@@ -11,7 +11,7 @@ def chart_document():
     html = html.replace('/*LIBRARY*/', (ASSETS / 'lightweight-charts.standalone.production.js').read_text())
     bridge = "window.webkit={messageHandlers:Object.fromEntries(['paperAction','entryChanged','drawingsChanged','chartReady','beState','historyRequest'].map(name=>[name,{postMessage:body=>parent.postMessage({wheelChart:true,name,body,sentAt:performance.timeOrigin+performance.now()},location.origin)}]))};"
     html = html.replace('<head>', '<head><script>' + bridge + '</script>', 1)
-    return html.replace('</body>', '<script>' + (ASSETS / 'chart-drawings.js').read_text() + '</script><script>' + (ASSETS / 'chart-add-orders.js').read_text() + '</script><script src="/static/js/vendor/html2canvas-1.4.1.min.js"></script><script src="/static/js/chart-context-menu.js"></script><script src="/static/js/chart-volatility.js"></script></body>')
+    return html.replace('</body>', '<script>' + (ASSETS / 'chart-drawings.js').read_text() + '</script><script>' + (ASSETS / 'chart-add-orders.js').read_text() + '</script><script>' + (ASSETS / 'chart-alerts.js').read_text() + '</script><script src="/static/js/vendor/html2canvas-1.4.1.min.js"></script><script src="/static/js/chart-context-menu.js"></script><script src="/static/js/chart-volatility.js"></script></body>')
 
 
 @bp.get('/superchart')
@@ -32,7 +32,11 @@ def drawings(cid):
     try:
         body=request.get_json(silent=True) if request.method=='POST' else {}
         if not isinstance(body,dict): raise ValueError('Invalid drawing payload')
-        return jsonify(exchange(cid,body.get('operations',[]))),200,{'Cache-Control':'no-store'}
+        result = exchange(cid,body.get('operations',[]))
+        if body.get('operations') and current_app.extensions.get('notifications'):
+            from api.services.chart_drawings import DB
+            current_app.extensions['notifications'].store.sync_rays(DB)
+        return jsonify(result),200,{'Cache-Control':'no-store'}
     except ValueError as error:
         return jsonify(error=str(error)),400
 

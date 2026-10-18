@@ -17,3 +17,7 @@ flask-cors>=4.0.0
 gunicorn>=21.2.0
 waitress>=2.1.2  # Windows-compatible WSGI server alternative to gunicorn
 werkzeug>=3.0.1
+
+# APNs provider (HTTP/2 and ES256 token authentication)
+httpx[http2]>=0.27,<1
+PyJWT[crypto]>=2.9,<3

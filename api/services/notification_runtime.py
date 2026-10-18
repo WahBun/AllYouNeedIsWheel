@@ -1,0 +1,196 @@
+"""Observe IB on its existing owner thread; persistence and APNs run off that thread."""
+import logging
+import math
+import queue
+import threading
+import time
+from api.services.notifications import NotificationStore, account_scope
+
+log = logging.getLogger(__name__)
+
+
+class NotificationRuntime:
+    def __init__(self, store=None):
+        self.store = store or NotificationStore()
+        self.queue = queue.Queue(maxsize=20000)
+        self.active = []
+        self.enabled = False
+        self.conn = None
+        self.scope = None
+        self.mode = None
+        self.bindings = {}
+        self.previous = {}
+        self.next_refresh = 0
+        self.next_orders = 0
+        self.next_completed = 0
+        self.tracked_orders = {}
+        self.gap = False
+        self.health = 'Waiting for a live quote'
+
+    def enqueue(self, event):
+        try: self.queue.put_nowait(event)
+        except queue.Full:
+            # Never infer a crossing across an unobserved gap.
+            self.gap = True
+            self.health = 'Notification processing delayed'
+
+    def detach(self):
+        for ticker, callback in self.bindings.values(): ticker.updateEvent -= callback
+        self.bindings.clear()
+        if self.conn:
+            self.conn.ib.orderStatusEvent -= self.order
+            self.conn.ib.execDetailsEvent -= self.fill
+        self.conn = None
+        self.enqueue(('reset',))
+
+    def order(self, trade):
+        if not self.conn or getattr(trade.order, 'account', '') != self.conn.account_id: return
+        order = trade.order
+        # permId survives reconnects and is independent of the API client ID.
+        ident = str(order.permId) if order.permId else None
+        if ident:
+            label = f"{trade.contract.localSymbol or trade.contract.symbol} · {order.action} {order.totalQuantity:g}"
+            self.enqueue(('order', self.scope, ident, trade.orderStatus.status, label, self.mode))
+
+    def fill(self, trade, fill):
+        if not self.conn: return
+        execution = fill.execution
+        if execution.acctNumber != self.conn.account_id or not execution.execId: return
+        try: stamp = execution.time.timestamp()
+        except (AttributeError, ValueError): return
+        label = f"{fill.contract.localSymbol or fill.contract.symbol} · {execution.side} {execution.shares:g} @ {execution.price:g}"
+        parts = execution.execId.split('.')
+        # IB four-segment correction revisions are not additional executions.
+        ident = '.'.join(parts[:-1]) if len(parts) == 4 and parts[-1].isdigit() else execution.execId
+        self.enqueue(('fill', self.scope, ident, stamp, label, self.mode))
+
+    def tick(self, cid, ticker):
+        if not self.conn or not self.conn.is_connected() or getattr(ticker, 'marketDataType', None) != 1:
+            self.enqueue(('reset', cid)); return
+        # Last-price ticks only; no bid, ask, close, frozen or delayed substitutes.
+        for tick in list(getattr(ticker, 'ticks', ())):
+            price = getattr(tick, 'price', None)
+            if tick.tickType == 4 and isinstance(price, (int, float)) and math.isfinite(price) and price > 0:
+                self.enqueue(('price', self.scope, cid, price, self.mode, time.time()))
+
+    def pulse(self, portfolio_service, chart_pumping=False):
+        """Called only by ib-api. No filesystem or HTTP in the fast callback path."""
+        now = time.monotonic()
+        if not self.enabled:
+            self.detach(); return
+        if self.conn and not self.conn.is_connected():
+            self.detach(); self.next_refresh = 0; self.health = 'IB disconnected · alerts paused'
+        if now >= self.next_refresh:
+            self.next_refresh = now + 5
+            conn = portfolio_service._ensure_connection()
+            configured = str(portfolio_service.config.get('account_id', ''))
+            if not conn or conn.account_id != configured or not conn.is_connected(): return
+            status = portfolio_service.connection_status(conn)
+            mode = 'paper' if configured.startswith('DU') else 'live'
+            if status.get('mode') != mode: return
+            scope = account_scope(configured)
+            if conn is not self.conn or scope != self.scope:
+                self.detach(); self.conn, self.scope, self.mode = conn, scope, 'IB ' + mode.title()
+                conn.ib.orderStatusEvent += self.order
+                conn.ib.execDetailsEvent += self.fill
+                self.next_orders = 0
+                self.next_completed = 0
+            wanted = {a['cid'] for a in self.active if a['scope'] == scope}
+            for cid in set(self.bindings) - wanted:
+                ticker, callback = self.bindings.pop(cid); ticker.updateEvent -= callback
+            from api.services.chart_contracts import contracts
+            for cid in wanted:
+                try:
+                    contract = contracts.resolve(conn, cid)
+                    retained = conn.has_market_subscription(contract)
+                    ticker = conn.get_market_ticker(contract)
+                    previous = self.bindings.get(cid)
+                    if previous and previous[0] is ticker and retained: continue
+                    if previous: previous[0].updateEvent -= previous[1]
+                    self.enqueue(('reset', cid))
+                    callback = lambda value, cid=cid: self.tick(cid, value)
+                    ticker.updateEvent += callback
+                    self.bindings[cid] = ticker, callback
+                except Exception:
+                    self.health = 'Exact contract or live data unavailable'
+            if now >= self.next_orders:
+                self.next_orders = now + 15
+                # Read existing execution/order reconciliation, including reconnect recovery.
+                # No cancel, placeOrder, forced binding or write retry is used here.
+                try:
+                    conn.refresh_execution_history()
+                    snapshot = conn.get_order_status_snapshot()
+                    trades = (snapshot or {}).get('trades', [])
+                    for trade in trades: self.order(trade)
+                    known = {str(t.order.permId) for t in trades if t.order.permId}
+                    missing = self.tracked_orders.get(scope, set()) - known
+                    if missing and now >= self.next_completed:
+                        self.next_completed = now + 60
+                        for trade in conn._bounded_order_read(conn.ib.reqCompletedOrders, False, timeout_seconds=3) or []:
+                            self.order(trade)
+                    for fill in conn.ib.fills(): self.fill(None, fill)
+                except Exception:
+                    log.warning('Notification order reconciliation paused')
+        if self.conn and not chart_pumping:
+            self.conn.ib.sleep(.005)
+
+    def refresh(self):
+        from api.services.chart_drawings import DB
+        self.store.sync_rays(DB)
+        self.active = self.store.alerts(active=True)
+        with self.store.connect() as db:
+            self.enabled = bool(self.active or db.execute('SELECT 1 FROM order_scopes LIMIT 1').fetchone())
+            tracked = {}
+            for row in db.execute("SELECT scope,id FROM broker_orders WHERE status NOT IN ('Cancelled','Filled','ApiCancelled','Inactive')"):
+                tracked.setdefault(row['scope'], set()).add(row['id'])
+            self.tracked_orders = tracked
+        keys = {(a['id'], a['version']) for a in self.active}
+        self.previous = {k: v for k, v in self.previous.items() if k in keys}
+
+    def process(self, event):
+        kind, *args = event
+        if kind == 'reset':
+            if not args: self.previous.clear()
+            else:
+                ids = {a['id'] for a in self.active if a['cid'] == args[0]}
+                self.previous = {k: v for k, v in self.previous.items() if k[0] not in ids}
+        elif kind == 'order': self.store.observe_order(*args)
+        elif kind == 'fill': self.store.observe_fill(*args)
+        elif kind == 'price':
+            scope, cid, price, mode, now = args
+            self.health = 'Monitoring live last price'
+            for alert in self.active:
+                if alert['scope'] != scope or alert['cid'] != cid or now < alert['created']: continue
+                key = alert['id'], alert['version']
+                previous = self.previous.get(key)
+                if not previous or now - previous[1] > 60:
+                    self.previous[key] = price, now
+                    continue
+                old, _ = previous
+                target = alert['price']
+                up, down = old < target <= price, old > target >= price
+                crossed = (up or down) if alert['condition'] == 'crossing' else up if alert['condition'] == 'up' else down
+                if crossed: self.store.fire(alert, price, mode, now)
+                self.previous[key] = price, now
+
+    def start(self, stop):
+        def consume():
+            next_refresh = 0
+            pending_event = None
+            while not stop.is_set():
+                try:
+                    if time.monotonic() >= next_refresh:
+                        self.refresh(); next_refresh = time.monotonic() + .5
+                    if self.gap:
+                        self.previous.clear(); self.gap = False
+                        while not self.queue.empty(): self.queue.get_nowait()
+                    if pending_event is None: pending_event = self.queue.get(timeout=.1)
+                    self.process(pending_event)
+                    pending_event = None
+                except queue.Empty: pass
+                except Exception:
+                    log.exception('Notification event processing unavailable')
+                    stop.wait(1)
+        threading.Thread(target=consume, name='notification-events', daemon=True).start()
+        from api.services.push_delivery import deliver_loop
+        threading.Thread(target=deliver_loop, args=(self.store, stop), name='notification-push', daemon=True).start()
