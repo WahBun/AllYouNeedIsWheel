@@ -35,7 +35,10 @@ account/signing intervention in Xcode may be needed. The profile date describes
 the locally built package, not an independently extracted phone profile.
 
 The final shortcut invokes `--renew`; only its `--check` mode was executed during
-setup. The exported shortcut is kept locally outside the repository. No phone
+setup. The shortcut is saved in the Pro's native Shortcuts library. Exporting a
+shareable file failed with Apple's `NSURLErrorDomain` error 500 during iCloud
+validation; no exported file is available. The source and reconstruction steps
+remain in GitHub. No phone
 installation/launch, Mini deployment, backend/Gateway restart or broker write
 was performed. This helper needs no Mini deployment; if synchronizing the
 repository there, use **Deploy only**, subject to any accumulated earlier backend
