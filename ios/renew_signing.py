@@ -228,6 +228,13 @@ class Renewal:
         signing = ROOT / "ios/Signing.local.xcconfig"
         if not signing.is_file():
             raise RenewalError("Configure ios/Signing.local.xcconfig in Xcode first.")
+        # Xcode's scripting results identify a workspace by its filename.
+        # Give this isolated copy a unique name so an open developer project
+        # cannot capture the Build result reference.
+        project = source / "ios" / f"WheelRenewal-{self.run.name}.xcodeproj"
+        (source / "ios/Wheel.xcodeproj").rename(project)
+        for scheme in (project / "xcshareddata/xcschemes").glob("*.xcscheme"):
+            scheme.write_text(scheme.read_text().replace("container:Wheel.xcodeproj", "container:" + project.name))
         local_signing = source / "ios/Signing.local.xcconfig"
         products = self.run / "Products"
         intermediates = self.run / "Intermediates"
@@ -237,7 +244,7 @@ class Renewal:
         started = datetime.now(UTC)
         with ProfileRefresh(self.config, self.run, previous_expiry) as refresh:
             action = ["/usr/bin/osascript", str(source / "ios/renew_signing.applescript"),
-                      str(source / "ios/Wheel.xcodeproj"), self.config["deviceUDID"],
+                      str(project), self.config["deviceUDID"],
                       str(self.run / "build.log")]
             command([*action, "prepare"], timeout=180, log=self.run / "xcode-prepare.log")
             wait_for_fresh_profile(refresh, started)

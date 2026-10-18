@@ -59,6 +59,7 @@ on run arguments
         end try
         tell application "Xcode"
             if resultStatus is not succeeded then error "Xcode Build failed. See the saved build log."
+            close targetWorkspace saving no
         end tell
         return "Xcode Build completed. No iPhone installation was performed."
     end timeout
