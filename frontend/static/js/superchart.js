@@ -169,7 +169,9 @@ async function refreshExecutions(){if(chartLayout.loading())return;if(!packet.ba
 const activity=[],terminal=new Set(['acknowledged','rejected','working','filled','canceled','pending','done','released']);
 const pendingKey=()=>`wheel.web.pending:${profile.selected}:${cid}${groupID?':'+groupID:''}`;
 const orderPath=(id=cid)=>`portfolio/paper-chart/${id}${groupID?'?group_id='+encodeURIComponent(groupID):''}`;
-function log(message){if(/IB requests are busy|Request expired before execution/i.test(String(message))){const note=$('trade-connection-feedback');note.hidden=false;note.textContent=document.documentElement.lang==='zh'?'连接暂时繁忙，正在等待恢复。':'Connection temporarily busy. Waiting to recover.';trace(message);return;}$('trade-feedback').textContent=String(message).replace(/;\s*| · /g,'\n').replace(/(^|\n)([ \t]*)([a-z])/g,(_,line,space,letter)=>line+space+letter.toUpperCase());trace(message);}
+function readNotice(scope,message,detail=''){const note=$('trade-connection-feedback');note.dataset.scope=scope;note.textContent=message;note.title=detail;note.hidden=false;}
+function clearReadNotice(scope){const note=$('trade-connection-feedback');if(note.dataset.scope===scope){note.hidden=true;note.textContent='';note.title='';delete note.dataset.scope;}}
+function log(message){if(/IB requests are busy|Request expired before execution/i.test(String(message))){readNotice('IB request','IB request queue is busy. Check order status before trying again.',String(message));trace(message);return;}$('trade-feedback').textContent=String(message).replace(/;\s*| · /g,'\n').replace(/(^|\n)([ \t]*)([a-z])/g,(_,line,space,letter)=>line+space+letter.toUpperCase());trace(message);}
 function trace(message){activity.unshift(`${new Date().toLocaleTimeString()} ${message}`);activity.splice(100);$('activity').textContent=activity.join('\n');}
 async function api(path,body,signal){const response=await fetch('/api/'+path,{method:body?'POST':'GET',cache:'no-store',headers:body?{'Content-Type':'application/json','X-All-You-Need-Is-Wheel':'1','X-Wheel-Account-Epoch':epoch||''}:{},body:body?JSON.stringify(body):undefined,signal:signal||AbortSignal.timeout(body?35000:12000)}).catch(error=>{error.network=error instanceof TypeError;throw error;});const data=await response.json();if(!response.ok){const error=new Error(data.message||data.error||`HTTP ${response.status}`);error.status=response.status;error.retryableReadBusy=response.status===503&&['IB requests are busy; please retry shortly','Request expired before execution; no operation was started'].includes(data.error);error.confirmed=data.status==='rejected'||(response.status===503&&['IB requests are busy; please retry shortly','Request expired before execution; no operation was started'].includes(data.error))||(response.status===409&&data.error==='Account connection changed. Refresh and verify the account before continuing.');throw error;}return data;}
 let protectionType=null;
@@ -416,7 +418,7 @@ function applyMarket(bars,push=false){
  syncVolatility();void refreshVolatility({sync:false});
  switchingChart=false;chartLayout.checkSwitch();frame.style.opacity='';frame.style.pointerEvents='';frame.removeAttribute('aria-busy');
  $('market-status').textContent=(bars.message||(bars.status==='waiting'?'Historical bars · waiting for IB last ticks':bars.status)||'')+(push?' · SSE push':' · Snapshot refresh');
- $('market-status').title=$('market-status').textContent;$('connection').title=$('market-status').textContent;$('market-status').hidden=!!packet.bars?.length&&!bars.message;
+ $('market-status').title=$('market-status').textContent;$('market-status').hidden=!!packet.bars?.length&&!bars.message;
  // Quotes update the chart above. Reconfigure orders/indicators only when their
  // contract metadata changes; order-state and user edits still sync immediately.
  const nextConfig=JSON.stringify([cid,bars.generation,interval,session,bars.security_type,bars.multiplier,bars.price_rules]);
@@ -495,21 +497,31 @@ function ensureMarket(){
  if((!supported||!marketStream.healthy())&&Date.now()-lastFallback>=(supported?(Date.now()<marketPriorityUntil?250:1000):2000))refreshMarket();
  refreshPnL();
 }
-async function refresh(){if(document.hidden||Date.now()<marketPriorityUntil||polling||busy||!ready)return;polling=true;let token=generation;const selected=cid,readVersion=writeVersion;let stateRead=false;try{
+async function refresh(){if(document.hidden||Date.now()<marketPriorityUntil||polling||busy||!ready)return;polling=true;let token=generation;const selected=cid,readVersion=writeVersion;let stateRead=false,readScope='Account connection';try{
 const p=await api('account/profiles');if(token!==generation||readVersion!==writeVersion)return;
 if(profile.selected&&(p.selected!==profile.selected||p.epoch!==profile.epoch||p.account_identity!==profile.account_identity||(profile.verified&&!p.verified))){
  pnlBusy?.abort();pnlBusy=null;pnlPhase='loading';pendingJoin=null;resetNewQuantity();token=++generation;marketStream.stop();cancelMarketReads();lastFallback=0;lastPnL=0;marketReadError='';quoteConfigKey='';
  frame.contentWindow.prepareAccountChart?.();switchingChart=true;historyCaches.clear();packet={};state={};received=0;entry=0;positions=[];chartExecutions=[];executionContext='';emaFrames={};volatilityData=null;
  renderRows('orders',[],true);renderRows('positions',[],false);log('Account connection changed; synchronizing current account.');accountNotice=$('trade-feedback').textContent;
 }
-window.WheelNotifications?.setContext(p);window.wheelTradeSounds?.connection(p.verified===true);profile=p;epoch=p.verified?p.epoch:null;if(!p.verified)pnlPhase='unavailable';$('connection').textContent=`${p.selected||'Disconnected'} · ${p.verified?'Connected':'Not verified'}`;$('connection').className=p.selected||'';
+window.WheelNotifications?.setContext(p);window.wheelTradeSounds?.connection(p.verified===true);profile=p;epoch=p.verified?p.epoch:null;if(!p.verified)pnlPhase='unavailable';$('connection').textContent=`${p.selected||'Disconnected'} · ${p.verified?'IB connected':'Not verified'}`;$('connection').className=p.selected||'';
+$('connection').title=p.verified?'IB account connection verified. Market data and order availability are reported separately.':'IB account connection is not verified.';clearReadNotice('Account connection');
 sync();chartLayout.tick();ensureMarket();
 if(selected){
+readScope='Order status';
 if((profile.selected==='paper'||profile.chart_execution_enabled===true)&&profile.verified){const pending=localStorage.getItem(pendingKey());if(pending){const r=await api(orderPath(selected)+(groupID?'&':'?')+'request_id='+encodeURIComponent(pending));if(token!==generation||readVersion!==writeVersion)return;if(r.confirmed===true&&(terminal.has(r.status)||r.status==='reconciled')){localStorage.removeItem(pendingKey());log(`Reconciled: ${r.status}`);}}
-const s=await api(orderPath(selected));if(token!==generation||readVersion!==writeVersion)return;applyState(s);stateRead=true;}else{state={};received=0;}}
+const s=await api(orderPath(selected));if(token!==generation||readVersion!==writeVersion)return;applyState(s);stateRead=true;clearReadNotice('Order status');}else{state={};received=0;clearReadNotice('Order status');}}
+readScope='Orders / positions';
 const [orders,portfolio]=await Promise.all([api('options/pending-orders'),api('portfolio/bootstrap')]);if(token!==generation||readVersion!==writeVersion)return;
-renderRows('orders',orders.orders||[],true);positions=portfolio.positions||portfolio.portfolio?.positions||[];renderRows('positions',positions,false);$('trade-connection-feedback').hidden=true;
-}catch(error){if(error.network)window.wheelTradeSounds?.connection(false);if(!stateRead)received=0;$('market-status').hidden=false;$('market-status').textContent=error.message;log(error.message);}finally{polling=false;sync();}}
+renderRows('orders',orders.orders||[],true);positions=portfolio.positions||portfolio.portfolio?.positions||[];renderRows('positions',positions,false);clearReadNotice('Orders / positions');clearReadNotice('IB request');
+}catch(error){
+ // Failed reads have the same context boundary as successful replies.
+ if(token!==generation||readVersion!==writeVersion)return;
+ if(error.network)window.wheelTradeSounds?.connection(false);if(!stateRead)received=0;
+ if(readScope==='Account connection'){$('connection').textContent=`${profile.selected||'Account'} · Status unavailable`;$('connection').title='Account connection could not be checked. Retrying automatically.';}
+ readNotice(readScope,`${readScope} refresh ${error.retryableReadBusy?'delayed: IB request queue is busy':'unavailable'}. Retrying automatically.`,String(error.message));
+ trace(`${readScope}: ${error.message}`);
+}finally{polling=false;sync();}}
 function holdingRows(id=cid,chartPacket=packet){return positions.flatMap(p=>{const exact=p.con_id===id&&p.security_type===chartPacket.security_type,strike=chartPacket.security_type==='STK'&&p.security_type==='OPT'&&p.symbol===chartPacket.symbol;if(!(p.position&&p.con_id&&(exact||strike)))return [];const report=p.reported_cost;let price=strike?p.strike:p.security_type==='STK'&&report&&Math.abs(report.quantity-p.position)<.000001?report.average:p.entry_fill_price;const multiplier=p.security_type==='STK'?1:p.multiplier;const brokerAverage=!strike&&['STK','OPT','FUT'].includes(p.security_type)&&!(price>0)&&Number.isFinite(p.avg_cost)&&p.avg_cost>0&&Number.isFinite(multiplier)&&multiplier>0;if(brokerAverage)price=p.avg_cost/multiplier;if(!(price>0))price=null;if(strike&&!price)return [];return [{id:(strike?'strike-':'holding-')+p.con_id,kind:strike?'strike':'holding',price,title:strike?`${p.position} ${p.strike}${p.option_type==='CALL'?'C':'P'}@${p.entry_fill_price??'—'}`:`${p.position} · ${brokerAverage?'IB Avg*':'Avg'}${price?'':' —'}`,side:p.position>0?1:-1,pnl:p.unrealized_pnl,basis:Math.abs(p.avg_cost*p.position),marketPrice:p.market_price}];});}
 // Match native CoreAssetStyle / SymbolText without changing contract identity.
 const coreLettering={SGOV:'𝕊𝔾𝕆𝕍',VTI:'𝕍𝕋𝕀',QQQ:'ℚℚℚ',SPY:'𝕊ℙ𝕐',VOO:'𝕍𝕆𝕆'};
@@ -695,7 +707,13 @@ const settingsPanel=WheelChartSettings.mount({read:()=>({...display,atr:packet.s
 function settings(mode='display'){settingsPanel.open(mode);}
 $('settings').onclick=()=>settings();
 $('theme').onclick=()=>{dark=!dark;document.body.classList.toggle('light',!dark);localStorage.setItem('theme',dark?'dark':'light');sync();};document.body.classList.toggle('light',!dark);
-$('copy').onclick=()=>navigator.clipboard.writeText(JSON.stringify({contract:cid,interval,session,mode:profile.selected,status:state.status,activity},null,2));
+const copyStatus=document.createElement('p');copyStatus.id='copy-status';copyStatus.hidden=true;copyStatus.setAttribute('role','status');$('copy').after(copyStatus);
+$('copy').onclick=async()=>{
+ const button=$('copy');button.disabled=true;copyStatus.hidden=false;copyStatus.textContent='Copying diagnostics…';
+ try{if(!navigator.clipboard?.writeText)throw Error('Clipboard unavailable');await navigator.clipboard.writeText(JSON.stringify({contract:cid,interval,session,mode:profile.selected,status:state.status,activity},null,2));copyStatus.textContent='Diagnostics copied.';}
+ catch{copyStatus.textContent='Could not copy diagnostics. Check clipboard access and try again.';}
+ finally{button.disabled=false;}
+};
 // Bind each pane to its own document, including dynamically created auxiliaries.
 const magnetDocuments=new WeakSet();
 function magnetKeys(doc){

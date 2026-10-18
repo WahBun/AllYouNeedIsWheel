@@ -1,3 +1,50 @@
+## 2026-10-18 — UI review: scoped status feedback and stale failures
+
+Baseline: GitHub `codex/chart-labels-1.7` at
+`631dbc6d93244c1495a6ce5b591d622f6987d01c`. The user approved clearer status
+feedback and further functional bug investigation, and explicitly declined
+changes to selected-chart emphasis and indicator contrast. Preserve both.
+
+REA inspected the actual Wheel page and shipped source in
+`ev_36e7a52ca87a755260416fb96c3bfec269625ac1cc00152cfbc93deaf0dcbd1f`.
+The deployed host is older overall, but the refresh, logging and copy-handler
+source matched this baseline before editing. Reuse the current interface and
+existing generation/write-version checks; this is a Wheel-specific repair.
+Full-page mock reproduction established four problems:
+
+- Order-read queue errors were called connection failures and replaced market
+  status. Account connection, order state and order/position-list read failures
+  now report their own scope. Recovery clears only the matching notice, and
+  background reads do not replace an earlier action outcome. Raw errors remain
+  in diagnostics and the notice tooltip.
+- A failed account-profile read left the header saying Connected. It now says
+  Status unavailable until the next accepted profile response. Verified status
+  says IB connected; its tooltip explains that quote/order availability is
+  separate. Quote updates no longer overwrite this account tooltip.
+- A failed old read bypassed the context checks used for successful responses,
+  so its message and stale-state handling could affect a newly selected chart.
+  Reject obsolete failures before changing UI or order-read freshness.
+- Clipboard denial produced an unhandled rejection with no user feedback.
+  Copy diagnostics now reports progress, success or failure, prevents duplicate
+  pending copies, and allows retry when permission is denied or the API is absent.
+
+Validation passed: 67 frontend unit tests; four full-page status/recovery cases
+(1440/393px, light/dark, one/four panes) with continuing synthetic ticks, busy
+and unavailable reads, recovery, delayed failure after instrument selection,
+preserved action feedback, clipboard denial/missing API/pending/success and zero
+broker writes/page errors. Existing One-click on/off desktop/mobile entry-drag
+and confirmation checks passed, as did isolated four-pane account recovery and
+responsive toolbar/fullscreen checks at 1920/1400/1280/1024/393px in both themes.
+Reviewed desktop busy-status and mobile diagnostics screenshots. The legacy
+account-layout-sync test needs an absent fixed-port fixture; used the standalone
+account-chart-recovery test instead. No physical device or real-broker acceptance
+was performed; no new live tick-performance claim is made.
+
+Only browser JavaScript, the focused browser test and this record changed.
+Recommend **Deploy only**, then refresh the page; accumulated shortcut advice
+still applies to any earlier backend changes awaiting deployment/restart.
+No Mini deployment, backend/Gateway restart or iPhone Run was performed.
+
 ## 2026-10-18 — UI review: toolbar focus and favorites refresh
 
 Baseline: GitHub `codex/chart-labels-1.7` at
