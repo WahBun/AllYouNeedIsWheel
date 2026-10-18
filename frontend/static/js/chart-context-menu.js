@@ -1,24 +1,25 @@
 // Desktop-only menu; use the shared chart's price-choice and preview path.
 (()=>{
- // Hourly fast snapshots may contain fewer than one EMA period. Keep prices
- // live, but seed the EMA with history before presenting its direction.
- const updateSeededEMA=updateEMA;
- let emaHistoryRequestKey='',emaHistoryRetry=0;
- updateEMA=()=>{
-  updateSeededEMA();
-  const length=Math.max(1,Math.min(500,Math.round(displayOptions.emaLength||20)));
-  const waiting=displayOptions.ema===true&&countdownPacket?.interval===60&&
-   (!displayOptions.emaFrame||displayOptions.emaFrame===60)&&previous.length>0&&previous.length<Math.max(100,length*5);
-  window.chartInitialIndicatorsReady=!waiting;
-  if(!waiting)return;
-  emaSeries.applyOptions({visible:false});
-  const requestKey=JSON.stringify([key,previous[0].time]);
-  if(requestKey!==emaHistoryRequestKey||Date.now()>=emaHistoryRetry){
-   emaHistoryRequestKey=requestKey;emaHistoryRetry=Date.now()+30000;
-   const body={con_id:countdownPacket.con_id,before:previous[0].time,interval:60,session:countdownPacket.session};
-   queueMicrotask(()=>window.webkit?.messageHandlers.historyRequest?.postMessage(body));
-  }
+ // Seed every hourly pane with one recent week. Extra history is user-driven.
+ let weekSeedKey='',weekSeedDone=false,weekSeedRetry=0,historyGestureUntil=0;
+ function requestWeekSeed(){
+  const p=countdownPacket;
+  if(p?.interval!==60||!previous.length)return;
+  const identity=JSON.stringify([key,p.account_epoch]);
+  if(identity!==weekSeedKey){weekSeedKey=identity;weekSeedDone=false;weekSeedRetry=0;}
+  if(weekSeedDone||Date.now()<weekSeedRetry)return;
+  weekSeedRetry=Date.now()+30000;
+  const body={con_id:p.con_id,before:previous[0].time,interval:p.interval,session:p.session,recent:true};
+  queueMicrotask(()=>window.webkit?.messageHandlers.historyRequest?.postMessage(body));
+ }
+ window.chartHistoryPageApplied=recent=>{if(recent)weekSeedDone=true;};
+ window.resumeChartHistory=()=>{weekSeedRetry=0;requestWeekSeed();};
+ window.requestDetailedChartHistory=()=>{
+  const p=countdownPacket;if(p?.interval!==60||!previous.length)return;
+  window.webkit?.messageHandlers.historyRequest?.postMessage({con_id:p.con_id,before:previous[0].time,interval:p.interval,session:p.session});
  };
+ const historyGesture=e=>{if(e.target.closest?.('#chart')&&!e.target.closest('button,input,select,textarea'))historyGestureUntil=Date.now()+2000;};
+ document.addEventListener('pointerdown',historyGesture,true);document.addEventListener('wheel',historyGesture,{capture:true,passive:true});
  // An account reconnect replaces data, not the user's chart view.
  let accountTransition=false;
  window.prepareAccountChart=()=>{accountTransition=true;document.body.style.opacity='.65';};
@@ -30,6 +31,7 @@
   let offset=null;
   if(range){const next=new Map(packet.bars.map((b,i)=>[b.time,i]));const index=previous.findIndex(b=>next.has(b.time));if(index>=0)offset=next.get(previous[index].time)-index;}
   receiveChart(packet);
+  requestWeekSeed();
   if(range&&offset!==null)chart.timeScale().setVisibleLogicalRange({from:range.from+offset,to:range.to+offset});
   if(prices)activePriceScale().setVisibleRange(prices);
   if(packet.bars?.length||packet.generation==='clear'){accountTransition=false;document.body.style.opacity='';}
@@ -194,6 +196,6 @@
  new ResizeObserver(placeAxisIcon).observe(axisButton);chart.timeScale().subscribeSizeChange(placeAxisIcon);placeAxisIcon();
  axisButton.onclick=()=>{const r=axisButton.getBoundingClientRect();openChartMenu({target:document.body,clientX:r.left,clientY:Math.min(r.top,chart.paneSize().height-1),preventDefault(){},stopPropagation(){}},true);};
  document.addEventListener('pointerdown',e=>{if(!menu.contains(e.target))close();},true);
- chart.timeScale().subscribeVisibleLogicalRangeChange(()=>{const range=chart.timeScale().getVisibleRange();if(previous.length&&range&&range.from<=previous[Math.min(5,previous.length-1)].time)window.webkit?.messageHandlers.historyRequest?.postMessage({con_id:paperCID,before:previous[0].time,interval:countdownPacket?.interval,session:countdownPacket?.session});});
+ chart.timeScale().subscribeVisibleLogicalRangeChange(()=>{if(countdownPacket?.interval===60&&Date.now()>historyGestureUntil)return;const range=chart.timeScale().getVisibleRange();if(previous.length&&range&&range.from<=previous[Math.min(5,previous.length-1)].time)window.webkit?.messageHandlers.historyRequest?.postMessage({con_id:paperCID,before:previous[0].time,interval:countdownPacket?.interval,session:countdownPacket?.session});});
  document.addEventListener('wheel',close,{passive:true});window.addEventListener('resize',close);
 })();

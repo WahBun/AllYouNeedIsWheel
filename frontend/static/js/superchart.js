@@ -144,7 +144,7 @@ const chartLayout=window.installChartLayout({frame,api,onReady:()=>sync(),onPlus
  current:()=>({cid,interval,session,epoch,packet,display,dark,ready,busy,tradingLocked,emaFrames:emaContext===emaKey()?emaFrames:{},volatility:volatilityKey===volatilityContext()?volatilityData:null,axis:frame.contentWindow.priceAxisSide||'right',label:packet.display_symbol||packet.local_symbol||packet.symbol||$('contracts').selectedOptions[0]?.textContent||''}),
  activate:(target,nextFrame,seed)=>{
   if(busy||switchingChart||document.querySelector('dialog[open]'))return false;
-  frame.contentWindow.removeEventListener('focus',resumeMarket);marketStream.stop();generation++;marketReadError='';quoteConfigKey='';
+  cancelMarketReads();frame.contentWindow.removeEventListener('focus',resumeMarket);marketStream.stop();generation++;marketReadError='';quoteConfigKey='';
   frame=nextFrame;cid=target.cid;interval=target.interval;session=target.session;packet=seed.packet;display=structuredClone(target.display);
   groupID=localStorage.getItem('wheel.web.group:'+cid)||'';state={};received=0;entry=0;resetNewQuantity();
   emaFrames=seed.ema||{};emaContext=emaKey();volatilityData=seed.volatility;volatilityKey=volatilityContext();
@@ -351,7 +351,7 @@ function renderPendingAdds(can){
  list.hidden=!rows.length;
 }
 function applyState(value){window.wheelTradeSounds?.observe(`${epoch}:${cid}:${groupID}`,value);renderGroups(value);const completed=state.active&&!value.active&&['canceled','done'].includes(value.status);state=value;received=Date.now();if(value.active){if(value.position)$('quantity').value=Math.abs(value.position);if(value.tif)$('tif').value=value.tif;if(value.entry_type)$('type').value=value.entry_type;if(value.entry_editable&&!value.position)$('quantity').value=value.orders?.filter(o=>o.role.split('_')[0]==='entry').reduce((sum,o)=>sum+o.quantity,0)||1;}if(value.active&&value.entry>0)entry=value.entry;else if(completed){entry=0;resetNewQuantity();}sync();}
-const historyCaches=new Map();let historyLoading=false,historyRead=null;const historyRetry=new Map();
+const historyCaches=new Map();let historyLoading=false,historyRead=null,historyDetail=null;const historyRetry=new Map();
 function historyKey(){return `${epoch}:${cid}:${interval}:${session}`;}
 function mergeHistory(bars){
  const key=historyKey(),saved=historyCaches.get(key)||[];let merged;
@@ -363,10 +363,36 @@ function mergeHistory(bars){
  }else{const rows=new Map(saved.map(b=>[b.time,b]));for(const b of bars.bars||[])rows.set(b.time,b);merged=[...rows.values()].sort((a,b)=>a.time-b.time).slice(-20000);}
  historyCaches.set(key,merged);if(historyCaches.size>12)historyCaches.delete(historyCaches.keys().next().value);return {...bars,bars:merged,mode:'snapshot'};
 }
-async function loadHistory(body){if(interval===480&&session==='rth'&&!packet.history_expansion_attempted)return;if(historyLoading||busy||body.con_id!==cid||body.interval!==interval||body.session!==session||!epoch)return;const token=generation,key=historyKey(),requestKey=key+':'+body.before;if(Date.now()<(historyRetry.get(requestKey)||0))return;if((historyCaches.get(key)?.length||0)>=20000){$('market-status').textContent='History limit reached · use a longer interval';return;}historyLoading=true;const controller=historyRead=new AbortController();historyRetry.set(requestKey,Date.now()+30000);$('market-status').textContent='Loading earlier history…';try{const page=await api(`portfolio/stock-chart-history/${cid}?interval=${interval}&session=${session}&before=${body.before}`,undefined,controller.signal);if(token!==generation||key!==historyKey())return;const rows=new Map((page.bars||[]).map(b=>[b.time,b]));for(const b of packet.bars||[])rows.set(b.time,b);packet={...packet,mode:'snapshot',bars:[...rows.values()].sort((a,b)=>a.time-b.time)};historyCaches.set(key,packet.bars);frame.contentWindow.receive(packet);$('market-status').textContent=page.bars?.length?'Earlier history loaded':'No earlier bars returned; retry later';}catch(error){if(token===generation&&key===historyKey()){$('market-status').hidden=false;$('market-status').textContent=error.message;if(error.retryableReadBusy){historyRetry.set(requestKey,Date.now()+2000);setTimeout(()=>{if(token===generation&&key===historyKey())void loadHistory(body);},2100);}}}finally{if(historyRead===controller){historyLoading=false;historyRead=null;}}}
+async function loadHistory(body){
+ if(interval===480&&session==='rth'&&(!packet.history_expansion_attempted||packet.history_loading))return;
+ if(busy||body.con_id!==cid||body.interval!==interval||body.session!==session||!epoch)return;
+ if(historyLoading){if(!body.recent)historyDetail=body;return;}
+ const token=generation,key=historyKey(),recent=body.recent===true,requestKey=key+':'+body.before+':'+recent;
+ if(Date.now()<(historyRetry.get(requestKey)||0))return;
+ if((historyCaches.get(key)?.length||0)>=20000){$('market-status').textContent='History limit reached · use a longer interval';return;}
+ historyLoading=true;const controller=historyRead=new AbortController();controller.historyKey=requestKey;historyRetry.set(requestKey,Date.now()+30000);
+ if(historyRetry.size>64)historyRetry.delete(historyRetry.keys().next().value);
+ $('market-status').textContent=recent?'Loading recent history…':'Loading earlier history…';
+ try{
+  const page=await chartLayout.readHistory({cid,interval,session,epoch},body.before,controller.signal,recent);
+  if(token!==generation||key!==historyKey())return;
+  if(!page.bars?.length){$('market-status').textContent='No earlier bars returned; retry later';return;}
+  const rows=new Map((page.bars||[]).map(b=>[b.time,b]));for(const b of packet.bars||[])rows.set(b.time,b);
+  packet={...packet,mode:'snapshot',bars:[...rows.values()].sort((a,b)=>a.time-b.time)};historyCaches.set(key,packet.bars);
+  frame.contentWindow.chartHistoryPageApplied?.(recent);
+  frame.contentWindow.receive(packet);$('market-status').textContent='History loaded';
+ }catch(error){
+  if(token===generation&&key===historyKey()&&!controller.signal.aborted){
+   $('market-status').hidden=false;$('market-status').textContent=error.message;
+   if(error.retryableReadBusy){historyRetry.set(requestKey,Date.now()+2000);setTimeout(()=>{if(token===generation&&key===historyKey())void loadHistory(body);},2100);}
+  }
+ }finally{
+  if(historyRead===controller){historyLoading=false;historyRead=null;const detail=historyDetail;historyDetail=null;if(detail&&token===generation&&key===historyKey())queueMicrotask(()=>loadHistory({...detail,before:packet.bars?.[0]?.time}));}
+ }
+}
 let marketBusy=null,marketRevision=0,pnlBusy=null,lastFallback=0,lastPnL=0,quoteConfigKey="";
 let expansionRead=null;
-function cancelMarketReads(){historyRead?.abort();historyRead=null;historyLoading=false;expansionRead?.abort();expansionRead=null;marketBusy?.abort();marketBusy=null;legacyMarket?.abort();legacyMarket=null;legacyStarted=0;lastFallback=0;marketRevision++;}
+function cancelMarketReads(){if(historyRead?.historyKey)historyRetry.delete(historyRead.historyKey);historyRead?.abort();historyRead=null;historyLoading=false;historyDetail=null;expansionRead?.abort();expansionRead=null;marketBusy?.abort();marketBusy=null;legacyMarket?.abort();legacyMarket=null;legacyStarted=0;lastFallback=0;marketRevision++;}
 const marketContext=()=>({cid,interval,session,epoch,generation});
 const currentMarket=c=>JSON.stringify(c)===JSON.stringify(marketContext());
 const marketStream=new WheelChartStream({receive:(bars,context)=>{if(currentMarket(context)){marketRevision++;applyMarket(bars,true);}},status:message=>{if(!switchingChart&&!marketReadError)$('market-status').textContent=message;}});
@@ -467,7 +493,7 @@ function ensureMarket(){
 async function refresh(){if(document.hidden||Date.now()<marketPriorityUntil||polling||busy||!ready)return;polling=true;let token=generation;const selected=cid,readVersion=writeVersion;let stateRead=false;try{
 const p=await api('account/profiles');if(token!==generation||readVersion!==writeVersion)return;
 if(profile.selected&&(p.selected!==profile.selected||p.epoch!==profile.epoch||p.account_identity!==profile.account_identity||(profile.verified&&!p.verified))){
- pnlBusy?.abort();pnlBusy=null;pnlPhase='loading';pendingJoin=null;resetNewQuantity();token=++generation;marketStream.stop();marketBusy?.abort();marketBusy=null;legacyMarket?.abort();legacyMarket=null;legacyStarted=0;lastFallback=0;lastPnL=0;marketReadError='';quoteConfigKey='';
+ pnlBusy?.abort();pnlBusy=null;pnlPhase='loading';pendingJoin=null;resetNewQuantity();token=++generation;marketStream.stop();cancelMarketReads();lastFallback=0;lastPnL=0;marketReadError='';quoteConfigKey='';
  frame.contentWindow.prepareAccountChart?.();switchingChart=true;historyCaches.clear();packet={};state={};received=0;entry=0;positions=[];chartExecutions=[];executionContext='';emaFrames={};volatilityData=null;
  renderRows('orders',[],true);renderRows('positions',[],false);log('Account connection changed; synchronizing current account.');accountNotice=$('trade-feedback').textContent;
 }

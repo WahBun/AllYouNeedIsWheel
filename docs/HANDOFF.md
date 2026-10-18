@@ -1,3 +1,70 @@
+## 2026-10-18 — hourly cold start and slow-history isolation
+
+The four-pane cover could stay at 3/4 even when all four price panes had bars.
+The hourly-only EMA gate required at least 100 bars (or five EMA periods),
+so the short initial snapshot triggered month-sized historical reads before
+revealing any chart. The user's new policy replaces that gate: show prices
+first, seed 1h with one recent week, and request older hourly pages only when
+the user maximizes that chart or deliberately scrolls left. Main and auxiliary
+1h panes use the same renderer and seed policy. EMA may refine as history arrives.
+Other timeframe aggregation, CME session anchors and pane layout are unchanged.
+
+REA inspected the deployed page and read failures in
+`ev_1f848f64d78d4191491c2f61771a6d80037a4dd4131d6fb5b4e276a3001decac`.
+The earlier source capture
+`ev_279b51c5eecfcaa542a2a836c5bdc4fa909f3d0a1d0136e58bdbc14165ed7166`
+was reused after checking the starting chart-layout SHA-256
+`e5f77036060d0c63a668863c2eae657de86fecebc5d12f962d55b92e0e91af6a`.
+Read-only backend logs showed repeated eight-second MES historical timeouts,
+with foreground reads queuing and returning 503. A local replay of the starting
+commit `fd1fd470c5660d77e7822c38692633ad6c4726f3` reproduced the 3/4 cover on
+desktop/mobile despite complete price snapshots.
+
+Web history pages now poll bounded asynchronous reads on the existing IB owner
+loop. Two pages may be pending; old symbols are not put in an extra queue.
+Duplicate requests share results, errors cool down, and late client/account
+results are rejected. Initial price reads retain priority. Existing native
+synchronous callers remain compatible. Activation/account changes cancel old
+web polling and clear its busy state; previously a changed pane sequence could
+leave an auxiliary pane permanently busy. 8h paging waits for its existing bulk
+expansion instead of starting a duplicate history request.
+
+The final confirmation regression exposed a related receive-path edge case:
+historical snapshots and ticks could infer a new preview direction while an
+existing broker order was active. The same logic is present in the REA-captured
+shared chart script (`60d09f87c570b94698c3c71557c304133c4afe5979367e01c52313897c60d8a9`).
+Both receive paths now limit direction inference to previews. Empty history
+responses do not resend an unchanged snapshot. Broker direction, draft price
+and the existing Confirm/Discard element survive history insertion and ticks;
+One-click submission and broker guards are unchanged.
+
+Verification: 99 focused offline backend tests pass, including a real Flask
+dispatcher with a delayed fake IB read, foreground progress without SSE, the
+two-request bound, deduplication, account changes and CME one-week parameters.
+Desktop/mobile real-host replay covers pending history, repeated contract and
+active-pane changes, one-week seeds, maximize/left-scroll paging, and no stale
+contract data. Both initial four-pane and expanded views were inspected.
+EMA prepends and 503 retry recovery pass. Existing deferred-history, 8h overlap,
+initial-read queue, stream lifecycle, layout/reconnect, eight distinct symbols,
+100Hz/burst and protected order-drag/confirmation checks pass. The confirmation
+test now injects historical and tick packets while its draft is pending.
+The final same-workload latency matrix passes all seven scenarios (1/2/3/4
+panes, two four-pane pages and 6000-bar history): all 23 pane observations
+receive 30/30 steady updates and preserve the 200-tick burst extremes. Before
+and final source-to-apply p95 ranges are both 2–8ms on this host.
+
+The frontend unit suite is 62/65: three existing quantity-test fixtures omit
+`tradingLocked`; the identical failures reproduce against the starting source.
+They are not claimed as passing. Mock/browser evidence is separate from real
+broker latency, physical screen timing and broker acceptance; the documented
+real-time volume limitation remains.
+
+User follow-up: **Deploy & Restart Backend**, then refresh the webpage. The
+shared chart direction guard enters the native app on the user's next iPhone
+Run. No new packages or migrations are required. No production deployment,
+Backend/Gateway restart, physical-device Run or broker write was performed.
+The existing signing/localization edits remain local and excluded.
+
 ## 2026-10-18 — alert editor cleanup and chart icon contrast
 
 Four scoped requests are included:

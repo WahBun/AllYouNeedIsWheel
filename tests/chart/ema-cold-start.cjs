@@ -23,10 +23,10 @@ const {start}=require('./market-feed/harness.cjs');
   const fiveMinute=emaSeries.options().visible;
   return {cold,ticking,seeded,switched,fiveMinute};
  });
- assert.equal(result.cold.visible,false);assert.ok(result.cold.slope>0);assert.equal(result.cold.pending,false);
- assert.equal(result.ticking.visible,false);assert.equal(result.ticking.close,102);
+ assert.equal(result.cold.visible,true);assert.ok(result.cold.slope>0);assert.equal(result.cold.pending,false);
+ assert.equal(result.ticking.visible,true);assert.equal(result.ticking.close,102);
  assert.equal(result.seeded.visible,true);assert.ok(result.seeded.slope<0);assert.equal(result.seeded.ema,result.seeded.expected);assert.equal(result.seeded.status,false);
- assert.equal(result.switched.visible,false);assert.equal(result.fiveMinute,true);assert.equal(h.metrics.posts,0);
+ assert.equal(result.switched.visible,true);assert.equal(result.fiveMinute,true);assert.equal(h.metrics.posts,0);
  // Exercise the real auxiliary buffer: history insertion must not mutate
  // the renderer's previous array before it detects the prepend/reset.
  for(const active of [3,2]){
@@ -38,7 +38,7 @@ const {start}=require('./market-feed/harness.cjs');
   if(r.request().method()!=='GET')throw Error('Unexpected write');
   if(u.pathname.includes('stock-chart-stream'))return r.abort();
   if(u.pathname.endsWith('/profiles'))json={selected:'paper',verified:true,epoch:'mock-epoch',readonly:true};
-  else if(u.pathname.includes('stock-chart-history')){if(u.searchParams.get('interval')==='60'){historyAttempts++;if(historyAttempts===1){firstBusyAt=Date.now();return r.fulfill({status:503,json:{error:'IB requests are busy; please retry shortly'}});}recoveredAt=Date.now();}await pendingHistory;json={bars:bars.slice(0,-7)};}
+  else if(u.pathname.includes('stock-chart-history')){if(u.searchParams.get('interval')==='60'){assert.equal(u.searchParams.get('recent'),'1');historyAttempts++;if(historyAttempts===1){firstBusyAt=Date.now();return r.fulfill({status:503,json:{error:'IB requests are busy; please retry shortly'}});}recoveredAt=Date.now();}await pendingHistory;json={bars:bars.slice(0,-7)};}
   else if(u.pathname.includes('stock-chart/'))json={con_id:7,account_epoch:'mock-epoch',generation:'cold',interval:Number(u.searchParams.get('interval')),session:'all',bars:bars.slice(-7),security_type:'FUT'};
   else if(u.pathname.endsWith('bootstrap'))json={positions:[]};
   else if(u.pathname.includes('paper-chart/'))json={enabled:false,known:true,orders:[]};
@@ -48,8 +48,9 @@ const {start}=require('./market-feed/harness.cjs');
  await page.waitForFunction(()=>[...document.querySelectorAll('iframe')].some(f=>{try{return f.contentWindow.eval('countdownPacket?.interval===60&&previous.length===7')}catch{return false}}));
  const hourly=page.frames().filter(f=>f.url().endsWith('/superchart/frame'));
  let hour;for(const f of hourly)if(await f.evaluate(()=>countdownPacket?.interval===60))hour=f;
- assert.equal(await hour.evaluate(()=>emaSeries.options().visible),false);
- assert.equal(await page.locator('#chart-group-loading').isVisible(),true,'all charts stay covered until hourly EMA is seeded');
+ assert.equal(await hour.evaluate(()=>emaSeries.options().visible),true);
+ await page.waitForFunction(()=>document.getElementById('chart-group-loading').hidden);
+ assert.equal(await page.locator('#chart-group-loading').isVisible(),false,'prices reveal before optional hourly history');
  release();await hour.waitForFunction(()=>previous.length===183&&emaSeries.options().visible);
  await page.waitForFunction(()=>document.getElementById('chart-group-loading').hidden);
  const integrated=await hour.evaluate(()=>{let expected=previous[0].close;for(const b of previous)expected+=2/21*(b.close-expected);return {actual:emaSeries.data().at(-1).value,expected,priceBars:series.data().length}});
@@ -57,5 +58,5 @@ const {start}=require('./market-feed/harness.cjs');
  assert.equal(integrated.actual,integrated.expected,'history prepend must reset EMA seed');assert.equal(integrated.priceBars,183);
  await page.unroute('**/api/**');
  }
- console.log('PASS: short hourly seed withheld, quotes update immediately, full history restores correct downward EMA, symbol reset and 5m preserved.');
+ console.log('PASS: hourly EMA uses the common renderer, prices reveal before history, busy reads recover, prepends reset EMA, symbol reset and 5m preserved.');
 }finally{await browser?.close();await h.close();}})().catch(e=>{console.error(e);process.exitCode=1});

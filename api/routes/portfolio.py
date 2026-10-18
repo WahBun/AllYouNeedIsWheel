@@ -304,9 +304,18 @@ def chart_reference(con_id):
 @bp.get('/stock-chart-history/<int:con_id>')
 def chart_history_page(con_id):
     from api.services.chart_history import chart_history
+    from api.routes.account import epoch
+    token = epoch()
+    if request.args.get('epoch') and request.args['epoch'] != token:
+        return _no_store_json({'error': 'Account changed; refresh connection state'}, 409)
     try:
-        return _no_store_json(chart_history.page(portfolio_service._ensure_connection(), con_id,
-            int(request.args.get('interval', '5')), request.args.get('session', 'rth'), float(request.args.get('before', '0'))))
+        connection = portfolio_service._ensure_connection()
+        if epoch() != token:
+            return _no_store_json({'error': 'Account changed; refresh connection state'}, 409)
+        result = chart_history.page(connection, con_id,
+            int(request.args.get('interval', '5')), request.args.get('session', 'rth'), float(request.args.get('before', '0')),
+            background=request.args.get('background') == '1', recent=request.args.get('recent') == '1')
+        return _no_store_json(dict(result, account_epoch=token))
     except (ValueError, TypeError) as error:
         return _no_store_json({'error': str(error)}, 400)
     except Exception:
