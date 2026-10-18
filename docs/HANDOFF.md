@@ -1,3 +1,41 @@
+## 2026-10-18 — Remote signing renewal without an Xcode-connected iPhone
+
+The renewal helper now selects Xcode's **Any iOS Device (arm64)** destination.
+The Mac desktop account and existing signing configuration must be ready;
+there is no connected-device lookup or physical-device destination requirement.
+The signed profile must still match the existing team, bundle ID and registered
+iPhone. All modes build only; phone installation remains the user's action.
+
+REA inspected the installed Xcode scripting dictionary's generic-device
+property and queried the live native run destinations. The observed generic
+`iphoneos` destination is available without a physical device. Evidence:
+`ev_bb35dad03acd78b22d6c4d4fa4b80ed8eca2b97e6c949392cd2f81202c4cf18a`,
+`ev_dc1eaed3cd77faf97a832fe16c07767cf115ed9bc3263f8d926ebf2e686891fd`.
+Adopted that destination while retaining the previously verified native Build,
+scoped profile backup/recovery, expiry extension and exact GitHub SHA guards.
+
+Added `ios/renew_signing_ssh.sh`, a forced-command entry accepting exactly
+`check` and `renew`. A dedicated iPhone public key is configured privately on
+the Pro with `restrict`; arbitrary shell commands and forwarding are excluded.
+SSH keys, host settings, signing settings, packages and receipts stay outside
+Git. No persistent worker, scheduling, Mini deployment, backend restart,
+Gateway change or broker operation is introduced.
+
+Validation before publication: 12 focused tests passed, including disconnected
+Mac preflight and SSH command rejection. The AppleScript compiled against the
+installed Xcode dictionary. Real loopback SSH sessions successfully read Xcode
+and GitHub, then renewed signing and built local commit
+`392ee009671701101c9185763619c6165378d105`. After the user disconnected USB and
+turned off iPhone Wi-Fi, the registered phone had no active Xcode tunnel and
+DDI services were unavailable; a second real SSH build still completed.
+The second package passed codesign and identity checks with a fresh profile
+issued 2026-10-18 10:16:11 UTC, expiring 2026-10-25 10:16:11 UTC, later than the
+prior profile's 10:14:42 UTC expiration. These were explicitly local unpublished
+commit validations, not a bypass advertised as GitHub verification.
+A phone-originated cellular SSH run is a separate end-to-end acceptance step
+after publication and private branch configuration. No phone installation or
+launch was performed.
+
 ## 2026-10-18 — Signing renewal through native Xcode Build
 
 The user explicitly authorized AppleScript **Build and signing only**, with
