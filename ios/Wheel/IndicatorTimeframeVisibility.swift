@@ -48,6 +48,7 @@ struct IndicatorTimeframeVisibility: Codable, Equatable {
         self[keyPath: unit.key] = Band(enabled: band.enabled, min: Swift.min(low, high), max: Swift.max(low, high))
     }
     var json: String { String(decoding: (try? JSONEncoder().encode(self)) ?? Data(), as: UTF8.self) }
+    func allowsAdditionalIndicators(_ interval: Int) -> Bool { interval <= 60 && allows(interval) }
     func allows(_ interval: Int) -> Bool {
         let unit: Unit, count: Int
         switch interval {
@@ -83,7 +84,7 @@ struct IndicatorTimeframeVisibilitySection: View {
                 }.padding(.vertical, 6)
             }
         } header: { Text("Show on timeframes") } footer: {
-            Text("Applies to all indicators in this chart. Hidden indicators return when you switch to an allowed timeframe. Changes apply immediately and are saved.")
+            Text("Above 1 hour, only the primary EMA20 is shown. Applies to all indicators in this chart. Hidden indicators return when you switch to an allowed timeframe. Changes apply immediately and are saved.")
         }
     }
 }

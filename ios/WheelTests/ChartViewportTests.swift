@@ -103,5 +103,20 @@ final class ChartViewportTests: XCTestCase {
             if let coldAxis { XCTAssertEqual(axis, coldAxis) } else { coldAxis = axis }
             _ = try await web.evaluateJavaScript("configure({entry:9.14,quantity:1,entryType:'LMT',priceRules:[{low:0,increment:.0001},{low:1,increment:.01}],tpDistance:.25,slDistance:.25,templateRevision:1});true")
         }
+        let labels = try await web.callAsyncJavaScript("""
+        const saved={...countdownPacket,bars:previous.map(b=>({...b}))};
+        receive({...saved,bars:[]});updateVisibleExtrema();positionExtremaLabels();
+        receive(saved);
+        await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        const live=document.getElementById('countdown'),low=extremaLabels.Low,high=extremaLabels.High;
+        const rects=[live,low,high].map(e=>e.getBoundingClientRect());
+        const widths=[live,low.lastChild,high.lastChild].map(e=>e.getBoundingClientRect().width);
+        return {restored:[low,high].every(e=>!e.hidden&&getComputedStyle(e).display!=='none'),
+          separated:rects.every((a,i)=>rects.every((b,j)=>i===j||a.bottom<=b.top+.02||b.bottom<=a.top+.02)),
+          uniform:widths.every(w=>Math.abs(w-widths[0])<.1)};
+        """, arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
+        XCTAssertEqual(labels?["restored"] as? Bool, true)
+        XCTAssertEqual(labels?["separated"] as? Bool, true)
+        XCTAssertEqual(labels?["uniform"] as? Bool, true)
     }
 }

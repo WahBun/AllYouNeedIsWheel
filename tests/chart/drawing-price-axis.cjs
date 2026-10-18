@@ -21,7 +21,7 @@ for(const width of [393,1440])for(const axis of ['left','right'])for(const dark 
  await page.evaluate(()=>configureDrawings({key:'collisions',value:{drawings:[{id:'high',type:'hray',p:[{time:1790950800,price:110}]},{id:'live',type:'hray',p:[{time:1790950800,price:101}]}]}}));await page.waitForTimeout(100);
  const collision=await page.evaluate(()=>{const badges=[...tradeAxisBadges.values(),document.getElementById('countdown'),...Object.values(extremaLabels)].filter(e=>!e.hidden&&getComputedStyle(e).display!=='none');return badges.map(e=>({role:e.dataset.axisRole,visibility:getComputedStyle(e).visibility,rect:e.getBoundingClientRect().toJSON()}));});
  assert.equal(collision.filter(x=>x.role?.startsWith('drawing:')).length,2);
- for(const a of collision){assert.notEqual(a.visibility,'hidden');for(const b of collision)if(a!==b)assert.ok(a.rect.bottom+5.9<=b.rect.top||b.rect.bottom+5.9<=a.rect.top,'all fixed labels must remain complete and separated');}
+ for(const a of collision){assert.notEqual(a.visibility,'hidden');for(const b of collision)if(a!==b)assert.ok(a.rect.bottom<=b.rect.top||b.rect.bottom<=a.rect.top,'all fixed labels must remain complete and separated');}
  await page.mouse.move(width/2,50);await page.screenshot({path:`/tmp/wheel-drawing-collision-${width}-${axis}-${dark}.png`});
  await load('hray',[103.25]);await page.screenshot({path:'/tmp/wheel-drawing-axis-'+width+'.png'});
  await page.evaluate(()=>configureDrawings({key:'empty',value:{drawings:[]}}));await page.waitForTimeout(80);assert.equal(await page.evaluate(()=>[...labels].filter(l=>l.options().color==='#315fc4').length),0);

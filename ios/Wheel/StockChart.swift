@@ -661,6 +661,7 @@ struct StockChartView: View {
     @AppStorage("chartIndicatorTimeframeVisibilityV1") private var timeframeVisibilityJSON = ""
     private var timeframeVisibility: IndicatorTimeframeVisibility { IndicatorTimeframeVisibility(json: timeframeVisibilityJSON) }
     private var indicatorsActive: Bool { indicatorVisible && timeframeVisibility.allows(interval) }
+    private var expandedIndicatorsActive: Bool { indicatorVisible && timeframeVisibility.allowsAdditionalIndicators(interval) }
     private var timeframeVisibilityBinding: Binding<IndicatorTimeframeVisibility> {
         Binding(get: { timeframeVisibility }, set: { timeframeVisibilityJSON = $0.json })
     }
@@ -682,10 +683,10 @@ struct StockChartView: View {
     }
     private var volatilityFamily: String? { VolatilitySettings.family(symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType) }
     private var volatilitySource: String { volatilitySettings.dictionary[volatilityFamily ?? ""] as? String ?? "" }
-    private var volatilityRequestKey: String { context + (store.trading.accountEpoch ?? "") + volatilitySource + String(indicatorsActive && volatilitySettings.channels) }
+    private var volatilityRequestKey: String { context + (store.trading.accountEpoch ?? "") + volatilitySource + String(expandedIndicatorsActive && volatilitySettings.channels) }
     private var volatilityDisplay: [String: Any] {
         var value = volatilitySettings.dictionary
-        if !indicatorsActive { value["channels"] = false; value["gauge"] = false }
+        if !expandedIndicatorsActive { value["channels"] = false; value["gauge"] = false }
         return value
     }
     @State private var emaFrames: [String: Any] = [:]
@@ -731,7 +732,7 @@ struct StockChartView: View {
         }
     }
     private var requestedEMAFrames: [Int] {
-        guard indicatorsActive else { return [] }
+        guard expandedIndicatorsActive else { return [] }
         var frames = extraEMAs.filter { $0.enabled }.map { $0.timeframe }
         if showEMA { frames.append(emaFrame) }
         if session == "rth" && pvSettings.enabled && !pvSettings.baseChart { frames += pvSettings.rows.filter { $0.enabled }.map { $0.frame } }
@@ -914,7 +915,7 @@ struct StockChartView: View {
     }
     private var fvgDisplay: [String: Any] {
         var result = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(fvgSettings))) as? [String: Any] ?? [:]
-        result["enabled"] = fvgSettings.enabled && indicatorsActive
+        result["enabled"] = fvgSettings.enabled && expandedIndicatorsActive
         return result
     }
     @ViewBuilder private var fvgSection: some View {
@@ -957,7 +958,7 @@ struct StockChartView: View {
     }
     private var pvDisplay: [String: Any] {
         var value = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(pvSettings))) as? [String: Any] ?? [:]
-        value["enabled"] = session == "rth" && pvSettings.enabled && indicatorsActive
+        value["enabled"] = session == "rth" && pvSettings.enabled && expandedIndicatorsActive
         return value
     }
     private var pvSection: some View {
@@ -1097,9 +1098,9 @@ struct StockChartView: View {
     }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["tradingLocked": tradingLocked, "noOverlappingLabels": noOverlappingLabels, "plusButton": showPlusButton, "rightClickTrading": oneClickTrading, "volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorsActive, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorsActive, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorsActive, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
+        ["tradingLocked": tradingLocked, "noOverlappingLabels": noOverlappingLabels, "plusButton": showPlusButton, "rightClickTrading": oneClickTrading, "volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && expandedIndicatorsActive, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": interval > 60 ? 0 : emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && expandedIndicatorsActive, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorsActive, "emaLength": interval > 60 ? 20 : emaLength, "emaSource": interval > 60 ? "close" : emaSource, "emaOffset": interval > 60 ? 0 : emaOffset,
          "emaDynamic": emaDynamic, "emaColor": emaColor + "ab", "emaWidth": emaWidth, "emaStyle": emaStyle,
-         "atr": showATR && indicatorsActive, "atrLength": atrLength, "profit": showHoldings && showProfit, "positions": showHoldings && showPositionProfit, "brackets": showHoldings && showBracketProfit,
+         "atr": showATR && expandedIndicatorsActive, "atrLength": atrLength, "profit": showHoldings && showProfit, "positions": showHoldings && showPositionProfit, "brackets": showHoldings && showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
          "positionUnit": positionProfitUnit, "bracketUnit": bracketProfitUnit]
     }
@@ -1790,7 +1791,7 @@ struct StockChartView: View {
         .onDisappear { rememberChart(); visible = false; store.chartVisible = false }
         .task(id: "volatility-" + volatilityRequestKey) {
             volatilityData = [:]; volatilityContext = ""
-            guard visible, phase == .active, !store.demo, indicatorsActive, volatilitySettings.channels, volatilityFamily != nil, let cid = chartID else { return }
+            guard visible, phase == .active, !store.demo, expandedIndicatorsActive, volatilitySettings.channels, volatilityFamily != nil, let cid = chartID else { return }
             let key = volatilityRequestKey
             while !Task.isCancelled {
                 var delay = 2.0

@@ -10,7 +10,7 @@ for(const width of [393,1200])for(const axis of ['left','right'])for(const dark 
  const check=()=>p.evaluate(()=>{updateCountdown();positionExtremaLabels();separatePriceAxisLabels();const live=document.getElementById('countdown'),labels=[live,...Object.values(extremaLabels)].filter(e=>!e.hidden&&getComputedStyle(e).display!=='none'&&getComputedStyle(e).visibility!=='hidden');return {count:labels.length,delta:Math.abs(parseFloat(live.style.top)-(series.priceToCoordinate(previous.at(-1).close)-9)),text:labels.map(e=>e.textContent),rects:labels.map(e=>e.getBoundingClientRect().toJSON())};});
  for(const price of [7794.5,7792,7795]){
   await p.evaluate(price=>receive({...q,mode:'delta',server_time:Date.now()/1000,bars:[{...q.bars[0],close:price}]}),price);const d=await check();assert.equal(d.count,3);assert.ok(d.delta<.1,'live quote remains at its price');
-  for(let i=0;i<d.rects.length;i++)for(let j=i+1;j<d.rects.length;j++){const a=d.rects[i],b=d.rects[j];assert.ok(a.bottom+5.9<=b.top||b.bottom+5.9<=a.top,JSON.stringify(d));}
+  for(let i=0;i<d.rects.length;i++)for(let j=i+1;j<d.rects.length;j++){const a=d.rects[i],b=d.rects[j];assert.ok(a.bottom<=b.top||b.bottom<=a.top,JSON.stringify(d));}
  }
  await p.evaluate(()=>receive({...q,mode:'delta',server_time:Date.now()/1000,bars:q.bars}));await check();
  // Sweep the cursor across each fixed label: only the cursor may move.

@@ -1,3 +1,71 @@
+## 2026-10-18 — price-axis packing, consistent badges and EMA20 above 1h
+
+Scope: shared web/iOS price-axis presentation, every primary/auxiliary pane, and
+an explicit user rule that periods strictly above 60 minutes show only the
+primary chart-timeframe EMA20 (close, zero offset). 1h and shorter periods keep
+their existing settings. Master/component switches and Visibility ranges remain
+respected; saved inputs are not overwritten, so returning to 1h restores them.
+ATR, additional EMAs, bar count, FVG, previous values and volatility channels/gauge
+are suppressed above 1h, along with their unnecessary MTF/volatility reads.
+The rule is stated in English on Visibility. No new settings synchronization.
+
+Reference evidence and adoption:
+- REA captured the actual current TradingView four-pane page and Wheel page:
+  ev_8d3b8a93a6e3a576cf805e21164edec216fafb5cfa3d4b7b2bb2bc837f2e6e83 and
+  ev_2323816587128bcced8e5279bc1cb22dea19fa477340ba9a15eaf1ed45a927b0.
+- REA captured current TV shipped scripts, including its actual price-axis
+  `_alignLabels` implementation, in
+  ev_d4500347deb7092c025019c82f426d4f9eca2591e61ecc909dd5d9926846d415.
+  Relevant bundle: 16242.d0142d8fa7ee8b7ed0c1.js, SHA256
+  6c0cc0f48bb15b681abc9ccd49faf2abdaa7ba7239f899c38f95d7d2b98ce9ad.
+  Static application analysis: ev_cdb51e6a2e1bacea0a2a4f1687cd128a79a6586e09a5d138f6ba4cfd392c19cb
+  (partial semantic graph; not proof that all TV UI paths were covered).
+- A separate browser runtime probe called TV's actual alignment method on
+  independent mock label objects: nearest-price ordering, exact-price ties,
+  countdown height, dense stacks, top/bottom boundaries and disabled alignment.
+  Actual reference chart coordinates/settings were unchanged. TV keeps the main
+  price as its reference, packs in price order, and moves labels rather than prices.
+  This probe is controlled replay, distinct from REA's passive capture.
+- Wheel adopts that behavior independently using measured DOM rectangles. No
+  proprietary TV implementation is copied into the repository. Crosshair labels
+  keep their separately verified topmost/no-displacement behavior.
+
+Confirmed defects and changes:
+- Empty-data recovery left High/Low `hidden=true` while inline `display:flex`
+  painted them. The collision allocator skipped those visible labels. The new
+  regression fails on the old code; restored extrema now rejoin layout.
+- Greedy type-order placement and a fixed 6px gap could put nearby labels on the
+  wrong side of the current price. Shared packing now follows screen-price order,
+  uses whole measured rectangles, and touches neighboring badges without overlap.
+  Countdown extends below the current-price row. Overfull stacks clip at their
+  own edge rather than jumping across current price; offscreen prices stay hidden.
+- High/Low and volatility had 15px intrinsic numeric cells versus the 18px
+  current/order/holding badges. All use the shared 11px font/18px row, padding and
+  numeric width on main/auxiliary/native charts. Countdown remains a second row.
+  Width measures the badge font, cached by price/format, including long decimals.
+
+Validation completed: eight native tests, including real WKWebView empty-data
+recovery/uniform widths and existing viewport changes; four actual-host cases
+(desktop/mobile × light/dark), independent main/auxiliary 1h/8h transitions;
+label restoration, exact and near prices, countdown on/off, stable repeated
+layout, left/right/inverted scales, small/negative/long decimal prices and pane
+edges. Existing drawing-axis, scale-tick/crosshair, axis-side and native initial
+spacing regressions pass. Protected entry/TP/SL dragging, One-click on/off and
+Confirm/Discard regressions pass. Offline mocks made zero broker writes.
+The refresh matrix passed 1/2/3/4 panes, two four-pane pages and 6000 bars:
+30/30 updates per pane, source-to-apply p95 2–7 ms (previous baseline 1–8 ms),
+with no errors or rejected requests. Repeated layout changes, symbol/timeframe
+changes, disconnect recovery, close/reopen and simulated hidden/resume passed;
+all panes resumed updates after the injected disconnect (1499 ms), with zero
+trading POSTs. These are isolated fixture results, not live broker timing.
+
+Mini source was read-only verified at dda31d5e49799e2169389b2b28e02efb62e3c2c3.
+This batch requires Deploy only plus a web refresh, and user-operated iPhone Run.
+No deployment, backend/Gateway restart, physical installation or broker order was
+performed. Existing signing/localization edits remain outside the commit. This is
+bounded local/browser/simulator validation, not a claim of exhaustive TV coverage
+or physical-device/market-open acceptance.
+
 ## 2026-10-18 — indicator timeframe visibility and settings organization
 
 Indicators → Visibility now contains only timeframe controls: Minutes, Hours,

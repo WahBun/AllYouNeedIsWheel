@@ -47,8 +47,8 @@ const canvas=document.createElement('canvas');canvas.style.cssText='position:abs
 const table=document.createElement('div'),gauge=document.createElement('div'),notice=document.createElement('div');
 table.id='volatility-distance';gauge.id='volatility-gauge';
 for(const el of [table,gauge,notice]){el.style.cssText='position:absolute;z-index:4;pointer-events:none;font:12px -apple-system,system-ui';document.body.append(el);}
-// Match the existing High/Low value cells, including intrinsic width and inset.
-const priceBadges=Array.from({length:4},()=>{const el=document.createElement('div');el.className='volatility-price';el.hidden=true;el.style.cssText='position:absolute;right:3px;height:15px;font:11px/15px -apple-system,BlinkMacSystemFont,sans-serif;border-radius:1px;width:max-content;padding:0 3px;box-sizing:border-box;text-align:right;font-variant-numeric:tabular-nums;pointer-events:none;z-index:5';document.body.append(el);return el;});
+// Use the shared price badge metrics on every chart.
+const priceBadges=Array.from({length:4},()=>{const el=document.createElement('div');el.className='volatility-price';el.hidden=true;document.body.append(el);return el;});
 let renderRevision=0,renderKey='';
 let model={sessions:[],gauge:null},settings={},packet={},signature='',lastAlerts=new Set(),initialized=false;
 const alpha=(c,t)=>c+Math.round(255*(1-t/100)).toString(16).padStart(2,'0');
@@ -68,7 +68,7 @@ window.drawVolatility=()=>{
  ctx.save();ctx.beginPath();ctx.rect(plotLeft(),0,axis-plotLeft(),h);ctx.clip();
  for(const s of model.sessions){const first=timeToScreenCoordinate(s.start),end=timeToScreenCoordinate(!o.rthOnly&&s.day===model.day?model.last.time:s.end);if(first===null||end===null)continue;
  const x2=Math.min(axis-4,end+(o.labelOffset||2)*chart.timeScale().options().barSpacing);
- s.levels.forEach((price,i)=>{if(!enabled(i))return;const y=series.priceToCoordinate(price);if(y===null||y<0||y>h)return;ctx.strokeStyle=colors[i];ctx.lineWidth=o.width||1;ctx.beginPath();ctx.moveTo(Math.max(plotLeft(),first),y);ctx.lineTo(x2,y);ctx.stroke();ctx.font='12px Arial, sans-serif';ctx.fillStyle=colors[i];ctx.textBaseline='middle';ctx.save();ctx.beginPath();ctx.rect(plotLeft(),0,axis-plotLeft(),h);ctx.clip();ctx.fillText(names[i],x2+16,y);ctx.restore();ctx.textBaseline='alphabetic';if(s.day===model.day&&(!o.rthOnly||model.rth)){if(o.priceScale){const badge=priceBadges[i];badge.dataset.price=String(price);badge.textContent=priceText(price);badge.style.background=[o.up1||'#c8e6c9',o.down1||'#FF1493',o.up2||'#008000',o.down2||'#ff0000'][i];badge.style.color=i===0?'#172117':'#fff';badge.style.top=(y-7.5)+'px';badge.hidden=y<7.5||y>h-7.5;}}});
+ s.levels.forEach((price,i)=>{if(!enabled(i))return;const y=series.priceToCoordinate(price);if(y===null||y<0||y>h)return;ctx.strokeStyle=colors[i];ctx.lineWidth=o.width||1;ctx.beginPath();ctx.moveTo(Math.max(plotLeft(),first),y);ctx.lineTo(x2,y);ctx.stroke();ctx.font='12px Arial, sans-serif';ctx.fillStyle=colors[i];ctx.textBaseline='middle';ctx.save();ctx.beginPath();ctx.rect(plotLeft(),0,axis-plotLeft(),h);ctx.clip();ctx.fillText(names[i],x2+16,y);ctx.restore();ctx.textBaseline='alphabetic';if(s.day===model.day&&(!o.rthOnly||model.rth)){if(o.priceScale){const badge=priceBadges[i];badge.dataset.price=String(price);badge.textContent=priceText(price);badge.style.background=[o.up1||'#c8e6c9',o.down1||'#FF1493',o.up2||'#008000',o.down2||'#ff0000'][i];badge.style.color=i===0?'#172117':'#fff';badge.style.top=(y-9)+'px';badge.hidden=y<0||y>h;}}});
  if(o.markHits)for(const m of s.marks){if(!enabled(m.i))continue;const x=timeToScreenCoordinate(m.time),y=series.priceToCoordinate(m.price);if(x!==null&&y!==null){ctx.fillStyle=colors[m.i];ctx.fillText((m.i<2?'1st':'2nd')+' Hit',x,y+(m.i%2?12:-8));}}
  }
  ctx.restore();
