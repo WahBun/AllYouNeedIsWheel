@@ -127,6 +127,8 @@ header #theme,header #trade-sounds,header #settings{width:42px;height:40px;paddi
 .instrument-tabs{display:flex;gap:8px;margin:14px 0}.instrument-tabs button{flex:1}
 #instrument-search{padding:6px 0 18px}#instrument-search #search{display:flex}#instrument-search .symbol-input{flex:1;min-width:0}#instrument-search #symbol{width:100%}#instrument-search #contracts{width:100%;max-width:none;margin-top:12px}
 #option-form[hidden],#instrument-search[hidden]{display:none}
+#instrument-status{margin:12px 0 0;color:var(--muted);line-height:1.5;overflow-wrap:anywhere}
+#instrument-search #search>button{min-width:92px;white-space:nowrap}
 
 /* Equal side tracks center the primary controls across the entire chart toolbar. */
 .workspace>nav{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)}

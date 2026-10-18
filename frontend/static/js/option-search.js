@@ -3,13 +3,17 @@ window.installOptionSearch=({api,select,symbol,canSelect,onError=()=>{}})=>{
  const $=id=>document.getElementById(id),dialog=$('option-picker'),underlying=$('option-symbol'),expiry=$('option-expiration'),right=$('option-right'),strike=$('option-strike'),open=$('option-open'),status=$('option-status');
  // Reuse existing search and contract controls inside one picker.
  const launcher=$('option-search'),form=$('option-form'),heading=dialog.querySelector('.option-heading');
- dialog.prepend(heading);$('option-title').textContent=document.documentElement.lang==='zh'?'选择标的':'Select instrument';
+ dialog.prepend(heading);$('option-title').textContent='Select instrument';
  const tabs=document.createElement('div');tabs.className='instrument-tabs';
  const stockTab=document.createElement('button'),optionTab=document.createElement('button');
- stockTab.type=optionTab.type='button';stockTab.textContent=document.documentElement.lang==='zh'?'股票／期货':'Stocks / Futures';optionTab.textContent=document.documentElement.lang==='zh'?'期权':'Options';
+ stockTab.type=optionTab.type='button';stockTab.textContent='Stocks / Futures';optionTab.textContent='Options';
  tabs.append(stockTab,optionTab);heading.after(tabs);
  const stockPanel=document.createElement('div');stockPanel.id='instrument-search';tabs.after(stockPanel);
- stockPanel.append($('search'),$('contracts'));
+ const stockStatus=document.createElement('p'),stockSubmit=$('search').querySelector('button:not([type="button"])');
+ stockStatus.id='instrument-status';stockStatus.hidden=true;stockStatus.setAttribute('role','status');stockStatus.setAttribute('aria-live','polite');
+ $('symbol').setAttribute('aria-describedby',stockStatus.id);
+ stockPanel.append($('search'),stockStatus,$('contracts'));
+ function stockFeedback(message='',busy=false){stockStatus.textContent=message;stockStatus.hidden=!message;$('search').setAttribute('aria-busy',String(busy));stockSubmit.disabled=busy;stockSubmit.textContent=busy?'Searching…':'Search';$('contracts').hidden=!!message;}
  const nav=launcher.closest('nav'),center=document.createElement('div'),end=document.createElement('div');
  center.className='toolbar-center';end.className='toolbar-end';nav.append(center,end);
  const instrument=document.createElement('div');instrument.className='toolbar-instrument';instrument.append(launcher,$('favorite-contract'));
@@ -43,21 +47,28 @@ window.installOptionSearch=({api,select,symbol,canSelect,onError=()=>{}})=>{
  desktopToolbar.addEventListener('change',placeToolbar);document.addEventListener('fullscreenchange',placeToolbar);placeToolbar();
 
 
- function mode(options){if(form.hidden===options){revision++;if(open.disabled)loaded='';}form.hidden=!options;stockPanel.hidden=options;stockTab.classList.toggle('active',!options);optionTab.classList.toggle('active',options);stockTab.setAttribute('aria-pressed',String(!options));optionTab.setAttribute('aria-pressed',String(options));}
+ function mode(options){if(form.hidden===options){revision++;if(open.disabled)loaded='';stockFeedback();}form.hidden=!options;stockPanel.hidden=options;stockTab.classList.toggle('active',!options);optionTab.classList.toggle('active',options);stockTab.setAttribute('aria-pressed',String(!options));optionTab.setAttribute('aria-pressed',String(options));}
  stockTab.onclick=()=>{mode(false);$('symbol').focus();};optionTab.onclick=()=>{mode(true);if(!loaded)dates();};
  function label(){const full=$('contracts').selectedOptions[0]?.textContent||'Select instrument';const compact=full.replace(/^(\S+) (\d{4})(\d{2})(\d{2}) ([\d.]+) (CALL|PUT)$/,(m,t,y,mo,d,k,r)=>`${t} · ${mo}/${d}/${y.slice(2)} · ${k}${r==='CALL'?'C':'P'}`);launcher.textContent=compact;launcher.title=full;}
  new MutationObserver(label).observe($('contracts'),{childList:true,subtree:true,characterData:true});$('contracts').addEventListener('change',()=>{label();dialog.close();});label();
  launcher.setAttribute('aria-haspopup','dialog');launcher.setAttribute('aria-controls','option-picker');
  let revision=0,loaded='';
  const ticker=()=>underlying.value.trim().toUpperCase();
+ const resetStockSearch=()=>{revision++;stockFeedback();};
+ $('symbol').addEventListener('input',resetStockSearch);$('clear-symbol').addEventListener('click',resetStockSearch);
  // Stock/futures and options share the same picker lifetime and request revision.
  $('search').onsubmit=async event=>{
-  event.preventDefault();if(!canSelect()||stockPanel.hidden)return;
-  const token=++revision,name=$('symbol').value,current=()=>token===revision&&dialog.open&&!stockPanel.hidden&&name===$('symbol').value&&canSelect();
-  try{const result=await api('portfolio/chart-contracts?q='+encodeURIComponent(name));if(!current())return;
+  event.preventDefault();if(!canSelect()||stockPanel.hidden||stockSubmit.disabled)return;
+  const token=++revision,name=$('symbol').value,sameSearch=()=>token===revision&&dialog.open&&!stockPanel.hidden&&name===$('symbol').value,current=()=>sameSearch()&&canSelect();
+  if(!name.trim()){stockFeedback('Enter a symbol, such as QQQ or MNQ.');return;}
+  stockFeedback('Searching for matching instruments…',true);
+  try{const result=await api('portfolio/chart-contracts?q='+encodeURIComponent(name.trim()));if(!current())return;
+   if(!Array.isArray(result.contracts))throw Error('Search results are unavailable. Try again.');
+   if(!result.contracts.length){stockFeedback('No matching instruments. Check the symbol and try again.');return;}
    $('contracts').replaceChildren(...result.contracts.map(c=>new Option(c.local_symbol,c.con_id)));
    if(result.contracts.length){select(result.contracts[0].con_id,result.contracts[0].local_symbol);dialog.close();}
-  }catch(error){if(current())onError(error.message);}
+  }catch(error){if(current()){stockFeedback(error.retryableReadBusy?'Search is temporarily busy. Try again.':error.message||'Search is unavailable. Try again.');onError(error.message);}}
+  finally{if(sameSearch())stockFeedback(canSelect()?stockStatus.textContent:'Wait for the current order request to finish.');}
  };
  function invalidate(){revision++;loaded='';expiry.replaceChildren();strike.replaceChildren();expiry.disabled=strike.disabled=open.disabled=true;}
  const query=values=>new URLSearchParams(values).toString();
@@ -88,7 +99,7 @@ window.installOptionSearch=({api,select,symbol,canSelect,onError=()=>{}})=>{
   }catch(e){if(token===revision)status.textContent=e.message;}
  }
  $('option-search').onclick=()=>{if(!canSelect())return;underlying.value=symbol()||'QQQ';mode(/CALL|PUT/.test(launcher.title));dialog.showModal();if(!form.hidden)dates();else $('symbol').focus();};
- $('option-dismiss').onclick=()=>dialog.close();dialog.addEventListener('close',()=>{revision++;});
+ $('option-dismiss').onclick=()=>dialog.close();dialog.addEventListener('close',()=>{revision++;stockFeedback();});
  underlying.oninput=()=>{invalidate();status.textContent='Load dates for the new underlying.';};
  underlying.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();dates();}};
  $('option-load').onclick=dates;expiry.onchange=strikes;right.onchange=strikes;

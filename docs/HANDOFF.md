@@ -1,3 +1,56 @@
+## 2026-10-18 — UI review: instrument-search feedback and settings navigation
+
+Baseline: GitHub `codex/chart-labels-1.7` at
+`b5cc7b9fd881c77303ec9e297742b33e4356cec7`. The user redirected the next
+review toward UI usability. This batch changes only browser assets and directly
+related verification; no native app or backend code changes.
+
+The Stocks / Futures picker previously gave no loading or empty-result feedback.
+A failed request placed its message behind the modal in the Trading panel, and
+an empty result erased the toolbar's current instrument name even though the
+chart remained on that instrument. Reproduced both problems at desktop and
+phone widths. Keep the current contract selection intact on failure, hide old
+results while showing the search status, and put loading/empty/error feedback
+inside the picker. The Search button shows its pending state and prevents a
+duplicate submission of the same query; editing, clearing, tab changes and
+closing release that state and invalidate the old response. Successful stock
+and option selections retain their existing behavior. Search errors remain in
+diagnostics without being presented as trading connection warnings.
+
+Settings category buttons rebuilt their own DOM and dropped keyboard focus to
+the page body. Keep focus on the newly rendered selected category, expose its
+pressed state, and name the dialog through its visible heading. Tab/Enter now
+continue through Chart display, Indicators, Inputs, Style and Visibility.
+Keep the reviewed picker/settings text English even with a legacy document
+language setting. Layout and saved indicator/order settings are unchanged.
+
+REA captured the actual page screenshot in
+`ev_f1807c8e2c5d88318bd1fe356142252290e533b6c37210898e720eb05250fd4e`
+and inspected accessibility/script sources in
+`ev_7b6ff35a76a58bafbf3d637844c3d1ebf98b18f8c681a7c4394f1d60a55c238f`.
+The shipped picker SHA-256
+`385289ff6d9990d8610f42fdfc4fac0778877db159d0c80b7090a21956350dff`
+and settings SHA-256
+`e49378bc43fda442e2ff9a10d1f556620f690a1a11071a28be73accf1a6c8bb0`
+matched this checkout before editing. The host's picker callback and diagnostic
+function also matched the captured source. Adopt the existing revision/context
+guards and modal layout; the failures were reproduced in isolated full-page
+fixtures, without operating the live page or broker.
+
+Validation: all 67 frontend unit tests; four new desktop/mobile, dark/light
+full-page scenarios; the existing four picker race scenarios; exact-option
+selection at both widths; and protected One-click on/off entry-drag scenarios
+at desktop/mobile widths. Verified visible feedback, unchanged current symbol,
+no stale reply after Clear, successful retry, settings keyboard focus, English
+labels, continuing synthetic ticks and no horizontal dialog overflow. Mobile
+search and desktop settings renders were visually inspected. No real order,
+notification, backend restart, Mini deployment or physical-device action occurred.
+
+For this batch alone, recommend **Deploy only**, then refresh web pages; no
+iPhone Run is needed. If the preceding backend batch has not been deployed and
+restarted, its **Deploy & Restart Backend** requirement still applies. The
+shortcut's accumulated restart advice must be respected.
+
 ## 2026-10-18 — wider project review: account reads and recoverable local data
 
 Baseline: GitHub `codex/chart-labels-1.7` at
