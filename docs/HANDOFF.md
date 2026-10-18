@@ -33,7 +33,8 @@ private-draft clearing, uncertain writes without replay, invalid responses and
 eight page renders across dark/light themes, setup/enabled states and large text.
 The actual Settings view and detail-page images were visually inspected.
 Requests used mocked transports; no real push, broker order or phone operation
-was performed. An unrelated Xcode project formatting change remains local.
+was performed. The Xcode project formatting-only changes were subsequently
+committed at the user's request; build setting values were unchanged.
 
 Recommend **Deploy & Restart Backend** for the epoch guard and preceding order
 fixes, then the user's Xcode Run for the native Settings and Orders changes.
