@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-from api.services.notifications import NotificationStore, account_scope
+from api.services.notifications import NotificationStore, account_scope, AlertConflict
 from api.services.notification_runtime import NotificationRuntime
 from api.services.push_delivery import deliver_once
 from api.services.chart_drawings import exchange
@@ -101,6 +101,107 @@ class NotificationsTests(unittest.TestCase):
         for price in [0,-1,float('nan'),True]:
             with self.assertRaises(ValueError):self.store.create_alert(self.scope,7,'TEST',dict(id=str(uuid.uuid4()),price=price))
         with self.assertRaises(ValueError):self.store.create_alert(self.other,7,'TEST',dict(id=a['id'],price=100))
+
+    def test_price_amend_is_scoped_versioned_and_replay_safe(self):
+        alert = self.alert()
+        body = dict(price=105, version=1, cid=7)
+        for scope, request in [(self.other, body), (self.scope, {**body, 'cid': 8}), (self.scope, {**body, 'version': 2})]:
+            with self.assertRaises(AlertConflict): self.store.amend_alert(scope, alert['id'], request)
+        updated = self.store.amend_alert(self.scope, alert['id'], body)
+        self.assertEqual((updated['price'], updated['version']), (105, 2))
+        self.assertEqual(self.store.amend_alert(self.scope, alert['id'], body), updated)
+        self.store.stop_alert(self.scope, alert['id'])
+        with self.assertRaises(AlertConflict): self.store.amend_alert(self.scope, alert['id'], dict(price=110, version=2, cid=7))
+        self.assertEqual(self.store.alerts(self.scope)[0]['state'], 'stopped')
+        ray = self.alert(drawing='saved-ray')
+        with self.assertRaises(AlertConflict): self.store.amend_alert(self.scope, ray['id'], body)
+
+    def test_price_amend_discards_pre_amend_ticks_and_requires_new_baseline(self):
+        alert = self.alert()
+        self.prices(99)
+        with patch('api.services.notifications.time.time', return_value=self.start+10):
+            updated = self.store.amend_alert(self.scope, alert['id'], dict(price=105, version=1, cid=7))
+        self.assertFalse(self.store.fire(alert, 110, 'IB Paper'))
+        self.runtime.active = [updated]
+        self.prices(104, 106, start=self.start+2)
+        self.assertFalse(self.events(), 'Queued old samples cannot cross a newly edited threshold')
+        self.prices(106, start=self.start+11)
+        self.assertFalse(self.events(), 'First live sample after the edit is only a baseline')
+        self.prices(104, start=self.start+13)
+        self.assertEqual(len(self.events()), 1)
+        self.assertEqual(self.store.amend_alert(self.scope, alert['id'], dict(price=105, version=1, cid=7))['state'], 'triggered')
+
+    def test_alert_schema_remains_compatible_with_previous_release(self):
+        ident=str(uuid.uuid4());created=time.time()
+        with self.store.connect() as db:
+            # The previous release uses this positional insert during a rollback.
+            db.execute('INSERT INTO alerts VALUES (?,?,?,?,?,?,?,?,?,?,?,0)',
+                       (ident,self.scope,7,'TEST',100,'crossing','once',None,'active',1,created))
+        row=self.store.alerts(self.scope)[0]
+        self.assertEqual(row['id'],ident);self.assertEqual(row['monitor_since'],created)
+
+    def test_bark_setup_is_private_scoped_and_does_not_replay_old_events(self):
+        key = 'temporaryDeviceKey123'
+        self.alert(); self.prices(99, 101)
+        self.store.register_bark(self.scope, dict(url='https://api.day.app/'+key+'/example', enabled=True))
+        status = self.store.bark_status(self.scope)
+        self.assertTrue(status['enabled']); self.assertNotIn(key, str(status))
+        self.assertFalse(self.store.bark_status(self.other)['enabled'])
+        with self.store.connect() as db: self.assertEqual(db.execute('SELECT COUNT(*) FROM deliveries').fetchone()[0], 0)
+        for url in ['http://api.day.app/'+key, 'https://example.com/'+key, 'https://api.day.app.evil.test/'+key, 'https://name:password@api.day.app/'+key]:
+            with self.assertRaises(ValueError): self.store.register_bark(self.scope, dict(url=url, enabled=True))
+        test_id = str(uuid.uuid4())
+        self.store.test_bark(self.scope, test_id); self.store.test_bark(self.scope, test_id)
+        with self.store.connect() as db: self.assertEqual(db.execute('SELECT COUNT(*) FROM deliveries').fetchone()[0], 1)
+        self.store.register_bark(self.scope, dict(enabled=False))
+        self.assertFalse(self.store.bark_status(self.scope)['configured'])
+        with self.store.connect() as db: self.assertEqual(db.execute('SELECT state FROM deliveries').fetchone()[0], 'disabled')
+
+    def test_bark_transport_and_delivery_without_apns_credentials(self):
+        import io, json, os
+        from api.services.push_delivery import Bark, NotificationSender
+        requests = []
+        def response(request, timeout):
+            requests.append(request)
+            value = io.BytesIO(b'{"code":200,"message":"success"}'); value.status = 200
+            return value
+        sender = NotificationSender(); sender.bark.opener = SimpleNamespace(open=response)
+        key = 'temporaryDeviceKey123'
+        self.store.register_bark(self.scope, dict(url=key, enabled=True))
+        self.store.register(self.scope, dict(id=str(uuid.uuid4()), token='ab'*32, environment='sandbox', enabled=True))
+        self.alert(); self.prices(99,101)
+        with patch.dict(os.environ, {}, clear=True): deliver_once(self.store, sender)
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0].full_url, 'https://api.day.app/push')
+        payload = json.loads(requests[0].data)
+        self.assertEqual(payload['device_key'], key); self.assertEqual(payload['group'], 'Wheel · Paper')
+        self.assertNotIn(key, requests[0].full_url); self.assertEqual(payload['level'], 'active')
+        with self.store.connect() as db:
+            states = {row['environment']: row['state'] for row in db.execute('SELECT v.environment,d.state FROM deliveries d JOIN devices v ON v.id=d.device AND v.scope=d.scope')}
+        self.assertEqual(states, {'bark': 'sent', 'sandbox': 'pending'})
+        # HTTP success without Bark application-level acceptance must not claim delivery.
+        sender.bark.opener = SimpleNamespace(open=lambda *args, **kwargs: type('Response', (io.BytesIO,), {'status':200})(b'{"code":400,"message":"bad key"}'))
+        self.assertEqual(sender.bark.send({'token':key},dict(id='test',title='Test',body='Test')),(400,'BadDeviceToken'))
+
+    def test_bark_does_not_wait_behind_unconfigured_apns_and_disable_wins(self):
+        import os
+        from api.services.push_delivery import NotificationSender
+        self.store.register(self.scope, dict(id=str(uuid.uuid4()), token='ab'*32, environment='sandbox', enabled=True))
+        with self.store.connect() as db:
+            for i in range(25): self.store._event(db, 'native-only-'+str(i), self.scope, 'price', 'IB Paper', 'TEST', time.time())
+        self.store.register_bark(self.scope, dict(url='temporaryDeviceKey123', enabled=True))
+        self.store.test_bark(self.scope, str(uuid.uuid4()))
+        sends=[]
+        def disable_while_sending(device,event):
+            sends.append(event)
+            self.store.register_bark(self.scope, dict(enabled=False))
+            return 200,''
+        sender=NotificationSender();sender.bark=SimpleNamespace(send=disable_while_sending)
+        with patch.dict(os.environ, {}, clear=True): deliver_once(self.store,sender)
+        self.assertEqual(len(sends),1)
+        with self.store.connect() as db:
+            self.assertEqual(db.execute("SELECT state FROM deliveries WHERE device LIKE 'bark-%'").fetchone()[0],'disabled')
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM deliveries WHERE state='pending'").fetchone()[0],25)
     def test_owner_pump_without_chart_and_reconnect(self):
         from eventkit import Event
         self.alert(); self.runtime.enabled=True
@@ -136,6 +237,18 @@ class NotificationsTests(unittest.TestCase):
                 response=client.post(endpoint,json=body,headers=headers);self.assertEqual(response.status_code,200,response.json)
                 self.assertEqual(len(response.json['alerts']),1)
                 self.assertEqual(client.post(endpoint,json=body,headers=headers).status_code,200)
+                self.assertEqual(client.get(endpoint,headers=headers).json['epoch'],'current')
+                self.assertEqual(client.get(endpoint).status_code,409)
+                price_url='/api/notifications/alerts/'+body['id']+'/price'
+                amendment=dict(cid=7,version=1,price=105)
+                self.assertEqual(client.post(price_url,json=amendment).status_code,403)
+                self.assertEqual(client.post(price_url,json=amendment,headers={'X-All-You-Need-Is-Wheel':'1'}).status_code,409)
+                self.assertEqual(client.post(price_url,json=amendment,headers=headers).json['alert']['price'],105)
+                self.assertEqual(client.post(price_url,json={**amendment,'price':106},headers=headers).status_code,409)
+                self.assertEqual(client.post('/api/notifications/bark',json=[],headers=headers).status_code,400)
+                bark=client.post('/api/notifications/bark',json={'url':'temporaryDeviceKey123','enabled':True},headers=headers)
+                self.assertEqual(bark.status_code,200,bark.json);self.assertNotIn('temporaryDeviceKey123',str(bark.json))
+                self.assertEqual(client.post('/api/notifications/bark/test',json={'id':str(uuid.uuid4())},headers=headers).status_code,200)
                 self.assertEqual(client.get('/api/notifications/events').status_code,200)
                 self.assertEqual(client.post('/api/notifications/alerts/'+body['id']+'/stop',json={},headers=headers).status_code,200)
                 self.assertEqual(self.store.alerts()[0]['state'],'stopped')

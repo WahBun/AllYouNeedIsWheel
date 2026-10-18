@@ -102,6 +102,9 @@ def install_api_dispatcher(app):
         # Match the exact endpoint, not a broad URL prefix; trading guards stay intact.
         if request.endpoint in ('portfolio.get_stock_chart_stream','portfolio.get_stock_chart_latest','superchart.drawings','superchart.favorites','notifications.events'):
             return original_dispatch()
+        # Saved alert lines are storage-only; their explicit read epoch guard prevents profile mixing.
+        if request.endpoint == 'notifications.alerts' and request.method == 'GET':
+            return original_dispatch()
         if not request.path.startswith('/api/') or (request.method == 'GET' and request.path in {'/api/options/market-session', '/api/performance/history'}):
             return original_dispatch()
         key = None

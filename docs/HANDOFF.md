@@ -1,3 +1,34 @@
+## 2026-10-18 — draggable pink alerts and Bark lock-screen notifications
+
+Standalone price alerts now render in matching panes as hot-pink dashed lines
+with a slow light sweep, hover/touch labels, price editing and Stop. Drag release
+saves through account/contract/version checks; stale edits restore server state.
+Changes reset the live-price baseline and exclude pre-edit queued samples.
+Ray alerts retain their original drawing association and drag behavior.
+
+The user chose Bark instead of paid Apple enrollment. The alert editor's
+**Phone notifications · Bark** section enables a private per-account device key,
+queues a test and disables delivery. A fixed HTTPS POST endpoint, stable event
+identifier and the existing durable outbox handle price/fill/confirmed-cancel
+events without new Python dependencies. Full setup, data disclosure and REA
+evidence are in `docs/PRICE_ALERTS_AND_PUSH.md`. Actual phone receipt is pending
+the user's registration and locked-device test.
+
+Verified: 119 backend checks; real chart UI at desktop/mobile widths in both
+themes; native touch bridge; stale edits, multi-pane sync, Bark setup/test/disable;
+existing alert entries, toast and protected order-drag checks; Simulator build.
+Seven synthetic market cases with two visible alert lines cover 1/2/3/4 panes,
+two four-pane pages and 6,000 bars: all 30/30 samples per pane, p95 2–8ms, and
+the 200-tick burst retains OHLC extremes. Repeated layouts and reconnect pass.
+
+Read-only Mini check: clean at `a778eac2859bb9145b00a55534e43e6da54bfe0f`.
+The user should choose **Deploy & Restart Backend**, refresh the webpage and
+configure Bark. The native chart change needs the user's iPhone Run; receiving
+Bark notifications itself does not. No deployment, service restart, Gateway
+operation, real broker write or external notification was performed. Existing
+signing/localization edits remain excluded. Notification timestamps use a new
+separate table so the previous alert table layout remains compatible with rollback.
+
 ## 2026-10-18 — chart-only notifications, hover drawing rail and iOS daily change
 
 Notifications now live inside the chart grid's top-right corner. The prior

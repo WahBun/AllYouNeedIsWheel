@@ -2122,7 +2122,7 @@ private struct StockChartWeb: UIViewRepresentable {
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             if message.name == "notificationRequest", let body = message.body as? [String: Any],
                let requestID = body["requestID"] as? String, let path = body["path"] as? String,
-               path.range(of: #"^alerts/([0-9]+|[a-fA-F0-9-]+/stop)$"#, options: .regularExpression) != nil,
+               path.range(of: #"^(alerts/([0-9]+|[a-fA-F0-9-]+/(stop|price))|bark(/test)?)$"#, options: .regularExpression) != nil,
                let method = body["method"] as? String, ["GET", "POST"].contains(method),
                let base = URL(string: backendAddress), base.scheme == "https", base.host != nil {
                 var request = URLRequest(url: base.appendingPathComponent("api/notifications/" + path), cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 12)

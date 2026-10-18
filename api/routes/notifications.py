@@ -2,7 +2,7 @@
 import json
 import sqlite3
 from flask import Blueprint, current_app, jsonify, request
-from api.services.notifications import account_scope
+from api.services.notifications import account_scope, AlertConflict
 from api.services.push_delivery import configured
 
 bp = Blueprint('notifications', __name__, url_prefix='/api/notifications')
@@ -21,11 +21,15 @@ def context(verified=False):
 
 @bp.errorhandler(ValueError)
 def invalid(error):
-    return jsonify(error=str(error)), 400
+    return jsonify(error=str(error)), 409 if isinstance(error, AlertConflict) else 400
 
 
 @bp.route('/alerts/<int:cid>', methods=['GET', 'POST'])
 def alerts(cid):
+    from api.routes.account import epoch
+    requested_epoch = epoch()
+    if request.method == 'GET' and requested_epoch and request.headers.get('X-Wheel-Account-Epoch') != requested_epoch:
+        return jsonify(error='Account connection changed. Refresh the chart.'), 409
     runtime, scope, conn = context(request.method == 'POST')
     if request.method == 'POST':
         from api.services.chart_contracts import contracts
@@ -43,7 +47,18 @@ def alerts(cid):
                 raise ValueError('Horizontal ray changed; reopen its alert')
         label = contracts.describe(conn, cid)['local_symbol']
         runtime.store.create_alert(scope, cid, label, body)
-    return jsonify(alerts=runtime.store.alerts(scope, cid), scope=scope, push_configured=configured(), monitor=runtime.health)
+    rows = runtime.store.alerts(scope, cid)
+    if epoch() != requested_epoch: return jsonify(error='Account connection changed. Refresh the chart.'), 409
+    return jsonify(alerts=rows, scope=scope, epoch=requested_epoch, push_configured=configured(),
+                   bark_enabled=runtime.store.bark_status(scope)['enabled'], monitor=runtime.health)
+
+
+@bp.post('/alerts/<ident>/price')
+def alert_price(ident):
+    runtime, scope, _ = context()
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict): raise ValueError('Invalid alert price')
+    return jsonify(alert=runtime.store.amend_alert(scope, ident, body))
 
 
 @bp.post('/alerts/<ident>/stop')
@@ -61,6 +76,25 @@ def devices():
         if not isinstance(body, dict): raise ValueError('Invalid device registration')
         runtime.store.register(scope, body)
     return jsonify(push_configured=configured(), scope=scope)
+
+
+@bp.route('/bark', methods=['GET', 'POST'])
+def bark():
+    body = request.get_json(silent=True) if request.method == 'POST' else None
+    if request.method == 'POST' and not isinstance(body, dict): raise ValueError('Invalid Bark setup')
+    runtime, scope, _ = context(bool(body and body.get('enabled') is True))
+    if request.method == 'POST':
+        runtime.store.register_bark(scope, body)
+    return jsonify(runtime.store.bark_status(scope))
+
+
+@bp.post('/bark/test')
+def bark_test():
+    runtime, scope, _ = context()
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict): raise ValueError('Invalid test notification')
+    runtime.store.test_bark(scope, body.get('id'))
+    return jsonify(status='queued')
 
 
 @bp.get('/events')

@@ -178,7 +178,7 @@ class NotificationRuntime:
             scope, cid, price, mode, now = args
             self.health = 'Monitoring live last price'
             for alert in self.active:
-                if alert['scope'] != scope or alert['cid'] != cid or now < alert['created']: continue
+                if alert['scope'] != scope or alert['cid'] != cid or now < (alert.get('monitor_since') or alert['created']): continue
                 key = alert['id'], alert['version']
                 previous = self.previous.get(key)
                 if not previous or now - previous[1] > 60:

@@ -10,6 +10,10 @@ import uuid
 from pathlib import Path
 
 
+class AlertConflict(ValueError):
+    pass
+
+
 def account_scope(account):
     if not account or not account.startswith(('DU', 'U')):
         raise ValueError('Connect and verify an IB account first')
@@ -32,6 +36,7 @@ class NotificationStore:
                     attempts INTEGER DEFAULT 0,next_try REAL DEFAULT 0,PRIMARY KEY(event,device,scope));
                 CREATE TABLE IF NOT EXISTS broker_orders(scope TEXT,id TEXT,status TEXT,PRIMARY KEY(scope,id));
                 CREATE TABLE IF NOT EXISTS order_scopes(scope TEXT PRIMARY KEY,since REAL);
+                CREATE TABLE IF NOT EXISTS alert_monitoring(id TEXT PRIMARY KEY,changed REAL NOT NULL);
             ''')
         self.path.chmod(0o600)
 
@@ -50,7 +55,18 @@ class NotificationStore:
             if value is not None: clauses.append(name + '=?'); args.append(value)
         if active: clauses.append("state='active'")
         with self.connect() as db:
-            return [dict(r) for r in db.execute('SELECT * FROM alerts' + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY created DESC', args)]
+            rows = db.execute('SELECT a.*,COALESCE(m.changed,a.created) AS _monitor_since FROM alerts a LEFT JOIN alert_monitoring m ON m.id=a.id' + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY created DESC', args)
+            result = []
+            for row in rows:
+                value = dict(row); value['monitor_since'] = value.pop('_monitor_since'); result.append(value)
+            return result
+
+    @staticmethod
+    def _alert_value(db, row):
+        value = dict(row)
+        stamp = db.execute('SELECT changed FROM alert_monitoring WHERE id=?', (row['id'],)).fetchone()
+        value['monitor_since'] = stamp['changed'] if stamp else row['created']
+        return value
 
     def create_alert(self, scope, cid, label, body):
         ident = str(uuid.UUID(str(body.get('id', ''))))
@@ -69,13 +85,35 @@ class NotificationStore:
             if old:
                 if any(old[k] != v for k, v in dict(scope=scope, cid=cid, condition=condition, repeat=repeat, drawing=drawing).items()):
                     raise ValueError('Alert identity conflict; check saved alerts before retrying')
-                return dict(old)
+                return self._alert_value(db, old)
             rows = db.execute("SELECT cid FROM alerts WHERE scope=? AND state='active'", (scope,)).fetchall()
             if len(rows) >= 32 or len({r['cid'] for r in rows} | {cid}) > 8:
                 raise ValueError('Limit: 32 active alerts across 8 contracts per account')
-            db.execute('INSERT INTO alerts VALUES (?,?,?,?,?,?,?,?,?,?,?,0)',
-                       (ident, scope, cid, label, price, condition, repeat, drawing, 'active', 1, time.time()))
-            return dict(db.execute('SELECT * FROM alerts WHERE id=?', (ident,)).fetchone())
+            now = time.time()
+            db.execute('INSERT INTO alerts(id,scope,cid,label,price,condition,repeat,drawing,state,version,created) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                       (ident, scope, cid, label, price, condition, repeat, drawing, 'active', 1, now))
+            db.execute('INSERT OR REPLACE INTO alert_monitoring VALUES (?,?)', (ident, now))
+            return self._alert_value(db, db.execute('SELECT * FROM alerts WHERE id=?', (ident,)).fetchone())
+
+    def amend_alert(self, scope, ident, body):
+        price, version, cid = body.get('price'), body.get('version'), body.get('cid')
+        if isinstance(price, bool) or not isinstance(price, (int, float)) or not math.isfinite(price) or price <= 0:
+            raise ValueError('Enter a positive alert price')
+        if type(version) is not int or version < 1 or type(cid) is not int or cid <= 0:
+            raise ValueError('Reopen the alert before changing its price')
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT * FROM alerts WHERE id=? AND scope=? AND cid=?', (ident, scope, cid)).fetchone()
+            if not row: raise AlertConflict('Alert is unavailable for this account and contract')
+            if row['drawing']: raise AlertConflict('Move the horizontal ray to change this alert price')
+            # A lost response can be reconciled without a second mutation or rearming a fired alert.
+            if row['version'] == version + 1 and row['price'] == price: return self._alert_value(db, row)
+            if row['state'] != 'active' or row['version'] != version:
+                raise AlertConflict('Alert changed or is no longer active. Its saved state has been restored.')
+            if row['price'] != price:
+                db.execute('UPDATE alerts SET price=?,version=version+1 WHERE id=?', (price, ident))
+                db.execute('INSERT OR REPLACE INTO alert_monitoring VALUES (?,?)', (ident, time.time()))
+            return self._alert_value(db, db.execute('SELECT * FROM alerts WHERE id=?', (ident,)).fetchone())
 
     def stop_alert(self, scope, ident):
         with self.connect() as db:
@@ -93,6 +131,7 @@ class NotificationStore:
                     price = source['p'][0]['price']
                     if price != row['price']:
                         db.execute('UPDATE alerts SET price=?,version=version+1 WHERE id=?', (price, row['id']))
+                        db.execute('INSERT OR REPLACE INTO alert_monitoring VALUES (?,?)', (row['id'], time.time()))
 
     @staticmethod
     def _event(db, ident, scope, kind, title, body, now):
@@ -157,3 +196,49 @@ class NotificationStore:
             latest = db.execute('SELECT COALESCE(MAX(seq),0) FROM events WHERE scope=?', (scope,)).fetchone()[0]
             rows = [] if after is None else [dict(r) for r in db.execute('SELECT * FROM events WHERE scope=? AND seq>? ORDER BY seq LIMIT 100', (scope, max(0, after)))]
             return dict(events=rows, cursor=rows[-1]['seq'] if rows else latest, scope=scope)
+
+    @staticmethod
+    def bark_id(scope):
+        return 'bark-' + uuid.uuid5(uuid.NAMESPACE_URL, scope).hex
+
+    def bark_status(self, scope):
+        with self.connect() as db:
+            row = db.execute("SELECT enabled,token FROM devices WHERE id=? AND scope=? AND environment='bark'", (self.bark_id(scope), scope)).fetchone()
+            test = db.execute("SELECT d.state,d.attempts FROM deliveries d JOIN events e ON e.id=d.event WHERE d.device=? AND d.scope=? AND e.kind='test' ORDER BY e.seq DESC LIMIT 1", (self.bark_id(scope), scope)).fetchone()
+            return dict(enabled=bool(row and row['enabled']), configured=bool(row and row['token']),
+                        test_state=test['state'] if test else None, test_attempts=test['attempts'] if test else 0)
+
+    def register_bark(self, scope, body):
+        import re
+        from urllib.parse import urlsplit
+        enabled = body.get('enabled') is True
+        token = str(body.get('url', '')).strip()
+        if enabled:
+            if '://' in token:
+                parsed = urlsplit(token)
+                if parsed.scheme != 'https' or parsed.hostname != 'api.day.app' or parsed.port not in (None, 443) or parsed.username or parsed.password:
+                    raise ValueError('Use the https://api.day.app/ address shown in Bark')
+                token = parsed.path.strip('/').split('/')[0]
+            if not re.fullmatch(r'[A-Za-z0-9_-]{10,256}', token):
+                raise ValueError('Paste the push address or device key shown in Bark')
+        else: token = ''
+        ident = self.bark_id(scope)
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            old = db.execute('SELECT token FROM devices WHERE id=? AND scope=?', (ident, scope)).fetchone()
+            if not enabled or old and old['token'] != token:
+                db.execute("UPDATE deliveries SET state='disabled' WHERE device=? AND scope=? AND state='pending'", (ident, scope))
+            db.execute('INSERT INTO devices VALUES (?,?,?,?,?,?) ON CONFLICT(id,scope) DO UPDATE SET token=excluded.token,environment=excluded.environment,enabled=excluded.enabled',
+                       (ident, scope, token, 'bark', int(enabled), time.time()))
+        if enabled: self.begin_orders(scope)
+
+    def test_bark(self, scope, ident):
+        ident = 'bark-test:' + scope + ':' + str(uuid.UUID(str(ident)))
+        device = self.bark_id(scope)
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not db.execute("SELECT 1 FROM devices WHERE id=? AND scope=? AND environment='bark' AND enabled=1", (device, scope)).fetchone():
+                raise ValueError('Enable Bark for this account first')
+            db.execute('INSERT OR IGNORE INTO events(id,scope,kind,title,body,created) VALUES (?,?,?,?,?,?)',
+                       (ident, scope, 'test', 'Wheel · Test notification', 'Bark is connected. Price and order alerts will appear here.', time.time()))
+            db.execute('INSERT OR IGNORE INTO deliveries(event,device,scope) VALUES (?,?,?)', (ident, device, scope))

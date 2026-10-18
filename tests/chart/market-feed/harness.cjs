@@ -29,6 +29,7 @@ exports.start=async function({variant='current',cap=4,history=300}={}){
  if(u.pathname.includes('chart-drawings'))return send({revision:0,drawings:[]});
  if(u.pathname.endsWith('bootstrap'))return send({positions:[]});
  if(u.pathname.includes('chart-contracts'))return send({contracts:[{con_id:8,local_symbol:'SYNTH8'}]});
+ if(u.pathname.startsWith('/api/notifications/alerts/'))return send({epoch:'mock-epoch',alerts:process.env.WHEEL_TEST_ALERT_LINES==='1'?[{id:'fixture-alert-high',price:101,condition:'crossing',repeat:'every',state:'active',version:1},{id:'fixture-alert-low',price:99.5,condition:'down',repeat:'once',state:'active',version:1}]:[]});
  if(u.pathname.includes('search'))return send([{con_id:8,symbol:'SYNTH8',label:'SYNTH8'}]);
  return send({});
  }catch(e){if(!res.headersSent)send({error:e.message},500);else res.end()}});

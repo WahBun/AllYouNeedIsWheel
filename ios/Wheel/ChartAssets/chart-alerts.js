@@ -16,9 +16,109 @@
  #chart-alert-editor button{min-height:40px;border:1px solid #8887;border-radius:6px;background:transparent;color:inherit;padding:7px 12px;font:inherit;cursor:pointer}
  #chart-alert-editor button:disabled{opacity:.5}#chart-alert-editor .alert-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
  #chart-alert-editor [data-status]{line-height:1.5;opacity:.85;margin:9px 0}#chart-alert-editor .alert-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid #8884}#chart-alert-editor .alert-row span{flex:1;line-height:1.5}
+ #chart-alert-lines{position:absolute;inset:0;z-index:3;pointer-events:none;overflow:hidden;color:#ff2baa}
+ .chart-alert-line{position:absolute;height:18px;transform:translateY(-50%);pointer-events:none;--alert-width:300px}
+ .chart-alert-hit{position:absolute;inset:0;touch-action:none;cursor:ns-resize;pointer-events:auto;outline:none;overflow:hidden}
+ .chart-alert-hit::before{content:'';position:absolute;left:0;right:0;top:8px;border-top:1px dashed currentColor}
+ .chart-alert-hit::after{content:'';position:absolute;left:0;top:7px;width:100px;height:3px;background:linear-gradient(90deg,transparent,#ff85d5,#fff2fb,#ff85d5,transparent);animation:alert-line-sheen 5s linear infinite;pointer-events:none}
+ @keyframes alert-line-sheen{from{transform:translateX(-110px)}to{transform:translateX(calc(var(--alert-width) + 110px))}}
+ .chart-alert-marker{position:absolute;right:0;top:4px;border-left:6px solid currentColor;border-top:5px solid transparent;border-bottom:5px solid transparent}
+ body.axis-left .chart-alert-marker{left:0;right:auto;transform:rotate(180deg)}
+ .chart-alert-label{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:none;max-width:calc(100% - 20px);height:24px;align-items:center;border:1px solid #ff2baa;border-radius:3px;background:#fff0f9;color:#b90073;box-shadow:0 0 8px #ff2baa25;pointer-events:auto;white-space:nowrap}
+ body[data-dark=true] .chart-alert-label{background:#351729;color:#ff8dd7}
+ .chart-alert-label button{height:22px;min-width:24px;border:0;background:transparent;color:inherit;padding:0 5px;font:12px -apple-system,system-ui;touch-action:none}
+ .chart-alert-label [data-edit-alert]{overflow:hidden;text-overflow:ellipsis;cursor:grab}
+ .chart-alert-line:hover .chart-alert-label,.chart-alert-line:focus-within .chart-alert-label,.chart-alert-line[data-dragging] .chart-alert-label,.chart-alert-line[data-saving] .chart-alert-label{display:flex}
+ .chart-alert-line[data-dragging] .chart-alert-hit,.chart-alert-line[data-dragging] [data-edit-alert]{cursor:grabbing}
+ .chart-alert-line[data-saving]{opacity:.65}.chart-alert-line[data-saving] .chart-alert-hit{pointer-events:none}
+ html[data-background=true] .chart-alert-hit::after{animation-play-state:paused}
+ @media(prefers-reduced-motion:reduce){.chart-alert-hit::after{display:none}}
+ #chart-alert-editor details{margin-top:16px;border-top:1px solid #8884;padding-top:12px}#chart-alert-editor summary{cursor:pointer;font-weight:600}#chart-alert-editor details p{line-height:1.5}#chart-alert-editor details .alert-actions{flex-wrap:wrap;justify-content:flex-start}
  `;document.head.append(css);
+ const layer=document.createElement('div');layer.id='chart-alert-lines';document.body.append(layer);
+ const lines=new Map();let saved=[],lineScope='',loadSerial=0,loading=false,nextLoad=0,drag=null;
+ const conditionName=value=>({crossing:'Crossing',up:'Crossing up',down:'Crossing down'}[value]||'Crossing');
+ const contextKey=()=>paperCID+':'+(paperConfig.web_account_epoch||'');
+ function accept(result,cid,epoch){
+  if(cid!==paperCID||epoch!==paperConfig.web_account_epoch||result.epoch&&result.epoch!==epoch)return;
+  saved=Array.isArray(result.alerts)?result.alerts:[];
+  const active=new Set(saved.filter(a=>a.state==='active'&&!a.drawing).map(a=>a.id));
+  if(drag&&!active.has(drag.alert.id))cancelDrag();
+  for(const [id,line] of lines)if(!active.has(id)){line.remove();lines.delete(id);}
+  for(const alert of saved.filter(a=>active.has(a.id))){
+   let line=lines.get(alert.id);if(!line){line=makeLine(alert);lines.set(alert.id,line);layer.append(line);}
+   line.alert=alert;
+   if(drag?.alert.id===alert.id&&(drag.alert.version!==alert.version||drag.alert.price!==alert.price)){cancelDrag();validation('Alert changed elsewhere. Its saved price has been restored.');}
+  }
+ }
+ function publish(result,cid,epoch){
+  accept(result,cid,epoch);loadSerial++;
+  if(window.webkit?.messageHandlers.notificationRequest)return;
+  try{for(const frame of parent.document.querySelectorAll('.chart-pane iframe'))if(frame.contentWindow!==window)frame.contentWindow.chartAlerts?.receive(result,cid,epoch);}catch{}
+ }
+ async function reload(){
+  if(loading||!paperCID||document.hidden)return;
+  const cid=paperCID,epoch=paperConfig.web_account_epoch,serial=++loadSerial;loading=true;nextLoad=Date.now()+2000;
+  try{const result=await api('alerts/'+cid,'GET',null,epoch);if(serial===loadSerial)accept(result,cid,epoch);}catch{}finally{loading=false;}
+ }
+ async function updatePrice(alert,price,line){
+  if(line.dataset.saving!==undefined||!Number.isFinite(price)||price<=0||price===alert.price)return;
+  const cid=paperCID,epoch=paperConfig.web_account_epoch,context=contextKey();line.dataset.saving='true';line.previewPrice=price;loadSerial++;
+  try{
+   const result=await api('alerts/'+alert.id+'/price','POST',{cid,version:alert.version,price},epoch);
+   if(context!==contextKey())return;
+   publish({alerts:saved.map(a=>a.id===alert.id?result.alert:a)},cid,epoch);
+  }catch(error){if(context===contextKey())validation(error.message+' Checking the saved alert price.');}
+  finally{delete line.dataset.saving;delete line.previewPrice;nextLoad=0;if(context===contextKey()){loading=false;void reload();}}
+ }
+ function cancelDrag(){if(!drag)return;const current=drag;drag=null;delete current.line.dataset.dragging;delete current.line.previewPrice;try{current.capture.releasePointerCapture(current.pointer);}catch{}}
+ function makeLine(alert){
+  const line=document.createElement('div');line.className='chart-alert-line';line.dataset.alertId=alert.id;line.alert=alert;
+  const hit=document.createElement('div');hit.className='chart-alert-hit';hit.tabIndex=0;hit.setAttribute('role','slider');hit.setAttribute('aria-orientation','vertical');
+  const marker=document.createElement('span');marker.className='chart-alert-marker';marker.setAttribute('aria-hidden','true');
+  const label=document.createElement('div');label.className='chart-alert-label';const edit=document.createElement('button'),stop=document.createElement('button');edit.dataset.editAlert='';stop.textContent='×';stop.setAttribute('aria-label','Stop price alert');label.append(edit,stop);line.append(hit,marker,label);
+  const start=event=>{
+   if(event.button!==0||line.dataset.saving!==undefined||editor)return;event.preventDefault();event.stopPropagation();cancelDrag();
+   const capture=event.currentTarget;capture.focus({preventScroll:true});drag={line,alert:{...line.alert},capture,pointer:event.pointerId,startY:event.clientY,moved:false,context:contextKey(),label:capture===edit};line.dataset.dragging='true';capture.setPointerCapture(event.pointerId);closePriceMenu();
+  };
+  const move=event=>{if(!drag||drag.line!==line||drag.pointer!==event.pointerId)return;event.preventDefault();event.stopPropagation();if(drag.context!==contextKey()){cancelDrag();return;}if(Math.abs(event.clientY-drag.startY)>3)drag.moved=true;if(!drag.moved)return;const price=snapPrice(series.coordinateToPrice(event.clientY));if(Number.isFinite(price)&&price>0)line.previewPrice=price;};
+  const end=event=>{if(!drag||drag.line!==line||drag.pointer!==event.pointerId)return;event.preventDefault();event.stopPropagation();const current=drag,price=line.previewPrice;cancelDrag();if(current.context!==contextKey())return;if(current.moved)void updatePrice(current.alert,price,line);else if(current.label)open({price:line.alert.price,alert:line.alert});};
+  for(const target of [hit,edit]){target.onpointerdown=start;target.onpointermove=move;target.onpointerup=end;target.onpointercancel=cancelDrag;target.onlostpointercapture=()=>{if(drag?.capture===target)cancelDrag();};target.onclick=e=>{e.preventDefault();e.stopPropagation();if(e.detail===0&&target===edit)open({price:line.alert.price,alert:line.alert});};}
+  hit.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();open({price:line.alert.price,alert:line.alert});}else if(event.key==='Escape'){cancelDrag();}else if(event.key==='ArrowUp'||event.key==='ArrowDown'){event.preventDefault();const price=stepPrice(line.alert.price,event.key==='ArrowUp'?1:-1);if(price!==null)void updatePrice({...line.alert},price,line);}};
+  stop.onpointerdown=e=>e.stopPropagation();stop.onclick=async event=>{event.stopPropagation();if(line.dataset.saving!==undefined)return;const cid=paperCID,epoch=paperConfig.web_account_epoch;line.dataset.saving='true';loadSerial++;try{await api('alerts/'+alert.id+'/stop','POST',{},epoch);publish({alerts:saved.map(a=>a.id===alert.id?{...a,state:'stopped'}:a)},cid,epoch);}catch(error){validation(error.message);}finally{delete line.dataset.saving;nextLoad=0;}};
+  return line;
+ }
+ function positionLines(){
+  requestAnimationFrame(positionLines);const context=contextKey();
+  if(context!==lineScope){cancelDrag();lineScope=context;saved=[];lines.clear();layer.replaceChildren();loadSerial++;nextLoad=0;}
+  layer.hidden=Number(countdownPacket?.con_id)!==paperCID;
+  if(layer.hidden){cancelDrag();return;}
+  if(!lines.size||document.hidden)return;
+  const left=plotLeft(),width=Math.max(0,plotRight()-left),height=chart.paneSize().height;layer.style.height=height+'px';
+  for(const line of lines.values()){
+   const price=line.previewPrice??line.alert.price,y=series.priceToCoordinate(price),hidden=!Number.isFinite(y)||y<0||y>height;
+   line.hidden=hidden;if(hidden)continue;
+   const geometry=left+':'+width+':'+y;if(line.geometry!==geometry){line.geometry=geometry;line.style.left=left+'px';line.style.width=width+'px';line.style.top=y+'px';line.style.setProperty('--alert-width',width+'px');}
+   const title=(countdownPacket?.local_symbol||countdownPacket?.symbol||'')+' '+conditionName(line.alert.condition)+' '+priceText(price);
+   if(line.title!==title){line.title=title;line.querySelector('[data-edit-alert]').textContent=title;const hit=line.querySelector('.chart-alert-hit');hit.setAttribute('aria-label','Price alert · '+title);hit.setAttribute('aria-valuenow',String(price));line.querySelector('[data-edit-alert]').setAttribute('aria-label','Edit alert · '+title);}
+  }
+ }
+ document.addEventListener('keydown',event=>{if(event.key==='Escape')cancelDrag();});window.addEventListener('blur',cancelDrag);document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelDrag();else nextLoad=0;});positionLines();
+ document.addEventListener('pointerdown',event=>{if(!layer.contains(event.target)&&layer.contains(document.activeElement))document.activeElement.blur();},true);
+
+ function addPhoneSettings(overlay,current){
+  const details=document.createElement('details');details.innerHTML='<summary>Phone notifications · Bark</summary><p>Receive price, execution and cancellation alerts on your iPhone. Install Bark and allow notifications. No Apple developer membership is needed.</p><p>Alert summaries are sent through the Bark service. Your push address is stored privately on this backend.</p><label>Bark push address<input data-bark-url type="password" autocomplete="off" spellcheck="false" placeholder="https://api.day.app/your-device-key"></label><div class="alert-actions"><button data-bark-save>Enable Bark</button><button data-bark-test disabled>Send test</button><button data-bark-disable disabled>Disable</button></div><p data-bark-status role="status"></p>';
+  overlay.querySelector('.alert-card').append(details);const status=details.querySelector('[data-bark-status]'),input=details.querySelector('[data-bark-url]'),save=details.querySelector('[data-bark-save]'),test=details.querySelector('[data-bark-test]'),disable=details.querySelector('[data-bark-disable]');const epoch=paperConfig.web_account_epoch;
+  const render=value=>{if(!current())return;test.disabled=!value.enabled;disable.disabled=!value.enabled;save.textContent=value.enabled?'Update Bark':'Enable Bark';status.textContent=value.enabled?'Bark is enabled for this account.':'Bark is disabled for this account.';if(value.test_state==='sent')status.textContent+=' Test accepted by Bark. Check your iPhone.';else if(value.test_state==='pending')status.textContent+=value.test_attempts?' Test delivery is retrying.':' Test queued.';else if(value.test_state==='invalid_device')status.textContent='Bark rejected this address. Copy a fresh push address from the app.';else if(value.test_state==='expired')status.textContent+=' Test expired. Send a new test.';};
+  const load=async()=>{try{const value=await api('bark','GET',null,epoch);if(current())render(value);}catch(error){if(current())status.textContent=error.message;}};
+  details.ontoggle=()=>{if(details.open)void load();};
+  save.onclick=async()=>{if(!current())return;save.disabled=true;try{const value=await api('bark','POST',{url:input.value,enabled:true},epoch);input.value='';if(current())render(value);}catch(error){if(current())status.textContent=error.message;}finally{save.disabled=false;}};
+  disable.onclick=async()=>{if(!current())return;disable.disabled=true;try{const value=await api('bark','POST',{enabled:false},epoch);input.value='';if(current())render(value);}catch(error){if(current()){status.textContent=error.message;disable.disabled=false;}}};
+  test.onclick=async()=>{if(!current())return;test.disabled=true;try{await api('bark/test','POST',{id:requestID()},epoch);if(current()){status.textContent='Test queued. Lock your iPhone and check Bark.';setTimeout(()=>{if(current())void load();},1800);}}catch(error){if(current())status.textContent=error.message;}finally{test.disabled=false;}};
+  const timer=setInterval(()=>{if(!current())clearInterval(timer);else if(details.open)void load();},4000);
+ }
  function close(){editor?.remove();editor=null;}
- function open({price,drawing=null}={}){
+ function open({price,drawing=null,alert=null}={}){
   if(!Number.isFinite(price)||price<=0||!paperCID)return;
   close();closePriceMenu();const cid=paperCID,epoch=paperConfig.web_account_epoch,ident=requestID(),source=drawing;
   const overlay=document.createElement('div');overlay.id='chart-alert-editor';overlay.dataset.scope=cid+':'+epoch;overlay.innerHTML=`<section class="alert-card" role="dialog" aria-modal="true" aria-label="Price alert"><h2>Price alert</h2><div data-contract></div><label>Condition<select data-condition><option value="crossing">Crossing</option><option value="up">Crossing up</option><option value="down">Crossing down</option></select></label><label>Price<input data-price type="number" min="0" step="any" inputmode="decimal" required></label><label>Trigger<select data-repeat><option value="once">Only once</option><option value="every">Every crossing · at most once per minute</option></select></label><div data-status role="status"></div><div class="alert-actions"><button data-close>Close</button><button data-create>Create alert</button></div><h3 style="font-size:13px;margin:18px 0 8px">Saved alerts</h3><div data-alert-list></div></section>`;
@@ -26,19 +126,22 @@
   overlay.querySelector('[data-contract]').textContent=countdownPacket?.local_symbol||countdownPacket?.symbol||'Contract '+cid;
   input.value=String(price);input.disabled=!!source;
   const current=()=>editor===overlay&&cid===paperCID&&epoch===paperConfig.web_account_epoch;
+  if(alert){create.textContent='Save alert';overlay.querySelector('[data-condition]').value=alert.condition;overlay.querySelector('[data-repeat]').value=alert.repeat;overlay.querySelector('[data-condition]').disabled=true;overlay.querySelector('[data-repeat]').disabled=true;}
+  addPhoneSettings(overlay,current);
   const render=async()=>{
    const result=await api('alerts/'+cid,'GET',null,epoch);if(!current())return;
+   publish(result,cid,epoch);
    list.replaceChildren();for(const alert of result.alerts||[]){const row=document.createElement('div'),text=document.createElement('span');row.className='alert-row';const states={active:'Active',triggered:'Triggered',stopped:'Stopped',drawing_removed:'Ray removed'};text.textContent=priceText(alert.price)+' · '+({crossing:'Crossing',up:'Crossing up',down:'Crossing down'}[alert.condition]||alert.condition)+' · '+(states[alert.state]||alert.state)+(alert.drawing?' · Horizontal ray':'');row.append(text);if(alert.state==='active'){const stop=document.createElement('button');stop.textContent='Stop';stop.onclick=async()=>{if(!current())return;stop.disabled=true;try{await api('alerts/'+alert.id+'/stop','POST',{},epoch);await render();}catch(error){status.textContent=error.message;stop.disabled=false;}};row.append(stop);}list.append(row);}
    if(!list.childElementCount)list.textContent='No alerts for this contract.';
    return result;
   };
-  render().then(result=>{if(!current()||!result)return;status.textContent=(source?'Follows the saved horizontal ray. ':'Monitors live last price. ')+(result.push_configured?'Enable iPhone notifications in Settings.':'iPhone push setup is pending. Web notifications are available.')+' Alerts pause when this account is disconnected or not selected.';}).catch(error=>{if(current())status.textContent=error.message;});
-  create.onclick=async()=>{if(!current())return;create.disabled=true;status.textContent='Saving alert…';try{const value=Number(input.value);await api('alerts/'+cid,'POST',{id:ident,price:value,condition:overlay.querySelector('[data-condition]').value,repeat:overlay.querySelector('[data-repeat]').value,drawing:source},epoch);if(!current())return;status.textContent='Alert saved. Monitoring starts with the next live price.';await render();}catch(error){if(current()){status.textContent=error.message;create.disabled=false;}}};
+  render().then(result=>{if(!current()||!result)return;status.textContent=(source?'Follows the saved horizontal ray. ':'Monitors live last price. ')+(result.bark_enabled?'Bark notifications are enabled.':result.push_configured?'Enable iPhone notifications in Settings.':'Enable Bark below for iPhone lock-screen alerts.')+' Alerts pause when this account is disconnected or not selected.';}).catch(error=>{if(current())status.textContent=error.message;});
+  create.onclick=async()=>{if(!current())return;create.disabled=true;status.textContent='Saving alert…';try{const value=Number(input.value);if(alert)await api('alerts/'+alert.id+'/price','POST',{cid,version:alert.version,price:value},epoch);else await api('alerts/'+cid,'POST',{id:ident,price:value,condition:overlay.querySelector('[data-condition]').value,repeat:overlay.querySelector('[data-repeat]').value,drawing:source},epoch);if(!current())return;status.textContent='Alert saved. Monitoring starts with the next live price.';await render();}catch(error){if(current()){status.textContent=error.message;create.disabled=false;}}};
   overlay.querySelector('[data-close]').onclick=close;overlay.addEventListener('pointerdown',event=>{if(event.target===overlay)close();event.stopPropagation();});overlay.addEventListener('keydown',event=>{if(event.key==='Escape'){event.stopPropagation();close();}if(event.key==='Tab'){const controls=[...overlay.querySelectorAll('input,select,button')].filter(el=>!el.disabled);const first=controls[0],last=controls.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}});overlay.querySelector('[data-condition]').focus();
  }
- window.chartAlerts={open,api};
+ window.chartAlerts={open,api,refresh:()=>{nextLoad=0;void reload();},receive:(result,cid,epoch)=>{loadSerial++;accept(result,cid,epoch);}};
  // Context cancellation already runs in the drawing module before this handler.
  document.addEventListener('contextmenu',event=>{const ray=window.chartDrawingActions?.horizontalRay?.(event.target.closest?.('[data-drawing]')?.dataset.drawing);if(ray){event.preventDefault();event.stopImmediatePropagation();open({price:ray.p[0].price,drawing:ray.id});return;}if(window.webkit?.messageHandlers.notificationRequest&&!event.target.closest?.('button,input,select,textarea,#draw-toolbar,#draw-properties,#chart-alert-editor')&&event.clientY<chart.paneSize().height){event.preventDefault();event.stopImmediatePropagation();open({price:snapPrice(series.coordinateToPrice(event.clientY))});}},true);
  // Cancel an editor whose originating contract/account was changed by any device.
- setInterval(()=>{if(editor){const changed=editor.dataset.scope!==undefined&&editor.dataset.scope!==paperCID+':'+paperConfig.web_account_epoch;if(changed)close();else editor.dataset.scope=paperCID+':'+paperConfig.web_account_epoch;}},250);
+ setInterval(()=>{if(editor){const changed=editor.dataset.scope!==undefined&&editor.dataset.scope!==paperCID+':'+paperConfig.web_account_epoch;if(changed)close();else editor.dataset.scope=paperCID+':'+paperConfig.web_account_epoch;}if(Date.now()>=nextLoad)void reload();},250);
 })();
