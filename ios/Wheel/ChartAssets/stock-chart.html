@@ -854,18 +854,28 @@ window.receive=(packet)=>{const tailView=captureTailView(packet);extremaBars=nul
   updateReadout();updateATR();updateEMA();if(!sideReady){inferSide();clampLevels();}updateLines();restoreTailView(tailView);return;
  }
  if(packet.mode==='delta'&&key===incomingKey){const merged=new Map(previous.map(b=>[b.time,b]));for(const b of bars)merged.set(b.time,b);bars=[...merged.values()].sort((a,b)=>a.time-b.time);}const dateAxis=packet.interval>=1440;chart.applyOptions({timeScale:{timeVisible:!dateAxis,tickMarkMaxCharacterLength:dateAxis||packet.interval===480?8:5,tickMarkFormatter:(t,type)=>new Date(t*1000).toLocaleString('en-US',(dateAxis||packet.interval===480&&type<=LightweightCharts.TickMarkType.DayOfMonth)?(type===LightweightCharts.TickMarkType.Year?{timeZone:'America/New_York',year:'numeric'}:{timeZone:'America/New_York',month:'short',day:'numeric'}):{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false})}});const newKey=(packet.con_id||'')+'-'+packet.generation+'-'+packet.interval+'-'+packet.session;if(key!==newKey||!previous.length){for(const overlay of [emaSeries,...extraEMASeries])overlay.setData([]);emaCache=null;mtfCaches.clear();key=newKey;closePriceMenu();priceAdd.hidden=true;readoutTime=null;readoutLatest=false;chart.clearCrosshairPosition();document.getElementById('readout').textContent='';activePriceScale().applyOptions({autoScale:true});series.setData(bars);chart.timeScale().setVisibleLogicalRange({from:bars.length-(displayOptions.nativeCompact?48:56),to:bars.length+4});}else if(bars.length&&bars[0].time<previous[0].time){const range=chart.timeScale().getVisibleLogicalRange();const offset=bars.findIndex(b=>b.time===previous[0].time);series.setData(bars);if(range&&offset>=0)chart.timeScale().setVisibleLogicalRange({from:range.from+offset,to:range.to+offset});}else if(bars.length){const last=previous[previous.length-1].time;const old=new Map(previous.map(b=>[b.time,b]));const revised=bars.some(b=>b.time<last&&JSON.stringify(old.get(b.time))!==JSON.stringify(b));if(revised){const range=chart.timeScale().getVisibleLogicalRange();series.setData(bars);if(range)chart.timeScale().setVisibleLogicalRange(range);}else for(const b of bars)if(b.time>=last)series.update(b);}previous=bars;updateATR();updateEMA();updateReadout();updateExecutionMarks();if(!sideReady){inferSide();clampLevels();}document.getElementById('empty').textContent=bars.length?'':'No bars for this session';updateLines();restoreTailView(tailView);};
-// Native 8h charts use the same bounded history endpoint as web panes.
-let nativeHistoryKey='',nativeHistoryRetry=0,nativeHistoryInteraction=0;
-for(const event of ['pointerdown','touchmove','wheel'])document.addEventListener(event,()=>{nativeHistoryInteraction=Date.now();},{passive:true,capture:true});
-chart.timeScale().subscribeVisibleLogicalRangeChange(()=>{
- if(window.parent!==window||!displayOptions.nativeCompact||Date.now()-nativeHistoryInteraction>1500||countdownPacket?.interval!==480||countdownPacket?.session!=='rth'||!countdownPacket.history_expansion_attempted||!previous.length)return;
- const range=chart.timeScale().getVisibleLogicalRange();if(!range||range.from>5)return;
- const requestKey=JSON.stringify([key,previous[0].time,countdownPacket.account_epoch]);
- if(requestKey===nativeHistoryKey&&Date.now()<nativeHistoryRetry)return;
- nativeHistoryKey=requestKey;nativeHistoryRetry=Date.now()+30000;
- const body={con_id:countdownPacket.con_id,interval:480,session:'rth',account_epoch:countdownPacket.account_epoch,before:previous[0].time};
- queueMicrotask(()=>window.webkit?.messageHandlers.historyRequest?.postMessage(body));
-});
+// Native charts prepare a useful history window, then page at the visible left edge.
+let nativeHistoryKey='',nativeHistoryScheduled=false;
+function checkNativeHistory(){
+ if(nativeHistoryScheduled||window.parent!==window||!displayOptions.nativeCompact)return;
+ nativeHistoryScheduled=true;
+ // setData emits range changes before receive has replaced previous. Read after it finishes.
+ queueMicrotask(()=>{
+  nativeHistoryScheduled=false;
+  const p=countdownPacket;
+  if(!p||![1,3,5,10,15,60,480,1440,10080,43200].includes(p.interval)||!previous.length)return;
+  if(p.interval===480&&p.session==='rth'&&!p.history_expansion_attempted)return;
+  const range=chart.timeScale().getVisibleLogicalRange();
+  const target=p.interval===43200?120:p.interval===480?126:p.interval>=1440?250:300;
+  const preload=previous.length<target&&p.history_empty_before!==previous[0].time;
+  const before=(preload||range&&range.from<=5)&&previous.length<20000?previous[0].time:0;
+  const requestKey=JSON.stringify([key,before,p.account_epoch]);
+  if(requestKey===nativeHistoryKey)return;
+  nativeHistoryKey=requestKey;
+  window.webkit?.messageHandlers.historyRequest?.postMessage({con_id:p.con_id,interval:p.interval,session:p.session,account_epoch:p.account_epoch,before});
+ });
+}
+chart.timeScale().subscribeVisibleLogicalRangeChange(checkNativeHistory);
 let readoutTime=null,readoutLatest=false;
 function updateReadout(){
  const b=(readoutLatest?null:previous.find(b=>b.time===readoutTime))||previous.at(-1);
@@ -1293,7 +1303,7 @@ window.applyChartState=state=>{
  if(!(state.width>0&&state.height>0)){pendingNativeState=state;return;}
  window.setNativeViewport(state.width,state.height);
  if(state.config&&Object.keys(state.config).length)window.configure(state.config);
- if(state.packet&&Object.keys(state.packet).length){window.receive(state.packet);nativeVolatilityPacket={...nativeVolatilityPacket,...state.packet};}
+ if(state.packet&&Object.keys(state.packet).length){window.receive(state.packet);checkNativeHistory();nativeVolatilityPacket={...nativeVolatilityPacket,...state.packet};}
  if(window.configureVolatility&&state.config?.display){const d=state.config.display;window.configureVolatility({...nativeVolatilityPacket,bars:previous},d.volatilityData,d.volatility||{});}
 };
 function resizeViewport(){

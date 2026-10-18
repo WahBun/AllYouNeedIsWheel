@@ -1,6 +1,40 @@
 import SwiftUI
 import WebKit
 
+enum ChartHistoryBuffer {
+    static func prepending(_ saved: [[String: Any]], to incoming: [[String: Any]]) -> [[String: Any]] {
+        guard let first = incoming.first?["time"] as? Double else { return saved }
+        var low = 0, high = saved.count
+        while low < high {
+            let middle = (low + high) / 2
+            if (saved[middle]["time"] as? Double ?? first) < first { low = middle + 1 }
+            else { high = middle }
+        }
+        return Array((Array(saved.prefix(low)) + incoming).suffix(20000))
+    }
+}
+
+struct ChartPacketDelivery {
+    private var sequence = 0
+    private var streamKey = ""
+    private var historyRevision = 0
+    mutating func reset() { sequence = 0; streamKey = ""; historyRevision = 0 }
+    mutating func outgoing(_ packet: [String: Any]) -> [String: Any] {
+        var result = packet
+        let revision = packet["history_revision"] as? Int ?? 0
+        if let next = packet["sequence"] as? Int {
+            let key = "\(packet["stream_id"] ?? "")-\(packet["con_id"] ?? "")-\(packet["generation"] ?? "")-\(packet["interval"] ?? "")-\(packet["session"] ?? "")"
+            if next == sequence && key == streamKey && revision == historyRevision { return [:] }
+            if key == streamKey && next == sequence + 1 && revision == historyRevision && packet["mode"] as? String == "delta" {
+                result["bars"] = packet["changed_bars"] ?? []
+            } else { result["mode"] = "snapshot" }
+            sequence = next; streamKey = key; historyRevision = revision
+            result.removeValue(forKey: "changed_bars")
+        } else { reset() }
+        return result
+    }
+}
+
 @MainActor enum RecentStockCharts {
     static var packets: [String: (Date, [String: Any])] = [:]
     static var lastSaved: [String: Date] = [:]
@@ -1108,47 +1142,100 @@ struct StockChartView: View {
     @State private var earlierBarsKey = ""
     @State private var historyBefore: Double = 0
     @State private var historyRequestRevision = 0
+    @State private var historyPageRevision = 0
+    @State private var historyEmptyContext = ""
+    @State private var historyEmptyBefore: Double = 0
     @State private var historyRequestContext = ""
     private var historyContext: String { context + (store.trading.accountEpoch ?? "") }
+    private var pagedHistorySupported: Bool { intervals.contains(interval) }
+    @State private var historyNotice = ""
     private func retainingHistory(_ incoming: [String: Any]) -> [String: Any] {
-        guard interval == 480, session == "rth", earlierBarsKey == historyContext else { return incoming }
+        guard pagedHistorySupported else { return incoming }
         var result = incoming
-        var rows: [Double: [String: Any]] = [:]
-        for row in earlierBars + (incoming["bars"] as? [[String: Any]] ?? []) {
-            if let time = row["time"] as? Double { rows[time] = row }
+        if historyEmptyContext == historyContext {
+            result["history_empty_before"] = historyEmptyBefore
+            result["history_revision"] = historyPageRevision
         }
-        result["bars"] = rows.keys.sorted().suffix(20000).compactMap { rows[$0] }
+        guard earlierBarsKey == historyContext else { return result }
+        // Incoming stream packets already contain their full recent history. Keep
+        // only the missing older prefix; leave delta/sequence delivery unchanged.
+        result["bars"] = ChartHistoryBuffer.prepending(earlierBars, to: incoming["bars"] as? [[String: Any]] ?? [])
+        result["history_revision"] = historyPageRevision
         return result
     }
     private func requestHistory(_ body: [String: Any]) {
-        guard visible, phase == .active, interval == 480, session == "rth",
+        guard visible, phase == .active, pagedHistorySupported,
               body["con_id"] as? Int == chartID, body["interval"] as? Int == interval,
               body["session"] as? String == session,
               body["account_epoch"] as? String == store.trading.accountEpoch,
-              let before = body["before"] as? Double, before.isFinite, before > 0 else { return }
+              let before = body["before"] as? Double, before.isFinite, before >= 0 else { return }
+        guard historyBefore != before || historyRequestContext != historyContext else { return }
         historyBefore = before
         historyRequestContext = historyContext
         historyRequestRevision += 1
     }
     private func loadHistoryPage() async {
-        let expected = historyContext, before = historyBefore
+        let expected = historyContext, before = historyBefore, minutes = interval, hours = session
         guard visible, phase == .active, !store.demo, historyRequestContext == expected, let cid = chartID,
-              interval == 480, session == "rth", before > 0,
-              packet["history_expansion_attempted"] as? Bool == true,
-              let epoch = store.trading.accountEpoch, !epoch.isEmpty else { return }
-        do {
-            let result = try await store.trading.get("api/portfolio/stock-chart-history/\(cid)", base: store.address,
-                query: [URLQueryItem(name: "interval", value: "480"), URLQueryItem(name: "session", value: "rth"), URLQueryItem(name: "before", value: String(before))])
-            try Task.checkCancellation()
-            guard historyContext == expected, result["con_id"] as? Int == cid,
-                  result["interval"] as? Int == 480, result["session"] as? String == "rth",
-                  let rows = result["bars"] as? [[String: Any]], !rows.isEmpty else { return }
-            if earlierBarsKey != expected { earlierBars = []; earlierBarsKey = expected }
-            earlierBars += rows
-            packet = retainingHistory(packet)
-            earlierBars = packet["bars"] as? [[String: Any]] ?? []
-            RecentStockCharts.save(packet, key: cacheKey)
-        } catch { /* Optional history never interrupts the current chart. */ }
+              pagedHistorySupported, before > 0,
+              let epoch = store.trading.accountEpoch, !epoch.isEmpty else { historyNotice = ""; return }
+        // Give the first frame and automatic D/W/M expansion a head start.
+        do { try await Task.sleep(for: .seconds(2)) } catch { return }
+        var emptyResponses = 0
+        while !Task.isCancelled && historyContext == expected && historyBefore == before {
+            if (packet["bars"] as? [[String: Any]] ?? []).count >= 20000 {
+                historyNotice = "History limit reached · use a longer interval"; return
+            }
+            var delay: Double = 30
+            if paperBusy || store.trading.busy { delay = 2 }
+            else {
+                historyNotice = "Loading earlier history…"
+                do {
+                    let result = try await store.trading.get("api/portfolio/stock-chart-history/\(cid)", base: store.address,
+                        query: [URLQueryItem(name: "interval", value: String(minutes)), URLQueryItem(name: "session", value: hours), URLQueryItem(name: "before", value: String(before))])
+                    try Task.checkCancellation()
+                    guard historyContext == expected, historyBefore == before,
+                          result["con_id"] as? Int == cid, result["interval"] as? Int == minutes,
+                          result["session"] as? String == hours else { return }
+                    let rows = (result["bars"] as? [[String: Any]] ?? []).filter {
+                        guard let time = $0["time"] as? Double else { return false }
+                        return time.isFinite && time > 0 && time < before
+                    }
+                    if !rows.isEmpty {
+                        if earlierBarsKey != expected { earlierBars = []; earlierBarsKey = expected }
+                        var merged: [Double: [String: Any]] = [:]
+                        for row in earlierBars + rows + (packet["bars"] as? [[String: Any]] ?? []) {
+                            if let time = row["time"] as? Double, time.isFinite { merged[time] = row }
+                        }
+                        earlierBars = merged.keys.sorted().suffix(20000).compactMap { merged[$0] }
+                        packet["bars"] = earlierBars
+                        // A historical insertion must reach WKWebView even when no
+                        // new tick sequence has arrived. Subsequent ticks stay deltas.
+                        packet["mode"] = "snapshot"
+                        historyPageRevision += 1
+                        packet["history_revision"] = historyPageRevision
+                        packet.removeValue(forKey: "changed_bars")
+                        RecentStockCharts.save(packet, key: cacheKey)
+                        historyNotice = "Earlier history loaded"
+                        return
+                    }
+                    emptyResponses += 1
+                    if emptyResponses >= 2 {
+                        historyEmptyContext = expected; historyEmptyBefore = before
+                        packet["history_empty_before"] = before
+                        historyPageRevision += 1; packet["history_revision"] = historyPageRevision
+                        historyNotice = "No earlier bars returned"
+                        return
+                    }
+                    historyNotice = "No earlier bars returned · retrying later"
+                } catch {
+                    if Task.isCancelled || historyContext != expected { return }
+                    delay = (error as? BackendHTTPError)?.status == 503 ? 2 : 30
+                    historyNotice = "Earlier history unavailable · retrying"
+                }
+            }
+            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+        }
     }
     @State private var notice = "Loading chart…"
     @State private var visible = false
@@ -1518,6 +1605,7 @@ struct StockChartView: View {
                         TimelineView(.periodic(from: .now, by: 1)) { time in
                             Text(verbatim: received.map { time.date.timeIntervalSince($0) > 3 } == true ? "Chart updates paused · verify connection" : notice)
                         }
+                        if !historyNotice.isEmpty { Text(verbatim: historyNotice) }
                         if let emaHistoryNotice { Text(verbatim: emaHistoryNotice) }
                     }
                     if !chartNotices.isEmpty {
@@ -1956,8 +2044,7 @@ private struct StockChartWeb: UIViewRepresentable {
         var loadedDrawingKey = ""
         var bridgeBusy = false
         var bridgePending = false
-        var lastStreamSequence = 0
-        var lastStreamKey = ""
+        var packetDelivery = ChartPacketDelivery()
         var packet: [String: Any] = [:]
         var config: [String: Any] = [:]
         var onEntry: ((Double) -> Void)?
@@ -2029,18 +2116,7 @@ private struct StockChartWeb: UIViewRepresentable {
                     return
                 }
             }
-            var outgoing = packet
-            if let sequence = packet["sequence"] as? Int {
-                let key = "\(packet["stream_id"] ?? "")-\(packet["con_id"] ?? "")-\(packet["generation"] ?? "")-\(packet["interval"] ?? "")-\(packet["session"] ?? "")"
-                if sequence == lastStreamSequence && key == lastStreamKey { outgoing = [:] }
-                else {
-                    if lastStreamKey == key && sequence == lastStreamSequence + 1 && packet["mode"] as? String == "delta" {
-                        outgoing["bars"] = packet["changed_bars"] ?? []
-                    } else { outgoing["mode"] = "snapshot" }
-                    lastStreamKey = key; lastStreamSequence = sequence
-                }
-                outgoing.removeValue(forKey: "changed_bars")
-            } else { lastStreamSequence = 0; lastStreamKey = "" }
+            let outgoing = packetDelivery.outgoing(packet)
             guard let web else { return }
             // Initial settings, cached bars and native dimensions enter JS together.
             // Do not display bars using a previous frame's formatter or canvas size.
@@ -2052,7 +2128,7 @@ private struct StockChartWeb: UIViewRepresentable {
             web.evaluateJavaScript("window.applyChartState(\(json))") { [weak self] _, error in
                 guard let self else { return }
                 self.bridgeBusy = false
-                if error != nil { self.lastStreamSequence = 0; self.lastStreamKey = "" }
+                if error != nil { self.packetDelivery.reset() }
                 if self.bridgePending { self.bridgePending = false; self.update() }
             }
         }

@@ -3508,3 +3508,52 @@ The first existing Flex background refresh populates the execution-detail archiv
 Orders may initially retain blanks until it finishes. No Gateway restart, broker
 write, Mini code/database edit, or physical-device installation was performed.
 Preserve the pre-existing project.pbxproj and Localizable.xcstrings local changes.
+
+## 2026-10-18 native history preload and all-timeframe paging
+
+Native history requests previously required a gesture within 1.5 seconds and only
+accepted 8h RTH. D/W/M could expand their initial snapshot but could not page left.
+REA inspected the current bundled chart scripts and the web context-menu history
+trigger (parent ev_28f7da0b7f8292dbc87e31afbc8f6a28e79f15f3eee2f4d5ec9f6d2496abc27c).
+This was static analysis, not observed broker/runtime behavior. The adopted web
+behavior is visible-left-edge paging without a recent-gesture deadline.
+
+All ten listed native intervals now prepare history automatically after first
+paint, with no need to pan first. The existing D/W/M bulk expansion remains;
+bounded pages supplement it and other intervals toward roughly 300 intraday,
+126 eight-hour, 250 daily/weekly, or 120 monthly bars when IB has them. These are
+minimum preload targets, not guaranteed available bars or maximum history ranges.
+Left-edge paging can continue to the existing 20,000-bar cap. Each request retains
+its exact contract, interval, session and account context. Switching context or
+leaving the view cancels its task; late responses cannot merge into the new chart.
+Busy/errors retry independently of trading writes. Two empty responses stop
+automatic prefetch at that boundary; later left-edge browsing can request again.
+
+Paged history remains present in later snapshots and stream packets. Retention
+uses an older-prefix merge, preserving current corrections without sorting on each
+tick. A separate history revision forces a full JS delivery for an insertion even
+if a new tick coalesces over it while WKWebView is busy. Subsequent consecutive
+ticks retain the existing changed-bars path. No backend, order, layout, quote
+freshness or broker connection implementation was changed.
+
+Validation: native-history.cjs passes all ten intervals, both sessions and both
+themes, contract/epoch switching, automatic preload away from the left edge,
+empty-history stopping/manual retry, viewport preservation, deduplication and
+incremental ticks after insertion. The real Simulator WKWebView bridge covers the
+same interval/session/theme combinations and changing contract identities; native
+unit tests cover history/current-correction merging, cap and coalesced-tick delivery.
+117 Simulator history/viewport/trading/live-management tests passed, followed by a
+final focused history/viewport rerun. 45 offline backend chart/history/futures
+regressions passed. The fixed-date countdown fixture now supplies its matching
+calendar window, avoiding failure when the real date moves beyond its 14-day window.
+The protected 1/2/3/4-pane, two-four-pane-page and long-history latency matrix,
+layout/symbol/period/recovery interaction checks also passed, with no trading POSTs.
+These are fixture/Simulator checks; actual IB latency/availability and physical
+phone acceptance remain unverified for this revision.
+
+Mini source was read-only verified at 7187bcdb4853559670c18369d172558c90b71e40.
+This native/static-only change needs user-operated Xcode Run. Deploy only is enough
+for repository/static synchronization; this change adds no Backend restart need.
+No Mini deployment/restart, Gateway restart, physical-device install or broker
+write was performed. Preserve the pre-existing project.pbxproj and
+Localizable.xcstrings edits; they are excluded from this commit.

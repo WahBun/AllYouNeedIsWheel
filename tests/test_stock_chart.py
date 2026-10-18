@@ -137,7 +137,10 @@ class StockChartTests(unittest.TestCase):
         start = datetime.fromisoformat('2026-10-02T14:00:00+00:00').timestamp()
         conn.ib.reqHistoricalData.return_value = [S(date=datetime.fromtimestamp(start, timezone.utc), open=10, high=11, low=9, close=10)]
         try:
-            with patch('api.services.stock_chart.time.time', return_value=start+30):
+            # Match the fixture clock and calendar; wall-clock dates eventually
+            # move this fixed candle outside the rolling session window.
+            with patch('api.services.stock_chart.time.time', return_value=start+30), \
+                 patch('api.services.stock_chart.regular_sessions', return_value=((start-1800, start+6*3600),)):
                 for session in ('all', 'rth'):
                     packet = feed.snapshot(conn, 7, 5, session)
                     self.assertEqual(packet['bar_closes_at'], start+300)
