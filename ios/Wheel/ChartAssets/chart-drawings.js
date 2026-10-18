@@ -338,7 +338,8 @@ function magnetIcon(target,mode){
  target.dataset.magnetMode=mode;
 }
 let temporaryMagnet=false;
-const effectiveMagnet=()=>temporaryMagnet&&magnet==='off'?'weak':magnet;
+// Pointer modifiers survive the first focus transfer into a chart or alert line.
+const effectiveMagnet=event=>(event?.metaKey??temporaryMagnet)&&magnet==='off'?'weak':magnet;
 window.setTemporaryMagnet=value=>{temporaryMagnet=!!value;snapFeedback=null;updateMagnetButtons();};
 function updateMagnetButtons(){const mode=effectiveMagnet();for(const target of document.querySelectorAll('[data-magnet-mode]')){magnetIcon(target,mode);target.className=mode==='off'?'':'on';target.style.opacity=mode==='off'?'.5':'1';target.title='Magnet: '+mode+' · Hold ⌘ to snap';target.setAttribute('aria-label',target.title);}}
 function cycleMagnet(){
@@ -467,15 +468,15 @@ function paint(d,isDraft=false){const p=d.p.map(xy);if(p.some(v=>!v))return;cons
 function commit(){if(!draft)return;if(drawings.length>=200){hint.textContent='200 drawings maximum; delete drawings first';return;}remember();drawings.push(draft);selected=draft.id;draft=null;save();choose(null);}
 function capture(e){
  const fib=['fib','fibext'].includes(drag?.d.type||active);
- if(fib&&drag?.pointerOffset)e={clientX:e.clientX-drag.pointerOffset.x,clientY:e.clientY-drag.pointerOffset.y,pointerType:e.pointerType};
+ if(fib&&drag?.pointerOffset)e={clientX:e.clientX-drag.pointerOffset.x,clientY:e.clientY-drag.pointerOffset.y,pointerType:e.pointerType,metaKey:e.metaKey};
  const raw=anchor(e.clientX,e.clientY,fib);
- if(!raw||effectiveMagnet()==='off'||active==='highlight'||(drag?.index===null||drag?.role==='entry')){snapFeedback=null;return raw;}
+ if(!raw||effectiveMagnet(e)==='off'||active==='highlight'||(drag?.index===null||drag?.role==='entry')){snapFeedback=null;return raw;}
  const result=magnetPoint(e,raw,snapFeedback);snapFeedback=result.feedback;return result.point;
 }
 // Share the same mode, OHLC selection and touch tolerance with alert drags.
 // Each caller owns its feedback so an alert cannot change a drawing gesture.
 function magnetPoint(e,raw,feedback){
- const mode=effectiveMagnet();
+ const mode=effectiveMagnet(e);
  if(!raw||mode==='off')return {point:raw,feedback:null};
  if(feedback?.mode!==mode)feedback=null;
  const bar=previous.reduce((best,b)=>!best||Math.abs(b.time-raw.time)<Math.abs(best.time-raw.time)?b:best,null);

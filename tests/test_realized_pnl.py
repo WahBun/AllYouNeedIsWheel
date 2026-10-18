@@ -73,6 +73,7 @@ class RealizedPnlTests(unittest.TestCase):
             item = fill(side='BOT')
             item.commissionReport._wheel_realized_pnl = 21.4
             conn = IBConnection.__new__(IBConnection)
+            conn._connected = False
             conn.ib = NS(fills=lambda: [item], sleep=lambda delay: None)
             conn._order_account = lambda: 'TEST'
             conn.refresh_execution_history = lambda: False

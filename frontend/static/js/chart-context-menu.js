@@ -184,7 +184,7 @@
   }else{
   item('Add alert at '+priceText(price),()=>{if(contract===paperCID)window.chartAlerts?.open({price});},!(price>0),'alert');
   refreshOrderMenu=orderItems(price,(label,run,disabled,presets,side)=>entryItem(label,()=>{if(contract===paperCID)run();},disabled,presets,side),true);
-  const n=window.chartDrawingActions?.count()||0;if(n>0)item(`Remove ${n} drawings`,()=>window.chartDrawingActions?.removeAll());
+  const n=window.chartDrawingActions?.count()||0;if(n>0)item(`Remove ${n} drawing${n===1?'':'s'}`,()=>window.chartDrawingActions?.removeAll()).style.paddingLeft='40px';
   }
   menu.hidden=false;menu.style.left=Math.max(6,Math.min(event.clientX,innerWidth-menu.offsetWidth-6))+'px';menu.style.top=Math.max(6,Math.min(event.clientY,innerHeight-menu.offsetHeight-6))+'px';
  }

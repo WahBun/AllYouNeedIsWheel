@@ -177,6 +177,13 @@ class OvernightTests(unittest.TestCase):
         self.conn.ib.cancelOrder.assert_not_called()
 
     def test_amend_preserves_route_quantity_with_confirmed_replacement(self):
+        self.conn.ib.client.clientId = 8
+        original = self.conn.ib.placeOrder.side_effect
+        def acknowledged(contract, order):
+            order.clientId = 8
+            order.permId = 1000 + order.orderId
+            return original(contract, order)
+        self.conn.ib.placeOrder.side_effect = acknowledged
         self.overnight()
         self.conn.ib.placeOrder.reset_mock()
         result=self.manage('amend',expected_price=768.88,price=748.88)

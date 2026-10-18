@@ -610,7 +610,13 @@ window.addEventListener('message',event=>{
  quoteStatuses.set(event.source,body);
  renderQuoteStatuses();
 });
-window.addEventListener('message',event=>{if(event.origin!==location.origin||event.source!==frame.contentWindow||!event.data?.wheelChart)return;const {name,body}=event.data;if(name==='chartReady'){frame.contentWindow.configurePriceAxis?.(chartLayout.axisFor(frame));frame.contentWindow.addEventListener('focus',resumeMarket);ready=true;sync();if(validContract(startupCID))select(startupCID,!explicitContract?restoredPane?.label:undefined);else{chartLayout.showEmpty();refresh();}}else if(name==='chartSettings')settings();else if(name==='noOverlappingLabelsChanged'&&typeof body?.enabled==='boolean')saveDisplay({...display,noOverlappingLabels:body.enabled});else if(name==='priceAxisChanged')chartLayout.tick();else if(name==='historyRequest')loadHistory(body);else if(name==='paperAction')action({...body,clientReleasedAt:event.data.sentAt});else if(name==='chartDiagnostic'){const message=`${body.role?.toUpperCase()||'Order'} drag: ${body.message}`;(body.interrupted?log:trace)(message);}else if(name==='entryChanged'){entry=body;}else if(name==='drawingsChanged'&&cid){const expected=`web:${location.origin}:${cid}`;if(body.key===expected)localStorage.setItem(`wheel.drawings:${cid}`,JSON.stringify(body));}});
+let initializedChartDocument=null;
+function initializeChart(){
+ const doc=frame.contentDocument;if(initializedChartDocument===doc)return;initializedChartDocument=doc;
+ window.bindChartMagnetKeys?.(doc);frame.contentWindow.configurePriceAxis?.(chartLayout.axisFor(frame));frame.contentWindow.addEventListener('focus',resumeMarket);ready=true;sync();
+ if(validContract(startupCID))select(startupCID,!explicitContract?restoredPane?.label:undefined);else{chartLayout.showEmpty();refresh();}
+}
+window.addEventListener('message',event=>{if(event.origin!==location.origin||event.source!==frame.contentWindow||!event.data?.wheelChart)return;const {name,body}=event.data;if(name==='chartReady'){initializeChart();}else if(name==='chartSettings')settings();else if(name==='noOverlappingLabelsChanged'&&typeof body?.enabled==='boolean')saveDisplay({...display,noOverlappingLabels:body.enabled});else if(name==='priceAxisChanged')chartLayout.tick();else if(name==='historyRequest')loadHistory(body);else if(name==='paperAction')action({...body,clientReleasedAt:event.data.sentAt});else if(name==='chartDiagnostic'){const message=`${body.role?.toUpperCase()||'Order'} drag: ${body.message}`;(body.interrupted?log:trace)(message);}else if(name==='entryChanged'){entry=body;}else if(name==='drawingsChanged'&&cid){const expected=`web:${location.origin}:${cid}`;if(body.key===expected)localStorage.setItem(`wheel.drawings:${cid}`,JSON.stringify(body));}});
 window.installOptionSearch({api,select,symbol:()=>packet.symbol||$('symbol').value,canSelect:()=>!busy});
 $('search').onsubmit=async event=>{event.preventDefault();try{const r=await api('portfolio/chart-contracts?q='+encodeURIComponent($('symbol').value));$('contracts').replaceChildren(...r.contracts.map(c=>new Option(c.local_symbol,c.con_id)));if(r.contracts.length){select(r.contracts[0].con_id,r.contracts[0].local_symbol);$('option-picker').close();}}catch(error){log(error.message);}};
 function renderGroups(value){const choices=value.group_choices||[],picker=$('order-group');picker.replaceChildren(new Option('Original order',''),...choices.filter(g=>g.id).map((g,i)=>new Option('Order '+(i+2)+' · '+(g.ref||g.id).slice(-6),g.id)));if(groupID&&!choices.some(g=>g.id===groupID))picker.append(new Option('New order draft',groupID));picker.value=groupID;picker.disabled=busy;}
@@ -698,7 +704,9 @@ function magnetKeys(doc){
  doc.defaultView.addEventListener('blur',reset);doc.addEventListener('visibilitychange',()=>{if(doc.hidden)reset();});
 }
 window.bindChartMagnetKeys=magnetKeys;
-magnetKeys(document);frame.addEventListener('load',e=>{magnetKeys(e.currentTarget.contentDocument);e.currentTarget.contentWindow.addEventListener('focus',resumeMarket);});
+magnetKeys(document);magnetKeys(frame.contentDocument);frame.addEventListener('load',e=>{magnetKeys(e.currentTarget.contentDocument);e.currentTarget.contentWindow.addEventListener('focus',resumeMarket);});
+// A cached iframe may have sent chartReady before this host script loaded.
+if(frame.contentDocument.readyState==='complete'&&typeof frame.contentWindow.configureDrawings==='function')initializeChart();
 $('fullscreen').title='Fullscreen · Shift+F';$('fullscreen').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.querySelector('.workspace').requestFullscreen();
 for(const b of $('intervals').children)b.classList.toggle('active',Number(b.dataset.interval)===interval);
 setInterval(()=>{sync();refresh();},2000);

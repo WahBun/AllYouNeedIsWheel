@@ -26,8 +26,8 @@ const {start}=require('./market-feed/harness.cjs');
   }
   await f.evaluate(()=>configurePriceAxis('right'));
   for(const [mode,offset,snaps,temporary,touch] of [
-   ['off',8,false,false,false],['weak',8,true,false,false],['weak',42,false,false,false],
-   ['strong',42,true,false,false],['off',8,true,true,false],['weak',18,true,false,true]
+   ['off',8,true,true,false],['off',8,false,false,false],['weak',8,true,false,false],['weak',42,false,false,false],
+   ['strong',42,true,false,false],['off',8,true,'during',false],['off',8,false,'release',false],['weak',18,true,false,true]
   ]){
    alert={...alert,price:100.4,version:alert.version+1};
    await f.evaluate(mode=>{configureDrawings({key:'alert-magnet-'+Math.random(),value:{magnet:mode}});chartAlerts.refresh();},mode);
@@ -35,10 +35,11 @@ const {start}=require('./market-feed/harness.cjs');
    const target=await f.evaluate(offset=>{const bar=previous.at(-10);return {x:timeToScreenCoordinate(bar.time),y:series.priceToCoordinate(bar.high)+offset,high:bar.high};},offset);
    const origin=await (await f.frameElement()).boundingBox(),box=await hit.boundingBox();
    const x=origin.x+target.x,y=box.y+box.height/2,endY=origin.y+target.y,count=writes.length;
-   await p.mouse.move(x,y);if(temporary)await p.keyboard.down('Meta');
+   await p.mouse.move(x,y);if(temporary&&temporary!=='during')await p.keyboard.down('Meta');
    const cdp=touch?await context.newCDPSession(p):null;
    if(touch){await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y,id:1}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y:endY,id:1}]});}
-   else{await p.mouse.down();await p.mouse.move(x,endY,{steps:8});}
+   else{await p.mouse.down();if(temporary==='during')await p.keyboard.down('Meta');await p.mouse.move(x,endY,{steps:8});}
+   if(temporary==='release'){await p.keyboard.up('Meta');await p.mouse.move(x+1,endY);}
    await p.waitForTimeout(100);assert.equal(writes.length,count,'Magnet changes only the drag preview');
    assert.equal(await f.locator('.chart-alert-snap').isVisible(),snaps,'Snap feedback follows the selected mode');
    if(touch){await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await cdp.detach();}else await p.mouse.up();

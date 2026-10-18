@@ -16,7 +16,7 @@ class TerminalFeeTests(unittest.TestCase):
         self.oid=self.db.save_order(dict(ticker='TEST',option_type='PUT',action='SELL',strike=10,expiration='20261016',premium=1,quantity=1,account_id='TEST'))
         self.db.update_order_status(self.oid,'executed',True,{'perm_id':123,'filled':1})
         self.items=[fixtures.fill(fee=1)]
-        self.conn=IBConnection.__new__(IBConnection);self.conn._order_account=lambda:'TEST'
+        self.conn=IBConnection.__new__(IBConnection);self.conn._connected=False;self.conn._order_account=lambda:'TEST'
         self.conn.ib=S(fills=lambda:self.items,sleep=lambda _:None)
         self.conn.refresh_execution_history=lambda:False
         self.service=OptionsService.__new__(OptionsService);self.service.db=self.db;self.service._ensure_connection=lambda:self.conn

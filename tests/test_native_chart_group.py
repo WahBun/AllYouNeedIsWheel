@@ -27,13 +27,17 @@ class NativeChartGroupTests(unittest.TestCase):
         f.trades.append(self.native)
         f.conn.ib.positions.return_value=[NS(account='DU_TEST',contract=f.contract,position=3,avgCost=10)]
 
-    def test_native_holding_replaces_empty_group_without_broker_write(self):
+    def test_native_holding_retains_history_but_does_not_infer_group_ownership(self):
         f=self.f
         writes=f.conn.ib.placeOrder.call_count
         state=f.service.state(f.conn,7)
-        self.assertTrue(state['add_allowed'])
-        self.assertTrue(state['trim_allowed'])
-        self.assertTrue(state['be_allowed'])
+        # The execution ledger deliberately rejects legacy opening balances.
+        # A native fill and account net position do not assign it to this group.
+        self.assertFalse(state['known'])
+        self.assertFalse(state['add_allowed'])
+        self.assertFalse(state['trim_allowed'])
+        self.assertFalse(state['be_allowed'])
+        self.assertTrue(any('Legacy opening balance' in error for error in state['group_attribution']['errors']))
         self.assertNotEqual(state['order_ref'],self.old_ref)
         self.assertEqual(f.conn.ib.placeOrder.call_count,writes)
         with f.service.database() as db:
@@ -56,7 +60,7 @@ class NativeChartGroupTests(unittest.TestCase):
         self.f.trades[0].orderStatus.filled=1
         self.assertEqual(self.f.service.state(self.f.conn,7)['order_ref'],self.old_ref)
 
-    def test_reconnect_uses_exact_persisted_ids_and_executions(self):
+    def test_reconnect_does_not_assign_native_executions_to_legacy_opening_balance(self):
         f=self.f
         group=f.service.group('DU_TEST',7)
         group['terminal']={role:dict(order_id=oid,status='Cancelled',filled=0) for role,oid in group['ids'].items()}
@@ -70,6 +74,8 @@ class NativeChartGroupTests(unittest.TestCase):
         from datetime import datetime, timezone
         f.conn.ib.fills.return_value=[NS(contract=f.contract,execution=execution,time=datetime.now(timezone.utc))]
         state=f.service.state(f.conn,7)
-        self.assertTrue(state['add_allowed'])
-        self.assertTrue(state['be_allowed'])
+        self.assertFalse(state['known'])
+        self.assertFalse(state['add_allowed'])
+        self.assertFalse(state['be_allowed'])
+        self.assertTrue(any('Legacy opening balance' in error for error in state['group_attribution']['errors']))
         self.assertNotEqual(state['order_ref'],self.old_ref)

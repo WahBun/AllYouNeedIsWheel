@@ -1,3 +1,81 @@
+## 2026-10-18 — stability review and first-use chart interaction
+
+Starting point: GitHub `codex/chart-labels-1.7` at
+`8eb3c08d815764afc847667a3b91f4d26c92d84b`. The user requested a stability
+review with minimal fixes, no new features and no additional Codex tasks.
+
+Changes:
+- Align the context menu's Remove text with the preceding labels, leaving the
+  icon column empty; use the singular label for one drawing.
+- Remove the redundant status row from native Orders. Portfolio retains its
+  status; Orders connection retry, errors and verification warnings remain.
+- Fix the first Command-modified price-alert drag while drawing tools are
+  collapsed. Moving focus into the iframe cleared the host's held-key flag;
+  the shared magnet resolver now uses the actual pointer modifier when present.
+  Fibonacci pointer-offset calculations retain that modifier. Saved magnet modes
+  and fallback keyboard state are unchanged. Pressing Command before or during
+  a drag works; releasing it returns the gesture to its saved mode.
+- Recover when a cached chart iframe emits chartReady before its host listeners
+  attach. Main and pane initialization recognize an already-ready document;
+  duplicate ready messages are idempotent and cannot reset the selected symbol.
+
+REA captured the deployed page and script sources in
+`ev_53258de7c4a3d6f3c044f4602d1ac3f0c6cb8dfe07cc405edd9b223c1701a285`;
+menu, layout and host script hashes matched the starting checkout. Fresh REA
+JavaScript analysis covered the drawing script, host and alert script in
+`ev_c956e01e6cf0f6955e7ee0fd62f3d452a0392c9ebf7967b5c116a91912e1fdab`,
+`ev_42cfca46e50a2e762351de2c8c18f58e09aeb9ac6e22e4e3098939521624e50f`
+and `ev_6c77bd9aba088c1b2fa2475b09243b6801b43e35786d4eb5d49c0b771503704e`.
+These are source/structure observations, not a broker or gesture acceptance
+claim. Local browser reproduction demonstrated both the first-drag failure and
+missed-ready loading failure before the fixes. Native REA binary loading worked
+after extracting arm64, but its string search did not return and was stopped;
+Orders was checked against the supplied screenshot, SwiftUI source and native
+unit tests instead. Final physical-device appearance remains user verification.
+
+The review and existing regression coverage span serialized API dispatch,
+account isolation, order identity/recovery, execution and fee persistence,
+quote/P&L rules, web/native refresh and chart lifecycle, notification storage
+and delivery, and deployment/watchdog safeguards. No production broker,
+backend dispatcher, aggregation, quote-freshness or P&L logic changed.
+
+Existing tests needed fixture maintenance: offline connection doubles now expose
+connection state; the overnight replacement fixture supplies acknowledged broker
+identity; flat holdings do not resolve Unknown protection. Legacy native opening
+balances remain blocked when execution-ledger ownership cannot be established;
+account net position alone must not authorize group Add/Trim/BE. The fixture
+assertions now match the documented group-ledger migration policy. Frontend
+fixtures include the trading lock, current shared menu scripts and a valid
+storage origin, and distinguish validation messages from order requests.
+
+Verification:
+- 1,008 distinct existing backend tests passed in a guarded offline runner with
+  temporary databases/configuration, forbidden external network and real broker
+  writes, and only disposable Git repositories for operations tests.
+- 65 frontend unit tests and all 169 existing iOS simulator tests passed. After
+  the final shared chart edit, the 7 native history/viewport tests passed again.
+- Browser checks passed for desktop/mobile and light/dark alert magnets, first
+  focus transfer, both Command orders, key release, touch, alert cancellation
+  and remote conflicts, Fib offsets/cancel/undo, and context-menu alignment.
+- `tests/chart/cached-frame-start.cjs` covers normal/delayed host startup in one
+  and four panes, shortcuts with hidden tools, and duplicate ready signals.
+- The original cold-start restoration checks, 1/2/3/4-pane lifecycle/reconnect
+  checks, entry One-click page flow, stable Confirm/Discard, fast drag and full
+  order-line drag checks passed without broker writes.
+- Final synthetic 100 Hz checks passed for one pane, four panes and two four-pane
+  pages: every pane received 180/180 continuous updates; the 200-tick burst kept
+  high 120, low 80 and close 100.199. Source-to-apply p95 was 2–9 ms, with no
+  console errors, rejected streams or order posts. This is local synthetic
+  evidence, not live IB latency or fill acceptance.
+
+Deployment: this commit's production changes are web/shared chart assets and
+native UI only, so choose **Deploy only** from the previous starting SHA.
+If the deployment preview includes older backend changes, follow its cumulative
+restart advice. Refresh the web page after deployment; native Orders/shared
+assets require the user's Xcode Run. No Mini deployment, backend/Gateway restart,
+physical-iPhone Run or actual broker test was performed. Pre-existing local
+project.pbxproj and Localizable.xcstrings edits remain outside this commit.
+
 ## 2026-10-18 — hourly cold start and slow-history isolation
 
 The four-pane cover could stay at 3/4 even when all four price panes had bars.

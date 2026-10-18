@@ -28,6 +28,8 @@ class WeekendMaintenanceTests(unittest.TestCase):
         self.assertEqual(PaperChart.protection_progress(rows,3)['status'],'needs_review')
         rows[1]['status']='Unknown'
         self.assertEqual(PaperChart.protection_progress(rows,-3)['status'],'unknown')
+        self.assertEqual(PaperChart.protection_progress(rows,0)['status'],'unknown')
+        rows[1]['status']='Cancelled'
         self.assertEqual(PaperChart.protection_progress(rows,0)['status'],'flat')
 
     def test_option_data_explanations_do_not_promise_entitlement(self):

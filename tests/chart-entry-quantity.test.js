@@ -7,7 +7,7 @@ const cut=(a,b)=>source.slice(source.indexOf(a),source.indexOf(b,source.indexOf(
 function setup(type='FUT',live=false){
  const elements=new Map(),writes=[];
  const $=id=>{if(!elements.has(id))elements.set(id,{value:'1',checked:false,disabled:false});return elements.get(id)};
- const c={$,Number,Math,JSON,Date,packet:{security_type:type,currency:'USD',con_id:7,account_epoch:'e',bid:100,ask:101,server_time:Date.now()/1000,quote_expires_at:Date.now()/1000+60,price_rules:[{low:0,increment:1}]},state:{live_initial_scope:live},cid:7,epoch:'e',packetReceived:Date.now(),enabled:()=>true,sync(){},log(message){c.message=message},write(body){writes.push(body)},quantityEdited:false,revision:0,joinRevision:0,pendingJoin:null,marketContext:()=>({cid:7,epoch:'e'}),frame:{contentWindow:{}},entry:0};
+ const c={$,Number,Math,JSON,Date,tradingLocked:false,packet:{security_type:type,currency:'USD',con_id:7,account_epoch:'e',bid:100,ask:101,server_time:Date.now()/1000,quote_expires_at:Date.now()/1000+60,price_rules:[{low:0,increment:1}]},state:{live_initial_scope:live},cid:7,epoch:'e',packetReceived:Date.now(),enabled:()=>true,sync(){},log(message){c.message=message},write(body){writes.push(body)},quantityEdited:false,revision:0,joinRevision:0,pendingJoin:null,marketContext:()=>({cid:7,epoch:'e'}),frame:{contentWindow:{}},entry:0};
  vm.createContext(c);vm.runInContext(cut('function allowed()','function tradingBlockReason()')+cut('function newQuantityLimit()','function renderDailyPnL()')+cut('function action(body)','function livePositionAction(')+cut('function defaultNewQuantity()','let ready='),c);
  $('type').value='LMT';$('tif').value='DAY';
  return {c,$,writes};
