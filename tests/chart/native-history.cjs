@@ -36,7 +36,11 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
   // Expansion readiness changes without any scrolling must wake the pager.
   for(const interval of [480]){
    await page.evaluate(interval=>{historyRequests=[];payload={...payload,interval,session:'rth',generation:`ready-${interval}`,history_expanded:false,history_expansion_attempted:false,bars:recent.slice(-80)};applyChartState({width:393,height:750,packet:payload});},interval);
-   await page.waitForTimeout(50);assert.equal(await page.evaluate(()=>historyRequests.length),0);
+   await page.waitForTimeout(50);assert.equal(await page.evaluate(()=>historyRequests.filter(r=>r.before>0).length),0);
+   await page.evaluate(()=>applyChartState({width:393,height:750,packet:{...payload,history_loading:true,history_expansion_attempted:true}}));
+   await page.waitForTimeout(50);assert.equal(await page.evaluate(()=>historyRequests.filter(r=>r.before>0).length),0,'bulk loading must not compete with native pages');
+   await page.evaluate(()=>applyChartState({width:393,height:750,packet:{...payload,history_loading:false,history_expansion_attempted:true}}));
+   await page.waitForTimeout(50);assert.equal(await page.evaluate(()=>historyRequests.filter(r=>r.before>0).length),0,'bulk fallback cooldown must not compete with native pages');
    await page.evaluate(()=>applyChartState({width:393,height:750,packet:{...payload,history_expanded:true,history_expansion_attempted:true}}));
    await page.waitForFunction(()=>historyRequests.some(r=>r.before>0));
   }

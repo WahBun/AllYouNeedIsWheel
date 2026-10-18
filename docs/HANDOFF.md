@@ -1,3 +1,45 @@
+## 2026-10-18 — 8h RTH prepares history in one background read
+
+Scope: only 8h RTH startup/history. Other intervals and the existing intraday
+aggregation/session anchors, tick delivery and layouts are preserved.
+
+REA inspected the current Wheel scripts and the user's supplied recording. A
+read-only Mini log check showed the native expansion and monthly pager overlapping
+while history grew in small batches. REA then exercised TradingView's ES1! RTH
+chart: the existing series requested 300 bars, switching resolution to 480 returned
+300 bars in one series update, and the last five bars each started at 09:30 New
+York on successive trading days. Its resolved CME RTH session was 08:30–15:15
+Chicago. The original 5-minute selection was restored; no layout save was made.
+Reference evidence: ev_3cb71ba39d20b7de623c4246cc670e2b212c02e6e667be913ac535f29d3674b4.
+This supports preparing the history window before panning; it does not establish
+IB response speed or justify replacing intraday trade closes with daily settlement.
+No authentication payloads or raw browser capture are stored in this repository.
+
+The deferred 8h path now starts one six-month intraday TRADES read on the existing
+IB event loop and returns the current chart immediately. Polling/expansion calls
+share that in-flight read. A failed/empty bulk read falls back to bounded monthly
+pages without advancing a failed cursor. Native paging waits until the initial
+window is prepared, then remains available for older history. Current minute/tick
+bars still override overlapping historical closes/extremes. Replaced state/client
+identities reject late results. A dispatched read retains its 12-second timeout
+cleanup rather than canceling the coroutine and bypassing ib_async's cleanup.
+
+Validation: 46 related backend tests, native browser history across 40
+period/session/theme combinations, and the actual Simulator WKWebView history and
+viewport tests passed. Includes pending-history deduplication, >120 prepared RTH
+bars, live-bar preservation, fallback/cursor retention, stale-state isolation and
+resumed left paging. The protected 1/2/3/4-pane, two four-pane pages and
+6000-bar refresh matrix also passed with no errors/rejected requests; the
+interaction/recovery check passed with zero trading POSTs. Synthetic source-to-apply
+p95 was 1–8 ms across these runs, with all 30 updates per pane preserved.
+These are mock/Simulator results; actual IB cold-history latency and physical
+phone acceptance require deployment and Run.
+
+Deployment: this change requires **Deploy & Restart Backend** on Mini and a new
+user-authorized iPhone Run for the bundled chart asset. No deployment, Backend or
+Gateway restart, physical-device install, or broker order was performed for this
+repair. Existing signing/localization edits remain excluded from this commit.
+
 ## 2026-10-16 — two cross-device drawing display scopes
 
 The user clarified that both choices must synchronize between computer and phone;

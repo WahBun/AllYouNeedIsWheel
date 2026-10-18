@@ -308,77 +308,100 @@ class StockChartTests(unittest.TestCase):
                 conn.ib.placeOrder.assert_not_called()
             finally:close_test_loop()
 
-    def test_deferred_eight_hour_first_paint_and_warm_switch_do_not_fetch_older_history(self):
+    def test_eight_hour_bulk_history_is_nonblocking_deduplicated_and_keeps_ticks(self):
         from unittest.mock import patch
         asyncio.set_event_loop(asyncio.new_event_loop())
+        loop = asyncio.get_event_loop()
         conn, ticker = self.connection(); feed = StockChart()
+        future = loop.create_future()
+        async def pending(*args, **kwargs): return await future
+        conn.ib.reqHistoricalDataAsync = AsyncMock(side_effect=pending)
         try:
             conn.ib.reqHistoricalData.return_value = [S(date=datetime(2026,10,2,14,tzinfo=timezone.utc),open=10,high=11,low=9,close=10)]
-            first = feed.snapshot(conn, 7, 480, fast=True, defer_history=True)
-            self.assertEqual(conn.ib.reqHistoricalData.call_count, 1)
-            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4], ('2 D', '1 min'))
-            self.assertTrue(first['bars']); self.assertFalse(first['history_expanded'])
+            first = feed.snapshot(conn,7,480,fast=True,defer_history=True)
+            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4],('2 D','1 min'))
+            self.assertTrue(first['bars']); self.assertTrue(first['history_loading'])
+            loop.run_until_complete(asyncio.sleep(0))
+            self.assertEqual(conn.ib.reqHistoricalDataAsync.call_args.args[2:4],('6 M','30 mins'))
+            self.assertFalse(conn.ib.reqHistoricalDataAsync.call_args.kwargs['keepUpToDate'])
             conn.ib.reqHistoricalData.reset_mock()
-            with patch('api.services.chart_contracts.contracts.resolve', side_effect=AssertionError('Warm chart must reuse exact contract')):
-                warm = feed.snapshot(conn, 7, 480, fast=True, defer_history=True)
+            with patch('api.services.chart_contracts.contracts.resolve',side_effect=AssertionError('Must reuse exact contract')):
+                for _ in range(3):
+                    for expand in (False,True):
+                        packet=feed.snapshot(conn,7,480,fast=True,defer_history=True,expand_history=expand)
+                        self.assertTrue(packet['history_loading'])
+                        self.assertEqual(packet['bars'],first['bars'])
             conn.ib.reqHistoricalData.assert_not_called()
-            self.assertEqual(warm['bars'], first['bars'])
-            conn.ib.reqHistoricalData.return_value = [S(date=datetime(2026,4,1,14,tzinfo=timezone.utc), open=3, high=4, low=2, close=3)]
-            expanded = feed.snapshot(conn, 7, 480, fast=True, defer_history=True, expand_history=True)
-            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4], ('1 M', '30 mins'))
-            self.assertEqual(conn.ib.reqHistoricalData.call_count, 1)
-            self.assertTrue(expanded['history_expanded'])
-            self.assertGreater(len(expanded['bars']), len(first['bars']))
-            count = conn.ib.reqHistoricalData.call_count
-            again = feed.snapshot(conn, 7, 480, fast=True, defer_history=True)
-            feed.snapshot(conn, 7, 480, fast=True, defer_history=True, expand_history=True)
-            self.assertEqual(again['bars'], expanded['bars'])
-            self.assertEqual(conn.ib.reqHistoricalData.call_count, count)
-            feed.active['rth_eight_retry'] = 0
-            self.assertTrue(feed.snapshot(conn, 7, 480, fast=True, defer_history=True)['history_refresh_due'])
-            conn.ib.reqHistoricalData.return_value = [S(date=datetime(2026,9,1,14,tzinfo=timezone.utc),open=5,high=6,low=4,close=5)]
-            refreshed = feed.snapshot(conn,7,480,fast=True,defer_history=True,expand_history=True)
-            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4],('1 M','30 mins'))
-            self.assertEqual(refreshed['bars'][0],expanded['bars'][0])
-            self.assertFalse(refreshed['history_refresh_due'])
-
-            conn.ib.placeOrder.assert_not_called()
-        finally: feed.stop(); close_test_loop()
-
-    def test_eight_hour_expansion_pages_back_and_keeps_success_after_timeout(self):
-        from unittest.mock import patch
-        asyncio.set_event_loop(asyncio.new_event_loop())
-        conn, ticker = self.connection(); feed = StockChart()
-        bar = lambda month: S(date=datetime(2026,month,3 if month == 8 else 1,14,tzinfo=timezone.utc),open=10,high=11,low=9,close=10)
-        try:
-            conn.ib.reqHistoricalData.return_value = [bar(10)]
+            conn.ib.reqHistoricalDataAsync.assert_awaited_once()
+            # Live data arriving during the bulk read remains authoritative.
+            apply_tick(feed.active['bars'],feed.active['bars'][-1]['time']+1,12)
+            start=datetime(2026,4,1,13,30,tzinfo=timezone.utc)
+            history=[S(date=start+timedelta(days=i),open=3,high=4,low=2,close=3) for i in range(183)]
+            future.set_result(history); loop.run_until_complete(asyncio.sleep(0))
+            expanded=feed.eight_hour_packet(feed.active)
+            self.assertTrue(expanded['history_expanded']); self.assertFalse(expanded['history_loading'])
+            self.assertGreater(len(expanded['bars']),120)
+            self.assertEqual(expanded['bars'][-1]['close'],12)
+            self.assertEqual(expanded['bars'][-1]['high'],12)
+            before=expanded['bars'][0]
+            feed.active['rth_eight_retry']=0
+            conn.ib.reqHistoricalDataAsync=AsyncMock(return_value=history[-20:])
             feed.snapshot(conn,7,480,fast=True,defer_history=True)
+            loop.run_until_complete(asyncio.sleep(0))
+            self.assertEqual(conn.ib.reqHistoricalDataAsync.call_args.args[2:4],('1 M','30 mins'))
+            self.assertEqual(feed.eight_hour_packet(feed.active)['bars'][0],before)
+            conn.ib.placeOrder.assert_not_called()
+        finally: feed.stop();close_test_loop()
+
+    def test_eight_hour_bulk_failure_pages_back_without_losing_cursor(self):
+        from unittest.mock import patch
+        asyncio.set_event_loop(asyncio.new_event_loop());loop=asyncio.get_event_loop()
+        conn,ticker=self.connection();feed=StockChart()
+        bar=lambda month:S(date=datetime(2026,month,3 if month==8 else 1,14,tzinfo=timezone.utc),open=10,high=11,low=9,close=10)
+        conn.ib.reqHistoricalDataAsync=AsyncMock(return_value=[])
+        try:
+            conn.ib.reqHistoricalData.return_value=[bar(10)]
+            feed.snapshot(conn,7,480,fast=True,defer_history=True)
+            loop.run_until_complete(asyncio.sleep(0))
+            self.assertTrue(feed.active['rth_eight_bulk_failed'])
+            self.assertNotIn('rth_eight_before',feed.active)
+            def page(rows):
+                feed.active['rth_eight_expand_retry']=0
+                conn.ib.reqHistoricalDataAsync.return_value=rows
+                feed.snapshot(conn,7,480,fast=True,defer_history=True,expand_history=True)
+                loop.run_until_complete(asyncio.sleep(0))
+                return feed.eight_hour_packet(feed.active)
             with patch('api.services.stock_chart.time.time',return_value=datetime(2026,10,18,tzinfo=timezone.utc).timestamp()):
-                conn.ib.reqHistoricalData.return_value = [bar(9)]
-                first = feed.snapshot(conn,7,480,fast=True,defer_history=True,expand_history=True)
-                self.assertFalse(first['history_expanded'])
-                self.assertEqual(conn.ib.reqHistoricalData.call_args.args[1:4], ('','1 M','30 mins'))
-                before = feed.active['rth_eight_before']
-                feed.active['rth_eight_expand_retry'] = 0
-                conn.ib.reqHistoricalData.return_value = []
-                failed = feed.snapshot(conn,7,480,fast=True,defer_history=True,expand_history=True)
+                first=page([bar(9)])
+                self.assertEqual(conn.ib.reqHistoricalDataAsync.call_args.args[1:4],('','1 M','30 mins'))
+                before=feed.active['rth_eight_before']
+                failed=page([])
                 self.assertEqual(failed['bars'],first['bars'])
                 self.assertEqual(feed.active['rth_eight_before'],before)
-                self.assertFalse(failed['history_expanded'])
-                self.assertEqual(conn.ib.reqHistoricalData.call_args.args[1].timestamp(),before)
-                feed.active['rth_eight_expand_retry'] = 0
-                conn.ib.reqHistoricalData.return_value = [bar(8)]
-                second = feed.snapshot(conn,7,480,fast=True,defer_history=True,expand_history=True)
+                self.assertEqual(conn.ib.reqHistoricalDataAsync.call_args.args[1].timestamp(),before)
+                second=page([bar(8)])
                 self.assertGreater(len(second['bars']),len(first['bars']))
-                self.assertEqual(second['bars'][-1],first['bars'][-1])
-                self.assertFalse(second['history_expanded'])
-                feed.active['rth_eight_expand_retry'] = 0
-                conn.ib.reqHistoricalData.return_value = [bar(4)]
-                final = feed.snapshot(conn,7,480,fast=True,defer_history=True,expand_history=True)
-                self.assertTrue(final['history_expanded'])
-                self.assertEqual(len(final['bars']),4)
-                conn.ib.placeOrder.assert_not_called()
+                final=page([bar(4)])
+                self.assertTrue(final['history_expanded']);self.assertEqual(len(final['bars']),4)
+            conn.ib.placeOrder.assert_not_called()
         finally: feed.stop();close_test_loop()
+
+    def test_eight_hour_late_background_history_cannot_enter_replacement_state(self):
+        asyncio.set_event_loop(asyncio.new_event_loop());loop=asyncio.get_event_loop()
+        conn,ticker=self.connection();feed=StockChart();future=loop.create_future()
+        async def pending(*args,**kwargs): return await future
+        conn.ib.reqHistoricalDataAsync=AsyncMock(side_effect=pending)
+        try:
+            feed.snapshot(conn,7,480,fast=True,defer_history=True)
+            loop.run_until_complete(asyncio.sleep(0));old=feed.active
+            feed.stop(reset_cooldown=True)
+            replacement={'con_id':7};feed.states[7]=replacement
+            future.set_result(conn.ib.reqHistoricalData.return_value)
+            loop.run_until_complete(asyncio.sleep(0))
+            self.assertNotIn('rth_eight_history',old)
+            self.assertEqual(replacement,{'con_id':7})
+            conn.ib.placeOrder.assert_not_called()
+        finally:feed.states.clear();close_test_loop()
 
     def test_calendar_periods_load_recent_then_expand_without_discarding_on_failure(self):
         for minutes, recent, full, size in [(1440,'1 M','1 Y','1 day'),(10080,'6 M','5 Y','1 week'),(43200,'2 Y','10 Y','1 month')]:

@@ -111,5 +111,26 @@ final class ChartHistoryTests: XCTestCase {
                 }
             }
         }
+        bridge.requests = []
+        _ = try await web.evaluateJavaScript("""
+        window.payload={...payload,interval:480,session:'rth',generation:'eight-bulk',history_expanded:false,history_expansion_attempted:true,history_loading:true,bars:recent.slice(-2)};
+        applyChartState({width:393,height:750,packet:payload});true
+        """)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertFalse(bridge.requests.contains { ($0["before"] as? Double ?? 0) > 0 }, "No monthly pager while bulk history loads")
+        _ = try await web.evaluateJavaScript("applyChartState({width:393,height:750,packet:{...payload,history_loading:false}});true")
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertFalse(bridge.requests.contains { ($0["before"] as? Double ?? 0) > 0 }, "No duplicate pager during fallback cooldown")
+        _ = try await web.evaluateJavaScript("applyChartState({width:393,height:750,packet:{...payload,history_loading:false,history_expanded:true,bars:recent.slice(-126)}});true")
+        try await Task.sleep(for: .milliseconds(80))
+        let preparedCount = try await web.evaluateJavaScript("previous.length") as? Int
+        XCTAssertEqual(preparedCount, 126)
+        XCTAssertFalse(bridge.requests.contains { ($0["before"] as? Double ?? 0) > 0 }, "Prepared history fills the initial window without another page")
+        _ = try await web.evaluateJavaScript("chart.timeScale().setVisibleLogicalRange({from:0,to:45});true")
+        for _ in 0..<50 {
+            if bridge.requests.contains(where: { ($0["before"] as? Double ?? 0) > 0 }) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(bridge.requests.contains { ($0["before"] as? Double ?? 0) > 0 }, "Manual older history resumes after bulk completion")
     }
 }

@@ -201,6 +201,69 @@ class StockChart:
         else:
             asyncio.get_event_loop().call_later(30, self.expire, state)
 
+    def request_eight_hour_history(self, state):
+        """One optional read on the existing IB loop, outside the API job lane."""
+        if state.get('rth_eight_task') is not None:
+            return
+        expanding = not state.get('rth_eight_expanded')
+        retry_key = 'rth_eight_expand_retry' if expanding else 'rth_eight_retry'
+        if time.monotonic() < state.get(retry_key, 0):
+            return
+        bulk = expanding and not state.get('rth_eight_bulk_failed')
+        before = state.get('rth_eight_before') if expanding and not bulk else None
+        state[retry_key] = time.monotonic() + 30
+        contract, conn = state['contract'], state['conn']
+
+        async def load():
+            try:
+                if self.states.get(state['con_id']) is not state or state['client'] is not conn.ib.client:
+                    return
+                # A dispatched one-shot read keeps its bounded IB timeout after
+                # a view/account change; its result is rejected below. Canceling
+                # this coroutine would bypass ib_async's request-timeout cleanup.
+                # Keep intraday trade bars and the existing RTH anchors. A full
+                # window no longer has to finish inside a synchronous API job.
+                history = await conn.ib.reqHistoricalDataAsync(contract,
+                    datetime.fromtimestamp(before, timezone.utc) if before else '',
+                    '6 M' if bulk else '1 M', rth_source_size(480) if cme_regular(contract) else '30 mins',
+                    'TRADES', useRTH=not cme_regular(contract), formatDate=2, keepUpToDate=False, timeout=12)
+                if self.states.get(state['con_id']) is not state or state['client'] is not conn.ib.client:
+                    return
+                older = []
+                for bar in history:
+                    if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
+                        continue
+                    values = [positive(getattr(bar, field)) for field in ('open','high','low','close')]
+                    if any(value is None for value in values):
+                        continue
+                    o,h,l,c = values
+                    if l <= min(o,c) <= max(o,c) <= h:
+                        older.append(dict(time=int(bar.date.timestamp()),open=o,high=h,low=l,close=c,**historical_volume(bar)))
+                if older:
+                    merged = {b['time']: b for b in state.get('rth_eight_history', [])}
+                    merged.update({b['time']: b for b in older})
+                    state['rth_eight_history'] = sorted(merged.values(),key=lambda b:b['time'])
+                    if expanding:
+                        oldest = min(b['time'] for b in older)
+                        target = state.setdefault('rth_eight_target', time.time() - 183 * 86400)
+                        state['rth_eight_expanded'] = bulk or oldest <= target or (before is not None and oldest >= before)
+                        state['rth_eight_before'] = oldest
+                        state[retry_key] = time.monotonic() + (30 if state['rth_eight_expanded'] else 2)
+                    state['rth_eight_retry'] = time.monotonic() + 60
+                elif bulk:
+                    # A cold HMDS timeout can still fall back to bounded pages.
+                    state['rth_eight_bulk_failed'] = True
+                    state[retry_key] = time.monotonic() + 2
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if bulk:
+                    state['rth_eight_bulk_failed'] = True
+                    state[retry_key] = time.monotonic() + 2
+            finally:
+                state.pop('rth_eight_task', None)
+        state['rth_eight_task'] = asyncio.get_event_loop().create_task(load())
+
     def eight_hour_packet(self, state):
         contract = state['contract']
         higher_bars = None
@@ -222,11 +285,14 @@ class StockChart:
                 else: combined[bar['time']]=bar
             higher_bars=sorted(combined.values(),key=lambda b:b['time'])
         packet=self.packet(state,480,'rth',higher_bars)
+        packet['history_loading'] = state.get('rth_eight_task') is not None
         packet['history_expanded'] = bool(state.get('rth_eight_expanded'))
         packet['history_refresh_due'] = bool(state.get('rth_eight_expanded')) and time.monotonic() >= state.get('rth_eight_retry', 0)
         packet['history_expansion_attempted'] = bool(state.get('rth_eight_expand_retry'))
         packet['history_retry_after'] = max(2, state.get('rth_eight_expand_retry', 0) - time.monotonic())
-        packet['data_notice']='8h RTH · up to 6 months of intraday trade history' if state.get('rth_eight_expanded') else '8h RTH · recent intraday trade history; earlier bars load separately'
+        packet['data_notice'] = ('8h RTH · loading earlier intraday trade history' if packet['history_loading'] else
+                                '8h RTH · up to 6 months of intraday trade history' if state.get('rth_eight_expanded') else
+                                '8h RTH · recent intraday trade history; earlier bars will retry')
         return packet
 
     def snapshot(self, conn, con_id, minutes, session="rth", fast=False, defer_history=False, expand_history=False):
@@ -254,6 +320,7 @@ class StockChart:
             raise ValueError('Load the current chart before earlier history')
         if defer_history and not expand_history and state is not None and minutes == 480 and session == 'rth':
             state['used'] = time.monotonic()
+            self.request_eight_hour_history(state)
             conn.ib.sleep(.005)
             return self.eight_hour_packet(state)
         if fast and state is not None and minutes in (1,3,5,10,15,60,480) and not (minutes==480 and session=='rth'):
@@ -431,7 +498,10 @@ class StockChart:
         if minutes == 480 and session == 'rth':
             # Intraday bars have session-open timestamps and trade closes. Daily
             # futures bars can contain settlement prices and are not an 8h source.
-            if defer_history and not expand_history:
+            if defer_history:
+                self.request_eight_hour_history(state)
+                return self.eight_hour_packet(state)
+            if state.get('rth_eight_task') is not None:
                 return self.eight_hour_packet(state)
             expanding = expand_history and not state.get('rth_eight_expanded')
             retry_key = 'rth_eight_expand_retry' if expanding else 'rth_eight_retry'

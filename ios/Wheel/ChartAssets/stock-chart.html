@@ -864,11 +864,11 @@ function checkNativeHistory(){
   nativeHistoryScheduled=false;
   const p=countdownPacket;
   if(!p||![1,3,5,10,15,60,480,1440,10080,43200].includes(p.interval)||!previous.length)return;
-  if(p.interval===480&&p.session==='rth'&&!p.history_expansion_attempted)return;
+  const eightLoading=p.interval===480&&p.session==='rth'&&(!p.history_expanded||p.history_loading);
   const range=chart.timeScale().getVisibleLogicalRange();
   const target=p.interval===43200?120:p.interval===480?126:p.interval>=1440?250:300;
   const preload=previous.length<target&&p.history_empty_before!==previous[0].time;
-  const before=(preload||range&&range.from<=5)&&previous.length<20000?previous[0].time:0;
+  const before=!eightLoading&&(preload||range&&range.from<=5)&&previous.length<20000?previous[0].time:0;
   const requestKey=JSON.stringify([key,before,p.account_epoch]);
   if(requestKey===nativeHistoryKey)return;
   nativeHistoryKey=requestKey;
