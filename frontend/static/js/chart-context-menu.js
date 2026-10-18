@@ -149,9 +149,14 @@
   finally{copying=false;}
  };
  document.addEventListener('keydown',event=>{if(!event.repeat&&(event.metaKey||event.ctrlKey)&&event.shiftKey&&!event.altKey&&event.code==='KeyS'){event.preventDefault();window.copyChartImage();return;}if(!event.repeat&&event.shiftKey&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&event.code==='KeyF'&&!event.target.closest('input,textarea,select,[contenteditable=true]')){event.preventDefault();parent.document.fullscreenElement?parent.document.exitFullscreen():parent.document.querySelector('.workspace').requestFullscreen();return;}if(event.repeat||event.target.closest('input,textarea,select,[contenteditable=true]'))return;});
- function item(label,run,disabled=false){const b=document.createElement('button');b.textContent=label;b.setAttribute('role','menuitem');b.disabled=disabled;b.style.cssText='display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:12px;font:13px system-ui;cursor:pointer';if(disabled)b.style.opacity='.4';b.onmouseenter=()=>b.style.background='#ffffff15';b.onmouseleave=()=>b.style.background='transparent';b.onclick=()=>{close();run();};menu.append(b);return b;}
- function entryItem(label,run,disabled,presets){
-  const b=item(label,run,disabled);if(!presets)return b;
+ const actionIcons={
+  alert:'<path d="M5 2.5 2 5.5m13-3 3 3M10 5v5H7m-2.5 6-1 2m10-2 1 2"/><path d="M10 17a7 7 0 1 1 6.8-5.3M17 13v6m-3-3h6"/>',
+  sell:'<path d="m3.5 7 6.5 5 6.5-5 1.5 2-8 6-8-6Z"/>',
+  buy:'<path d="m3.5 13 6.5-5 6.5 5 1.5-2-8-6-8 6Z"/>'
+ };
+ function item(label,run,disabled=false,icon){const b=document.createElement('button');b.textContent=label;b.setAttribute('role','menuitem');b.disabled=disabled;b.style.cssText='display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:12px;font:13px system-ui;cursor:pointer';if(icon){const glyph=document.createElement('span');glyph.dataset.actionIcon=icon;glyph.setAttribute('aria-hidden','true');glyph.style.cssText='position:absolute;left:10px;top:10px;width:20px;height:20px;pointer-events:none';glyph.innerHTML='<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" focusable="false">'+actionIcons[icon]+'</svg>';b.style.position='relative';b.style.paddingLeft='40px';b.prepend(glyph);}if(disabled)b.style.opacity='.4';b.onmouseenter=()=>b.style.background='#ffffff15';b.onmouseleave=()=>b.style.background='transparent';b.onclick=()=>{close();run();};menu.append(b);return b;}
+ function entryItem(label,run,disabled,presets,side){
+  const b=item(label,run,disabled,side<0?'sell':'buy');if(!presets)return b;
   const row=document.createElement('div');row.style.cssText='display:flex;align-items:stretch';b.replaceWith(row);row.append(b);b.style.flex='1';
   const arrow=document.createElement('button'),options=document.createElement('div');arrow.textContent='▸';arrow.dataset.quantityExpand='true';arrow.setAttribute('aria-label',priceMenuChinese()?'选择数量':'Choose quantity');arrow.setAttribute('aria-expanded','false');arrow.style.cssText='min-width:44px;min-height:44px;background:transparent;color:inherit;border:0;font-size:18px';arrow.disabled=disabled;
   options.hidden=true;options.dataset.quantityPresets='true';
@@ -175,8 +180,8 @@
    const more=item('More settings...',()=>parent.postMessage({wheelChart:true,name:'chartSettings'},location.origin));const gear=axisButton.firstElementChild.cloneNode(true);gear.style.cssText='position:absolute;left:8px;top:50%;transform:translateY(-50%);width:16px;height:16px';more.prepend(gear);
    for(const row of menu.querySelectorAll('button')){row.style.position='relative';row.style.paddingLeft='34px';}
   }else{
-  item('Add alert at '+priceText(price),()=>{if(contract===paperCID)window.chartAlerts?.open({price});},!(price>0));
-  refreshOrderMenu=orderItems(price,(label,run,disabled,presets)=>entryItem(label,()=>{if(contract===paperCID)run();},disabled,presets),true);
+  item('Add alert at '+priceText(price),()=>{if(contract===paperCID)window.chartAlerts?.open({price});},!(price>0),'alert');
+  refreshOrderMenu=orderItems(price,(label,run,disabled,presets,side)=>entryItem(label,()=>{if(contract===paperCID)run();},disabled,presets,side),true);
   const n=window.chartDrawingActions?.count()||0;if(n>0)item(`Remove ${n} drawings`,()=>window.chartDrawingActions?.removeAll());
   }
   menu.hidden=false;menu.style.left=Math.max(6,Math.min(event.clientX,innerWidth-menu.offsetWidth-6))+'px';menu.style.top=Math.max(6,Math.min(event.clientY,innerHeight-menu.offsetHeight-6))+'px';
