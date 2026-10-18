@@ -1,3 +1,50 @@
+## 2026-10-18 — chart-only notifications, hover drawing rail and iOS daily change
+
+Notifications now live inside the chart grid's top-right corner. The prior
+`aside` inherited the trading sidebar's background and 14px padding, producing
+a 350x28px dark strip even with zero notifications. A transparent `div`, an
+explicit empty state and chart-relative positioning remove that strip and keep
+cards out of the trading panel. Cards dismiss after five seconds (hover pauses).
+
+Hovering the existing lower-left logo previews the drawing rail with an upward
+reveal. Leaving the combined logo/rail/menu area closes an unpinned preview;
+clicking the logo or a tool pins it. Explicit close, keyboard activation and
+normal touch toggling remain available. Hover does not save drawing state.
+
+The iOS navigation title now includes daily percentage change from accepted
+current-contract/current-account last price and previous close. It reuses the
+existing display-only reference endpoint every 15 seconds; chart packets still
+update the numerator immediately. Green/red depend on the displayed sign,
+rounded zero is neutral, and absent/expired data remains unavailable. Backend,
+account, contract and foreground checks prevent reuse across contexts. No
+executable-quote, order or price-delivery semantics changed.
+
+REA evidence: current TV page inspection
+`ev_d1ef4a0efee4e9ed4e9908cbebc4977f2b833749087b3592388d01cce09170a7`
+and screenshot `ev_549bd5f880a1cdf10b0282a5835a17e5736826955f32e3d62344aaee42d464bc`.
+The user's video establishes the horizontal logo-wordmark reveal; the upward
+rail and click-to-pin behavior are the user's requested adaptation. A live hover
+probe was inconclusive while the user operated the same reference tab; no claim
+is made about TV's internal animation or pinning implementation. Wheel live-page
+inspection `ev_edc2ec629e7f483875443d9d9916d86dc264002772efa7678ffc61ba9c879132`
+and a separate DOM/style probe confirmed the empty notification container's
+exact strip geometry and inherited background/padding before the fix.
+
+Verified locally: actual-host alert/editor and toast tests at 1440/393px in both
+themes, empty-state/placement/five-second dismissal, hover/pin/leave/keyboard and
+native touch-mode checks, drawing history/peer isolation, and seven synthetic
+market cases including 1/2/3/4 panes and two four-pane pages (30/30 samples per
+pane; source-to-apply p95 1–9ms; 200-tick OHLC extremes retained). The native
+percentage helper passed sign/zero/missing/freshness/context checks. Simulator
+build succeeds; physical iPhone visual acceptance remains user-operated.
+
+Read-only SSH verification found Mini clean on `codex/chart-labels-1.7` at
+`218f22ce4d26b42987472bd542a476496b8f131d`. This batch needs Deploy only plus a
+browser refresh; the iOS changes need the user's iPhone Run. If the earlier push backend has not yet been deployed, its
+separate dependency/restart requirements still apply. No deployment, backend
+restart, Gateway operation or broker write was performed. Existing signing and
+localization edits remain excluded.
+
 ## 2026-10-18 — shared price-axis Plus button switch
 
 The price-axis Plus button is now one shared preference across primary and

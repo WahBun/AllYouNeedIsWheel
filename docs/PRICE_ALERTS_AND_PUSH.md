@@ -2,7 +2,7 @@
 
 This adds two price-alert entries to the shared chart: **Add alert at…** in the chart context menu, and **Add alert on horizontal ray** in the selected ray toolbar (also available by right-clicking the ray). The editor includes saved alerts and a Stop action. All new visible labels are English.
 
-The web workspace shows price, execution and confirmed-cancellation notifications in the **top right**, once per event per page, regardless of pane count. Notifications stay for ten seconds, pause dismissal on hover, and can be dismissed manually. The initial feed snapshot is silent. This is an in-page notification feed, not browser Web Push; a closed browser does not receive OS notifications.
+The web workspace shows price, execution and confirmed-cancellation notifications in the **top right of the chart area**, once per event per page, regardless of pane count. The container is transparent and hidden when empty, so it cannot cover the trading panel. Notifications stay for five seconds, pause dismissal on hover, and can be dismissed manually. The initial feed snapshot is silent. This is an in-page notification feed, not browser Web Push; a closed browser does not receive OS notifications.
 
 ## Monitoring and broker evidence
 

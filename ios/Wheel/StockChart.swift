@@ -571,6 +571,14 @@ struct StockChartView: View {
     private var chartID: Int? { selectedContract["con_id"] as? Int ?? position.con_id }
     private var chartSymbol: String { selectedContract["local_symbol"] as? String ?? position.chartLabel }
     private var chartType: String { selectedContract["security_type"] as? String ?? position.security_type }
+    private func dailyChangeColor(_ value: Double?) -> Color {
+        guard let value, value != 0 else { return .secondary }
+        // Same signed colors as the web header; no uptick/downtick flashing.
+        let rgb: (Double, Double, Double) = value > 0
+            ? (colors == .dark ? (102, 197, 163) : (20, 125, 89))
+            : (colors == .dark ? (239, 144, 144) : (183, 53, 68))
+        return Color(red: rgb.0 / 255, green: rgb.1 / 255, blue: rgb.2 / 255)
+    }
     private var currentInstrument: ChartInstrument? {
         var contract = selectedContract
         contract["con_id"] = chartID
@@ -1159,6 +1167,7 @@ struct StockChartView: View {
         }
     }
     @State private var packet: [String: Any] = [:]
+    @State private var dailyChangeReference: ChartDailyChange.Reference?
     @State private var earlierBars: [[String: Any]] = []
     @State private var earlierBarsKey = ""
     @State private var historyBefore: Double = 0
@@ -1510,6 +1519,22 @@ struct StockChartView: View {
             }.disabled(tradingLocked)
         }.padding(.horizontal, 12).padding(.bottom, 8)
         .navigationTitle(chartSymbol).navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 8) {
+                    Text(verbatim: chartSymbol).font(.headline).lineLimit(1).truncationMode(.middle)
+                    TimelineView(.periodic(from: .now, by: 1)) { clock in
+                        let change = visible && phase == .active && loadedChartKey == cacheKey ? ChartDailyChange.percent(
+                            packet: packet, conID: chartID, epoch: store.trading.accountEpoch,
+                            backend: store.address, received: received, reference: dailyChangeReference, now: clock.date) : nil
+                        Text(verbatim: ChartDailyChange.text(change))
+                            .font(.subheadline.weight(.semibold)).monospacedDigit().fixedSize()
+                            .foregroundStyle(dailyChangeColor(change))
+                            .accessibilityLabel("Daily change: " + ChartDailyChange.text(change))
+                    }
+                }
+            }
+        }
         .toolbar(fullScreen ? .hidden : .visible, for: .navigationBar, .tabBar)
         .modifier(KeyboardDismissal())
         .sheet(isPresented: $showSymbols) {
@@ -1789,6 +1814,25 @@ struct StockChartView: View {
         }
         .onChange(of: cacheKey) { rememberChart() }
         .onDisappear { rememberChart(); visible = false; store.chartVisible = false }
+        .task(id: "daily-change-" + context + (store.trading.accountEpoch ?? "")) {
+            dailyChangeReference = nil
+            guard visible, phase == .active, !store.demo, let cid = chartID,
+                  let expectedEpoch = store.trading.accountEpoch, !expectedEpoch.isEmpty else { return }
+            let expectedContext = context, backend = store.address
+            while !Task.isCancelled {
+                do {
+                    let result = try await store.trading.get("api/portfolio/chart-reference/\(cid)", base: backend,
+                        query: [URLQueryItem(name: "epoch", value: expectedEpoch)])
+                    try Task.checkCancellation()
+                    guard context == expectedContext, store.trading.accountEpoch == expectedEpoch,
+                          result["con_id"] as? Int == cid else { return }
+                    if let close = result["previous_close"] as? Double, close.isFinite, close > 0 {
+                        dailyChangeReference = .init(conID: cid, epoch: expectedEpoch, backend: backend, close: close, received: .now)
+                    } else { dailyChangeReference = nil }
+                } catch { if Task.isCancelled { return } }
+                do { try await Task.sleep(for: .seconds(15)) } catch { return }
+            }
+        }
         .task(id: "volatility-" + volatilityRequestKey) {
             volatilityData = [:]; volatilityContext = ""
             guard visible, phase == .active, !store.demo, expandedIndicatorsActive, volatilitySettings.channels, volatilityFamily != nil, let cid = chartID else { return }

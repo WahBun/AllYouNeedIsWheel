@@ -19,6 +19,7 @@ const {start}=require('./market-feed/harness.cjs');
  await context.addInitScript(({count,light})=>{localStorage.setItem('theme',light?'light':'dark');localStorage.setItem('wheel.chart-layout',JSON.stringify({count,active:0,panes:[1,3,5,15].map(interval=>({cid:7,label:'SYNTH7',interval,session:'all'}))}));},{count,light});
  const p=await context.newPage();p.on('pageerror',e=>errors.push(e.message));p.setDefaultTimeout(5000);
  await p.goto(h.url+'/superchart?con_id=7&session=all');await p.waitForFunction(count=>document.querySelectorAll('.chart-pane iframe').length===count&&[...document.querySelectorAll('.chart-pane iframe')].every(f=>f.contentDocument.querySelector('#chart-title')?.textContent.includes('SYNTH'))&&document.getElementById('chart-group-loading').hidden,count);
+ assert.equal(await p.locator('#wheel-notification-stack').isVisible(),false,'Empty notification container must not paint a strip');
  let f=await p.locator('#chart').elementHandle().then(el=>el.contentFrame());
  await f.waitForFunction(()=>paperConfig.web_account_epoch==='mock-epoch');
  await f.locator('#chart').click({button:'right',position:{x:90,y:70}});await f.getByRole('menuitem',{name:/Add alert at/}).click();
@@ -38,12 +39,16 @@ const {start}=require('./market-feed/harness.cjs');
  await f.getByRole('button',{name:'Close',exact:true}).click();
  await p.waitForTimeout(1100);events.push({id:'fill-event',seq:++cursor,title:'IB Paper · Order execution',body:'SYNTH7 · BOT 1 @ 100.50'});
  await p.locator('#wheel-notification-stack article').waitFor();assert.equal(await p.locator('#wheel-notification-stack article').count(),1);
- const box=await p.locator('#wheel-notification-stack').boundingBox();assert.ok(box.x+box.width>=width-17);assert.ok(box.y<80);
+ const box=await p.locator('#wheel-notification-stack').boundingBox(),grid=await p.locator('#chart-grid').boundingBox(),trade=await p.locator('#trade').boundingBox();
+ assert.ok(box.x>=grid.x&&box.y>=grid.y&&box.x+box.width<=grid.x+grid.width&&box.y+box.height<=grid.y+grid.height,'Notification stays inside chart');
+ assert.ok(box.x+box.width<=trade.x||box.y+box.height<=trade.y,'Notification does not cover trading controls');
+ assert.equal(await p.locator('#wheel-notification-stack').evaluate(e=>getComputedStyle(e).backgroundColor),'rgba(0, 0, 0, 0)');
  await p.screenshot({path:`/tmp/wheel-alert-toast-${width}-${light}.png`});
  // Replayed backend events must not duplicate a visible toast.
  events.push({...events[0],seq:++cursor});await p.waitForTimeout(1200);assert.equal(await p.locator('#wheel-notification-stack article').count(),1);
  const before=await p.evaluate(()=>[...document.querySelectorAll('.chart-pane iframe')].map(e=>e.contentWindow.__latency.length));
  await p.waitForFunction(before=>[...document.querySelectorAll('.chart-pane iframe')].every((e,i)=>e.contentWindow.__latency.length>before[i]),before);
+ await p.waitForTimeout(4200);assert.equal(await p.locator('#wheel-notification-stack').isVisible(),false,'Notification expires after five seconds and leaves no background');
  assert.deepEqual(errors,[]);assert.equal(h.metrics.posts,0);await context.close();console.log('PASS alert entries, account header, ray binding, stop, top-right toast, replay and pane ticks',width,light?'light':'dark');
  }
 }finally{clearInterval(timer);await browser.close();await h.close();}})().catch(e=>{console.error(e);process.exitCode=1});
