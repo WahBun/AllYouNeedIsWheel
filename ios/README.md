@@ -23,8 +23,10 @@ PRODUCT_BUNDLE_IDENTIFIER = com.yourname.wheel
 ## Pro shortcut: Wheel iPhone Renew
 
 `renew_signing.py` renews signing and builds a local package using the existing
-Xcode account. **Every mode leaves phone installation to the user.** Keep the
-configured iPhone available to Xcode by USB or its existing wireless pairing.
+Xcode account and **Any iOS Device (arm64)** build destination. **Every mode
+leaves phone installation to the user.** The registered iPhone does not need to
+be connected to Xcode. The Pro must be awake, online, and signed in to its normal
+macOS desktop account with Xcode signing already configured.
 The script does not require Wheel to be closed because it never installs,
 launches, terminates or uninstalls the phone app.
 
@@ -44,7 +46,6 @@ Create the git-ignored `ios/Renew.local.json` on the Pro:
 {
   "repository": "https://github.com/OWNER/REPOSITORY",
   "branch": "YOUR_BRANCH",
-  "deviceIdentifier": "COREDEVICE_IDENTIFIER",
   "deviceUDID": "IPHONE_UDID",
   "bundleID": "YOUR_EXISTING_BUNDLE_ID",
   "teamID": "YOUR_EXISTING_TEAM_ID"
@@ -72,7 +73,7 @@ exit 0
 
 The first run may ask to allow Shortcuts to control Xcode. Xcode must already
 have the account and signing certificate configured. `--check` performs only
-read-only GitHub and device checks. `--renew` is a compatibility alias for
+read-only GitHub and Mac readiness checks. `--renew` is a compatibility alias for
 `--build-only`; neither installs anything.
 
 Success requires a verified code signature, the exact app/team/iPhone, a freshly
@@ -86,6 +87,33 @@ Logs, profile backups, build artifacts, personal settings and receipts remain
 under git-ignored `ios/.renewal/`; the latest result is `last-build.json`.
 This is an on-demand Pro shortcut, not a scheduled background service.
 No Mini deployment or backend/Gateway restart is needed.
+
+### iPhone remote trigger over Tailscale SSH
+
+Use a dedicated iPhone Shortcuts SSH public key on the Pro. Add it to
+`~/.ssh/authorized_keys` with the following forced command (substitute the
+absolute repository path and public key):
+
+```text
+restrict,command="/bin/zsh \"/ABSOLUTE/REPOSITORY/PATH/ios/renew_signing_ssh.sh\"" ssh-ed25519 YOUR_PUBLIC_KEY
+```
+
+The dedicated entry accepts exactly `check` and `renew`; it rejects arbitrary
+commands, arguments, shell expressions, terminals and forwarding. Never put a
+private key, password, host address or personal signing configuration in Git.
+In the iPhone **Run Script over SSH** action, select this key, the Pro's Tailscale
+address, port 22, and the same macOS user. Use `check` first; use `renew` to
+refresh signing and build the package, then show the returned result. Keep the
+SSH action open until it finishes. A disconnected or failed action is not proof
+of success: inspect the saved receipt before retrying. The existing renewal lock
+prevents concurrent builds.
+
+The SSH public key authorizes only this on-demand entry. Xcode may still need a
+one-time macOS automation approval or account/keychain interaction on the Pro;
+complete those locally before relying on remote renewal. Neither a successful
+`check` nor a signed package updates the app already installed on the iPhone.
+The iPhone can remain on cellular data with Tailscale connected; manual app
+installation is a separate step when the phone is available again.
 
 ## 页面与操作
 

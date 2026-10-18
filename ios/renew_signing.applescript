@@ -1,10 +1,9 @@
 -- Use Xcode's documented Build command. Never Run, Test, Debug, or install.
 on run arguments
-    if (count arguments) is not 4 then error "Expected project path, device identifier, build log path, and action."
+    if (count arguments) is not 3 then error "Expected project path, build log path, and action."
     set projectPath to item 1 of arguments
-    set expectedDevice to item 2 of arguments
-    set logPath to item 3 of arguments
-    set requestedAction to item 4 of arguments
+    set logPath to item 2 of arguments
+    set requestedAction to item 3 of arguments
     if requestedAction is not "prepare" and requestedAction is not "build" then error "Unsupported Xcode action."
     set targetWorkspace to missing value
     with timeout of 1300 seconds
@@ -28,13 +27,14 @@ on run arguments
             set targetDestination to missing value
             repeat with candidate in run destinations of targetWorkspace
                 if platform of candidate is "iphoneos" then
-                    if device identifier of device of candidate is expectedDevice then
+                    set candidateDevice to get device of candidate
+                    if generic of candidateDevice then
                         set targetDestination to candidate
                         exit repeat
                     end if
                 end if
             end repeat
-            if targetDestination is missing value then error "The configured iPhone is unavailable to Xcode. Connect it and try again."
+            if targetDestination is missing value then error "The generic iOS build destination is unavailable. Install the iOS platform in Xcode first."
             set active run destination of targetWorkspace to targetDestination
             if requestedAction is "prepare" then return "Xcode signing preparation started."
             set actionResult to build targetWorkspace

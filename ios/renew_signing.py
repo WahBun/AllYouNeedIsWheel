@@ -70,22 +70,6 @@ def github_revision(config):
     return sha
 
 
-def select_device(devices, config):
-    found = [d for d in devices if d.get("identifier") == config["deviceIdentifier"]]
-    if len(found) != 1:
-        raise RenewalError("The configured iPhone is unavailable. Connect it to this Mac and unlock it.")
-    device = found[0]
-    properties = device.get("properties", {})
-    hardware = properties.get("hardware", device.get("hardwareProperties", {}))
-    connection = properties.get("connection", device.get("connectionProperties", {}))
-    if (hardware.get("udid") != config["deviceUDID"]
-            or hardware.get("deviceType", "").lower() != "iphone"
-            or hardware.get("reality", "physical") != "physical"
-            or connection.get("pairingState") != "paired"):
-        raise RenewalError("Device identity or pairing does not match the configured physical iPhone.")
-    return device
-
-
 def profile_matches(profile, config):
     return (profile.get("TeamIdentifier") == [config["teamID"]]
             and profile.get("Entitlements", {}).get("application-identifier") == config["teamID"] + "." + config["bundleID"]
@@ -204,20 +188,14 @@ class Renewal:
     def __init__(self, config, run):
         self.config = config
         self.run = run
-        self.counter = 0
-
-    def device(self, *args):
-        self.counter += 1
-        result_path = self.run / f"device-{self.counter}.json"
-        command(["/usr/bin/xcrun", "devicectl", *args, "--json-output", str(result_path),
-                 "--timeout", "90"], timeout=105, log=self.run / f"device-{self.counter}.log")
-        result = json.loads(result_path.read_text())
-        if result.get("info", {}).get("outcome") != "success":
-            raise RenewalError("The iPhone command did not confirm success. Check the run log.")
-        return result["result"]
-
     def preflight(self):
-        select_device(self.device("list", "devices").get("devices", []), self.config)
+        if Path("/dev/console").stat().st_uid != os.getuid():
+            raise RenewalError("Sign in to the Mac desktop with this SSH account before renewing signing.")
+        if not (ROOT / "ios/Signing.local.xcconfig").is_file():
+            raise RenewalError("Configure ios/Signing.local.xcconfig in Xcode first.")
+        for key in ("teamID", "bundleID", "deviceUDID"):
+            if not isinstance(self.config.get(key), str) or not self.config[key].strip():
+                raise RenewalError("The saved signing identity is incomplete. Configure the existing app and registered iPhone first.")
 
     def build(self, sha, previous_expiry):
         source = self.run / "source"
@@ -244,8 +222,7 @@ class Renewal:
         started = datetime.now(UTC)
         with ProfileRefresh(self.config, self.run, previous_expiry) as refresh:
             action = ["/usr/bin/osascript", str(source / "ios/renew_signing.applescript"),
-                      str(project), self.config["deviceUDID"],
-                      str(self.run / "build.log")]
+                      str(project), str(self.run / "build.log")]
             command([*action, "prepare"], timeout=180, log=self.run / "xcode-prepare.log")
             wait_for_fresh_profile(refresh, started)
             command([*action, "build"], timeout=1320, log=self.run / "xcode-action.log")
@@ -266,7 +243,7 @@ class Renewal:
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group()
-    modes.add_argument("--check", action="store_true", help="Read-only GitHub and iPhone readiness check (default)")
+    modes.add_argument("--check", action="store_true", help="Read-only GitHub and Mac readiness check (default)")
     modes.add_argument("--build-only", action="store_true", help="Build and validate signing without installing")
     modes.add_argument("--renew", action="store_true", help="Renew and build a signed package; installation remains manual")
     args = parser.parse_args(argv)

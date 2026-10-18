@@ -2,6 +2,10 @@
 from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
+import os
+import shutil
+import subprocess
+from types import SimpleNamespace
 from pathlib import Path
 import tempfile
 import unittest
@@ -15,7 +19,7 @@ SPEC.loader.exec_module(renew)
 class RenewalTests(unittest.TestCase):
     def setUp(self):
         self.config = dict(teamID="TESTTEAM", bundleID="test.wheel", deviceUDID="PHONE-UDID",
-                           deviceIdentifier="PHONE-ID", branch="test", repository="https://github.com/test/wheel")
+                           branch="test", repository="https://github.com/test/wheel")
         self.now = datetime(2026, 1, 1, tzinfo=timezone.utc)
         self.profile = {"TeamIdentifier": ["TESTTEAM"], "ProvisionedDevices": ["PHONE-UDID"],
                         "Entitlements": {"application-identifier": "TESTTEAM.test.wheel"},
@@ -38,16 +42,42 @@ class RenewalTests(unittest.TestCase):
                 renew.validate_profile(dict(self.profile, ExpirationDate=self.now + timedelta(hours=hours)),
                                        self.config, now=self.now)
 
-    def test_no_fallback_to_another_device(self):
-        device = {"identifier": "PHONE-ID", "properties": {
-            "hardware": {"deviceType": "iPhone", "udid": "PHONE-UDID", "reality": "physical"},
-            "connection": {"pairingState": "paired"}}}
-        self.assertEqual(renew.select_device([device], self.config), device)
-        with self.assertRaises(renew.RenewalError):
-            renew.select_device([device], dict(self.config, deviceIdentifier="OTHER"))
-        device["properties"]["hardware"]["reality"] = "simulated"
-        with self.assertRaises(renew.RenewalError):
-            renew.select_device([device], self.config)
+    def test_mac_preflight_does_not_query_a_connected_phone(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "ios").mkdir()
+            (root / "ios/Signing.local.xcconfig").write_text("// local test signing")
+            original_stat = Path.stat
+            def host_stat(path, *args, **kwargs):
+                return SimpleNamespace(st_uid=501) if path == Path("/dev/console") else original_stat(path, *args, **kwargs)
+            with patch.object(Path, "stat", host_stat), patch.object(renew, "ROOT", root), patch.object(renew.os, "getuid", return_value=501), patch.object(renew, "command") as command:
+                renew.Renewal(self.config, root).preflight()
+                command.assert_not_called()
+                with self.assertRaisesRegex(renew.RenewalError, "incomplete"):
+                    renew.Renewal(dict(self.config, deviceUDID=""), root).preflight()
+            with patch.object(Path, "stat", host_stat), patch.object(renew.os, "getuid", return_value=-1):
+                with self.assertRaisesRegex(renew.RenewalError, "Mac desktop"):
+                    renew.Renewal(self.config, root).preflight()
+
+    @unittest.skipUnless(Path("/bin/zsh").is_file(), "The SSH entry requires macOS zsh")
+    def test_ssh_entry_allows_only_check_and_renew(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            entry = root / "renew_signing_ssh.sh"
+            shutil.copyfile(Path(__file__).parents[1] / "ios/renew_signing_ssh.sh", entry)
+            (root / "renew_signing.py").write_text("import sys; print(sys.argv[1:])")
+            for original, mode in (("check", "--check"), ("renew", "--build-only")):
+                result = subprocess.run(["/bin/zsh", str(entry)], capture_output=True, text=True,
+                                        env=dict(os.environ, SSH_ORIGINAL_COMMAND=original))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), repr([mode]))
+            marker = root / "injected"
+            for original in ("", " check", "renew now", "check\nrenew", f"check; touch {marker}", f"$(touch {marker})"):
+                with self.subTest(original=original):
+                    result = subprocess.run(["/bin/zsh", str(entry)], capture_output=True, text=True,
+                                            env=dict(os.environ, SSH_ORIGINAL_COMMAND=original))
+                    self.assertEqual(result.returncode, 64)
+            self.assertFalse(marker.exists())
 
     def test_cached_profile_must_have_been_issued_during_this_run(self):
         with self.assertRaisesRegex(renew.RenewalError, "fresh"):
