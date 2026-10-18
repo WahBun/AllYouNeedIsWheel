@@ -1,3 +1,45 @@
+## 2026-10-18 — indicator timeframe visibility and settings organization
+
+Indicators → Visibility now contains only timeframe controls: Minutes, Hours,
+Days, Weeks and Months, each with an enabled switch and inclusive From/To bounds.
+All ranges default to enabled. Inputs contains calculation parameters; Style
+contains component switches, colors, widths, labels and display choices. Both web
+and native indicator settings use English. Tick/second/range controls are omitted
+because Wheel does not offer those chart types.
+
+REA passively inspected the actual open TradingView indicator Visibility dialog
+at the user's reference layout, including its checked unit controls and selected
+Visibility tab (ev_84974c371ce1432687e02cc2288ff57738ca3400c66eeadfc4ac6ca3c6722204).
+The supplied screenshot establishes its numeric limits. Wheel adopts unit/range
+selection for the indicator bundle, using existing immediate-save behavior and
+native numeric controls; this is not a claim of reproducing TV's dialog transaction
+or slider implementation. The reference settings were not changed.
+
+Filtering gates EMA/MTF EMA, ATR, bar count, FVG, previous values and volatility
+channels/gauge without changing saved component switches, candles, holdings or
+order/P&L overlays. Each web pane evaluates its own interval. Hidden indicator
+history reads are skipped; switching back restores the enabled components.
+Timeframe preferences persist and join indicator templates; old preferences and
+templates default to all timeframes. Existing per-pane/native preference storage
+is reused; no new cross-device settings synchronization is introduced.
+
+Validation: native model/template tests and viewport tests passed (8 tests), plus
+rendered native Visibility in both themes. The offline browser acceptance passed
+mobile/desktop × light/dark, English UI under a Chinese page locale, bounds,
+hide/restore, master/P&L isolation, templates/reload, and independently configured
+active/inactive panes with zero trading writes. The protected refresh matrix
+passed 1/2/3/4 panes, two four-pane pages and 6000 bars: 30/30 updates per pane,
+source-to-apply p95 1–8 ms, no errors or rejected requests, comparable to 1aff230.
+Offline interactions/recovery also passed with zero trading writes. Numeric
+controls were visually checked at 393px and 1440px, including a bounds-width
+assertion that catches clipping. Physical-device acceptance is still pending user Run.
+
+Mini source was read-only verified at 1aff2304b8093a067829de145baa7e58851068fa.
+This change needs Deploy only plus refreshed web pages, and a new user-operated
+iPhone Run for native settings. No backend/Gateway restart, deployment, physical
+install or broker order was performed. Existing signing/localization changes stay
+outside this commit.
+
 ## 2026-10-18 — 8h RTH prepares history in one background read
 
 Scope: only 8h RTH startup/history. Other intervals and the existing intraday

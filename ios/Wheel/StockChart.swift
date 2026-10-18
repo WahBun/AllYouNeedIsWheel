@@ -245,6 +245,7 @@ struct IndicatorTemplate: Codable, Identifiable {
 }
 
 struct IndicatorSettingsSnapshot: Codable, Equatable {
+    var timeframeVisibilityJSON: String? = nil
     var volatilityJSON: String? = nil
     var fvg: FVGSettings? = nil
     var previousValues: PreviousValuesSettings? = nil
@@ -657,6 +658,12 @@ struct StockChartView: View {
     @AppStorage("chartATRLength") private var atrLength = 4
     @AppStorage("chartIndicatorCollapsedV2") private var indicatorCollapsed = true
     @AppStorage("chartIndicatorVisible") private var indicatorVisible = true
+    @AppStorage("chartIndicatorTimeframeVisibilityV1") private var timeframeVisibilityJSON = ""
+    private var timeframeVisibility: IndicatorTimeframeVisibility { IndicatorTimeframeVisibility(json: timeframeVisibilityJSON) }
+    private var indicatorsActive: Bool { indicatorVisible && timeframeVisibility.allows(interval) }
+    private var timeframeVisibilityBinding: Binding<IndicatorTimeframeVisibility> {
+        Binding(get: { timeframeVisibility }, set: { timeframeVisibilityJSON = $0.json })
+    }
     @AppStorage("chartEMAFrame") private var emaFrame = 0
     @AppStorage("chartExtraEMAsV1") private var extraEMAJSON = ""
     @AppStorage("chartVolatilityV1") private var volatilityJSON = ""
@@ -675,10 +682,10 @@ struct StockChartView: View {
     }
     private var volatilityFamily: String? { VolatilitySettings.family(symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType) }
     private var volatilitySource: String { volatilitySettings.dictionary[volatilityFamily ?? ""] as? String ?? "" }
-    private var volatilityRequestKey: String { context + (store.trading.accountEpoch ?? "") + volatilitySource + String(indicatorVisible && volatilitySettings.channels) }
+    private var volatilityRequestKey: String { context + (store.trading.accountEpoch ?? "") + volatilitySource + String(indicatorsActive && volatilitySettings.channels) }
     private var volatilityDisplay: [String: Any] {
         var value = volatilitySettings.dictionary
-        if !indicatorVisible { value["channels"] = false; value["gauge"] = false }
+        if !indicatorsActive { value["channels"] = false; value["gauge"] = false }
         return value
     }
     @State private var emaFrames: [String: Any] = [:]
@@ -715,15 +722,16 @@ struct StockChartView: View {
                 }
                 Stepper("Offset: \(extraEMAs[index].offset)", value: extraBinding(index, \.offset), in: -100...100)
             } else if indicatorTab == "Style" {
+                Toggle("Show EMA \(index + 2)", isOn: extraBinding(index, \.enabled))
                 ColorPicker("Line color", selection: extraColor(index), supportsOpacity: false)
                 Stepper("Line width: \(extraEMAs[index].width)", value: extraBinding(index, \.width), in: 1...4)
                 Picker("Line style", selection: extraBinding(index, \.style)) { Text("Solid").tag(0); Text("Dotted").tag(1); Text("Dashed").tag(2) }
                 Toggle("Stepped line", isOn: extraBinding(index, \.stepped))
-            } else { Toggle("Show EMA \(index + 2)", isOn: extraBinding(index, \.enabled)) }
+            }
         }
     }
     private var requestedEMAFrames: [Int] {
-        guard indicatorVisible else { return [] }
+        guard indicatorsActive else { return [] }
         var frames = extraEMAs.filter { $0.enabled }.map { $0.timeframe }
         if showEMA { frames.append(emaFrame) }
         if session == "rth" && pvSettings.enabled && !pvSettings.baseChart { frames += pvSettings.rows.filter { $0.enabled }.map { $0.frame } }
@@ -761,7 +769,7 @@ struct StockChartView: View {
         return rows
     }
     private var indicatorSnapshot: IndicatorSettingsSnapshot {
-        IndicatorSettingsSnapshot(volatilityJSON: volatilityJSON, fvg: fvgSettings, previousValues: pvSettings, showEMA: showEMA, emaLength: emaLength, emaSource: emaSource, emaOffset: emaOffset, emaFrame: emaFrame, emaDynamic: emaDynamic, emaColor: emaColor, emaWidth: emaWidth, emaStyle: emaStyle, extraEMAJSON: extraEMAJSON, showATR: showATR, atrLength: atrLength, showBarCount: showBarCount, barCountFrame: barCountFrame, barCountSize: barCountSize, barCountColor: barCountColor, barCountOpacity: barCountOpacity, barCountLimit: barCountLimit, barCountBars: barCountBars, indicatorVisible: indicatorVisible)
+        IndicatorSettingsSnapshot(timeframeVisibilityJSON: timeframeVisibilityJSON, volatilityJSON: volatilityJSON, fvg: fvgSettings, previousValues: pvSettings, showEMA: showEMA, emaLength: emaLength, emaSource: emaSource, emaOffset: emaOffset, emaFrame: emaFrame, emaDynamic: emaDynamic, emaColor: emaColor, emaWidth: emaWidth, emaStyle: emaStyle, extraEMAJSON: extraEMAJSON, showATR: showATR, atrLength: atrLength, showBarCount: showBarCount, barCountFrame: barCountFrame, barCountSize: barCountSize, barCountColor: barCountColor, barCountOpacity: barCountOpacity, barCountLimit: barCountLimit, barCountBars: barCountBars, indicatorVisible: indicatorVisible)
     }
     private func saveIndicatorTemplates(_ rows: [IndicatorTemplate]) {
         if let data = try? JSONEncoder().encode(rows), let text = String(data: data, encoding: .utf8) {
@@ -769,6 +777,7 @@ struct StockChartView: View {
         }
     }
     private func applyIndicatorTemplate(_ settings: IndicatorSettingsSnapshot) {
+        timeframeVisibilityJSON = settings.timeframeVisibilityJSON ?? ""
         volatilityJSON = settings.volatilityJSON ?? ""
         saveFVG(settings.fvg ?? FVGSettings())
         savePV(settings.previousValues ?? PreviousValuesSettings())
@@ -845,6 +854,7 @@ struct StockChartView: View {
         }.presentationDetents([.medium, .large])
     }
     private func applyDefaultIndicatorTemplate() {
+        timeframeVisibilityJSON = ""
         saveFVG(FVGSettings())
         savePV(PreviousValuesSettings())
                         emaFrame = 0; extraEMAJSON = ""
@@ -904,7 +914,7 @@ struct StockChartView: View {
     }
     private var fvgDisplay: [String: Any] {
         var result = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(fvgSettings))) as? [String: Any] ?? [:]
-        result["enabled"] = fvgSettings.enabled && indicatorVisible
+        result["enabled"] = fvgSettings.enabled && indicatorsActive
         return result
     }
     @ViewBuilder private var fvgSection: some View {
@@ -916,11 +926,12 @@ struct StockChartView: View {
                 Stepper("Min Gap Ticks: \(fvgSettings.minTicks)", value: fvgBinding(\.minTicks), in: 0...100)
                 HStack { Text("Min Gap ATR Factor"); TextField("0.05", value: fvgBinding(\.atrFactor), format: .number).keyboardType(.decimalPad).multilineTextAlignment(.trailing) }
             } else if indicatorTab == "Style" {
+                Toggle("Show Unfilled FVG", isOn: fvgBinding(\.enabled))
                 ColorPicker("Bullish FVG", selection: fvgColor(\.bullColor), supportsOpacity: false)
                 Slider(value: fvgBinding(\.bullOpacity), in: 0...100, step: 1) { Text("Bullish opacity") }
                 ColorPicker("Bearish FVG", selection: fvgColor(\.bearColor), supportsOpacity: false)
                 Slider(value: fvgBinding(\.bearOpacity), in: 0...100, step: 1) { Text("Bearish opacity") }
-            } else { Toggle("Show Unfilled FVG", isOn: fvgBinding(\.enabled)) }
+            }
         }
     }
     @AppStorage("chartPreviousValuesV1") private var pvJSON = ""
@@ -946,7 +957,7 @@ struct StockChartView: View {
     }
     private var pvDisplay: [String: Any] {
         var value = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(pvSettings))) as? [String: Any] ?? [:]
-        value["enabled"] = session == "rth" && pvSettings.enabled && indicatorVisible
+        value["enabled"] = session == "rth" && pvSettings.enabled && indicatorsActive
         return value
     }
     private var pvSection: some View {
@@ -954,8 +965,10 @@ struct StockChartView: View {
             if indicatorTab == "Inputs" {
                 Picker("Display", selection: pvBinding(\.display)) { ForEach(["Today","TimeFrame","All"], id: \.self) { Text($0).tag($0) } }
                 Toggle("Base On Chart", isOn: pvBinding(\.baseChart))
+            } else if indicatorTab == "Style" {
+                Toggle("Previous Values", isOn: pvBinding(\.enabled))
                 Toggle("Draw By Line", isOn: pvBinding(\.lineDraw))
-            } else if indicatorTab == "Visibility" { Toggle("Previous Values", isOn: pvBinding(\.enabled)) }
+            }
             ForEach(0..<3, id: \.self) { i in
                 if indicatorTab == "Inputs" {
                     Picker("Timeframe \(i+1)", selection: pvRowBinding(i, \.frame)) {
@@ -965,12 +978,13 @@ struct StockChartView: View {
                         ForEach(["close","high","low","open","hl/2","hlc3","ohlc/4","hlcc/4","CurrentOpen"], id: \.self) { Text($0).tag($0) }
                     }
                 } else if indicatorTab == "Style" {
+                    Toggle("Level \(i+1)", isOn: pvRowBinding(i, \.enabled))
                     ColorPicker("Color \(i+1)", selection: pvColor(i), supportsOpacity: false)
                     Picker("Line style \(i+1)", selection: pvRowBinding(i, \.style)) {
                         ForEach(["solid","dotted","dashed","arrow_left","arrow_right","arrow_both"], id: \.self) { Text($0).tag($0) }
                     }
                     Stepper("Width \(i+1): \(pvSettings.rows[i].width)", value: pvRowBinding(i, \.width), in: 1...4)
-                } else { Toggle("Level \(i+1)", isOn: pvRowBinding(i, \.enabled)) }
+                }
             }
         }
     }
@@ -980,8 +994,14 @@ struct StockChartView: View {
                 Picker("Settings", selection: $indicatorTab) {
                     Text("Inputs").tag("Inputs"); Text("Style").tag("Style"); Text("Visibility").tag("Visibility")
                 }.pickerStyle(.segmented)
+                if indicatorTab == "Visibility" {
+                    IndicatorTimeframeVisibilitySection(settings: timeframeVisibilityBinding)
+                } else {
+                if indicatorTab == "Style" {
+                    Section("Indicators") { Toggle("Show indicators", isOn: $indicatorVisible) }
+                }
+                VolatilitySettingsSections(settings: volatilityBinding, tab: indicatorTab)
                 if indicatorTab == "Inputs" {
-                    VolatilitySettingsSections(settings: volatilityBinding)
                     Section("EMA") {
                         Stepper("Length: \(emaLength)", value: $emaLength, in: 1...500)
                         Picker("Source", selection: $emaSource) {
@@ -992,17 +1012,13 @@ struct StockChartView: View {
                     }
                 } else if indicatorTab == "Style" {
                     Section("EMA") {
+                        Toggle("Show EMA", isOn: $showEMA)
                         Toggle("Dynamic colors", isOn: $emaDynamic)
                         ColorPicker("Line color", selection: emaColorBinding, supportsOpacity: false).disabled(emaDynamic)
                         Stepper("Line width: \(emaWidth)", value: $emaWidth, in: 1...4)
                         Picker("Line style", selection: $emaStyle) {
                             Text("Solid").tag(0); Text("Dotted").tag(1); Text("Dashed").tag(2)
                         }
-                    }
-                } else {
-                    Section("Indicators") {
-                        Toggle("EMA", isOn: $showEMA)
-                        Toggle("ATR", isOn: Binding(get: { showATR }, set: { showATR = $0 }))
                     }
                 }
                 Section("Bar Count") {
@@ -1014,13 +1030,14 @@ struct StockChartView: View {
                         ChartBarCountInput(value: $barCountBars).disabled(!barCountLimit)
                         Text("Every third bar, plus the reference indicator’s highlighted counts.").font(.caption).foregroundStyle(.secondary)
                     } else if indicatorTab == "Style" {
+                        Toggle("Bar Count", isOn: Binding(get: { showBarCount }, set: { showBarCount = $0 }))
                         Picker("Label size", selection: $barCountSize) {
                             ForEach(["auto", "tiny", "small", "normal", "large", "huge"], id: \.self) { Text($0.capitalized).tag($0) }
                         }
                         ColorPicker("Label color", selection: barCountColorBinding, supportsOpacity: false)
                         HStack { Text("Opacity"); Spacer(); Text((barCountOpacity / 100).formatted(.percent.precision(.fractionLength(0)))).monospacedDigit() }
                         Slider(value: $barCountOpacity, in: 0...100, step: 1)
-                    } else { Toggle("Bar Count", isOn: Binding(get: { showBarCount }, set: { showBarCount = $0 })) }
+                    }
                 }
                 extraEMASection(0)
                 extraEMASection(1)
@@ -1034,12 +1051,15 @@ struct StockChartView: View {
                 // Keep ATR last; add future indicator sections above this trailing section.
                 if indicatorTab == "Inputs" {
                     Section("ATR") { Stepper("Length: \(atrLength)", value: $atrLength, in: 1...200) }
+                } else {
+                    Section("ATR") { Toggle("Show ATR", isOn: Binding(get: { showATR }, set: { showATR = $0 })) }
+                }
                 }
             }.navigationTitle("Indicators").navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("Done") { showIndicatorSettings = false } }
                 .sheet(isPresented: $namingTemplate) { saveIndicatorTemplateSheet }
 
-        }
+        }.environment(\.locale, Locale(identifier: "en"))
     }
     private func makePreview(side: Int) {
         guard !paperActive, !paperBusy else { return }
@@ -1077,9 +1097,9 @@ struct StockChartView: View {
     }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["tradingLocked": tradingLocked, "noOverlappingLabels": noOverlappingLabels, "plusButton": showPlusButton, "rightClickTrading": oneClickTrading, "volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorVisible, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorVisible, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorVisible, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
+        ["tradingLocked": tradingLocked, "noOverlappingLabels": noOverlappingLabels, "plusButton": showPlusButton, "rightClickTrading": oneClickTrading, "volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && indicatorsActive, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && indicatorsActive, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorsActive, "emaLength": emaLength, "emaSource": emaSource, "emaOffset": emaOffset,
          "emaDynamic": emaDynamic, "emaColor": emaColor + "ab", "emaWidth": emaWidth, "emaStyle": emaStyle,
-         "atr": showATR && indicatorVisible, "atrLength": atrLength, "profit": showHoldings && showProfit, "positions": showHoldings && showPositionProfit, "brackets": showHoldings && showBracketProfit,
+         "atr": showATR && indicatorsActive, "atrLength": atrLength, "profit": showHoldings && showProfit, "positions": showHoldings && showPositionProfit, "brackets": showHoldings && showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
          "positionUnit": positionProfitUnit, "bracketUnit": bracketProfitUnit]
     }
@@ -1770,7 +1790,7 @@ struct StockChartView: View {
         .onDisappear { rememberChart(); visible = false; store.chartVisible = false }
         .task(id: "volatility-" + volatilityRequestKey) {
             volatilityData = [:]; volatilityContext = ""
-            guard visible, phase == .active, !store.demo, indicatorVisible, volatilitySettings.channels, volatilityFamily != nil, let cid = chartID else { return }
+            guard visible, phase == .active, !store.demo, indicatorsActive, volatilitySettings.channels, volatilityFamily != nil, let cid = chartID else { return }
             let key = volatilityRequestKey
             while !Task.isCancelled {
                 var delay = 2.0

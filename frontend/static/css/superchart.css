@@ -327,3 +327,12 @@ body>header #settings{display:none!important}
 .join-actions button[hidden]{display:none}.join-actions #mid{grid-column:1 / -1;width:100%;color:var(--fg);font-weight:600}
 
 #preview-buy.mid-selected,#preview-sell.mid-selected{border-color:currentColor;box-shadow:inset 0 0 0 1px currentColor;background:color-mix(in srgb,currentColor 10%,var(--panel))}
+
+/* Indicator Visibility contains only timeframe units and inclusive bounds. */
+#display.indicator-settings .timeframe-visibility-row{display:flex;align-items:center;gap:20px;min-height:64px;border-bottom:1px solid var(--border)}
+#display.indicator-settings .timeframe-visibility-row:last-child{border:0}
+#display.indicator-settings .timeframe-visibility-row>label{justify-content:flex-start;gap:12px;width:150px;flex-shrink:0;border:0}
+#display.indicator-settings .timeframe-visibility-bounds{display:flex;gap:14px;flex:1;min-width:0}
+#display.indicator-settings .timeframe-visibility-bounds label{border:0;gap:8px;flex:1;min-width:0;color:var(--muted);font-size:13px}
+#display.indicator-settings .timeframe-visibility-bounds input{width:80px;max-width:none;flex:1;min-width:0;text-align:center;color:var(--fg)}
+@media(max-width:560px){#display.indicator-settings .timeframe-visibility-row{flex-wrap:wrap;gap:0;padding:6px 0 12px}#display.indicator-settings .timeframe-visibility-row>label{width:100%;min-height:40px}#display.indicator-settings .timeframe-visibility-bounds{width:100%;flex:0 0 100%;gap:18px}#display.indicator-settings .timeframe-visibility-bounds label{min-height:36px;padding:0}}

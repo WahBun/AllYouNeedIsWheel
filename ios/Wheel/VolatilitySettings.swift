@@ -47,6 +47,7 @@ struct VolatilitySettings: Codable, Equatable {
 }
 struct VolatilitySettingsSections: View {
     @Binding var settings: VolatilitySettings
+    var tab: String = "Inputs"
     private let indices = ["VIX", "VXN", "VXD", "RVX", "GVZ", "OVX"]
     private func color(_ path: WritableKeyPath<VolatilitySettings, String>) -> Binding<Color> {
         Binding(get: { Color(uiColor: UIColor(hexRGB: settings[keyPath: path])) }, set: { value in
@@ -57,23 +58,27 @@ struct VolatilitySettingsSections: View {
     }
     var body: some View {
         Section("Volatility Channels") {
-            Toggle("Enable channels", isOn: $settings.channels)
-            Toggle("RTH only (New York)", isOn: $settings.rthOnly)
-            Toggle("Show 1st TP", isOn: $settings.showInner)
-            Toggle("Show 2nd TP", isOn: $settings.showOuter)
-            Toggle("Distance table", isOn: $settings.distance)
-            Toggle("Price scale labels", isOn: $settings.priceScale)
-            Toggle("Mark first hits", isOn: $settings.markHits)
-            Toggle("On-chart hit alerts", isOn: $settings.alerts)
-            Stepper("1st multiplier: \(settings.inner, specifier: "%.1f")", value: $settings.inner, in: 0...10, step: 0.1)
-            Stepper("2nd multiplier: \(settings.outer, specifier: "%.1f")", value: $settings.outer, in: 0...10, step: 0.1)
-            Stepper("Line width: \(settings.width, specifier: "%.1f")", value: $settings.width, in: 1...4, step: 1)
-            Stepper("Label offset: \(settings.labelOffset, specifier: "%.1f")", value: $settings.labelOffset, in: 1...50, step: 1)
-            ColorPicker("1st Bulls", selection: color(\.up1), supportsOpacity: false)
-            ColorPicker("1st Bears", selection: color(\.down1), supportsOpacity: false)
-            ColorPicker("2nd Bulls", selection: color(\.up2), supportsOpacity: false)
-            ColorPicker("2nd Bears", selection: color(\.down2), supportsOpacity: false)
+            if tab == "Inputs" {
+                Toggle("RTH only (New York)", isOn: $settings.rthOnly)
+                Stepper("1st multiplier: \(settings.inner, specifier: "%.1f")", value: $settings.inner, in: 0...10, step: 0.1)
+                Stepper("2nd multiplier: \(settings.outer, specifier: "%.1f")", value: $settings.outer, in: 0...10, step: 0.1)
+            } else {
+                Toggle("Enable channels", isOn: $settings.channels)
+                Toggle("Show 1st TP", isOn: $settings.showInner)
+                Toggle("Show 2nd TP", isOn: $settings.showOuter)
+                Toggle("Distance table", isOn: $settings.distance)
+                Toggle("Price scale labels", isOn: $settings.priceScale)
+                Toggle("Mark first hits", isOn: $settings.markHits)
+                Toggle("On-chart hit alerts", isOn: $settings.alerts)
+                Stepper("Line width: \(settings.width, specifier: "%.1f")", value: $settings.width, in: 1...4, step: 1)
+                Stepper("Label offset: \(settings.labelOffset, specifier: "%.1f")", value: $settings.labelOffset, in: 1...50, step: 1)
+                ColorPicker("1st Bulls", selection: color(\.up1), supportsOpacity: false)
+                ColorPicker("1st Bears", selection: color(\.down1), supportsOpacity: false)
+                ColorPicker("2nd Bulls", selection: color(\.up2), supportsOpacity: false)
+                ColorPicker("2nd Bears", selection: color(\.down2), supportsOpacity: false)
+            }
         }
+        if tab == "Inputs" {
         Section("Volatility Symbols") {
             Picker("ES / SPY", selection: $settings.spx) { ForEach(indices, id: \.self) { Text($0).tag($0) } }
             Picker("NQ / QQQ / TQQQ", selection: $settings.ndx) { ForEach(indices, id: \.self) { Text($0).tag($0) } }
@@ -82,11 +87,16 @@ struct VolatilitySettingsSections: View {
             Picker("GC / GLD", selection: $settings.gold) { ForEach(indices, id: \.self) { Text($0).tag($0) } }
             Picker("CL / USO", selection: $settings.oil) { ForEach(indices, id: \.self) { Text($0).tag($0) } }
         }
-        Section("Intraday Extreme Gauge") {
-            Toggle("Enable gauge", isOn: $settings.gauge)
-            Picker("Curve", selection: $settings.curve) { ForEach(["Auto", "ES", "NQ"], id: \.self) { Text($0).tag($0) } }
-            Picker("Position", selection: $settings.position) { ForEach(["Top Left", "Top Right", "Bottom Left", "Bottom Center", "Bottom Right"], id: \.self) { Text($0).tag($0) } }
         }
+        Section("Intraday Extreme Gauge") {
+            if tab == "Inputs" {
+                Picker("Curve", selection: $settings.curve) { ForEach(["Auto", "ES", "NQ"], id: \.self) { Text($0).tag($0) } }
+            } else {
+                Toggle("Enable gauge", isOn: $settings.gauge)
+                Picker("Position", selection: $settings.position) { ForEach(["Top Left", "Top Right", "Bottom Left", "Bottom Center", "Bottom Right"], id: \.self) { Text($0).tag($0) } }
+            }
+        }
+        if tab == "Style" {
         Section("Gauge Colors") {
             ColorPicker("Background", selection: color(\.background), supportsOpacity: false)
             ColorPicker("Track", selection: color(\.track), supportsOpacity: false)
@@ -94,9 +104,10 @@ struct VolatilitySettingsSections: View {
             ColorPicker("Medium", selection: color(\.midColor), supportsOpacity: false)
             ColorPicker("High", selection: color(\.highColor), supportsOpacity: false)
             ColorPicker("Text", selection: color(\.textColor), supportsOpacity: false)
-            Stepper("backgroundTransparency: \(Int(settings.backgroundTransparency))%", value: $settings.backgroundTransparency, in: 0...100, step: 5)
-            Stepper("trackTransparency: \(Int(settings.trackTransparency))%", value: $settings.trackTransparency, in: 0...100, step: 5)
-            Stepper("fillTransparency: \(Int(settings.fillTransparency))%", value: $settings.fillTransparency, in: 0...100, step: 5)
+            Stepper("Background transparency: \(Int(settings.backgroundTransparency))%", value: $settings.backgroundTransparency, in: 0...100, step: 5)
+            Stepper("Track transparency: \(Int(settings.trackTransparency))%", value: $settings.trackTransparency, in: 0...100, step: 5)
+            Stepper("Fill transparency: \(Int(settings.fillTransparency))%", value: $settings.fillTransparency, in: 0...100, step: 5)
+        }
         }
     }
 }
