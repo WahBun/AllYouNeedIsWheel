@@ -1,3 +1,28 @@
+## 2026-10-18 — Signing renewal through native Xcode Build
+
+The user explicitly authorized AppleScript **Build and signing only**, with
+physical installation remaining manual. The shortcut now invokes `--build-only`;
+all helper modes, including the old `--renew` alias, produce only a local package.
+The implementation below supersedes the earlier automatic-install setup.
+
+REA inspected the shipped Xcode 27 account/provisioning implementation and its
+native scripting dictionary. Valid cached profiles were reused by the CLI;
+removing only the matching cache exposed a CLI “No Accounts” failure despite
+an account in the Xcode GUI. Scoped diagnostic probes restored their backups.
+Adopted the distinct native `build` command documented in Xcode.sdef, not Run,
+Test or Debug. REA evidence:
+`ev_f452effae0e9a11af0d5459e80acf7f699f3b6933b2117f33d0909519b350a06`,
+`ev_6879731df808c708f5d1e51b9d6f88affd9ae0dd488c921b7e215aef6693bb67`,
+`ev_0fe8b7a995fcd1d76c91f36f84dde285f38b94f4e74bee33d25e83cd8bfbae22`.
+
+Build an isolated exact GitHub commit, back up and refresh only this app/team/
+iPhone's cached profiles, and validate the signed package's identity, fresh
+issuance, at least six days remaining, and strictly extended expiration.
+Failed builds restore the previous cache; interrupted runs recover then stop.
+Personal configuration, profiles and receipts are ignored. No device install,
+launch, app termination, Mini service change or broker operation is included.
+Validation results will be recorded after exercising the native Build path.
+
 ## 2026-10-18 — Pro iPhone signing-renewal shortcut
 
 Added `ios/renew_signing.py` and the native **Wheel iPhone Renew** shortcut on

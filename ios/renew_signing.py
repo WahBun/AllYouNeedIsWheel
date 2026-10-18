@@ -3,15 +3,14 @@
 import argparse
 from datetime import datetime, timedelta, timezone
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
 import plistlib
-import shutil
 import subprocess
 import sys
 import tempfile
-from urllib.parse import unquote, urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 UTC = timezone.utc
@@ -86,30 +85,101 @@ def select_device(devices, config):
     return device
 
 
-def app_running(processes, installed):
-    app_path = unquote(urlparse(installed["url"]).path).rstrip("/") + "/"
-    return any(unquote(urlparse(p.get("executable", "")).path).startswith(app_path)
-               for p in processes)
+def profile_matches(profile, config):
+    return (profile.get("TeamIdentifier") == [config["teamID"]]
+            and profile.get("Entitlements", {}).get("application-identifier") == config["teamID"] + "." + config["bundleID"]
+            and config["deviceUDID"] in profile.get("ProvisionedDevices", []))
 
 
-def validate_profile(profile, config, previous_expiry=None, now=None):
+def read_profile(path):
+    return plistlib.loads(command(["/usr/bin/security", "cms", "-D", "-i", str(path)]).encode())
+
+
+def validate_profile(profile, config, previous_expiry=None, now=None, started=None):
     now = now or datetime.now(UTC)
-    entitlements = profile.get("Entitlements", {})
-    if (profile.get("TeamIdentifier") != [config["teamID"]]
-            or entitlements.get("application-identifier") != config["teamID"] + "." + config["bundleID"]
-            or config["deviceUDID"] not in profile.get("ProvisionedDevices", [])):
+    if not profile_matches(profile, config):
         raise RenewalError("The signed profile does not match the expected team, app and iPhone.")
     expiry = date(profile["ExpirationDate"])
-    expiry_text = expiry.astimezone().strftime("%Y-%m-%d %H:%M %Z")
-    if expiry < now + timedelta(hours=48):
-        raise RenewalError("Xcode did not produce a profile with at least 48 hours remaining. "
-                           f"Built profile expires: {expiry_text}. No app was installed. "
-                           "Try closer to expiry or open Xcode Signing & Capabilities to refresh signing.")
+    if expiry < now + timedelta(days=6):
+        raise RenewalError("The signed profile has less than six days remaining. Renewal was not completed.")
     if previous_expiry and expiry <= date(previous_expiry):
-        raise RenewalError("Apple reused the existing profile; its expiration did not extend. "
-                           f"Built profile expires: {expiry_text}. No app was installed. "
-                           "Try closer to expiry or refresh signing in Xcode.")
+        raise RenewalError("Apple reused the existing profile; its expiration did not extend.")
+    if started and date(profile["CreationDate"]) < started - timedelta(minutes=5):
+        raise RenewalError("Xcode did not issue a fresh provisioning profile.")
     return expiry
+
+
+class ProfileRefresh:
+    """Back up only this app's cached profile; restore it on any failed build."""
+    def __init__(self, config, run, previous_expiry=None, directories=None):
+        self.config, self.run = config, run
+        self.previous = date(previous_expiry) if previous_expiry else None
+        self.directories = directories if directories is not None else [
+            Path.home() / "Library/Developer/Xcode/UserData/Provisioning Profiles",
+            Path.home() / "Library/MobileDevice/Provisioning Profiles"]
+        self.manifest = run / "profile-refresh.json"
+        self.entries = []
+
+    @staticmethod
+    def restore(manifest):
+        data = json.loads(manifest.read_text())
+        for entry in data["profiles"]:
+            original, backup = Path(entry["original"]), Path(entry["backup"])
+            blob = backup.read_bytes()
+            if hashlib.sha256(blob).hexdigest() != entry["sha256"]:
+                raise RenewalError("A profile backup failed its integrity check; inspect the saved run.")
+            # Never overwrite a newly generated profile or another process's file.
+            if not original.exists():
+                original.parent.mkdir(parents=True, exist_ok=True)
+                with original.open("xb") as output:
+                    output.write(blob)
+        data["status"] = "restored"
+        save_json(manifest, data)
+
+    def __enter__(self):
+        backup_dir = self.run / "profile-backups"
+        backup_dir.mkdir()
+        for directory in self.directories:
+            for path in sorted(directory.glob("*.mobileprovision")):
+                profile = read_profile(path)
+                if not profile_matches(profile, self.config):
+                    continue
+                expiry = date(profile["ExpirationDate"])
+                self.previous = max(self.previous, expiry) if self.previous else expiry
+                blob = path.read_bytes()
+                backup = backup_dir / f"{len(self.entries)}.mobileprovision"
+                backup.write_bytes(blob)
+                if backup.read_bytes() != blob:
+                    raise RenewalError("Could not verify the original profile backup.")
+                self.entries.append(dict(original=str(path), backup=str(backup),
+                                         sha256=hashlib.sha256(blob).hexdigest()))
+        # Persist every recovery location before removing any cached profile.
+        save_json(self.manifest, dict(status="pending", profiles=self.entries))
+        try:
+            for entry in self.entries:
+                path = Path(entry["original"])
+                if hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
+                    raise RenewalError("The signing profile changed during preparation. Try again after Xcode is idle.")
+                path.unlink()
+        except BaseException:
+            self.restore(self.manifest)
+            raise
+        return self
+
+    def __exit__(self, kind, value, traceback):
+        if kind is not None:
+            self.restore(self.manifest)
+        else:
+            save_json(self.manifest, dict(status="completed", profiles=self.entries))
+
+
+def recover_interrupted(state):
+    pending = [p for p in state.glob("*/profile-refresh.json")
+               if json.loads(p.read_text()).get("status") == "pending"]
+    for path in pending:
+        ProfileRefresh.restore(path)
+    if pending:
+        raise RenewalError("Restored signing profiles from an interrupted run. Check that Xcode is idle before running again.")
 
 
 class Renewal:
@@ -128,26 +198,8 @@ class Renewal:
             raise RenewalError("The iPhone command did not confirm success. Check the run log.")
         return result["result"]
 
-    def installed(self):
-        result = self.device("device", "info", "apps", "--device", self.config["deviceIdentifier"],
-                             "--bundle-id", self.config["bundleID"])
-        apps = [a for a in result.get("apps", []) if a.get("bundleIdentifier") == self.config["bundleID"]]
-        if len(apps) != 1 or not apps[0].get("builtByDeveloper"):
-            raise RenewalError("The expected developer-installed Wheel app was not found on this iPhone.")
-        return apps[0]
-
     def preflight(self):
         select_device(self.device("list", "devices").get("devices", []), self.config)
-        lock = self.device("device", "info", "lockState", "--device", self.config["deviceIdentifier"])
-        if lock.get("passcodeRequired") is not False or lock.get("unlockedSinceBoot") is not True:
-            raise RenewalError("Unlock the iPhone and keep it connected while renewal runs.")
-        installed = self.installed()
-        processes = self.device("device", "info", "processes", "--device", self.config["deviceIdentifier"])
-        if not isinstance(processes.get("runningProcesses"), list) or not installed.get("url"):
-            raise RenewalError("The iPhone did not provide enough information to verify that Wheel is closed.")
-        if app_running(processes["runningProcesses"], installed):
-            raise RenewalError("Wheel is running on the iPhone. Close Wheel in the app switcher, then run again.")
-        return installed
 
     def build(self, sha, previous_expiry):
         source = self.run / "source"
@@ -158,31 +210,29 @@ class Renewal:
         signing = ROOT / "ios/Signing.local.xcconfig"
         if not signing.is_file():
             raise RenewalError("Configure ios/Signing.local.xcconfig in Xcode first.")
-        shutil.copyfile(signing, source / "ios/Signing.local.xcconfig")
-        (source / "ios/Signing.local.xcconfig").chmod(0o600)
-        derived = self.run / "DerivedData"
-        command(["/usr/bin/xcodebuild", "-project", "ios/Wheel.xcodeproj", "-scheme", "Wheel",
-                 "-configuration", "Debug", "-jobs", "2", "-destination", "generic/platform=iOS",
-                 "-derivedDataPath", str(derived), "-allowProvisioningUpdates", "build"],
-                cwd=source, timeout=1200, log=self.run / "build.log")
-        app = derived / "Build/Products/Debug-iphoneos/Wheel.app"
-        command(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app)])
-        profile = plistlib.loads(command(["/usr/bin/security", "cms", "-D", "-i",
-                                         str(app / "embedded.mobileprovision")]).encode())
-        expiry = validate_profile(profile, self.config, previous_expiry)
-        info = plistlib.loads((app / "Info.plist").read_bytes())
-        if info["CFBundleIdentifier"] != self.config["bundleID"]:
-            raise RenewalError("The built application has a different bundle identifier.")
+        local_signing = source / "ios/Signing.local.xcconfig"
+        products = self.run / "Products"
+        intermediates = self.run / "Intermediates"
+        local_signing.write_text(signing.read_text() +
+                                f'\nSYMROOT = {products}\nOBJROOT = {intermediates}\n')
+        local_signing.chmod(0o600)
+        started = datetime.now(UTC)
+        with ProfileRefresh(self.config, self.run, previous_expiry) as refresh:
+            command(["/usr/bin/osascript", str(source / "ios/renew_signing.applescript"),
+                     str(source / "ios/Wheel.xcodeproj"), self.config["deviceUDID"],
+                     str(self.run / "build.log")], timeout=1320, log=self.run / "xcode-action.log")
+            app = products / "Debug-iphoneos/Wheel.app"
+            command(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app)])
+            profile = read_profile(app / "embedded.mobileprovision")
+            expiry = validate_profile(profile, self.config, refresh.previous, started=started)
+            info = plistlib.loads((app / "Info.plist").read_bytes())
+            if info["CFBundleIdentifier"] != self.config["bundleID"]:
+                raise RenewalError("The built application has a different bundle identifier.")
+            save_json(self.run / "signing-verification.json", {
+                "created": date(profile["CreationDate"]).isoformat(), "expires": expiry.isoformat(),
+                "previousExpires": refresh.previous.isoformat() if refresh.previous else None,
+                "profileUUID": profile["UUID"], "codesignVerified": True})
         return app, expiry, info
-
-    def install(self, app, info):
-        self.preflight()
-        # One install request. A failed or timed-out request is never replayed.
-        self.device("device", "install", "app", "--device", self.config["deviceIdentifier"], str(app))
-        installed = self.installed()
-        if (installed.get("bundleVersion") != str(info["CFBundleVersion"])
-                or installed.get("version") != str(info["CFBundleShortVersionString"])):
-            raise RenewalError("Installation returned, but the app version could not be confirmed. Check the iPhone.")
 
 
 def main(argv=None):
@@ -190,7 +240,7 @@ def main(argv=None):
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--check", action="store_true", help="Read-only GitHub and iPhone readiness check (default)")
     modes.add_argument("--build-only", action="store_true", help="Build and validate signing without installing")
-    modes.add_argument("--renew", action="store_true", help="Build, validate, and install on the configured iPhone")
+    modes.add_argument("--renew", action="store_true", help="Renew and build a signed package; installation remains manual")
     args = parser.parse_args(argv)
     os.umask(0o077)
     run = None
@@ -204,6 +254,8 @@ def main(argv=None):
             except BlockingIOError as exc:
                 raise RenewalError("Another renewal is already running.") from exc
             run = Path(tempfile.mkdtemp(prefix=datetime.now().strftime("%Y%m%d-%H%M%S-"), dir=state))
+            if args.renew or args.build_only:
+                recover_interrupted(state)
             sha = github_revision(config)
             print(f"GitHub verified: {config['branch']} @ {sha}", flush=True)
             renewal = Renewal(config, run)
@@ -211,32 +263,25 @@ def main(argv=None):
                 renewal.preflight()
                 print("Ready. No signing, installation, or app launch was performed.")
                 return 0
-            if args.renew:
-                renewal.preflight()
-            receipt_path = state / "last-install.json"
+            renewal.preflight()
+            receipt_path = state / "last-build.json"
             previous = config.get("baselineProfileExpires")
             if receipt_path.exists():
                 receipt = json.loads(receipt_path.read_text())
                 if any(receipt.get(key) != config[key] for key in ("bundleID", "teamID", "deviceUDID")):
-                    raise RenewalError("The previous installation receipt belongs to a different app or device.")
+                    raise RenewalError("The previous build receipt belongs to a different app or device.")
                 previous = receipt["profileExpires"]
-            print("Building and checking the actual signing expiration...", flush=True)
+            print("Refreshing signing through Xcode Build and verifying the new expiration...", flush=True)
             app, expiry, info = renewal.build(sha, previous)
             details = {"commit": sha, "branch": config["branch"], "profileExpires": expiry.isoformat(),
                        "bundleID": config["bundleID"], "teamID": config["teamID"],
                        "deviceUDID": config["deviceUDID"], "builtApp": str(app),
                        "builtAt": datetime.now(UTC).isoformat()}
             save_json(run / "build-receipt.json", details)
-            if args.build_only:
-                print(f"Build verified. No phone installation.\nSignature expires: {expiry.astimezone():%Y-%m-%d %H:%M %Z}")
-                return 0
-            print("Installing the verified build...", flush=True)
-            renewal.install(app, info)
-            details["installedAt"] = datetime.now(UTC).isoformat()
             save_json(receipt_path, details)
-            save_json(run / "install-receipt.json", details)
-            print(f"Wheel renewal completed.\nSignature expires: {expiry.astimezone():%Y-%m-%d %H:%M %Z}\n"
-                  f"Commit: {sha}\nOpen Wheel on the iPhone when ready.")
+            print(f"Signing renewed. No iPhone installation.\n"
+                  f"Signature expires: {expiry.astimezone():%Y-%m-%d %H:%M %Z}\n"
+                  f"Commit: {sha}\nSigned app: {app}\nInstall the app manually when ready.")
             return 0
     except (RenewalError, OSError, ValueError, KeyError) as exc:
         print(f"Renewal stopped: {exc}", file=sys.stderr)

@@ -22,12 +22,20 @@ PRODUCT_BUNDLE_IDENTIFIER = com.yourname.wheel
 
 ## Pro shortcut: Wheel iPhone Renew
 
-`renew_signing.py` uses the existing Xcode account and automatic signing to build
-the exact clean GitHub branch commit, then update the same app on one configured
-iPhone. It never pulls, changes branches, uninstalls, launches or terminates the
-app. Close Wheel in the iPhone app switcher before running renewal. Keep the phone
-unlocked and connected to the Pro by USB or an existing Xcode wireless pairing.
-Wireless Xcode pairing is separate from Tailscale access to the backend.
+`renew_signing.py` renews signing and builds a local package using the existing
+Xcode account. **Every mode leaves phone installation to the user.** Keep the
+configured iPhone available to Xcode by USB or its existing wireless pairing.
+The script does not require Wheel to be closed because it never installs,
+launches, terminates or uninstalls the phone app.
+
+The helper requires a clean checkout equal to its configured GitHub branch and
+builds an isolated archive of that exact commit. It backs up only cached profiles
+matching the existing team, bundle ID and iPhone, removes those copies, and calls
+Xcode's documented **Build** AppleScript interface. This avoids Xcode 27's CLI
+account lookup failure and reuse of a still-valid profile. Certificates, account
+credentials, other apps' profiles and the original project are untouched.
+A failed build restores the old cache; an interrupted run restores it and stops
+for inspection before another build. No automatic build retry occurs.
 
 Create the git-ignored `ios/Renew.local.json` on the Pro:
 
@@ -42,18 +50,17 @@ Create the git-ignored `ios/Renew.local.json` on the Pro:
 }
 ```
 
-Obtain the device identifiers with `xcrun devicectl list devices --json-output
-/tmp/wheel-devices.json`; use the existing app's team and bundle ID from
+Obtain device identifiers with `xcrun devicectl list devices --json-output
+/tmp/wheel-devices.json`; use the existing team and bundle ID from
 `Signing.local.xcconfig`. An optional `baselineProfileExpires` ISO timestamp can
-record the expiration of the previous locally signed build. This is not proof
-of the profile currently installed on the phone. Successful script installations
-record their exact commit and profile expiration in `ios/.renewal/last-install.json`.
+record the previous locally signed package's expiration. Neither this timestamp
+nor a local build receipt proves what is currently installed on the phone.
 
 In macOS Shortcuts, create **Wheel iPhone Renew**, add **Run Shell Script** with
 zsh and administrator privileges off, then **Show Result** for the shell output:
 
 ```sh
-wheel_output=$(/usr/bin/python3 '/ABSOLUTE/REPOSITORY/PATH/ios/renew_signing.py' --renew 2>&1)
+wheel_output=$(/usr/bin/python3 '/ABSOLUTE/REPOSITORY/PATH/ios/renew_signing.py' --build-only 2>&1)
 wheel_status=$?
 printf '%s\n' "$wheel_output"
 if [ "$wheel_status" -ne 0 ]; then
@@ -62,20 +69,22 @@ fi
 exit 0
 ```
 
-For a read-only readiness check, replace `--renew` with `--check`. `--build-only`
-builds and validates the actual signed package without installing it. A renewal
-requires a valid matching profile with at least 48 hours left and, when a prior
-expiration is known, a later expiration. Xcode may reuse a still-valid profile;
-that is reported as **not renewed**, and nothing is installed. The script does
-not revoke certificates or delete provisioning profiles to force renewal. Apple
-account authentication or signing errors may still require action in Xcode.
-The shell wrapper returns normally so **Show Result** can display the helper's
-failure details; only the explicit completion message confirms installation.
+The first run may ask to allow Shortcuts to control Xcode. Xcode must already
+have the account and signing certificate configured. `--check` performs only
+read-only GitHub and device checks. `--renew` is a compatibility alias for
+`--build-only`; neither installs anything.
 
-All logs, build artifacts, personal settings and receipts remain git-ignored.
-Installation failures are not retried automatically. This is an on-demand Pro
-shortcut, not a scheduled background service; the Pro and iPhone must be available.
-No Mini deployment or backend/Gateway restart is needed for the helper.
+Success requires a verified code signature, the exact app/team/iPhone, a freshly
+issued profile with at least six days remaining, and an expiration later than
+all matching cached profiles and the previous build receipt. The result shows
+the actual new expiration, commit and signed `.app` path. Install that package
+manually or use your normal Xcode Run when ready. Authentication failures still
+require action in Xcode; failures are never reported as a completed renewal.
+
+Logs, profile backups, build artifacts, personal settings and receipts remain
+under git-ignored `ios/.renewal/`; the latest result is `last-build.json`.
+This is an on-demand Pro shortcut, not a scheduled background service.
+No Mini deployment or backend/Gateway restart is needed.
 
 ## 页面与操作
 
