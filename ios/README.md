@@ -20,6 +20,55 @@ PRODUCT_BUNDLE_IDENTIFIER = com.yourname.wheel
 
 有线配对与签名正常后再启用无线 Run。App 的 Tailscale 后端访问和 Xcode 无线调试是两条独立链路。
 
+## Pro shortcut: Wheel iPhone Renew
+
+`renew_signing.py` uses the existing Xcode account and automatic signing to build
+the exact clean GitHub branch commit, then update the same app on one configured
+iPhone. It never pulls, changes branches, uninstalls, launches or terminates the
+app. Close Wheel in the iPhone app switcher before running renewal. Keep the phone
+unlocked and connected to the Pro by USB or an existing Xcode wireless pairing.
+Wireless Xcode pairing is separate from Tailscale access to the backend.
+
+Create the git-ignored `ios/Renew.local.json` on the Pro:
+
+```json
+{
+  "repository": "https://github.com/OWNER/REPOSITORY",
+  "branch": "YOUR_BRANCH",
+  "deviceIdentifier": "COREDEVICE_IDENTIFIER",
+  "deviceUDID": "IPHONE_UDID",
+  "bundleID": "YOUR_EXISTING_BUNDLE_ID",
+  "teamID": "YOUR_EXISTING_TEAM_ID"
+}
+```
+
+Obtain the device identifiers with `xcrun devicectl list devices --json-output
+/tmp/wheel-devices.json`; use the existing app's team and bundle ID from
+`Signing.local.xcconfig`. An optional `baselineProfileExpires` ISO timestamp can
+record the expiration of the previous locally signed build. This is not proof
+of the profile currently installed on the phone. Successful script installations
+record their exact commit and profile expiration in `ios/.renewal/last-install.json`.
+
+In macOS Shortcuts, create **Wheel iPhone Renew**, add **Run Shell Script** with
+zsh and administrator privileges off, then **Show Result** for the shell output:
+
+```sh
+/usr/bin/python3 '/ABSOLUTE/REPOSITORY/PATH/ios/renew_signing.py' --renew 2>&1
+```
+
+For a read-only readiness check, replace `--renew` with `--check`. `--build-only`
+builds and validates the actual signed package without installing it. A renewal
+requires a valid matching profile with at least 48 hours left and, when a prior
+expiration is known, a later expiration. Xcode may reuse a still-valid profile;
+that is reported as **not renewed**, and nothing is installed. The script does
+not revoke certificates or delete provisioning profiles to force renewal. Apple
+account authentication or signing errors may still require action in Xcode.
+
+All logs, build artifacts, personal settings and receipts remain git-ignored.
+Installation failures are not retried automatically. This is an on-demand Pro
+shortcut, not a scheduled background service; the Pro and iPhone must be available.
+No Mini deployment or backend/Gateway restart is needed for the helper.
+
 ## 页面与操作
 
 - **Portfolio**：点击净资产金额进入 Allocation，Performance 打开收益图，Initial margin 打开保证金详情；金额右侧的隐藏点击区展开／收起现金与流动性。股票／期权支持详情、平仓与适用的移仓流程。

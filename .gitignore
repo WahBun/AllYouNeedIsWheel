@@ -24,6 +24,8 @@ ENV/
 # Xcode local state
 .DS_Store
 ios/Signing.local.xcconfig
+ios/Renew.local.json
+ios/.renewal/
 DerivedData/
 xcuserdata/
 *.xcuserstate
