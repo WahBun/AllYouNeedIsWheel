@@ -322,7 +322,7 @@ class StockChartTests(unittest.TestCase):
             self.assertEqual(warm['bars'], first['bars'])
             conn.ib.reqHistoricalData.return_value = [S(date=datetime(2026,4,1,14,tzinfo=timezone.utc), open=3, high=4, low=2, close=3)]
             expanded = feed.snapshot(conn, 7, 480, fast=True, defer_history=True, expand_history=True)
-            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4], ('6 M', '30 mins'))
+            self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4], ('1 M', '30 mins'))
             self.assertEqual(conn.ib.reqHistoricalData.call_count, 1)
             self.assertTrue(expanded['history_expanded'])
             self.assertGreater(len(expanded['bars']), len(first['bars']))
@@ -341,6 +341,41 @@ class StockChartTests(unittest.TestCase):
 
             conn.ib.placeOrder.assert_not_called()
         finally: feed.stop(); close_test_loop()
+
+    def test_eight_hour_expansion_pages_back_and_keeps_success_after_timeout(self):
+        from unittest.mock import patch
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn, ticker = self.connection(); feed = StockChart()
+        bar = lambda month: S(date=datetime(2026,month,3 if month == 8 else 1,14,tzinfo=timezone.utc),open=10,high=11,low=9,close=10)
+        try:
+            conn.ib.reqHistoricalData.return_value = [bar(10)]
+            feed.snapshot(conn,7,480,fast=True,defer_history=True)
+            with patch('api.services.stock_chart.time.time',return_value=datetime(2026,10,18,tzinfo=timezone.utc).timestamp()):
+                conn.ib.reqHistoricalData.return_value = [bar(9)]
+                first = feed.snapshot(conn,7,480,fast=True,defer_history=True,expand_history=True)
+                self.assertFalse(first['history_expanded'])
+                self.assertEqual(conn.ib.reqHistoricalData.call_args.args[1:4], ('','1 M','30 mins'))
+                before = feed.active['rth_eight_before']
+                feed.active['rth_eight_expand_retry'] = 0
+                conn.ib.reqHistoricalData.return_value = []
+                failed = feed.snapshot(conn,7,480,fast=True,defer_history=True,expand_history=True)
+                self.assertEqual(failed['bars'],first['bars'])
+                self.assertEqual(feed.active['rth_eight_before'],before)
+                self.assertFalse(failed['history_expanded'])
+                self.assertEqual(conn.ib.reqHistoricalData.call_args.args[1].timestamp(),before)
+                feed.active['rth_eight_expand_retry'] = 0
+                conn.ib.reqHistoricalData.return_value = [bar(8)]
+                second = feed.snapshot(conn,7,480,fast=True,defer_history=True,expand_history=True)
+                self.assertGreater(len(second['bars']),len(first['bars']))
+                self.assertEqual(second['bars'][-1],first['bars'][-1])
+                self.assertFalse(second['history_expanded'])
+                feed.active['rth_eight_expand_retry'] = 0
+                conn.ib.reqHistoricalData.return_value = [bar(4)]
+                final = feed.snapshot(conn,7,480,fast=True,defer_history=True,expand_history=True)
+                self.assertTrue(final['history_expanded'])
+                self.assertEqual(len(final['bars']),4)
+                conn.ib.placeOrder.assert_not_called()
+        finally: feed.stop();close_test_loop()
 
     def test_calendar_periods_load_recent_then_expand_without_discarding_on_failure(self):
         for minutes, recent, full, size in [(1440,'1 M','1 Y','1 day'),(10080,'6 M','5 Y','1 week'),(43200,'2 Y','10 Y','1 month')]:

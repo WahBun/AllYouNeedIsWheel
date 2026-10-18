@@ -259,6 +259,11 @@ class PerformanceService:
             else:
                 text = fetch_flex(config)
             daily = parse_flex(text, config['account_id'])
+            from api.services.chart_execution_reports import archive_execution_details
+            try:
+                archive_execution_details(text, config)
+            except Exception:
+                pass  # Optional execution metadata cannot prevent performance refresh.
             from api.services.stock_cost_service import archive_costs
             try:
                 archive_costs(text, config)

@@ -30,6 +30,8 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
         if trades is None:
             trades = snapshot.get('trades', [])
         trades = snapshot.get('display_trades', trades)
+    from api.services.chart_execution_metadata import persist_metadata
+    persist_metadata(conn, db_path, account, [f for t in trades for f in t.fills], trades)
     journal = {}
     if db_path:
         with sqlite3.connect(db_path) as db:

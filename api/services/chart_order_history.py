@@ -27,6 +27,10 @@ def saved_chart_orders(conn, path, known_orders):
             marks = [dict(r) for r in db.execute(
                 'SELECT * FROM chart_execution_marks WHERE account=? ORDER BY stamp', (account,))]
             reports = {}
+            terms = {(r['con_id'], r['perm_id']): dict(r) for r in db.execute(
+                'SELECT * FROM chart_broker_terms WHERE account=?', (account,))} if 'chart_broker_terms' in tables else {}
+            fees = {(r['con_id'], r['exec_id']): dict(r) for r in db.execute(
+                'SELECT * FROM chart_execution_fees WHERE account=?', (account,))} if 'chart_execution_fees' in tables else {}
             if 'chart_realized_executions' in tables:
                 reports = {(r['con_id'], r['exec_id']): dict(r) for r in db.execute(
                     'SELECT * FROM chart_realized_executions WHERE account=?', (account,))}
@@ -44,6 +48,8 @@ def saved_chart_orders(conn, path, known_orders):
             continue
         groups.setdefault(perm, []).append(mark)
     result = []
+    from api.services.chart_execution_reports import reported_execution_details
+    reported = reported_execution_details(account) if groups else {}
     for perm, fills in groups.items():
         cids = {f['con_id'] for f in fills}
         sides = {f['side'] for f in fills}
@@ -80,7 +86,29 @@ def saved_chart_orders(conn, path, known_orders):
         if all(p and p['ready'] and p['currency'] == 'USD' and isinstance(p['realized'], (int, float))
                and math.isfinite(p['realized']) and abs(p['realized']) < 1e100 for p in pnl):
             row.update(intent='CLOSE', realized_pnl=sum(p['realized'] for p in pnl), commission_currency='USD')
-        # Saved marks do not contain original TIF/type or commission amounts.
-        # Leave those unknown; never infer them from the request journal.
+        term = terms.get((cid, perm))
+        if term and term['action'] == row['action']:
+            row.update(order_type=term['order_type'], tif=term['tif'])
+        exact = []
+        for fill in fills:
+            detail = reported.get((cid, fill['exec_id']))
+            if (detail and detail['action'] == fill['side']
+                    and math.isclose(detail['quantity'], fill['quantity'], rel_tol=1e-9)
+                    and math.isclose(detail['price'], fill['price'], rel_tol=1e-9)):
+                exact.append(detail)
+            else:
+                exact.append(None)
+        if all(exact):
+            for field in ('order_type', 'tif'):
+                values = {d[field] for d in exact}
+                if row[field] == '—' and len(values) == 1 and next(iter(values)):
+                    row[field] = next(iter(values))
+        charges = [fees.get((cid, f['exec_id'])) or detail for f, detail in zip(fills, exact)]
+        if all(f and isinstance(f['commission'], (int, float)) and math.isfinite(f['commission'])
+               and abs(f['commission']) < 1e100 and f['currency'] for f in charges):
+            currencies = {f['currency'] for f in charges}
+            if len(currencies) == 1:
+                row.update(commission=sum(f['commission'] for f in charges), commission_currency=next(iter(currencies)))
+        # Old records without exact broker evidence remain unknown.
         result.append(row)
     return result

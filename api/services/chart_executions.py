@@ -19,6 +19,8 @@ def execution_rows(conn, contract, path):
         raise ValueError('Chart executions unavailable')
     conn.refresh_execution_history()
     cid = contract.conId
+    from api.services.chart_execution_metadata import persist_metadata
+    persist_metadata(conn, path, account, conn.ib.fills(), conn.ib.trades() if hasattr(conn.ib, 'trades') else ())
     groups = {}
     record_groups = {}
     for fill in conn.ib.fills():

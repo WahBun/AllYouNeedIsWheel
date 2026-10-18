@@ -225,6 +225,7 @@ class StockChart:
         packet['history_expanded'] = bool(state.get('rth_eight_expanded'))
         packet['history_refresh_due'] = bool(state.get('rth_eight_expanded')) and time.monotonic() >= state.get('rth_eight_retry', 0)
         packet['history_expansion_attempted'] = bool(state.get('rth_eight_expand_retry'))
+        packet['history_retry_after'] = max(2, state.get('rth_eight_expand_retry', 0) - time.monotonic())
         packet['data_notice']='8h RTH · up to 6 months of intraday trade history' if state.get('rth_eight_expanded') else '8h RTH · recent intraday trade history; earlier bars load separately'
         return packet
 
@@ -436,7 +437,11 @@ class StockChart:
             retry_key = 'rth_eight_expand_retry' if expanding else 'rth_eight_retry'
             if time.monotonic() >= state.get(retry_key, 0):
                 state[retry_key] = time.monotonic() + (30 if expanding else 60)
-                history = conn.ib.reqHistoricalData(contract, '', '6 M' if expanding else '1 M', rth_source_size(minutes) if cme_regular(contract) else '30 mins', 'TRADES',
+                # Keep each owner-thread read small. Continue from the oldest
+                # successful page instead of retrying one large six-month read.
+                before = state.get('rth_eight_before') if expanding else None
+                end = datetime.fromtimestamp(before, timezone.utc) if before else ''
+                history = conn.ib.reqHistoricalData(contract, end, '1 M', rth_source_size(minutes) if cme_regular(contract) else '30 mins', 'TRADES',
                     useRTH=not cme_regular(contract), formatDate=2, keepUpToDate=False, timeout=2 if contract.secType == 'OPT' else 5)
                 older = []
                 for bar in history:
@@ -451,7 +456,11 @@ class StockChart:
                     merged.update({b['time']: b for b in older})
                     state['rth_eight_history'] = sorted(merged.values(),key=lambda b:b['time'])
                     if expanding:
-                        state['rth_eight_expanded'] = True
+                        oldest = min(b['time'] for b in older)
+                        target = state.setdefault('rth_eight_target', time.time() - 183 * 86400)
+                        state['rth_eight_expanded'] = oldest <= target or (before is not None and oldest >= before)
+                        state['rth_eight_before'] = oldest
+                        state[retry_key] = time.monotonic() + (30 if state['rth_eight_expanded'] else 2)
                         state['rth_eight_retry'] = time.monotonic() + 60
             return self.eight_hour_packet(state)
         if history_minutes >= 1440:

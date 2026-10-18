@@ -1104,6 +1104,52 @@ struct StockChartView: View {
         }
     }
     @State private var packet: [String: Any] = [:]
+    @State private var earlierBars: [[String: Any]] = []
+    @State private var earlierBarsKey = ""
+    @State private var historyBefore: Double = 0
+    @State private var historyRequestRevision = 0
+    @State private var historyRequestContext = ""
+    private var historyContext: String { context + (store.trading.accountEpoch ?? "") }
+    private func retainingHistory(_ incoming: [String: Any]) -> [String: Any] {
+        guard interval == 480, session == "rth", earlierBarsKey == historyContext else { return incoming }
+        var result = incoming
+        var rows: [Double: [String: Any]] = [:]
+        for row in earlierBars + (incoming["bars"] as? [[String: Any]] ?? []) {
+            if let time = row["time"] as? Double { rows[time] = row }
+        }
+        result["bars"] = rows.keys.sorted().suffix(20000).compactMap { rows[$0] }
+        return result
+    }
+    private func requestHistory(_ body: [String: Any]) {
+        guard visible, phase == .active, interval == 480, session == "rth",
+              body["con_id"] as? Int == chartID, body["interval"] as? Int == interval,
+              body["session"] as? String == session,
+              body["account_epoch"] as? String == store.trading.accountEpoch,
+              let before = body["before"] as? Double, before.isFinite, before > 0 else { return }
+        historyBefore = before
+        historyRequestContext = historyContext
+        historyRequestRevision += 1
+    }
+    private func loadHistoryPage() async {
+        let expected = historyContext, before = historyBefore
+        guard visible, phase == .active, !store.demo, historyRequestContext == expected, let cid = chartID,
+              interval == 480, session == "rth", before > 0,
+              packet["history_expansion_attempted"] as? Bool == true,
+              let epoch = store.trading.accountEpoch, !epoch.isEmpty else { return }
+        do {
+            let result = try await store.trading.get("api/portfolio/stock-chart-history/\(cid)", base: store.address,
+                query: [URLQueryItem(name: "interval", value: "480"), URLQueryItem(name: "session", value: "rth"), URLQueryItem(name: "before", value: String(before))])
+            try Task.checkCancellation()
+            guard historyContext == expected, result["con_id"] as? Int == cid,
+                  result["interval"] as? Int == 480, result["session"] as? String == "rth",
+                  let rows = result["bars"] as? [[String: Any]], !rows.isEmpty else { return }
+            if earlierBarsKey != expected { earlierBars = []; earlierBarsKey = expected }
+            earlierBars += rows
+            packet = retainingHistory(packet)
+            earlierBars = packet["bars"] as? [[String: Any]] ?? []
+            RecentStockCharts.save(packet, key: cacheKey)
+        } catch { /* Optional history never interrupts the current chart. */ }
+    }
     @State private var notice = "Loading chart…"
     @State private var visible = false
     @State private var received: Date?
@@ -1157,13 +1203,14 @@ struct StockChartView: View {
                     try Task.checkCancellation()
                     guard context == expectedContext, store.trading.accountEpoch == expectedEpoch, result["con_id"] as? Int == cid, result["account_epoch"] as? String == expectedEpoch else { return }
                     if let server = result["server_time"] as? Double, server >= (packet["server_time"] as? Double ?? 0) {
-                        packet = result; received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970
+                        packet = retainingHistory(result); received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970
                         RecentStockCharts.save(packet, key: expectedKey)
                     }
                     if result["history_expanded"] as? Bool == true && interval != 480 { return }
                 } catch { if Task.isCancelled { return } }
                 // Optional history may wait; current candles and order state keep refreshing.
-                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                let delay = interval == 480 ? max(2, packet["history_retry_after"] as? Double ?? 30) : 30
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
             } else {
                 do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
             }
@@ -1228,7 +1275,7 @@ struct StockChartView: View {
                         .frame(width: 36, height: 44)
                 }.buttonStyle(.plain).accessibilityLabel(fullScreen ? "Exit full screen" : "Full screen")
             }
-            StockChartWeb(backendAddress: store.address, executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, previewSide: previewSide, previewRevision: previewRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", slMode: protectionOption(chartType, "slMode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "webEntryDrag": true, "web_account_epoch": store.trading.accountEpoch ?? "", "adjustment_quantity": adjustmentQuantity, "quantity_limit": quantityLimit, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction)
+            StockChartWeb(backendAddress: store.address, executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, previewSide: previewSide, previewRevision: previewRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", slMode: protectionOption(chartType, "slMode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "webEntryDrag": true, "web_account_epoch": store.trading.accountEpoch ?? "", "adjustment_quantity": adjustmentQuantity, "quantity_limit": quantityLimit, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction, onHistory: requestHistory)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             ZStack {
                 ChartStatusControl(text: chartStatusText, highlighted: paperEnabled, hasNotice: !chartNotices.isEmpty || (quoteStatusCID == chartID && !quoteStatusMessage.isEmpty)) {
@@ -1729,6 +1776,7 @@ struct StockChartView: View {
             }
         }
         .task(id: "earlier-history-" + context + (store.trading.accountEpoch ?? "")) { await loadEarlierHistory() }
+        .task(id: "history-page-" + historyContext + String(historyRequestRevision)) { await loadHistoryPage() }
         .task(id: context) {
             // Scene transitions cancel transport, not the chart or its viewport.
             // A fresh stream must validate quotes again before Join is enabled.
@@ -1762,7 +1810,7 @@ struct StockChartView: View {
                         do {
                             try await store.trading.chartStream(base: store.address, conID: conID, interval: interval, marketSession: session) { result in
                                 guard !Task.isCancelled, context == requestContext, result["con_id"] as? Int == conID else { return }
-                                packet = result; received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
+                                packet = retainingHistory(result); received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
                                 RecentStockCharts.save(packet, key: requestCacheKey)
                                 notice = chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (result["status"] as? String == "live" ? "IB Last ticks · live push" : "Historical bars · waiting for IB Last ticks")
                             }
@@ -1783,7 +1831,7 @@ struct StockChartView: View {
                         throw AppError.message("Historical stock bars unavailable; retry shortly")
                     }
                     snapshotLoaded = true
-                    packet = result; received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
+                    packet = retainingHistory(result); received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
                     RecentStockCharts.save(packet, key: requestCacheKey)
                     notice = chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (interval >= 1440 || (interval == 480 && session == "rth")) ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks"
                 } catch {
@@ -1847,6 +1895,7 @@ private struct StockChartWeb: UIViewRepresentable {
     var paperState: [String: Any]
     var conID: Int
     var onPaper: ([String: Any]) -> Void
+    var onHistory: ([String: Any]) -> Void
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -1857,6 +1906,7 @@ private struct StockChartWeb: UIViewRepresentable {
         config.userContentController.add(context.coordinator, name: "entryChanged")
         config.userContentController.add(context.coordinator, name: "beState")
         config.userContentController.add(context.coordinator, name: "paperAction")
+        config.userContentController.add(context.coordinator, name: "historyRequest")
         let web = ChartViewportWebView(frame: .zero, configuration: config)
         web.scrollView.isScrollEnabled = false
         web.scrollView.contentInsetAdjustmentBehavior = .never
@@ -1883,6 +1933,7 @@ private struct StockChartWeb: UIViewRepresentable {
         context.coordinator.onEntry = onEntry
         context.coordinator.onBE = onBE
         context.coordinator.onPaper = onPaper
+        context.coordinator.onHistory = onHistory
         context.coordinator.config = ["executions": executions, "holdings": holdings, "display": display, "entry": entry, "quantity": quantity, "dark": dark, "entryType": entryType, "joinSide": joinSide, "joinRevision": joinRevision, "previewSide": previewSide, "previewRevision": previewRevision, "beRevision": beRevision, "tpDistance": tpDistance.isFinite ? tpDistance : 0, "slDistance": slDistance.isFinite ? slDistance : 0, "tpEnabled": tpEnabled, "slEnabled": slEnabled, "tpMode": tpMode, "slMode": slMode, "templateRevision": templateRevision, "priceRules": packet["price_rules"] ?? [], "paper": paperState, "con_id": conID, "multiplier": ChartProtectionMath.multiplier(packet: packet) ?? 0]
         context.coordinator.update()
     }
@@ -1893,6 +1944,7 @@ private struct StockChartWeb: UIViewRepresentable {
         web.configuration.userContentController.removeScriptMessageHandler(forName: "entryChanged")
         web.configuration.userContentController.removeScriptMessageHandler(forName: "beState")
         web.configuration.userContentController.removeScriptMessageHandler(forName: "paperAction")
+        web.configuration.userContentController.removeScriptMessageHandler(forName: "historyRequest")
         web.stopLoading(); web.loadHTMLString("", baseURL: nil)
     }
     class Coordinator: NSObject, WKScriptMessageHandler {
@@ -1911,6 +1963,7 @@ private struct StockChartWeb: UIViewRepresentable {
         var onEntry: ((Double) -> Void)?
         var onBE: ((Bool) -> Void)?
         var onPaper: (([String: Any]) -> Void)?
+        var onHistory: (([String: Any]) -> Void)?
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             if message.name == "drawingSync", let body = message.body as? [String: Any], let requestID = body["requestID"] as? String, let cid = body["cid"] as? Int, cid > 0,
                let operations = body["operations"] as? [[String: Any]], let base = URL(string: backendAddress), base.scheme == "https", base.host != nil {
@@ -1941,6 +1994,7 @@ private struct StockChartWeb: UIViewRepresentable {
                 if let magnet = value["magnet"] as? String { UserDefaults.standard.set(magnet, forKey: "chartDrawingMagnet") }
                 if let collapsed = value["collapsed"] as? Bool { UserDefaults.standard.set(collapsed, forKey: "chartDrawingCollapsed") }
             } else if message.name == "paperAction", let body = message.body as? [String: Any] { onPaper?(body)
+            } else if message.name == "historyRequest", let body = message.body as? [String: Any] { onHistory?(body)
             } else if message.name == "beState", let applied = message.body as? Bool { onBE?(applied)
             } else if message.name == "entryChanged", let price = message.body as? Double, price.isFinite, price >= 0 {
                 onEntry?(price)

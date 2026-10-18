@@ -33,6 +33,8 @@ def realized_snapshot(connection, con_id, path, now=None):
     fills = [f for f in connection.ib.fills()
              if f.execution.acctNumber == account and f.contract.conId == con_id]
     now = now or datetime.now(timezone.utc)
+    from api.services.chart_execution_metadata import persist_metadata
+    persist_metadata(connection, path, account, fills)
     # Persist pending reports too: a partial result must not masquerade as a total.
     with sqlite3.connect(path, timeout=.1) as db:
         db.execute('''CREATE TABLE IF NOT EXISTS chart_realized_executions (

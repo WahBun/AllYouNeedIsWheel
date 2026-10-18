@@ -3452,3 +3452,59 @@ local synthetic measurements, not deployed Mini/IB benchmarks.
 one-month refreshes run separately when due and merge into the retained older
 range. Verified refresh does not discard the six-month prefix. D/W/M keep their
 existing live historical subscription updates.
+
+
+## 2026-10-18: RTH 8h paging and historical execution metadata
+
+8h RTH expansion now requests one month of intraday trades per background read,
+then resumes from the oldest successful source bar until the six-month target.
+Failed/empty pages retain both existing candles and the cursor. Successful partial
+pages advertise a short retry; foreground reads still use the existing cached path.
+The native chart now forwards user-driven left-edge history requests to the existing
+paged endpoint, scopes tasks to contract/interval/session/account epoch, and retains
+paged candles across ordinary snapshots. Initial viewport changes do not trigger
+native paging. Web main/auxiliary pagination and existing session-open aggregation
+remain unchanged; no daily settlement bars substitute for 8h intraday trades.
+
+Orders recovery now saves broker-observed order type/TIF by account/conId/permId
+and commission reports by exact account/conId/execId. Sparse late replies do not
+erase fees; conflicting duplicate fee reports remain unknown. Execution corrections
+do not inherit fees from an earlier revision. Existing realized-P&L calculations
+are unchanged.
+
+The existing Performance Flex worker additionally archives EXECUTION-level trade
+metadata in its private history database. Recovered Orders rows can use that archive
+only with exact account, contract, execution ID, action, quantity and price matches.
+ORDER summaries and closed lots are excluded. Flex commission cash-flow signs are
+converted to displayed costs (rebates stay negative). No extra network request runs
+on the IB owner thread, and report credentials remain in existing private config.
+A read-only check against the configured Mini report matched all five locally saved
+executions, including the three screenshot rows, with official type and commission.
+The current report does not include TIF; historical DAY/GTC without exact broker
+term evidence remains unknown. Do not infer it from requested journal bodies or
+another protection leg. New observed terms persist for later recovery.
+
+REA analyzed current superchart.js/chart-layout.js startup and history request flow
+(parent ev_1595a523c7d143c4d8182eb2b27aabbcd5a1bcc4ff95d5b0d7a58d75557cf896),
+and the Orders module (parent ev_ed2b5d8d6246bf9a350876b79d84daef2df772e6b322ae7bc40e102554a4502d).
+These were bounded static analyses, supplemented by source tracing, actual browser
+checks, and read-only deployed-version/report checks. Mini was at 963ae97 before
+this fix; it has not been updated or restarted by this task.
+
+Validation: 87 focused backend tests passed, covering monthly paging/failure
+recovery, execution account/correction/partial-fill isolation, official-report
+matching, and existing performance/stock-cost/P&L behavior. iOS Simulator's 110
+TradingTests/ChartLiveManagementTests passed. native-history.cjs passed light/dark
+left-edge requests, throttling, viewport preservation and symbol isolation;
+eight-hour-history.cjs passed desktop/mobile main/auxiliary overlap; deferred-history
+passed 8h/D/W/M first paint and rapid symbol switching. The protected 1/2/3/4-pane,
+two-four-pane-page and long-history latency matrix and interaction/recovery checks
+passed without rejected transports or trading POSTs. Tests use fixtures, except the
+explicit read-only official Flex matching check; actual deployed history latency
+and physical-device acceptance remain to be checked after the user's deployment.
+
+Follow-up: user-operated Deploy & Restart Backend, Xcode Run, and web refresh.
+The first existing Flex background refresh populates the execution-detail archive;
+Orders may initially retain blanks until it finishes. No Gateway restart, broker
+write, Mini code/database edit, or physical-device installation was performed.
+Preserve the pre-existing project.pbxproj and Localizable.xcstrings local changes.

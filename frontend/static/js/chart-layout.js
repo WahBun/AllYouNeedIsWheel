@@ -124,7 +124,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   if(!(c.interval>=1440||(c.interval===480&&c.session==='rth'))||!c.epoch||loading()||document.hidden||initialReadPending||expansionController||Date.now()<historyQuietUntil||Date.now()<(expansionRetry.get(key)||0))return null;
   const controller=expansionController=new AbortController();expansionRetry.set(key,Date.now()+30000);
   if(expansionRetry.size>32)expansionRetry.delete(expansionRetry.keys().next().value);
-  try{return await api(`portfolio/stock-chart/${c.cid}?interval=${c.interval}&session=${c.session}&defer_history=1&expand_history=1`,undefined,signal?AbortSignal.any([signal,controller.signal]):controller.signal);}
+  try{const packet=await api(`portfolio/stock-chart/${c.cid}?interval=${c.interval}&session=${c.session}&defer_history=1&expand_history=1`,undefined,signal?AbortSignal.any([signal,controller.signal]):controller.signal);if(c.interval===480&&!packet.history_expanded)expansionRetry.set(key,Date.now()+Math.max(2,Number(packet.history_retry_after)||30)*1000);return packet;}
   catch(error){if(error.retryableReadBusy)expansionRetry.set(key,Date.now()+2000);throw error;}
   finally{if(expansionController===controller)expansionController=null;}
  }
