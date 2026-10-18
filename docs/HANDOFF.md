@@ -39,9 +39,14 @@ project. The successful isolated project closes after Build. Original projects
 and private signing settings remain unchanged. Earlier failed runs restored
 profile backups and were not reported as renewals.
 
-A protected-branch push was rejected by automatic approval review. Continue on
-`codex/ios-signing-renewal` with a PR into `codex/chart-labels-1.7`; do not bypass
-branch protection. The Pro shortcut is configured for that exact GitHub branch.
+The signing repair was submitted through `codex/ios-signing-renewal` after a
+protected-branch push was rejected by automatic approval review. The user then
+requested merging PR #1 back into `codex/chart-labels-1.7` and returning the Pro
+shortcut to that original branch. After merging, use the clean GitHub merge
+commit on `codex/chart-labels-1.7`, update the private renewal branch setting,
+and verify `--check`. The shortcut retains `--build-only`; physical installation
+remains manual. Preserve branch protection and retain the source branch unless
+its deletion is separately authorized.
 This change needs no Mini deployment or backend restart. The user performs
 manual installation when ready; local signing success does not change the
 currently installed phone app.
