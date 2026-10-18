@@ -1,3 +1,40 @@
+## 2026-10-18 — position-based default price axes
+
+In two-, three- and four-pane web layouts, left-column panes now default to
+left price axes and right-column panes to right axes. Single-pane defaults to
+right. Active trading host changes and maximize/restore do not change that
+rule. Reordering/recreating panes recomputes automatic defaults. Explicit
+axis menu choices use a separate per-pane override and survive reload and
+layout changes. Old saves did not distinguish automatic/manual sides, so
+legacy saved sides adopt the new position defaults once.
+
+REA reuses the deployed-page capture
+`ev_ca6c83f3d93053f3f70897a5df371c51b1af9aa250adf4483d12896dda624adb`.
+Both captured scripts still exactly matched the starting checkout:
+chart-layout SHA-256 `ee2747ffa5101380567a547f2b2543fdecfceec6c28e4e15c7b53f52e7ac495f`,
+superchart SHA-256 `3a050b943cf46b13e88b79029529c049f06be44e8da4657564fcd90798990209`.
+Its role-based auxiliary-left initialization explained the inverted two-column
+default and stale sides after reordering. The new position rule is the user's
+requested behavior, not a claim about TradingView defaults.
+
+Four actual-host scenarios pass: desktop/mobile widths, light/dark, initially
+active left/right panes, every layout, repeated activation, maximize/restore,
+manual changes on active/inactive panes, reload, persistent overrides and
+continued synthetic ticks. Two active alert lines are included per pane.
+Seven refresh scenarios pass (1/2/3/4 panes, two four-pane windows and 6000-bar
+history): all 23 pane observations receive 30/30 steady ticks, preserve the
+200-tick burst extremes and measure source-to-apply p95 of 2–8 ms, within the
+preceding 2–8 ms range. Repeated layouts, reconnect and visibility recovery pass;
+price-axis menu/anchors, shared Plus-button state and One-click/Confirm entry
+regressions also pass. These are local synthetic checks, not broker acceptance.
+A read-only Mini check still reports clean commit
+`cec405947e1e4da672b25feeaece415e7cf8d045`.
+No production deployment, restart, physical-device Run or broker write occurred.
+This batch changes only web host scripts: **Deploy only**, then refresh the page;
+no iPhone Run is needed for this axis-default change. Prior native alert changes
+still require the user's Run if not yet installed. Existing signing/localization
+edits are preserved outside this commit.
+
 ## 2026-10-18 — alert drag, axis labels and shared magnet
 
 The user corrected the report: iOS editing works; only web drags snap back.
