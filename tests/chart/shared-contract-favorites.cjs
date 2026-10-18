@@ -30,6 +30,20 @@ const {start}=require('./market-feed/harness.cjs');
   await a.waitForFunction(()=>document.querySelector('#favorite-contracts option[value="8"]'));
   await b.evaluate(()=>window.dispatchEvent(new Event('focus')));
   await b.waitForFunction(()=>document.querySelector('#favorite-contracts option[value="8"]'));
+  for(const p of [a,b]){
+   // Model a native picker's pending choice before the user commits its change event.
+   await p.locator('#favorite-contracts').focus();
+   await p.evaluate(()=>{window.pendingFavorite=document.querySelector('#favorite-contracts option[value="8"]');document.getElementById('favorite-contracts').value='8';});
+   const response=p.waitForResponse(r=>r.url().endsWith('/api/chart-favorites')&&r.request().method()==='GET');
+   await p.evaluate(()=>window.dispatchEvent(new Event('focus')));await response;
+   await p.waitForFunction(()=>!document.getElementById('favorite-contract').disabled);
+   assert.equal(await p.evaluate(()=>pendingFavorite.isConnected),true,'Unchanged sync retains native picker options');
+   assert.equal(await p.locator('#favorite-contracts').inputValue(),'8','Unchanged sync retains the pending choice');
+  }
+  rows.set(9,{rev:++revision,value:{id:9,label:'SYNTH9'}});
+  await b.evaluate(()=>window.dispatchEvent(new Event('focus')));
+  await b.waitForFunction(()=>document.querySelector('#favorite-contracts option[value="9"]'));
+  assert.equal(await b.locator('#favorite-contracts').inputValue(),'8','A new shared favorite preserves the pending existing choice');
   await b.locator('#favorite-contracts').selectOption('8');
   await b.waitForFunction(()=>document.getElementById('favorite-contract').getAttribute('aria-pressed')==='true'&&!document.getElementById('favorite-contract').disabled);
   await b.locator('#favorite-contract').click();

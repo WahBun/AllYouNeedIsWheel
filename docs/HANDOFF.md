@@ -1,3 +1,39 @@
+## 2026-10-18 — UI review: toolbar focus and favorites refresh
+
+Baseline: GitHub `codex/chart-labels-1.7` at
+`fcac658b43be65d26ed8c09b14638e6b1117d419`. Continued the authorized UI review
+with two reproducible toolbar issues. Selecting a quick interval rebuilt its
+button and moved keyboard focus to the page body. Retain focus on that interval
+without scrolling, and expose its selected state to assistive technology.
+Favorites synchronization rebuilt the native picker even for identical data,
+clearing a pending selection. Leave unchanged options intact; when the list
+changes, retain the selected contract if it still exists. Existing selection,
+bookmark writes, layout, chart delivery and trading behavior are unchanged.
+
+REA inspected the actual Wheel page and loaded scripts in
+`ev_2a43ed288c887c23a7ac8afc87cf1053db8879cfbe275a13882aab17c0e12cfc`.
+The deployed host script has an older overall digest, but both affected function
+blocks exactly matched the local baseline before editing. REA also captured
+the open reference chart toolbar in
+`ev_1073491c8490e568ab7e1a1fcc86cb284789a29b6dcdcdf9db0e35a775cdf38b`.
+Preserve that established compact layout; the focus/refresh fixes are Wheel
+adaptations, not claims about unobserved reference keyboard behavior.
+
+Both failures reproduced in isolated full-page fixtures at 1440px and 393px.
+Validation passed: all 67 frontend tests; shared favorites across desktop/mobile,
+including unchanged refresh, a newly added favorite and cached old templates;
+toolbar keyboard selection at 1920/1400/1280/1024/393px, light/dark themes,
+four-chart rendering, interval menus and fullscreen. Reviewed desktop/mobile
+screenshots. Updated the toolbar test's obsolete visible-header-settings
+expectation to the existing chart-axis settings placement. Favorites' pending
+native selection was modeled through DOM state; no physical-device picker or
+real broker action was exercised. No new live tick-performance claim is made.
+
+This batch changes only one browser script plus tests and this record.
+Recommend **Deploy only**, then refresh the page. Respect accumulated shortcut
+restart advice if earlier backend changes still await deployment/restart.
+No Mini deployment, backend/Gateway restart or iPhone Run was performed.
+
 ## 2026-10-18 — UI review: instrument-search feedback and settings navigation
 
 Baseline: GitHub `codex/chart-labels-1.7` at

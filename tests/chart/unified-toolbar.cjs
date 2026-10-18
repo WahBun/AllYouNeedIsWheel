@@ -10,7 +10,7 @@ const {start}=require('./market-feed/harness.cjs');
    await page.setViewportSize({width,height:1000});await page.waitForFunction(width=>document.body.classList.contains('unified-chart-toolbar')===(width>=1280),width);
    const result=await page.evaluate(()=>{const header=document.querySelector('body>header'),nav=document.querySelector('nav'),h=header.getBoundingClientRect();return {headerHeight:h.height,navInHeader:nav.parentElement===header,chartTop:document.getElementById('chart-grid').getBoundingClientRect().top,headerBottom:h.bottom,scrollWidth:document.documentElement.scrollWidth,viewport:innerWidth,controls:[...nav.querySelectorAll('.toolbar-instrument,#intervals,.interval-picker,.toolbar-end'),document.getElementById('settings')].map(e=>{const r=e.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}}),centerX:(document.querySelector('.toolbar-center').getBoundingClientRect().left+document.querySelector('.toolbar-center').getBoundingClientRect().right)/2,sameNodes:toolbarOriginalNodes.every(e=>e.isConnected)};});
    assert.equal(result.navInHeader,width>=1280);assert.ok(result.scrollWidth<=width,'No page overflow at '+width);assert.equal(result.sameNodes,true,'Controls and chart frames are retained');
-   assert.equal(await page.locator('#settings').evaluate(e=>e.getBoundingClientRect().height),width>=1280?34:40,'Desktop styling leaves narrow controls unchanged');
+   assert.equal(await page.locator('#settings').isHidden(),true,'Settings remain in the chart-axis menu');
    if(width===1920||(dark&&width>=1400))assert.ok(Math.abs(result.centerX-width/2)<1,'Instrument and interval group centers on the whole toolbar');
    if(width>=1280){assert.equal(result.headerHeight,58);assert.equal(result.chartTop,result.headerBottom,'Chart starts directly below one toolbar row');for(const r of result.controls){assert.ok(r.top>=0&&r.bottom<=58&&r.left>=0&&r.right<=width,'Controls fit one row at '+width);}}
    await page.locator('#interval').click();
@@ -22,6 +22,15 @@ const {start}=require('./market-feed/harness.cjs');
    await page.locator('#interval').click();await page.locator('#interval-menu').getByRole('button',{name:'5m',exact:true}).click();await page.waitForFunction(()=>document.getElementById('chart').contentDocument.getElementById('chart-title')?.textContent.endsWith('· 5')&&!document.getElementById('chart-grid').hasAttribute('aria-busy'));
    const strip=await page.locator('#intervals button.active').evaluate(e=>({height:e.getBoundingClientRect().height,border:getComputedStyle(e).borderTopWidth,background:getComputedStyle(e).backgroundColor}));
    assert.equal(strip.height,34);assert.equal(strip.border,'0px');assert.notEqual(strip.background,'rgb(49, 95, 196)','Compact interval selection uses neutral emphasis');
+   await page.locator('#intervals [data-interval="15"]').focus();await page.keyboard.press('Enter');
+   await page.waitForFunction(()=>document.getElementById('chart').contentDocument.getElementById('chart-title')?.textContent.endsWith('· 15')&&!document.getElementById('chart-grid').hasAttribute('aria-busy'));
+   assert.equal(await page.evaluate(()=>document.activeElement===document.querySelector('#intervals [data-interval="15"]')),true,'Keyboard focus stays on the selected interval');
+   assert.equal(await page.locator('#intervals [data-interval="15"]').getAttribute('aria-pressed'),'true');
+   assert.equal(await page.locator('#intervals [data-interval="5"]').getAttribute('aria-pressed'),'false');
+   await page.keyboard.press('Tab');assert.equal(await page.evaluate(()=>document.activeElement.dataset.interval),'60','Tab continues to the next interval');
+   await page.keyboard.press('Enter');await page.waitForFunction(()=>document.getElementById('chart').contentDocument.getElementById('chart-title')?.textContent.endsWith('· 1h')&&!document.getElementById('chart-grid').hasAttribute('aria-busy'));
+   assert.equal(await page.evaluate(()=>document.activeElement.dataset.interval),'60');
+   await page.locator('#intervals [data-interval="5"]').click();await page.waitForFunction(()=>!document.getElementById('chart-grid').hasAttribute('aria-busy'));
    for(const selector of ['#layout-button','#session-button']){await page.locator(selector).click();await page.keyboard.press('Escape');}
    if([1920,393].includes(width))await page.screenshot({path:`/tmp/wheel-unified-${width}-${dark?'dark':'light'}.png`});
   }

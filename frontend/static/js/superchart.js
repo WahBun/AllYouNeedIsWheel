@@ -89,7 +89,12 @@ $('favorite-contracts').setAttribute('aria-label','Favorite contracts');
 function renderContractFavorites(){
  const saved=contractFavorites.some(x=>x.id===cid),button=$('favorite-contract');button.disabled=!cid||!favoritesSync.ready||favoritesSync.busy;button.textContent=saved?'★':'☆';button.setAttribute('aria-pressed',String(saved));
  button.title=saved?'Remove favorite':'Favorite current contract';button.setAttribute('aria-label',button.title);
- const menu=$('favorite-contracts');menu.replaceChildren(new Option('Favorites',''),...contractFavorites.map(x=>new Option(x.label,String(x.id))));menu.value='';
+ const menu=$('favorite-contracts'),options=[['','Favorites'],...contractFavorites.map(x=>[String(x.id),x.label])];
+ // Background sync must not reset an in-progress native picker selection.
+ if(menu.options.length!==options.length||options.some(([value,label],i)=>menu.options[i].value!==value||menu.options[i].text!==label)){
+  const selected=menu.value;menu.replaceChildren(...options.map(([value,label])=>new Option(label,value)));
+  menu.value=options.some(([value])=>value===selected)?selected:'';
+ }
 }
 $('favorite-contract').onclick=()=>{
  if(!cid)return;
@@ -626,13 +631,15 @@ $('contracts').onchange=()=>select(Number($('contracts').value),$('contracts').s
 const periods=[[1,'1m','Minutes'],[3,'3m','Minutes'],[5,'5m','Minutes'],[10,'10m','Minutes'],[15,'15m','Minutes'],[60,'1h','Hours'],[480,'8h','Hours'],[1440,'1D','Days'],[10080,'1W','Days'],[43200,'1M','Days']];
 let favorites=stored('wheel.chart.intervals');favorites=Array.isArray(favorites)?favorites.filter(v=>periods.some(p=>p[0]===v)):[1,5,15,60,480];
 function renderIntervals(){
+ const focused=$('intervals').contains(document.activeElement)?document.activeElement.dataset.interval:null;
  $('intervals').replaceChildren();$('interval-menu').replaceChildren();let group='';
  for(const [value,label,section] of periods){
-  if(favorites.includes(value)){const b=document.createElement('button');b.textContent=label.replace(/^1([DWM])$/,'$1');b.dataset.interval=value;b.classList.toggle('active',interval===value);b.onclick=()=>changeInterval(value);$('intervals').append(b);}
+  if(favorites.includes(value)){const b=document.createElement('button');b.textContent=label.replace(/^1([DWM])$/,'$1');b.dataset.interval=value;b.classList.toggle('active',interval===value);b.setAttribute('aria-pressed',String(interval===value));b.onclick=()=>changeInterval(value);$('intervals').append(b);}
   if(group!==section){const heading=document.createElement('div');heading.className='interval-heading';heading.textContent=section.toUpperCase();$('interval-menu').append(heading);group=section;}
   const row=document.createElement('div');row.className='interval-row';const choose=document.createElement('button');choose.textContent=label;choose.classList.toggle('active',interval===value);choose.onclick=()=>{changeInterval(value);closeIntervalMenu(true);};const star=document.createElement('button');star.dataset.interval=value;star.textContent=favorites.includes(value)?'★':'☆';star.setAttribute('aria-label','Favorite '+label);star.setAttribute('aria-pressed',String(favorites.includes(value)));star.onclick=()=>{favorites=favorites.includes(value)?favorites.filter(v=>v!==value):[...favorites,value];localStorage.setItem('wheel.chart.intervals',JSON.stringify(favorites));renderIntervals();$('interval-menu').querySelector(`[data-interval="${value}"]`)?.focus();};row.append(choose,star);$('interval-menu').append(row);
  }
  $('interval').title='Current interval: '+(periods.find(p=>p[0]===interval)?.[1]||interval);
+ if(focused)$('intervals').querySelector(`[data-interval="${focused}"]`)?.focus({preventScroll:true});
 }
 function changeInterval(value){if(busy)return;interval=value;generation++;marketStream.stop();lastFallback=0;lastPnL=0;renderIntervals();chartTransition();refresh();}
 function closeIntervalMenu(focus=false){$('interval-menu').hidden=true;$('interval').setAttribute('aria-expanded','false');if(focus)$('interval').focus();}
