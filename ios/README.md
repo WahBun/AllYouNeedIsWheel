@@ -29,8 +29,9 @@ The script does not require Wheel to be closed because it never installs,
 launches, terminates or uninstalls the phone app.
 
 The helper requires a clean checkout equal to its configured GitHub branch and
-builds an isolated archive of that exact commit. It backs up only cached profiles
-matching the existing team, bundle ID and iPhone, removes those copies, and calls
+builds an isolated archive of that exact commit. The copy uses a unique project
+name to keep Xcode scripting results separate from open developer projects. It backs up only cached profiles
+matching the existing team, bundle ID and iPhone, removes those copies, waits for Xcode to finish preparing a freshly issued profile, and calls
 Xcode's documented **Build** AppleScript interface. This avoids Xcode 27's CLI
 account lookup failure and reuse of a still-valid profile. Certificates, account
 credentials, other apps' profiles and the original project are untouched.

@@ -21,7 +21,30 @@ issuance, at least six days remaining, and strictly extended expiration.
 Failed builds restore the previous cache; interrupted runs recover then stop.
 Personal configuration, profiles and receipts are ignored. No device install,
 launch, app termination, Mini service change or broker operation is included.
-Validation results will be recorded after exercising the native Build path.
+Validation: 11 focused tests passed. The real **Wheel iPhone Renew** shortcut
+completed its full prepare/build/verify/result flow on the Pro from GitHub
+`codex/ios-signing-renewal` at `57f7ed818fa257701171aeeece8f9e94996f3165`.
+The signed package profile was issued 2026-10-18 09:47:40 UTC and expires
+2026-10-25 09:47:40 UTC (17:47:40 Asia/Shanghai), exactly seven days later.
+Its expiration is strictly later than the newest pre-run cached profile
+(2026-10-25 09:45:11 UTC). The package passed codesign verification and
+app/team/device checks; the native shortcut displayed **Signing renewed. No
+iPhone installation.** The private build receipt points to the actual `.app`.
+No physical installation or launch was performed.
+
+The real replay also identified and fixed two Xcode scripting details: wait for
+asynchronous profile preparation before Build, and give the isolated project a
+unique filename so action-result references cannot bind another open Wheel
+project. The successful isolated project closes after Build. Original projects
+and private signing settings remain unchanged. Earlier failed runs restored
+profile backups and were not reported as renewals.
+
+A protected-branch push was rejected by automatic approval review. Continue on
+`codex/ios-signing-renewal` with a PR into `codex/chart-labels-1.7`; do not bypass
+branch protection. The Pro shortcut is configured for that exact GitHub branch.
+This change needs no Mini deployment or backend restart. The user performs
+manual installation when ready; local signing success does not change the
+currently installed phone app.
 
 ## 2026-10-18 — Pro iPhone signing-renewal shortcut
 
