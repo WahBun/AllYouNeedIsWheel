@@ -166,6 +166,21 @@ class NotificationsTests(unittest.TestCase):
             self.assertEqual(json.loads(requests[0].content)['wheel_kind'],'fill')
         finally: client.close()
 
+    def test_sdk_local_cancel_waits_for_broker_completed_evidence(self):
+        self.store.observe_order(self.scope,'42','Submitted','TEST','IB Paper')
+        self.runtime.conn=SimpleNamespace(account_id='DU_TEST')
+        self.runtime.scope=self.scope;self.runtime.mode='IB Paper'
+        trade=SimpleNamespace(order=SimpleNamespace(account='DU_TEST',permId=42,action='BUY',totalQuantity=1,transmit=False),
+            orderStatus=SimpleNamespace(status='Cancelled'),contract=SimpleNamespace(localSymbol='TEST',symbol='TEST'))
+        self.runtime.order(trade)
+        self.assertTrue(self.runtime.queue.empty());self.assertFalse(self.events())
+        self.assertIn('42',self.runtime.cancel_candidates)
+        self.runtime.order(trade,confirmed=True)
+        self.runtime.process(self.runtime.queue.get_nowait())
+        self.assertEqual(len(self.events()),1)
+        self.runtime.order(trade);self.runtime.order(trade,confirmed=True)
+        self.assertTrue(self.runtime.queue.empty());self.assertFalse(self.runtime.cancel_candidates)
+
     def test_terminal_orders_do_not_regress(self):
         for status in ['Submitted','Filled','Submitted','Cancelled']:
             self.store.observe_order(self.scope,'100',status,'TEST','IB Paper')

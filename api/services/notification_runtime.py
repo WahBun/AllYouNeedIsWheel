@@ -24,6 +24,8 @@ class NotificationRuntime:
         self.next_orders = 0
         self.next_completed = 0
         self.tracked_orders = {}
+        self.cancel_candidates = set()
+        self.confirmed_cancels = set()
         self.gap = False
         self.health = 'Waiting for a live quote'
 
@@ -41,16 +43,32 @@ class NotificationRuntime:
             self.conn.ib.orderStatusEvent -= self.order
             self.conn.ib.execDetailsEvent -= self.fill
         self.conn = None
+        self.cancel_candidates.clear()
+        self.confirmed_cancels.clear()
         self.enqueue(('reset',))
 
-    def order(self, trade):
+    def order(self, trade, confirmed=False):
         if not self.conn or getattr(trade.order, 'account', '') != self.conn.account_id: return
         order = trade.order
         # permId survives reconnects and is independent of the API client ID.
         ident = str(order.permId) if order.permId else None
         if ident:
+            status = trade.orderStatus.status
+            if status in ('Cancelled', 'ApiCancelled'):
+                if ident in self.confirmed_cancels: return
+                if not confirmed:
+                    # ib_async can synthesize Cancelled locally for untransmitted
+                    # or inactive orders. Require IB's completed-order response.
+                    if ident not in self.cancel_candidates: self.next_completed = 0
+                    self.cancel_candidates.add(ident)
+                    return
+                self.confirmed_cancels.add(ident)
+                self.cancel_candidates.discard(ident)
+                status = 'Cancelled'
+            elif confirmed:
+                self.cancel_candidates.discard(ident)
             label = f"{trade.contract.localSymbol or trade.contract.symbol} · {order.action} {order.totalQuantity:g}"
-            self.enqueue(('order', self.scope, ident, trade.orderStatus.status, label, self.mode))
+            self.enqueue(('order', self.scope, ident, status, label, self.mode))
 
     def fill(self, trade, fill):
         if not self.conn: return
@@ -124,10 +142,10 @@ class NotificationRuntime:
                     for trade in trades: self.order(trade)
                     known = {str(t.order.permId) for t in trades if t.order.permId}
                     missing = self.tracked_orders.get(scope, set()) - known
-                    if missing and now >= self.next_completed:
-                        self.next_completed = now + 60
+                    if (missing or self.cancel_candidates) and now >= self.next_completed:
+                        self.next_completed = now + (15 if self.cancel_candidates else 60)
                         for trade in conn._bounded_order_read(conn.ib.reqCompletedOrders, False, timeout_seconds=3) or []:
-                            self.order(trade)
+                            self.order(trade, confirmed=True)
                     for fill in conn.ib.fills(): self.fill(None, fill)
                 except Exception:
                     log.warning('Notification order reconciliation paused')
