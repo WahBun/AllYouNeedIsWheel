@@ -68,6 +68,14 @@ def stop_alert(ident):
     return jsonify(status='stopped')
 
 
+@bp.post('/alerts/<int:cid>/clear-history')
+def clear_alert_history(cid):
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict): raise ValueError('Invalid alert history')
+    runtime, scope, _ = context()
+    return jsonify(cleared=runtime.store.clear_alert_history(scope, cid, body.get('ids')))
+
+
 @bp.route('/devices', methods=['GET', 'POST'])
 def devices():
     runtime, scope, _ = context(request.method == 'POST')

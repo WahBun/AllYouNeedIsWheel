@@ -44,6 +44,35 @@ class NotificationsTests(unittest.TestCase):
         self.runtime.process(('reset',)); self.prices(99)
         self.prices(101, start=self.start+100)
         self.assertFalse(self.events())
+
+    def test_clear_history_keeps_active_new_other_scopes_and_retry_identity(self):
+        active = self.alert()
+        stopped = self.alert(); self.store.stop_alert(self.scope, stopped['id'])
+        fired = self.alert(); self.store.fire(fired, 101, 'IB Paper')
+        removed = self.alert(drawing='old-ray')
+        with self.store.connect() as db:
+            db.execute("UPDATE alerts SET state='drawing_removed' WHERE id=?", (removed['id'],))
+        other = self.store.create_alert(self.other, 7, 'OTHER', dict(id=str(uuid.uuid4()), price=100))
+        self.store.stop_alert(self.other, other['id'])
+        contract = self.store.create_alert(self.scope, 8, 'ANOTHER', dict(id=str(uuid.uuid4()), price=100))
+        self.store.stop_alert(self.scope, contract['id'])
+        seen = [a['id'] for a in [stopped, fired, removed, active, other, contract]]
+        newer = self.alert(); self.store.stop_alert(self.scope, newer['id'])
+        events = self.events()
+        self.assertEqual(self.store.clear_alert_history(self.scope, 7, seen), 3)
+        self.assertEqual({a['id'] for a in self.store.alerts(self.scope, 7)}, {active['id'], newer['id']})
+        self.assertEqual(self.store.clear_alert_history(self.scope, 7, seen), 0)
+        self.assertEqual(self.store.alerts(self.other, 7)[0]['id'], other['id'])
+        self.assertEqual(self.store.alerts(self.scope, 8)[0]['id'], contract['id'])
+        self.assertEqual(self.events(), events)
+        replay = self.store.create_alert(self.scope, 7, 'TEST', dict(id=stopped['id'], price=100))
+        self.assertEqual(replay['state'], 'stopped')
+        self.assertFalse(self.store.fire(fired, 101, 'IB Paper'))
+        restored = NotificationStore(self.path)
+        self.assertEqual({a['id'] for a in restored.alerts(self.scope, 7)}, {active['id'], newer['id']})
+        for invalid in [None, 'all', [False], [newer['id'], 'bad-id']]:
+            with self.assertRaises(ValueError): restored.clear_alert_history(self.scope, 7, invalid)
+        self.assertEqual({a['id'] for a in restored.alerts(self.scope, 7)}, {active['id'], newer['id']})
     def test_every_crossing_cooldown(self):
         a = self.store.create_alert(self.scope, 7, 'TEST', dict(id=str(uuid.uuid4()), price=100, condition='up', repeat='every'))
         self.runtime.active = [a]; self.prices(99, 101, 99, 101)
@@ -252,6 +281,13 @@ class NotificationsTests(unittest.TestCase):
                 self.assertEqual(client.get('/api/notifications/events').status_code,200)
                 self.assertEqual(client.post('/api/notifications/alerts/'+body['id']+'/stop',json={},headers=headers).status_code,200)
                 self.assertEqual(self.store.alerts()[0]['state'],'stopped')
+                clear_url=endpoint+'/clear-history'; clear_body={'ids':[body['id']]}
+                self.assertEqual(client.post(clear_url,json=clear_body).status_code,403)
+                self.assertEqual(client.post(clear_url,json=clear_body,headers={'X-All-You-Need-Is-Wheel':'1'}).status_code,409)
+                self.assertEqual(client.post(clear_url,json=[],headers=headers).status_code,400)
+                self.assertEqual(client.post(clear_url,json=clear_body,headers=headers).json['cleared'],1)
+                self.assertEqual(client.get(endpoint,headers=headers).json['alerts'],[])
+                self.assertEqual(client.post(clear_url,json=clear_body,headers=headers).json['cleared'],0)
         finally:
             app.extensions['ib_background_stop'].set();app.extensions['ib_api_executor'].shutdown(wait=True)
 

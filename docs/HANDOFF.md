@@ -1,3 +1,50 @@
+## 2026-10-18 — alert editor cleanup and chart icon contrast
+
+Four scoped requests are included:
+- Context-menu alert/buy/sell icons retain their 20px footprint with 1.5px
+  strokes instead of 1px. The alarm plus stays inside the SVG and no longer
+  overlaps the lower-right clock leg. The live page reported DPR 1, scale 1,
+  and untransformed panes; local DPR-1 replay reproduced the thin appearance.
+- Saved alerts has **Clear history** beside its heading. It clears only the
+  displayed stopped/triggered/ray-removed IDs for the current account/contract.
+  Active and newly arrived records remain, including terminal records that
+  were not in the clicked snapshot. Failed writes reconcile by reading; they
+  are never automatically resent. Terminal identities are retained in storage
+  with a separate visibility marker so late create retries cannot rearm them.
+  Events, deliveries, drawings and broker order evidence are unchanged.
+- The shared Price alert dialog uses an accessible top-right close icon.
+- The green Fib retracement line/price label changes from #71ac6d to #2e7d32.
+  It is the displayed 0.618 retracement (internal complementary ratio .382);
+  calculation, line width, other levels and extension-tool colors are unchanged.
+
+REA passively inspected the deployed page in
+`ev_279b51c5eecfcaa542a2a836c5bdc4fa909f3d0a1d0136e58bdbc14165ed7166`.
+Captured sources exactly matched the initial checkout:
+context-menu `14ef27adc0e549d91caea2f40769a54e9060b92fbcbcc7668d83609feba273dd`,
+alerts `164eddf8210a4ff7fcc61b25be994b8e40d377ec613b6c7c11063ce4cde8c8f1`,
+drawings `bb1e17b0e6ef209bc1e31df901f176bf983cb494c446ef6dbb5e7ddeb09165c1`.
+Analysis identified the actual 1px geometry, history list lifecycle and green
+level mapping. These visual changes follow the user's requested adjustments.
+No live menu action, alert clearing, broker write or push test was performed.
+
+Verification: 35 backend checks pass, including scope/contract separation,
+active/new history retention, duplicate cleanup and late-create idempotency;
+six web/native bridge light/dark editor cases pass; twelve menu screenshots
+before and after cover DPR 1/1.25/2 and small/large panes. Existing alert creation,
+ray/stop/toast, line drag/native touch, Fib interaction and host One-click/Confirm
+checks pass. Simulator build succeeds; no physical-device Run occurred.
+The toast fixture now moves the mouse off the relocated Close control because
+hover intentionally pauses toast expiry. Legacy context-quantity.cjs still
+fails its old assertion that a blocked market crossing emits zero messages:
+the current code sends a chartValidation message. The starting commit's menu
+source reproduces the same failure; no pass is claimed for that legacy script.
+
+User follow-up: **Deploy & Restart Backend**, then refresh the webpage. The
+new notification visibility table is created at normal startup; no added
+packages or manual migration are needed. Native alert controls and Fib color
+require the user's iPhone Run. Preserve the prior signing/localization edits;
+they are excluded from this commit. No deployment or restart was performed.
+
 ## 2026-10-18 — position-based default price axes
 
 In two-, three- and four-pane web layouts, left-column panes now default to

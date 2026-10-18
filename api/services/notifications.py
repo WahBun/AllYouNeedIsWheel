@@ -37,6 +37,7 @@ class NotificationStore:
                 CREATE TABLE IF NOT EXISTS broker_orders(scope TEXT,id TEXT,status TEXT,PRIMARY KEY(scope,id));
                 CREATE TABLE IF NOT EXISTS order_scopes(scope TEXT PRIMARY KEY,since REAL);
                 CREATE TABLE IF NOT EXISTS alert_monitoring(id TEXT PRIMARY KEY,changed REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS cleared_alert_history(id TEXT PRIMARY KEY);
             ''')
         self.path.chmod(0o600)
 
@@ -50,7 +51,7 @@ class NotificationStore:
             db.close()
 
     def alerts(self, scope=None, cid=None, active=False):
-        clauses, args = [], []
+        clauses, args = ['a.id NOT IN (SELECT id FROM cleared_alert_history)'], []
         for name, value in (('scope', scope), ('cid', cid)):
             if value is not None: clauses.append(name + '=?'); args.append(value)
         if active: clauses.append("state='active'")
@@ -118,6 +119,19 @@ class NotificationStore:
     def stop_alert(self, scope, ident):
         with self.connect() as db:
             db.execute("UPDATE alerts SET state='stopped',version=version+1 WHERE id=? AND scope=? AND state='active'", (ident, scope))
+
+    def clear_alert_history(self, scope, cid, ids):
+        if not isinstance(ids, list) or any(not isinstance(ident, str) for ident in ids):
+            raise ValueError('Reopen saved alerts before clearing history')
+        ids = list(dict.fromkeys(str(uuid.UUID(ident)) for ident in ids))
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            # Keep terminal identities: a late create retry must never rearm a cleared alert.
+            # Only the history shown at click time is eligible; newer and active alerts stay.
+            before = db.total_changes
+            db.executemany("INSERT OR IGNORE INTO cleared_alert_history SELECT id FROM alerts WHERE id=? AND scope=? AND cid=? AND state IN ('stopped','triggered','drawing_removed')",
+                           [(ident, scope, cid) for ident in ids])
+            return db.total_changes - before
 
     def sync_rays(self, drawing_path):
         if not Path(drawing_path).exists(): return

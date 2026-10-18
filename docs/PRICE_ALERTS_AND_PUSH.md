@@ -110,3 +110,12 @@ High/Low/Stop hit testing, Off/Weak/Strong, temporary Command and touch snapping
 The six alert cases and current Fib interaction regression pass. The legacy
 `drawings.cjs` script still looks for the removed "Expand drawing tools" entry
 and times out before reaching its drawing checks; it was not reported as passed.
+
+## Saved alert history
+
+Use **Clear history** beside **Saved alerts** to remove the currently listed
+Stopped, Triggered and Ray removed entries. Active alerts and newly arriving
+records remain. Clearing is isolated to the current account and contract and
+does not change drawings, notifications already queued, or broker orders.
+Terminal identities remain internally for retry protection; they disappear
+from the saved list. Close the editor with the top-right **×** button.

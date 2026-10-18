@@ -37,6 +37,8 @@ const {start}=require('./market-feed/harness.cjs');
  await f.getByRole('button',{name:'Stop',exact:true}).last().click();await f.getByText(/Stopped/).waitFor();
  await p.screenshot({path:`/tmp/wheel-alert-editor-${width}-${light}.png`});
  await f.getByRole('button',{name:'Close',exact:true}).click();
+ // Top-right Close can leave the pointer over a later toast; hover intentionally pauses expiry.
+ await p.locator('#layout-button').hover();
  await p.waitForTimeout(1100);events.push({id:'fill-event',seq:++cursor,title:'IB Paper · Order execution',body:'SYNTH7 · BOT 1 @ 100.50'});
  await p.locator('#wheel-notification-stack article').waitFor();assert.equal(await p.locator('#wheel-notification-stack article').count(),1);
  const box=await p.locator('#wheel-notification-stack').boundingBox(),grid=await p.locator('#chart-grid').boundingBox(),trade=await p.locator('#trade').boundingBox();
