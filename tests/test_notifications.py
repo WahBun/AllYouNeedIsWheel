@@ -277,6 +277,11 @@ class NotificationsTests(unittest.TestCase):
                 self.assertEqual(client.post('/api/notifications/bark',json=[],headers=headers).status_code,400)
                 bark=client.post('/api/notifications/bark',json={'url':'temporaryDeviceKey123','enabled':True},headers=headers)
                 self.assertEqual(bark.status_code,200,bark.json);self.assertNotIn('temporaryDeviceKey123',str(bark.json))
+                self.assertEqual(client.get('/api/notifications/bark',headers=headers).json['enabled'],True)
+                self.assertEqual(client.get('/api/notifications/bark').status_code,409)
+                self.assertEqual(client.get('/api/notifications/bark',headers={**headers,'X-Wheel-Account-Epoch':'old'}).status_code,409)
+                with patch('api.routes.account.epoch',side_effect=['current','current','changed']):
+                    self.assertEqual(client.get('/api/notifications/bark',headers=headers).status_code,409)
                 self.assertEqual(client.post('/api/notifications/bark/test',json={'id':str(uuid.uuid4())},headers=headers).status_code,200)
                 self.assertEqual(client.get('/api/notifications/events').status_code,200)
                 self.assertEqual(client.post('/api/notifications/alerts/'+body['id']+'/stop',json={},headers=headers).status_code,200)

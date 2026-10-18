@@ -1593,6 +1593,7 @@ struct OrdersView: View {
 }
 
 struct SettingsView: View {
+    var notificationSettings: PhoneNotificationSettingsModel? = nil
     @AppStorage("wheel.native.sounds") private var tradingSoundsEnabled = true
     private static let appVersion: String = {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
@@ -1707,7 +1708,7 @@ struct SettingsView: View {
                 if !switchingAccount, let error = store.error { NoticeText(error).font(.footnote).foregroundStyle(.orange) }
                 }
             }
-            PushNotificationSettings()
+            PushNotificationSettings(settings: notificationSettings)
             Section("Appearance") {
                 HStack {
                     Label("Language", systemImage: "globe")

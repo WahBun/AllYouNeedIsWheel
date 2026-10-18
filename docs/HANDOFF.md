@@ -1,3 +1,44 @@
+## 2026-10-18 — compact iPhone notification settings
+
+Baseline: GitHub `codex/chart-labels-1.7` at
+`f157229858c996a29ab6fbf6a8ad74bc60b47de4` (the order review below).
+
+Replace the three-row native-push card with one **Phone notifications** row,
+showing **Via Bark** and the current account's On/Off/unavailable state. Its
+detail page reuses the existing Bark enable, change-address, test and disable
+routes. Native APNs settings remain under **Advanced → Direct app notifications**,
+with their separate signing/server requirements explained. This addresses the
+misleading native-push prompt shown to a user already receiving Bark alerts.
+
+Notification reads and writes retain the originating backend/account epoch.
+Changing account clears the private address draft and rejects delayed responses;
+failed/uncertain updates display unavailable rather than claiming Off. No write
+is automatically retried. Bark GET now rejects stale account epochs, including
+an epoch change while reading. Device keys remain private and are never read
+back into the form. The existing chart editor remains available.
+
+REA statically inspected the built app's `chart-alerts.js` in
+`ev_f3f26dbfb48e0432159a7e1ac8a422faf11e19f809b0f9b815494fbd18348c15`;
+the module view `ev_f52ffe25ec054523d18129b4c27d3a1c09996a0172a7d175b28a67060a2bc449`
+identifies SHA-256 `5447fa5ad95983f228ff71677ede0230063eff48dd1de4b3055f1a28e5f1a7ae`,
+matching the current source. Native source and the user's screenshot established
+that the old Settings card exposed APNs, while the chart editor managed Bark.
+Reuse those existing Bark actions and account scoping in the new native page.
+REA's static graph was partial and did not resolve the literal Bark test route;
+no complete call trace or actual notification delivery is claimed.
+
+Verified: 22 isolated backend notification tests and five Simulator tests,
+covering read/enable/test/disable, stale responses after account switching,
+private-draft clearing, uncertain writes without replay, invalid responses and
+eight page renders across dark/light themes, setup/enabled states and large text.
+The actual Settings view and detail-page images were visually inspected.
+Requests used mocked transports; no real push, broker order or phone operation
+was performed. An unrelated Xcode project formatting change remains local.
+
+Recommend **Deploy & Restart Backend** for the epoch guard and preceding order
+fixes, then the user's Xcode Run for the native Settings and Orders changes.
+Neither deployment/restart nor physical-device installation was performed.
+
 ## 2026-10-18 — order logic review: stop resize races and native group routing
 
 Baseline: GitHub `codex/chart-labels-1.7` at

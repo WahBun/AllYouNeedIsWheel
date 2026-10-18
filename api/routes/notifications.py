@@ -88,12 +88,19 @@ def devices():
 
 @bp.route('/bark', methods=['GET', 'POST'])
 def bark():
+    from api.routes.account import epoch
+    requested_epoch = epoch()
+    if request.method == 'GET' and requested_epoch and request.headers.get('X-Wheel-Account-Epoch') != requested_epoch:
+        return jsonify(error='Account connection changed. Refresh notification settings.'), 409
     body = request.get_json(silent=True) if request.method == 'POST' else None
     if request.method == 'POST' and not isinstance(body, dict): raise ValueError('Invalid Bark setup')
     runtime, scope, _ = context(bool(body and body.get('enabled') is True))
     if request.method == 'POST':
         runtime.store.register_bark(scope, body)
-    return jsonify(runtime.store.bark_status(scope))
+    status = runtime.store.bark_status(scope)
+    if epoch() != requested_epoch:
+        return jsonify(error='Account connection changed. Refresh notification settings.'), 409
+    return jsonify(status)
 
 
 @bp.post('/bark/test')

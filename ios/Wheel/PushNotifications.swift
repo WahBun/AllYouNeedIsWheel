@@ -111,7 +111,7 @@ final class WheelPush {
     }
 }
 
-struct PushNotificationSettings: View {
+struct DirectPushNotificationSettings: View {
     @Environment(WheelStore.self) private var store
     private var push: WheelPush { .shared }
     var body: some View {
@@ -124,6 +124,7 @@ struct PushNotificationSettings: View {
                 Button { Task { await push.disable() } } label: { Text(verbatim: "Disable for this account") }.disabled(push.busy)
             }
             Text(verbatim: push.status).font(.footnote).foregroundStyle(.secondary)
-        } header: { Text(verbatim: "Notifications") }
+        } header: { Text(verbatim: "Direct app notifications") }
+        footer: { Text(verbatim: "Optional. Requires Push Notifications signing and server setup. Bark works independently.") }
     }
 }
