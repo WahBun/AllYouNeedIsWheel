@@ -1,4 +1,4 @@
-## 2026-10-18 — web alert drag capture loss and pale-orange sweep
+## 2026-10-18 — alert drag, axis labels and shared magnet
 
 The user corrected the report: iOS editing works; only web drags snap back.
 REA inspected the deployed four-pane Wheel page, then a same-version Chrome
@@ -12,6 +12,15 @@ to 180–640px), softer and slower (18 seconds instead of 5). Six shared-chart
 web/native touch cases pass including forced capture loss and held-refresh
 checks; the old gesture implementation fails the same regression. All four
 protected order-drag regression scripts pass. No broker writes were used.
+
+The alert label now sits beside the price axis, mirroring on left-axis panes,
+with room for High/Low badges. Alert dragging reuses the existing drawing magnet
+algorithm (Off/Weak/Strong, Command temporary mode, touch radius and hysteresis)
+with separate gesture feedback and a snapped-point ring. REA captured the
+current deployed magnet source before this change; see PRICE_ALERTS_AND_PUSH.
+Four additional axis/magnet browser cases and the current Fib interaction
+regression pass. Legacy drawings.cjs stops at a removed toolbar entry before
+its checks; no pass is claimed for that outdated script.
 
 User-operated follow-up: **Deploy only**, then refresh the web page. iPhone Run
 is needed only to update native chart assets. Mini was clean at

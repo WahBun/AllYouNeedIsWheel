@@ -470,8 +470,16 @@ function capture(e){
  if(fib&&drag?.pointerOffset)e={clientX:e.clientX-drag.pointerOffset.x,clientY:e.clientY-drag.pointerOffset.y,pointerType:e.pointerType};
  const raw=anchor(e.clientX,e.clientY,fib);
  if(!raw||effectiveMagnet()==='off'||active==='highlight'||(drag?.index===null||drag?.role==='entry')){snapFeedback=null;return raw;}
+ const result=magnetPoint(e,raw,snapFeedback);snapFeedback=result.feedback;return result.point;
+}
+// Share the same mode, OHLC selection and touch tolerance with alert drags.
+// Each caller owns its feedback so an alert cannot change a drawing gesture.
+function magnetPoint(e,raw,feedback){
+ const mode=effectiveMagnet();
+ if(!raw||mode==='off')return {point:raw,feedback:null};
+ if(feedback?.mode!==mode)feedback=null;
  const bar=previous.reduce((best,b)=>!best||Math.abs(b.time-raw.time)<Math.abs(best.time-raw.time)?b:best,null);
- if(!bar){snapFeedback=null;return raw;}
+ if(!bar)return {point:raw,feedback:null};
  const x=timeToScreenCoordinate(bar.time);
  const candidates=[['O',bar.open],['H',bar.high],['L',bar.low],['C',bar.close]].map(([name,price])=>({name,price,x,y:series.priceToCoordinate(price)}));
  const radius=e.pointerType==='touch'?28:18;
@@ -479,11 +487,13 @@ function capture(e){
  // Retain the chosen OHLC through small finger jitter, without trapping a
  // deliberate move to a closer distinct level on the same candle.
  let holding=false;
- if(snapFeedback?.time===bar.time){const held=candidates.find(c=>c.name===snapFeedback.name);if(held&&held.distance<=radius+8&&held.distance<=best.distance+5){best=held;holding=true;}}
- const snapped=effectiveMagnet()==='strong'||best.distance<=radius+(holding?8:0);
- snapFeedback={time:bar.time,name:snapped?best.name:null,price:snapped?best.price:null,candidates};
- return snapped?{time:bar.time,price:best.price}:raw;
+ if(feedback?.time===bar.time){const held=candidates.find(c=>c.name===feedback.name);if(held&&held.distance<=radius+8&&held.distance<=best.distance+5){best=held;holding=true;}}
+ const snapped=mode==='strong'||best.distance<=radius+(holding?8:0);
+ feedback={mode,time:bar.time,name:snapped?best.name:null,price:snapped?best.price:null,candidates};
+ return {point:snapped?{time:bar.time,price:best.price}:raw,feedback};
 }
+window.chartDrawingMagnet=(event,feedback=null)=>magnetPoint(event,anchor(event.clientX,event.clientY),feedback);
+
 function paintSnap(){
  if(!snapFeedback||(!active&&!drag))return;
  for(const c of snapFeedback.candidates){const selected=c.name===snapFeedback.name;element('circle',{cx:c.x,cy:c.y,r:selected?5:2.5,fill:selected?'#f4f5f3':'#315fc4',stroke:'#315fc4','stroke-width':1.5,'pointer-events':'none','data-snap':c.name});}

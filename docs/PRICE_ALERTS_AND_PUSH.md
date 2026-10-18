@@ -2,7 +2,9 @@
 
 This adds two price-alert entries to the shared chart: **Add alert at…** in the chart context menu, and **Add alert on horizontal ray** in the selected ray toolbar (also available by right-clicking the ray). The editor includes saved alerts and a Stop action. All new visible labels are English.
 
-Active standalone price alerts appear as **pale-orange dashed lines with a broad, gentle light sweep** in every open pane for the same account and exact contract. Hover or focus reveals the condition, price, edit action and Stop button. Drag anywhere on the line or its label and release to save the new threshold. A short label click opens the price editor; the focused line also accepts Arrow Up/Down for one-tick changes. The sweep spans 45% of the plot (180–640px) and takes 18 seconds per cycle. It pauses in the background and is removed for reduced-motion users. Ray-bound alerts continue to follow their original draggable horizontal ray rather than introducing a second independent threshold.
+Active standalone price alerts appear as **pale-orange dashed lines with a broad, gentle light sweep** in every open pane for the same account and exact contract. Hover or focus reveals the condition, price, edit action and Stop button beside the price axis: right for a right axis, mirrored for a left axis. A small inset keeps High/Low badges from covering Stop. Drag anywhere on the line or its label and release to save the new threshold. A short label click opens the price editor; the focused line also accepts Arrow Up/Down for one-tick changes. The sweep spans 45% of the plot (180–640px) and takes 18 seconds per cycle. It pauses in the background and is removed for reduced-motion users. Ray-bound alerts continue to follow their original draggable horizontal ray rather than introducing a second independent threshold.
+
+Dragging reuses the drawing tools' current **Off / Weak / Strong** magnet and temporary **Command** key mode. It selects the nearby candle's O/H/L/C prices with the same mouse/touch radius and jitter tolerance; a small ring marks the snapped point. Alert feedback is separate from drawing feedback, and only actual release persists the threshold.
 
 Price changes compare the alert version and exact contract/account. A concurrent edit, stop or trigger rejects stale changes; the chart reloads the server state without resending the write. Changing account/contract, Escape, pointer cancellation or window focus loss cancels the local drag. Losing pointer capture alone retains the draft: document-level pointer handling follows the gesture until actual release and saves exactly once. Threshold edits establish a new live-price baseline and ignore queued samples from before the edit. An accepted change is shared immediately with matching panes; other open pages refresh saved alerts every two seconds. Saved-alert reads bypass the broker queue but retain an explicit account-epoch guard.
 
@@ -98,3 +100,13 @@ verified at `cec405947e1e4da672b25feeaece415e7cf8d045` before this follow-up.
 The user's screenshot confirms the Wheel test notification reached Bark on the
 iPhone. It shows a foreground banner, so locked-device display and real price/IB
 event delivery remain separate acceptance checks.
+
+The subsequent label/magnet request uses the current deployed drawing implementation
+captured by REA (`ev_ca6c83f3d93053f3f70897a5df371c51b1af9aa250adf4483d12896dda624adb`,
+source SHA-256 `b5721deebc5b2f0d84103aa4278e6344221acc6b5f640e6c3f5c91112a70d6a4`).
+The same OHLC-selection function serves both callers, each with its own feedback.
+Four additional desktop/mobile dark/light browser cases pass axis placement,
+High/Low/Stop hit testing, Off/Weak/Strong, temporary Command and touch snapping.
+The six alert cases and current Fib interaction regression pass. The legacy
+`drawings.cjs` script still looks for the removed "Expand drawing tools" entry
+and times out before reaching its drawing checks; it was not reported as passed.

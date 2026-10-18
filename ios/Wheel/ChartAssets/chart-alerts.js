@@ -24,7 +24,9 @@
  @keyframes alert-line-sheen{from{transform:translateX(-100%)}to{transform:translateX(var(--alert-width))}}
  .chart-alert-marker{position:absolute;right:0;top:4px;border-left:6px solid currentColor;border-top:5px solid transparent;border-bottom:5px solid transparent}
  body.axis-left .chart-alert-marker{left:0;right:auto;transform:rotate(180deg)}
- .chart-alert-label{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:none;max-width:calc(100% - 20px);height:24px;align-items:center;border:1px solid #e7b17b;border-radius:3px;background:#fff5e9;color:#895320;box-shadow:0 0 8px #e7b17b20;pointer-events:auto;white-space:nowrap}
+ .chart-alert-label{position:absolute;right:36px;top:50%;transform:translateY(-50%);display:none;max-width:calc(100% - 48px);height:24px;align-items:center;border:1px solid #e7b17b;border-radius:3px;background:#fff5e9;color:#895320;box-shadow:0 0 8px #e7b17b20;pointer-events:auto;white-space:nowrap}
+ body.axis-left .chart-alert-label{left:36px;right:auto}
+ .chart-alert-snap{position:absolute;width:10px;height:10px;box-sizing:border-box;border:2px solid #e7b17b;border-radius:50%;background:#fff5e980;transform:translate(-50%,-50%);pointer-events:none}
  body[data-dark=true] .chart-alert-label{background:#34291e;color:#efc89e}
  .chart-alert-label button{height:22px;min-width:24px;border:0;background:transparent;color:inherit;padding:0 5px;font:12px -apple-system,system-ui;touch-action:none}
  .chart-alert-label [data-edit-alert]{overflow:hidden;text-overflow:ellipsis;cursor:grab}
@@ -36,6 +38,7 @@
  #chart-alert-editor details{margin-top:16px;border-top:1px solid #8884;padding-top:12px}#chart-alert-editor summary{cursor:pointer;font-weight:600}#chart-alert-editor details p{line-height:1.5}#chart-alert-editor details .alert-actions{flex-wrap:wrap;justify-content:flex-start}
  `;document.head.append(css);
  const layer=document.createElement('div');layer.id='chart-alert-lines';document.body.append(layer);
+ const snapMarker=document.createElement('div');snapMarker.className='chart-alert-snap';snapMarker.hidden=true;layer.append(snapMarker);
  const lines=new Map();let saved=[],lineScope='',loadSerial=0,loading=false,nextLoad=0,drag=null;
  const conditionName=value=>({crossing:'Crossing',up:'Crossing up',down:'Crossing down'}[value]||'Crossing');
  const contextKey=()=>paperCID+':'+(paperConfig.web_account_epoch||'');
@@ -71,7 +74,7 @@
   }catch(error){if(context===contextKey())validation(error.message+' Checking the saved alert price.');}
   finally{delete line.dataset.saving;delete line.previewPrice;nextLoad=0;if(context===contextKey()){loading=false;void reload();}}
  }
- function cancelDrag(){if(!drag)return;const current=drag;drag=null;delete current.line.dataset.dragging;delete current.line.previewPrice;try{current.capture.releasePointerCapture(current.pointer);}catch{}}
+ function cancelDrag(){snapMarker.hidden=true;if(!drag)return;const current=drag;drag=null;delete current.line.dataset.dragging;delete current.line.previewPrice;try{current.capture.releasePointerCapture(current.pointer);}catch{}}
  // Capture loss can retarget the remaining events without ending the gesture.
  // Observe actual release on the document, as the protected order drags do.
  function moveDrag(event){
@@ -80,7 +83,8 @@
   event.preventDefault();event.stopPropagation();
   if(Math.abs(event.clientY-drag.startY)>3)drag.moved=true;
   if(!drag.moved)return;
-  const price=snapPrice(series.coordinateToPrice(event.clientY));
+  const magnet=window.chartDrawingMagnet?.(event,drag.snap);drag.snap=magnet?.feedback;
+  const price=snapPrice(magnet?.point?.price??series.coordinateToPrice(event.clientY));
   if(Number.isFinite(price)&&price>0)drag.line.previewPrice=price;
  }
  document.addEventListener('pointermove',event=>{if(drag&&(event.buttons&1))moveDrag(event);},true);
@@ -109,11 +113,13 @@
  }
  function positionLines(){
   requestAnimationFrame(positionLines);const context=contextKey();
-  if(context!==lineScope){cancelDrag();lineScope=context;saved=[];lines.clear();layer.replaceChildren();loadSerial++;nextLoad=0;}
+  if(context!==lineScope){cancelDrag();lineScope=context;saved=[];lines.clear();layer.replaceChildren(snapMarker);loadSerial++;nextLoad=0;}
   layer.hidden=Number(countdownPacket?.con_id)!==paperCID;
   if(layer.hidden){cancelDrag();return;}
   if(!lines.size||document.hidden)return;
   const left=plotLeft(),width=Math.max(0,plotRight()-left),height=chart.paneSize().height;layer.style.height=height+'px';
+  const snapped=drag?.snap?.candidates.find(c=>c.name===drag.snap.name);snapMarker.hidden=!snapped;
+  if(snapped){snapMarker.style.left=snapped.x+'px';snapMarker.style.top=series.priceToCoordinate(snapped.price)+'px';snapMarker.title=snapped.name+' '+priceText(snapped.price);}
   for(const line of lines.values()){
    const price=line.previewPrice??line.alert.price,y=series.priceToCoordinate(price),hidden=!Number.isFinite(y)||y<0||y>height;
    line.hidden=hidden;if(hidden)continue;
