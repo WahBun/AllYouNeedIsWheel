@@ -1,3 +1,53 @@
+## 2026-10-18 — follow-up review: delayed picker and alert responses
+
+Baseline: GitHub `codex/chart-labels-1.7` at
+`234a7e6ebe87c537f12199b2684fba63abd684d2`. Continue bug fixes and
+smoothness work only, as requested; no new features or additional agent tasks.
+
+Two failures were reproduced in the actual web host with isolated delayed API
+responses before changing the relevant code:
+- Switching between Options and Stocks / Futures could let the previous query
+  select a different contract and close the picker. Both directions failed.
+  The picker now shares its request revision across tabs and stock/futures
+  searches, checks the current query and dialog before accepting a result, and
+  reloads interrupted option discovery when returning to Options. Completed
+  option selections still survive tab changes.
+- Stopping an alert and then selecting another contract could publish the new
+  contract's alerts into a peer chart that still showed the original contract.
+  Alert publication now checks the originating contract/account epoch; delayed
+  stop errors also stay out of a different context. Existing polling reconciles
+  the accepted stop in the original peer, without another write.
+
+REA passively inspected the deployed page and captured its scripts in
+`ev_23c800e34b0c9604f31dd82129e13015fb394fb2bfb0436fecd2de4e4cec328a`.
+The picker, host and alert script hashes matched the starting checkout. Reuse
+the still-applicable alert-script analysis
+`ev_6c77bd9aba088c1b2fa2475b09243b6801b43e35786d4eb5d49c0b771503704e`;
+trace the captured request-revision and publication paths, then use the local
+browser to reproduce and verify the fixes. This was source/runtime inspection
+plus controlled reproduction, not a production alert or broker acceptance test.
+
+Validation passed:
+- 65 frontend unit tests; simulator build and 7 native chart history/viewport
+  tests, with signing disabled and no physical-device install.
+- New picker regressions in desktop/mobile widths and light/dark themes:
+  both tab directions, interrupted-loading recovery, retained completed
+  selection, close/reopen, stale success/error, changed query, latest search
+  winning, and ordinary stock/option selection.
+- 12 new alert-stop cases across desktop/mobile widths and light/dark themes:
+  switched-contract success/error and same-contract peer synchronization.
+- Existing option selection, alert line/drag/conflict/stop and compact native
+  touch-bridge checks, magnet modes/Command/touch, 1/2/3/4-pane interactions and
+  reconnection, and all 11 cold-start restoration cases. The older standalone
+  option fixture now explicitly opens the Options tab, matching the current UI.
+  Browser writes were intercepted mocks; the local read-only server recorded
+  zero writes and no external requests were allowed.
+
+No backend, quote/P&L, order submission or layout logic changed. Recommend
+**Deploy only**, then refresh the web page. The shared native chart asset needs
+the user's separate Xcode Run. No Mini deployment, Backend/Gateway restart,
+physical-device Run, real notification mutation or broker operation was done.
+
 ## 2026-10-18 — reconcile remaining local iOS configuration
 
 Reviewed the two pre-existing dirty files after `51d4a951881a1debd3ff2a122dbe39ef08d7df1d`.

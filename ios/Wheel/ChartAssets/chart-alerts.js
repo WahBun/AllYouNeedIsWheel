@@ -61,6 +61,7 @@
   }
  }
  function publish(result,cid,epoch){
+  if(cid!==paperCID||epoch!==paperConfig.web_account_epoch)return;
   accept(result,cid,epoch);loadSerial++;
   if(window.webkit?.messageHandlers.notificationRequest)return;
   try{for(const frame of parent.document.querySelectorAll('.chart-pane iframe'))if(frame.contentWindow!==window)frame.contentWindow.chartAlerts?.receive(result,cid,epoch);}catch{}
@@ -114,7 +115,7 @@
   };
   for(const target of [hit,edit]){target.onpointerdown=start;target.onclick=e=>{e.preventDefault();e.stopPropagation();if(e.detail===0&&target===edit)open({price:line.alert.price,alert:line.alert});};}
   hit.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();open({price:line.alert.price,alert:line.alert});}else if(event.key==='Escape'){cancelDrag();}else if(event.key==='ArrowUp'||event.key==='ArrowDown'){event.preventDefault();const price=stepPrice(line.alert.price,event.key==='ArrowUp'?1:-1);if(price!==null)void updatePrice({...line.alert},price,line);}};
-  stop.onpointerdown=e=>e.stopPropagation();stop.onclick=async event=>{event.stopPropagation();if(line.dataset.saving!==undefined)return;const cid=paperCID,epoch=paperConfig.web_account_epoch;line.dataset.saving='true';loadSerial++;try{await api('alerts/'+alert.id+'/stop','POST',{},epoch);publish({alerts:saved.map(a=>a.id===alert.id?{...a,state:'stopped'}:a)},cid,epoch);}catch(error){validation(error.message);}finally{delete line.dataset.saving;nextLoad=0;}};
+  stop.onpointerdown=e=>e.stopPropagation();stop.onclick=async event=>{event.stopPropagation();if(line.dataset.saving!==undefined)return;const cid=paperCID,epoch=paperConfig.web_account_epoch;line.dataset.saving='true';loadSerial++;try{await api('alerts/'+alert.id+'/stop','POST',{},epoch);publish({alerts:saved.map(a=>a.id===alert.id?{...a,state:'stopped'}:a)},cid,epoch);}catch(error){if(cid===paperCID&&epoch===paperConfig.web_account_epoch)validation(error.message);}finally{delete line.dataset.saving;nextLoad=0;}};
   return line;
  }
  function positionLines(){
