@@ -147,9 +147,36 @@ class RenewalTests(unittest.TestCase):
         with patch.object(renew, "command", return_value=" M file"):
             with self.assertRaisesRegex(renew.RenewalError, "uncommitted"):
                 renew.github_revision(self.config)
-        with patch.object(renew, "command", side_effect=["", "test", self.config["repository"], "local", "remote refs/heads/test"]):
+        with patch.object(renew, "command", side_effect=["", "test", self.config["repository"], "local"]), patch.object(renew, "github_branch_head", return_value="remote"):
             with self.assertRaisesRegex(renew.RenewalError, "differs"):
                 renew.github_revision(self.config)
+
+    def test_github_read_uses_existing_proxy_without_changing_host_environment(self):
+        for explicit in ({}, {"HTTPS_PROXY": "http://explicit.invalid:8080"}):
+            with self.subTest(explicit=explicit), patch.dict(renew.os.environ, explicit, clear=True), patch.object(renew.urllib.request, "getproxies", return_value={"https": "http://127.0.0.1:12345"}), patch.object(renew.subprocess, "Popen") as popen:
+                process = popen.return_value.__enter__.return_value
+                process.communicate.return_value = ("sha refs/heads/test", "")
+                process.returncode = 0
+                self.assertEqual(renew.github_branch_head("test"), "sha")
+                env = popen.call_args.kwargs["env"]
+                self.assertEqual(env["GIT_TERMINAL_PROMPT"], "0")
+                if explicit:
+                    self.assertNotIn("https_proxy", env)
+                    self.assertEqual(env["HTTPS_PROXY"], explicit["HTTPS_PROXY"])
+                else:
+                    self.assertEqual(env["https_proxy"], "http://127.0.0.1:12345")
+                self.assertNotIn("https_proxy", renew.os.environ)
+
+    def test_github_timeout_stops_its_own_process_group_before_signing(self):
+        with patch.object(renew.subprocess, "Popen") as popen, patch.object(renew.os, "killpg") as kill:
+            process = popen.return_value.__enter__.return_value
+            process.pid = 12345
+            process.communicate.side_effect = [subprocess.TimeoutExpired("git", 20), ("", "")]
+            with self.assertRaisesRegex(renew.RenewalError, "No signing or build was started"):
+                renew.github_branch_head("test")
+            self.assertTrue(popen.call_args.kwargs["start_new_session"])
+            kill.assert_called_once_with(12345, renew.signal.SIGKILL)
+            self.assertEqual(process.communicate.call_args_list[0].kwargs["timeout"], 20)
 
     def test_all_modes_produce_only_a_local_build_receipt(self):
         for mode in ("--check", "--build-only", "--renew"):

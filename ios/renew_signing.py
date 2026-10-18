@@ -8,10 +8,12 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import signal
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 UTC = timezone.utc
@@ -53,6 +55,37 @@ def command(args, timeout=60, cwd=ROOT, log=None):
     return output.strip()
 
 
+def github_branch_head(branch):
+    # SSH Git does not inherit macOS system proxies. Apply the existing settings
+    # only to this read; preserve explicit environment choices and host config.
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    for scheme, proxy in urllib.request.getproxies().items():
+        key = scheme + "_proxy"
+        if scheme in ("http", "https", "no") and key not in env and key.upper() not in env:
+            env[key] = proxy
+    args = ["/usr/bin/git", "-c", "credential.interactive=false", "ls-remote",
+            "--exit-code", "origin", "refs/heads/" + branch]
+    with subprocess.Popen(args, cwd=ROOT, env=env, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, text=True, start_new_session=True) as process:
+        try:
+            output, error = process.communicate(timeout=20)
+        except subprocess.TimeoutExpired as exc:
+            # Git's HTTPS helper can outlive its parent and keep the SSH channel
+            # open. Stop this dedicated process group, including that helper.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.communicate()
+            raise RenewalError("GitHub check timed out after 20 seconds. No signing or build was started. Check the Pro's GitHub connectivity.") from exc
+        if process.returncode:
+            raise RenewalError(f"GitHub check failed (exit {process.returncode}). {error.strip()[-1200:]}")
+    rows = output.split()
+    if not rows:
+        raise RenewalError("GitHub returned no commit for the configured branch.")
+    return rows[0]
+
+
 def github_revision(config):
     git = lambda *args: command(["/usr/bin/git", *args])
     if git("status", "--porcelain"):
@@ -64,8 +97,7 @@ def github_revision(config):
     if remote.rstrip("/").removesuffix(".git") != config["repository"].rstrip("/").removesuffix(".git"):
         raise RenewalError("The GitHub repository does not match the local renewal settings.")
     sha = git("rev-parse", "HEAD")
-    rows = git("ls-remote", "--exit-code", "origin", "refs/heads/" + branch).split()
-    if not rows or rows[0] != sha:
+    if github_branch_head(branch) != sha:
         raise RenewalError("Local HEAD differs from GitHub. Review and synchronize this branch first.")
     return sha
 

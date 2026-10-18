@@ -31,7 +31,10 @@ The script does not require Wheel to be closed because it never installs,
 launches, terminates or uninstalls the phone app.
 
 The helper requires a clean checkout equal to its configured GitHub branch and
-builds an isolated archive of that exact commit. The copy uses a unique project
+builds an isolated archive of that exact commit. The GitHub read uses the Pro's
+already-configured system proxy for that subprocess only, preserves explicit
+proxy environment settings, and stops after 20 seconds if the read times out.
+No system or Git proxy configuration is changed. The copy uses a unique project
 name to keep Xcode scripting results separate from open developer projects. It backs up only cached profiles
 matching the existing team, bundle ID and iPhone, removes those copies, waits for Xcode to finish preparing a freshly issued profile, and calls
 Xcode's documented **Build** AppleScript interface. This avoids Xcode 27's CLI

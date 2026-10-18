@@ -36,6 +36,21 @@ A phone-originated cellular SSH run is a separate end-to-end acceptance step
 after publication and private branch configuration. No phone installation or
 launch was performed.
 
+The first phone-originated cellular run authenticated and reached the helper,
+but its GitHub check timed out before signing or Build. REA reproduced the
+missing SSH proxy environment: direct GitHub access timed out after eight
+seconds, while the existing macOS system proxy returned the published SHA in
+1.2 seconds (`ev_42c4830a7662da0dd03c4a7f50566028f545028576c4ee0c10f03ee9b4739646`).
+The GitHub read now inherits that existing proxy only for its subprocess,
+preserves explicit environment choices, disables interactive credential prompts,
+and bounds the check to 20 seconds. On timeout it stops its own process group,
+including Git's HTTPS child, before reporting that no signing/build started.
+The 14 focused tests passed. REA replay of the modified helper read the correct
+published SHA in 1.43 seconds with no proxy variables supplied by the caller
+and no environment mutation
+(`ev_b5b182a1521ef3ac04394a5f8d2a7aabe9907f9cd6434b24586650a013985f9d`).
+This does not change system/Git proxy configuration or add an automatic retry.
+
 ## 2026-10-18 — Signing renewal through native Xcode Build
 
 The user explicitly authorized AppleScript **Build and signing only**, with
