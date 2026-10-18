@@ -42,6 +42,45 @@ final class ChartInstrumentTests: XCTestCase {
         XCTAssertFalse(model.canOpen)
         XCTAssertFalse(model.busy)
     }
+    func testDiscoveryIgnoresRepeatedAndBlankSubmissionsButAllowsRetry() async {
+        for options in [false, true] {
+            let model = ChartInstrumentSearch(); model.query = "TSLL"; model.options = options
+            var requests = 0
+            var pending: CheckedContinuation<[String: Any], Error>?
+            let read: ChartInstrumentSearch.Read = { _, _ in
+                requests += 1
+                return try await withCheckedThrowingContinuation { pending = $0 }
+            }
+            let first = Task {
+                if options { await model.loadDates(read: read) } else { await model.search(read: read) }
+            }
+            while pending == nil { await Task.yield() }
+            let duplicate: ChartInstrumentSearch.Read = { _, _ in requests += 1; return [:] }
+            if options { await model.loadDates(read: duplicate) } else { await model.search(read: duplicate) }
+            XCTAssertEqual(requests, 1)
+            XCTAssertTrue(model.busy)
+            pending?.resume(throwing: URLError(.timedOut)); await first.value
+            XCTAssertFalse(model.busy); XCTAssertNotNil(model.message)
+            if options { await model.loadDates(read: self.read) } else { await model.search(read: self.read) }
+            XCTAssertFalse(model.busy)
+            if options { XCTAssertTrue(model.canOpen) } else { XCTAssertEqual(model.results.first?.id, 899193475) }
+            model.invalidate(); model.query = "  \n "
+            if options { await model.loadDates(read: duplicate) } else { await model.search(read: duplicate) }
+            XCTAssertEqual(requests, 1)
+            XCTAssertFalse(model.busy); XCTAssertNil(model.message)
+        }
+    }
+    func testEditedQueryCanReplacePendingSearchWithoutOldFailure() async {
+        let model = ChartInstrumentSearch(); model.query = "QQQ"
+        var pending: CheckedContinuation<[String: Any], Error>?
+        let first = Task { await model.search { _, _ in try await withCheckedThrowingContinuation { pending = $0 } } }
+        while pending == nil { await Task.yield() }
+        model.invalidate(); model.query = "TSLL"
+        await model.search(read: read)
+        pending?.resume(throwing: URLError(.timedOut)); await first.value
+        XCTAssertEqual(model.results.first?.id, 899193475)
+        XCTAssertFalse(model.busy); XCTAssertNil(model.message)
+    }
     func testPriceUnavailableRequiresManualStrikeAndFavoriteKeepsID() async {
         let model = ChartInstrumentSearch(); model.query = "TSLL"
         await model.loadDates { path, items in

@@ -1,3 +1,49 @@
+## 2026-10-18 — REA 6.7.0 UI review: discovery submission and loading recovery
+
+Baseline: GitHub `codex/chart-labels-1.7` at
+`10f9612588a883cd6c152307d7cab6b1378e5e6b`, verified against the remote branch.
+The reconnected REA server reports 6.7.0 with aligned identity. Continue the
+authorized web/iOS review while preserving the existing layout and colors.
+
+REA inspected the actual browser page and loaded option-picker source in
+`ev_bcd9f544eef9a1edee811e53cfe59954e48ed7c470ae3050f85b992f5763ce27`.
+Its SHA-256 `d2d2083e7fc4b8aa39bffeea9b6265fc2fb6752ffbe3d7823245b31ba5f86631`
+exactly matched this checkout before editing. REA controlled replay
+`ev_46026fe12315559394830b3d0312f4fb6467e0b9a6ca61992a04b2563f5ca3a8`
+then reproduced duplicate expiration reads and a stuck loading state: changing
+Call/Put before dates returned invalidated both replies and left no expirations.
+Keep one pending discovery submission; temporarily disable Load dates and Type
+until the current dates/strikes read completes. Editing, tab changes and closing
+release the controls and retain the existing stale-response guards. Empty and
+failed reads also release them for an explicit retry. No automatic retry added.
+
+The native Search button already disabled pending/empty submissions, but the
+keyboard's submit callback bypassed those conditions. Apply the same guard at
+the view entry and the two read-model entry points. REA replay of the current
+Swift read model, compiled in a small macOS fixture, observed two repeated-query
+requests and one blank-query request before the repair
+(`ev_2455c755be0268c7888e207b590c0770b1738f7a897aba21c089adf46880c663`),
+then one and zero respectively after it
+(`ev_5f0e9004d0dd457a14d46f098c1370db902572130e8d4a0c7410a2288046653f`).
+That replay is model evidence, not native device interaction evidence; the
+native UI binding was inspected separately. These are Wheel-specific repairs.
+
+Validation passed: 67 frontend unit tests; four desktop/mobile, dark/light
+full-page loading/recovery cases covering repeated Enter, side selection,
+empty/error/retry, edits, tab changes, closing and exact-contract selection;
+existing four picker race scenarios and responsive option-selection checks.
+All browser API traffic was isolated and no broker writes occurred. Seven
+ChartInstrumentTests passed on the iPhone 18 Pro simulator, including repeated
+and blank submissions, retry, changed-query isolation, exact identity and
+favorites. Visually checked desktop/mobile loading screenshots and native
+light/dark picker renders. No physical keyboard/device or broker acceptance
+was performed. Market-data delivery and order workflows were not modified.
+
+For this batch recommend **Deploy only**, then refresh the webpage. Respect
+accumulated shortcut advice if earlier backend changes still await deployment.
+The iOS fix additionally needs the user's Xcode Run/build-install on the phone.
+No Mini deployment, backend/Gateway restart or physical iPhone Run was performed.
+
 ## 2026-10-18 — UI review: scoped status feedback and stale failures
 
 Baseline: GitHub `codex/chart-labels-1.7` at

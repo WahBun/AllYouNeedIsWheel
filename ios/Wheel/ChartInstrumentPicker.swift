@@ -56,6 +56,7 @@ final class ChartInstrumentSearch {
         values.map { URLQueryItem(name: $0.key, value: $0.value) }
     }
     func search(read: Read) async {
+        guard !busy, !ticker.isEmpty else { return }
         invalidate(); let token = revision, name = ticker; busy = true
         defer { if token == revision { busy = false } }
         do {
@@ -66,6 +67,7 @@ final class ChartInstrumentSearch {
         } catch { if token == revision { message = connectionMessage(error) } }
     }
     func loadDates(read: Read) async {
+        guard !busy, !ticker.isEmpty else { return }
         invalidate(); let token = revision, name = ticker; busy = true
         defer { if token == revision { busy = false } }
         do {
@@ -219,6 +221,7 @@ struct ChartInstrumentPicker: View {
         }
     }
     private func load() {
+        guard !search.busy, !search.ticker.isEmpty else { return }
         Task { if search.options { await search.loadDates(read: read) } else { await search.search(read: read) } }
     }
     private var optionFields: some View {

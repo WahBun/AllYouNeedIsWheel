@@ -47,7 +47,8 @@ window.installOptionSearch=({api,select,symbol,canSelect,onError=()=>{}})=>{
  desktopToolbar.addEventListener('change',placeToolbar);document.addEventListener('fullscreenchange',placeToolbar);placeToolbar();
 
 
- function mode(options){if(form.hidden===options){revision++;if(open.disabled)loaded='';stockFeedback();}form.hidden=!options;stockPanel.hidden=options;stockTab.classList.toggle('active',!options);optionTab.classList.toggle('active',options);stockTab.setAttribute('aria-pressed',String(!options));optionTab.setAttribute('aria-pressed',String(options));}
+ function optionLoading(busy){$('option-load').disabled=right.disabled=busy;$('option-load').textContent=busy?'Loading…':'Load dates';form.setAttribute('aria-busy',String(busy));}
+ function mode(options){if(form.hidden===options){revision++;if(open.disabled)loaded='';stockFeedback();optionLoading(false);}form.hidden=!options;stockPanel.hidden=options;stockTab.classList.toggle('active',!options);optionTab.classList.toggle('active',options);stockTab.setAttribute('aria-pressed',String(!options));optionTab.setAttribute('aria-pressed',String(options));}
  stockTab.onclick=()=>{mode(false);$('symbol').focus();};optionTab.onclick=()=>{mode(true);if(!loaded)dates();};
  function label(){const full=$('contracts').selectedOptions[0]?.textContent||'Select instrument';const compact=full.replace(/^(\S+) (\d{4})(\d{2})(\d{2}) ([\d.]+) (CALL|PUT)$/,(m,t,y,mo,d,k,r)=>`${t} · ${mo}/${d}/${y.slice(2)} · ${k}${r==='CALL'?'C':'P'}`);launcher.textContent=compact;launcher.title=full;}
  new MutationObserver(label).observe($('contracts'),{childList:true,subtree:true,characterData:true});$('contracts').addEventListener('change',()=>{label();dialog.close();});label();
@@ -70,21 +71,23 @@ window.installOptionSearch=({api,select,symbol,canSelect,onError=()=>{}})=>{
   }catch(error){if(current()){stockFeedback(error.retryableReadBusy?'Search is temporarily busy. Try again.':error.message||'Search is unavailable. Try again.');onError(error.message);}}
   finally{if(sameSearch())stockFeedback(canSelect()?stockStatus.textContent:'Wait for the current order request to finish.');}
  };
- function invalidate(){revision++;loaded='';expiry.replaceChildren();strike.replaceChildren();expiry.disabled=strike.disabled=open.disabled=true;}
+ function invalidate(){revision++;loaded='';optionLoading(false);expiry.replaceChildren();strike.replaceChildren();expiry.disabled=strike.disabled=open.disabled=true;}
  const query=values=>new URLSearchParams(values).toString();
  async function dates(){
+  if($('option-load').disabled)return;
   invalidate();const token=revision,name=ticker();
   if(!/^[A-Z][A-Z0-9.]{0,11}$/.test(name)){status.textContent='Enter an underlying symbol, such as QQQ.';return;}
-  status.textContent='Loading expiration dates…';
+  optionLoading(true);status.textContent='Loading expiration dates…';
   try{const r=await api('portfolio/chart-contracts?'+query({type:'OPT_DATES',q:name}));if(token!==revision||!dialog.open)return;
    loaded=name;expiry.replaceChildren(...r.expirations.map(d=>new Option(`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6)}`,d)));expiry.disabled=!r.expirations.length;
    if(!r.expirations.length){status.textContent='No available expirations.';return;}await strikes();
   }catch(e){if(token===revision)status.textContent=e.message;}
+  finally{if(token===revision)optionLoading(false);}
  }
  async function strikes(){
   const token=++revision;strike.replaceChildren();strike.disabled=open.disabled=true;
   if(!loaded||loaded!==ticker()||!expiry.value)return;
-  status.textContent='Loading strikes…';
+  optionLoading(true);status.textContent='Loading strikes…';
   try{const name=loaded;const [strikesResult,priceResult]=await Promise.allSettled([
     api('options/strikes?'+query({ticker:name,expiration:expiry.value,optionType:right.value==='C'?'CALL':'PUT'})),
     api('options/stock-price?'+query({tickers:name}))]);if(token!==revision||!dialog.open)return;
@@ -97,9 +100,10 @@ window.installOptionSearch=({api,select,symbol,canSelect,onError=()=>{}})=>{
     status.textContent=`Underlying $${price.toFixed(2)} · Nearest strike selected.`;
    }else status.textContent=values.length?'Underlying price unavailable. Choose a strike.':'No contracts for this expiration and type.';
   }catch(e){if(token===revision)status.textContent=e.message;}
+  finally{if(token===revision)optionLoading(false);}
  }
  $('option-search').onclick=()=>{if(!canSelect())return;underlying.value=symbol()||'QQQ';mode(/CALL|PUT/.test(launcher.title));dialog.showModal();if(!form.hidden)dates();else $('symbol').focus();};
- $('option-dismiss').onclick=()=>dialog.close();dialog.addEventListener('close',()=>{revision++;stockFeedback();});
+ $('option-dismiss').onclick=()=>dialog.close();dialog.addEventListener('close',()=>{revision++;stockFeedback();optionLoading(false);});
  underlying.oninput=()=>{invalidate();status.textContent='Load dates for the new underlying.';};
  underlying.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();dates();}};
  $('option-load').onclick=dates;expiry.onchange=strikes;right.onchange=strikes;
