@@ -109,7 +109,7 @@ struct PushNotificationSettings: View {
                 HStack(spacing: 12) {
                     Image(systemName: "bell.badge").font(.title3).frame(width: 25)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(verbatim: "Phone notifications")
+                        Text(verbatim: "Notifications")
                         Text(verbatim: "Via Bark").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 8)
@@ -181,7 +181,7 @@ struct PhoneNotificationDetails: View {
             } header: { Text(verbatim: "Advanced") }
             footer: { Text(verbatim: "Bark is managed separately from direct Wheel notifications.") }
         }
-        .navigationTitle("Phone notifications").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("Notifications").navigationBarTitleDisplayMode(.inline)
         .refreshable { settings.select(account); await settings.refresh() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

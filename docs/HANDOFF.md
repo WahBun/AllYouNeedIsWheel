@@ -3,7 +3,7 @@
 Baseline: GitHub `codex/chart-labels-1.7` at
 `f157229858c996a29ab6fbf6a8ad74bc60b47de4` (the order review below).
 
-Replace the three-row native-push card with one **Phone notifications** row,
+Replace the three-row native-push card with one **Notifications** row,
 showing **Via Bark** and the current account's On/Off/unavailable state. Its
 detail page reuses the existing Bark enable, change-address, test and disable
 routes. Native APNs settings remain under **Advanced → Direct app notifications**,
