@@ -157,6 +157,21 @@ final class ChartViewportTests: XCTestCase {
             if let coldAxis { XCTAssertEqual(axis, coldAxis) } else { coldAxis = axis }
             _ = try await web.evaluateJavaScript("configure({entry:9.14,quantity:1,entryType:'LMT',priceRules:[{low:0,increment:.0001},{low:1,increment:.01}],tpDistance:.25,slDistance:.25,templateRevision:1});true")
         }
+        let cachedHistory = try await web.callAsyncJavaScript("""
+        const snapshot={...countdownPacket,bars:previous.map(b=>({...b}))};
+        await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        const before=timeToScreenCoordinate(previous.at(-1).time);
+        receive({...snapshot,bars:snapshot.bars.slice(-20)});
+        await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        const shortCount=previous.length;
+        receive(snapshot);
+        await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        return {before,after:timeToScreenCoordinate(previous.at(-1).time),shortCount,count:previous.length};
+        """, arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
+        let historyState = try XCTUnwrap(cachedHistory)
+        XCTAssertEqual(historyState["shortCount"] as? Int, 70)
+        XCTAssertEqual(historyState["count"] as? Int, 70)
+        XCTAssertEqual(try XCTUnwrap(historyState["before"] as? Double), try XCTUnwrap(historyState["after"] as? Double), accuracy: 0.1)
         let labels = try await web.callAsyncJavaScript("""
         const saved={...countdownPacket,bars:previous.map(b=>({...b}))};
         receive({...saved,bars:[]});updateVisibleExtrema();positionExtremaLabels();
