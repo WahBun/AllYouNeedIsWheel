@@ -13,14 +13,16 @@ def timestamp(value):
         return None
 
 
-def execution_rows(conn, contract, path):
+def execution_rows(conn, contract, path, *, refresh=True):
     account = conn._order_account()
     if not account or not conn.is_connected():
         raise ValueError('Chart executions unavailable')
-    conn.refresh_execution_history()
+    if refresh:
+        conn.refresh_execution_history()
     cid = contract.conId
     from api.services.chart_execution_metadata import persist_metadata
-    persist_metadata(conn, path, account, conn.ib.fills(), conn.ib.trades() if hasattr(conn.ib, 'trades') else ())
+    if refresh:
+        persist_metadata(conn, path, account, conn.ib.fills(), conn.ib.trades() if hasattr(conn.ib, 'trades') else ())
     groups = {}
     record_groups = {}
     for fill in conn.ib.fills():

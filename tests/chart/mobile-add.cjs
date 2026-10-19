@@ -5,7 +5,7 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
  const read=n=>fs.readFileSync(path.join(root,n),'utf8');
  await page.setContent(read('stock-chart.html').replace('/*LIBRARY*/',()=>read('lightweight-charts.standalone.production.js')).replace('</body>',()=>'<script>'+read('chart-add-orders.js')+'</script></body>'));
  await page.evaluate(()=>{
-  window.sent=[];window.webkit={messageHandlers:{paperAction:{postMessage:x=>sent.push(x)}}};
+  window.sent=[];window.webkit={messageHandlers:{paperAction:{postMessage:x=>{if(x.action!=='chartValidation')sent.push(x)}}}};
   receive({con_id:7,local_symbol:'MNQZ6',generation:'touch',interval:5,session:'all',bars:Array.from({length:70},(_,i)=>({time:1000+300*i,open:100,high:108,low:92,close:100}))});
   window.fixture={con_id:7,entry:100,quantity:1,dark:true,priceRules:[{low:0,increment:.25}],paper:{enabled:true,known:true,active:true,scalable:true,position:1,side:1,entry:100,tp:110,sl:90,order_ref:'original',orders:[]}};configure(fixture);
  });

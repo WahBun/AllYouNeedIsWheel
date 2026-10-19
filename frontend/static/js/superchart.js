@@ -23,8 +23,8 @@ const updateSymbolClear=()=>{$('clear-symbol').hidden=!$('symbol').value;};
 $('symbol').addEventListener('input',updateSymbolClear);
 $('clear-symbol').onclick=()=>{$('symbol').value='';updateSymbolClear();$('symbol').focus();};
 window.addEventListener('pageshow',updateSymbolClear);updateSymbolClear();
-// Tab-local analysis lock. Do not persist this in shared chart display settings.
-let tradingLocked=false;try{tradingLocked=sessionStorage.getItem('wheel.web.tradingLocked')==='true';}catch{}
+// Start each page in analysis mode; unlocking is deliberate and is not restored.
+let tradingLocked=true;
 const tradingLock=document.createElement('button');tradingLock.id='trading-lock';tradingLock.type='button';
 document.querySelector('.trade-heading h2').after(tradingLock);
 function renderTradingLock(){
@@ -32,7 +32,7 @@ function renderTradingLock(){
  tradingLock.innerHTML='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="'+(tradingLocked?'M8 10V7a4 4 0 0 1 8 0v3M12 15v2':'M8 10V7a4 4 0 0 1 8 0M12 15v2')+'"/></svg>';
 }
 tradingLock.onclick=()=>{
- tradingLocked=!tradingLocked;try{sessionStorage.setItem('wheel.web.tradingLocked',String(tradingLocked));}catch{}
+ tradingLocked=!tradingLocked;
  if(tradingLocked){queuedEntry=null;pendingJoin=null;editContext=null;$('editor').close();$('protection-editor').close();}
  renderTradingLock();sync();chartLayout.refreshTradingLock();
  log(tradingLocked?'Trading locked. Chart analysis remains available.':'Trading unlocked.');
