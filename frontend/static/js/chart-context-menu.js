@@ -182,8 +182,8 @@
    const more=item('More settings...',()=>parent.postMessage({wheelChart:true,name:'chartSettings'},location.origin));const gear=axisButton.firstElementChild.cloneNode(true);gear.style.cssText='position:absolute;left:8px;top:50%;transform:translateY(-50%);width:16px;height:16px';more.prepend(gear);
    for(const row of menu.querySelectorAll('button')){row.style.position='relative';row.style.paddingLeft='34px';}
   }else{
-  item('Add alert at '+priceText(price),()=>{if(contract===paperCID)window.chartAlerts?.open({price});},!(price>0),'alert');
-  refreshOrderMenu=orderItems(price,(label,run,disabled,presets,side)=>entryItem(label,()=>{if(contract===paperCID)run();},disabled,presets,side),true);
+  item(price>0?'Add alert at '+priceText(price):'Price unavailable',()=>{if(contract===paperCID)window.chartAlerts?.open({price});},!(price>0),'alert');
+  refreshOrderMenu=price>0?orderItems(price,(label,run,disabled,presets,side)=>entryItem(label,()=>{if(contract===paperCID)run();},disabled,presets,side),true):()=>{};
   const n=window.chartDrawingActions?.count()||0;if(n>0)item(`Remove ${n} drawing${n===1?'':'s'}`,()=>window.chartDrawingActions?.removeAll()).style.paddingLeft='40px';
   }
   menu.hidden=false;menu.style.left=Math.max(6,Math.min(event.clientX,innerWidth-menu.offsetWidth-6))+'px';menu.style.top=Math.max(6,Math.min(event.clientY,innerHeight-menu.offsetHeight-6))+'px';
@@ -197,5 +197,12 @@
  axisButton.onclick=()=>{const r=axisButton.getBoundingClientRect();openChartMenu({target:document.body,clientX:r.left,clientY:Math.min(r.top,chart.paneSize().height-1),preventDefault(){},stopPropagation(){}},true);};
  document.addEventListener('pointerdown',e=>{if(!menu.contains(e.target))close();},true);
  chart.timeScale().subscribeVisibleLogicalRangeChange(()=>{if(countdownPacket?.interval===60&&Date.now()>historyGestureUntil)return;const range=chart.timeScale().getVisibleRange();if(previous.length&&range&&range.from<=previous[Math.min(5,previous.length-1)].time)window.webkit?.messageHandlers.historyRequest?.postMessage({con_id:paperCID,before:previous[0].time,interval:countdownPacket?.interval,session:countdownPacket?.session});});
- document.addEventListener('wheel',close,{passive:true});window.addEventListener('resize',close);
+ // A trackpad can still emit momentum after a secondary click. Keep the
+ // menu stable; scroll inside it, and do not scroll the underlying chart.
+ document.addEventListener('wheel',event=>{
+  if(menu.hidden)return;
+  event.stopPropagation();
+  if(!menu.contains(event.target))event.preventDefault();
+ },{capture:true,passive:false});
+ window.addEventListener('resize',close);
 })();
