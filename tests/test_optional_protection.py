@@ -5,6 +5,46 @@ from types import SimpleNamespace as S
 from uuid import uuid4
 
 class OptionalProtectionTests(PaperChartTests):
+    def test_manual_stop_projection_recovers_without_historical_entry_fills(self):
+        self.contract.secType='OPT';self.contract.multiplier='100'
+        _,result=self.submit(side=-1,quantity=1,tp=None,sl=None)
+        entry=self.trades[0]
+        entry.orderStatus.status='Filled';entry.orderStatus.filled=1
+        entry.orderStatus.avgFillPrice=10
+        position=S(account='DU_TEST',contract=self.contract,position=-1,avgCost=1000)
+        self.conn.ib.positions.return_value=[position]
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw: self.conn.ib.positions.return_value if fn==self.conn.ib.reqPositions else self.trades
+        state=self.service.state(self.conn,7)
+        result=self.service.execute(self.conn,7,dict(action='be',manual_stop_quantity=True,
+            request_id=str(uuid4()),expected_ref=state['order_ref'],expected_snapshot=state['edit_snapshot']))
+        self.assertTrue(result['success'],result)
+        position.avgCost=97.2307
+        stop=self.trades[-1];stop.order.auxPrice=.85;stop.orderStatus.status='PreSubmitted'
+        self.service.state(self.conn,7) # persist the confirmed terminal entry
+        self.trades.remove(entry)
+        self.conn._bounded_order_read.side_effect=None;self.conn._bounded_order_read.return_value=[]
+        self.service=PaperChart(self.service.path)
+        self.conn.ib.placeOrder.reset_mock();self.conn.ib.cancelOrder.reset_mock()
+        state=self.service.state(self.conn,7)
+        projection=state['sl_projection']
+        self.assertEqual(state['entry_source'],'broker_average_cost')
+        self.assertTrue(projection['known'],state)
+        self.assertEqual(len(projection['targets']),1)
+        row=projection['targets'][0]
+        self.assertEqual(row['order_id'],stop.order.orderId)
+        self.assertAlmostEqual((row['price']-row['entry'])*row['side']*row['quantity']*row['multiplier'],12.2307)
+        for status in ('Cancelled','PendingSubmit','Unknown'):
+            stop.orderStatus.status=status
+            self.assertFalse(self.service.state(self.conn,7)['sl_projection']['known'],status)
+        stop.orderStatus.status='PreSubmitted'
+        for size,cost in ((-2,97.2307),(-1,0),(-1,float('nan'))):
+            position.position=size;position.avgCost=cost
+            self.assertFalse(self.service.state(self.conn,7)['sl_projection']['known'])
+        position.position=-1;position.avgCost=97.2307
+        stop.orderStatus.filled=.5
+        self.assertFalse(self.service.state(self.conn,7)['sl_projection']['known'],'Missing realized exits must remain unknown')
+        self.conn.ib.placeOrder.assert_not_called();self.conn.ib.cancelOrder.assert_not_called()
+
     def test_manual_be_stop_can_be_dragged_after_recovery(self):
         self.contract.secType='OPT';self.contract.multiplier='100'
         _,result=self.submit(side=-1,quantity=1,tp=None,sl=None)
