@@ -5,6 +5,38 @@ from types import SimpleNamespace as S
 from uuid import uuid4
 
 class OptionalProtectionTests(PaperChartTests):
+    def test_manual_be_stop_can_be_dragged_after_recovery(self):
+        self.contract.secType='OPT';self.contract.multiplier='100'
+        _,result=self.submit(side=-1,quantity=1,tp=None,sl=None)
+        self.assertTrue(result['success'],result)
+        entry=self.trades[0]
+        entry.orderStatus.status='Filled';entry.orderStatus.filled=1
+        entry.orderStatus.avgFillPrice=10
+        self.conn.ib.positions.return_value=[S(account='DU_TEST',contract=self.contract,position=-1,avgCost=1000)]
+        self.conn._bounded_order_read.side_effect=lambda fn,*a,**kw: self.conn.ib.positions.return_value if fn==self.conn.ib.reqPositions else self.trades
+        state=self.service.state(self.conn,7)
+        result=self.service.execute(self.conn,7,dict(action='be',manual_stop_quantity=True,
+            request_id=str(uuid4()),expected_ref=state['order_ref'],expected_snapshot=state['edit_snapshot']))
+        self.assertTrue(result['success'],result)
+        stop=self.trades[-1];oid=stop.order.orderId
+        self.assertEqual(self.service.group('DU_TEST',7)['lots'],[{'entry':entry.order.orderId}])
+        self.service=PaperChart(self.service.path)
+        self.conn.ib.placeOrder.reset_mock()
+        body=dict(action='amend',role='sl',price=9.5,request_id=str(uuid4()),expected_ref=state['order_ref'])
+        result=self.service.execute(self.conn,7,body)
+        self.assertTrue(result['success'],result)
+        self.conn.ib.placeOrder.assert_called_once()
+        amended=self.conn.ib.placeOrder.call_args.args[1]
+        self.assertEqual((amended.orderId,amended.totalQuantity,amended.auxPrice),(oid,1,9.5))
+        self.assertEqual((amended.parentId,amended.ocaGroup,amended.orderRef),
+                         (stop.order.parentId,stop.order.ocaGroup,stop.order.orderRef))
+        self.service.execute(self.conn,7,body)
+        self.conn.ib.placeOrder.assert_called_once()
+        stop.orderStatus.status='Cancelled'
+        result=self.service.execute(self.conn,7,dict(body,request_id=str(uuid4()),price=9.25))
+        self.assertFalse(result['success'],result)
+        self.conn.ib.placeOrder.assert_called_once()
+
     # Reuse broker fixture; inherited regressions also exercise the new implementation.
     def test_four_combinations_transmit_only_requested_stock_legs(self):
         for tp,sl in [(11,None),(None,9),(None,None),(11,9)]:

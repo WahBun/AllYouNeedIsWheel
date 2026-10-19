@@ -2491,7 +2491,13 @@ class PaperChart:
                 raise ValueError('Exact trim order required')
             role='sl' if action=='be' else body.get('role')
             if role not in ('tp','sl'): raise ValueError('Only TP and SL can be amended')
-            trade=next((trades.get(lot.get(role)) for lot in group.get('lots',[]) if trades.get(lot.get(role)) and not trades[lot[role]].isDone()),None) if group.get('lots') else next((trades.get(r['order_id']) for r in current['orders'] if r['role'].split('_')[0]==role and r['status'] in ('Submitted','PreSubmitted')),None)
+            # BE can add one aggregate stop to entry-only lots. Its identity is
+            # stored at group level; it must not be searched for in each lot.
+            manual_stop = role == 'sl' and group.get('manual_stop_quantity')
+            if manual_stop:
+                trade=trades.get(group['ids'].get('sl'))
+            else:
+                trade=next((trades.get(lot.get(role)) for lot in group.get('lots',[]) if trades.get(lot.get(role)) and not trades[lot[role]].isDone()),None) if group.get('lots') else next((trades.get(r['order_id']) for r in current['orders'] if r['role'].split('_')[0]==role and r['status'] in ('Submitted','PreSubmitted')),None)
             if not trade or trade.isDone(): raise ValueError('Exit order is no longer working')
             if action=='be':
                 if not current['position']: raise ValueError('BE requires a filled position')
@@ -2519,6 +2525,8 @@ class PaperChart:
                 if body.get('restore_trim') and (not row.get('restore_price') or new_price!=row['restore_price']):
                     raise ValueError('Original TP changed; refresh before canceling trim')
                 targets=[trades.get(wanted)]
+            elif manual_stop:
+                targets=[trade]
             else:
                 targets=[trades.get(lot.get(role)) for lot in group['lots'] if role!='tp' or not lot.get('closing')] if group.get('lots') else [trades.get(r['order_id']) for r in current['orders'] if r['role'].split('_')[0]==role and r['status'] in ('Submitted','PreSubmitted')]
             if not any(t and not t.isDone() for t in targets): raise ValueError('No remaining exit at this level')
