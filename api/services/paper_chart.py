@@ -758,6 +758,25 @@ class PaperChart:
                     entry=basis,side=group['side'],multiplier=multiplier) for r in rows
                     if r['role'].split('_')[0]==role and r['status'] in ('Submitted','PreSubmitted')]
                 result[role+'_projection']=dict(known=complete and bool(targets),realized=realized,targets=targets)
+        if group.get('manual_stop_quantity') and result['position']:
+            # BE can create one aggregate stop outside the legacy per-entry lots.
+            # Before any exit has filled, the verified current position basis is
+            # sufficient even when reconnect recovery has no historical fills.
+            # Do not substitute it for missing realized P/L after a trim/exit.
+            no_exits = all(r['filled'] == 0 for r in rows if r['role'].split('_')[0] != 'entry')
+            if no_exits:
+                multiplier = float(scaling_contract.multiplier or 1) if scaling_contract else 0
+                stops = [r for r in rows if r['role'].split('_')[0] == 'sl'
+                         and r['status'] in ('Submitted', 'PreSubmitted')]
+                targets = [dict(order_id=r['order_id'], price=r['price'], quantity=r['quantity']-r['filled'],
+                                entry=result['entry'], side=group['side'], multiplier=multiplier) for r in stops]
+                known = bool(result['known'] and not result.get('sync_error') and result['entry'] > 0
+                    and multiplier > 0 and math.isfinite(multiplier)
+                    and abs(owned-result['position']) < .000001
+                    and group['side']*result['position'] > 0
+                    and targets and all(0 < r['price'] < 1e100 and r['quantity'] > 0 for r in targets)
+                    and abs(sum(r['quantity'] for r in targets)-abs(result['position'])) < .000001)
+                result['sl_projection'] = dict(known=known, realized=0.0, targets=targets)
         self.action_availability(conn, account, scaling_contract, result)
         if attribution_view is not None and not attribution_view['known']:
             result['protection']['status']='unknown'
