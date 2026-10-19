@@ -272,7 +272,7 @@ struct PerformanceView: View {
                 loading = false
                 if history == nil, error == nil { error = "History is still generating. Retrying shortly." }
                 // History availability can change while this page stays open.
-                // Live account P&L continues on its separate five-second loop.
+                // Live account P&L continues on its independent fast loop.
                 do { try await Task.sleep(for: .seconds(60)) } catch { return }
                 }
             }
@@ -280,15 +280,22 @@ struct PerformanceView: View {
                 live = nil; liveError = nil
                 guard active, !store.demo else { return }
                 let requestedAddress = store.address
+                let initialReadAt = Date.now
                 while !Task.isCancelled {
+                    var nextReadDelay = 1.0
                     do {
                         let (data, _) = try await read("live")
                         let next = try JSONDecoder().decode(PerformanceLive.self, from: data)
                         try Task.checkCancellation()
                         guard active, !store.demo, store.address == requestedAddress else { return }
                         live = next; liveError = nil
-                    } catch { if Task.isCancelled || !active || store.address != requestedAddress { return }; live = nil; liveError = connectionMessage(error) }
-                    do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                        // reqPnL can acknowledge before the first value arrives.
+                        // Briefly retry cold reads; never overlap requests or fake freshness.
+                        if !next.fresh && Date.now.timeIntervalSince(initialReadAt) < 3 {
+                            nextReadDelay = 0.25
+                        }
+                    } catch { if Task.isCancelled || !active || store.address != requestedAddress { return }; live = nil; liveError = connectionMessage(error); nextReadDelay = 5 }
+                    do { try await Task.sleep(for: .seconds(nextReadDelay)) } catch { return }
                 }
             }
     }
