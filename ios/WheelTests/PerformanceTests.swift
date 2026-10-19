@@ -5,7 +5,7 @@ import SwiftUI
 final class PerformanceTests: XCTestCase {
     @MainActor
     func testPageContinuesLiveReadsWhileBenchmarkIsMissing() async throws {
-        PerformancePageProtocol.reset()
+        PerformancePageProtocol.reset(staleFirst: true)
         URLProtocol.registerClass(PerformancePageProtocol.self)
         let store = WheelStore()
         store.demo = false; store.address = "https://performance.invalid"; store.selectedTab = "portfolio"
@@ -20,6 +20,12 @@ final class PerformanceTests: XCTestCase {
             if PerformancePageProtocol.liveCount >= 1 { break }
             try await Task.sleep(for: .milliseconds(100))
         }
+        for _ in 0..<15 {
+            if PerformancePageProtocol.firstFreshDelay.isFinite { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertLessThan(PerformancePageProtocol.firstFreshDelay, 1.5, "Cold subscription must not wait five seconds")
+        print("Performance first fresh value seconds: \(PerformancePageProtocol.firstFreshDelay)")
         try await Task.sleep(for: .milliseconds(300))
         func capture(_ name: String) {
             controller.view.layoutIfNeeded()
@@ -32,7 +38,7 @@ final class PerformanceTests: XCTestCase {
         capture("Performance-positive-live-PnL")
         let firstReadCount = PerformancePageProtocol.liveCount
         PerformancePageProtocol.setPnl(-10)
-        for _ in 0..<65 {
+        for _ in 0..<18 {
             if PerformancePageProtocol.liveCount > firstReadCount { break }
             try await Task.sleep(for: .milliseconds(100))
         }
@@ -77,18 +83,28 @@ private final class PerformancePageProtocol: URLProtocol {
     private static var reads = 0
     private static var independent = false
     private static var pnl = 25
+    private static var staleFirst = false
+    private static var readTimes: [Date] = []
+    private static var firstFreshAt: Date?
+    static var firstFreshDelay: TimeInterval { lock.withLock { guard let first = readTimes.first, let fresh = firstFreshAt else { return .infinity }; return fresh.timeIntervalSince(first) } }
     static var liveCount: Int { lock.withLock { reads } }
     static var independentHistoryRequested: Bool { lock.withLock { independent } }
-    static func reset() { lock.withLock { reads = 0; independent = false; pnl = 25 } }
+    static func reset(staleFirst: Bool = false) { lock.withLock { reads = 0; independent = false; pnl = 25; Self.staleFirst = staleFirst; readTimes = []; firstFreshAt = nil } }
     static func setPnl(_ value: Int) { lock.withLock { pnl = value } }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "performance.invalid" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let data: Data
         if request.url?.lastPathComponent == "live" {
-            let pnl = Self.lock.withLock { Self.reads += 1; return Self.pnl }
+            let (pnl, fresh) = Self.lock.withLock {
+                let now = Date.now
+                Self.reads += 1; Self.readTimes.append(now)
+                let fresh = !Self.staleFirst || now.timeIntervalSince(Self.readTimes[0]) >= 0.3
+                if fresh && Self.firstFreshAt == nil { Self.firstFreshAt = now }
+                return (Self.pnl, fresh)
+            }
             let stamp = ISO8601DateFormatter().string(from: .now)
-            data = try! JSONSerialization.data(withJSONObject: ["daily_pnl":pnl,"fresh":true,"received_at":stamp])
+            data = try! JSONSerialization.data(withJSONObject: ["daily_pnl":pnl,"fresh":fresh,"received_at":stamp])
         } else {
             Self.lock.withLock { Self.independent = request.url?.query?.contains("include_unmatched=1") == true }
             data = Data("""
