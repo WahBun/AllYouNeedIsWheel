@@ -858,6 +858,13 @@ function captureTailView(packet){
 function restoreTailView(view){if(!view)return;const logical=latestBarLogical();if(logical===null)return;const shift=logical-view.logical;if(shift>0)chart.timeScale().setVisibleLogicalRange({from:view.range.from+shift,to:view.range.to+shift});}
 window.receive=(packet)=>{const tailView=captureTailView(packet);extremaBars=null;if(countdownPacket?.server_time!==packet.server_time){countdownReceived=Number.isFinite(packet.chart_received_at)?packet.chart_received_at*1000:Date.now();}countdownPacket=packet;document.getElementById('chart-header').classList.toggle('option-header',packet.security_type==='OPT');document.getElementById('chart-title').textContent=[packet.display_symbol||packet.local_symbol||packet.symbol,packet.interval<60?String(packet.interval):packet.interval<1440?(packet.interval/60)+'h':packet.interval===1440?'D':packet.interval===10080?'W':'M',packet.exchange].filter(Boolean).join(' · ');let bars=packet.bars||[];
  const incomingKey=(packet.con_id||'')+'-'+packet.generation+'-'+packet.interval+'-'+packet.session;
+ // A recent snapshot may be shorter than cached/paged history already drawn.
+ // Retain that older prefix in the model too, so later history is not counted twice.
+ if(packet.mode!=='delta'&&key===incomingKey&&previous.length&&bars.length&&bars[0].time>previous[0].time){
+  let lo=0,hi=previous.length;
+  while(lo<hi){const mid=(lo+hi)>>1;if(previous[mid].time<bars[0].time)lo=mid+1;else hi=mid;}
+  bars=[...previous.slice(0,lo),...bars];
+ }
  if(packet.mode==='delta'&&key===incomingKey&&previous.length&&bars.every(b=>b.time>=previous.at(-1).time)){
   for(const b of bars){series.update(b);if(b.time===previous.at(-1).time)previous[previous.length-1]=b;else previous.push(b);}
   updateReadout();updateATR();updateEMA();if(!sideReady&&!paperConfig.active){inferSide();clampLevels();}updateLines();restoreTailView(tailView);return;
