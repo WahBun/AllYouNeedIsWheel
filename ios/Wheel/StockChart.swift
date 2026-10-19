@@ -390,7 +390,7 @@ struct StockChartView: View {
     @State private var quoteStatusCID: Int?
     @State private var chartValidationMessage = ""
     @State private var chartValidationCID: Int?
-    @State private var tradingLocked = false
+    @State private var tradingLocked = true
     @State private var paperMessage: String?
     @State private var pendingActionLabel = ""
     @State private var protectionCancelRef: String?

@@ -1,9 +1,63 @@
 import XCTest
 import WebKit
+import SwiftUI
 @testable import Wheel
 
 @MainActor
 final class ChartViewportTests: XCTestCase {
+    func testTradingPageStartsLockedAndPricePlusOpensAlert() async throws {
+        let savedPlus = UserDefaults.standard.object(forKey: "chartPlusButton")
+        UserDefaults.standard.set(true, forKey: "chartPlusButton")
+        let store = WheelStore(); store.demo = true; store.address = ""
+        let position = Position(symbol: "TEST", position: 1, security_type: "STK", con_id: 7)
+        let controller = UIHostingController(rootView: NavigationStack {
+            StockChartView(position: position).environment(store).environment(\.scenePhase, .active)
+        }.environment(\.locale, Locale(identifier: "en")))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller; window.makeKeyAndVisible()
+        defer {
+            window.rootViewController = nil; window.isHidden = true
+            UserDefaults.standard.set(savedPlus, forKey: "chartPlusButton")
+        }
+        func findWeb(_ view: UIView) -> WKWebView? {
+            if let web = view as? WKWebView { return web }
+            return view.subviews.lazy.compactMap { findWeb($0) }.first
+        }
+        var chart: WKWebView?
+        for _ in 0..<60 {
+            if let web = findWeb(controller.view),
+               (try? await web.evaluateJavaScript("typeof nativeTradingLocked==='function' && paperCID===7")) as? Bool == true {
+                chart = web; break
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let web = try XCTUnwrap(chart)
+        let locked = try await web.evaluateJavaScript("nativeTradingLocked()") as? Bool
+        XCTAssertEqual(locked, true, "The actual SwiftUI page must supply the locked default")
+        let result = try await web.evaluateJavaScript("""
+        receive({con_id:7,generation:'fixture',interval:5,bars:[{time:1000,open:100,close:100,high:110,low:90}]});
+        cursorOrderPrice=101.25;priceAdd.hidden=false;priceAdd.style.top='150px';priceAdd.click();
+        const alertButton=priceMenu.querySelector('[data-price-alert]');
+        const count=priceMenu.querySelectorAll('button').length;alertButton?.click();
+        ({locked:nativeTradingLocked(),plusDisabled:priceAdd.disabled,count,price:document.querySelector('#chart-alert-editor [data-price]')?.value});
+        """) as? [String: Any]
+        XCTAssertEqual(result?["locked"] as? Bool, true)
+        XCTAssertEqual(result?["plusDisabled"] as? Bool, false)
+        XCTAssertEqual(result?["count"] as? Int, 1)
+        XCTAssertEqual(result?["price"] as? String, "101.25")
+        try await Task.sleep(for: .milliseconds(500))
+        controller.view.layoutIfNeeded()
+        let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { _ in
+            controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image); attachment.name = "Locked-native-price-alert"; attachment.lifetime = .keepAlways
+        add(attachment)
+        let webImage = try await web.takeSnapshot(configuration: nil)
+        let webAttachment = XCTAttachment(image: webImage); webAttachment.name = "Native-alert-editor"; webAttachment.lifetime = .keepAlways
+        add(webAttachment)
+    }
+
     func testOptionHoldingsOpenExactContractChartsForBothSides() throws {
         for quantity in [-2, 2] {
             let data = Data("{\"symbol\":\"TSLA\",\"position\":\(quantity),\"security_type\":\"OPT\",\"strike\":250,\"expiration\":\"20261218\",\"option_type\":\"C\",\"con_id\":70}".utf8)

@@ -7,7 +7,7 @@ import logging
 from config import Config
 from api.services.connection_manager import get_shared_connection
 import traceback
-from api.services.entry_price import recorded_entry_price
+from api.services.entry_price import recorded_entry_price, broker_entry_price
 
 logger = logging.getLogger('api.services.portfolio')
 
@@ -19,6 +19,7 @@ class PortfolioService:
         self.config = config if config is not None else Config()
         logger.info(f"Portfolio service using port: {self.config.get('port')}")
         self.connection = None
+        self._entry_fill_cache = {}
         
     def _ensure_connection(self):
         """
@@ -52,6 +53,29 @@ class PortfolioService:
         multiplier = self._contract_multiplier(contract)
         avg_cost = float(pos.get('avg_cost', 0) or 0)
         position = float(pos.get('shares', pos.get('position', 0)) or 0)
+        entry = None
+        broker_rows_present = False
+        conn = self.connection
+        if conn and conn.is_connected() and conn._order_account() == account_id:
+            # Use already received executions: no Gateway request on the quote path.
+            from api.services.chart_executions import execution_rows
+            fills = [f.execution for f in conn.ib.fills()
+                     if f.contract.conId == contract.conId and f.execution.acctNumber == account_id]
+            signature = (position, tuple((e.execId, e.side, e.shares, e.price) for e in fills))
+            key = (account_id, contract.conId)
+            cached = self._entry_fill_cache.get(key)
+            if cached and cached[0] == signature:
+                entry = cached[1]
+            else:
+                rows = execution_rows(conn, contract, self.config.get('db_path'), refresh=False)
+                broker_rows_present = bool(rows)
+                entry = broker_entry_price(rows, position)
+                if entry is not None:
+                    self._entry_fill_cache[key] = (signature, entry)
+        if entry is None and not broker_rows_present:
+            entry = recorded_entry_price(self.config.get('db_path'), account_id, int(getattr(contract, 'conId', 0) or 0), position,
+                symbol=str(contract.symbol), expiration=str(contract.lastTradeDateOrContractMonth),
+                strike=float(contract.strike), option_type='CALL' if contract.right == 'C' else 'PUT')
         return {
             'expiration': str(contract.lastTradeDateOrContractMonth or ''),
             'strike': float(contract.strike or 0),
@@ -63,9 +87,7 @@ class PortfolioService:
             'trading_class': str(getattr(contract, 'tradingClass', '') or ''),
             'multiplier': multiplier,
             'avg_cost_per_share': abs(avg_cost) / multiplier,
-            'entry_fill_price': recorded_entry_price(self.config.get('db_path'), account_id, int(getattr(contract, 'conId', 0) or 0), position,
-                symbol=str(contract.symbol), expiration=str(contract.lastTradeDateOrContractMonth),
-                strike=float(contract.strike), option_type='CALL' if contract.right == 'C' else 'PUT'),
+            'entry_fill_price': entry,
             'account_id': account_id,
             'close_action': 'BUY' if position < 0 else 'SELL'
         }
