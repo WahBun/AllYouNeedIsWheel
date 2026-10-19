@@ -1,7 +1,8 @@
 const evidence=process.env.WHEEL_EVIDENCE_DIR||require('node:fs').mkdtempSync(require('node:os').tmpdir()+'/wheel-market-');require('node:fs').mkdirSync(evidence,{recursive:true});
 const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),{spawn}=require('node:child_process'),readline=require('node:readline');
 const root=path.resolve(__dirname,'../../..');
-exports.start=async function({variant='current',cap=4,history=300}={}){
+exports.start=async function({variant='current',cap=4,history=300,pendingInitial=0}={}){
+ const initialReads=new Map(),initialReady=new Set();
  const worker=spawn(process.env.WHEEL_PYTHON||root+'/.venv/bin/python',[__dirname+'/tick-worker.py'],{env:{...process.env,PYTHONDONTWRITEBYTECODE:'1',WHEEL_TEST_HISTORY:String(history)},stdio:['pipe','pipe','pipe']});
  const err=fs.createWriteStream(evidence+'/worker-'+variant+'.log');worker.stderr.pipe(err);let id=0;const pending=new Map(),streams=new Map(),channels=new Map(),metrics={rejected:0,snapshots:0,pushed:0,requests:0,posts:0};
  function rpc(op,args={}){return new Promise((resolve,reject)=>{const i=++id;pending.set(i,{resolve,reject});worker.stdin.write(JSON.stringify({id:i,op,...args})+'\n')})}
@@ -21,7 +22,7 @@ exports.start=async function({variant='current',cap=4,history=300}={}){
  if(u.pathname.includes('stock-chart-stream/')){if(streams.size>=cap){metrics.rejected++;return send({error:'Chart streams busy'},503)}const key=String(++id);const contexts=u.searchParams.has('contexts')?JSON.parse(u.searchParams.get('contexts')):[{cid:Number(u.pathname.split('/').at(-1)),interval:Number(u.searchParams.get('interval')),session:u.searchParams.get('session')}];if(contexts.length>4)return send({},400);res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-store','Connection':'keep-alive'});res.flushHeaders();streams.set(key,res);const keys=contexts.map((_,i)=>key+'-'+i);req.on('close',()=>{streams.delete(key);for(const k of keys){channels.delete(k);rpc('unsubscribe',{key:k}).catch(()=>{})}});for(let i=0;i<contexts.length;i++){channels.set(keys[i],res);await rpc('subscribe',{key:keys[i],...contexts[i]});}return}
 
  if(u.pathname.includes('stock-chart-history'))return send({bars:[]});
- if(u.pathname.includes('stock-chart-latest/')||u.pathname.includes('stock-chart/')){metrics.snapshots++;return send(await rpc('snapshot',{cid:Number(u.pathname.split('/').at(-1)),interval:Number(u.searchParams.get('interval')),session:u.searchParams.get('session')}))}
+ if(u.pathname.includes('stock-chart-latest/')||u.pathname.includes('stock-chart/')){metrics.snapshots++;const cid=Number(u.pathname.split('/').at(-1));if(pendingInitial&&u.pathname.includes('stock-chart-latest/')&&!initialReady.has(cid))return send({error:'Latest chart unavailable'},503);if(u.pathname.includes('stock-chart/')&&(initialReads.get(cid)||0)<pendingInitial){initialReads.set(cid,(initialReads.get(cid)||0)+1);metrics.loading=(metrics.loading||0)+1;return send({status:'loading',con_id:cid,interval:Number(u.searchParams.get('interval')),session:u.searchParams.get('session'),account_epoch:'mock-epoch',retry_after:.5},202)}initialReady.add(cid);return send(await rpc('snapshot',{cid,interval:Number(u.searchParams.get('interval')),session:u.searchParams.get('session')}))}
  if(u.pathname.endsWith('/profiles'))return send({selected:'paper',verified:true,epoch:'mock-epoch',readonly:true});
  if(u.pathname.includes('/paper-chart/'))return send({enabled:false,known:true,active:false,status:'mock read-only',orders:[]});
  if(u.pathname.includes('chart-volatility'))return send({status:'unavailable'});

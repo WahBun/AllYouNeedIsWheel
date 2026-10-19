@@ -4,6 +4,66 @@ from api.services.performance_service import parse_flex, parse_benchmark, curves
 
 
 class PerformanceTests(unittest.TestCase):
+    def test_late_benchmark_keeps_latest_portfolio_and_legacy_compatibility(self):
+        import json, time
+        from api.services.performance_service import PerformanceService
+        config = {'account_id':'TEST','report_path':'unused'}
+        service = PerformanceService(); service.context = json.dumps(config, sort_keys=True)
+        daily = [dict(date=f'2026-10-{d}', twr=1, nav=1000) for d in (14,15,16)]
+        spx = {r['date']:100 for r in daily}; ndx = {k:v for k,v in spx.items() if k != '2026-10-16'}
+        service.points = curves(daily, spx, ndx); service.latest = daily[-1]; service.updated = time.time()
+        legacy, status = service.read(config, 'YTD')
+        self.assertEqual(status, 200); self.assertEqual(legacy['end'], '2026-10-15')
+        current, status = service.read(config, 'YTD', include_unmatched=True)
+        self.assertEqual(status, 200); self.assertEqual(current['end'], current['latest']['date'])
+        self.assertIsNone(current['points'][-1]['nq100'])
+        self.assertEqual(current['points'][-1]['spx'], 0)
+        self.assertAlmostEqual(current['points'][-1]['portfolio'], 2.01)
+        self.assertIn('Benchmark', current['warning'])
+
+    def test_delayed_benchmark_retries_after_five_minutes_and_refresh_is_bounded(self):
+        import json
+        from unittest.mock import patch
+        from api.services.performance_service import PerformanceService
+        config = {'account_id':'TEST','report_path':'unused'}
+        service = PerformanceService(); service.context = json.dumps(config, sort_keys=True)
+        service.points = [dict(date=f'2026-10-{d}', portfolio=1, spx=100, nq100=100 if d==14 else None) for d in (14,15)]
+        service.updated = 1000
+        with patch('api.services.performance_service.threading.Thread') as thread, patch('api.services.performance_service.time.time', return_value=1299):
+            service.read(config, 'YTD', include_unmatched=True)
+            thread.assert_not_called()
+        with patch('api.services.performance_service.threading.Thread') as thread, patch('api.services.performance_service.time.time', return_value=1300):
+            self.assertTrue(service.read(config, 'YTD', include_unmatched=True)[0]['refreshing'])
+            service.read(config, 'YTD', include_unmatched=True, force=True)
+            thread.return_value.start.assert_called_once()
+        service.pending = False; service.updated = 1300
+        with patch('api.services.performance_service.threading.Thread') as thread, patch('api.services.performance_service.time.time', return_value=1320):
+            service.read(config, 'YTD', include_unmatched=True, force=True)
+            thread.assert_not_called()
+        with patch('api.services.performance_service.threading.Thread') as thread, patch('api.services.performance_service.time.time', return_value=1361):
+            service.read(config, 'YTD', include_unmatched=True, force=True)
+            thread.return_value.start.assert_called_once()
+
+    def test_benchmark_download_failure_does_not_discard_new_account_history(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from api.services.performance_service import PerformanceService
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory)/'report.csv'
+            report.write_text(self.report(['TEST,20261015,20261015,1,100','TEST,20261016,20261016,2,102']))
+            service = PerformanceService()
+            with patch('api.services.performance_service.download', side_effect=PerformanceError('Unavailable')), patch('subprocess.run', side_effect=RuntimeError('Offline test')):
+                service.refresh(dict(account_id='TEST', report_path=str(report), history_path=str(Path(directory)/'history.db')))
+            self.assertEqual(service.latest['date'], '2026-10-16')
+            self.assertEqual(service.points[-1]['date'], '2026-10-16')
+            self.assertIsNone(service.points[-1]['spx'])
+            self.assertIn('Benchmark', service.error)
+            restored = PerformanceService()
+            restored.restore(dict(account_id='TEST', history_path=str(Path(directory)/'history.db')))
+            self.assertEqual(restored.latest['date'], '2026-10-16')
+            self.assertIsNone(restored.points[-1]['nq100'])
+
     def report(self, rows):
         return 'HEADER,CNAV,ClientAccountID,FromDate,ToDate,TWR,EndingValue\n' + '\n'.join('DATA,CNAV,' + row for row in rows)
 

@@ -462,6 +462,10 @@ async function refreshMarket({full=false}={}){
    }catch(error){if(request.signal.aborted)throw error;if(!marketStream.healthy())refreshLegacyMarket(context);return;}
   }
   const bars=await api(`portfolio/stock-chart/${context.cid}?interval=${context.interval}&session=${context.session}&fast=1&defer_history=1`,undefined,request.signal);
+  if(bars.status==='loading'){
+   if(marketBusy===request&&currentMarket(context)&&revision===marketRevision&&!marketStream.healthy()){$('market-status').hidden=false;$('market-status').textContent='Loading chart history…';}
+   return;
+  }
   if(marketBusy===request&&currentMarket(context)&&revision===marketRevision&&!marketStream.healthy())applyMarket(bars);
  }catch(error){if(marketBusy===request&&!request.signal.aborted&&currentMarket(context)&&revision===marketRevision&&!marketStream.healthy()){$('market-status').hidden=false;$('market-status').textContent=error.message;}}finally{clearTimeout(timeout);if(marketBusy===request)marketBusy=null;}
 }

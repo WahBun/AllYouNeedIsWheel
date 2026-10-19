@@ -61,7 +61,7 @@ class ChartStreams:
             state['used'] = time.monotonic()
             packet = stock_chart.packet(state, minutes, session)
         else:
-            packet = stock_chart.snapshot(connection, con_id, minutes, session)
+            packet = stock_chart.snapshot(connection, con_id, minutes, session, background=True)
         sub = Subscriber(con_id, minutes, session)
         from api.routes.account import epoch
         sub.account_epoch = epoch()

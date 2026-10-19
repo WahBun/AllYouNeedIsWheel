@@ -1978,6 +1978,12 @@ struct StockChartView: View {
                         query: [URLQueryItem(name: "interval", value: String(interval)), URLQueryItem(name: "session", value: session), URLQueryItem(name: "defer_history", value: "1")])
                     try Task.checkCancellation()
                     guard context == requestContext else { return }
+                    if result["status"] as? String == "loading", result["con_id"] as? Int == conID {
+                        notice = "Loading chart history…"
+                        failures = 0
+                        try await Task.sleep(for: .seconds(0.5))
+                        continue
+                    }
                     guard result["con_id"] as? Int == conID, result["bars"] is [[String: Any]] else { throw AppError.message("Invalid chart response") }
                     if (result["bars"] as? [[String: Any]])?.isEmpty == true,
                        (packet["bars"] as? [[String: Any]])?.isEmpty == false {

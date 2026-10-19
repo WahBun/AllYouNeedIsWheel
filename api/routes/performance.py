@@ -17,7 +17,9 @@ from api.services.performance_service import configuration, service
 @bp.get('/history')
 def history():
     try:
-        data, status = service.read(configuration(), request.args.get('period', 'YTD'))
+        data, status = service.read(configuration(), request.args.get('period', 'YTD'),
+                                   include_unmatched=request.args.get('include_unmatched') == '1',
+                                   force=request.args.get('refresh') == '1')
     except Exception:
         data, status = {'error': 'Performance configuration unavailable.'}, 503
     response = jsonify(data)

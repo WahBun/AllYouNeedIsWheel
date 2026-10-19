@@ -111,11 +111,13 @@ def curves(daily, spx, ndx):
         if not math.isfinite(wealth) or wealth <= 0:
             raise PerformanceError('Invalid compounded TWR.')
         accumulated[row['date']] = wealth
-    common = sorted(set(accumulated) & set(spx) & set(ndx))
-    if len(common) < 2:
-        raise PerformanceError('Not enough overlapping account and benchmark dates.')
-    # Missing benchmark days are omitted; intervening account returns still compound.
-    return [{'date': d, 'portfolio': accumulated[d], 'spx': spx[d], 'nq100': ndx[d]} for d in common]
+    if len(accumulated) < 2:
+        raise PerformanceError('Not enough account history.')
+    # A late benchmark must not truncate reported account returns or prevent the
+    # existing live P&L estimate from using the latest reported NAV. Missing
+    # index observations stay unavailable; never carry a close into a new date.
+    return [{'date': d, 'portfolio': accumulated[d], 'spx': spx.get(d), 'nq100': ndx.get(d)}
+            for d in sorted(accumulated)]
 
 
 def period_view(points, period, today=None):
@@ -133,7 +135,9 @@ def period_view(points, period, today=None):
     if not selected:
         raise PerformanceError('Not enough reported data for this period.')
     base = selected[0]
-    return {'points': [{'date': p['date'], **{k: (p[k] / base[k] - 1) * 100 for k in ('portfolio', 'spx', 'nq100')}} for p in selected],
+    return {'points': [{'date': p['date'], **{k: (p[k] / base[k] - 1) * 100
+                    if p[k] is not None and base[k] is not None else None
+                    for k in ('portfolio', 'spx', 'nq100')}} for p in selected],
             'start': base['date'], 'end': selected[-1]['date'],
             'limited_history': period != 'ALL' and day(base['date']) >= start,
             'awaiting_report': len(selected) == 1}
@@ -190,7 +194,7 @@ def fetch_flex(config):
 
 
 class PerformanceService:
-    """One background read, six-hour cache, no Gateway thread or trading writes."""
+    """One background read; bounded cache retries never occupy the IB owner."""
     def __init__(self):
         self.lock = threading.Lock()
         self.pending = False
@@ -201,7 +205,7 @@ class PerformanceService:
         self.context = None
         self.latest = None
 
-    def read(self, config, period):
+    def read(self, config, period, include_unmatched=False, force=False):
         if period not in ('MTD', 'YTD', 'ALL'):
             return {'error': 'Unsupported period.'}, 400
         if not config.get('account_id') or not (config.get('report_path') or (config.get('token') and config.get('query_id'))):
@@ -215,17 +219,28 @@ class PerformanceService:
                 self.latest = None
                 self.restore(config)
             now = time.time()
-            stale = self.updated is None or now - self.updated >= 21600
-            if stale and not self.pending and now >= self.retry_at:
+            benchmark_lag = bool(self.points and any(self.points[-1][k] is None for k in ('spx', 'nq100')))
+            # Retry delayed public observations without holding a stale six-hour
+            # snapshot. Explicit Refresh is bounded and never overlaps a fetch.
+            ttl = 300 if benchmark_lag or self.error else 21600
+            stale = self.updated is None or now - self.updated >= ttl
+            refresh_requested = force and (self.updated is None or now - self.updated >= 60)
+            if (stale or refresh_requested) and not self.pending and now >= self.retry_at:
                 self.pending = True
                 threading.Thread(target=self.refresh, args=(dict(config),), daemon=True, name='performance-history').start()
             if self.points is None:
                 return ({'error': self.error}, 503) if self.error else ({'status': 'loading'}, 202)
             try:
-                payload = period_view(self.points, period)
+                # Older installed clients require numeric benchmark fields.
+                points = self.points if include_unmatched else [p for p in self.points
+                    if all(p[k] is not None for k in ('spx', 'nq100'))]
+                payload = period_view(points, period)
             except PerformanceError as error:
                 return {'error': str(error)}, 422
-            payload.update(status='ready', refreshing=self.pending, stale=stale, warning=self.error,
+            warning = self.error
+            if include_unmatched and any(payload['points'][-1][k] is None for k in ('spx', 'nq100')):
+                warning = warning or 'Benchmark history is delayed or unavailable; portfolio history includes the latest report.'
+            payload.update(status='ready', refreshing=self.pending, stale=stale, warning=warning,
                            fetched_at=datetime.fromtimestamp(self.updated, timezone.utc).isoformat(),
                            source='IBKR daily TWR / FRED SP500, NASDAQ100 (price indices)', latest=self.latest)
             return payload, 200
@@ -242,8 +257,11 @@ class PerformanceService:
             with sqlite3.connect(uri, uri=True, timeout=1) as db:
                 daily = [dict(zip(('date', 'twr', 'nav'), row)) for row in db.execute(
                     'SELECT day,twr,nav FROM daily_performance WHERE account=? ORDER BY day', (config['account_id'],))]
-                spx = dict(db.execute("SELECT day,close FROM benchmark_close WHERE series='SP500'"))
-                ndx = dict(db.execute("SELECT day,close FROM benchmark_close WHERE series='NASDAQ100'"))
+                try:
+                    spx = dict(db.execute("SELECT day,close FROM benchmark_close WHERE series='SP500'"))
+                    ndx = dict(db.execute("SELECT day,close FROM benchmark_close WHERE series='NASDAQ100'"))
+                except sqlite3.Error:
+                    spx, ndx = {}, {}
             self.points = curves(daily, spx, ndx)
             self.latest = daily[-1]
             # Archive age is unknown: never claim this is freshly downloaded.
@@ -298,11 +316,24 @@ class PerformanceService:
                     db.execute('CREATE TABLE IF NOT EXISTS benchmark_close (series TEXT, day TEXT, close REAL, PRIMARY KEY(series,day))')
                     db.executemany('INSERT OR REPLACE INTO benchmark_close VALUES (?,?,?)', [(series, d, value) for d, value in fresh.items()])
                     return dict(db.execute('SELECT day,close FROM benchmark_close WHERE series=? ORDER BY day', (series,)))
+            def available_benchmark(series):
+                try:
+                    return benchmark(series), None
+                except Exception:
+                    # Flex has already succeeded. Retain its latest daily row
+                    # even if an independent benchmark provider is unavailable.
+                    try:
+                        with sqlite3.connect(history_path) as db:
+                            saved = dict(db.execute('SELECT day,close FROM benchmark_close WHERE series=? ORDER BY day', (series,)))
+                    except sqlite3.Error:
+                        saved = {}
+                    return saved, 'Benchmark history unavailable; showing retained observations.'
             with ThreadPoolExecutor(max_workers=2) as pool:
-                spx, ndx = list(pool.map(benchmark, ['SP500', 'NASDAQ100']))
+                (spx, spx_error), (ndx, ndx_error) = list(pool.map(available_benchmark, ['SP500', 'NASDAQ100']))
             points = curves(daily, spx, ndx)
             with self.lock:
-                self.points, self.updated, self.error = points, time.time(), None
+                self.points, self.updated, self.error = points, time.time(), spx_error or ndx_error
+                self.retry_at = 0
                 self.latest = daily[-1]
         except Exception as error:
             with self.lock:

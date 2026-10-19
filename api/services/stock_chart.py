@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from functools import lru_cache
 import pandas_market_calendars as calendars
 from api.services.chart_sessions import cme_regular, session_windows, rth_source_size
+from api.services.chart_initial_history import InitialChartHistory, ChartHistoryPending
 
 
 def option_data_notice(data_type, bars, now, live=False, interval_seconds=60):
@@ -156,10 +157,12 @@ class StockChart:
         self.next_request = {}
         self.request_errors = {}
         self.listeners = set()
+        self.initial_history = InitialChartHistory()
         self.has_subscribers = lambda con_id: False
 
     def stop(self, reset_cooldown=False):
         try:
+            self.initial_history.clear()
             for state in list(self.states.values()):
                 self.stop_state(state)
             if self.active is not None:
@@ -295,7 +298,7 @@ class StockChart:
                                 '8h RTH · recent intraday trade history; earlier bars will retry')
         return packet
 
-    def snapshot(self, conn, con_id, minutes, session="rth", fast=False, defer_history=False, expand_history=False):
+    def snapshot(self, conn, con_id, minutes, session="rth", fast=False, defer_history=False, expand_history=False, background=False):
         if minutes not in (1, 3, 5, 10, 15, 60, 480, 1440, 10080, 43200) or session not in ("rth", "all"):
             raise ValueError('Unsupported chart interval')
         if not conn or not conn.is_connected():
@@ -331,12 +334,11 @@ class StockChart:
         initial = state is None
         if state is None:
             now = time.monotonic()
-            if now < self.next_request.get(con_id, 0):
+            if now < self.next_request.get(con_id, 0) and not (background and self.initial_history.contains(conn, contract)):
                 raise ValueError(self.request_errors.get(con_id, 'Chart subscription cooling down; retry shortly'))
             self.next_request = {key: value for key, value in self.next_request.items() if value > now}
             self.request_errors = {key:value for key,value in self.request_errors.items() if key in self.next_request}
             self.request_errors.pop(con_id, None)
-            self.next_request[con_id] = now + 15
             option_bars=contract.secType=='OPT'
             permission_errors = []
             other_history_errors = []
@@ -347,14 +349,26 @@ class StockChart:
                     other_history_errors.append(code)
                 if any(term in lowered for term in ('no market data permission', 'not subscribed', 'subscription required')):
                     permission_errors.append(str(message))
-            event = getattr(conn.ib, 'errorEvent', None)
-            if event is not None: event += history_error
-            history_started = time.monotonic()
-            try:
-                historical = conn.ib.reqHistoricalData(contract, '', '2 D', '1 min', 'TRADES',
-                    useRTH=False, formatDate=2, keepUpToDate=option_bars, timeout=6 if option_bars else 15)
-            finally:
-                if event is not None: event -= history_error
+            if background:
+                try:
+                    historical, permission_errors, other_history_errors, history_elapsed = self.initial_history.read(conn, contract)
+                except ChartHistoryPending:
+                    raise
+                except ValueError as error:
+                    self.next_request[con_id] = time.monotonic() + (15 if option_bars else 60)
+                    self.request_errors[con_id] = str(error)
+                    raise
+            else:
+                self.next_request[con_id] = now + 15
+                event = getattr(conn.ib, 'errorEvent', None)
+                if event is not None: event += history_error
+                history_started = time.monotonic()
+                try:
+                    historical = conn.ib.reqHistoricalData(contract, '', '2 D', '1 min', 'TRADES',
+                        useRTH=False, formatDate=2, keepUpToDate=option_bars, timeout=6 if option_bars else 15)
+                finally:
+                    if event is not None: event -= history_error
+                history_elapsed = time.monotonic() - history_started
             bars = []
             for bar in historical:
                 if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
@@ -371,7 +385,7 @@ class StockChart:
             from api.services.history_health import record as record_history_health
             if bars:
                 record_history_health(conn, con_id, 'success')
-            elif not other_history_errors and time.monotonic()-history_started >= (6 if option_bars else 15)*0.95:
+            elif not other_history_errors and history_elapsed >= (6 if option_bars else 15)*0.95:
                 record_history_health(conn, con_id, 'timeout')
             if not bars:
                 # Failed history must not monopolize the serialized account/order lane.

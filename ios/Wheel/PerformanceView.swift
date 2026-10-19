@@ -16,11 +16,11 @@ enum PerformanceColors {
     })
 }
 
-private struct PerformancePoint: Decodable, Identifiable {
+struct PerformancePoint: Decodable, Identifiable {
     var date: String
     var portfolio: Double
-    var spx: Double
-    var nq100: Double
+    var spx: Double?
+    var nq100: Double?
     var id: String { date }
     let day: Date
     private enum CodingKeys: String, CodingKey { case date, portfolio, spx, nq100 }
@@ -28,15 +28,15 @@ private struct PerformancePoint: Decodable, Identifiable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         date = try values.decode(String.self, forKey: .date)
         portfolio = try values.decode(Double.self, forKey: .portfolio)
-        spx = try values.decode(Double.self, forKey: .spx)
-        nq100 = try values.decode(Double.self, forKey: .nq100)
+        spx = try values.decodeIfPresent(Double.self, forKey: .spx)
+        nq100 = try values.decodeIfPresent(Double.self, forKey: .nq100)
         guard let parsed = ISO8601DateFormatter().date(from: date + "T16:00:00Z") else {
             throw DecodingError.dataCorruptedError(forKey: .date, in: values, debugDescription: "Invalid trading date")
         }
         day = parsed
     }
 }
-private struct PerformanceHistory: Decodable {
+struct PerformanceHistory: Decodable {
     struct Latest: Decodable { let date: String; let nav: Double }
     let points: [PerformancePoint]
     let start: String
@@ -48,10 +48,34 @@ private struct PerformanceHistory: Decodable {
     let warning: String?
     let latest: Latest?
 }
-private struct PerformanceLive: Decodable {
+struct PerformanceLive: Decodable {
     let daily_pnl: Double?
     let fresh: Bool
     let received_at: String?
+}
+
+extension PerformanceHistory {
+    // Preserve the live account-P&L estimate independently of benchmark availability.
+    func intradayEstimate(_ live: PerformanceLive?, now: Date = .now) -> Double? {
+        guard live?.fresh == true, let pnl = live?.daily_pnl, pnl.isFinite,
+              let latest, latest.nav > 0,
+              latest.date == end, let last = points.last else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        let today = calendar.startOfDay(for: now)
+        let clock = calendar.dateComponents([.hour, .minute], from: now)
+        let minute = (clock.hour ?? 0) * 60 + (clock.minute ?? 0)
+        guard (570..<960).contains(minute) else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let components = latest.date.split(separator: "-").compactMap { Int($0) }
+        guard components.count == 3, let previous = calendar.date(from: DateComponents(year: components[0], month: components[1], day: components[2])),
+              let days = calendar.dateComponents([.day], from: previous, to: today).day,
+              (1...4).contains(days), !calendar.isDateInWeekend(today),
+              let stamp = live?.received_at.flatMap({ formatter.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) }),
+              calendar.isDate(stamp, inSameDayAs: today) else { return nil }
+        return ((1 + last.portfolio / 100) * (1 + pnl / latest.nav) - 1) * 100
+    }
 }
 
 private struct ReturnSegment: Identifiable {
@@ -98,27 +122,7 @@ struct PerformanceView: View {
     }
     private var gain: Color { palette.color("gain", scheme: scheme, fallback: FinancialColors.gain) }
     private var loss: Color { palette.color("loss", scheme: scheme, fallback: FinancialColors.loss) }
-    // Daily P&L / previous reported NAV is provisional, not an official intraday TWR.
-    private var estimate: Double? {
-        guard live?.fresh == true, let pnl = live?.daily_pnl, pnl.isFinite,
-              let history, let latest = history.latest, latest.nav > 0,
-              latest.date == history.end, let last = history.points.last else { return nil }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "America/New_York")!
-        let today = calendar.startOfDay(for: Date())
-        let clock = calendar.dateComponents([.hour, .minute], from: Date())
-        let minute = (clock.hour ?? 0) * 60 + (clock.minute ?? 0)
-        guard (570..<960).contains(minute) else { return nil }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let components = latest.date.split(separator: "-").compactMap { Int($0) }
-        guard components.count == 3, let previous = calendar.date(from: DateComponents(year: components[0], month: components[1], day: components[2])),
-              let days = calendar.dateComponents([.day], from: previous, to: today).day,
-              (1...4).contains(days), !calendar.isDateInWeekend(today),
-              let stamp = live?.received_at.flatMap({ formatter.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) }),
-              calendar.isDate(stamp, inSameDayAs: today) else { return nil }
-        return ((1 + last.portfolio / 100) * (1 + pnl / latest.nav) - 1) * 100
-    }
+    private var estimate: Double? { history?.intradayEstimate(live) }
     private func segments(from start: Date, _ first: Double, to end: Date, _ last: Double, id: String) -> [ReturnSegment] {
         if first * last < 0 {
             let crossing = start.addingTimeInterval(end.timeIntervalSince(start) * abs(first) / (abs(first) + abs(last)))
@@ -163,12 +167,12 @@ struct PerformanceView: View {
                                 .foregroundStyle(segment.positive ? gain : loss).lineStyle(StrokeStyle(lineWidth: 2.5))
                         }
                         ForEach(history.points) { point in
-                            if benchmarks.showsSPX {
-                            LineMark(x: .value("Date", point.day), y: .value("Return", point.spx), series: .value("Series", "SPX"))
+                            if benchmarks.showsSPX, let spx = point.spx {
+                            LineMark(x: .value("Date", point.day), y: .value("Return", spx), series: .value("Series", "SPX"))
                                 .foregroundStyle(PerformanceColors.spx).lineStyle(StrokeStyle(lineWidth: 1.5))
                             }
-                            if benchmarks.showsNQ100 {
-                            LineMark(x: .value("Date", point.day), y: .value("Return", point.nq100), series: .value("Series", "NDX"))
+                            if benchmarks.showsNQ100, let ndx = point.nq100 {
+                            LineMark(x: .value("Date", point.day), y: .value("Return", ndx), series: .value("Series", "NDX"))
                                 .foregroundStyle(PerformanceColors.ndx).lineStyle(StrokeStyle(lineWidth: 1.5))
                             }
                         }
@@ -246,19 +250,31 @@ struct PerformanceView: View {
                 guard !store.demo else { error = "Performance requires a live backend with Flex history."; return }
                 loading = true
                 defer { if context == requestedContext { loading = false } }
+                var forceRefresh = revision > 0
+                while !Task.isCancelled {
                 for _ in 0..<45 {
                     do {
-                        let (data, status) = try await read("history", query: [URLQueryItem(name: "period", value: period)])
+                        let query = [URLQueryItem(name: "period", value: period),
+                                     URLQueryItem(name: "include_unmatched", value: "1"),
+                                     URLQueryItem(name: "refresh", value: forceRefresh ? "1" : "0")]
+                        forceRefresh = false
+                        let (data, status) = try await read("history", query: query)
                         if status == 202 { try await Task.sleep(for: .seconds(2)); continue }
                         let value = try JSONDecoder().decode(PerformanceHistory.self, from: data)
                         try Task.checkCancellation()
                         guard context == requestedContext else { return }
-                        store.performanceHistoryCache[cacheKey] = data; history = value
+                        store.performanceHistoryCache[cacheKey] = data; history = value; error = nil
                         if value.refreshing == true { try await Task.sleep(for: .seconds(2)); continue }
-                        return
-                    } catch { if !Task.isCancelled, context == requestedContext { self.error = connectionMessage(error) }; return }
+                        break
+                    } catch { if Task.isCancelled || context != requestedContext { return }; self.error = connectionMessage(error); break }
                 }
-                if context == requestedContext { error = "History is still generating. Try Refresh shortly." }
+                guard context == requestedContext else { return }
+                loading = false
+                if history == nil, error == nil { error = "History is still generating. Retrying shortly." }
+                // History availability can change while this page stays open.
+                // Live account P&L continues on its separate five-second loop.
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                }
             }
             .task(id: "live-\(active)-\(store.demo)-\(store.address)") {
                 live = nil; liveError = nil
@@ -336,11 +352,11 @@ private struct PerformanceSelectionOverlay: View {
                             path.addLine(to: CGPoint(x: x, y: plot.maxY))
                         }.stroke(.secondary, style: StrokeStyle(lineWidth: 1, dash: [3, 3])).allowsHitTesting(false)
                         marker(point.portfolio, color: point.portfolio >= 0 ? gain : loss, x: x, plot: plot)
-                        if benchmarks.showsSPX {
-                        marker(point.spx, color: PerformanceColors.spx, x: x, plot: plot)
+                        if benchmarks.showsSPX, let spx = point.spx {
+                        marker(spx, color: PerformanceColors.spx, x: x, plot: plot)
                         }
-                        if benchmarks.showsNQ100 {
-                        marker(point.nq100, color: PerformanceColors.ndx, x: x, plot: plot)
+                        if benchmarks.showsNQ100, let ndx = point.nq100 {
+                        marker(ndx, color: PerformanceColors.ndx, x: x, plot: plot)
                         }
                         let width = min(CGFloat(150), plot.width)
                         let preferredX = x + 16 + width <= plot.maxX ? x + 16 : x - width - 16
@@ -381,11 +397,11 @@ private struct PerformanceSelectionOverlay: View {
         .font(.caption).monospacedDigit().padding(10)
         .allowsHitTesting(false)
     }
-    private func tooltipRow(_ title: String, value: Double, color: Color) -> some View {
+    private func tooltipRow(_ title: String, value: Double?, color: Color) -> some View {
         HStack {
             Text(LocalizedStringKey(title))
             Spacer()
-            Text(String(format: "%+.2f%%", value)).fontWeight(.semibold)
+            Text(value.map { String(format: "%+.2f%%", $0) } ?? "Unavailable").fontWeight(.semibold)
         }.foregroundStyle(color)
     }
 }

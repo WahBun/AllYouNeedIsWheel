@@ -138,18 +138,30 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   return null;
  }
  async function readInitial(c,signal){
-  signal=signal?AbortSignal.any([signal,AbortSignal.timeout(12000)]):AbortSignal.timeout(12000);
+  signal=signal?AbortSignal.any([signal,AbortSignal.timeout(20000)]):AbortSignal.timeout(20000);
+  while(true){
+  signal.throwIfAborted();
   const latest=await readLatest(c,signal);if(latest)return latest;
   historyQuietUntil=Date.now()+2000;
-  const previous=initialReadTail,waited=initialReadPending>0;let release;
+  const previous=initialReadTail,waited=initialReadPending>0;let release,packet;
   initialReadPending++;initialReadTail=new Promise(resolve=>{release=resolve;});
   try{
    await previous;signal.throwIfAborted();
    if(c.epoch!==current().epoch)throw Error('Account changed; refresh connection state');
    // The preceding pane may have initialized this contract for every interval.
    if(waited){const refreshed=await readLatest(c,signal);if(refreshed)return refreshed;}
-   return await api(`portfolio/stock-chart/${c.cid}?interval=${c.interval}&session=${c.session}&fast=1&defer_history=1`,undefined,signal);
+   packet=await api(`portfolio/stock-chart/${c.cid}?interval=${c.interval}&session=${c.session}&fast=1&defer_history=1`,undefined,signal);
   }finally{initialReadPending--;historyQuietUntil=Date.now()+2000;release();}
+  if(packet.status!=='loading')return packet;
+  // Release this page's admission before waiting: another pane may start its
+  // bounded IB read, and already-open panes continue their usual push delivery.
+  await new Promise((resolve,reject)=>{
+   signal.throwIfAborted();
+   const aborted=()=>{clearTimeout(timer);reject(signal.reason);};
+   const timer=setTimeout(()=>{signal.removeEventListener('abort',aborted);resolve();},500);
+   signal.addEventListener('abort',aborted,{once:true});
+  });
+  }
  }
  async function readHistory(c,before,signal,recent=false){
   signal=AbortSignal.any([signal,AbortSignal.timeout(15000)]);

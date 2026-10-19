@@ -67,6 +67,7 @@ class ChartPushTests(unittest.TestCase):
         feed=StockChart(); hub=ChartStreams()
         try:
             with patch('api.services.chart_stream.stock_chart', feed):
+                feed.snapshot(conn,7,1,'all')  # Finite bootstrap precedes SSE.
                 _, sub=hub.open(conn,7,1,'all');sub.queue.get_nowait()
                 ticker.tickByTicks=[S(time=datetime.now(timezone.utc),price=p) for p in [12,8,11]]
                 ticker.updateEvent.emit(ticker)

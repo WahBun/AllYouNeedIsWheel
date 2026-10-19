@@ -160,13 +160,14 @@ def get_margin_impact(con_id):
 def get_stock_chart(con_id):
     """Read-only, held-stock chart pilot; no order route or data source fallback."""
     from api.services.stock_chart import stock_chart
+    from api.services.chart_initial_history import ChartHistoryPending
     try:
         minutes = int(request.args.get('interval', '5'))
         if con_id <= 0 or minutes not in (1, 3, 5, 10, 15, 60, 480, 1440, 10080, 43200):
             return _no_store_json({'error': 'Invalid stock chart parameters'}, 400)
         connection = portfolio_service._ensure_connection()
         result = stock_chart.snapshot(connection, con_id, minutes, request.args.get("session", "rth"), fast=True,
-            defer_history=request.args.get("defer_history") == "1", expand_history=request.args.get("expand_history") == "1")
+            defer_history=request.args.get("defer_history") == "1", expand_history=request.args.get("expand_history") == "1", background=True)
         # Quote identity must not depend on requesting optional P&L.
         from api.routes.account import epoch
         result = dict(result, account_epoch=epoch())
@@ -175,6 +176,10 @@ def get_stock_chart(con_id):
             from api.routes.account import status as account_status
             result = dict(result, daily_pnl=snapshot(connection, con_id, portfolio_service.config.get('db_path')), account_epoch=account_status()["epoch"])
         return _no_store_json(result)
+    except ChartHistoryPending:
+        from api.routes.account import epoch
+        return _no_store_json(dict(status='loading', con_id=con_id, interval=minutes,
+            session=request.args.get('session', 'rth'), account_epoch=epoch(), retry_after=.5), 202)
     except ValueError as error:
         return _no_store_json({'error': str(error)}, 503)
     except Exception:
