@@ -6,20 +6,27 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from ib_async import Contract, Future, Option
 
+FUTURES_EXCHANGES = {
+    'ES': 'CME', 'NQ': 'CME', 'MES': 'CME', 'MNQ': 'CME',
+    'GC': 'COMEX', 'MGC': 'COMEX', '1OZ': 'COMEX',
+    'CL': 'NYMEX', 'MCL': 'NYMEX',
+}
+
 class ChartContracts:
     def __init__(self):
         self.contracts = {}
 
     def search(self, conn, query):
         symbol = str(query).strip().upper()
-        if not re.fullmatch(r'[A-Z][A-Z0-9.]{0,11}', symbol):
-            raise ValueError('Enter a stock symbol, ES, NQ, MES or MNQ')
-        if symbol in ('ES', 'NQ', 'MES', 'MNQ'):
+        exchange = FUTURES_EXCHANGES.get(symbol)
+        if not exchange and not re.fullmatch(r'[A-Z][A-Z0-9.]{0,11}', symbol):
+            raise ValueError('Enter a stock symbol or ES, NQ, MES, MNQ, GC, MGC, 1OZ, CL, MCL')
+        if exchange:
             details = conn._bounded_order_read(conn.ib.reqContractDetails,
-                Future(symbol=symbol, exchange='CME', currency='USD'), timeout_seconds=6)
+                Future(symbol=symbol, exchange=exchange, currency='USD'), timeout_seconds=6)
             today = datetime.now(timezone.utc).strftime('%Y%m%d')
             found = [d.contract for d in details if d.contract.secType == 'FUT'
-                     and d.contract.symbol == symbol and d.contract.currency == 'USD'
+                     and d.contract.symbol == symbol and d.contract.currency == 'USD' and d.contract.exchange == exchange
                      and d.contract.lastTradeDateOrContractMonth >= today]
             found.sort(key=lambda c: c.lastTradeDateOrContractMonth)
             found = found[:6]
