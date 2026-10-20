@@ -2615,12 +2615,24 @@ class PaperChart:
             while any(not t.isDone() for t in working) and time.monotonic()<deadline: conn.ib.sleep(.05)
             if any(not t.isDone() for t in working): raise RuntimeError('Cancellation not confirmed')
             positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
-            position=next((p for p in positions if p.account==account and p.contract.conId==cid),None)
-            expected = group.get('origin_position',0)+sum((1 if t.order.action == 'BUY' else -1) * max(float(t.orderStatus.filled),
-                           sum(float(f.execution.shares) for f in t.fills)) for t in trades.values()
-                           if t.order.orderId in group['ids'].values())
+            # Cancellation/position reads can deliver fills. Reconcile again and
+            # include confirmed history, even if reconnect discarded Trade objects
+            # or reset their temporary order IDs. Keep the broker quantity guard.
+            fresh=self.state(conn,cid)
+            refreshed_group=self.group(account,cid)
+            if (not fresh['known'] or fresh.get('sync_error') or not refreshed_group
+                or refreshed_group.get('ref')!=group.get('ref')
+                or refreshed_group['ids']!=group['ids']
+                or any(r['status'] not in ('Filled','Cancelled','ApiCancelled') for r in fresh['orders'])):
+                raise ValueError('Orders need Gateway reconciliation before closing')
+            group=refreshed_group
+            trades=self._resolved_trades
+            expected = group.get('origin_position',0)+sum(
+                ((1 if trades[r['order_id']].order.action=='BUY' else -1) if r['order_id'] in trades
+                 else group['side']*(1 if r['role'].split('_')[0]=='entry' else -1))*r['filled']
+                for r in fresh['orders'])
             actual = self.group_size(conn,account,cid,positions)
-            if abs(expected - actual) > .000001:
+            if abs(expected - actual) > .000001 or abs(fresh['position'] - actual) > .000001:
                 raise ValueError('Position and executions are not synchronized; review before closing')
             if actual:
                 if any(t.contract.conId==cid and t.order.account==account and self.other_group_order(conn,account,cid,t,group) for t in conn.ib.openTrades()): raise ValueError('Other working orders exist; review Gateway')
