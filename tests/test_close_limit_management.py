@@ -1,6 +1,7 @@
 """A working full Close must remain visible and editable without resubmission."""
 import copy
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 import test_recovered_position_close as fixtures
@@ -192,6 +193,48 @@ class CloseLimitManagementTests(unittest.TestCase):
         self.assertEqual(f.conn.ib.cancelOrder.call_args.args[0].orderId,
                          self.trade.order.orderId)
         f.conn.ib.placeOrder.assert_not_called()
+
+    def check_close_after_cancel(self, filled):
+        f=self.f
+        self.trade.order.permId=9001
+        self.trade.orderStatus.filled=filled
+        f.pos.position=-3+filled
+        old_id=self.trade.order.orderId
+        f.service.state(f.conn,7)  # Persist the first Close's broker identity.
+        canceled=f.service.execute(f.conn,7,self.body(
+            action='cancel_exit',confirm_remove_protection=True))
+        self.assertEqual(canceled['status'],'canceled')
+        place=f.conn.ib.placeOrder.side_effect
+        def acknowledge(contract,order):
+            order.permId=9002
+            return place(contract,order)
+        body=dict(request_id=str(uuid4()),action='close',
+                  expected_ref=self.trade.order.orderRef,expected_position=f.pos.position,
+                  exit_type='LMT',exit_price=.47)
+        with patch.object(f.conn.ib.placeOrder,'side_effect',acknowledge):
+            result=f.service.execute(f.conn,7,body)
+        self.assertTrue(result['success'],result)
+        new=f.trades[-1]
+        group=f.service.group(f.conn.account_id,7)
+        retired='close_retired_'+str(old_id)
+        self.assertEqual(group['ids'][retired],old_id)
+        self.assertEqual(group['perms'][retired],9001)
+        self.assertEqual(group['perms']['close'],9002)
+        self.assertEqual(group['terminal'][retired]['filled'],filled)
+        self.assertEqual(result['state']['pending_exits'][0]['order_id'],new.order.orderId)
+        self.assertEqual(new.order.totalQuantity,3-filled)
+        new.orderStatus.status='Filled';new.orderStatus.filled=3-filled
+        f.pos.position=0
+        state=f.service.state(f.conn,7)
+        self.assertTrue(state['known'])
+        self.assertEqual(state['position'],0)
+        self.assertEqual(state['close_progress']['status'],'completed')
+
+    def test_new_close_keeps_canceled_close_identity_as_history(self):
+        self.check_close_after_cancel(0)
+
+    def test_new_close_retains_partial_fill_before_cancellation(self):
+        self.check_close_after_cancel(1)
 
     def test_amended_close_recovers_completed_order_with_reset_id(self):
         f = self.f

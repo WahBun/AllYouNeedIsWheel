@@ -1,3 +1,37 @@
+## 2026-10-21 — Preserve identity when replacing a canceled Close
+
+A bounded one-share Paper acceptance run verified a working Close price amendment
+and cancellation. The subsequent new Close filled and the actual broker account
+was flat with no pending test order, but the chart still attributed one share.
+REA evidence: `ev_7f38eb79985550cc25277f0b81e987743953041adbbee6f58d7a90920bf8d804`.
+The new temporary order ID had retained the canceled Close's permanent ID.
+This made the identity guard resolve the old canceled order and leave the new
+execution unassigned. No additional exit was sent after detecting the mismatch.
+
+A new Close now archives the old Close role, permanent ID and terminal evidence
+before recording its own identity. Partial fills on the canceled Close remain
+in the position accounting. Existing affected records recover only when both
+broker orders, the original cancellation receipt, the new durable priced-Close
+intent and persisted identities agree exactly. The original group/mapping is
+stored in `chart_close_identity_repairs`; the audit, mapping correction and group
+update commit atomically. No broker write, intent deletion, conflict clearing,
+manual unlock or net-position-based ownership inference occurs.
+Missing, foreign, ambiguous or conflicting evidence stays unresolved.
+
+Validation: 521 related repository checks plus a separate atomic rollback test
+passed (522 total). The original future-replacement regressions failed before
+the fix. An isolated replay of this actual Paper group's redacted evidence
+changed attributed position from one to zero, restored known state, retained
+all original intents and produced one audit record with zero broker writes.
+Replay evidence: `ev_f7426325132613f345c4590dc5ba96884f5c86f5721455a7a1ed98a945cafaca`.
+
+The running Paper database remains unchanged. Actual broker exposure is flat;
+the old deployed code still displays this group's attribution error. Deployment
+and Backend restart remain blocked by automatic approval review, pending explicit
+confirmation. Apply the merged code with Deploy & Restart Backend, then reopen
+the chart to verify evidence-based recovery. Refresh web; Run iPhone for the
+earlier native fixes. No Gateway restart is needed.
+
 ## 2026-10-21 — Keep post-action read failures uncertain
 
 Controlled REA replay sent a complete mock bracket, then disconnected immediately
