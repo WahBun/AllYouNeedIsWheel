@@ -1,3 +1,31 @@
+## 2026-10-21 — Separate inactive DAY history from locked chart previews
+
+A Trade detail chart could show "Order status unknown" and "TP 0 / SL 0 /
+Unknown" while the user was only viewing a contract. REA inspected the affected
+contract state, and a read-only journal check found a previously acknowledged
+standalone DAY entry whose broker-confirmed snapshots had no fills. Its final
+historical report was absent from the available broker history.
+
+The backend now provides display-only evidence after fresh all-client open-order
+and position reads both show no activity for that exact account and contract.
+It requires the saved broker identity and latest acknowledged DAY snapshot;
+pending requests, GTC, protection, holdings, active orders and failed reads do not
+qualify. Normal working orders take no additional broker reads. Eligible checks
+are bounded and cached for ten seconds, with current activity checked on reuse.
+
+The iPhone's locked chart shows View and puts the old DAY record in Order history.
+Unknown protection counters are hidden for this viewing state. Unlocking trading,
+pending actions, errors or stale state restore the ordinary order-status display.
+The original journal and execution guards remain unchanged: this does not infer
+Cancelled/Expired, clear a request, or authorize another order.
+
+Validation: 190 backend checks and 12 iOS simulator checks passed. Actual rendered
+dark/light status sections were inspected. The live journal's DAY/identity and
+acknowledgment conditions were checked read-only; the new runtime classification
+and physical iPhone display await deployment. Deploy & Restart Backend, then Run
+the updated iPhone app and reopen the chart. No deployment, restart or real order
+was performed for this change.
+
 ## 2026-10-21 — Recover missing option quote sides
 
 An option chart could retain a displayed bid/ask while its executable ask stayed

@@ -791,6 +791,9 @@ class PaperChart:
             result['scalable']=False
             for key in ('add_allowed','trim_allowed','stop_trim_allowed','unprotected_trim','protection_cancelable','entry_editable','protected_stock_scaling','stock_trim_editable'):
                 result[key]=False
+        from api.services.chart_day_history import inactive_day_history
+        if inactive_day_history(self, conn, account, cid, group, result):
+            result['inactive_day_history'] = True
         return result
 
     @staticmethod
