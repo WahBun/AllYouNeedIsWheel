@@ -1,3 +1,31 @@
+## 2026-10-21 — Overnight Paper review delivery state
+
+Four fixes are merged into `Ben/wheel-1.8` through PRs #23–#25 at
+`75c3dc914c2e21eada20a19b1394e9f1c43b2f32`: native account-cache isolation,
+tick-subscription permission notices, conservative native execution evidence,
+and uncertain outcomes after post-action state-read failures.
+The fifth fix, repeated-Close identity preservation and evidence-backed recovery,
+is pushed in PR #26 but remains unmerged. Automatic approval review rejected
+the merge, including after the earlier default-merge authorization was supplied.
+Do not report this fix as part of the deployed or merged branch.
+
+The final read-only Paper check confirmed that the original two position
+quantities were unchanged, the test contract had no broker position, and no
+test order remained pending. Its old chart attribution is still unresolved;
+do not send another exit to compensate for that display. The dedicated browser's
+four 1/5/15/60-minute panes continued receiving live SSE quotes.
+REA continuity evidence:
+`ev_613e1d4e182377b19d89ac1019f2ffe77461d3a82fc351aa1d8ea71681ce9eb2`.
+Mini remains clean at `81abc4c73c9e03e101083e5e935d9c828bd13dfd`.
+
+After PR #26 is merged, apply the verified target branch with **Deploy & Restart
+Backend**, refresh the web page, and verify the affected Paper chart becomes
+known/flat using broker evidence. Run the updated iPhone app for native fixes.
+The shared code fixes are also relevant when the user later operates Live;
+do not copy the Paper database, test orders or account configuration into Live.
+Live was not selected or tested. No Gateway restart or Release was performed.
+Deployment, restart and physical-device acceptance remain unverified.
+
 ## 2026-10-21 — Preserve identity when replacing a canceled Close
 
 A bounded one-share Paper acceptance run verified a working Close price amendment
@@ -28,7 +56,7 @@ Replay evidence: `ev_f7426325132613f345c4590dc5ba96884f5c86f5721455a7a1ed98a945c
 The running Paper database remains unchanged. Actual broker exposure is flat;
 the old deployed code still displays this group's attribution error. Deployment
 and Backend restart remain blocked by automatic approval review, pending explicit
-confirmation. Apply the merged code with Deploy & Restart Backend, then reopen
+confirmation. After PR #26 merges, apply the code with Deploy & Restart Backend, then reopen
 the chart to verify evidence-based recovery. Refresh web; Run iPhone for the
 earlier native fixes. No Gateway restart is needed.
 
