@@ -37,7 +37,9 @@ struct PortfolioOptionRow: View {
                     .font(.caption).monospacedDigit()
                     .lineLimit(1).minimumScaleFactor(0.8)
                 Spacer(minLength: 4)
-                PositionMarketPrice(position: position)
+                Text(money(quote?.mid)).monospacedDigit()
+                    .accessibilityLabel(Text(verbatim: "Mid price"))
+                    .accessibilityValue(Text(verbatim: money(quote?.mid)))
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 OpportunityMetrics(quote: quote ?? emptyQuote)
