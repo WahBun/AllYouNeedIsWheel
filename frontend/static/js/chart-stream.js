@@ -38,12 +38,16 @@ class WheelChartSource {
 globalThis.WheelChartSource=WheelChartSource;
 /* Read-only SSE lifecycle; no trading requests or write retries. */
 class WheelChartStream {
+ static supports({interval,session}){return [1,3,5,10,15,60,480].includes(interval)&&!(interval===480&&session==='rth');}
  constructor({receive,status,EventSource:Source=globalThis.EventSource?WheelChartSource:null,now=Date.now,random=Math.random}) {
   Object.assign(this,{receive,status,Source,now,random});this.key='';this.source=null;this.retryAt=0;this.failures=0;this.last=0;
  }
  stop(){const source=this.source;this.source=null;source?.close();this.key='';this.last=0;this.retryAt=0;this.failures=0;}
  healthy(){return !!this.source&&this.last>0&&this.now()-this.last<8000;}
  ensure(context){
+  // One unsupported auxiliary must not invalidate every context in the page's
+  // shared transport. Higher/session-specific history uses snapshot refresh.
+  if(!WheelChartStream.supports(context)){this.stop();return;}
   const key=JSON.stringify(context);
   if(this.key!==key){this.stop();this.key=key;}
   if(this.source){if(this.now()-(this.last||this.started)>(this.last?8000:20000))this.fail(this.source);else return;}

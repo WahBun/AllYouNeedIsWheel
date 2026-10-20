@@ -308,7 +308,7 @@ class StockChartTests(unittest.TestCase):
                 conn.ib.placeOrder.assert_not_called()
             finally:close_test_loop()
 
-    def test_eight_hour_bulk_history_is_nonblocking_deduplicated_and_keeps_ticks(self):
+    def test_eight_hour_recent_then_bulk_history_is_nonblocking_and_keeps_ticks(self):
         from unittest.mock import patch
         asyncio.set_event_loop(asyncio.new_event_loop())
         loop = asyncio.get_event_loop()
@@ -322,7 +322,7 @@ class StockChartTests(unittest.TestCase):
             self.assertEqual(conn.ib.reqHistoricalData.call_args.args[2:4],('2 D','1 min'))
             self.assertTrue(first['bars']); self.assertTrue(first['history_loading'])
             loop.run_until_complete(asyncio.sleep(0))
-            self.assertEqual(conn.ib.reqHistoricalDataAsync.call_args.args[2:4],('6 M','30 mins'))
+            self.assertEqual(conn.ib.reqHistoricalDataAsync.call_args.args[2:4],('1 M','30 mins'))
             self.assertFalse(conn.ib.reqHistoricalDataAsync.call_args.kwargs['keepUpToDate'])
             conn.ib.reqHistoricalData.reset_mock()
             with patch('api.services.chart_contracts.contracts.resolve',side_effect=AssertionError('Must reuse exact contract')):
@@ -337,6 +337,17 @@ class StockChartTests(unittest.TestCase):
             apply_tick(feed.active['bars'],feed.active['bars'][-1]['time']+1,12)
             start=datetime(2026,4,1,13,30,tzinfo=timezone.utc)
             history=[S(date=start+timedelta(days=i),open=3,high=4,low=2,close=3) for i in range(183)]
+            future.set_result(history[-22:]); loop.run_until_complete(asyncio.sleep(0))
+            recent=feed.eight_hour_packet(feed.active)
+            self.assertFalse(recent['history_expanded'])
+            self.assertGreater(len(recent['bars']),10)
+            self.assertEqual(recent['bars'][-1]['close'],12)
+            feed.active['rth_eight_expand_retry']=0
+            future=loop.create_future()
+            feed.snapshot(conn,7,480,fast=True,defer_history=True,expand_history=True)
+            loop.run_until_complete(asyncio.sleep(0))
+            self.assertEqual(conn.ib.reqHistoricalDataAsync.call_args.args[2:4],('6 M','30 mins'))
+            self.assertEqual(feed.eight_hour_packet(feed.active)['bars'],recent['bars'])
             future.set_result(history); loop.run_until_complete(asyncio.sleep(0))
             expanded=feed.eight_hour_packet(feed.active)
             self.assertTrue(expanded['history_expanded']); self.assertFalse(expanded['history_loading'])
@@ -361,6 +372,11 @@ class StockChartTests(unittest.TestCase):
         conn.ib.reqHistoricalDataAsync=AsyncMock(return_value=[])
         try:
             conn.ib.reqHistoricalData.return_value=[bar(10)]
+            feed.snapshot(conn,7,480,fast=True,defer_history=True)
+            loop.run_until_complete(asyncio.sleep(0))
+            self.assertTrue(feed.active['rth_eight_recent_attempted'])
+            self.assertNotIn('rth_eight_bulk_failed',feed.active)
+            feed.active['rth_eight_expand_retry']=0
             feed.snapshot(conn,7,480,fast=True,defer_history=True)
             loop.run_until_complete(asyncio.sleep(0))
             self.assertTrue(feed.active['rth_eight_bulk_failed'])
