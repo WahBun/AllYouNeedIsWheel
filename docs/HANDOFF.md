@@ -1,3 +1,38 @@
+## 2026-10-21 — Paper-session review and iPhone account-cache isolation
+
+Read-only runtime checks verified IB Paper and a clean Mini checkout at
+`81abc4c73c9e03e101083e5e935d9c828bd13dfd`, matching the GitHub target.
+REA observed the existing dedicated browser's four live chart panes receiving
+Paper SSE updates. This was a continuity check, not a latency benchmark or
+evidence of improved performance. Evidence:
+`ev_2a916f006cc2ca14ac46d3a9f4f4ca16afd93f40b0b5994afcf7a1774a2db1f9`,
+`ev_ab03391902d7879233b4d2153f95932f8137e918e7f3858c13f70f53e85571b1`.
+
+Review covered account switching/epochs, serialized dispatch, quote recovery,
+historical order evidence, pending-write fences and native account/chart refresh.
+A simulator regression reproduced a new-epoch live response combining new
+positions with the old summary while retaining previous Orders/history caches.
+Wheel now clears the account context on an observed epoch/mode change, rejects
+late reads from the old revision, and requires a full bootstrap on the next
+refresh. Charts restart their account-dependent tasks and lock trading on epoch
+changes. Ordinary same-account refresh retains its context; unresolved trading
+requests remain unresolved and are never replayed.
+
+Validation: 125 related iOS simulator checks and 68 frontend unit checks passed.
+The 206-check core offline suite passed, with additional DAY-history,
+paper-chart, recovered-close, attribution and connection checks passing.
+Two connection tests require constructing an IB wrapper and therefore were
+rerun separately with socket connection blocked; they use fake IB methods.
+The four-pane account-recovery fixture was corrected to respect default trading
+lock, then passed with one cold request at a time, zero POSTs and zero page errors.
+No new layout or market-data delivery implementation was introduced.
+
+These checks do not certify real partial fills, TP/SL triggers, broker reconnect
+reconciliation or physical-device recovery. Existing Paper orders/holdings were
+not modified; no test orders, deployment, service restart or physical Run was
+performed. This is an iPhone code change: Run the updated app to apply it.
+No backend restart is needed; use Deploy only if synchronizing Mini's checkout.
+
 ## 2026-10-21 — Separate inactive DAY history from locked chart previews
 
 A Trade detail chart could show "Order status unknown" and "TP 0 / SL 0 /
