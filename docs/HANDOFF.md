@@ -4706,3 +4706,13 @@ GitHub ancestry, switch Mini to the exact 1.8 commit, update the private Pro
 branch setting, and verify preview SHA plus unchanged Backend PID/health if
 performed without restart. Do not claim runtime code changed without restart.
 The 8h backend change still requires the user's later Deploy & Restart Backend.
+
+## 2026-10-20 — user-selected branch name Ben/wheel-1.8
+
+The user authorized renaming the active branch to `Ben/wheel-1.8`.
+GitHub default branch, local branch, deployment helpers and private deployment /
+signing branch settings follow this exact case-sensitive name. This supersedes
+`codex/wheel-1.8`; historical entries describe their then-current names.
+The migration is code/configuration only, with a Mini rollback point and no
+Backend/Gateway restart or physical-device build/install. Existing deployment
+regressions cover preview and pinned SHA guards under the new branch name.

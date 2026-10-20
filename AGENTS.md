@@ -132,7 +132,7 @@ with the user in Chinese. This does not authorize unrelated UI or behavior chang
 
 ## Active iteration and branch cleanup
 
-The active development and GitHub default branch is `codex/wheel-1.8`.
+The active development and GitHub default branch is `Ben/wheel-1.8`.
 It contains the full 1.7 history; do not treat an older branch's tip as the
 latest development version. Rename the current Codex chat when the user advances
 the iteration version. After each iteration, the user permits deleting obsolete
