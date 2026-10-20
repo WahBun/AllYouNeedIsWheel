@@ -12,6 +12,16 @@
 #bid{color:#66c5a3}#ask{color:#ef9090}#close{width:100%;color:#edb979}.protection{padding:15px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
 #chart-detail:not([hidden]){display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:20px;padding:12px 16px;max-height:240px;overflow:auto;border-top:1px solid var(--border)}
 #chart-detail h2{margin:0 0 8px}#chart-detail button{display:block;width:100%;text-align:left;margin:5px 0;white-space:pre-wrap}#chart-detail details{min-width:0}#chart-detail #activity{max-height:160px}
+#chart-detail>div{min-width:0}
+#positions .position-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.position-label{min-width:0;overflow-wrap:anywhere}
+.position-return{display:flex;justify-content:flex-end;align-items:baseline;flex-wrap:wrap;gap:3px 6px;max-width:60%;text-align:right;font-size:12px;font-variant-numeric:tabular-nums;color:var(--muted)}
+.position-return>span{white-space:nowrap}
+.position-rate{font-size:11px}
+.position-return [data-direction=positive]{color:rgb(70% 100% 30%)}
+.position-return [data-direction=negative]{color:#ff5e5e}
+body:not(.light) .position-return [data-direction=positive],body:not(.light) .position-return [data-direction=negative]{text-shadow:0 0 2px color-mix(in srgb,currentColor 35%,transparent)}
+body.light .position-return [data-direction=positive]{color:rgb(28% 46% 2%)}
 @media(max-width:850px){#trade{border-top:1px solid var(--border)}#chart-detail:not([hidden]){grid-template-columns:1fr;max-height:220px}#trade:not([hidden]){gap:12px;padding:16px}.workspace{min-height:550px}}
 
 #resolve-request[hidden]{display:none}
