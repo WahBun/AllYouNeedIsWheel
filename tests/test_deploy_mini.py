@@ -162,7 +162,7 @@ class DeployTests(unittest.TestCase):
         self.assertFalse(self.restarts)
 
     def test_cross_device_fetch_check_and_deploy(self):
-        branch = 'codex/chart-labels-1.7'
+        branch = 'codex/wheel-1.8'
         self.g(self.source, 'branch', '-m', branch)
         self.g(self.repo, 'branch', '-m', branch)
         self.g(self.repo, 'remote', 'set-url', 'origin', str(self.source))
@@ -178,7 +178,7 @@ class DeployTests(unittest.TestCase):
             self.assertEqual(self.g(self.repo, 'for-each-ref', 'refs/wheel-deploy/'), '')
 
     def test_preview_pins_sha_even_if_branch_advances_before_confirmation(self):
-        branch = 'codex/chart-labels-1.7'
+        branch = 'codex/wheel-1.8'
         self.g(self.source, 'branch', '-m', branch)
         self.g(self.repo, 'branch', '-m', branch)
         self.g(self.repo, 'remote', 'set-url', 'origin', str(self.source))
@@ -201,7 +201,7 @@ class DeployTests(unittest.TestCase):
             self.assertEqual(len(self.restarts), 1)
 
     def test_explicit_restart_after_code_only_at_same_sha(self):
-        branch = 'codex/chart-labels-1.7'
+        branch = 'codex/wheel-1.8'
         self.g(self.source, 'branch', '-m', branch)
         self.g(self.repo, 'branch', '-m', branch)
         self.g(self.repo, 'remote', 'set-url', 'origin', str(self.source))

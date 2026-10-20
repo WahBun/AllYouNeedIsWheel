@@ -238,7 +238,7 @@ def apply(repo, branch, target, expected, bundle, bundle_ref, wait=90, restart=T
 def preview_latest():
     """Resolve once for the confirmation UI; never deploy or restart here."""
     repo = Path(__file__).resolve().parents[1]
-    branch = 'codex/chart-labels-1.7'
+    branch = 'codex/wheel-1.8'
     before = preflight(repo, branch)
     ref = 'refs/wheel-deploy/' + uuid.uuid4().hex
     try:
@@ -269,7 +269,7 @@ def deploy_from_github(commit, check=False, restart=True):
     if not re.fullmatch(r'[0-9a-fA-F]{7,40}', commit):
         raise RuntimeError('A 7-40 character hexadecimal commit SHA is required.')
     repo = Path(__file__).resolve().parents[1]
-    branch = 'codex/chart-labels-1.7'
+    branch = 'codex/wheel-1.8'
     before = preflight(repo, branch)
     ref = 'refs/wheel-deploy/' + uuid.uuid4().hex
     try:
@@ -309,7 +309,7 @@ def main():
     parser.add_argument('--host', default=config.get('host'), help='SSH host alias or user@host')
     parser.add_argument('--identity', default=config.get('identity'), help='SSH private key path')
     parser.add_argument('--repo', default=config.get('repo', '~/Projects/AllYouNeedIsWheel'))
-    parser.add_argument('--branch', default=config.get('branch', 'codex/chart-labels-1.7'))
+    parser.add_argument('--branch', default=config.get('branch', 'codex/wheel-1.8'))
     args = parser.parse_args()
     if not re.fullmatch(r'[0-9a-fA-F]{7,40}', args.commit):
         parser.error('Specify a commit SHA, not a branch or shell expression.')

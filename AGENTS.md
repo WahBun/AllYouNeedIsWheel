@@ -129,3 +129,16 @@ Keep every state of a control in English, including maximize, restore and reset.
 Defer Chinese localization until the product and interactions are mature and the
 user explicitly requests a coordinated localization pass. Continue communicating
 with the user in Chinese. This does not authorize unrelated UI or behavior changes.
+
+## Active iteration and branch cleanup
+
+The active development and GitHub default branch is `codex/wheel-1.8`.
+It contains the full 1.7 history; do not treat an older branch's tip as the
+latest development version. Rename the current Codex chat when the user advances
+the iteration version. After each iteration, the user permits deleting obsolete
+feature branches only after verifying ancestry into the active branch, closed or
+merged PRs, and no deployment, signing, automation or ongoing-work dependencies.
+Keep branches with unique commits or unresolved dependencies, historical tags,
+Releases and rollback points. Branch cleanup is not deployment authorization.
+Mini may remain on 1.7 until its separately authorized branch/entry-point migration;
+verify the real machine before changing or removing that dependency.

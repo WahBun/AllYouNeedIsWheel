@@ -4679,3 +4679,30 @@ Deployment recommendation: user-operated Deploy & Restart Backend to the reviewe
 iPhone Run was performed. The existing deployment shortcut may still select the
 1.7 branch; verify its selected branch/SHA before using it for 1.8. No native app
 assets changed, so this patch does not itself require Xcode Run.
+
+## 2026-10-20 — designate 1.8 and clean merged feature branches
+
+GitHub default branch is now `codex/wheel-1.8`. Ancestry verification found zero
+1.7-only commits and one 1.8-only commit before this configuration change.
+The fixed deployment entry points and CLI fallback now select 1.8; all 20 existing
+deployment tests passed, covering pinned SHA confirmation, no-restart deployment,
+rollback protection and rejection of dirty or backward updates.
+
+Deleted nine remote feature branches after verifying they are ancestors of 1.8,
+their PRs #2–#10 are merged, and no references exist in current ops/tests or local
+Codex automations: be-stop-amendment-recovery, default-lock-price-alert,
+context-menu-stability, performance-fast-live, chart-cache-viewport,
+performance-ib-closes, performance-help-translation, detail-position-pnl and
+eight-hour-rth-startup (all under codex/). Their commits remain in 1.8 history.
+No historical tag or Release was removed. Main has three README-only unique
+commits and was retained; signing/renewal and other unreviewed branches remain.
+
+Read-only Mini verification found a clean `codex/chart-labels-1.7` checkout at
+`1cfa43198e316cd5f4639c6c83008601a293f1d7`. Its installed shortcut entry point
+still uses that checkout. Preserve the 1.7 remote branch until migration is
+complete. The private Pro deploy config also remains on 1.7 until migration.
+A one-time authorized migration must save a rollback ref, verify cleanliness and
+GitHub ancestry, switch Mini to the exact 1.8 commit, update the private Pro
+branch setting, and verify preview SHA plus unchanged Backend PID/health if
+performed without restart. Do not claim runtime code changed without restart.
+The 8h backend change still requires the user's later Deploy & Restart Backend.
