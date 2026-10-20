@@ -4644,3 +4644,38 @@ for repository/static synchronization; this change adds no Backend restart need.
 No Mini deployment/restart, Gateway restart, physical-device install or broker
 write was performed. Preserve the pre-existing project.pbxproj and
 Localizable.xcstrings edits; they are excluded from this commit.
+
+## 2026-10-20 — 1.8: prefer the full 8h RTH initial window
+
+Development branch: `codex/wheel-1.8`, based on GitHub's 1.7 merge
+`1cfa431` (includes `17ed71d`). The workspace was clean before this iteration.
+The user requested a single initial history fill instead of mandatory recent-first
+loading. The prior revision deliberately requested one month before six months.
+Now the existing asynchronous 8h RTH reader requests six months first; an empty
+response or exception retains the existing bounded monthly fallback and cursor.
+Current bars remain visible while waiting. This does not promise instant loading,
+all lifetime history, or six months of available bars for every contract. The
+12-second broker timeout, serialized IB owner, tick path, aggregation, layout,
+account/client guards and trading behavior are unchanged. A slow cold full-window
+request can therefore still show only the current seed until completion/fallback.
+
+REA statically analyzed the actual `superchart.js` asset before editing (parent
+`ev_e5b593d52f2415e72ea2e7f243c9d3f7a8aa9046a689dff841ad06bf1ec91bbc`).
+It did not observe a running broker page. Direct source inspection established the
+recent-first backend policy and optional frontend expansion. Retain that existing
+nonblocking frontend behavior; only the backend request order changes.
+
+Validation: 52 offline stock-chart, futures-session and history tests passed,
+including full-window success during live updates, empty-result monthly fallback,
+cursor retention and late-response isolation. Browser startup fixtures passed
+both direct 1-to-131-bar insertion and 1-to-22-to-131 fallback with 8h active and
+auxiliary; viewport remained stable, supported sibling tick streams continued,
+and no page errors or trading POSTs occurred. The existing 1/2/3/4-pane,
+two-four-pane-page and 6000-bar latency matrix passed. These are mock/browser
+checks, not actual IB cold-load timing or physical-device acceptance.
+
+Deployment recommendation: user-operated Deploy & Restart Backend to the reviewed
+1.8 commit/branch. No deployment, Backend/Gateway restart, order write or physical
+iPhone Run was performed. The existing deployment shortcut may still select the
+1.7 branch; verify its selected branch/SHA before using it for 1.8. No native app
+assets changed, so this patch does not itself require Xcode Run.

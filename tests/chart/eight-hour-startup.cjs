@@ -3,7 +3,7 @@ const {start}=require('./market-feed/harness.cjs');
 // Exercise the real four-pane host with production stream admission: an 8h
 // RTH auxiliary must not poison the shared stream for 1m/15m/1h charts.
 (async()=>{const server=await start({history:10000}),browser=await chromium.launch();try{
- for(const active of [0,3]){
+ for(const fallback of [false,true])for(const active of [0,3]){
   const page=await browser.newPage({viewport:{width:1620,height:950}}),errors=[];
   page.setDefaultTimeout(15000);page.on('pageerror',e=>errors.push(e.message));let phase=0,badStreams=0;
   const rows=[];for(let i=0;i<183;i++){const d=new Date(Date.UTC(2026,3,20+i,13,30));if([0,6].includes(d.getUTCDay()))continue;rows.push({time:d.getTime()/1000,open:7741+i/2,high:7773+i/2,low:7727+i/2,close:7737+i/2});}
@@ -26,16 +26,16 @@ const {start}=require('./market-feed/harness.cjs');
   const frames=page.frames().filter(f=>f.url().includes('/superchart/frame'));let eight;
   for(const f of frames)if(await f.evaluate(()=>countdownPacket?.interval===480))eight=f;
   assert.ok(eight);await eight.waitForFunction(()=>previous.length===1);
-  phase=1;await eight.waitForFunction(()=>previous.length===22);
+  if(fallback){phase=1;await eight.waitForFunction(()=>previous.length===22);}
   const recent=await eight.evaluate(()=>({bars:previous.length,last:previous.at(-1),range:chart.timeScale().getVisibleLogicalRange(),x:chart.timeScale().timeToCoordinate(previous.at(-1).time)}));
   phase=2;await eight.waitForFunction(()=>previous.length>22);
   const full=await eight.evaluate(()=>({bars:previous.length,last:previous.at(-1),range:chart.timeScale().getVisibleLogicalRange(),x:chart.timeScale().timeToCoordinate(previous.at(-1).time)}));
   assert.equal(full.bars,rows.length);assert.equal(full.last.close,recent.last.close);assert.ok(Math.abs(full.x-recent.x)<1,'history insertion preserves the latest candle position');
   const pushed=server.metrics.pushed;
   for(let i=0;i<12;i++){await server.rpc('tick',{cid:7,prices:[100+i/100],tick_id:i,generated:Date.now()});await page.waitForTimeout(100);}
-  const result={active,badStreams,pushed:server.metrics.pushed-pushed,recent:recent.bars,full:full.bars,errors};console.log(JSON.stringify(result));
+  const result={fallback,active,badStreams,pushed:server.metrics.pushed-pushed,recent:recent.bars,full:full.bars,errors};console.log(JSON.stringify(result));
   assert.equal(badStreams,0);assert.ok(result.pushed>=12,'supported siblings keep receiving tick updates');
   assert.deepEqual(errors,[]);await page.close();
  }
- assert.equal(server.metrics.posts,0);console.log(process.env.WHEEL_BASELINE_STREAM?'Baseline unsupported auxiliary rejection reproduced':'8h cold → recent → full history and four-pane stream isolation passed');
+ assert.equal(server.metrics.posts,0);console.log(process.env.WHEEL_BASELINE_STREAM?'Baseline unsupported auxiliary rejection reproduced':'8h bulk-first and paged fallback preserve viewport and four-pane tick delivery');
 }finally{await browser.close();await server.close();}})().catch(e=>{console.error(e);process.exitCode=1});
