@@ -9,6 +9,14 @@ import time
 import uuid
 from pathlib import Path
 
+ALERT_SOUNDS = ('alarm-clock', 'beep-beep', 'three-notes', 'soft-chime', 'hand-bell', 'chirpy', 'none')
+
+
+def alert_sound(value):
+    if not isinstance(value, str) or value not in ALERT_SOUNDS:
+        raise ValueError('Choose an available alert sound')
+    return value
+
 
 class AlertConflict(ValueError):
     pass
@@ -38,6 +46,8 @@ class NotificationStore:
                 CREATE TABLE IF NOT EXISTS order_scopes(scope TEXT PRIMARY KEY,since REAL);
                 CREATE TABLE IF NOT EXISTS alert_monitoring(id TEXT PRIMARY KEY,changed REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS cleared_alert_history(id TEXT PRIMARY KEY);
+                CREATE TABLE IF NOT EXISTS alert_sounds(id TEXT PRIMARY KEY,sound TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS event_sounds(id TEXT PRIMARY KEY,sound TEXT NOT NULL);
             ''')
         self.path.chmod(0o600)
 
@@ -56,7 +66,7 @@ class NotificationStore:
             if value is not None: clauses.append(name + '=?'); args.append(value)
         if active: clauses.append("state='active'")
         with self.connect() as db:
-            rows = db.execute('SELECT a.*,COALESCE(m.changed,a.created) AS _monitor_since FROM alerts a LEFT JOIN alert_monitoring m ON m.id=a.id' + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY created DESC', args)
+            rows = db.execute("SELECT a.*,COALESCE(m.changed,a.created) AS _monitor_since,COALESCE(s.sound,'alarm-clock') AS sound FROM alerts a LEFT JOIN alert_monitoring m ON m.id=a.id LEFT JOIN alert_sounds s ON s.id=a.id" + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY created DESC', args)
             result = []
             for row in rows:
                 value = dict(row); value['monitor_since'] = value.pop('_monitor_since'); result.append(value)
@@ -67,6 +77,8 @@ class NotificationStore:
         value = dict(row)
         stamp = db.execute('SELECT changed FROM alert_monitoring WHERE id=?', (row['id'],)).fetchone()
         value['monitor_since'] = stamp['changed'] if stamp else row['created']
+        sound = db.execute('SELECT sound FROM alert_sounds WHERE id=?', (row['id'],)).fetchone()
+        value['sound'] = sound['sound'] if sound else 'alarm-clock'
         return value
 
     def create_alert(self, scope, cid, label, body):
@@ -78,6 +90,7 @@ class NotificationStore:
         if condition not in ('crossing', 'up', 'down') or repeat not in ('once', 'every'):
             raise ValueError('Invalid alert condition')
         drawing = body.get('drawing') or None
+        sound = alert_sound(body.get('sound', 'alarm-clock'))
         if drawing is not None and (not isinstance(drawing, str) or len(drawing) > 150):
             raise ValueError('Invalid horizontal ray')
         with self.connect() as db:
@@ -94,6 +107,7 @@ class NotificationStore:
             db.execute('INSERT INTO alerts(id,scope,cid,label,price,condition,repeat,drawing,state,version,created) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
                        (ident, scope, cid, label, price, condition, repeat, drawing, 'active', 1, now))
             db.execute('INSERT OR REPLACE INTO alert_monitoring VALUES (?,?)', (ident, now))
+            db.execute('INSERT INTO alert_sounds VALUES (?,?)', (ident, sound))
             return self._alert_value(db, db.execute('SELECT * FROM alerts WHERE id=?', (ident,)).fetchone())
 
     def amend_alert(self, scope, ident, body):
@@ -107,12 +121,15 @@ class NotificationStore:
             row = db.execute('SELECT * FROM alerts WHERE id=? AND scope=? AND cid=?', (ident, scope, cid)).fetchone()
             if not row: raise AlertConflict('Alert is unavailable for this account and contract')
             if row['drawing']: raise AlertConflict('Move the horizontal ray to change this alert price')
+            old_sound = self._alert_value(db, row)['sound']
+            sound = alert_sound(body.get('sound', old_sound))
             # A lost response can be reconciled without a second mutation or rearming a fired alert.
-            if row['version'] == version + 1 and row['price'] == price: return self._alert_value(db, row)
+            if row['version'] == version + 1 and row['price'] == price and old_sound == sound: return self._alert_value(db, row)
             if row['state'] != 'active' or row['version'] != version:
                 raise AlertConflict('Alert changed or is no longer active. Its saved state has been restored.')
-            if row['price'] != price:
+            if row['price'] != price or old_sound != sound:
                 db.execute('UPDATE alerts SET price=?,version=version+1 WHERE id=?', (price, ident))
+                db.execute('INSERT OR REPLACE INTO alert_sounds VALUES (?,?)', (ident, sound))
                 db.execute('INSERT OR REPLACE INTO alert_monitoring VALUES (?,?)', (ident, time.time()))
             return self._alert_value(db, db.execute('SELECT * FROM alerts WHERE id=?', (ident,)).fetchone())
 
@@ -148,10 +165,12 @@ class NotificationStore:
                         db.execute('INSERT OR REPLACE INTO alert_monitoring VALUES (?,?)', (row['id'], time.time()))
 
     @staticmethod
-    def _event(db, ident, scope, kind, title, body, now):
+    def _event(db, ident, scope, kind, title, body, now, sound='none'):
         added = db.execute('INSERT OR IGNORE INTO events(id,scope,kind,title,body,created) VALUES (?,?,?,?,?,?)',
                            (ident, scope, kind, title, body, now)).rowcount
         if added:
+            if sound != 'none':
+                db.execute('INSERT INTO event_sounds VALUES (?,?)', (ident, sound))
             db.execute('INSERT OR IGNORE INTO deliveries(event,device,scope) SELECT ?,id,scope FROM devices WHERE scope=? AND enabled=1', (ident, scope))
         return bool(added)
 
@@ -162,7 +181,8 @@ class NotificationStore:
             row = db.execute("SELECT * FROM alerts WHERE id=? AND version=? AND state='active'", (alert['id'], alert['version'])).fetchone()
             if not row or now - row['last_fire'] < 60: return False
             self._event(db, str(uuid.uuid4()), row['scope'], 'price', f"{mode} · Price alert",
-                        f"{row['label']} crossed {row['price']:g} · Last {price:g}", now)
+                        f"{row['label']} crossed {row['price']:g} · Last {price:g}", now,
+                        self._alert_value(db, row)['sound'])
             db.execute('UPDATE alerts SET state=?,last_fire=? WHERE id=?', ('triggered' if row['repeat'] == 'once' else 'active', now, row['id']))
             return True
 
@@ -208,8 +228,8 @@ class NotificationStore:
         self.begin_orders(scope)
         with self.connect() as db:
             latest = db.execute('SELECT COALESCE(MAX(seq),0) FROM events WHERE scope=?', (scope,)).fetchone()[0]
-            rows = [] if after is None else [dict(r) for r in db.execute('SELECT * FROM events WHERE scope=? AND seq>? ORDER BY seq LIMIT 100', (scope, max(0, after)))]
-            return dict(events=rows, cursor=rows[-1]['seq'] if rows else latest, scope=scope)
+            rows = [] if after is None else [dict(r) for r in db.execute("SELECT e.*,COALESCE(s.sound,'none') AS sound FROM events e LEFT JOIN event_sounds s ON s.id=e.id WHERE e.scope=? AND e.seq>? ORDER BY e.seq LIMIT 100", (scope, max(0, after)))]
+            return dict(events=rows, cursor=rows[-1]['seq'] if rows else latest, scope=scope, server_time=time.time())
 
     @staticmethod
     def bark_id(scope):

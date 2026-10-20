@@ -15,8 +15,12 @@
  #chart-alert-editor input,#chart-alert-editor select{box-sizing:border-box;width:100%;margin-top:5px;padding:9px;border:1px solid #8887;border-radius:5px;background:transparent;color:inherit;font:inherit}
  #chart-alert-editor button{min-height:40px;border:1px solid #8887;border-radius:6px;background:transparent;color:inherit;padding:7px 12px;font:inherit;cursor:pointer}
  #chart-alert-editor button:disabled{opacity:.5}#chart-alert-editor .alert-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+ #chart-alert-editor .alert-sound-controls{display:flex;gap:8px;align-items:center;margin-top:5px}
+ #chart-alert-editor .alert-sound-controls select{flex:1;min-width:0;margin:0}
+ #chart-alert-editor .alert-sound-controls button{flex:none;min-width:44px;padding:7px}
+ #chart-alert-editor .alert-sound-help{font-size:12px;opacity:.75;margin-top:5px}
  #chart-alert-editor .alert-heading,#chart-alert-editor .alert-history-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
- #chart-alert-editor .alert-heading h2{margin:0}#chart-alert-editor .alert-heading{margin:-8px -8px 4px 0}
+ #chart-alert-editor .alert-heading h2{margin:0}#chart-alert-editor .alert-heading{position:sticky;top:-16px;z-index:1;background:inherit;margin:-8px -8px 4px 0;padding-top:8px}
  #chart-alert-editor [data-close]{display:grid;place-items:center;width:40px;height:40px;min-width:40px;padding:0;border:0;border-radius:6px}
  #chart-alert-editor [data-close]:hover{background:#8882}#chart-alert-editor [data-close]:focus-visible{outline:2px solid #2962ff}
  #chart-alert-editor .alert-history-heading{margin:14px 0 4px}#chart-alert-editor .alert-history-heading h3{font-size:13px;margin:0}
@@ -149,7 +153,8 @@
   test.onclick=async()=>{if(!current())return;test.disabled=true;try{await api('bark/test','POST',{id:requestID()},epoch);if(current()){status.textContent='Test queued. Lock your iPhone and check Bark.';setTimeout(()=>{if(current())void load();},1800);}}catch(error){if(current())status.textContent=error.message;}finally{test.disabled=false;}};
   const timer=setInterval(()=>{if(!current())clearInterval(timer);else if(details.open)void load();},4000);
  }
- function close(){editor?.remove();editor=null;}
+ function soundPlayer(){try{return window.webkit?.messageHandlers.notificationRequest?null:parent.wheelAlertSounds;}catch{return null;}}
+ function close(){soundPlayer()?.stopPreview();editor?.remove();editor=null;}
  function open({price,drawing=null,alert=null}={}){
   if(!Number.isFinite(price)||price<=0||!paperCID)return;
   close();closePriceMenu();const cid=paperCID,epoch=paperConfig.web_account_epoch,ident=requestID(),source=drawing;
@@ -159,6 +164,19 @@
   overlay.querySelector('[data-contract]').textContent=countdownPacket?.local_symbol||countdownPacket?.symbol||'Contract '+cid;
   input.value=String(price);input.disabled=!!source;
   const current=()=>editor===overlay&&cid===paperCID&&epoch===paperConfig.web_account_epoch;
+  const player=soundPlayer();let soundSelect=null;
+  if(player){
+   const label=document.createElement('label'),controls=document.createElement('div'),preview=document.createElement('button'),help=document.createElement('div');
+   label.textContent='Browser sound';controls.className='alert-sound-controls';soundSelect=document.createElement('select');soundSelect.dataset.sound='';
+   for(const [value,text] of player.choices)soundSelect.add(new Option(text,value));
+   let preferred='alarm-clock';try{preferred=localStorage.getItem('wheel.alert.sound')||preferred;}catch{}
+   soundSelect.value=alert?.sound||preferred;if(!soundSelect.value)soundSelect.value='alarm-clock';
+   preview.type='button';preview.textContent='▶';preview.setAttribute('aria-label','Preview sound');preview.title='Preview sound';
+   help.className='alert-sound-help';help.textContent='Plays once in this browser when the alert triggers.';
+   controls.append(soundSelect,preview);label.append(controls,help);status.before(label);
+   const update=()=>{player.stopPreview();preview.disabled=soundSelect.value==='none';};soundSelect.onchange=update;update();
+   preview.onclick=async()=>{const selected=soundSelect.value;try{const played=await player.preview(selected);if(current()&&selected===soundSelect.value)help.textContent=played?'Preview playing · once per trigger.':'Enable sounds in the chart toolbar, then try Preview.';}catch{if(current())help.textContent='Sound unavailable. Try Preview again.';}};
+  }
   if(alert){create.textContent='Save alert';overlay.querySelector('[data-condition]').value=alert.condition;overlay.querySelector('[data-repeat]').value=alert.repeat;overlay.querySelector('[data-condition]').disabled=true;overlay.querySelector('[data-repeat]').disabled=true;}
   addPhoneSettings(overlay,current);
   const render=async()=>{
@@ -172,7 +190,7 @@
   };
   clear.onclick=async()=>{if(!current()||clearing||!historyIds.length)return;clearing=true;clear.disabled=true;renderSerial++;try{await api('alerts/'+cid+'/clear-history','POST',{ids:historyIds},epoch);if(!current())return;status.textContent='History cleared. Active alerts kept.';await render();}catch(error){if(current()){status.textContent=error.message;await render().catch(()=>{});}}finally{clearing=false;if(current())clear.disabled=false;}};
   render().then(result=>{if(!current()||!result)return;status.textContent=(source?'Follows the saved horizontal ray. ':'Monitors live last price. ')+(result.bark_enabled?'Bark notifications are enabled.':result.push_configured?'Enable iPhone notifications in Settings.':'Enable Bark below for iPhone lock-screen alerts.')+' Alerts pause when this account is disconnected or not selected.';}).catch(error=>{if(current())status.textContent=error.message;});
-  create.onclick=async()=>{if(!current())return;create.disabled=true;status.textContent='Saving alert…';try{const value=Number(input.value);if(alert)await api('alerts/'+alert.id+'/price','POST',{cid,version:alert.version,price:value},epoch);else await api('alerts/'+cid,'POST',{id:ident,price:value,condition:overlay.querySelector('[data-condition]').value,repeat:overlay.querySelector('[data-repeat]').value,drawing:source},epoch);if(!current())return;status.textContent='Alert saved. Monitoring starts with the next live price.';await render();}catch(error){if(current()){status.textContent=error.message;create.disabled=false;}}};
+  create.onclick=async()=>{if(!current())return;create.disabled=true;status.textContent='Saving alert…';try{const value=Number(input.value),sound=soundSelect?{sound:soundSelect.value}:{};if(alert)await api('alerts/'+alert.id+'/price','POST',{cid,version:alert.version,price:value,...sound},epoch);else await api('alerts/'+cid,'POST',{id:ident,price:value,condition:overlay.querySelector('[data-condition]').value,repeat:overlay.querySelector('[data-repeat]').value,drawing:source,...sound},epoch);if(!current())return;if(soundSelect)try{localStorage.setItem('wheel.alert.sound',sound.sound);}catch{}status.textContent='Alert saved. Monitoring starts with the next live price.';await render();}catch(error){if(current()){status.textContent=error.message;create.disabled=false;}}};
   overlay.querySelector('[data-close]').onclick=close;overlay.addEventListener('pointerdown',event=>{if(event.target===overlay)close();event.stopPropagation();});overlay.addEventListener('keydown',event=>{if(event.key==='Escape'){event.stopPropagation();close();}if(event.key==='Tab'){const controls=[...overlay.querySelectorAll('input,select,button')].filter(el=>!el.disabled);const first=controls[0],last=controls.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}});overlay.querySelector('[data-condition]').focus();
  }
  window.chartAlerts={open,api,refresh:()=>{nextLoad=0;void reload();},receive:(result,cid,epoch)=>{loadSerial++;accept(result,cid,epoch);}};
