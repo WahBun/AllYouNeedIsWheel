@@ -1,3 +1,38 @@
+## 2026-10-20 — Limit Close after historical order recovery
+
+A chart position could be known and manageable after reconnect, yet a priced
+full Close failed with “Position and executions are not synchronized.” The
+position view restored confirmed terminal orders, while Close counted only
+in-memory Trade objects with their original temporary IDs.
+
+Close now reconciles again after cancellation and the fresh position read, then
+counts the same verified order rows, including recovered historical fills and
+completed orders with reset temporary IDs. It still requires matching group
+identity, known terminal outcomes and agreement with the fresh broker position.
+An exit filled during the read must not cause a reverse position; unknown writes
+retain the existing reconciliation and no-replay behavior.
+
+REA inspected the actual page error and read-only contract state/execution
+responses (`ev_c022ee538677a75596528f388eadb86ea759f78fae80fb7022c26a15021a0f71`,
+`ev_615004f2bcb43d23c76fadb067e5266af64681c388e4d45b8f9bd8e3b16945b2`).
+The deployed journal corroborated a filled short entry and canceled stop. No
+real order, position, journal or service was changed during investigation.
+
+Validation: nine focused mock regressions cover the reported short-option
+limit Close, long positions, partial exits, reset IDs, stale quantities,
+unconfirmed history, a fill during the position read and lost-response recovery.
+The related paper-chart, priced-close, recovery, Live-option policy/management
+and multigroup suites passed (228 distinct tests including these regressions).
+The initial reproduction failed with the exact reported error before the fix.
+The isolated desktop browser check follows right-click at $0.45, Close Buy Limit
+1 and Place limit exit, verifying one request with the exact price, quantity,
+position and group identity. Browser responses are mocked; no broker writes.
+
+Deployment recommendation after merge: **Deploy & Restart Backend**, then
+refresh the web page. No Gateway restart or iPhone rebuild is required for this
+backend correction. Deployment is user-operated; mock validation is not broker
+acceptance, and Live order submission remains the user's action. No Release.
+
 ## 2026-10-20 — Selectable browser price-alert sounds
 
 The price-alert editor now offers six original generated cues (Alarm Clock,
