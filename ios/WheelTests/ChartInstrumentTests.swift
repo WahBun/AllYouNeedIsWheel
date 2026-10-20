@@ -6,6 +6,46 @@ import SwiftUI
 final class ChartInstrumentTests: XCTestCase {
     private let exact: [String: Any] = ["con_id": 899193475, "symbol": "TSLL", "local_symbol": "TSLL 20261120 11 CALL",
         "security_type": "OPT", "exchange": "SMART", "expiration": "20261120", "right": "C", "strike": 11.0]
+    func testInactiveDayHistoryOnlyChangesLockedViewingPresentation() {
+        let state: [String: Any] = ["inactive_day_history": true, "known": false, "active": true, "position": 0.0]
+        func view(_ value: [String: Any], locked: Bool = true, busy: Bool = false, pending: Bool = false) -> Bool {
+            ChartHistoryPresentation.viewingInactiveDayOrder(value, tradingLocked: locked, busy: busy, pending: pending)
+        }
+        XCTAssertTrue(view(state))
+        XCTAssertFalse(view(state, locked: false))
+        XCTAssertFalse(view(state, busy: true))
+        XCTAssertFalse(view(state, pending: true))
+        let variants: [[String: Any]] = [["inactive_day_history": false], ["position": 1.0],
+                                      ["sync_error": true], ["sync_error": "Broker snapshot unavailable"]]
+        for changes in variants {
+            XCTAssertFalse(view(state.merging(changes) { _, new in new }))
+        }
+    }
+    func testInactiveDayStatusRendersWithoutUnknownProtectionInBothThemes() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let state: [String: Any] = ["inactive_day_history": true, "known": false, "active": true,
+            "position": 0.0, "protection": ["tp": 0.0, "sl": 0.0, "status": "unknown"]]
+        for (name, theme) in [("dark", ColorScheme.dark), ("light", ColorScheme.light)] {
+            let view = NavigationStack {
+                Form {
+                    ChartTradingStatusSections(text: "Live · Option chart · View", state: state,
+                        hasPreview: false, viewingHistory: true)
+                    Section("Market data") { Text("IB option bars · live updates") }
+                }.navigationTitle("Chart status").navigationBarTitleDisplayMode(.inline)
+            }.preferredColorScheme(theme).environment(\.locale, Locale(identifier: "en"))
+            let controller = UIHostingController(rootView: view)
+            let window = UIWindow(windowScene: scene)
+            window.rootViewController = controller; window.makeKeyAndVisible()
+            controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(500))
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }
+            try image.pngData()!.write(to: URL(fileURLWithPath: "/tmp/wheel-day-history-\(name).png"))
+            let attachment = XCTAttachment(image: image); attachment.lifetime = .keepAlways; add(attachment)
+            window.isHidden = true; window.rootViewController = nil
+        }
+        previous?.makeKeyAndVisible()
+    }
     func testTradeDetailChartUsesSelectedCallAndPutContract() throws {
         for type in ["CALL", "PUT"] {
             var row = OpportunityRow(ticker: "TSLL", type: type)

@@ -174,6 +174,33 @@ struct ChartOrderProgressView: View {
     }
 }
 
+enum ChartHistoryPresentation {
+    static func viewingInactiveDayOrder(_ state: [String: Any], tradingLocked: Bool, busy: Bool, pending: Bool) -> Bool {
+        tradingLocked && !busy && !pending && state["inactive_day_history"] as? Bool == true
+            && state["position"] as? Double == 0
+            && (state["sync_error"] == nil || state["sync_error"] as? Bool == false)
+    }
+}
+
+struct ChartTradingStatusSections: View {
+    var text: String
+    var state: [String: Any]
+    var hasPreview: Bool
+    var viewingHistory: Bool
+
+    var body: some View {
+        Section("Trading") {
+            Text(verbatim: text)
+            if !hasPreview && !viewingHistory { ChartOrderProgressView(state: state) }
+        }
+        if viewingHistory {
+            Section("Order history") {
+                Text("Previous DAY order · No current open orders or position")
+            }
+        }
+    }
+}
+
 struct ChartBarCountInput: View {
     @Binding var value: Int
     @State private var draft = ""
@@ -1113,6 +1140,10 @@ struct StockChartView: View {
          "positionUnit": positionProfitUnit, "bracketUnit": bracketProfitUnit]
     }
     private var chartStatusText: String {
+        if viewingInactiveDayOrder {
+            let name = chartType == "OPT" ? "Option chart" : chartType == "FUT" ? "Futures chart" : "Stock chart"
+            return "\(store.accountModeLabel) · \(name) · View"
+        }
         let chinese = locale.language.languageCode?.identifier == "zh"
         let chartName: String
         switch chartType {
@@ -1125,6 +1156,11 @@ struct StockChartView: View {
         }
         let state = paperEnabled ? (chinese ? "交易" : "Trading") : (chinese ? "查看" : "View")
         return localizedLabel(store.accountModeLabel, locale: locale) + " · " + chartName + " · " + state
+    }
+    private var viewingInactiveDayOrder: Bool {
+        Date().timeIntervalSince(paperReceived ?? .distantPast) < 3 &&
+        ChartHistoryPresentation.viewingInactiveDayOrder(paperState, tradingLocked: tradingLocked,
+            busy: paperBusy, pending: store.trading.paperPending(base: store.address, conID: chartID ?? 0, groupID: selectedOrderGroup))
     }
     private var paperStatusText: String {
         let rows = paperState["orders"] as? [[String: Any]] ?? []
@@ -1642,10 +1678,8 @@ struct StockChartView: View {
         .sheet(isPresented: $showChartStatus) {
             NavigationStack {
                 Form {
-                    Section("Trading") {
-                        Text(verbatim: chartStatusText)
-                        if !hasOrderPreview { ChartOrderProgressView(state: paperState) }
-                    }
+                    ChartTradingStatusSections(text: chartStatusText, state: paperState,
+                        hasPreview: hasOrderPreview, viewingHistory: viewingInactiveDayOrder)
                     Section("Market data") {
                         if quoteStatusCID == chartID, !quoteStatusMessage.isEmpty { Text(verbatim: quoteStatusMessage) }
                         TimelineView(.periodic(from: .now, by: 1)) { time in
