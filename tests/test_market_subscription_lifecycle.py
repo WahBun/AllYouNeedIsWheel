@@ -141,6 +141,26 @@ class MarketSubscriptionLifecycleTests(unittest.TestCase):
         conn.ib.cancelMktData.assert_not_called()
         self.assertEqual(conn.ib.reqMktData.call_count, 2)
 
+    def test_explicit_refresh_replaces_only_selected_stream_and_clears_cached_prices(self):
+        conn = self.connection()
+        first = Stock('FIRST', 'SMART', 'USD', conId=1)
+        second = Stock('SECOND', 'SMART', 'USD', conId=2)
+        ticker = Ticker(contract=first, bid=10, ask=11, last=10.5)
+        other = Ticker(contract=second)
+        conn.ib.reqMktData.side_effect = [ticker, other, ticker]
+        conn.get_market_ticker(first)
+        conn.get_market_ticker(second)
+        ticker.bid, ticker.ask, ticker.last = 10, 11, 10.5
+        other.bid, other.ask = 20, 21
+        refreshed = conn.get_market_ticker(first, refresh=True)
+        conn.ib.cancelMktData.assert_called_once_with(first)
+        self.assertIs(refreshed, ticker)
+        self.assertIsNone(conn._ticker_price(refreshed))
+        self.assertIn(conn._market_ticker_key(second), conn._market_ticker_cache)
+        self.assertEqual((other.bid, other.ask), (20, 21))
+        self.assertIs(conn.get_market_ticker(first), ticker)
+        self.assertEqual(conn.ib.reqMktData.call_count, 3)
+
     def test_close_arriving_during_option_request_is_included(self):
         service = object.__new__(OptionsService)
         service.config = {}

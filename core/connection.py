@@ -287,7 +287,7 @@ class IBConnection:
         return bool(entry and time.time() - entry['used_at'] <= 300
                     and entry.get('requested_data_type') == getattr(self, '_market_data_type', None))
 
-    def get_market_ticker(self, contract, generic_tick_list=''):
+    def get_market_ticker(self, contract, generic_tick_list='', *, refresh=False):
         """Reuse a small set of live subscriptions so repeat refreshes are fast."""
         # Portfolio contracts may omit routing; never mutate IB's held contract.
         if getattr(contract, 'secType', '') in {'STK', 'OPT'} and not getattr(contract, 'exchange', ''):
@@ -297,8 +297,8 @@ class IBConnection:
         key = self._market_ticker_key(contract, generic_tick_list)
         cached = self._market_ticker_cache.get(key)
         incomplete_route = cached and getattr(cached['contract'], 'secType', '') in {'STK', 'OPT'} and not getattr(cached['contract'], 'exchange', '')
-        if cached and (cached.get('requested_data_type') != self._market_data_type or incomplete_route):
-            # Renew subscriptions created with an obsolete mode or missing route.
+        if cached and (refresh or cached.get('requested_data_type') != self._market_data_type or incomplete_route):
+            # Explicit quote recovery also needs a new IB request, not a cache touch.
             self.ib.cancelMktData(cached['contract'])
             # ib_async reuses the Ticker object even after cancellation.
             for field in ('bid', 'ask', 'last', 'close', 'impliedVolatility'):
