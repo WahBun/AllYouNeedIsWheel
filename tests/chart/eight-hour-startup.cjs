@@ -16,8 +16,10 @@ const {start}=require('./market-feed/harness.cjs');
     return route.continue();
    }
    if(interval!==480)return route.continue();
+   const cid=Number(u.pathname.split('/').at(-1)),offset=cid===8?100:0;
+   const data=rows.map(b=>({...b,open:b.open+offset,high:b.high+offset,low:b.low+offset,close:b.close+offset}));
    if(type==='stock-chart-history')return route.fulfill({json:{bars:[]}});
-   return route.fulfill({json:{con_id:7,interval:480,session:'rth',account_epoch:'mock-epoch',generation:'eight',history_expansion_attempted:true,history_expanded:phase===2,history_loading:phase<2,history_retry_after:2,symbol:'SYNTH7',security_type:'FUT',server_time:Date.now()/1000,bars:rows.slice(phase===0?-1:phase===1?-22:0)}});
+   return route.fulfill({json:{con_id:cid,interval:480,session:'rth',account_epoch:'mock-epoch',generation:'eight',history_expansion_attempted:true,history_expanded:phase===2,history_loading:phase<2,history_retry_after:2,symbol:'SYNTH'+cid,security_type:'FUT',server_time:Date.now()/1000,bars:data.slice(phase===0?-1:phase===1?-22:0)}});
   });
   await page.addInitScript(active=>localStorage.setItem('wheel.chart-layout',JSON.stringify({count:4,active,syncVersion:1,links:{symbol:true},panes:[1,15,60,480].map(interval=>({cid:7,interval,session:'rth'}))})),active);
   await page.goto(server.url+'/superchart?con_id=7&session=rth');
@@ -35,6 +37,20 @@ const {start}=require('./market-feed/harness.cjs');
   for(let i=0;i<12;i++){await server.rpc('tick',{cid:7,prices:[100+i/100],tick_id:i,generated:Date.now()});await page.waitForTimeout(100);}
   const result={fallback,active,badStreams,pushed:server.metrics.pushed-pushed,recent:recent.bars,full:full.bars,errors};console.log(JSON.stringify(result));
   assert.equal(badStreams,0);assert.ok(result.pushed>=12,'supported siblings keep receiving tick updates');
+  // Change the linked symbol through the real UI while 8h needs cold history.
+  phase=0;
+  await page.locator('#option-search').click();await page.locator('#symbol').fill('SYNTH8');await page.locator('#search > button').click();
+  await eight.waitForFunction(()=>countdownPacket.con_id===8&&previous.length===1);
+  const switched=await eight.evaluate(()=>previous.at(-1).close);
+  assert.equal(switched,rows.at(-1).close+100,'new symbol never retains old history');
+  const beforePush=server.metrics.pushed;
+  for(let i=0;i<12;i++){await server.rpc('tick',{cid:8,prices:[200+i/100],tick_id:20+i,generated:Date.now()});await page.waitForTimeout(100);}
+  assert.ok(server.metrics.pushed-beforePush>=12,'new symbol sibling ticks continue during 8h load');
+  phase=2;await eight.waitForFunction(()=>previous.length>22);
+  assert.equal(await eight.evaluate(()=>previous.length),rows.length);
+  assert.equal(await eight.evaluate(()=>previous.at(-1).close),switched);
+  for(const f of page.frames().filter(f=>f.url().includes('/superchart/frame')))assert.equal(await f.evaluate(()=>countdownPacket.con_id),8);
+  console.log(JSON.stringify({active,fallback,switchedCid:8,full:rows.length}));
   assert.deepEqual(errors,[]);await page.close();
  }
  assert.equal(server.metrics.posts,0);console.log(process.env.WHEEL_BASELINE_STREAM?'Baseline unsupported auxiliary rejection reproduced':'8h bulk-first and paged fallback preserve viewport and four-pane tick delivery');
