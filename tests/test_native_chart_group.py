@@ -60,6 +60,42 @@ class NativeChartGroupTests(unittest.TestCase):
         self.f.trades[0].orderStatus.filled=1
         self.assertEqual(self.f.service.state(self.f.conn,7)['order_ref'],self.old_ref)
 
+    def reconnect_with(self, records):
+        f=self.f
+        group=f.service.group('DU_TEST',7)
+        group['terminal']={role:dict(role=role,order_id=oid,status='Cancelled',
+                                    filled=0,quantity=1,price=10) for role,oid in group['ids'].items()}
+        group['perms']={role:5000+oid for role,oid in group['ids'].items()}
+        f.service.save_group('DU_TEST',7,group)
+        f.trades.clear()
+        from datetime import datetime, timezone
+        f.conn.ib.fills.return_value=[
+            NS(contract=f.contract,time=datetime.now(timezone.utc),execution=NS(
+                permId=9001,acctNumber='DU_TEST',clientId=8,orderId=2054,
+                execId=eid,side='BOT',shares=qty,price=price,orderRef=self.native.order.orderRef))
+            for eid,qty,price in records]
+        return group
+
+    def test_ambiguous_native_execution_cannot_retire_old_chart_group(self):
+        from api.services.chart_broker_orders import can_retire_empty_group
+        for records in [
+                [('same',1,10),('same',3,10)],
+                [('same',3,10),('same',3,11)],
+                [('a.b.c.01',1,10),('a.b.c.02',2,10)],
+                [('negative',-1,10),('positive',4,10)]]:
+            for ordered in [records,list(reversed(records))]:
+                with self.subTest(records=ordered):
+                    group=self.reconnect_with(ordered)
+                    self.assertFalse(can_retire_empty_group(self.f.service.path,self.f.conn,'DU_TEST',7,group,3))
+                    self.assertEqual(self.f.service.state(self.f.conn,7)['order_ref'],self.old_ref)
+
+    def test_identical_execution_replay_still_allows_proven_empty_group_retirement(self):
+        from api.services.chart_broker_orders import can_retire_empty_group
+        group=self.reconnect_with([('native-fill',3,10),('native-fill',3,10)])
+        writes=self.f.conn.ib.placeOrder.call_count
+        self.assertTrue(can_retire_empty_group(self.f.service.path,self.f.conn,'DU_TEST',7,group,3))
+        self.assertEqual(self.f.conn.ib.placeOrder.call_count,writes)
+
     def test_reconnect_does_not_assign_native_executions_to_legacy_opening_balance(self):
         f=self.f
         group=f.service.group('DU_TEST',7)
