@@ -40,6 +40,11 @@ def live():
         if not connection:
             return jsonify(error='Gateway unavailable.'), 503
         ib = connection.ib
+        from api.services.performance_benchmarks import schedule
+        try:
+            schedule(connection, performance, service.points[0]['date'] if service.points else None)
+        except Exception:
+            pass  # An optional index read must never interrupt account P&L.
         state = getattr(connection, '_performance_pnl', None)
         if state is None:
             state = {'at': None, 'value': None, 'subscribed': False}

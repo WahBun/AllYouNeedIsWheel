@@ -236,7 +236,7 @@ struct PerformanceView: View {
             }
             Section {
                 Button("Refresh") { revision += 1 }
-                Text("History: compounded daily IBKR TWR. SPX and NDX: FRED daily price indices, excluding reinvested dividends. Intraday estimate uses daily P&L / last reported NAV; deposits, withdrawals and IB reset times may affect comparability. Final returns follow the next Flex report.")
+                Text("History: compounded daily IBKR TWR. SPX and NDX: IBKR daily closes with retained FRED history as fallback, excluding reinvested dividends. Intraday estimate uses daily P&L / last reported NAV; deposits, withdrawals and IB reset times may affect comparability. Final returns follow the next Flex report.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }.navigationTitle("Performance")

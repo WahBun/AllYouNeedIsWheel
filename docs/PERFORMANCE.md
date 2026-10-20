@@ -4,7 +4,7 @@ Portfolio > Performance reads `/api/performance/history?period=YTD` and
 `/api/performance/live`. History runs on a separate bounded background worker,
 not the IB execution queue. Live P&L uses the existing single Gateway connection,
 serialized dispatcher and one `reqPnL` subscription. It does not place orders.
-Only the visible foreground screen polls (five seconds for P&L).
+Only the visible foreground screen polls (one second for P&L, one minute for history).
 
 ## Benchmark names
 
@@ -41,9 +41,24 @@ history available, starting at its first close, not an invented account inceptio
 Back up this archive with the private configuration. A future installation must
 carry the archive over; a fresh one cannot reconstruct unavailable old records.
 
-Historical curves align common reported dates with FRED SP500/NASDAQ100 daily
-price indices (not dividend-reinvested total-return indices). Missing index days
-never become zero; TWR compounds across omitted dates. The UI shows the actual
+Historical curves prefer IBKR SPX (IND 416904 / CBOE) and NDX (IND 416843 /
+NASDAQ) daily TRADES closes, excluding reinvested dividends. The existing live
+endpoint schedules finite asynchronous reads on the same Gateway owner loop;
+it creates no additional production connection or streaming subscription.
+The first read backfills available account history (up to 20 years), then reads
+the most recent 30 days. Successful reads retry after six hours or a new completed
+session; missing data retries after five minutes. This runs while Performance is
+open, not as a new always-on collector.
+
+Only exchange sessions closed at least 30 minutes earlier are accepted, including
+holiday/early-close handling. These are the latest broker-reported daily closes;
+later broker corrections can replace them on subsequent reads. They are not a
+guarantee that the vendor will never revise a close. Rows are saved separately as
+`ib_benchmark_close`, including exact contract ID and fetch timestamp. Existing
+FRED SP500/NASDAQ100 rows remain a fallback where IB history is unavailable; IB
+wins on every overlapping date. `benchmark_sources` identifies the source of the
+last displayed date for each index. Missing index days never become zero or a
+carried-forward price; portfolio history remains available. The UI shows the actual
 start/end dates, truncated coverage and cached data. Normal refresh TTL is six
 hours, with a one-minute failure backoff and one in-flight history job.
 
@@ -62,3 +77,14 @@ new paid subscription is enabled by this feature.
 A live deployment needs the private configuration on Mini and a controlled
 backend restart. Xcode compilation/mocked tests do not verify the Mini endpoint,
 Gateway P&L callbacks, phone chart rendering or production freshness.
+
+## IB daily-close validation (2026-10-20)
+
+REA captured bounded read-only requests against the Mini Gateway, without a backend
+or Gateway restart or order operations. SPX and NDX each returned 500 daily bars
+from 2024-10-21 through 2026-10-19 without request errors. Latest reported closes
+were SPX 7690.73 and NDX 29529.34. Evidence:
+`ev_78df8fef61c38ded320f00dededdcc3a15139a36bf73039c48d210161691f4d0`.
+The probe connection was disconnected after the check; production uses only the
+existing shared connection. This establishes Gateway historical-data availability,
+not deployment of this change or final acceptance on the user's phone.
