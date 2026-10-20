@@ -373,7 +373,7 @@ class PaperChart:
                                 and t.order.orderType == group['close_request']['kind']
                                 and float(t.order.totalQuantity) == group['close_request']['quantity']
                                 and t.order.tif == group['close_request']['tif']
-                                and (t.order.orderType != 'LMT' or t.order.lmtPrice == group['close_request']['price']))
+                                and (t.order.orderType != 'LMT' or t.order.lmtPrice == group['close_request'].get('confirmed_price',group['close_request']['price'])))
                         if matches: candidates.append(t)
                 if len(candidates) == 1: trades[group['ids'][role]] = candidates[0]
         self._resolved_trades = trades
@@ -409,7 +409,7 @@ class PaperChart:
             if not t and role in terminal and terminal[role]['order_id'] == oid:
                 rows.append(terminal[role]); continue
             rows.append(dict(role=role, order_id=oid, status=('Unknown' if t.orderStatus.status == 'Inactive' else t.orderStatus.status) if t else 'Unknown',
-                price=(0 if t.order.orderType=='MKT' else t.order.auxPrice if role.split('_')[0]=='sl' or (role.split('_')[0]=='entry' and t.order.orderType=='STP') else t.order.lmtPrice) if t and role!='close' else 0,
+                price=(0 if t.order.orderType=='MKT' else t.order.auxPrice if role.split('_')[0]=='sl' or (role.split('_')[0]=='entry' and t.order.orderType=='STP') else t.order.lmtPrice) if t else 0,
                 quantity=max(float(t.order.totalQuantity),float(t.orderStatus.filled),sum(float(f.execution.shares) for f in trade_fills(t))) if t else 0,
                 filled=max(float(t.orderStatus.filled),sum(float(f.execution.shares) for f in trade_fills(t))) if t else 0))
         for row in rows:
@@ -614,6 +614,13 @@ class PaperChart:
                 else 'unknown' if not result['known'] else 'working' if result['adjustment']['status'] in ('working','filled') else result['adjustment']['status'])
         close_row=next((r for r in rows if r['role']=='close'),None)
         if close_row:
+            if (close_row['price']>0 and close_row['quantity']>close_row['filled']
+                    and close_row['status'] in ('Submitted','PreSubmitted','PendingSubmit','PendingCancel')):
+                result.setdefault('pending_exits',[]).append(dict(
+                    order_id=close_row['order_id'],price=close_row['price'],
+                    quantity=close_row['quantity']-close_row['filled'],status=close_row['status'],
+                    action='close',close_order=True,plan_id=str(close_row['order_id']),
+                    editable=result['known'] and close_row['status'] in ('Submitted','PreSubmitted')))
             result['close_progress']=dict(requested=close_row['quantity'],filled=close_row['filled'],remaining=abs(result['position']),
                 status='completed' if result['known'] and not result['position'] and not result['active']
                 else 'unknown' if not result['known'] else close_row['status'])
@@ -932,7 +939,7 @@ class PaperChart:
             status = reconcile(self.path, conn, cid, body)
             return resolved(status) if status != 'unknown' else dict(confirmed=False, status='unknown')
         if body.get('action') in ('cancel_trim','cancel_exit') and body.get('expected_ref') == group.get('ref'):
-            roles=('trim',) if body['action']=='cancel_trim' else ('tp','sl')
+            roles=('trim',) if body['action']=='cancel_trim' else ('tp','sl','close')
             target=next((r for r in state['orders'] if r['order_id']==body.get('order_id') and r['role'].split('_')[0] in roles),None)
             if target and target['status'] in ('Cancelled','ApiCancelled','Filled'):
                 return resolved('filled' if target['status']=='Filled' else 'canceled')
@@ -1139,6 +1146,9 @@ class PaperChart:
                     t.orderStatus.status in ('Submitted','PreSubmitted') and getattr(t.order,'auxPrice' if role=='sl' else 'lmtPrice')==body.get('price') for t in working):
                 if body.get('restore_trim'):
                     self.finish_trim_restore(account,cid,group,body['order_id'])
+                if role=='close' and group.get('close_request',{}).get('order_id')==body.get('order_id'):
+                    group['close_request']['confirmed_price']=body['price']
+                    self.save_group(account,cid,group)
                 return resolved('reconciled')
         if body.get('action') == 'edit_entry' and state['known']:
             original = group.get('ref') == body.get('expected_ref')
@@ -1846,6 +1856,41 @@ class PaperChart:
             raise RuntimeError('Protected Trim awaiting broker confirmation; do not resubmit')
         group=self.group(account,cid);group.pop('pending_stop_trim',None);self.save_group(account,cid,group)
 
+    def amend_close_limit(self, conn, account, cid, current, group, body, price):
+        oid=body.get('order_id')
+        if (not group or not current['known'] or current.get('sync_error')
+                or body.get('expected_ref')!=group.get('ref') or oid!=group['ids'].get('close')):
+            raise ValueError('Exact working Close unavailable; refresh')
+        row=next((r for r in current['orders'] if r['order_id']==oid and r['role']=='close'),None)
+        trade=self._resolved_trades.get(oid)
+        if (not row or row['status'] not in ('Submitted','PreSubmitted') or not trade
+                or trade.order.orderId!=oid or trade.order.account!=account
+                or trade.contract.conId!=cid or trade.order.orderRef!=group['ref']
+                or trade.order.orderType!='LMT'):
+            raise ValueError('Exact working Close limit unavailable; refresh')
+        if (body.get('expected_price')!=row['price']
+                or body.get('expected_quantity')!=row['quantity']-row['filled']
+                or body.get('expected_position')!=current['position']):
+            raise ValueError('Close changed; refresh before moving')
+        target=price(body.get('price'))
+        positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
+        actual=self.group_size(conn,account,cid,positions)
+        fresh=self.state(conn,cid)
+        if (not fresh['known'] or fresh.get('sync_error') or fresh['position']!=actual
+                or actual!=current['position'] or fresh['edit_snapshot']!=current['edit_snapshot']
+                or self._resolved_trades.get(oid) is not trade
+                or not actual or row['quantity']-row['filled']>abs(actual)
+                or trade.order.action!=('SELL' if actual>0 else 'BUY')):
+            raise ValueError('Position or Close changed; refresh before moving')
+        import copy
+        order=copy.copy(trade.order);order.lmtPrice=target;order.transmit=True
+        self.modify_exit(conn,trade,order,'lmtPrice')
+        group=self.group(account,cid)
+        if group.get('close_request',{}).get('order_id')==oid:
+            # Preserve the original request price for uncertain-submit recovery.
+            group['close_request']['confirmed_price']=target
+            self.save_group(account,cid,group)
+
     def edit_standalone_trim(self, conn, account, cid, contract, current, group, body, request_id, price):
         expected=body.get('expected_orders',[])
         oid=body.get('order_id') or (expected[0].get('order_id') if len(expected)==1 else None)
@@ -2120,7 +2165,7 @@ class PaperChart:
             conn._bounded_order_read(conn.ib.reqOpenOrders,timeout_seconds=3)
             current=self.state(conn,cid);group=self.group(account,cid) or {}
             oid=body.get('order_id')
-            allowed_roles=('trim',) if body['action']=='cancel_trim' else ('tp','sl')
+            allowed_roles=('trim',) if body['action']=='cancel_trim' else ('tp','sl','close')
             if body['action']=='cancel_trim' and current.get('stock_trim_editable'):
                 pending=next((r for r in current.get('pending_exits',[]) if r['order_id']==oid),None)
                 if pending:
@@ -2193,7 +2238,8 @@ class PaperChart:
             if not current['position'] or body.get('expected_ref') != group.get('ref'):
                 raise ValueError('Explicit filled-position reference required; cancel an unfilled entry instead')
         # Fresh submissions use their own mode after checking the prior order is resolved.
-        if group and group.get('mode') == 'overnight_entry' and action not in ('close', 'submit', 'set_protection'):
+        if (group and group.get('mode') == 'overnight_entry' and action not in ('close', 'submit', 'set_protection')
+                and not (action=='amend' and body.get('role')=='close')):
             if action == 'manage_entry':
                 import copy
                 if not current['known'] or body.get('expected_ref') != group.get('ref'):
@@ -2249,6 +2295,8 @@ class PaperChart:
         if action == 'resize_add' or action in ('amend_add', 'cancel_add') and 'expected_orders' in body:
             from api.services.chart_add_quantity import edit
             return edit(self, conn, account, cid, contract, body, request_id, price)
+        if action=='amend' and body.get('role')=='close':
+            return self.amend_close_limit(conn,account,cid,current,group,body,price)
         standalone_id=body.get('order_id') or ((body.get('expected_orders') or [{}])[0].get('order_id'))
         if action in ('amend','resize_trim') and any(r['order_id']==standalone_id and r.get('standalone') for r in current.get('pending_exits',[])):
             return self.edit_standalone_trim(conn,account,cid,contract,current,group,body,request_id,price)
