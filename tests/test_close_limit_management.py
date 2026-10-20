@@ -63,6 +63,76 @@ class CloseLimitManagementTests(unittest.TestCase):
         f.conn.ib.cancelOrder.assert_not_called()
         self.assertEqual(result['state']['pending_exits'][0]['price'], .46)
 
+    def legacy_body(self, **changes):
+        body = self.body(role='tp')
+        body.pop('expected_position')
+        body.update(changes)
+        return body
+
+    def test_installed_client_tp_payload_amends_exact_close_once(self):
+        f = self.f
+        body = self.legacy_body(chart_confirmed=True)
+        result = f.service.execute(f.conn, 7, body)
+        self.assertTrue(result['success'], result)
+        sent = f.conn.ib.placeOrder.call_args.args[1]
+        self.assertEqual((sent.orderId, sent.action, sent.totalQuantity, sent.lmtPrice),
+                         (body['order_id'], 'BUY', 3, .46))
+        self.assertEqual(f.service.execute(f.conn, 7, body), result)
+        self.assertEqual(f.conn.ib.placeOrder.call_count, 1)
+        f.conn.ib.cancelOrder.assert_not_called()
+
+    def test_legacy_partial_fill_uses_remaining_close_quantity(self):
+        self.trade.orderStatus.filled = 1
+        self.f.pos.position = -2
+        result = self.f.service.execute(self.f.conn, 7,
+                                       self.legacy_body(expected_quantity=2))
+        self.assertTrue(result['success'], result)
+        self.assertEqual(self.trade.order.totalQuantity, 3)
+
+    def test_legacy_stale_payload_cannot_write(self):
+        for changes in ({'order_id': 999}, {'expected_ref': 'other'},
+                        {'expected_price': .44}, {'expected_quantity': 2},
+                        {'expected_position': -2}, {'restore_trim': True}):
+            with self.subTest(changes=changes):
+                result = self.f.service.execute(self.f.conn, 7, self.legacy_body(**changes))
+                self.assertFalse(result['success'], result)
+        self.f.conn.ib.placeOrder.assert_not_called()
+
+    def test_legacy_changed_position_cannot_write(self):
+        self.f.pos.position = -4
+        result = self.f.service.execute(self.f.conn, 7, self.legacy_body())
+        self.assertFalse(result['success'], result)
+        self.f.conn.ib.placeOrder.assert_not_called()
+
+    def test_legacy_fill_during_position_read_cannot_write(self):
+        f = self.f
+        read = f.conn._bounded_order_read.side_effect
+        def fill(fn, *a, **kw):
+            if fn == f.conn.ib.reqPositions:
+                self.trade.orderStatus.status = 'Filled'
+                self.trade.orderStatus.filled = 3
+                f.pos.position = 0
+            return read(fn, *a, **kw)
+        f.conn._bounded_order_read.side_effect = fill
+        self.assertFalse(f.service.execute(f.conn, 7, self.legacy_body())['success'])
+        f.conn.ib.placeOrder.assert_not_called()
+
+    def test_legacy_unknown_response_reconciles_without_replay(self):
+        f = self.f
+        original = f.conn.ib.placeOrder.side_effect
+        def lost(contract, order):
+            original(contract, order)
+            raise ConnectionError('reply lost')
+        f.conn.ib.placeOrder.side_effect = lost
+        body = self.legacy_body()
+        result = f.service.execute(f.conn, 7, body)
+        self.assertEqual(result['status'], 'unknown')
+        self.assertEqual(f.service.execute(f.conn, 7, body), result)
+        recovered = PaperChart(f.service.path)
+        self.assertTrue(recovered.request_status(f.conn, 7, body['request_id'])['confirmed'])
+        self.assertEqual(recovered.group(f.pos.account, 7)['close_request']['confirmed_price'], .46)
+        self.assertEqual(f.conn.ib.placeOrder.call_count, 1)
+
     def test_partial_fill_amend_preserves_total_and_remaining_quantity(self):
         f = self.f
         self.trade.orderStatus.filled = 1

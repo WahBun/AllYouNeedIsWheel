@@ -1128,6 +1128,7 @@ class PaperChart:
                     return resolved('canceled')
         if body.get('action') in ('amend','be') and state['known'] and group.get('ref') == body.get('expected_ref'):
             role='sl' if body['action']=='be' else body.get('role')
+            if self.legacy_close_amend(group, body): role='close'
             target_ids={oid for key,oid in group.get('ids',{}).items() if key.split('_')[0]==role}
             if body.get('order_id') is not None: target_ids &= {body['order_id']}
             elif role=='tp': target_ids -= {lot['tp'] for lot in group.get('lots',[]) if lot.get('closing')}
@@ -1856,6 +1857,15 @@ class PaperChart:
             raise RuntimeError('Protected Trim awaiting broker confirmation; do not resubmit')
         group=self.group(account,cid);group.pop('pending_stop_trim',None);self.save_group(account,cid,group)
 
+    @staticmethod
+    def legacy_close_amend(group, body):
+        # Installed clients used the TP route for every pending exit handle.
+        # Only the exact recorded Close can be reclassified; ordinary TP stays TP.
+        return bool(group and body.get('action')=='amend' and body.get('role')=='tp'
+            and not body.get('restore_trim') and isinstance(body.get('order_id'),int)
+            and body['order_id']==group.get('ids',{}).get('close')
+            and body.get('expected_ref')==group.get('ref'))
+
     def amend_close_limit(self, conn, account, cid, current, group, body, price):
         oid=body.get('order_id')
         if (not group or not current['known'] or current.get('sync_error')
@@ -1868,9 +1878,17 @@ class PaperChart:
                 or trade.contract.conId!=cid or trade.order.orderRef!=group['ref']
                 or trade.order.orderType!='LMT'):
             raise ValueError('Exact working Close limit unavailable; refresh')
+        expected_position=body.get('expected_position')
+        if self.legacy_close_amend(group,body) and 'expected_position' not in body:
+            # The old payload contains remaining exit quantity, but no position.
+            # Accept it only when the exact Close still covers the whole position.
+            remaining=row['quantity']-row['filled']
+            if remaining<=0 or current['position']!=group['side']*remaining:
+                raise ValueError('Close no longer covers the position; refresh before moving')
+            expected_position=group['side']*remaining
         if (body.get('expected_price')!=row['price']
                 or body.get('expected_quantity')!=row['quantity']-row['filled']
-                or body.get('expected_position')!=current['position']):
+                or expected_position!=current['position']):
             raise ValueError('Close changed; refresh before moving')
         target=price(body.get('price'))
         positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
@@ -2231,6 +2249,7 @@ class PaperChart:
             if action != 'submit': raise ValueError('Overnight entry mode only supports submit')
             return self.submit_overnight_entry(conn, account, cid, contract, current, body, request_id)
         group = self.group(account, cid)
+        close_amend=action=='amend' and (body.get('role')=='close' or self.legacy_close_amend(group,body))
         if action == 'edit_entry':
             if not group: raise ValueError('No owned entry')
             return self.edit_entry(conn, account, cid, contract, current, group, body, request_id)
@@ -2239,7 +2258,7 @@ class PaperChart:
                 raise ValueError('Explicit filled-position reference required; cancel an unfilled entry instead')
         # Fresh submissions use their own mode after checking the prior order is resolved.
         if (group and group.get('mode') == 'overnight_entry' and action not in ('close', 'submit', 'set_protection')
-                and not (action=='amend' and body.get('role')=='close')):
+                and not close_amend):
             if action == 'manage_entry':
                 import copy
                 if not current['known'] or body.get('expected_ref') != group.get('ref'):
@@ -2295,7 +2314,7 @@ class PaperChart:
         if action == 'resize_add' or action in ('amend_add', 'cancel_add') and 'expected_orders' in body:
             from api.services.chart_add_quantity import edit
             return edit(self, conn, account, cid, contract, body, request_id, price)
-        if action=='amend' and body.get('role')=='close':
+        if close_amend:
             return self.amend_close_limit(conn,account,cid,current,group,body,price)
         standalone_id=body.get('order_id') or ((body.get('expected_orders') or [{}])[0].get('order_id'))
         if action in ('amend','resize_trim') and any(r['order_id']==standalone_id and r.get('standalone') for r in current.get('pending_exits',[])):
