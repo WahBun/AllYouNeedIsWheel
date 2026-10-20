@@ -372,6 +372,16 @@ final class WheelStore {
                 next = Bootstrap(summary: summary, positions: live.positions, connection: live.connection)
             }
             guard requestedRevision == revision, requestedTradeVersion == trading.version, !trading.busy, !Task.isCancelled else { return }
+            if let previous = portfolio?.connection,
+               previous.account_epoch != next.connection?.account_epoch || previous.mode != next.connection?.mode {
+                // A live response has no account summary. Invalidate the whole
+                // account context before the next full bootstrap, including
+                // in-flight Orders/history reads carrying the previous revision.
+                changeMode()
+                trading.accountEpoch = nil
+                error = "Account connection changed. Refreshing account data."
+                return
+            }
             let previousPrices = Dictionary((portfolio?.positions ?? []).compactMap { position in
                 position.market_price.map { (position.id, $0) }
             }, uniquingKeysWith: { _, latest in latest })

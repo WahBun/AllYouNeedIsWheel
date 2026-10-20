@@ -18,7 +18,10 @@ for(const width of [1440])for(const lang of ['en'])for(const light of [false]){
  else if(u.pathname.includes('paper-chart/'))result=state;
  else if(u.pathname.endsWith('bootstrap'))result={positions:[]};else if(u.pathname.endsWith('pending-orders'))result={orders:[]};
  await route.fulfill({json:result});});
- await page.goto(base+'/superchart?con_id=7');await page.waitForFunction(()=>!document.getElementById('close').disabled);
+ await page.goto(base+'/superchart?con_id=7');
+ // Chart recovery works while trading stays locked by default.
+ await page.waitForFunction(()=>document.querySelector('#connection').textContent.startsWith('live')&&document.querySelector('#chart-grid iframe')?.contentWindow.eval('typeof countdownPacket!=="undefined"&&countdownPacket?.account_epoch==="offline-live"'));
+ assert.equal(await page.locator('#close').isDisabled(),true);
  await page.evaluate(({lang,light})=>{document.documentElement.lang=lang;document.body.classList.toggle('light',light)},{lang,light});
  await page.locator('#layout-button').click();await page.locator('#layout-menu [data-layout="4"]').click();
  await page.waitForFunction(()=>document.querySelectorAll('#chart-grid iframe').length===4&&document.querySelector('#chart-group-loading').hidden);

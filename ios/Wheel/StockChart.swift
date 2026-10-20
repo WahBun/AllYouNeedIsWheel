@@ -1308,7 +1308,7 @@ struct StockChartView: View {
     @State private var received: Date?
     @State private var loadedChartKey = ""
     private var cacheKey: String { "\(store.address)-\(chartID ?? 0)-\(interval)-\(session)" }
-    private var context: String { "\(store.demo)-\(store.address)-\(chartID ?? 0)-\(interval)-\(session)-\(phase == .active)-\(visible)" }
+    private var context: String { "\(store.demo)-\(store.address)-\(store.trading.accountEpoch ?? "")-\(chartID ?? 0)-\(interval)-\(session)-\(phase == .active)-\(visible)" }
     private var validEntry: Double { Double(entry).flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 0 }
     private var validQuantity: Double { Double(quantity).flatMap { $0.isFinite && $0 > 0 && (paperActive || $0 <= Double(quantityLimit)) && $0.rounded(.towardZero) == $0 ? $0 : nil } ?? 0 }
     private var joinMidContext: String { "\(context)-\(store.trading.accountEpoch ?? "")-\(selectedOrderGroup)" }
@@ -1943,6 +1943,10 @@ struct StockChartView: View {
         }
         .onChange(of: chartID) { _, _ in selectOrderGroup("") }
         .onChange(of: store.accountModeLabel) { _, _ in selectOrderGroup("") }
+        .onChange(of: store.trading.accountEpoch) { _, _ in
+            tradingLocked = true
+            selectOrderGroup("")
+        }
         .task(id: "paper-" + context + selectedOrderGroup + String(store.chartTradingAvailable)) {
             paperState = [:]; paperReceived = nil
             guard visible, phase == .active, store.chartTradingAvailable, let cid = chartID else { return }
