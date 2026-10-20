@@ -4716,3 +4716,9 @@ signing branch settings follow this exact case-sensitive name. This supersedes
 The migration is code/configuration only, with a Mini rollback point and no
 Backend/Gateway restart or physical-device build/install. Existing deployment
 regressions cover preview and pinned SHA guards under the new branch name.
+
+### 2026-10-20 — Keep the main chart on the right in two-pane mode
+
+REA inspected the currently served layout script (`ev_d6d1eafc74b7bce2f448f31280040adb762bd58296b35d887e52bdc911e67fd0`) and confirmed the layout picker placed the selected main pane at index zero for two panes, unlike three/four panes. The picker now places it at `n - 1` for every layout. No saved layout migration, chart recreation, feed or order behavior is introduced. Re-select two-pane mode to reposition an existing left-main saved layout.
+
+Local real-page mock checks passed repeated 1/2/3/4 transitions at 1600px and 600px widths, main frame/timeframe preservation and reload persistence. Mini deployment is pending; this static JavaScript change alone needs Deploy only plus a page reload. If deploying together with the newly merged history-cache backend changes, use Deploy & Restart Backend instead. The user performs deployment; Gateway is unchanged.
