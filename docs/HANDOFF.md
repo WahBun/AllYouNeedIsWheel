@@ -1,3 +1,35 @@
+## 2026-10-21 — Recover missing option quote sides
+
+An option chart could retain a displayed bid/ask while its executable ask stayed
+unavailable. A 45-second passive Gateway observation captured 1,096 quote events
+with no reassembly gaps. In concurrent cached-packet reads, the affected option
+had 0 valid asks in 71 samples, while another option had both sides in all 71.
+This does not establish an entitlement problem or prove why IB stopped updating
+one side. REA retained the sanitized comparison as
+`ev_a54dddf0af3573e33ea10db7a5bf6271faed043addc038dabacfd848402a3f69`.
+
+The existing 60-second keepalive only touched the shared ticker cache. Active
+option charts now renew the exact market-data subscription when a quote side
+remains missing or older than 30 seconds. Requests use the existing IB owner,
+start no more often than every 30 seconds, and back off to 300 seconds without
+recovery. Healthy quotes reset the backoff. Frozen requested mode, replaced
+connections, detached states and non-option feeds do not trigger recovery.
+
+A renewal clears executable quote state and waits for actual side-specific IB
+callbacks. Existing quote expiry, delayed/zero-size rejection, order behavior,
+chart history and Last tick delivery are unchanged. No order is submitted by
+quote recovery. Retired ticker callbacks cannot revive the old stream.
+
+Validation: 147 distinct relevant backend tests passed, including 10 recovery
+cases and exact-stream cache isolation. The recovery suite also passes the
+network/broker-construction/database-blocking offline runner. Real chart assets
+passed eight Join Mid desktop/mobile/theme/direction scenarios and the option
+quote overlay suite. The Join Mid fixture now unlocks trading explicitly and
+covers the current immutable-latest endpoint. Live recovery awaits deployment;
+no broker order, deployment, Backend restart or Gateway restart was performed.
+Deploy & Restart Backend, then refresh/reopen the chart. No iPhone rebuild is
+required for this backend change.
+
 ## 2026-10-20 — Limit Close after historical order recovery
 
 A chart position could be known and manageable after reconnect, yet a priced

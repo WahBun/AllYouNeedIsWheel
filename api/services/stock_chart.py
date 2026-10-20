@@ -207,6 +207,43 @@ class StockChart:
         else:
             asyncio.get_event_loop().call_later(30, self.expire, state)
 
+    def refresh_option_quotes(self, state):
+        """Renew a silent option stream on the IB owner, never cached prices."""
+        conn=state['conn']
+        if (not state.get('option_bars') or self.states.get(state['con_id']) is not state
+                or not conn.is_connected() or state['client'] is not conn.ib.client
+                or conn.ib.ticker(state['contract']) is not state['ticker']
+                or getattr(conn,'_market_data_type',None) not in (None,1)):
+            return
+        now=time.monotonic()
+        requested=state.setdefault('quote_requested_at',now)
+        if now-state.get('quote_checked_at',-1e9)<1:
+            return
+        state['quote_checked_at']=now
+        wall=time.time()
+        quotes=state['quotes']
+        if (getattr(state['ticker'],'marketDataType',None)==1 and all(
+                side in quotes and positive(quotes[side][1]) is not None
+                and 0<=wall-quotes[side][0]<30 for side in ('bid','ask'))):
+            state['quote_refresh_attempts']=0
+            return
+        attempts=state.get('quote_refresh_attempts',0)
+        if now-requested<min(300,30*2**min(attempts,4)):
+            return
+        state.update(quote_requested_at=now,quote_refresh_attempts=attempts+1)
+        # Cancellation can reuse the same Ticker. Only later IB callbacks may
+        # establish either side again; historical bars/last never count.
+        state['quotes'].clear()
+        state.pop('iv_quote',None)
+        try:
+            ticker=conn.get_market_ticker(state['contract'],refresh=True)
+        except Exception:
+            return  # Retain the chart; bounded retries also cover request errors.
+        if ticker is not state['ticker']:
+            state['ticker'].updateEvent -= state['handler']
+            state['ticker']=ticker
+            ticker.updateEvent += state['handler']
+
     def request_eight_hour_history(self, state):
         self.eight_history.request(state)
 
@@ -273,6 +310,8 @@ class StockChart:
                       or conn.ib.ticker(state['contract']) is not state['ticker']):
             self.stop_state(state)
             state = None
+        if state is not None:
+            self.refresh_option_quotes(state)
         if state is None and len(self.states) >= self.MAX_CONTRACTS:
             idle = [item for item in self.states.values() if not self.has_subscribers(item['con_id'])]
             if not idle:
@@ -369,9 +408,10 @@ class StockChart:
                     raise
             state = dict(conn=conn, client=conn.ib.client, contract=contract, ticker=ticker,
                 con_id=con_id, bars=bars[-12000:], used=now, last_tick=None, received=None,
-                generation=time.time_ns(), ticks=0, live_bars={}, quotes={},option_bars=option_bars,model_greeks=getattr(ticker,'modelGreeks',None))
+                generation=time.time_ns(), ticks=0, live_bars={}, quotes={},option_bars=option_bars,
+                quote_requested_at=time.monotonic(),model_greeks=getattr(ticker,'modelGreeks',None))
             def on_tick(updated):
-                if self.states.get(state['con_id']) is not state:
+                if self.states.get(state['con_id']) is not state or updated is not state['ticker']:
                     return
                 if option_bars:
                     greeks=getattr(updated,'modelGreeks',None)

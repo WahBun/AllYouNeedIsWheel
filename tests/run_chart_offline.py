@@ -42,7 +42,7 @@ def main():
         stack.enter_context(patch.object(IBConnection, '__init__', forbidden))
         import api
         stack.enter_context(patch.object(api, 'create_app', forbidden))
-        names = sys.argv[1:] or ['test_chart_capacity', 'test_chart_stream', 'test_chart_latest',
+        names = sys.argv[1:] or ['test_chart_capacity', 'test_chart_stream', 'test_chart_latest', 'test_option_quote_recovery',
                                 'test_stock_chart', 'test_chart_history_cache', 'test_chart_futures_sessions', 'test_chart_volume', 'test_execution_evidence', 'test_fill_metadata',
                                 'test_terminal_fee_reconciliation', 'test_cancel_fence_review',
                                 'test_order_action_crashes', 'test_order_service_crashes', 'test_order_safety.OrderSafetyTests', 'test_order_process_faults', 'test_chart_request_crashes', 'test_order_amendments', 'test_order_status_recovery']
