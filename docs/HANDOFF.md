@@ -4716,3 +4716,11 @@ signing branch settings follow this exact case-sensitive name. This supersedes
 The migration is code/configuration only, with a Mini rollback point and no
 Backend/Gateway restart or physical-device build/install. Existing deployment
 regressions cover preview and pinned SHA guards under the new branch name.
+
+### 2026-10-20 — 1.8 cold CME 8h history candidate
+
+- REA inspected the live MNQ four-pane page: initial/deferred requests succeeded but an expanded-history request returned 503. Read-only Mini logs contained HMDS timeouts/cancellations; a subsequent page observation eventually contained 127 8h bars. These observations establish a cold-history failure/delay, not a measured speedup.
+- CME 8h cold expansion now requests six overlapping 32-day intraday pages with at most two concurrent reads on the existing IB owner. Results are merged only after all pages succeed; incomplete windows retain the existing cursor fallback. Stocks keep their smaller RTH 30-minute request. Session aggregation, live tick delivery, layout and order paths remain unchanged.
+- Use the native 60-second history timeout to avoid ib_async canceling and clearing a partially received response after 12 seconds. This is a cancellation safeguard, not a latency target. Parallel bounded reads are a candidate optimization; cold HMDS latency on Mini has not yet been measured.
+- Offline verification: 65 tests passed across stock chart, chart history, futures session and capacity suites. Native ib_async timeout behavior is exercised with simulated delayed replies; bounded concurrency, incomplete windows and live tick preservation are covered. Browser linked-symbol switching passed four 8h startup cases; the existing seven-workload 1/2/3/4-pane/two-page/long-history matrix passed during this repair. Browser fixtures do not prove broker speed.
+- Deployment is pending. Backend changes require the user-operated `Deploy & Restart Backend` after the candidate is accepted into `Ben/wheel-1.8`; do not restart Gateway. Verify the deployed SHA and measure cold symbol-to-complete-history latency before calling the speed issue resolved.

@@ -228,10 +228,38 @@ class StockChart:
                 # this coroutine would bypass ib_async's request-timeout cleanup.
                 # Keep intraday trade bars and the existing RTH anchors. A full
                 # window no longer has to finish inside a synchronous API job.
-                history = await conn.ib.reqHistoricalDataAsync(contract,
-                    datetime.fromtimestamp(before, timezone.utc) if before else '',
-                    '6 M' if bulk else '1 M', rth_source_size(480) if cme_regular(contract) else '30 mins',
-                    'TRADES', useRTH=not cme_regular(contract), formatDate=2, keepUpToDate=False, timeout=12)
+                # Cold intraday history can stream for longer than 12s.
+                # ib_async cancels and clears partial bars on timeout. This
+                # optional read is async: use its normal 60s history budget
+                # without blocking the API lane or live tick callbacks.
+                async def read(end, duration):
+                    return await conn.ib.reqHistoricalDataAsync(contract, end, duration,
+                        rth_source_size(480) if cme_regular(contract) else '30 mins',
+                        'TRADES', useRTH=not cme_regular(contract), formatDate=2,
+                        keepUpToDate=False, timeout=60)
+                if bulk and cme_regular(contract):
+                    # Six months of all-session 15m futures bars is too large
+                    # for one HMDS response. Bound each page to ~3,000 bars,
+                    # with only two reads in flight on the existing connection.
+                    # Publish together, so the visible window does not grow in
+                    # monthly jumps. Overlap page edges; merge by timestamp below.
+                    end = datetime.now(timezone.utc)
+                    limit = asyncio.Semaphore(2)
+                    async def page(index):
+                        async with limit:
+                            if self.states.get(state['con_id']) is not state or state['client'] is not conn.ib.client:
+                                return []
+                            try:
+                                return await read(end - timedelta(days=31 * index), '32 D')
+                            except Exception:
+                                return []
+                    pages = await asyncio.gather(*(page(index) for index in range(6)))
+                    # Never label a window complete when a page failed. The
+                    # existing cursor fallback can retry it without a hidden gap.
+                    history = [bar for rows in pages for bar in rows] if all(pages) else []
+                else:
+                    history = await read(datetime.fromtimestamp(before, timezone.utc) if before else '',
+                        '6 M' if bulk else '1 M')
                 if self.states.get(state['con_id']) is not state or state['client'] is not conn.ib.client:
                     return
                 older = []

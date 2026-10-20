@@ -353,6 +353,86 @@ class StockChartTests(unittest.TestCase):
             conn.ib.placeOrder.assert_not_called()
         finally: feed.stop();close_test_loop()
 
+    def test_eight_hour_cold_response_survives_old_deadline_with_real_ib_timeout(self):
+        """Exercise ib_async cancellation/partial-buffer behavior without a broker."""
+        from ib_async import IB
+        from types import MethodType
+        from unittest.mock import patch
+        asyncio.set_event_loop(asyncio.new_event_loop()); loop=asyncio.get_event_loop()
+        conn,ticker=self.connection(); feed=StockChart(); requests=[]
+        conn.get_option_position_by_con_id.return_value['contract']=S(conId=7,secType='FUT',currency='USD',symbol='MNQ',exchange='CME')
+        wait_for=asyncio.wait_for
+        # One simulated second takes 5ms. HMDS starts sending immediately but
+        # finishes at 20 seconds; the old 12-second deadline canceled/cleared it.
+        async def scaled_wait(future, timeout):
+            return await wait_for(future, timeout * .005)
+        def start(req_id, contract, container):
+            future=loop.create_future(); requests.append((future,container)); return future
+        def request(*args):
+            future,rows=requests[-1]
+            start=datetime(2026,4,20,13,30,tzinfo=timezone.utc)
+            rows.extend(S(date=start+timedelta(days=i),open=3,high=4,low=2,close=3) for i in range(180))
+            loop.call_later(.1, lambda: None if future.done() else future.set_result(rows))
+        conn.ib.client.getReqId.return_value=1
+        conn.ib.wrapper.startReq.side_effect=start
+        conn.ib.client.reqHistoricalData.side_effect=request
+        conn.ib.reqHistoricalDataAsync=MethodType(IB.reqHistoricalDataAsync,conn.ib)
+        conn.ib.reqHistoricalData.return_value=[S(date=datetime(2026,10,19,14,tzinfo=timezone.utc),open=10,high=11,low=9,close=10)]
+        try:
+            with patch('ib_async.ib.asyncio.wait_for',side_effect=scaled_wait):
+                feed.snapshot(conn,7,480,fast=True,defer_history=True)
+                loop.run_until_complete(asyncio.sleep(.075))
+                # Still loading beyond the old deadline; no duplicate request.
+                self.assertTrue(feed.eight_hour_packet(feed.active)['history_loading'])
+                for _ in range(3):feed.snapshot(conn,7,480,fast=True,defer_history=True)
+                self.assertEqual(len(requests),2)
+                stamp=feed.active['bars'][-1]['time']+1
+                ticker.tickByTicks=[S(time=datetime.fromtimestamp(stamp,timezone.utc),price=12)]
+                ticker.updateEvent.emit(ticker)
+                self.assertEqual(feed.eight_hour_packet(feed.active)['bars'][-1]['close'],12)
+                loop.run_until_complete(asyncio.sleep(.27))
+                self.assertEqual(len(requests),6)
+                self.assertTrue(all(call.args[3] == '32 D' for call in conn.ib.client.reqHistoricalData.call_args_list))
+                result=feed.eight_hour_packet(feed.active)
+                self.assertTrue(result['history_expanded'])
+                self.assertGreater(len(result['bars']),120)
+                self.assertEqual(result['bars'][-1]['close'],12)
+                conn.ib.client.cancelHistoricalData.assert_not_called()
+                conn.ib.placeOrder.assert_not_called()
+        finally:feed.stop();close_test_loop()
+
+    def test_cme_initial_pages_are_bounded_and_incomplete_window_is_not_complete(self):
+        for failed in (False, True):
+            with self.subTest(failed=failed):
+                asyncio.set_event_loop(asyncio.new_event_loop()); loop=asyncio.get_event_loop()
+                conn,ticker=self.connection(); feed=StockChart(); active=0; peak=0; ends=[]
+                conn.get_option_position_by_con_id.return_value['contract']=S(conId=7,secType='FUT',currency='USD',symbol='MNQ',exchange='CME')
+                async def read(contract,end,duration,size,*args,**kwargs):
+                    nonlocal active,peak
+                    active+=1; peak=max(peak,active); ends.append(end)
+                    self.assertEqual((duration,size),('32 D','15 mins'))
+                    self.assertFalse(kwargs['useRTH'])
+                    try:
+                        await asyncio.sleep(.001)
+                        if failed and len(ends)==4: return []
+                        return [S(date=(end-timedelta(days=i)).replace(hour=14,minute=0,second=0,microsecond=0),open=3,high=4,low=2,close=3) for i in range(32)]
+                    finally: active-=1
+                conn.ib.reqHistoricalDataAsync=AsyncMock(side_effect=read)
+                conn.ib.reqHistoricalData.return_value=[S(date=datetime.now(timezone.utc).replace(hour=14,minute=0),open=10,high=11,low=9,close=10)]
+                try:
+                    feed.snapshot(conn,7,480,fast=True,defer_history=True)
+                    loop.run_until_complete(asyncio.sleep(.03))
+                    self.assertEqual(peak,2); self.assertEqual(len(ends),6)
+                    self.assertEqual((max(ends)-min(ends)).days,155)
+                    self.assertEqual(bool(feed.active.get('rth_eight_expanded')),not failed)
+                    if failed:
+                        self.assertTrue(feed.active['rth_eight_bulk_failed'])
+                        self.assertNotIn('rth_eight_before',feed.active)
+                    else:
+                        self.assertGreater(len(feed.eight_hour_packet(feed.active)['bars']),120)
+                    conn.ib.placeOrder.assert_not_called()
+                finally: feed.stop();close_test_loop()
+
     def test_eight_hour_bulk_failure_pages_back_without_losing_cursor(self):
         from unittest.mock import patch
         asyncio.set_event_loop(asyncio.new_event_loop());loop=asyncio.get_event_loop()
