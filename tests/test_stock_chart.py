@@ -85,6 +85,65 @@ class StockChartTests(unittest.TestCase):
         finally:
             feed.stop();close_test_loop()
 
+    def test_tick_permission_notice_is_request_scoped_and_preserves_history(self):
+        from ib_async import Ticker
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        feed=StockChart();conn,_=self.connection()
+        ticker=Ticker();ticker.marketDataType=1
+        conn.ib.reqTickByTickData.return_value=ticker
+        conn.ib.wrapper=S(ticker2ReqId={'Last':{ticker:41},'BidAsk':{ticker:42}})
+        try:
+            original=feed.snapshot(conn,7,5,'all',fast=True)
+            contract=feed.states[7]['contract']
+            for req_id, code, cid in [(99,10189,7),(41,10189,8),(41,2104,7)]:
+                conn.ib.errorEvent.emit(req_id,code,'Unrelated error',S(conId=cid))
+                self.assertIsNone(feed.packet(feed.states[7],5,'all').get('message'))
+            conn.ib.errorEvent.emit(41,10189,'No market data permissions',contract)
+            conn.ib.errorEvent.emit(42,10189,'No market data permissions',contract)
+            packet=feed.packet(feed.states[7],5,'all')
+            self.assertEqual(packet['message'],'Live market data permission unavailable; verify this contract entitlement in Gateway')
+            self.assertEqual(packet['bars'],original['bars'])
+            self.assertIsNone(packet['bid']);self.assertIsNone(packet['ask'])
+            self.assertEqual(packet['status'],'waiting')
+            # Fresh quotes alone cannot hide a denied Last stream.
+            ticker.tickByTicks=[S(time=datetime.now(timezone.utc),bidPrice=10,askPrice=10.1)]
+            ticker.updateEvent.emit(ticker)
+            self.assertIsNotNone(feed.packet(feed.states[7],5,'all')['message'])
+            ticker.tickByTicks=[S(time=datetime.now(timezone.utc),price=10.05)]
+            ticker.updateEvent.emit(ticker)
+            recovered=feed.packet(feed.states[7],5,'all')
+            self.assertIsNone(recovered['message'])
+            self.assertEqual((recovered['bid'],recovered['ask']),(10,10.1))
+            self.assertEqual(recovered['status'],'live')
+            conn.ib.placeOrder.assert_not_called()
+            feed.stop()
+            self.assertEqual(len(conn.ib.errorEvent),0)
+        finally:
+            feed.stop();close_test_loop()
+
+    def test_tick_permission_notice_rejects_retired_client_and_old_subscription(self):
+        from ib_async import Ticker
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        feed=StockChart();conn,_=self.connection()
+        ticker=Ticker()
+        conn.ib.reqTickByTickData.return_value=ticker
+        conn.ib.wrapper=S(ticker2ReqId={'Last':{ticker:41},'BidAsk':{ticker:42}})
+        try:
+            feed.snapshot(conn,7,5,'all',fast=True)
+            state=feed.states[7];contract=state['contract']
+            conn.ib.client=object()
+            conn.ib.errorEvent.emit(41,10189,'No market data permissions',contract)
+            self.assertIsNone(feed.packet(state,5,'all').get('message'))
+            conn.ib.client=state['client']
+            feed.states[7]=dict(state)
+            conn.ib.errorEvent.emit(41,10189,'No market data permissions',contract)
+            self.assertIsNone(feed.packet(state,5,'all').get('message'))
+            feed.states[7]=state
+            conn.ib.errorEvent.emit(41,10189,'No market data permissions',contract)
+            self.assertIsNotNone(feed.packet(state,5,'all').get('message'))
+        finally:
+            feed.stop();close_test_loop()
+
     def test_short_background_keeps_subscription_but_idle_eventually_releases(self):
         from unittest.mock import patch
         feed=StockChart();state={'con_id':7,'used':100};feed.states[7]=state

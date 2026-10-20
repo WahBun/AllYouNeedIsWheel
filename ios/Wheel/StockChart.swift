@@ -2003,7 +2003,7 @@ struct StockChartView: View {
                                 guard !Task.isCancelled, context == requestContext, result["con_id"] as? Int == conID else { return }
                                 packet = retainingHistory(result); received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
                                 RecentStockCharts.save(packet, key: requestCacheKey)
-                                notice = chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (result["status"] as? String == "live" ? "IB Last ticks · live push" : "Historical bars · waiting for IB Last ticks")
+                                notice = result["message"] as? String ?? (chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (result["status"] as? String == "live" ? "IB Last ticks · live push" : "Historical bars · waiting for IB Last ticks"))
                             }
                         } catch {
                             try Task.checkCancellation()
@@ -2030,7 +2030,7 @@ struct StockChartView: View {
                     snapshotLoaded = true
                     packet = retainingHistory(result); received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
                     RecentStockCharts.save(packet, key: requestCacheKey)
-                    notice = chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (interval >= 1440 || (interval == 480 && session == "rth")) ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks"
+                    notice = result["message"] as? String ?? (chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (interval >= 1440 || (interval == 480 && session == "rth")) ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks")
                 } catch {
                     guard !Task.isCancelled else { return }
                     failures = min(failures + 1, 5)

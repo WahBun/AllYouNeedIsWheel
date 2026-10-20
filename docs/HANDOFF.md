@@ -1,3 +1,26 @@
+## 2026-10-21 — Surface tick-subscription entitlement failures
+
+REA observed IB Paper reject SPY Last/BidAsk tick subscriptions with error 10189
+while historical bars remained available and the chart reported only waiting.
+Runtime evidence: `ev_7cad62d3ec75bc0b0d7de35410d282d93cf8e4c8edb1755623076946c947fb68`.
+The chart now attaches a display-only entitlement notice to packets. It matches
+exact subscription request IDs, contract and current client/state; unrelated or
+retired errors cannot taint another chart. Actual fresh Last and BidAsk updates
+clear their respective notices. Listener cleanup accompanies subscription cleanup.
+The iPhone displays the supplied message for both snapshot and push packets;
+the web uses its existing Detail > Chart status location.
+
+Validation: the two new regressions failed before the fix; all 208 core offline
+checks and 16 related iOS simulator checks passed. Browser acceptance covers
+390/1440 widths and light/dark themes, retained history, notice recovery, locked
+trading and zero POSTs/page errors. Executable quote freshness, aggregation,
+order behavior and layouts are unchanged. These checks do not grant subscriptions
+or establish that SPY has live data entitlement.
+
+Deploy & Restart Backend is required, then refresh the web page. Run the updated
+iPhone app to apply the native notice and preceding account-isolation change.
+Paper runtime deployment/acceptance is recorded separately after verification.
+
 ## 2026-10-21 — Paper-session review and iPhone account-cache isolation
 
 Read-only runtime checks verified IB Paper and a clean Mini checkout at
