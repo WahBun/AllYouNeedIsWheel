@@ -2,11 +2,11 @@
 import unittest
 from uuid import uuid4
 from unittest.mock import patch
-from test_existing_position_protection import ExistingPositionProtectionTests as Fixture
+import test_existing_position_protection as fixtures
 
 class PricedChartCloseTests(unittest.TestCase):
     def setUp(self):
-        self.f=Fixture();self.f.setUp();self.addCleanup(self.f.tearDown)
+        self.f=fixtures.ExistingPositionProtectionTests();self.f.setUp();self.addCleanup(self.f.tearDown)
     def close(self, live=False, **changes):
         f=self.f
         account='U_TEST' if live else 'DU_TEST'

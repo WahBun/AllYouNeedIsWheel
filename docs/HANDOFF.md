@@ -1,3 +1,27 @@
+## 2026-10-21 — Keep post-action read failures uncertain
+
+Controlled REA replay sent a complete mock bracket, then disconnected immediately
+before the final state read. `execute` incorrectly persisted `rejected` with
+"Gateway disconnected", allowing reconciliation to treat that rejection as
+confirmed despite broker writes. Evidence:
+`ev_481c13cc2daf3171e8a8627353b65ded03e057efcaf50c30ae330cc338254f16`.
+
+The request now remains `unknown` when a ValueError occurs after the action
+returns. Pre-action validation still rejects invalid input. Existing journal and
+broker-read reconciliation remain responsible for the outcome, with no replay.
+Regression covers submit, stop amendment and protection cancellation, repeated
+request IDs, reconstruction of the service, and a second read after reconciliation.
+
+Validation: 513 repository checks plus the original two-case reproduction passed
+(515 total), spanning Paper stock/option/future workflows, scaling, protection,
+close management, multigroup attribution and process-crash boundaries.
+Expanded discovery also exposed two test modules importing a TestCase fixture
+directly; unittest was rerunning inherited flat-stock tests with an existing
+short-option setup. Importing the fixture module preserves their intended tests
+and stops the invalid duplicate discovery. No failing case was skipped.
+This change requires Deploy & Restart Backend; it does not require an iPhone
+rebuild by itself. Runtime disconnect/restart acceptance remains unverified.
+
 ## 2026-10-21 — Require unambiguous native execution evidence after reconnect
 
 Controlled REA replay reproduced canceled chart-group retirement accepting

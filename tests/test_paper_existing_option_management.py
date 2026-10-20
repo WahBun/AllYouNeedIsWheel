@@ -1,12 +1,12 @@
 """Paper holdings use the same explicit adoption checks as Live holdings."""
 import unittest
 from uuid import uuid4
-from test_existing_position_protection import ExistingPositionProtectionTests
+import test_existing_position_protection as fixtures
 
 
 class PaperExistingOptionManagementTests(unittest.TestCase):
     def setUp(self):
-        self.f=ExistingPositionProtectionTests();self.f.setUp();self.addCleanup(self.f.tearDown)
+        self.f=fixtures.ExistingPositionProtectionTests();self.f.setUp();self.addCleanup(self.f.tearDown)
         f=self.f;f.contract.right='P';f.contract.strike=100;f.contract.tradingClass=f.contract.symbol
         f.conn.fresh_csp_cash.return_value=50000
 

@@ -70,3 +70,47 @@ class ChartRequestCrashTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'identifier already used'):
             self.service.execute(self.conn, 7, body)
         self.conn.ib.placeOrder.assert_not_called()
+
+    def test_disconnect_after_action_waits_for_reconciliation_without_replay(self):
+        for action in ('submit','amend','cancel_protection'):
+            with self.subTest(action=action):
+                f=fixtures.PaperChartTests();f.setUp()
+                try:
+                    if action=='submit':
+                        body=self.body()
+                    else:
+                        f.filled_position(2)
+                        body=dict(request_id=str(uuid4()),action=action,role='sl',
+                                  expected_ref=f.service.group('DU_TEST',7)['ref'])
+                        if action=='amend':body['price']=9.25
+                        else:body['confirm_remove_protection']=True
+                    perform=f.service.perform
+                    def disconnect(*args):
+                        result=perform(*args)
+                        f.conn.is_connected.return_value=False
+                        return result
+                    with patch.object(f.service,'perform',side_effect=disconnect):
+                        result=f.service.execute(f.conn,7,body)
+                    self.assertEqual(result['status'],'unknown',result)
+                    writes=f.conn.ib.placeOrder.call_count
+                    cancels=f.conn.ib.cancelOrder.call_count
+                    self.assertEqual(writes,3 if action!='amend' else 4)
+                    self.assertEqual(cancels,1 if action=='cancel_protection' else 0)
+                    restarted=PaperChart(f.service.path)
+                    f.conn.is_connected.return_value=True
+                    self.assertEqual(restarted.execute(f.conn,7,body)['status'],'unknown')
+                    self.assertTrue(restarted.request_status(f.conn,7,body['request_id'])['confirmed'])
+                    self.assertTrue(PaperChart(f.service.path).request_status(f.conn,7,body['request_id'])['confirmed'])
+                    self.assertEqual(f.conn.ib.placeOrder.call_count,writes)
+                    self.assertEqual(f.conn.ib.cancelOrder.call_count,cancels)
+                finally:
+                    f.tearDown()
+
+    def test_validation_before_action_remains_a_confirmed_rejection(self):
+        body=dict(self.body(),quantity=0)
+        result=self.service.execute(self.conn,7,body)
+        self.assertEqual(result['status'],'rejected')
+        self.assertEqual(self.service.request_status(self.conn,7,body['request_id']),
+                         dict(confirmed=True,status='rejected'))
+        self.conn.ib.placeOrder.assert_not_called()
+        self.conn.ib.cancelOrder.assert_not_called()

@@ -1203,6 +1203,7 @@ class PaperChart:
                 if old[:2]!=(account,encoded): raise ValueError('Request identifier already used')
                 return json.loads(old[2]) if old[2] else dict(success=False,status='unknown',message='Previous request needs broker reconciliation; not replayed')
             db.execute('INSERT INTO chart_paper_requests VALUES(?,?,?,NULL)',(request_id,account,encoded))
+        action_returned = False
         try:
             if not account.startswith('DU'):
                 from api.services.live_options import validate
@@ -1210,6 +1211,7 @@ class PaperChart:
             previous_rejections = {t.order.orderId for t in conn.ib.trades()
                 if t.order.account == account and t.contract.conId == cid and t.orderStatus.status == "Inactive"}
             operation_result = self.perform(conn,account,cid,body,request_id)
+            action_returned = True
             confirmed_price_edit = body.get('action') in ('amend', 'be', 'amend_add') or (body.get('action') == 'edit_entry'
                 and 'price' in body and not any(k in body for k in ('quantity', 'tif', 'cancel')))
             if body.get('cancel') is not True and not confirmed_price_edit: conn.ib.sleep(.2)
@@ -1255,7 +1257,10 @@ class PaperChart:
             if isinstance(operation_result, dict):
                 result.update(operation_result)
         except ValueError as error:
-            result=dict(success=False,status='rejected',message=str(error))
+            # Validation before perform returns may reject an action. A later
+            # read failure (including disconnect) cannot reject a sent order.
+            result=(dict(success=False,status='unknown',message='Broker outcome uncertain. Check Gateway; do not resubmit.')
+                    if action_returned else dict(success=False,status='rejected',message=str(error)))
         except Exception:
             result=dict(success=False,status='unknown',message='Broker outcome uncertain. Check Gateway; do not resubmit.')
         group = self.group(account, cid)
