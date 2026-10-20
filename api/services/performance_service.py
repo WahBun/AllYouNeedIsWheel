@@ -204,6 +204,7 @@ class PerformanceService:
         self.retry_at = 0
         self.context = None
         self.latest = None
+        self.ib_closes = {}
 
     def read(self, config, period, include_unmatched=False, force=False):
         if period not in ('MTD', 'YTD', 'ALL'):
@@ -217,7 +218,17 @@ class PerformanceService:
                     return {'status': 'loading'}, 202
                 self.context, self.points, self.updated, self.error, self.retry_at = context, None, None, None, 0
                 self.latest = None
+                self.ib_closes = {}
                 self.restore(config)
+            from api.services.performance_benchmarks import latest
+            for series, values in latest(config.get('history_path')).items():
+                self.ib_closes.setdefault(series, {}).update(values)
+            if self.points:
+                for point in self.points:
+                    for field, series in (('spx', 'SP500'), ('nq100', 'NASDAQ100')):
+                        value = self.ib_closes.get(series, {}).get(point['date'])
+                        if value is not None:
+                            point[field] = value
             now = time.time()
             benchmark_lag = bool(self.points and any(self.points[-1][k] is None for k in ('spx', 'nq100')))
             # Retry delayed public observations without holding a stale six-hour
@@ -238,11 +249,17 @@ class PerformanceService:
             except PerformanceError as error:
                 return {'error': str(error)}, 422
             warning = self.error
+            if warning and warning.startswith('Benchmark') and all(
+                    p[k] is not None for p in self.points for k in ('spx', 'nq100')):
+                warning = None
             if include_unmatched and any(payload['points'][-1][k] is None for k in ('spx', 'nq100')):
                 warning = warning or 'Benchmark history is delayed or unavailable; portfolio history includes the latest report.'
             payload.update(status='ready', refreshing=self.pending, stale=stale, warning=warning,
                            fetched_at=datetime.fromtimestamp(self.updated, timezone.utc).isoformat(),
-                           source='IBKR daily TWR / FRED SP500, NASDAQ100 (price indices)', latest=self.latest)
+                           source='IBKR daily TWR / IBKR SPX, NDX daily closes; FRED retained history fallback (price indices)',
+                           benchmark_sources={field: ('IBKR' if payload['end'] in self.ib_closes.get(series, {})
+                               else 'FRED' if payload['points'][-1][field] is not None else None)
+                               for field, series in (('spx', 'SP500'), ('nq100', 'NASDAQ100'))}, latest=self.latest)
             return payload, 200
 
     def restore(self, config):
@@ -262,6 +279,10 @@ class PerformanceService:
                     ndx = dict(db.execute("SELECT day,close FROM benchmark_close WHERE series='NASDAQ100'"))
                 except sqlite3.Error:
                     spx, ndx = {}, {}
+                from api.services.performance_benchmarks import archived
+                self.ib_closes = archived(db)
+                spx.update(self.ib_closes.get('SP500', {}))
+                ndx.update(self.ib_closes.get('NASDAQ100', {}))
             self.points = curves(daily, spx, ndx)
             self.latest = daily[-1]
             # Archive age is unknown: never claim this is freshly downloaded.
@@ -299,6 +320,11 @@ class PerformanceService:
                 daily = [dict(zip(('date','twr','nav'), row)) for row in db.execute('SELECT day,twr,nav FROM daily_performance WHERE account=? ORDER BY day', (config['account_id'],))]
             os.chmod(history_path, 0o600)
             def benchmark(series):
+                from api.services.performance_benchmarks import archived
+                with sqlite3.connect(history_path) as db:
+                    broker = archived(db).get(series, {})
+                if all(p['date'] in broker for p in daily):
+                    return broker
                 query = urllib.parse.urlencode({'id': series, 'cosd': daily[0]['date'], 'coed': daily[-1]['date']})
                 url = 'https://fred.stlouisfed.org/graph/fredgraph.csv?' + query
                 try:
@@ -330,8 +356,16 @@ class PerformanceService:
                     return saved, 'Benchmark history unavailable; showing retained observations.'
             with ThreadPoolExecutor(max_workers=2) as pool:
                 (spx, spx_error), (ndx, ndx_error) = list(pool.map(available_benchmark, ['SP500', 'NASDAQ100']))
+            from api.services.performance_benchmarks import archived
+            with sqlite3.connect(history_path) as db:
+                ib_closes = archived(db)
+            spx.update(ib_closes.get('SP500', {}))
+            ndx.update(ib_closes.get('NASDAQ100', {}))
+            if all(p['date'] in spx and p['date'] in ndx for p in daily):
+                spx_error = ndx_error = None
             points = curves(daily, spx, ndx)
             with self.lock:
+                self.ib_closes = ib_closes
                 self.points, self.updated, self.error = points, time.time(), spx_error or ndx_error
                 self.retry_at = 0
                 self.latest = daily[-1]

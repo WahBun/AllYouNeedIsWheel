@@ -131,13 +131,13 @@ SGOV、VTI、QQQ、SPY、VOO 有专属字体、流光和 Allocation 扇区铺色
 
 ## 数据边界
 
-界面名称使用 **NDX**（Nasdaq-100），不是旧文档中的 NQ100。JSON 接口仍使用 `nq100` 字段、FRED 仍使用 `NASDAQ100` series ID；这些内部标识是兼容接口，不是待替换的 UI 名称。
+界面名称使用 **NDX**（Nasdaq-100），不是旧文档中的 NQ100。JSON 接口仍使用 `nq100` 字段；后端优先采用 IBKR SPX／NDX 已收盘日线，原 FRED 历史保留作缺数回退，不混入纳斯达克综合指数。
 
 - 持仓 `entry_fill_price` 来自后端可靠匹配的 `avg_fill_price`；无法确认时显示空值。它与 Trade 的当前 mid、委托限价及持仓成本不同。
 - CC 数量扣除已有空头 CALL 和活动卖单占用；暂存不会提交 IB。
 - 平仓需要精确合约、数量与账户校验。移仓暂存两个独立订单，不具备组合单的原子性。
 - 保证金详情由手动触发的 IB what-if 返回，模拟关闭整笔精确持仓；结果不是可相加的保证金分摊。
-- 收益历史按 Flex 每日 TWR 复利计算；SPX／NDX 使用 FRED 价格指数。盘中 P&L 与延长曲线只是估算，见[收益数据说明](../docs/PERFORMANCE.md)。
+- 收益历史按 Flex 每日 TWR 复利计算；SPX／NDX 优先使用 IBKR 日线收盘价。盘中 P&L 与延长曲线只是估算，见[收益数据说明](../docs/PERFORMANCE.md)。
 - 已知提示在显示时按 App 语言翻译；错误码、诊断后缀和未知券商返回保留，避免丢失排错依据。
 
 ## 刷新与交互
