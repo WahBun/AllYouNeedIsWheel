@@ -12,3 +12,9 @@ stream.ensure(context);send(sources.at(-1),{...packet,con_id:8});assert.ok(sourc
 console.log('Stream watchdog, retry delay, stale callbacks, account isolation and snapshot recovery passed');
 
 stream.stop();stream.ensure(context);const cold=sources.at(-1);now+=10000;stream.ensure(context);assert.equal(cold.closed,undefined,'cold history read survives beyond the old 8s watchdog');send(cold);assert.ok(stream.healthy());now+=8001;stream.ensure(context);assert.ok(cold.closed,'established streams still recover promptly');
+
+stream.stop();stream.ensure(context);const supported=sources.at(-1),opened=sources.length;
+stream.ensure({...context,interval:480,session:'rth'});assert.ok(supported.closed);
+for(const interval of [480,1440,10080,43200])stream.ensure({...context,interval,session:'rth'});
+assert.equal(sources.length,opened,'unsupported auxiliaries cannot enter the shared transport');
+stream.ensure({...context,interval:480,session:'all'});assert.equal(sources.length,opened+1,'8h ETH remains streamable');

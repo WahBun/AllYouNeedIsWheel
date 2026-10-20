@@ -212,8 +212,11 @@ class StockChart:
         retry_key = 'rth_eight_expand_retry' if expanding else 'rth_eight_retry'
         if time.monotonic() < state.get(retry_key, 0):
             return
-        bulk = expanding and not state.get('rth_eight_bulk_failed')
-        before = state.get('rth_eight_before') if expanding and not bulk else None
+        # Give the visible chart recent sessions before asking HMDS for six
+        # months. A cold bulk read can otherwise leave only today's candle.
+        recent = expanding and not state.get('rth_eight_recent_attempted')
+        bulk = expanding and not recent and not state.get('rth_eight_bulk_failed')
+        before = state.get('rth_eight_before') if expanding and not bulk and not recent else None
         state[retry_key] = time.monotonic() + 30
         contract, conn = state['contract'], state['conn']
 
@@ -264,6 +267,9 @@ class StockChart:
                     state['rth_eight_bulk_failed'] = True
                     state[retry_key] = time.monotonic() + 2
             finally:
+                if recent and self.states.get(state['con_id']) is state and state['client'] is conn.ib.client:
+                    state['rth_eight_recent_attempted'] = True
+                    state[retry_key] = time.monotonic() + 2
                 state.pop('rth_eight_task', None)
         state['rth_eight_task'] = asyncio.get_event_loop().create_task(load())
 

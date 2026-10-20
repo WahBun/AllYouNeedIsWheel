@@ -445,7 +445,7 @@ async function refreshLegacyMarket(context){
  catch(error){if(currentMarket(context)&&!marketStream.healthy()&&Date.now()-packetReceived>2000){marketReadError=request.signal.aborted?'History request timed out · retrying automatically':error.message;$('market-status').textContent=marketReadError;}}
  finally{clearTimeout(timeout);if(legacyMarket===request)legacyMarket=null;}
 }
-const streamSupported=()=>[1,3,5,10,15,60,480].includes(interval)&&!(interval===480&&session==='rth');
+const streamSupported=()=>WheelChartStream.supports({interval,session});
 async function refreshMarket({full=false}={}){
  if(marketBusy||!ready||!cid||!epoch)return;
  const request=marketBusy=new AbortController();lastFallback=Date.now();const context=marketContext(),revision=marketRevision;
