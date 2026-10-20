@@ -6,6 +6,53 @@ import SwiftUI
 final class ChartInstrumentTests: XCTestCase {
     private let exact: [String: Any] = ["con_id": 899193475, "symbol": "TSLL", "local_symbol": "TSLL 20261120 11 CALL",
         "security_type": "OPT", "exchange": "SMART", "expiration": "20261120", "right": "C", "strike": 11.0]
+    func testTradeDetailChartUsesSelectedCallAndPutContract() throws {
+        for type in ["CALL", "PUT"] {
+            var row = OpportunityRow(ticker: "TSLL", type: type)
+            row.quote = ContractQuote(strike: 10, expiration: "20261120")
+            var preference = OpportunityPreference()
+            preference.expiration = "20261120"; preference.strike = 11
+            let selected = try XCTUnwrap(OpportunityChartContract(row: row, preference: preference))
+            let right = type == "CALL" ? "C" : "P"
+            XCTAssertEqual(Dictionary(uniqueKeysWithValues: selected.query.map { ($0.name, $0.value ?? "") }),
+                           ["type": "OPT", "q": "TSLL", "expiration": "20261120", "right": right, "strike": "11.0"])
+            var contract = exact; contract["right"] = right
+            let position = try selected.resolve(["contracts": [contract]])
+            XCTAssertEqual(position.con_id, 899193475)
+            XCTAssertEqual(position.symbol, "TSLL")
+            XCTAssertEqual(position.security_type, "OPT")
+            XCTAssertEqual(position.strike, 11)
+            XCTAssertEqual(position.expiration, "20261120")
+            XCTAssertEqual(position.option_type, right)
+            XCTAssertEqual(position.position, 0)
+        }
+    }
+    func testTradeDetailChartRejectsWrongOrAmbiguousContracts() throws {
+        var row = OpportunityRow(ticker: "TSLL", type: "CALL")
+        row.quote = ContractQuote(strike: 11, expiration: "20261120")
+        var preference = OpportunityPreference(); preference.expiration = "20261120"
+        let selected = try XCTUnwrap(OpportunityChartContract(row: row, preference: preference))
+        for (key, value) in [("symbol", "TQQQ"), ("expiration", "20261218"), ("right", "P"), ("security_type", "STK")] {
+            var wrong = exact; wrong[key] = value
+            XCTAssertThrowsError(try selected.resolve(["contracts": [wrong]]))
+        }
+        var wrongStrike = exact; wrongStrike["strike"] = 12.0
+        var invalidID = exact; invalidID["con_id"] = 0
+        for contracts in [[], [exact, exact], [wrongStrike], [invalidID]] {
+            XCTAssertThrowsError(try selected.resolve(["contracts": contracts]))
+        }
+    }
+    func testTradeDetailChartWaitsForSelectionAndRejectsOldExpiration() {
+        var row = OpportunityRow(ticker: "TSLL", type: "PUT")
+        var preference = OpportunityPreference(); preference.expiration = "20261120"
+        XCTAssertNil(OpportunityChartContract(row: row, preference: preference))
+        row.quote = ContractQuote(strike: 11, expiration: "20261120")
+        XCTAssertNotNil(OpportunityChartContract(row: row, preference: preference))
+        preference.expiration = "20261218"
+        XCTAssertNil(OpportunityChartContract(row: row, preference: preference))
+        preference.expiration = "20261120"; preference.strike = .nan
+        XCTAssertNil(OpportunityChartContract(row: row, preference: preference))
+    }
     private func read(_ path: String, _ items: [URLQueryItem]) async throws -> [String: Any] {
         let query = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
         if query["type"] == "OPT_DATES" { return ["expirations": ["20261120", "20261218"]] }
