@@ -45,6 +45,8 @@ reports/
 
 # SQLite databases
 *.db
+# Automatic pre-migration database backups
+*.before-group-ledger.sqlite
 options.db
 trades.db 
 
