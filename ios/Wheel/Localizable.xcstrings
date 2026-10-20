@@ -7711,12 +7711,12 @@
         }
       }
     },
-    "History: compounded daily IBKR TWR. SPX and NDX: FRED daily price indices, excluding reinvested dividends. Intraday estimate uses daily P&L / last reported NAV; deposits, withdrawals and IB reset times may affect comparability. Final returns follow the next Flex report." : {
+    "History: compounded daily IBKR TWR. SPX and NDX: IBKR daily closes with retained FRED history as fallback, excluding reinvested dividends. Intraday estimate uses daily P&L / last reported NAV; deposits, withdrawals and IB reset times may affect comparability. Final returns follow the next Flex report." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "历史收益按 IBKR 每日时间加权收益率复利计算。SPX 和 NDX 使用 FRED 每日价格指数，不包含股息再投资。盘中估算为当日盈亏除以上次报告的资产净值；出入金及 IB 数据重置时间可能影响可比性。最终收益以下一份 Flex 报告为准。"
+            "value" : "历史收益按 IBKR 每日时间加权收益率复利计算。SPX 和 NDX 优先使用 IBKR 每日收盘价，缺失时使用保留的 FRED 历史数据，不包含股息再投资。盘中收益率按当日盈亏除以上次报告的资产净值估算；出入金及 IB 数据重置时间可能影响可比性。最终收益以下一份 Flex 报告为准。"
           }
         }
       }
