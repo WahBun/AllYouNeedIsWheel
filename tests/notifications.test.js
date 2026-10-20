@@ -16,17 +16,18 @@ function harness() {
             get childElementCount() { return this.children.length; },
         };
     }
-    const grid = element(), requests = [], window = {};
+    const grid = element(), requests = [], heard = [], window = {wheelAlertSounds: {play: sound => heard.push(sound), cancel() {}}};
+    const document = { hidden: false, head: element(), getElementById: () => grid,
+        createElement: element, addEventListener() {} };
     let poll;
     vm.runInNewContext(source, {
-        window, document: { hidden: false, head: element(), getElementById: () => grid,
-            createElement: element, addEventListener() {} },
+        window, document,
         AbortSignal, setInterval: callback => { poll = callback; }, setTimeout() {}, clearTimeout() {},
         fetch: (url, options) => new Promise(resolve => requests.push({ url, options,
             reply: (data, status = 200) => resolve({ ok: status === 200, json: async () => data }) })),
     });
     return { set: window.WheelNotifications.setContext, poll: () => poll(), requests,
-        cards: () => grid.children[0].children };
+        cards: () => grid.children[0].children, heard, document };
 }
 
 test('notification reads carry their originating epoch and reset the cursor on reconnect', async () => {
@@ -42,6 +43,25 @@ test('notification reads carry their originating epoch and reset the cursor on r
     await settle();
     h.poll();
     assert.equal(h.requests[2].url, '/api/notifications/events?after=20');
+});
+
+test('fresh price events sound once in background; history, old catch-up and order events stay silent', async () => {
+    const h = harness();
+    const event = (id, kind = 'price', created = 99) => ({ id, kind, created, sound: 'hand-bell', title: id, body: 'Test' });
+    h.set({ verified: true, account_identity: 'paper', epoch: 'first' });
+    h.requests[0].reply({ scope: 'paper', cursor: 1, server_time: 100, events: [event('initial')] });
+    await settle();
+    assert.deepEqual(h.heard, []);
+    h.document.hidden = true;
+    h.poll();
+    h.requests[1].reply({ scope: 'paper', cursor: 2, server_time: 100, events: [event('fresh')] });
+    await settle();
+    assert.deepEqual(h.heard, ['hand-bell']);
+    h.poll();
+    h.requests[2].reply({ scope: 'paper', cursor: 5, server_time: 100,
+        events: [event('fresh'), event('old', 'price', 20), event('fill', 'fill')] });
+    await settle();
+    assert.deepEqual(h.heard, ['hand-bell']);
 });
 
 test('late notification responses cannot survive a reconnect or an account round trip', async () => {

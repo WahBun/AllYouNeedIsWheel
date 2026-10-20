@@ -131,6 +131,37 @@ class NotificationsTests(unittest.TestCase):
             with self.assertRaises(ValueError):self.store.create_alert(self.scope,7,'TEST',dict(id=str(uuid.uuid4()),price=price))
         with self.assertRaises(ValueError):self.store.create_alert(self.other,7,'TEST',dict(id=a['id'],price=100))
 
+    def test_sound_persists_per_alert_and_is_snapshotted_on_event(self):
+        first = self.alert(sound='hand-bell')
+        second = self.alert(sound='none')
+        self.assertEqual(NotificationStore(self.path).alerts(self.scope)[0]['sound'], 'none')
+        changed = self.store.amend_alert(self.scope, first['id'],
+                                        dict(cid=7, version=1, price=100, sound='chirpy'))
+        self.assertEqual((changed['sound'], changed['version']), ('chirpy', 2))
+        self.assertEqual(self.store.amend_alert(self.scope, first['id'],
+                         dict(cid=7, version=1, price=100, sound='chirpy')), changed)
+        self.assertFalse(self.store.fire(first, 101, 'IB Paper'))
+        self.assertTrue(self.store.fire(changed, 101, 'IB Paper'))
+        self.assertTrue(self.store.fire(second, 101, 'IB Paper'))
+        self.assertEqual([e['sound'] for e in self.events()], ['chirpy', 'none'])
+        self.assertFalse(self.store.fire(changed, 101, 'IB Paper'))
+        self.assertEqual(self.store.events(self.other, 0)['events'], [])
+        self.assertEqual(self.store.events(self.scope)['events'], [], 'Initial history stays silent')
+
+    def test_sound_validation_drag_preservation_and_legacy_default(self):
+        alert = self.alert(sound='three-notes')
+        for invalid in ['missing', '../filled', None, [], True]:
+            with self.assertRaises(ValueError): self.alert(sound=invalid)
+            with self.assertRaises(ValueError):
+                self.store.amend_alert(self.scope, alert['id'], dict(cid=7, version=1, price=100, sound=invalid))
+        with self.assertRaises(AlertConflict):
+            self.store.amend_alert(self.other, alert['id'], dict(cid=7, version=1, price=100, sound='none'))
+        changed = self.store.amend_alert(self.scope, alert['id'], dict(cid=7, version=1, price=105))
+        self.assertEqual(changed['sound'], 'three-notes', 'Dragging preserves the chosen sound')
+        with self.store.connect() as db:
+            db.execute('DELETE FROM alert_sounds WHERE id=?', (alert['id'],))
+        self.assertEqual(NotificationStore(self.path).alerts(self.scope)[0]['sound'], 'alarm-clock')
+
     def test_price_amend_is_scoped_versioned_and_replay_safe(self):
         alert = self.alert()
         body = dict(price=105, version=1, cid=7)
