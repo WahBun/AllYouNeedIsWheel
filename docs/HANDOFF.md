@@ -1,3 +1,47 @@
+## 2026-10-21 — Require unambiguous native execution evidence after reconnect
+
+Controlled REA replay reproduced canceled chart-group retirement accepting
+conflicting duplicate executions and correction families as native ownership
+evidence. Seven adversarial cases returned true; the current attribution layer
+still blocked legacy-balance execution, but the old chart group could be
+incorrectly archived. Evidence:
+`ev_231af56706e00785786aab66a4fb7bd570b9c29e8cae55c909b109acf0fa2cbd`.
+
+The reconnect fallback now reuses `core.execution_evidence.groups`, counts exact
+replays once, and rejects ambiguous families, conflicting duplicates and invalid
+quantities. Exact account/contract/client/order/permanent-ID checks remain in
+place. A verified completed Trade still uses its existing authoritative path.
+The Paper-only retirement behavior retains its old group on uncertain evidence;
+this does not unlock trading, resolve a request or alter Daily P&L.
+
+Validation: 226 related offline checks passed, including both arrival orders of
+conflicting data, identical replay, native chart groups, broker adapters, Paper
+orders, multigroup attribution and recovered/working close management.
+Deploy & Restart Backend is required to apply this backend change.
+
+## 2026-10-21 — Bounded broker Paper acceptance during market hours
+
+The user authorized current-session Paper tests and prohibited switching to Live.
+Runtime verification remained on IB Paper at deployed SHA
+`81abc4c73c9e03e101083e5e935d9c828bd13dfd`.
+Using a previously flat stock contract, a one-share nonmarketable DAY limit was
+acknowledged, changed to two shares with a new price and GTC, then canceled.
+A separate two-share protected entry filled; a stop amendment was acknowledged,
+a one-share trim filled, remaining TP/SL each covered one share, and the final
+one-share limit close filled. The final broker state was known/flat, with no
+active test order and no test rows in pending Orders. Initial unknown responses
+were reconciled through reads; no write was replayed. Existing holdings/orders
+were not targeted. Evidence:
+`ev_5ce5a70376d043187edc2258d1fe8d5a0d7821430c03df9bf37edfd7a9227417`.
+
+This is real Paper broker evidence for those operations, separate from mocks.
+It does not certify partial fills, natural TP/SL triggers, actual restart recovery,
+Live trading or physical iPhone behavior.
+Automatic approval review blocked deployment and Backend restart despite the
+broader Paper authorization; an explicit confirmation was requested. No deployment,
+Backend/Gateway restart or physical Run occurred. Mini stayed clean at the SHA
+above with no pending deployment record. Newly merged fixes remain undeployed.
+
 ## 2026-10-21 — Surface tick-subscription entitlement failures
 
 REA observed IB Paper reject SPY Last/BidAsk tick subscriptions with error 10189

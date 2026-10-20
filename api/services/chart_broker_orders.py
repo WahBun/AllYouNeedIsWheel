@@ -149,7 +149,7 @@ def can_retire_empty_group(path, conn, account, cid, group, position):
                 return False
             locals_by_perm = {str(r['perm_id']): dict(r) for r in db.execute(
                 'SELECT * FROM orders WHERE account_id=? AND (con_id=? OR con_id IS NULL) AND perm_id IS NOT NULL', (account,cid))}
-        executions = {}
+        executions = []
         for fill in conn.ib.fills():
             e = fill.execution
             local = locals_by_perm.get(str(e.permId))
@@ -162,8 +162,21 @@ def can_retire_empty_group(path, conn, account, cid, group, position):
             if (exact_contract and e.acctNumber == account and fill.contract.conId == cid and e.clientId == conn.client_id
                     and str(e.orderId) == str(local.get('ib_order_id')) and e.execId
                     and e.side == ('BOT' if local['action'] == 'BUY' else 'SLD')):
-                executions[e.execId] = float(e.shares) * (1 if e.side == 'BOT' else -1)
-        native_position = sum(executions.values())
+                try:
+                    quantity = float(e.shares)
+                except (ValueError, TypeError):
+                    return False
+                if not math.isfinite(quantity) or quantity <= 0:
+                    return False
+                executions.append(e)
+        # Replayed executions count once; conflicting duplicates and correction
+        # families cannot establish ownership after completed trades disappear.
+        from core.execution_evidence import groups
+        grouped, complete = groups(executions)
+        if not complete:
+            return False
+        native_position = sum(float(rows[0].shares) * (1 if rows[0].side == 'BOT' else -1)
+                              for rows in grouped)
     if not math.isfinite(native_position) or abs(native_position - position) > 1e-8:
         return False
     import json
