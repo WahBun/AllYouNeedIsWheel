@@ -360,6 +360,10 @@ class PaperChart:
             if trade and (trade.order.orderRef != group.get('ref') or
                           perm and (trade.order.permId or trade.orderStatus.permId) != perm):
                 trades.pop(oid)
+        # Reuse confirmed group evidence before asking for optional IB history.
+        # Current callbacks still take precedence, including Unknown/Inactive.
+        terminal = {role: row for role, row in group.get('terminal', {}).items()
+                    if row.get('status') in ('Filled', 'Cancelled', 'ApiCancelled')}
         # Completed IB orders can lose their temporary orderId after reconnect.
         # Recover only by exact recorded permId or a unique bracket reference/role.
         missing = [role for role, oid in group['ids'].items() if oid not in trades]
@@ -374,6 +378,12 @@ class PaperChart:
                 if len(refs) == 1: ref = next(iter(refs))
             for role in missing:
                 perm = group.get('perms', {}).get(role)
+                protected_lots = any('tp' in lot or 'sl' in lot
+                                     for lot in group.get('lots', []) + group.get('stock_brackets', []))
+                if (not protected_lots
+                        and perm and role in terminal and terminal[role].get('role') == role
+                        and terminal[role].get('order_id') == group['ids'][role]):
+                    continue
                 candidates = []
                 if perm or ref:
                     for t in completed_trades(conn, account):
@@ -408,10 +418,6 @@ class PaperChart:
                 fills += [f for f in conn.ib.fills() if f.execution.acctNumber == account
                           and f.contract.conId == cid and f.execution.permId == perm]
             return list({f.execution.execId:f for f in fills}.values())
-        # Old journals may have persisted Inactive as terminal. It is neither
-        # cancellation nor rejection evidence and must not survive a cache miss.
-        terminal = {role: row for role, row in group.get('terminal', {}).items()
-                    if row.get('status') in ('Filled', 'Cancelled', 'ApiCancelled')}
         if missing:
             # A locally held, subsequently canceled order has no broker permId
             # and disappears on reconnect. Recover only its confirmed journal state.
