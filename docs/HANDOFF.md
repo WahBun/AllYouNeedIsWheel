@@ -1,3 +1,41 @@
+## 2026-10-21 — Deployment acceptance exposed a Close restart-recovery gap
+
+PR #26 merged at `71b3922f005585c0ecbc02537adec6fdeb35e2aa`, and the user
+deployed that revision. A fresh Paper epoch was verified before the read-only
+acceptance check. Actual test exposure remained zero, no test order was pending,
+and the original two position quantities were unchanged. However, the chart
+still attributed one share and reported an unassigned exit execution.
+REA runtime evidence:
+`ev_af6825d480ffea492916fcc3e0483e808c1be0d4bbf9fe2df51f6ba9b2201e90`.
+
+The previous isolated replay used complete pre-restart Trade identities.
+After restart, own terminal orders disappear from `ib.trades()` and completed
+order records have zero API order/client IDs; filled orders can also report
+zero remaining totalQuantity. The recovery path did not use the exact terminal
+observations and executions already retained in the ledger.
+
+The supplement requires the original permanent-ID collision, unambiguous saved
+terminal orders, exact client/order/reference/side execution identities and
+complete quantities. Zeroed completed rows may corroborate these saved records;
+they never establish ownership. Conflicting current observations, terminal
+history, corrected executions, missing proof or durable conflicts keep recovery
+blocked. Existing cancellation-receipt and intent checks, atomic audit and
+mapping update remain in force. No broker order is sent or replayed.
+
+Validation: 129 related checks cover restart, multigroup attribution, close
+management, execution ambiguity and cancellation guards. A full `state()` replay
+using the actual post-deployment records, empty current Trade cache and zeroed
+completed records restored known/flat attribution and completed Close progress.
+It retained all original intents, produced one audit record and sent zero orders.
+REA replay: `ev_a151c4c7073143f29380ff46358182ff8522161eb6bcc25d217eab2815d1109f`.
+
+This supplement is not yet deployed. After merge, use **Deploy & Restart Backend**
+and refresh the web page, then repeat the actual Paper acceptance check before
+declaring recovery complete. This backend-only supplement needs no additional
+iPhone build or Gateway restart. The running database was not manually changed;
+Live was not selected or tested. Existing uncommitted iOS translations are outside
+this change and must be preserved.
+
 ## 2026-10-21 — Overnight Paper review delivery state
 
 Four fixes are merged into `Ben/wheel-1.8` through PRs #23–#25 at
