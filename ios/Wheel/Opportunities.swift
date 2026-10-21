@@ -554,7 +554,7 @@ struct OpportunitiesView: View {
                     Text("Trade").font(.largeTitle.bold()).foregroundStyle(Color(uiColor: .label))
                     Spacer(minLength: 12)
                     titleActions
-                }.textCase(nil).padding(.horizontal, -16).padding(.top, -24).padding(.bottom, -16)
+                }.textCase(nil).padding(.horizontal, -16).padding(.top, -24).padding(.bottom, 10)
                     .accessibilityIdentifier("tradeTitleRow")
             }
             Section {
