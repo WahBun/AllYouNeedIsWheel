@@ -882,7 +882,7 @@ struct PortfolioView: View {
                     Text("Portfolio").font(.largeTitle.bold()).foregroundStyle(Color(uiColor: .label))
                     Spacer(minLength: 12)
                     StatusView(compact: true)
-                }.textCase(nil).padding(.horizontal, -16).padding(.top, -24).padding(.bottom, -16)
+                }.textCase(nil).padding(.horizontal, -16).padding(.top, -24).padding(.bottom, 2)
                     .accessibilityIdentifier("portfolioTitleRow")
             }
             if let error = store.portfolioNotice { Section { Label { NoticeText(error) } icon: { Image(systemName: "wifi.exclamationmark") }.foregroundStyle(.orange) } }
