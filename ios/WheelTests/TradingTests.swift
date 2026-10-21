@@ -1959,3 +1959,73 @@ extension TradingTests {
         }
     }
 }
+
+
+private final class AccountSelectionRetryProtocol: URLProtocol {
+    static var responses: [Int] = []
+    static var requests: [URLRequest] = []
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.requests.append(request)
+        let code = Self.responses.isEmpty ? 500 : Self.responses.removeFirst()
+        let response = HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: nil)!
+        let body: [String: Any] = code == 200 ? ["selected": "live", "verified": true, "epoch": "new-epoch"] : ["status": "rejected", "code": "NOT_EXECUTED", "error": "Request expired before execution; no operation was started"]
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: body))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+extension TradingTests {
+    private func accountSelectionClient(_ responses: [Int]) -> TradingSession {
+        AccountSelectionRetryProtocol.responses = responses
+        AccountSelectionRetryProtocol.requests = []
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [AccountSelectionRetryProtocol.self]
+        return TradingSession(session: URLSession(configuration: config))
+    }
+    func testAccountSelectionRecoversInitial503WithoutReplayingWrite() async throws {
+        let client = accountSelectionClient([503, 200, 200]); client.accountEpoch = "old-epoch"
+        let result = try await client.selectAccount(base: "https://mock.invalid", mode: "live")
+        XCTAssertEqual(result["epoch"] as? String, "new-epoch")
+        XCTAssertEqual(AccountSelectionRetryProtocol.requests.map { $0.httpMethod }, ["GET", "GET", "POST"])
+        XCTAssertEqual(AccountSelectionRetryProtocol.requests.last?.value(forHTTPHeaderField: "X-Wheel-Account-Epoch"), "new-epoch")
+        XCTAssertFalse(client.busy)
+    }
+    func testAccountSelectionReadRetriesAreBounded() async {
+        let client = accountSelectionClient([503, 502, 504, 200]); client.accountEpoch = "old-epoch"
+        do { _ = try await client.selectAccount(base: "https://mock.invalid", mode: "live"); XCTFail("Must stop after three reads") }
+        catch { XCTAssertEqual((error as? BackendHTTPError)?.status, 504) }
+        XCTAssertEqual(AccountSelectionRetryProtocol.requests.map { $0.httpMethod }, ["GET", "GET", "GET"])
+        XCTAssertEqual(client.accountEpoch, "old-epoch"); XCTAssertFalse(client.busy)
+    }
+    func testAccountSelectionDoesNotRetryPermanentReadFailure() async {
+        for code in [400, 401, 403, 409, 500] {
+            let client = accountSelectionClient([code, 200])
+            do { _ = try await client.selectAccount(base: "https://mock.invalid", mode: "live"); XCTFail("Must reject") }
+            catch { XCTAssertEqual((error as? BackendHTTPError)?.status, code) }
+            XCTAssertEqual(AccountSelectionRetryProtocol.requests.count, 1)
+            XCTAssertFalse(client.busy)
+        }
+    }
+    func testAccountSelectionNeverRetriesPostAfter503() async {
+        let client = accountSelectionClient([200, 503, 200])
+        do { _ = try await client.selectAccount(base: "https://mock.invalid", mode: "live"); XCTFail("Selection POST failure must surface") }
+        catch { XCTAssertEqual((error as? BackendHTTPError)?.status, 503) }
+        XCTAssertEqual(AccountSelectionRetryProtocol.requests.map { $0.httpMethod }, ["GET", "POST"])
+        XCTAssertFalse(client.busy)
+    }
+    func testAccountSelectionCancellationDuringReadBackoffPreventsWrite() async throws {
+        let client = accountSelectionClient([503, 200, 200])
+        let task = Task { try await client.selectAccount(base: "https://mock.invalid", mode: "live") }
+        for _ in 0..<100 where AccountSelectionRetryProtocol.requests.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(client.busy)
+        do { _ = try await client.selectAccount(base: "https://mock.invalid", mode: "paper"); XCTFail("Concurrent switch must stay blocked") } catch {}
+        task.cancel()
+        do { _ = try await task.value; XCTFail("Must cancel") } catch {}
+        XCTAssertEqual(AccountSelectionRetryProtocol.requests.map { $0.httpMethod }, ["GET"])
+        XCTAssertFalse(client.busy)
+    }
+}

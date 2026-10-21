@@ -1,3 +1,31 @@
+## 2026-10-21 — Initial account-profile read during backend startup
+
+The user reported Settings showing `Request expired before execution` for
+`GET profiles`. Read-only Mini logs matched the screenshot request: the backend
+process began at 12:25:57; the shared account-profile read queued at 12:26:05,
+expired at 12:26:15 after 10 seconds, IB connected at 12:26:17, and the next
+profile read succeeded at 12:26:18. Current Live bootstrap was healthy with
+three positions. This is a startup queue-expiry case, not proof of a persistent
+Gateway disconnect or a regression caused by Mid-price presentation. A separate
+11:45 connection timeout was observed and its underlying cause is unresolved.
+REA runtime log evidence:
+`ev_fb248d822ef41121cfd402ac064d17d190a033825d009238806c499be5ae2c89`.
+
+The iOS Settings waiting loop already tolerates temporary HTTP failures after
+selection, but the initial read inside `selectAccount` previously exited on the
+first 503. Retry only this initial GET on HTTP 502/503/504, at most two additional
+attempts with a two-second delay. Keep the selection busy gate, honor cancellation,
+and never replay the selection POST or a trading write. Permanent errors still
+surface immediately; exhaustion retains the final diagnostic. Settings shows
+`Checking account connection…` while checking. Backend queue limits, serialized
+IB ownership, Gateway behavior and market-data delivery are unchanged.
+
+Focused simulator checks cover recovery with exactly one POST, bounded failure
+with no POST, permanent errors, non-retry of a failed POST, cancellation and the
+concurrent-selection guard. No real account selection, order or restart is used
+for testing. Requires the user's iPhone Run after merge; backend restart is not
+needed. Deploy only is optional for source synchronization. v1.8.0 is unchanged.
+
 ## 2026-10-21 — Portfolio option Mid price presentation (after v1.8.0)
 
 PR #15 replaces only the iOS Portfolio option valuation-price display with the
