@@ -53,6 +53,20 @@ def get_portfolio_bootstrap():
         result = portfolio_service.get_portfolio_bootstrap()
         if not result:
             return _no_store_json({'error': 'Portfolio is unavailable'}, 503)
+        if request.args.get('include_performance') == '1':
+            # Deliver already retained history with the verified bootstrap so
+            # opening Performance does not depend on a second phone request.
+            from api.services.performance_service import configuration, service
+            try:
+                config = configuration()
+                selected = portfolio_service.config.get('account_id')
+                if (selected and selected == config.get('account_id')
+                        and result.get('connection', {}).get('mode') in ('paper', 'live')):
+                    history, status = service.read(config, 'YTD', include_unmatched=True)
+                    if status == 200:
+                        result['performance_history'] = history
+            except Exception:
+                pass  # Optional history cannot fail an otherwise valid portfolio.
         return _no_store_json(result)
     except Exception as e:
         return _no_store_json({'error': str(e)}, 500)

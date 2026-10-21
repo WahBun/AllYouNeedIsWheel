@@ -21,7 +21,7 @@ from core.utils import is_market_hours, market_today
 from .currency import CurrencyHelper
 
 # Import ib_async instead of ib_insync
-from ib_async import IB, Stock, Option, Contract, ExecutionFilter, util
+from ib_async import IB, Stock, Option, Contract, ExecutionFilter, StartupFetch, StartupFetchALL, util
 
 # Import our logging configuration
 from core.logging_config import get_logger
@@ -366,7 +366,11 @@ class IBConnection:
                 clientId=self.client_id,
                 readonly=self.readonly,
                 timeout=self.timeout,
-                account=subscribed_account
+                account=subscribed_account,
+                # Completed history has its own bounded, explicit reconciliation
+                # reads. It must not delay account/positions/open-order startup
+                # for the full connection timeout when Gateway omits its end marker.
+                fetchFields=StartupFetchALL & ~StartupFetch.ORDERS_COMPLETE
             )
             
             self._connected = self.ib.isConnected()

@@ -4,6 +4,75 @@ import SwiftUI
 
 final class PerformanceTests: XCTestCase {
     @MainActor
+    func testColdBootstrapHasFullYearBeforeNavigationWithoutHistoryNetwork() async throws {
+        PerformancePageProtocol.reset()
+        PerformancePageProtocol.bootstrapHistory = true
+        PerformancePageProtocol.holdHistory = true
+        URLProtocol.registerClass(PerformancePageProtocol.self)
+        let savedMode = UserDefaults.standard.object(forKey: "selectedBrokerMode")
+        UserDefaults.standard.set("live", forKey: "selectedBrokerMode")
+        defer {
+            PerformancePageProtocol.bootstrapHistory = false
+            PerformancePageProtocol.holdHistory = false
+            URLProtocol.unregisterClass(PerformancePageProtocol.self)
+            UserDefaults.standard.set(savedMode, forKey: "selectedBrokerMode")
+        }
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [PerformancePageProtocol.self]
+        let store = WheelStore(session: URLSession(configuration: config))
+        store.address = "https://performance.invalid"; store.selectedTab = "settings"
+        try await store.completeAccountConnection(to: store.address, mode: "live", epoch: "first")
+        XCTAssertEqual(store.selectedTab, "portfolio")
+        let key = store.performanceCacheKey("YTD")
+        XCTAssertEqual(store.performanceHistoryCache[key]?.points.count, 210)
+        await store.warmPerformanceHistory()
+        XCTAssertEqual(PerformancePageProtocol.historyCount, 0, "Bootstrap must already carry the history; no warm request is needed")
+        let route = PerformanceTestRoute()
+        let controller = UIHostingController(rootView: PerformanceTestNavigation(route: route)
+            .environment(store).environment(\.scenePhase, .active).environment(\.locale, Locale(identifier: "en")))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller; window.makeKeyAndVisible()
+        defer { window.rootViewController = nil; window.isHidden = true }
+        try await Task.sleep(for: .milliseconds(100))
+        let start = Date.now
+        route.path = ["performance"]
+        try await Task.sleep(for: .milliseconds(450))
+        controller.view.layoutIfNeeded()
+        let elapsed = Date.now.timeIntervalSince(start)
+        print("BOOTSTRAP_HISTORY_ENTRY_SECONDS \(elapsed)")
+        XCTAssertLessThan(elapsed, 1)
+        XCTAssertEqual(store.performanceHistoryCache[key]?.points.count, 210)
+        try await Task.sleep(for: .milliseconds(400)) // Capture after the native push animation settles.
+        capture(controller, "Performance-full-year-on-entry-network-held")
+    }
+
+    @MainActor
+    func testFullYearEntryRenderTiming() async throws {
+        PerformancePageProtocol.reset()
+        PerformancePageProtocol.fullYear = true
+        URLProtocol.registerClass(PerformancePageProtocol.self)
+        defer { PerformancePageProtocol.fullYear = false; URLProtocol.unregisterClass(PerformancePageProtocol.self) }
+        let store = WheelStore(); store.demo = false; store.address = "https://performance.invalid"
+        store.selectedTab = "portfolio"
+        store.portfolio = Bootstrap(summary: Summary(account_value: 1000, cash_balance: 500), positions: [])
+        let warmStart = Date.now
+        await store.warmPerformanceHistory()
+        print("FULL_YEAR_WARM_SECONDS \(Date.now.timeIntervalSince(warmStart))")
+        XCTAssertEqual(store.performanceHistoryCache[store.performanceCacheKey("YTD")]?.points.count, 210)
+        let controller = UIHostingController(rootView: NavigationStack { PerformanceView() }
+            .environment(store).environment(\.scenePhase, .active).environment(\.locale, Locale(identifier: "en")))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let window = UIWindow(windowScene: scene)
+        let start = Date.now
+        window.rootViewController = controller; window.makeKeyAndVisible()
+        try await Task.sleep(for: .milliseconds(100))
+        controller.view.layoutIfNeeded()
+        print("FULL_YEAR_RENDER_SECONDS \(Date.now.timeIntervalSince(start))")
+        capture(controller, "Performance-full-year")
+        window.rootViewController = nil; window.isHidden = true
+    }
+
+    @MainActor
     func testRootWarmsPerformanceAfterPortfolioArrives() async throws {
         PerformancePageProtocol.reset()
         URLProtocol.registerClass(PerformancePageProtocol.self)
@@ -31,6 +100,27 @@ final class PerformanceTests: XCTestCase {
         XCTAssertEqual(store.performanceHistoryCache[store.performanceCacheKey("YTD")]?.points.count, 3)
         XCTAssertEqual(PerformancePageProtocol.historyCount, 1)
         capture(controller, "Portfolio-connected-with-performance-preloaded")
+    }
+
+    @MainActor
+    func testPortfolioTitleSurvivesScrolling() async throws {
+        let store = WheelStore(); store.demo = false; store.updated = .now
+        store.portfolio = Bootstrap(summary: Summary(account_value: 1000, cash_balance: 500),
+            positions: (0..<20).map { Position(symbol: "TEST\($0)", position: 1, market_price: 10, security_type: "STK", con_id: $0 + 1) },
+            connection: AccountConnection(mode: "live", execution_enabled: false, chart_execution_enabled: false))
+        let controller = UIHostingController(rootView: NavigationStack { PortfolioView() }
+            .environment(store).environment(\.locale, Locale(identifier: "en")))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller; window.makeKeyAndVisible()
+        defer { window.rootViewController = nil; window.isHidden = true }
+        try await Task.sleep(for: .milliseconds(300))
+        func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
+        let scroll = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UICollectionView }.first)
+        scroll.setContentOffset(CGPoint(x: 0, y: 400), animated: false)
+        try await Task.sleep(for: .milliseconds(200))
+        capture(controller, "Portfolio-scrolled-title-preserved")
+        XCTAssertGreaterThan(scroll.contentOffset.y, 300)
     }
 
     @MainActor
@@ -222,6 +312,8 @@ private struct PerformanceTestNavigation: View {
 
 private final class PerformancePageProtocol: URLProtocol {
     private static let lock = NSLock()
+    static var bootstrapHistory = false
+    static var fullYear = false
     private static var reads = 0
     private static var independent = false
     private static var pnl = 25
@@ -277,6 +369,8 @@ private final class PerformancePageProtocol: URLProtocol {
             }
             let stamp = ISO8601DateFormatter().string(from: .now)
             data = try! JSONSerialization.data(withJSONObject: ["daily_pnl":pnl,"fresh":fresh,"received_at":stamp])
+        } else if Self.fullYear {
+            data = Self.fullYearData()
         } else {
             Self.lock.withLock { Self.independent = request.url?.query?.contains("include_unmatched=1") == true }
             data = Data("""
@@ -289,8 +383,25 @@ private final class PerformancePageProtocol: URLProtocol {
             """.utf8)
         }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type":"application/json"])!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: data)
+        var delivered = data
+        if Self.bootstrapHistory, request.url?.path.hasSuffix("/bootstrap") == true {
+            var payload = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+            payload["performance_history"] = try! JSONSerialization.jsonObject(with: Self.fullYearData())
+            delivered = try! JSONSerialization.data(withJSONObject: payload)
+        }
+        client?.urlProtocol(self, didLoad: delivered)
         client?.urlProtocolDidFinishLoading(self)
+    }
+    static func fullYearData() -> Data {
+            let start = ISO8601DateFormatter().date(from: "2026-01-01T16:00:00Z")!
+            let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd"; formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            var points: [[String: Any]] = []
+            for i in 0..<210 {
+                let value = Double(i)
+                let stamp = formatter.string(from: start.addingTimeInterval(value * 86400))
+                points.append(["date": stamp, "portfolio": value / 10 - 5, "spx": value / 20, "nq100": value / 15])
+            }
+            return try! JSONSerialization.data(withJSONObject: ["points": points, "start": points.first!["date"]!, "end": points.last!["date"]!, "limited_history": false, "stale": false])
     }
     override func stopLoading() { Self.lock.withLock { Self.held.removeAll { $0 === self } } }
 }
