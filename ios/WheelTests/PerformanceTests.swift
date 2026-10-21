@@ -4,6 +4,137 @@ import SwiftUI
 
 final class PerformanceTests: XCTestCase {
     @MainActor
+    func testRootWarmsPerformanceAfterPortfolioArrives() async throws {
+        PerformancePageProtocol.reset()
+        URLProtocol.registerClass(PerformancePageProtocol.self)
+        let savedMode = UserDefaults.standard.object(forKey: "selectedBrokerMode")
+        UserDefaults.standard.set("live", forKey: "selectedBrokerMode")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PerformancePageProtocol.self]
+        let store = WheelStore(session: URLSession(configuration: configuration))
+        store.demo = false; store.address = "https://performance.invalid"; store.selectedTab = "portfolio"
+        let controller = UIHostingController(rootView: RootView().environment(store)
+            .environment(\.scenePhase, .active).environment(\.locale, Locale(identifier: "en")))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller; window.makeKeyAndVisible()
+        defer {
+            window.rootViewController = nil; window.isHidden = true
+            UserDefaults.standard.set(savedMode, forKey: "selectedBrokerMode")
+            URLProtocol.unregisterClass(PerformancePageProtocol.self)
+        }
+        for _ in 0..<40 {
+            if store.performanceHistoryCache[store.performanceCacheKey("YTD")] != nil { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertNotNil(store.portfolio)
+        XCTAssertEqual(store.performanceHistoryCache[store.performanceCacheKey("YTD")]?.points.count, 3)
+        XCTAssertEqual(PerformancePageProtocol.historyCount, 1)
+        capture(controller, "Portfolio-connected-with-performance-preloaded")
+    }
+
+    @MainActor
+    func testPortfolioStatusPreview() async throws {
+        let store = WheelStore(); store.demo = false; store.address = "https://performance.invalid"
+        store.selectedTab = "portfolio"; store.updated = .now
+        store.portfolio = Bootstrap(summary: Summary(account_value: 23500, cash_balance: 1000, is_frozen: true,
+            initial_margin: 6900, leverage_percentage: 29.6), positions: [],
+            connection: AccountConnection(mode: "live", execution_enabled: false, chart_execution_enabled: false))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        for dark in [false, true] {
+            for width in [320.0, 393.0, 768.0] {
+                let controller = UIHostingController(rootView: NavigationStack { PortfolioView() }
+                    .environment(store).environment(\.locale, Locale(identifier: "en"))
+                    .environment(\.scenePhase, .active))
+                let window = UIWindow(windowScene: scene)
+                window.frame = CGRect(x: 0, y: 0, width: width, height: 852)
+                window.overrideUserInterfaceStyle = dark ? .dark : .light
+                window.rootViewController = controller; window.makeKeyAndVisible(); controller.view.frame = window.bounds
+                try await Task.sleep(for: .milliseconds(300))
+                capture(controller, "Portfolio-status-\(Int(width))-\(dark ? "dark" : "light")")
+                window.rootViewController = nil; window.isHidden = true
+            }
+        }
+    }
+
+    @MainActor
+    func testPortfolioWarmHistorySurvivesNavigationAndDelayedRefresh() async throws {
+        PerformancePageProtocol.reset()
+        URLProtocol.registerClass(PerformancePageProtocol.self)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PerformancePageProtocol.self]
+        let store = WheelStore(session: URLSession(configuration: configuration))
+        store.demo = false; store.address = "https://performance.invalid"; store.selectedTab = "portfolio"
+        store.trading.accountEpoch = "first"
+        store.portfolio = Bootstrap(summary: Summary(account_value: 1000, cash_balance: 500), positions: [])
+        await store.warmPerformanceHistory()
+        let key = store.performanceCacheKey("YTD")
+        XCTAssertEqual(store.performanceHistoryCache[key]?.points.count, 3)
+        await store.warmPerformanceHistory()
+        XCTAssertEqual(PerformancePageProtocol.historyCount, 1, "Portfolio refresh must not repeatedly warm the same cache")
+        PerformancePageProtocol.holdHistory = true
+        let route = PerformanceTestRoute()
+        let controller = UIHostingController(rootView: PerformanceTestNavigation(route: route)
+            .environment(store).environment(\.scenePhase, .active).environment(\.locale, Locale(identifier: "en")))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller; window.makeKeyAndVisible()
+        defer {
+            window.rootViewController = nil; window.isHidden = true
+            PerformancePageProtocol.holdHistory = false
+            URLProtocol.unregisterClass(PerformancePageProtocol.self)
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        for entry in 1...2 {
+            route.path = ["performance"]
+            try await Task.sleep(for: .milliseconds(500))
+            XCTAssertEqual(store.performanceHistoryCache[key]?.points.last?.portfolio, 12)
+            capture(controller, "Performance-cached-entry-\(entry)-while-network-held")
+            route.path = []
+            try await Task.sleep(for: .milliseconds(400))
+        }
+        XCTAssertGreaterThanOrEqual(PerformancePageProtocol.historyCount, 3)
+        // An old backend/account cache cannot be selected after a context change.
+        store.trading.accountEpoch = "second"
+        XCTAssertNil(store.performanceHistoryCache[store.performanceCacheKey("YTD")])
+        store.changeMode()
+        XCTAssertTrue(store.performanceHistoryCache.isEmpty)
+    }
+
+    @MainActor
+    func testDelayedWarmResponseCannotRepopulateChangedAccount() async throws {
+        PerformancePageProtocol.reset()
+        PerformancePageProtocol.holdHistory = true
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PerformancePageProtocol.self]
+        let store = WheelStore(session: URLSession(configuration: configuration))
+        store.demo = false; store.address = "https://performance.invalid"
+        store.trading.accountEpoch = "old"
+        store.portfolio = Bootstrap(summary: Summary(account_value: 1000, cash_balance: 500), positions: [])
+        let task = Task { await store.warmPerformanceHistory() }
+        defer { task.cancel(); PerformancePageProtocol.holdHistory = false }
+        for _ in 0..<20 {
+            if PerformancePageProtocol.historyCount > 0 { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertEqual(PerformancePageProtocol.historyCount, 1)
+        store.changeMode(); store.trading.accountEpoch = "new"
+        PerformancePageProtocol.releaseHistory()
+        await task.value
+        XCTAssertTrue(store.performanceHistoryCache.isEmpty)
+    }
+
+    @MainActor
+    private func capture(_ controller: UIViewController, _ name: String) {
+        controller.view.layoutIfNeeded()
+        let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { _ in
+            controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image); attachment.name = name; attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     func testPageContinuesLiveReadsWhileBenchmarkIsMissing() async throws {
         PerformancePageProtocol.reset(staleFirst: true)
         URLProtocol.registerClass(PerformancePageProtocol.self)
@@ -78,6 +209,17 @@ final class PerformanceTests: XCTestCase {
     }
 }
 
+@MainActor @Observable private final class PerformanceTestRoute { var path: [String] = [] }
+private struct PerformanceTestNavigation: View {
+    @Bindable var route: PerformanceTestRoute
+    var body: some View {
+        NavigationStack(path: $route.path) {
+            Text("Portfolio").navigationTitle("Portfolio")
+                .navigationDestination(for: String.self) { _ in PerformanceView() }
+        }
+    }
+}
+
 private final class PerformancePageProtocol: URLProtocol {
     private static let lock = NSLock()
     private static var reads = 0
@@ -86,16 +228,46 @@ private final class PerformancePageProtocol: URLProtocol {
     private static var staleFirst = false
     private static var readTimes: [Date] = []
     private static var firstFreshAt: Date?
+    private static var historyReads = 0
+    private static var held: [PerformancePageProtocol] = []
+    private static var holding = false
+    static var holdHistory: Bool {
+        get { lock.withLock { holding } }
+        set { lock.withLock { holding = newValue } }
+    }
+    static var historyCount: Int { lock.withLock { historyReads } }
+    static func releaseHistory() {
+        let pending = lock.withLock { let pending = held; held = []; holding = false; return pending }
+        for request in pending { request.respond() }
+    }
     static var firstFreshDelay: TimeInterval { lock.withLock { guard let first = readTimes.first, let fresh = firstFreshAt else { return .infinity }; return fresh.timeIntervalSince(first) } }
     static var liveCount: Int { lock.withLock { reads } }
     static var independentHistoryRequested: Bool { lock.withLock { independent } }
-    static func reset(staleFirst: Bool = false) { lock.withLock { reads = 0; independent = false; pnl = 25; Self.staleFirst = staleFirst; readTimes = []; firstFreshAt = nil } }
+    static func reset(staleFirst: Bool = false) { lock.withLock { reads = 0; independent = false; pnl = 25; Self.staleFirst = staleFirst; readTimes = []; firstFreshAt = nil; historyReads = 0; holding = false; held = [] } }
     static func setPnl(_ value: Int) { lock.withLock { pnl = value } }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "performance.invalid" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        if request.url?.lastPathComponent == "history" {
+            let held = Self.lock.withLock {
+                Self.historyReads += 1
+                if Self.holding { Self.held.append(self); return true }
+                return false
+            }
+            if held { return }
+        }
+        respond()
+    }
+    private func respond() {
         let data: Data
-        if request.url?.lastPathComponent == "live" {
+        if request.url?.path.contains("/performance/") != true {
+            data = Data("""
+            {"summary":{"account_value":23500,"cash_balance":1000,"is_frozen":true},
+             "positions":[],"is_frozen":true,"connection":{"mode":"live","account_epoch":"first",
+             "execution_enabled":false,"chart_execution_enabled":false},
+             "orders":[],"success":true,"total_income":0,"positions_count":0}
+            """.utf8)
+        } else if request.url?.lastPathComponent == "live" {
             let (pnl, fresh) = Self.lock.withLock {
                 let now = Date.now
                 Self.reads += 1; Self.readTimes.append(now)
@@ -120,5 +292,5 @@ private final class PerformancePageProtocol: URLProtocol {
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
     }
-    override func stopLoading() {}
+    override func stopLoading() { Self.lock.withLock { Self.held.removeAll { $0 === self } } }
 }

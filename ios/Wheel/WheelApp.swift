@@ -248,7 +248,29 @@ struct TradeChartDestination: Hashable {
 
 @MainActor @Observable
 final class WheelStore {
-    var performanceHistoryCache: [String: Data] = [:]
+    var performanceHistoryCache: [String: PerformanceHistory] = [:]
+    private var performanceHistoryWarming: Set<String> = []
+    func performanceCacheKey(_ period: String) -> String {
+        "\(address)|\(trading.accountEpoch ?? "")|\(period)"
+    }
+    func warmPerformanceHistory() async {
+        guard !demo, portfolio != nil else { return }
+        let key = performanceCacheKey("YTD")
+        guard performanceHistoryCache[key] == nil, !performanceHistoryWarming.contains(key) else { return }
+        performanceHistoryWarming.insert(key)
+        defer { performanceHistoryWarming.remove(key) }
+        let token = revision
+        do {
+            let (data, status) = try await PerformanceRequest.read(base: address, path: "history", query: [
+                URLQueryItem(name: "period", value: "YTD"), URLQueryItem(name: "include_unmatched", value: "1"),
+                URLQueryItem(name: "refresh", value: "0")], session: session)
+            guard status == 200, !Task.isCancelled, !demo, revision == token,
+                  performanceCacheKey("YTD") == key, performanceHistoryCache[key] == nil else { return }
+            performanceHistoryCache[key] = try JSONDecoder().decode(PerformanceHistory.self, from: data)
+        } catch {
+            // Optional warming never delays connection or hides the page's own read error.
+        }
+    }
     var demo = true
     var address = UserDefaults.standard.string(forKey: "backendURL") ?? ""
     var portfolio: Bootstrap?
@@ -642,6 +664,10 @@ struct RootView: View {
         .onChange(of: "\(store.demo)-\(store.address)") {
             portfolioPath = NavigationPath(); ordersPath = NavigationPath(); tradePath = NavigationPath(); store.requestedTradeChart = nil
         }
+        .task(id: "performance-\(phase)-\(store.demo)-\(store.address)-\(store.trading.accountEpoch ?? "")-\(store.portfolio != nil)") {
+            guard phase == .active else { return }
+            await store.warmPerformanceHistory()
+        }
         .task(id: "\(phase)-\(store.demo)-\(store.address)") {
             guard phase == .active else { return }
             await RefreshLoop.run {
@@ -667,6 +693,7 @@ struct RootView: View {
 
 struct StatusView: View {
     var orders = false
+    var compact = false
     @Environment(WheelStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showHealth = false
@@ -685,9 +712,10 @@ struct StatusView: View {
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: busy)
                         .accessibilityHidden(true)
                     Text(LocalizedStringKey(store.accountModeLabel)).fontWeight(.semibold)
-                    Spacer()
+                    if !compact { Spacer() }
                     Image(systemName: "info.circle").accessibilityHidden(true)
-                }.font(.caption).foregroundStyle(.secondary).contentShape(Rectangle())
+                }.font(compact ? .caption2 : .caption).foregroundStyle(.secondary)
+                    .frame(minHeight: compact ? 44 : nil).contentShape(Rectangle())
             }.buttonStyle(.plain)
                 .accessibilityLabel("\(store.accountModeLabel), \(status)")
                 .accessibilityHint("Show data status")
@@ -755,7 +783,6 @@ struct PortfolioView: View {
     var body: some View {
         List {
             Section {
-                StatusView()
                 VStack(alignment: .leading, spacing: 0) {
                     HStack {
                         Text("Net liquidation").font(.subheadline).foregroundStyle(.secondary)
@@ -882,6 +909,7 @@ struct PortfolioView: View {
             }
             if store.portfolio == nil && !store.busy { ContentUnavailableView("No portfolio", systemImage: "chart.pie", description: Text("Connect your backend in Settings.")) }
         }.navigationTitle(localizedLabel("Portfolio", locale: locale)).refreshable { await store.refresh() }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { StatusView(compact: true) } }
             .navigationDestination(item: $positionDestination) { destination in
                 if let position = store.portfolio?.positions.first(where: { $0.con_id == destination.conID && $0.position != 0 }) {
                     if destination.rollover && position.security_type == "OPT" && position.position < 0 {

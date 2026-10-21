@@ -1,3 +1,44 @@
+## 2026-10-21 — Performance entry, completed-history backoff, compact Portfolio status
+
+Read-only REA capture on deployed `ea662cb5a4d0ddade01b5f04ce0486cb83b7abb6`
+confirmed two separate observations at 12:37: Performance history returned 200
+in 3–6 ms, while completed-order queries timed out after about 3 seconds and
+recurred on the shared IB owner. Live P&L spent 2.47–3.03 seconds queued behind
+these reads. Tracebacks identify `reqCompletedOrders` from the executed-order
+history path. The user confirmed the graph eventually appears; no evidence
+establishes lost history. The subsequent history probe returned 209 cached
+points while a Flex refresh was pending. Upstream Flex generation latency and
+the first broker history timeout are not claimed fixed.
+
+- Bound repeated completed-history timeouts with an account-scoped 15-second
+  cooldown. Return an explicit 503/Retry-After rather than an empty successful
+  snapshot, retain prior cache, and reset cache/cooldown on reconnect. This does
+  not change order submission, cancellation, execution reconciliation or writes.
+- Warm YTD history after Portfolio bootstrap without delaying connection; keep
+  decoded history scoped to backend/account epoch/period. Render that cache
+  directly on entry/re-entry, reject obsolete warm responses, and keep stale
+  warnings visible. Only an empty initial load shows the loading spinner.
+  Canceled tasks cannot clear the replacement task's loading indication.
+- Move Portfolio's existing data-status button to the upper-right toolbar in a
+  compact presentation; preserve its status color, accessibility label and
+  diagnostics sheet. Other pages keep their existing status presentation.
+
+Validation: 72 focused backend/history/order-state tests plus 9 connection tests
+passed. Nine iOS tests passed, including real RootView prewarming after bootstrap,
+NavigationStack entry/re-entry with a deliberately held refresh, account-change
+response rejection and live P&L independence. Inspected SwiftUI screenshots at
+320/393/768-point widths in light/dark themes. Controlled REA timeout replay kept
+all eight failures explicit while reducing eight mock broker waits to one
+(431 ms to 55 ms with a fixed 50 ms mock timeout); this is not a live broker
+speedup measurement. Production log evidence:
+`ev_bb06a3ff47581501f320fba5a60ff4c2abc462658368c49406da99fd5b91059f`,
+`ev_e3c4e3c29c1e8c4ce8963c66925eac533a3896e22f3e090ba1ec149cdaf467c3`.
+
+Not deployed or installed on a physical phone. After merge, recommend
+**Deploy & Restart Backend**, then re-Run iPhone. No web refresh is required
+for these native UI changes. Gateway and broker orders were untouched. Existing
+uncommitted `Localizable.xcstrings` content remains excluded and byte-identical.
+
 ## 2026-10-21 — Initial account-profile read during backend startup
 
 The user reported Settings showing `Request expired before execution` for

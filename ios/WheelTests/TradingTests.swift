@@ -1332,11 +1332,13 @@ final class TradingTests: XCTestCase {
     }
     func testPerformanceCacheSurvivesNavigationButClearsWithConnectionContext() {
         let store = WheelStore()
-        let key = "https://example.invalid|MTD"
-        store.performanceHistoryCache[key] = Data("snapshot".utf8)
+        store.address = "https://example.invalid"
+        let key = store.performanceCacheKey("MTD")
+        store.performanceHistoryCache[key] = PerformanceHistory(points: [], start: "2026-01-01", end: "2026-10-19",
+            refreshing: nil, awaiting_report: nil, limited_history: false, stale: false, warning: nil, latest: nil)
         store.selectedTab = "trade"
         store.selectedTab = "portfolio"
-        XCTAssertEqual(store.performanceHistoryCache[key], Data("snapshot".utf8))
+        XCTAssertEqual(store.performanceHistoryCache[key]?.end, "2026-10-19")
         store.changeMode()
         XCTAssertTrue(store.performanceHistoryCache.isEmpty)
     }

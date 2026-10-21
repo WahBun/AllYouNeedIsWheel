@@ -104,7 +104,9 @@ struct PerformanceView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var period = "YTD"
     @State private var benchmarks: BenchmarkSelection = .both
-    @State private var history: PerformanceHistory?
+    private var history: PerformanceHistory? {
+        store.demo ? nil : store.performanceHistoryCache[store.performanceCacheKey(period)]
+    }
     @State private var live: PerformanceLive?
     @State private var error: String?
     @State private var liveError: String?
@@ -112,7 +114,7 @@ struct PerformanceView: View {
     @State private var visible = false
     @State private var revision = 0
     private var active: Bool { visible && phase == .active && store.selectedTab == "portfolio" }
-    private var context: String { "\(active)-\(store.demo)-\(store.address)-\(period)-\(revision)" }
+    private var context: String { "\(active)-\(store.demo)-\(store.performanceCacheKey(period))-\(revision)" }
     private var performanceLegend: some View {
         HStack(spacing: 6) {
             Text("● Portfolio").foregroundStyle(gain)
@@ -222,7 +224,9 @@ struct PerformanceView: View {
                     if history.stale || loading { Text("Cached history · refresh pending").font(.caption).foregroundStyle(.orange) }
                     if let warning = history.warning { NoticeText(warning).font(.caption).foregroundStyle(.orange) }
                 }
-                if loading { ProgressView() }
+                if history == nil, !store.demo, loading || error == nil {
+                    ProgressView("Loading performance history…")
+                }
                 if let error { NoticeText(error).font(.footnote).foregroundStyle(.orange) }
             }
             Section("Today") {
@@ -244,12 +248,11 @@ struct PerformanceView: View {
             .task(id: context) {
                 guard active else { return }
                 let requestedContext = context
-                let cacheKey = store.address + "|" + period
-                history = store.demo ? nil : store.performanceHistoryCache[cacheKey].flatMap { try? JSONDecoder().decode(PerformanceHistory.self, from: $0) }
+                let cacheKey = store.performanceCacheKey(period)
                 error = nil
                 guard !store.demo else { error = "Performance requires a live backend with Flex history."; return }
                 loading = true
-                defer { if context == requestedContext { loading = false } }
+                defer { if !Task.isCancelled && context == requestedContext { loading = false } }
                 var forceRefresh = revision > 0
                 while !Task.isCancelled {
                 for _ in 0..<45 {
@@ -263,7 +266,7 @@ struct PerformanceView: View {
                         let value = try JSONDecoder().decode(PerformanceHistory.self, from: data)
                         try Task.checkCancellation()
                         guard context == requestedContext else { return }
-                        store.performanceHistoryCache[cacheKey] = data; history = value; error = nil
+                        store.performanceHistoryCache[cacheKey] = value; error = nil
                         if value.refreshing == true { try await Task.sleep(for: .seconds(2)); continue }
                         break
                     } catch { if Task.isCancelled || context != requestedContext { return }; self.error = connectionMessage(error); break }
@@ -276,10 +279,11 @@ struct PerformanceView: View {
                 do { try await Task.sleep(for: .seconds(60)) } catch { return }
                 }
             }
-            .task(id: "live-\(active)-\(store.demo)-\(store.address)") {
+            .task(id: "live-\(active)-\(store.demo)-\(store.address)-\(store.trading.accountEpoch ?? "")") {
                 live = nil; liveError = nil
                 guard active, !store.demo else { return }
                 let requestedAddress = store.address
+                let requestedEpoch = store.trading.accountEpoch
                 let initialReadAt = Date.now
                 while !Task.isCancelled {
                     var nextReadDelay = 1.0
@@ -287,25 +291,32 @@ struct PerformanceView: View {
                         let (data, _) = try await read("live")
                         let next = try JSONDecoder().decode(PerformanceLive.self, from: data)
                         try Task.checkCancellation()
-                        guard active, !store.demo, store.address == requestedAddress else { return }
+                        guard active, !store.demo, store.address == requestedAddress,
+                              store.trading.accountEpoch == requestedEpoch else { return }
                         live = next; liveError = nil
                         // reqPnL can acknowledge before the first value arrives.
                         // Briefly retry cold reads; never overlap requests or fake freshness.
                         if !next.fresh && Date.now.timeIntervalSince(initialReadAt) < 3 {
                             nextReadDelay = 0.25
                         }
-                    } catch { if Task.isCancelled || !active || store.address != requestedAddress { return }; live = nil; liveError = connectionMessage(error); nextReadDelay = 5 }
+                    } catch { if Task.isCancelled || !active || store.address != requestedAddress || store.trading.accountEpoch != requestedEpoch { return }; live = nil; liveError = connectionMessage(error); nextReadDelay = 5 }
                     do { try await Task.sleep(for: .seconds(nextReadDelay)) } catch { return }
                 }
             }
     }
     private func read(_ path: String, query: [URLQueryItem] = []) async throws -> (Data, Int) {
-        guard var url = URLComponents(string: store.address.trimmingCharacters(in: .whitespacesAndNewlines)), url.scheme == "https", url.host != nil,
+        try await PerformanceRequest.read(base: store.address, path: path, query: query)
+    }
+}
+
+enum PerformanceRequest {
+    static func read(base: String, path: String, query: [URLQueryItem] = [], session: URLSession = .shared) async throws -> (Data, Int) {
+        guard var url = URLComponents(string: base.trimmingCharacters(in: .whitespacesAndNewlines)), url.scheme == "https", url.host != nil,
               url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else { throw AppError.message("Invalid backend address.") }
         url.path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/performance/" + path
         if !url.path.hasPrefix("/") { url.path = "/" + url.path }
         url.queryItems = query.isEmpty ? nil : query
-        let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url.url!, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15))
+        let (data, response) = try await session.data(for: URLRequest(url: url.url!, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15))
         guard let http = response as? HTTPURLResponse else { throw AppError.message("Invalid response.") }
         guard (200...202).contains(http.statusCode) else {
             let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]

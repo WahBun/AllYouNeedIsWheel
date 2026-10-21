@@ -5,10 +5,25 @@ import json
 import sqlite3
 
 
+class CompletedHistoryUnavailable(TimeoutError):
+    """A broker history timeout is not an empty or complete order snapshot."""
+
+
 def completed_trades(conn, account):
     cache = getattr(conn, '_futures_completed_cache', None)
     if not isinstance(cache, tuple) or cache[0] != account or time.monotonic()-cache[1] > 15:
-        trades = conn._bounded_order_read(conn.ib.reqCompletedOrders, False)
+        retry = getattr(conn, '_futures_completed_retry', None)
+        if isinstance(retry, tuple) and retry[0] == account and time.monotonic() < retry[1]:
+            raise CompletedHistoryUnavailable('Completed order history is temporarily unavailable; retrying shortly.')
+        try:
+            trades = conn._bounded_order_read(conn.ib.reqCompletedOrders, False)
+        except TimeoutError:
+            # A failed history read must not occupy the shared IB owner again on
+            # every portfolio poll. Keep the failure explicit, never an empty
+            # successful snapshot or an inferred fill/cancellation.
+            conn._futures_completed_retry = (account, time.monotonic() + 15)
+            raise CompletedHistoryUnavailable('Completed order history is temporarily unavailable; retrying shortly.') from None
+        conn._futures_completed_retry = None
         cache = (account, time.monotonic(), list(trades or []))
         conn._futures_completed_cache = cache
     return cache[2]
