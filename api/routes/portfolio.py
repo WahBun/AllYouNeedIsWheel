@@ -283,7 +283,7 @@ def paper_chart_order(con_id):
     except (ValueError,TypeError) as error:
         return _no_store_json({'success':False,'status':'rejected','error':str(error),'message':str(error)},400)
     except Exception:
-        return _no_store_json({'success':False,'status':'unknown','error':'Paper chart status unavailable; check Gateway'},503)
+        return _no_store_json({'success':False,'status':'unknown','error':'Chart order status unavailable; retry shortly'},503)
 
 
 @bp.route('/chart-executions/<int:con_id>', methods=['GET'])
