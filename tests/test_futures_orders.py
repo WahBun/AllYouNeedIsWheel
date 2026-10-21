@@ -1,8 +1,8 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from datetime import datetime, timezone
 from ib_async import Future, Stock, LimitOrder, Trade, OrderStatus, Fill, Execution, CommissionReport
-from api.services.futures_orders import futures_orders
+from api.services.futures_orders import futures_orders, completed_trades, CompletedHistoryUnavailable
 from api.services.paper_chart import PaperChart
 from tempfile import TemporaryDirectory
 from pathlib import Path
@@ -105,6 +105,47 @@ class FuturesOrdersTests(unittest.TestCase):
         self.assertEqual(len(rows),1);self.assertEqual(rows[0]['filled'],1)
         self.assertEqual(rows[0]['avg_fill_price'],7790)
         futures_orders(self.conn,True);self.conn._bounded_order_read.assert_called_once()
+
+    def test_completed_timeout_cannot_starve_repeated_portfolio_polls(self):
+        self.conn._bounded_order_read.side_effect = TimeoutError()
+        with patch('api.services.futures_orders.time.monotonic', return_value=100):
+            for _ in range(8):
+                with self.assertRaisesRegex(CompletedHistoryUnavailable, 'temporarily unavailable'):
+                    futures_orders(self.conn, True)
+        self.conn._bounded_order_read.assert_called_once()
+        # No empty successful snapshot: a delayed read cannot erase known fills.
+        self.assertNotIsInstance(getattr(self.conn, '_futures_completed_cache', None), tuple)
+        trade = self.trade(status='Filled', filled=1)
+        self.conn._bounded_order_read.side_effect = None
+        self.conn._bounded_order_read.return_value = [trade]
+        with patch('api.services.futures_orders.time.monotonic', return_value=115):
+            self.assertEqual(completed_trades(self.conn, 'DU_TEST'), [trade])
+        self.assertEqual(self.conn._bounded_order_read.call_count, 2)
+        self.assertIsNone(self.conn._futures_completed_retry)
+
+    def test_completed_failure_does_not_replace_cache_or_cross_account(self):
+        old = self.trade(status='Filled', filled=1)
+        self.conn._futures_completed_cache = ('DU_TEST', 50, [old])
+        self.conn._bounded_order_read.side_effect = TimeoutError()
+        with patch('api.services.futures_orders.time.monotonic', return_value=100):
+            with self.assertRaises(CompletedHistoryUnavailable):
+                completed_trades(self.conn, 'DU_TEST')
+            self.assertEqual(self.conn._futures_completed_cache[2], [old])
+            with self.assertRaises(CompletedHistoryUnavailable):
+                completed_trades(self.conn, 'OTHER')
+        self.assertEqual(self.conn._bounded_order_read.call_count, 2,
+                         'An old account failure must not suppress a new account read')
+
+    def test_completed_timeout_route_remains_unavailable_not_empty_success(self):
+        from flask import Flask
+        from api.routes.options import bp, options_service
+        app = Flask(__name__); app.register_blueprint(bp)
+        with patch.object(options_service, 'get_pending_orders_with_ib',
+                          side_effect=CompletedHistoryUnavailable('History unavailable')):
+            response = app.test_client().get('/api/options/pending-orders?executed=true')
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.headers['Retry-After'], '15')
+        self.assertNotIn('orders', response.json)
     def test_bracket_profit_uses_multiplier_and_both_fees(self):
         import json,sqlite3
         for side,entry_price,exit_price,expected in [(1,7790.75,7792.75,10),(-1,7792.75,7790.75,10),(1,7792.75,7790.75,-10)]:

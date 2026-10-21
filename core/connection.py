@@ -375,6 +375,8 @@ class IBConnection:
                 self._last_order_status_refresh = 0
                 self._external_open_snapshot = None
                 self._external_completed_snapshot = []
+                self._futures_completed_cache = None
+                self._futures_completed_retry = None
                 self._market_ticker_cache.clear()
                 self._market_data_type = None
                 logger.info(f"Successfully connected to IB with client ID {self.client_id}")

@@ -4,6 +4,7 @@ Options API routes
 
 from flask import Blueprint, request, jsonify, current_app
 from api.services.options_service import OptionsService
+from api.services.futures_orders import CompletedHistoryUnavailable
 import traceback
 import logging
 import math
@@ -237,6 +238,10 @@ def get_pending_orders():
         )
         
         return jsonify({"orders": orders})
+    except CompletedHistoryUnavailable as error:
+        response = jsonify(error=str(error), code='COMPLETED_HISTORY_UNAVAILABLE')
+        response.headers['Retry-After'] = '15'
+        return response, 503
     except Exception as e:
         logger.error(f"Error getting pending orders: {str(e)}")
         logger.error(traceback.format_exc())
