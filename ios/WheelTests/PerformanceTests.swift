@@ -135,7 +135,10 @@ final class PerformanceTests: XCTestCase {
             for width in [320.0, 393.0, 768.0] {
                 let controller = UIHostingController(rootView: NavigationStack { OpportunitiesView() }
                     .environment(store).environment(\.locale, Locale(identifier: "en"))
-                    .environment(\.scenePhase, .inactive))
+                    .environment(\.scenePhase, .inactive)
+                    // Exercise the bordered ancestor style seen on older systems.
+                    .buttonStyle(.bordered)
+                    .tint(dark ? Color(red: 0.93, green: 0.92, blue: 0.89) : Color(red: 0.27, green: 0.28, blue: 0.30)))
                 let window = UIWindow(windowScene: scene)
                 window.frame = CGRect(x: 0, y: 0, width: width, height: 852)
                 window.overrideUserInterfaceStyle = dark ? .dark : .light
@@ -159,6 +162,30 @@ final class PerformanceTests: XCTestCase {
                 window.rootViewController = nil; window.isHidden = true
             }
         }
+    }
+
+    @MainActor
+    func testTradeTitleInRootAppearance() async throws {
+        let defaults = UserDefaults.standard
+        let keys = ["appearance", "appLanguage", "demoCustomColors"]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        defer { for (key, value) in zip(keys, saved) { defaults.set(value, forKey: key) } }
+        defaults.set("dark", forKey: "appearance")
+        defaults.set("en", forKey: "appLanguage")
+        defaults.set("{}", forKey: "demoCustomColors")
+        let store = WheelStore(); store.demo = false; store.address = "https://performance.invalid"
+        store.selectedTab = "trade"
+        store.opportunities.custom = []
+        store.opportunities.excluded = ["HIDDEN:PUT"]
+        store.opportunities.marketOpen = false
+        let controller = UIHostingController(rootView: RootView().environment(store)
+            .environment(\.scenePhase, .inactive))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller; window.makeKeyAndVisible()
+        defer { window.rootViewController = nil; window.isHidden = true }
+        try await Task.sleep(for: .milliseconds(500))
+        capture(controller, "Trade-restored-icons-in-app")
     }
 
     @MainActor
