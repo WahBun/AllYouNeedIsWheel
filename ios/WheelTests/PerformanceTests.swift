@@ -165,6 +165,43 @@ final class PerformanceTests: XCTestCase {
     }
 
     @MainActor
+    func testTradeAccountModeLayouts() async throws {
+        let defaults = UserDefaults.standard
+        let savedAppearance = defaults.object(forKey: "appearance")
+        defaults.set("dark", forKey: "appearance")
+        defer { defaults.set(savedAppearance, forKey: "appearance") }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        var firstCardY: CGFloat?
+        for mode in ["demo", "paper", "live"] {
+            for marketOpen in [false, true] {
+                let store = WheelStore(); store.demo = mode == "demo"
+                store.address = "https://performance.invalid"; store.selectedTab = "trade"
+                store.portfolio = Bootstrap(summary: Summary(account_value: 25000, cash_balance: 1000), positions: [],
+                    connection: AccountConnection(mode: mode, execution_enabled: false, chart_execution_enabled: false))
+                store.opportunities.custom = []; store.opportunities.excluded = []
+                store.opportunities.marketOpen = marketOpen
+                let controller = UIHostingController(rootView: RootView().environment(store)
+                    .environment(\.locale, Locale(identifier: "en"))
+                    .environment(\.scenePhase, .inactive))
+                let window = UIWindow(windowScene: scene)
+                window.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+                window.overrideUserInterfaceStyle = .dark
+                window.rootViewController = controller; window.makeKeyAndVisible()
+                controller.view.frame = window.bounds
+                try await Task.sleep(for: .milliseconds(500))
+                func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
+                let list = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UICollectionView }.first)
+                let top = try XCTUnwrap(list.visibleCells.map { $0.convert($0.bounds, to: controller.view).minY }.min())
+                if let expected = firstCardY {
+                    XCTAssertEqual(top, expected, accuracy: 1, "\(mode), marketOpen=\(marketOpen): first card must match Demo spacing")
+                } else { firstCardY = top }
+                capture(controller, "Trade-\(mode)-\(marketOpen ? "open" : "closed")")
+                window.rootViewController = nil; window.isHidden = true
+            }
+        }
+    }
+
+    @MainActor
     func testTradeTitleInRootAppearance() async throws {
         let defaults = UserDefaults.standard
         let keys = ["appearance", "appLanguage", "demoCustomColors"]

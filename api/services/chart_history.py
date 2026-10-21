@@ -48,7 +48,9 @@ class ChartHistory:
         duration = '1 W' if effective<60 else '1 M' if effective<1440 else '1 Y' if effective==1440 else '5 Y' if effective==10080 else '10 Y'
         args = (contract, '' if recent else datetime.fromtimestamp(before,timezone.utc), '1 W' if recent else duration,
                 rth_source_size(minutes) if futures_rth else '30 mins' if intraday_eight_rth else sizes[effective], 'TRADES')
-        kwargs = dict(useRTH=session=='rth' and not futures_rth, formatDate=2, keepUpToDate=False, timeout=8)
+        # Background pages do not hold the HTTP/IB owner. Canceling a valid
+        # cold read at eight seconds discards its bars and adds a 30s cooldown.
+        kwargs = dict(useRTH=session=='rth' and not futures_rth, formatDate=2, keepUpToDate=False, timeout=30 if background else 8)
         def save(history):
             result = self.result(history, contract, cid, minutes, session, before, futures_rth or intraday_eight_rth)
             if result['bars']:

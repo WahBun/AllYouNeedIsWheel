@@ -546,16 +546,21 @@ struct OpportunitiesView: View {
 
     var body: some View {
         List {
-            Section {
-                MarketSessionNotice()
-                if let error = book.priceError { NoticeText(error).font(.caption).foregroundStyle(.orange) }
-            } header: {
+            // Keep the title's section empty in every account mode. A populated
+            // section uses a different header-to-row gap than the Demo layout.
+            Section {} header: {
                 HStack(alignment: .center) {
                     Text("Trade").font(.largeTitle.bold()).foregroundStyle(Color(uiColor: .label))
                     Spacer(minLength: 12)
                     titleActions
                 }.textCase(nil).padding(.horizontal, -16).padding(.top, -24).padding(.bottom, 10)
                     .accessibilityIdentifier("tradeTitleRow")
+            }
+            if (!store.demo && book.marketOpen != true) || book.priceError != nil {
+                Section {
+                    MarketSessionNotice()
+                    if let error = book.priceError { NoticeText(error).font(.caption).foregroundStyle(.orange) }
+                }
             }
             Section {
                 Picker("Strategy", selection: $type) { Text("Cash-secured puts").tag("PUT"); Text("Covered calls").tag("CALL") }.pickerStyle(.segmented)
