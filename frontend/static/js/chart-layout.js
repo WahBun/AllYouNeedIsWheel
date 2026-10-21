@@ -164,7 +164,9 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   }
  }
  async function readHistory(c,before,signal,recent=false){
-  signal=AbortSignal.any([signal,AbortSignal.timeout(15000)]);
+  // A bounded background page may wait behind another 30s read before it
+  // starts. Keep polling that same request instead of abandoning it at 15s.
+  signal=AbortSignal.any([signal,AbortSignal.timeout(65000)]);
   const pause=()=>new Promise((resolve,reject)=>{
    signal.throwIfAborted();
    const aborted=()=>{clearTimeout(timer);reject(signal.reason);};

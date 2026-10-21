@@ -140,6 +140,35 @@ class HistoryTests(unittest.TestCase):
 
 
 class BackgroundHistoryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_nine_second_history_completes_without_cancel_and_cooldown(self):
+        # Match ib_async's timeout behavior: a timed-out request discards its
+        # bars. Real MES reads were canceled at eight seconds, then cooled down.
+        feed, conn = ChartHistory(), Mock(account_id='paper-fixture')
+        canceled = []
+        async def broker_answer():
+            await asyncio.sleep(9)
+            return [S(date=datetime.fromtimestamp(100, timezone.utc), open=10, high=11, low=9, close=10)]
+        async def request(*args, **kwargs):
+            try:
+                return await asyncio.wait_for(broker_answer(), kwargs['timeout'])
+            except asyncio.TimeoutError:
+                canceled.append(True)
+                return []
+        conn.ib.reqHistoricalDataAsync = AsyncMock(side_effect=request)
+        with patch('api.services.chart_history.contracts.resolve', return_value=S(conId=7, secType='STK')):
+            self.assertTrue(feed.page(conn, 7, 5, 'all', 300, background=True)['loading'])
+            task = next(iter(feed.pending.values()))
+            await asyncio.sleep(.01)
+            self.assertTrue(feed.page(conn, 7, 5, 'all', 300, background=True)['loading'])
+            self.assertFalse(task.done())
+            await asyncio.wait_for(asyncio.shield(task), 12)
+            result = feed.page(conn, 7, 5, 'all', 300, background=True)
+            self.assertEqual([b['time'] for b in result['bars']], [100])
+        self.assertEqual(canceled, [])
+        conn.ib.reqHistoricalDataAsync.assert_awaited_once()
+        conn.ib.reqHistoricalData.assert_not_called()
+        conn.ib.placeOrder.assert_not_called()
+
     async def test_slow_page_returns_immediately_deduplicates_and_keeps_owner_loop_free(self):
         feed = ChartHistory()
         conn = Mock(account_id='paper-fixture')
