@@ -1636,6 +1636,7 @@ struct SettingsView: View {
         let requestedAddress = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         UserDefaults.standard.set(target, forKey: "selectedBrokerMode")
         switchingAccount = true; addressFocused = false
+        accountSwitchMessage = "Checking account connection…"
         store.address = requestedAddress
         store.demo = true; store.changeMode()
         RecentStockCharts.packets.removeAll(); RecentStockCharts.lastSaved.removeAll()

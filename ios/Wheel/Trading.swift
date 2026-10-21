@@ -417,11 +417,28 @@ final class TradingSession {
         }
     }
 
+    // Only the read before selection may retry. Never replay the selection POST.
+    private func profilesBeforeSelection(base: String) async throws -> [String: Any] {
+        var retries = 2
+        while true {
+            try Task.checkCancellation()
+            do {
+                return try await get("api/account/profiles", base: base)
+            } catch {
+                let temporaryHTTP = (error as? BackendHTTPError).map { [502, 503, 504].contains($0.status) } ?? false
+                guard retries > 0, temporaryHTTP else { throw error }
+                retries -= 1
+                try await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
     func selectAccount(base: String, mode: String) async throws -> [String: Any] {
         guard !busy else { throw AppError.message("Wait for the current request before switching accounts.") }
         busy = true; version += 1
         defer { busy = false }
-        let state = try await get("api/account/profiles", base: base)
+        let state = try await profilesBeforeSelection(base: base)
+        try Task.checkCancellation()
         accountEpoch = state["epoch"] as? String
         var request = URLRequest(url: try endpoint(base, "api/account/select"), timeoutInterval: 35)
         request.httpMethod = "POST"
