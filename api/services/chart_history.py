@@ -20,7 +20,7 @@ class ChartHistory:
         sizes = {1:'1 min',3:'3 mins',5:'5 mins',10:'10 mins',15:'15 mins',60:'1 hour',480:'8 hours',1440:'1 day',10080:'1 week',43200:'1 month'}
         if minutes not in sizes or session not in ('rth','all') or cid <= 0 or not math.isfinite(before) or not 0 < before <= time.time()+86400:
             raise ValueError('Invalid history page')
-        if recent and minutes != 60:
+        if recent and not (minutes == 60 or session == 'rth' and minutes in (1, 3, 5, 10, 15)):
             raise ValueError('Unsupported recent history interval')
         if not conn or not conn.is_connected(): raise ValueError('Chart connection unavailable')
         if background:

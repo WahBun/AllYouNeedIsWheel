@@ -1,10 +1,12 @@
 // Desktop-only menu; use the shared chart's price-choice and preview path.
 (()=>{
- // Seed every hourly pane with one recent week. Extra history is user-driven.
+ // Seed hourly panes and the active futures RTH intraday chart with one week.
+ // A short cold snapshot must not wait for a left-edge gesture to backfill.
+ const needsWeekSeed=p=>p?.interval===60||(window.frameElement?.id==='chart'&&p?.security_type==='FUT'&&p.session==='rth'&&[1,3,5,10,15].includes(p.interval));
  let weekSeedKey='',weekSeedDone=false,weekSeedRetry=0,historyGestureUntil=0;
  function requestWeekSeed(){
   const p=countdownPacket;
-  if(p?.interval!==60||!previous.length)return;
+  if(!needsWeekSeed(p)||!previous.length)return;
   const identity=JSON.stringify([key,p.account_epoch]);
   if(identity!==weekSeedKey){weekSeedKey=identity;weekSeedDone=false;weekSeedRetry=0;}
   if(weekSeedDone||Date.now()<weekSeedRetry)return;
@@ -196,7 +198,7 @@
  new ResizeObserver(placeAxisIcon).observe(axisButton);chart.timeScale().subscribeSizeChange(placeAxisIcon);placeAxisIcon();
  axisButton.onclick=()=>{const r=axisButton.getBoundingClientRect();openChartMenu({target:document.body,clientX:r.left,clientY:Math.min(r.top,chart.paneSize().height-1),preventDefault(){},stopPropagation(){}},true);};
  document.addEventListener('pointerdown',e=>{if(!menu.contains(e.target))close();},true);
- chart.timeScale().subscribeVisibleLogicalRangeChange(()=>{if(countdownPacket?.interval===60&&Date.now()>historyGestureUntil)return;const range=chart.timeScale().getVisibleRange();if(previous.length&&range&&range.from<=previous[Math.min(5,previous.length-1)].time)window.webkit?.messageHandlers.historyRequest?.postMessage({con_id:paperCID,before:previous[0].time,interval:countdownPacket?.interval,session:countdownPacket?.session});});
+ chart.timeScale().subscribeVisibleLogicalRangeChange(()=>{if(needsWeekSeed(countdownPacket)&&Date.now()>historyGestureUntil)return;const range=chart.timeScale().getVisibleRange();if(previous.length&&range&&range.from<=previous[Math.min(5,previous.length-1)].time)window.webkit?.messageHandlers.historyRequest?.postMessage({con_id:paperCID,before:previous[0].time,interval:countdownPacket?.interval,session:countdownPacket?.session});});
  // A trackpad can still emit momentum after a secondary click. Keep the
  // menu stable; scroll inside it, and do not scroll the underlying chart.
  document.addEventListener('wheel',event=>{

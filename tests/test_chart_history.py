@@ -6,6 +6,32 @@ from datetime import datetime, timezone
 from api.services.chart_history import ChartHistory
 
 class HistoryTests(unittest.TestCase):
+    def test_intraday_recent_rth_seed_preserves_session_and_manual_paging(self):
+        from zoneinfo import ZoneInfo
+        zone = ZoneInfo('America/New_York')
+        stamp = lambda hour, minute: datetime(2026, 10, 19, hour, minute, tzinfo=zone)
+        conn = Mock(account_id='paper-fixture')
+        conn.ib.reqHistoricalData.return_value = [
+            S(date=stamp(h, m), open=10, high=11, low=9, close=10)
+            for h, m in [(9, 25), (9, 30), (16, 10), (16, 15)]
+        ]
+        contract = S(conId=7, secType='FUT', symbol='MES', currency='USD', exchange='CME')
+        before = datetime(2026, 10, 20, 9, 30, tzinfo=zone).timestamp()
+        with patch('api.services.chart_history.contracts.resolve', return_value=contract):
+            for minutes, size in [(1, '1 min'), (3, '3 mins'), (5, '5 mins'), (10, '5 mins'), (15, '15 mins')]:
+                feed = ChartHistory()
+                page = feed.page(conn, 7, minutes, 'rth', before, recent=True)
+                call = conn.ib.reqHistoricalData.call_args
+                self.assertEqual(call.args[1:5], ('', '1 W', size, 'TRADES'))
+                self.assertFalse(call.kwargs['useRTH'])  # CME RTH is filtered locally.
+                self.assertEqual(len(page['bars']), 2)
+                self.assertTrue(all(stamp(9, 30).timestamp() <= b['time'] < stamp(16, 15).timestamp() for b in page['bars']))
+                feed.page(conn, 7, minutes, 'rth', before)
+                self.assertEqual(conn.ib.reqHistoricalData.call_args.args[1].timestamp(), before)
+        with self.assertRaises(ValueError):
+            ChartHistory().page(conn, 7, 5, 'all', before, recent=True)
+        conn.ib.placeOrder.assert_not_called()
+
     def test_hourly_recent_seed_is_one_week_and_manual_page_keeps_earlier_range(self):
         feed, conn = ChartHistory(), Mock(account_id='paper-fixture')
         conn.ib.reqHistoricalData.return_value=[]
