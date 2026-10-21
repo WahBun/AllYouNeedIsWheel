@@ -83,6 +83,7 @@ class CloseIdentityRecoveryTests(unittest.TestCase):
         self.assertEqual(self.recover(),repaired)
         self.f.conn.ib.fills.return_value=self.fills
         state=self.f.service.state(self.f.conn,7)
+        self.assertEqual(self.f.service.group('DU_TEST',7)['perms']['close'],2003)
         self.assertTrue(state['known'])
         self.assertEqual(state['position'],0)
         self.assertEqual(state['close_progress']['status'],'completed')
@@ -152,3 +153,91 @@ class CloseIdentityRecoveryTests(unittest.TestCase):
         with database() as db:
             self.assertEqual(db.execute('SELECT perm_id FROM group_order_identity WHERE order_id=3').fetchone()[0],2002)
             self.assertIsNone(db.execute("SELECT 1 FROM sqlite_master WHERE name='chart_close_identity_repairs'").fetchone())
+
+    def restart_evidence(self):
+        project(self.f.service.path,'DU_TEST',7,8,[self.group],self.f.trades,self.fills,0)
+        completed=copy.deepcopy(self.f.trades)
+        for t in completed:
+            t.order.orderId=0;t.order.clientId=0;t.orderStatus.permId=0
+            t.order.filledQuantity=t.orderStatus.filled
+            if t.orderStatus.status=='Filled':t.order.totalQuantity=0
+        return completed
+
+    def test_restart_without_current_trades_recovers_from_exact_durable_evidence(self):
+        completed=self.restart_evidence()
+        other=fixtures.PaperChart(self.f.service.path,str(uuid4()))
+        other.save_group('DU_TEST',7,dict(ref='historical-empty',side=1,ids={}))
+        self.f.trades.clear()
+        self.f.conn.ib.fills.return_value=self.fills
+        self.f.conn._bounded_order_read.return_value=completed
+        state=self.f.service.state(self.f.conn,7)
+        self.assertTrue(state['known'],state)
+        self.assertEqual(state['position'],0)
+        self.assertTrue(state['group_attribution']['known'],state)
+        self.assertEqual(state['group_attribution']['positions'][self.ref],0)
+        self.assertEqual(state['close_progress']['status'],'completed')
+        self.f.conn.ib.placeOrder.assert_not_called();self.f.conn.ib.cancelOrder.assert_not_called()
+
+    def test_zeroed_completed_order_identities_can_use_consistent_saved_terminal_rows(self):
+        completed=self.restart_evidence()
+        recovered=self.recover(completed)
+        self.assertEqual(recovered['perms']['close'],2003)
+        self.assertEqual(recovered['ids']['close_retired_2'],2)
+
+    def test_restart_missing_fill_proof_does_not_repair(self):
+        self.restart_evidence()
+        with self.f.service.database() as db:db.execute('DELETE FROM group_execution_evidence')
+        self.assertEqual(self.recover([]),self.group);self.assert_unmodified()
+
+    def test_restart_current_conflict_or_working_order_does_not_repair(self):
+        completed=self.restart_evidence()
+        for target,key,value in [(completed[2].order,'clientId',99),
+                                 (completed[2].order,'orderRef','foreign'),
+                                 (completed[2].orderStatus,'status','Submitted'),
+                                 (completed[2].orderStatus,'filled',1)]:
+            with self.subTest(field=key,value=value):
+                old=getattr(target,key);setattr(target,key,value)
+                self.assertEqual(self.recover(completed),self.group);self.assert_unmodified()
+                setattr(target,key,old)
+
+    def test_restart_conflicting_terminal_history_does_not_repair(self):
+        self.restart_evidence()
+        row=dict(order=vars(self.new.order),status=dict(vars(self.new.orderStatus),filled=1))
+        with self.f.service.database() as db:
+            db.execute('INSERT INTO group_order_evidence VALUES(?,?,?,?)',
+                       ('conflicting','DU_TEST',7,json.dumps(row,default=str)))
+        self.assertEqual(self.recover([]),self.group);self.assert_unmodified()
+
+    def test_restart_conflicting_execution_identity_does_not_repair(self):
+        self.restart_evidence()
+        with self.f.service.database() as db:
+            encoded=db.execute('SELECT payload FROM group_execution_evidence WHERE payload LIKE ?',('%exit%',)).fetchone()[0]
+            row=dict(json.loads(encoded),clientId=99)
+            db.execute('INSERT INTO group_execution_evidence VALUES(?,?,?,?)',
+                       ('foreign','DU_TEST',7,json.dumps(row)))
+        self.assertEqual(self.recover([]),self.group);self.assert_unmodified()
+
+    def test_restart_correction_family_does_not_repair(self):
+        self.restart_evidence()
+        with self.f.service.database() as db:
+            encoded=db.execute('SELECT payload FROM group_execution_evidence WHERE payload LIKE ?',('%exit%',)).fetchone()[0]
+            row=json.loads(encoded)
+            db.execute('DELETE FROM group_execution_evidence WHERE payload=?',(encoded,))
+            for suffix in ('01','02'):
+                corrected=dict(row,execId='a.b.c.'+suffix)
+                db.execute('INSERT INTO group_execution_evidence VALUES(?,?,?,?)',
+                           (suffix,'DU_TEST',7,json.dumps(corrected)))
+        self.assertEqual(self.recover([]),self.group);self.assert_unmodified()
+
+    def test_restart_without_full_terminal_order_identity_does_not_repair(self):
+        completed=self.restart_evidence()
+        with self.f.service.database() as db:db.execute('DELETE FROM group_order_evidence')
+        self.assertEqual(self.recover(completed),self.group);self.assert_unmodified()
+
+    def test_restart_durable_conflict_is_retained(self):
+        self.restart_evidence()
+        with self.f.service.database() as db:
+            db.execute('INSERT INTO group_ledger_conflicts VALUES(?,?,?)',('DU_TEST',7,'Original conflict'))
+        self.assertEqual(self.recover([]),self.group);self.assert_unmodified()
+        with self.f.service.database() as db:
+            self.assertEqual(db.execute('SELECT detail FROM group_ledger_conflicts').fetchone()[0],'Original conflict')
