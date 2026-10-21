@@ -263,14 +263,16 @@ class PortfolioService:
             'as_of': portfolio.get('as_of')
         }
 
-    def get_option_position_quote(self, con_id, tif=None):
+    def get_option_position_quote(self, con_id, tif=None, *, wait_for_quote=True):
         """Return a fresh quote and close-order metadata for one held option."""
         try:
             conn = self._ensure_connection()
             if not conn:
                 return None
 
-            position = conn.get_option_position_quote(con_id, tif=tif) if tif else conn.get_option_position_quote(con_id)
+            options = {'tif': tif} if tif else {}
+            if not wait_for_quote: options['wait_for_quote'] = False
+            position = conn.get_option_position_quote(con_id, **options)
             if not position:
                 return None
 

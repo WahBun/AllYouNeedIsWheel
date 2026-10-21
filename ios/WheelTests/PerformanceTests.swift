@@ -124,6 +124,44 @@ final class PerformanceTests: XCTestCase {
     }
 
     @MainActor
+    func testTradeTitleActionsPreview() async throws {
+        let store = WheelStore(); store.demo = false; store.address = "https://performance.invalid"
+        store.selectedTab = "settings"
+        store.opportunities.custom = ["TEST"]
+        store.opportunities.excluded = ["HIDDEN:PUT"]
+        store.opportunities.marketOpen = false
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        for dark in [false, true] {
+            for width in [320.0, 393.0, 768.0] {
+                let controller = UIHostingController(rootView: NavigationStack { OpportunitiesView() }
+                    .environment(store).environment(\.locale, Locale(identifier: "en"))
+                    .environment(\.scenePhase, .inactive))
+                let window = UIWindow(windowScene: scene)
+                window.frame = CGRect(x: 0, y: 0, width: width, height: 852)
+                window.overrideUserInterfaceStyle = dark ? .dark : .light
+                window.rootViewController = controller; window.makeKeyAndVisible(); controller.view.frame = window.bounds
+                try await Task.sleep(for: .milliseconds(300))
+                capture(controller, "Trade-title-\(Int(width))-\(dark ? "dark" : "light")")
+                if width == 393 && dark {
+                    func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
+                    let scroll = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UICollectionView }.first)
+                    scroll.setContentOffset(CGPoint(x: 0, y: 250), animated: false)
+                    try await Task.sleep(for: .milliseconds(300))
+                    capture(controller, "Trade-scrolled-actions")
+                    store.opportunities.marketOpen = true
+                    store.opportunities.excluded = []
+                    scroll.setContentOffset(CGPoint(x: 0, y: -scroll.adjustedContentInset.top), animated: false)
+                    try await Task.sleep(for: .milliseconds(300))
+                    capture(controller, "Trade-open-market-chart-only")
+                    store.opportunities.marketOpen = false
+                    store.opportunities.excluded = ["HIDDEN:PUT"]
+                }
+                window.rootViewController = nil; window.isHidden = true
+            }
+        }
+    }
+
+    @MainActor
     func testPortfolioStatusPreview() async throws {
         let store = WheelStore(); store.demo = false; store.address = "https://performance.invalid"
         store.selectedTab = "portfolio"; store.updated = .now

@@ -1,3 +1,46 @@
+## 2026-10-21 — Trade title actions and remaining IB queue contention
+
+Base: `Ben/wheel-1.8` at `b073729f598ca843fb0ce2ddbc0581c4e7dd3688`.
+Read-only Mini audit at 13:22 confirmed that exact commit, clean checkout,
+and backend started at 13:19:38. Paper/Live selection took 598/1220 ms;
+previous 20-second startup waits were absent in that window. Remaining
+completed-history calls occupied the owner for about 3 seconds, while missing
+position quotes could wait 2.5 seconds. Some Portfolio/profile reads hit queue
+capacity. No deployment, service restart, account selection or broker write was
+performed during this follow-up.
+
+- Trade chart/restore-hidden buttons now sit to the right of the large Trade
+  title. They remain available in the toolbar after scrolling. Existing chart
+  routing, strategy-scoped restore, and detail navigation behavior are retained.
+- All bounded SDK completed-order reads share one asynchronous request on the
+  existing IB owner loop. A missing end marker remains explicitly unavailable;
+  it does not occupy the request worker, become an empty successful history,
+  or trigger overlapping retries on IB's fixed request key. A received complete
+  result is shared for five seconds. Reconnect clears the context. Existing
+  history endpoint error/cooldown and order-evidence rules remain intact.
+- Portfolio option metrics opt into `wait=0` and read the active subscription
+  after a short event drain. Missing bid/ask stay missing. Two short initial
+  retries allow cold subscriptions to populate, then normal closed-market
+  cadence/backoff applies. One-shot close/rollover requests retain their prior
+  initial wait. No chart quote freshness, tick delivery, P&L, or order-write
+  guards were changed.
+
+Validation: targeted completed-order SDK lifecycle tests (missing/late end,
+partial rows, account isolation, disconnect, unchanged other read timeouts),
+quote route/default-wait/readiness/recovery/subscription tests, futures history,
+order recovery/external state, connection safety and dispatcher tests passed.
+Five iOS checks passed, with actual renders at widths 320/393/768 in light/dark,
+plus scrolled and market-open/chart-only states. REA controlled replay using
+real ib_async 2.1.0 and a mocked broker wire measured history owner occupancy
+3.0014 s -> 0.0002 s, missing-quote polling 2.5517 s -> 0.0186 s. These measure
+local blocking removal, not deployed latency or broker history availability.
+
+After merge: user chooses **Deploy & Restart Backend**, then rebuilds/Runs
+on iPhone to activate the polling opt-in and header. No Gateway restart is
+required by this change. Verify the deployed SHA and actual post-deploy queue
+behavior separately; Gateway may still withhold completed history. Existing
+uncommitted Localizable.xcstrings was preserved and excluded.
+
 ## 2026-10-21 — Cold Performance entry, Portfolio title row, and account-switch startup
 
 REA read-only runtime evidence on deployed `ecc7c8b8a8da6046c8cd729f2fbf5007d4fa074f`
