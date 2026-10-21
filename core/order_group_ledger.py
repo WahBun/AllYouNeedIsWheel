@@ -146,6 +146,14 @@ def _durable_terminal_trades(db, account, cid, trades):
     return recovered
 
 
+def durable_terminal_trades(path, account, cid, trades):
+    """Read exact terminal evidence without replacing current broker observations."""
+    with sqlite3.connect(path) as db:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE name='group_order_evidence'").fetchone():
+            return []
+        return _durable_terminal_trades(db, account, cid, trades)
+
+
 def project(path, account, cid, client, groups, trades, fills, account_position):
     """Return quantities only from exact, nonconflicting executions.
 

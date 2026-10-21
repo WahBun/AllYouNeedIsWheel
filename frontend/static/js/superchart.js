@@ -511,13 +511,24 @@ if(profile.selected&&(p.selected!==profile.selected||p.epoch!==profile.epoch||p.
 window.WheelNotifications?.setContext(p);window.wheelTradeSounds?.connection(p.verified===true);profile=p;epoch=p.verified?p.epoch:null;if(!p.verified)pnlPhase='unavailable';$('connection').textContent=`${p.selected||'Disconnected'} · ${p.verified?'IB connected':'Not verified'}`;$('connection').className=p.selected||'';
 $('connection').title=p.verified?'IB account connection verified. Market data and order availability are reported separately.':'IB account connection is not verified.';clearReadNotice('Account connection');
 sync();chartLayout.tick();ensureMarket();
-if(selected){
+try{if(selected){
 readScope='Order status';
 if((profile.selected==='paper'||profile.chart_execution_enabled===true)&&profile.verified){const pending=localStorage.getItem(pendingKey());if(pending){const r=await api(orderPath(selected)+(groupID?'&':'?')+'request_id='+encodeURIComponent(pending));if(token!==generation||readVersion!==writeVersion)return;if(r.confirmed===true&&(terminal.has(r.status)||r.status==='reconciled')){localStorage.removeItem(pendingKey());log(`Reconciled: ${r.status}`);}}
 const s=await api(orderPath(selected));if(token!==generation||readVersion!==writeVersion)return;applyState(s);stateRead=true;clearReadNotice('Order status');}else{state={};received=0;clearReadNotice('Order status');}}
+}catch(error){
+ if(token!==generation||readVersion!==writeVersion)return;
+ received=0;
+ readNotice('Order status',`Order status refresh ${error.retryableReadBusy?'delayed: IB request queue is busy':'unavailable'}. Retrying automatically.`,String(error.message));
+ trace(`Order status: ${error.message}`);
+}
 readScope='Orders / positions';
-const [orders,portfolio]=await Promise.all([api('options/pending-orders'),api('portfolio/bootstrap')]);if(token!==generation||readVersion!==writeVersion)return;
-renderRows('orders',orders.orders||[],true);positions=portfolio.positions||portfolio.portfolio?.positions||[];renderRows('positions',positions,false);clearReadNotice('Orders / positions');clearReadNotice('IB request');
+const [orders,portfolio]=await Promise.allSettled([api('options/pending-orders'),api('portfolio/bootstrap')]);if(token!==generation||readVersion!==writeVersion)return;
+// Account lists remain readable when one contract's order reconciliation fails.
+if(orders.status==='fulfilled')renderRows('orders',orders.value.orders||[],true);
+if(portfolio.status==='fulfilled'){positions=portfolio.value.positions||portfolio.value.portfolio?.positions||[];renderRows('positions',positions,false);}
+if(orders.status==='rejected')throw orders.reason;
+if(portfolio.status==='rejected')throw portfolio.reason;
+clearReadNotice('Orders / positions');clearReadNotice('IB request');
 }catch(error){
  // Failed reads have the same context boundary as successful replies.
  if(token!==generation||readVersion!==writeVersion)return;

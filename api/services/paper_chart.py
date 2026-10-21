@@ -10,7 +10,7 @@ import time
 import sqlite3
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from uuid import UUID
-from ib_async import LimitOrder, StopOrder, MarketOrder
+from ib_async import LimitOrder, StopOrder, MarketOrder, Trade
 from api.services.chart_contracts import contracts
 from api.services.stock_chart import stock_chart
 from api.services.futures_orders import completed_trades
@@ -190,10 +190,12 @@ class PaperChart:
         from core.order_group_ledger import project
         groups=[PaperChart(self.path,c['id'] or None).group(account,cid) for c in choices]+historical
         trades=list(conn.reconciled_order_trades() if hasattr(type(conn),'reconciled_order_trades') else conn.ib.trades())
-        # After restart, own completed orders are absent from ib.trades().
-        # Use the same bounded completed-order evidence as state(), never absence.
+        # Durable terminal evidence is already used by the ledger below. Do
+        # not block its recovery on a second download of the same broker facts.
+        from core.order_group_ledger import durable_terminal_trades
+        restored=durable_terminal_trades(self.path,account,cid,trades)
         expected={perm for g in groups for perm in g.get('perms',{}).values() if perm}
-        observed={t.order.permId or t.orderStatus.permId for t in trades}
+        observed={t.order.permId or t.orderStatus.permId for t in trades+restored}
         if expected-observed:
             trades += [t for t in completed_trades(conn,account)
                        if t.contract.conId==cid and (t.order.permId or t.orderStatus.permId) not in observed]
@@ -221,10 +223,24 @@ class PaperChart:
         conn.ib.sleep(.005)
         group = self.group(account,cid)
         raw_trades = conn.reconciled_order_trades() if hasattr(type(conn), 'reconciled_order_trades') else conn.ib.trades()
+        from core.order_group_ledger import durable_terminal_trades
+        restored = durable_terminal_trades(self.path,account,cid,raw_trades)
+        if restored:
+            contract = contracts.resolve(conn,cid)
+            restored = [Trade(contract, trade.order, trade.orderStatus) for trade in restored]
+        raw_trades = list(raw_trades) + restored
         if group and group.get('close_request'):
             from api.services.chart_close_identity import recover_replaced_close
             group = recover_replaced_close(self, conn, account, cid, group, raw_trades)
         trades = {t.order.orderId:t for t in raw_trades if t.order.account==account and t.contract.conId==cid}
+        # Completed-order callbacks may clear/reuse temporary API order IDs.
+        # Reassociate only the group's exact permanent ID and reference.
+        for role, oid in (group or {}).get('ids', {}).items():
+            perm = group.get('perms', {}).get(role)
+            if not perm: continue
+            matches = [t for t in raw_trades if t.order.account==account and t.contract.conId==cid
+                       and (t.order.permId or t.orderStatus.permId)==perm and t.order.orderRef==group.get('ref')]
+            if len(matches)==1: trades[oid]=matches[0]
         position = next((p for p in conn.ib.positions() if p.account==account and p.contract.conId==cid),None)
         from api.services.chart_broker_orders import can_retire_empty_group
         if not self.group_id and group and can_retire_empty_group(self.path, conn, account, cid, group, float(position.position) if position else 0):
