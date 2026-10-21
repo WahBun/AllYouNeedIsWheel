@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import SwiftUI
 import Observation
 @testable import Wheel
 
@@ -1885,5 +1886,76 @@ final class ChartOrderCompletionTests: XCTestCase {
         let old = ChartOrderCompletion.key(state)
         state["orders"] = [["order_id": 13, "status": "Filled"]]
         XCTAssertNotEqual(old, ChartOrderCompletion.key(state))
+    }
+}
+
+
+extension TradingTests {
+    func testOptionMidMovementFreshnessAndReset() {
+        let t = Date(timeIntervalSince1970: 1000)
+        var movement = OptionMidMovement()
+        movement.update(0.4, frozen: false, now: t)
+        XCTAssertEqual(movement.direction(at: t), 0)
+        movement.update(0.42, frozen: false, now: t.addingTimeInterval(1))
+        XCTAssertEqual(movement.direction(at: t.addingTimeInterval(1)), 1)
+        XCTAssertEqual(movement.direction(at: t.addingTimeInterval(16)), 0)
+        movement.update(0.39, frozen: false, now: t.addingTimeInterval(2))
+        XCTAssertEqual(movement.direction(at: t.addingTimeInterval(2)), -1)
+        movement.update(0.39, frozen: false, now: t.addingTimeInterval(3))
+        XCTAssertEqual(movement.direction(at: t.addingTimeInterval(3)), 0)
+        movement.update(0.5, frozen: true, now: t.addingTimeInterval(4))
+        XCTAssertEqual(movement.direction(at: t.addingTimeInterval(4)), 0)
+        movement.update(0.6, frozen: false, now: t.addingTimeInterval(5))
+        XCTAssertEqual(movement.direction(at: t.addingTimeInterval(5)), 0)
+        for invalid in [nil, Double.nan, Double.infinity, -1.0] as [Double?] {
+            movement.update(invalid, frozen: false, now: t.addingTimeInterval(6))
+            XCTAssertNil(movement.value)
+            XCTAssertEqual(movement.direction(at: t.addingTimeInterval(6)), 0)
+        }
+        movement.update(0.4, frozen: false, now: t.addingTimeInterval(7))
+        movement.update(0.8, frozen: false, now: t.addingTimeInterval(30))
+        XCTAssertEqual(movement.direction(at: t.addingTimeInterval(30)), 0)
+        movement = OptionMidMovement()
+        movement.update(0.9, frozen: false, now: t.addingTimeInterval(31))
+        XCTAssertEqual(movement.direction(at: t.addingTimeInterval(31)), 0)
+    }
+
+    func testOptionMidPresentationBothThemes() async throws {
+        let store = WheelStore(); store.demo = true; store.selectedTab = "portfolio"
+        let position = Position(symbol: "TSLL", position: -2, market_price: 0.51, unrealized_pnl: 32,
+                                security_type: "OPT", strike: 13, expiration: "20261218", option_type: "CALL", con_id: 1)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for dark in [false, true] {
+            for width in [320.0, 393.0] {
+                var up = OptionMidMovement(); up.update(0.4, frozen: false); up.update(0.42, frozen: false)
+                var down = OptionMidMovement(); down.update(0.4, frozen: false); down.update(0.38, frozen: false)
+                var frozen = OptionMidMovement(); frozen.update(0.4, frozen: true)
+                let root = NavigationStack {
+                    List {
+                        Section("Option holding") { PortfolioOptionRow(position: position) }
+                        Section("Quote states") {
+                            HStack { Text("Up"); Spacer(); OptionMidPrice(value: 0.42, movement: up, active: true) }
+                            HStack { Text("Down"); Spacer(); OptionMidPrice(value: 0.38, movement: down, active: true) }
+                            HStack { Text("Frozen"); Spacer(); OptionMidPrice(value: 0.4, movement: frozen, active: true) }
+                            HStack { Text("Unavailable"); Spacer(); OptionMidPrice(value: nil, movement: OptionMidMovement(), active: true) }
+                        }
+                    }.navigationTitle("Portfolio")
+                }.environment(store).environment(\.locale, Locale(identifier: "en"))
+                    .environment(\.scenePhase, .active)
+                let host = UIHostingController(rootView: root)
+                let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: width, height: 852)
+                window.overrideUserInterfaceStyle = dark ? .dark : .light
+                window.rootViewController = host; window.makeKeyAndVisible(); host.view.frame = window.bounds
+                host.view.layoutIfNeeded(); try await Task.sleep(for: .milliseconds(500))
+                let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                    XCTAssertTrue(host.view.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+                }
+                let attachment = XCTAttachment(image: image); attachment.name = "OptionMid-\(Int(width))-\(dark ? "dark" : "light")"; attachment.lifetime = .keepAlways; add(attachment)
+                let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(attachment.name!).png")
+                try XCTUnwrap(image.pngData()).write(to: url)
+                print("MID_PREVIEW \(url.path)")
+                window.isHidden = true
+            }
+        }
     }
 }
