@@ -22,6 +22,7 @@ try{
    return route.continue();
   });
   await p.goto(h.url+'/superchart?con_id=7&session=all');
+  await p.locator('#trading-lock').click();
   await p.waitForFunction(()=>document.getElementById('chart-group-loading').hidden&&document.getElementById('order-status').textContent.includes('Trading'));
   const chart=()=>p.locator('#chart').elementHandle().then(e=>e.contentFrame());
   const initialTicks=await (await chart()).evaluate(()=>__latency.length);
