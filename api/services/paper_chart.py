@@ -221,6 +221,9 @@ class PaperChart:
         conn.ib.sleep(.005)
         group = self.group(account,cid)
         raw_trades = conn.reconciled_order_trades() if hasattr(type(conn), 'reconciled_order_trades') else conn.ib.trades()
+        if group and group.get('close_request'):
+            from api.services.chart_close_identity import recover_replaced_close
+            group = recover_replaced_close(self, conn, account, cid, group, raw_trades)
         trades = {t.order.orderId:t for t in raw_trades if t.order.account==account and t.contract.conId==cid}
         position = next((p for p in conn.ib.positions() if p.account==account and p.contract.conId==cid),None)
         from api.services.chart_broker_orders import can_retire_empty_group
@@ -2722,6 +2725,14 @@ class PaperChart:
                     if not target: raise ValueError('Fresh executable quote required for Live limit close')
                     target=price(target)
                     order=LimitOrder('SELL' if actual>0 else 'BUY',abs(actual),target,account=account,tif='DAY',orderRef=group.get('ref','WheelPaper:'+request_id))
+                old_close=group['ids'].get('close')
+                if old_close:
+                    retired='close_retired_'+str(old_close)
+                    group['ids'][retired]=old_close
+                    if 'close' in group.get('perms',{}):
+                        group['perms'][retired]=group['perms'].pop('close')
+                    if 'close' in group.get('terminal',{}):
+                        group['terminal'][retired]=dict(group['terminal'].pop('close'),role=retired)
                 order.orderId=conn.ib.client.getReqId();group['ids']['close']=order.orderId
                 group.pop('close_cancellation', None)
                 group['close_request'] = dict(request_id=request_id, order_id=order.orderId,
