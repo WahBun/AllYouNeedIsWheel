@@ -1,3 +1,22 @@
+## 2026-10-21 — Restore Trade action appearance after moving the buttons
+
+Base: `Ben/wheel-1.8` at `ea8b3aa2647055fd953cb55d4b455344f76d2a69`.
+User screenshots show the original unboxed toolbar icons and unequal bordered
+buttons after relocation into the section header. REA read-only device evidence
+confirmed iPhone 14 Pro / iOS 18.7.7; available local simulator is iOS 27.
+A controlled inherited-bordered-style render reproduced the unequal sizing and
+overlap. Explicit plain styling, identical label hit areas, inherited theme tint,
+and center alignment restore the icon-only appearance at the requested position.
+Chart and strategy-scoped restore actions are unchanged.
+
+Validation: before/after renders with the same inherited style, widths
+320/393/768 in light/dark, scrolled and chart-only states; separate complete
+RootView render with real app theme. Both final simulator checks passed.
+This is not physical iOS 18 verification; no device install/Run was performed.
+After merge, rebuild/Run iPhone. No backend deployment/restart is needed;
+if synchronizing Mini code separately, choose Deploy only. No web refresh needed.
+Existing uncommitted Localizable.xcstrings remains unchanged and excluded.
+
 ## 2026-10-21 — Trade title actions and remaining IB queue contention
 
 Base: `Ben/wheel-1.8` at `b073729f598ca843fb0ce2ddbc0581c4e7dd3688`.

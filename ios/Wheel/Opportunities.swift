@@ -523,17 +523,25 @@ struct OpportunitiesView: View {
             Button {
                 store.openTradeChart(store.portfolio?.positions.first(where: { $0.security_type == "STK" && ($0.con_id ?? 0) > 0 }) ?? Position(symbol: "Chart", position: 0, security_type: "STK"), resumeLast: true)
             } label: {
-                Image(systemName: "chart.xyaxis.line").frame(width: 44, height: 44)
+                Image(systemName: "chart.xyaxis.line")
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
             }.accessibilityLabel("Open recent chart")
 
             if book.hasHidden(type: type) {
-                Button("Restore hidden opportunity tickers", systemImage: "eye") {
+                Button {
                     book.restoreHidden(type: type)
-                }.labelStyle(.iconOnly)
-                    .frame(width: 44, height: 44)
+                } label: {
+                    Image(systemName: "eye")
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                }.accessibilityLabel("Restore hidden opportunity tickers")
                     .help("Restore hidden opportunity tickers")
             }
         }
+        // Match the original toolbar icons, including on iOS 18 where a list
+        // section header otherwise supplies a bordered button style.
+        .buttonStyle(.plain)
+        .font(.title2)
+        .foregroundStyle(.tint)
     }
 
     var body: some View {
@@ -542,10 +550,10 @@ struct OpportunitiesView: View {
                 MarketSessionNotice()
                 if let error = book.priceError { NoticeText(error).font(.caption).foregroundStyle(.orange) }
             } header: {
-                HStack(alignment: .firstTextBaseline) {
+                HStack(alignment: .center) {
                     Text("Trade").font(.largeTitle.bold()).foregroundStyle(Color(uiColor: .label))
                     Spacer(minLength: 12)
-                    titleActions.font(.body).foregroundStyle(Color.accentColor)
+                    titleActions
                 }.textCase(nil).padding(.horizontal, -16).padding(.top, -24).padding(.bottom, -16)
                     .accessibilityIdentifier("tradeTitleRow")
             }
