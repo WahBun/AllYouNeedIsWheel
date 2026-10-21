@@ -8,14 +8,28 @@ const state={"paper": false, "account_mode": "live", "enabled": true, "position"
  await p.route('**/*',async route=>{const r=route.request(),u=new URL(r.url());assert.equal(u.origin,h.url);assert.equal(r.method(),'GET');
  if(u.pathname.endsWith('/profiles'))return route.fulfill({json:{selected:'live',verified:true,epoch:'mock-epoch',chart_execution_enabled:true,readonly:false}});
  if(u.pathname.includes('/paper-chart/'))return route.fulfill({json:state});
- if(u.pathname.includes('/stock-chart/')||u.pathname.includes('/stock-chart-latest/')){const response=await route.fetch();const packet=await response.json();return route.fulfill({json:{...packet,security_type:'OPT',symbol:'TEST',multiplier:100}});}
+ if(u.pathname.includes('/stock-chart/')||u.pathname.includes('/stock-chart-latest/')){const response=await route.fetch();const packet=await response.json();return route.fulfill({json:{...packet,security_type:'OPT',symbol:'TSLL',local_symbol:'TSLL  261218C00013000',multiplier:100}});}
  return route.continue();});
- await p.goto(h.url+'/superchart?con_id=7');await p.locator('#trading-lock').click();
+ await p.goto(h.url+'/superchart?con_id=7');
+ const frame=await (await p.locator('#chart').elementHandle()).contentFrame();
+ await frame.waitForFunction(()=>paperConfig.position===-2&&previous.length>0);
+ const point=await frame.evaluate(()=>({x:Math.min(180,chart.paneSize().width/2),y:series.priceToCoordinate(previous.at(-1).close+.1)}));
+ await frame.locator('body').click({button:'right',position:point});
+ const menu=frame.locator('#desktop-chart-menu');
+ const add=menu.getByRole('menuitem',{name:/^Add · Sell/}),trim=menu.getByRole('menuitem',{name:/^Trim · Buy/});
+ for(const row of [add,trim]){
+  assert.match(await row.innerText(),/TSLL · 12\/18\/26 · 13C @/);
+  assert.match(await row.innerText(),/Trading is locked; unlock to trade/);
+  assert.equal(await row.isDisabled(),true);
+ }
+ assert.equal(await menu.locator('[data-quantity-expand]').count(),0,'Position management must not offer new-entry quantity submenus');
+ await menu.screenshot({path:`/tmp/wheel-option-context-menu-${width}.png`});
+ await p.locator('#trading-lock').click();
  await p.waitForFunction(()=>!document.getElementById('add').disabled&&!document.getElementById('trim').disabled);
  assert.match(await p.locator('#add').textContent(),/^Add/);assert.match(await p.locator('#trim').textContent(),/^Trim/);
  await p.locator('#adjustment-quantity').fill('2');await p.locator('#adjustment-quantity').dispatchEvent('input');
  assert.equal(await p.locator('#add').isDisabled(),true,'Only one additional covered call is available');
  await p.close();
  }
- assert.equal(h.metrics.posts,0);console.log('PASS recovered short option Add/Trim visible at desktop/mobile widths; coverage cap preserved; no writes');
+ assert.equal(h.metrics.posts,0);console.log('PASS actual option right-click Add/Trim labels and compact contract name while locked; desktop/mobile; coverage cap; no writes');
 }finally{await b.close();await h.close();}})().catch(e=>{console.error(e);process.exitCode=1});
