@@ -1,3 +1,349 @@
+## 2026-10-21 — RTH-only volatility information panels
+
+The MoonShine/Away table and probability gauge now use the advancing frame
+server clock, current NY session date and confirmed session end. Retained RTH
+candles no longer keep these panels visible overnight. The existing animation
+loop handles a silent close without adding a timer or changing quote delivery.
+Fresh same-day data restores eligible panels; MoonShine still waits for B1.
+Historical channels, price badges, calculations and native gauge placement stay
+unchanged. The equivalent web and bundled iOS display changes require **Deploy
+only** plus a web refresh, and a user-operated iPhone Run for the native app.
+No backend/Gateway restart or trading write is part of this change.
+
+REA inspected the existing dedicated TradingView NQ1! RTH page at NY 23:14:
+the two information panels were absent while historical channels remained.
+Screenshot evidence: `ev_d7fb7db9a57704e2fb39d41bd1f40c2241a1e387a4cf061ed722e8c98b94d3c7`.
+This confirms the visible reference state, not TradingView's internal code.
+
+Validation: existing volatility calculation/session/B1/render/native checks and
+new browser clock coverage for both assets, desktop/mobile and light/dark
+configuration passed. Covered silent close, reconfiguration after close, stale
+prior-day data, next-session recovery, DST, CME early close and weekends; bars
+and price-badge visibility remain unchanged. B1 parity now compares shared pure
+logic rather than incorrectly requiring native-specific gauge placement to be
+byte-identical. No deployed-page or physical-iPhone acceptance is claimed.
+
+## 2026-10-21 — Deployment acceptance exposed a Close restart-recovery gap
+
+PR #26 merged at `71b3922f005585c0ecbc02537adec6fdeb35e2aa`, and the user
+deployed that revision. A fresh Paper epoch was verified before the read-only
+acceptance check. Actual test exposure remained zero, no test order was pending,
+and the original two position quantities were unchanged. However, the chart
+still attributed one share and reported an unassigned exit execution.
+REA runtime evidence:
+`ev_af6825d480ffea492916fcc3e0483e808c1be0d4bbf9fe2df51f6ba9b2201e90`.
+
+The previous isolated replay used complete pre-restart Trade identities.
+After restart, own terminal orders disappear from `ib.trades()` and completed
+order records have zero API order/client IDs; filled orders can also report
+zero remaining totalQuantity. The recovery path did not use the exact terminal
+observations and executions already retained in the ledger.
+
+The supplement requires the original permanent-ID collision, unambiguous saved
+terminal orders, exact client/order/reference/side execution identities and
+complete quantities. Zeroed completed rows may corroborate these saved records;
+they never establish ownership. Conflicting current observations, terminal
+history, corrected executions, missing proof or durable conflicts keep recovery
+blocked. Existing cancellation-receipt and intent checks, atomic audit and
+mapping update remain in force. No broker order is sent or replayed.
+
+Validation: 129 related checks cover restart, multigroup attribution, close
+management, execution ambiguity and cancellation guards. A full `state()` replay
+using the actual post-deployment records, empty current Trade cache and zeroed
+completed records restored known/flat attribution and completed Close progress.
+It retained all original intents, produced one audit record and sent zero orders.
+REA replay: `ev_a151c4c7073143f29380ff46358182ff8522161eb6bcc25d217eab2815d1109f`.
+
+This supplement is not yet deployed. After merge, use **Deploy & Restart Backend**
+and refresh the web page, then repeat the actual Paper acceptance check before
+declaring recovery complete. This backend-only supplement needs no additional
+iPhone build or Gateway restart. The running database was not manually changed;
+Live was not selected or tested. Existing uncommitted iOS translations are outside
+this change and must be preserved.
+
+## 2026-10-21 — Overnight Paper review delivery state
+
+Four fixes are merged into `Ben/wheel-1.8` through PRs #23–#25 at
+`75c3dc914c2e21eada20a19b1394e9f1c43b2f32`: native account-cache isolation,
+tick-subscription permission notices, conservative native execution evidence,
+and uncertain outcomes after post-action state-read failures.
+The fifth fix, repeated-Close identity preservation and evidence-backed recovery,
+is pushed in PR #26 but remains unmerged. Automatic approval review rejected
+the merge, including after the earlier default-merge authorization was supplied.
+Do not report this fix as part of the deployed or merged branch.
+
+The final read-only Paper check confirmed that the original two position
+quantities were unchanged, the test contract had no broker position, and no
+test order remained pending. Its old chart attribution is still unresolved;
+do not send another exit to compensate for that display. The dedicated browser's
+four 1/5/15/60-minute panes continued receiving live SSE quotes.
+REA continuity evidence:
+`ev_613e1d4e182377b19d89ac1019f2ffe77461d3a82fc351aa1d8ea71681ce9eb2`.
+Mini remains clean at `81abc4c73c9e03e101083e5e935d9c828bd13dfd`.
+
+After PR #26 is merged, apply the verified target branch with **Deploy & Restart
+Backend**, refresh the web page, and verify the affected Paper chart becomes
+known/flat using broker evidence. Run the updated iPhone app for native fixes.
+The shared code fixes are also relevant when the user later operates Live;
+do not copy the Paper database, test orders or account configuration into Live.
+Live was not selected or tested. No Gateway restart or Release was performed.
+Deployment, restart and physical-device acceptance remain unverified.
+
+## 2026-10-21 — Preserve identity when replacing a canceled Close
+
+A bounded one-share Paper acceptance run verified a working Close price amendment
+and cancellation. The subsequent new Close filled and the actual broker account
+was flat with no pending test order, but the chart still attributed one share.
+REA evidence: `ev_7f38eb79985550cc25277f0b81e987743953041adbbee6f58d7a90920bf8d804`.
+The new temporary order ID had retained the canceled Close's permanent ID.
+This made the identity guard resolve the old canceled order and leave the new
+execution unassigned. No additional exit was sent after detecting the mismatch.
+
+A new Close now archives the old Close role, permanent ID and terminal evidence
+before recording its own identity. Partial fills on the canceled Close remain
+in the position accounting. Existing affected records recover only when both
+broker orders, the original cancellation receipt, the new durable priced-Close
+intent and persisted identities agree exactly. The original group/mapping is
+stored in `chart_close_identity_repairs`; the audit, mapping correction and group
+update commit atomically. No broker write, intent deletion, conflict clearing,
+manual unlock or net-position-based ownership inference occurs.
+Missing, foreign, ambiguous or conflicting evidence stays unresolved.
+
+Validation: 521 related repository checks plus a separate atomic rollback test
+passed (522 total). The original future-replacement regressions failed before
+the fix. An isolated replay of this actual Paper group's redacted evidence
+changed attributed position from one to zero, restored known state, retained
+all original intents and produced one audit record with zero broker writes.
+Replay evidence: `ev_f7426325132613f345c4590dc5ba96884f5c86f5721455a7a1ed98a945cafaca`.
+
+The running Paper database remains unchanged. Actual broker exposure is flat;
+the old deployed code still displays this group's attribution error. Deployment
+and Backend restart remain blocked by automatic approval review, pending explicit
+confirmation. After PR #26 merges, apply the code with Deploy & Restart Backend, then reopen
+the chart to verify evidence-based recovery. Refresh web; Run iPhone for the
+earlier native fixes. No Gateway restart is needed.
+
+## 2026-10-21 — Keep post-action read failures uncertain
+
+Controlled REA replay sent a complete mock bracket, then disconnected immediately
+before the final state read. `execute` incorrectly persisted `rejected` with
+"Gateway disconnected", allowing reconciliation to treat that rejection as
+confirmed despite broker writes. Evidence:
+`ev_481c13cc2daf3171e8a8627353b65ded03e057efcaf50c30ae330cc338254f16`.
+
+The request now remains `unknown` when a ValueError occurs after the action
+returns. Pre-action validation still rejects invalid input. Existing journal and
+broker-read reconciliation remain responsible for the outcome, with no replay.
+Regression covers submit, stop amendment and protection cancellation, repeated
+request IDs, reconstruction of the service, and a second read after reconciliation.
+
+Validation: 513 repository checks plus the original two-case reproduction passed
+(515 total), spanning Paper stock/option/future workflows, scaling, protection,
+close management, multigroup attribution and process-crash boundaries.
+Expanded discovery also exposed two test modules importing a TestCase fixture
+directly; unittest was rerunning inherited flat-stock tests with an existing
+short-option setup. Importing the fixture module preserves their intended tests
+and stops the invalid duplicate discovery. No failing case was skipped.
+This change requires Deploy & Restart Backend; it does not require an iPhone
+rebuild by itself. Runtime disconnect/restart acceptance remains unverified.
+
+## 2026-10-21 — Require unambiguous native execution evidence after reconnect
+
+Controlled REA replay reproduced canceled chart-group retirement accepting
+conflicting duplicate executions and correction families as native ownership
+evidence. Seven adversarial cases returned true; the current attribution layer
+still blocked legacy-balance execution, but the old chart group could be
+incorrectly archived. Evidence:
+`ev_231af56706e00785786aab66a4fb7bd570b9c29e8cae55c909b109acf0fa2cbd`.
+
+The reconnect fallback now reuses `core.execution_evidence.groups`, counts exact
+replays once, and rejects ambiguous families, conflicting duplicates and invalid
+quantities. Exact account/contract/client/order/permanent-ID checks remain in
+place. A verified completed Trade still uses its existing authoritative path.
+The Paper-only retirement behavior retains its old group on uncertain evidence;
+this does not unlock trading, resolve a request or alter Daily P&L.
+
+Validation: 226 related offline checks passed, including both arrival orders of
+conflicting data, identical replay, native chart groups, broker adapters, Paper
+orders, multigroup attribution and recovered/working close management.
+Deploy & Restart Backend is required to apply this backend change.
+
+## 2026-10-21 — Bounded broker Paper acceptance during market hours
+
+The user authorized current-session Paper tests and prohibited switching to Live.
+Runtime verification remained on IB Paper at deployed SHA
+`81abc4c73c9e03e101083e5e935d9c828bd13dfd`.
+Using a previously flat stock contract, a one-share nonmarketable DAY limit was
+acknowledged, changed to two shares with a new price and GTC, then canceled.
+A separate two-share protected entry filled; a stop amendment was acknowledged,
+a one-share trim filled, remaining TP/SL each covered one share, and the final
+one-share limit close filled. The final broker state was known/flat, with no
+active test order and no test rows in pending Orders. Initial unknown responses
+were reconciled through reads; no write was replayed. Existing holdings/orders
+were not targeted. Evidence:
+`ev_5ce5a70376d043187edc2258d1fe8d5a0d7821430c03df9bf37edfd7a9227417`.
+
+This is real Paper broker evidence for those operations, separate from mocks.
+It does not certify partial fills, natural TP/SL triggers, actual restart recovery,
+Live trading or physical iPhone behavior.
+Automatic approval review blocked deployment and Backend restart despite the
+broader Paper authorization; an explicit confirmation was requested. No deployment,
+Backend/Gateway restart or physical Run occurred. Mini stayed clean at the SHA
+above with no pending deployment record. Newly merged fixes remain undeployed.
+
+## 2026-10-21 — Surface tick-subscription entitlement failures
+
+REA observed IB Paper reject SPY Last/BidAsk tick subscriptions with error 10189
+while historical bars remained available and the chart reported only waiting.
+Runtime evidence: `ev_7cad62d3ec75bc0b0d7de35410d282d93cf8e4c8edb1755623076946c947fb68`.
+The chart now attaches a display-only entitlement notice to packets. It matches
+exact subscription request IDs, contract and current client/state; unrelated or
+retired errors cannot taint another chart. Actual fresh Last and BidAsk updates
+clear their respective notices. Listener cleanup accompanies subscription cleanup.
+The iPhone displays the supplied message for both snapshot and push packets;
+the web uses its existing Detail > Chart status location.
+
+Validation: the two new regressions failed before the fix; all 208 core offline
+checks and 16 related iOS simulator checks passed. Browser acceptance covers
+390/1440 widths and light/dark themes, retained history, notice recovery, locked
+trading and zero POSTs/page errors. Executable quote freshness, aggregation,
+order behavior and layouts are unchanged. These checks do not grant subscriptions
+or establish that SPY has live data entitlement.
+
+Deploy & Restart Backend is required, then refresh the web page. Run the updated
+iPhone app to apply the native notice and preceding account-isolation change.
+Paper runtime deployment/acceptance is recorded separately after verification.
+
+## 2026-10-21 — Paper-session review and iPhone account-cache isolation
+
+Read-only runtime checks verified IB Paper and a clean Mini checkout at
+`81abc4c73c9e03e101083e5e935d9c828bd13dfd`, matching the GitHub target.
+REA observed the existing dedicated browser's four live chart panes receiving
+Paper SSE updates. This was a continuity check, not a latency benchmark or
+evidence of improved performance. Evidence:
+`ev_2a916f006cc2ca14ac46d3a9f4f4ca16afd93f40b0b5994afcf7a1774a2db1f9`,
+`ev_ab03391902d7879233b4d2153f95932f8137e918e7f3858c13f70f53e85571b1`.
+
+Review covered account switching/epochs, serialized dispatch, quote recovery,
+historical order evidence, pending-write fences and native account/chart refresh.
+A simulator regression reproduced a new-epoch live response combining new
+positions with the old summary while retaining previous Orders/history caches.
+Wheel now clears the account context on an observed epoch/mode change, rejects
+late reads from the old revision, and requires a full bootstrap on the next
+refresh. Charts restart their account-dependent tasks and lock trading on epoch
+changes. Ordinary same-account refresh retains its context; unresolved trading
+requests remain unresolved and are never replayed.
+
+Validation: 125 related iOS simulator checks and 68 frontend unit checks passed.
+The 206-check core offline suite passed, with additional DAY-history,
+paper-chart, recovered-close, attribution and connection checks passing.
+Two connection tests require constructing an IB wrapper and therefore were
+rerun separately with socket connection blocked; they use fake IB methods.
+The four-pane account-recovery fixture was corrected to respect default trading
+lock, then passed with one cold request at a time, zero POSTs and zero page errors.
+No new layout or market-data delivery implementation was introduced.
+
+These checks do not certify real partial fills, TP/SL triggers, broker reconnect
+reconciliation or physical-device recovery. Existing Paper orders/holdings were
+not modified; no test orders, deployment, service restart or physical Run was
+performed. This is an iPhone code change: Run the updated app to apply it.
+No backend restart is needed; use Deploy only if synchronizing Mini's checkout.
+
+## 2026-10-21 — Separate inactive DAY history from locked chart previews
+
+A Trade detail chart could show "Order status unknown" and "TP 0 / SL 0 /
+Unknown" while the user was only viewing a contract. REA inspected the affected
+contract state, and a read-only journal check found a previously acknowledged
+standalone DAY entry whose broker-confirmed snapshots had no fills. Its final
+historical report was absent from the available broker history.
+
+The backend now provides display-only evidence after fresh all-client open-order
+and position reads both show no activity for that exact account and contract.
+It requires the saved broker identity and latest acknowledged DAY snapshot;
+pending requests, GTC, protection, holdings, active orders and failed reads do not
+qualify. Normal working orders take no additional broker reads. Eligible checks
+are bounded and cached for ten seconds, with current activity checked on reuse.
+
+The iPhone's locked chart shows View and puts the old DAY record in Order history.
+Unknown protection counters are hidden for this viewing state. Unlocking trading,
+pending actions, errors or stale state restore the ordinary order-status display.
+The original journal and execution guards remain unchanged: this does not infer
+Cancelled/Expired, clear a request, or authorize another order.
+
+Validation: 190 backend checks and 12 iOS simulator checks passed. Actual rendered
+dark/light status sections were inspected. The live journal's DAY/identity and
+acknowledgment conditions were checked read-only; the new runtime classification
+and physical iPhone display await deployment. Deploy & Restart Backend, then Run
+the updated iPhone app and reopen the chart. No deployment, restart or real order
+was performed for this change.
+
+## 2026-10-21 — Recover missing option quote sides
+
+An option chart could retain a displayed bid/ask while its executable ask stayed
+unavailable. A 45-second passive Gateway observation captured 1,096 quote events
+with no reassembly gaps. In concurrent cached-packet reads, the affected option
+had 0 valid asks in 71 samples, while another option had both sides in all 71.
+This does not establish an entitlement problem or prove why IB stopped updating
+one side. REA retained the sanitized comparison as
+`ev_a54dddf0af3573e33ea10db7a5bf6271faed043addc038dabacfd848402a3f69`.
+
+The existing 60-second keepalive only touched the shared ticker cache. Active
+option charts now renew the exact market-data subscription when a quote side
+remains missing or older than 30 seconds. Requests use the existing IB owner,
+start no more often than every 30 seconds, and back off to 300 seconds without
+recovery. Healthy quotes reset the backoff. Frozen requested mode, replaced
+connections, detached states and non-option feeds do not trigger recovery.
+
+A renewal clears executable quote state and waits for actual side-specific IB
+callbacks. Existing quote expiry, delayed/zero-size rejection, order behavior,
+chart history and Last tick delivery are unchanged. No order is submitted by
+quote recovery. Retired ticker callbacks cannot revive the old stream.
+
+Validation: 147 distinct relevant backend tests passed, including 10 recovery
+cases and exact-stream cache isolation. The recovery suite also passes the
+network/broker-construction/database-blocking offline runner. Real chart assets
+passed eight Join Mid desktop/mobile/theme/direction scenarios and the option
+quote overlay suite. The Join Mid fixture now unlocks trading explicitly and
+covers the current immutable-latest endpoint. Live recovery awaits deployment;
+no broker order, deployment, Backend restart or Gateway restart was performed.
+Deploy & Restart Backend, then refresh/reopen the chart. No iPhone rebuild is
+required for this backend change.
+
+## 2026-10-20 — Limit Close after historical order recovery
+
+A chart position could be known and manageable after reconnect, yet a priced
+full Close failed with “Position and executions are not synchronized.” The
+position view restored confirmed terminal orders, while Close counted only
+in-memory Trade objects with their original temporary IDs.
+
+Close now reconciles again after cancellation and the fresh position read, then
+counts the same verified order rows, including recovered historical fills and
+completed orders with reset temporary IDs. It still requires matching group
+identity, known terminal outcomes and agreement with the fresh broker position.
+An exit filled during the read must not cause a reverse position; unknown writes
+retain the existing reconciliation and no-replay behavior.
+
+REA inspected the actual page error and read-only contract state/execution
+responses (`ev_c022ee538677a75596528f388eadb86ea759f78fae80fb7022c26a15021a0f71`,
+`ev_615004f2bcb43d23c76fadb067e5266af64681c388e4d45b8f9bd8e3b16945b2`).
+The deployed journal corroborated a filled short entry and canceled stop. No
+real order, position, journal or service was changed during investigation.
+
+Validation: nine focused mock regressions cover the reported short-option
+limit Close, long positions, partial exits, reset IDs, stale quantities,
+unconfirmed history, a fill during the position read and lost-response recovery.
+The related paper-chart, priced-close, recovery, Live-option policy/management
+and multigroup suites passed (228 distinct tests including these regressions).
+The initial reproduction failed with the exact reported error before the fix.
+The isolated desktop browser check follows right-click at $0.45, Close Buy Limit
+1 and Place limit exit, verifying one request with the exact price, quantity,
+position and group identity. Browser responses are mocked; no broker writes.
+
+Deployment recommendation after merge: **Deploy & Restart Backend**, then
+refresh the web page. No Gateway restart or iPhone rebuild is required for this
+backend correction. Deployment is user-operated; mock validation is not broker
+acceptance, and Live order submission remains the user's action. No Release.
+
 ## 2026-10-20 — Selectable browser price-alert sounds
 
 The price-alert editor now offers six original generated cues (Alarm Clock,

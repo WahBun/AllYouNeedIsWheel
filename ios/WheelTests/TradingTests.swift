@@ -23,8 +23,142 @@ final class MockProtocol: URLProtocol {
     override func stopLoading() {}
 }
 
+private final class AccountHistoryProtocol: URLProtocol {
+    static var hold: ((AccountHistoryProtocol) -> Void)?
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        if request.url?.path.hasSuffix("/pending-orders") == true { Self.hold?(self) }
+        else { finish(["success": true, "orders": []]) }
+    }
+    func finish(_ body: [String: Any]) {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: body))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 @MainActor
 final class TradingTests: XCTestCase {
+    func testRemoteAccountEpochChangeClearsCachedAccountBeforeFullReload() async throws {
+        let savedMode = UserDefaults.standard.object(forKey: "selectedBrokerMode")
+        let savedAddress = UserDefaults.standard.object(forKey: "backendURL")
+        defer {
+            UserDefaults.standard.set(savedMode, forKey: "selectedBrokerMode")
+            UserDefaults.standard.set(savedAddress, forKey: "backendURL")
+            MockProtocol.payload = nil
+        }
+        UserDefaults.standard.set("paper", forKey: "selectedBrokerMode")
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        let store = WheelStore(session: URLSession(configuration: config))
+        store.demo = false; store.address = "https://mock.invalid"
+        MockProtocol.requests = []; MockProtocol.fail = false; MockProtocol.statusCode = 200
+        var epoch = "first"
+        MockProtocol.payload = { request in
+            let connection: [String: Any] = ["mode": "paper", "account_epoch": epoch,
+                "execution_enabled": true, "chart_execution_enabled": true]
+            if request.url?.path.hasSuffix("/live") == true {
+                return ["positions": [["symbol": "NEW", "position": 1, "security_type": "STK", "con_id": 22]],
+                        "is_frozen": false, "connection": connection]
+            }
+            return ["summary": ["account_value": epoch == "first" ? 1000 : 2000, "cash_balance": 500],
+                    "positions": [], "connection": connection]
+        }
+        await store.refreshPortfolio(includeWeekly: false)
+        let old = Order(id: 91, ticker: "OLD", quantity: 1, status: "executed")
+        store.orders = [old]; store.filledOrders = [old]; store.retainCompleted([old])
+        store.weekly = WeeklyIncome(total_income: 12, positions_count: 1)
+        store.trading.uncertain = true
+        store.opportunities.rows["OLD:PUT"] = OpportunityRow(ticker: "OLD", type: "PUT")
+        await store.refreshPortfolio(includeWeekly: false)
+        XCTAssertEqual(store.orders.first?.id, old.id, "An ordinary quote refresh must retain the account context")
+        XCTAssertEqual(store.portfolio?.summary.account_value, 1000)
+        epoch = "second"
+        await store.refreshPortfolio(includeWeekly: false)
+        XCTAssertNil(store.portfolio, "A live response must not combine new holdings with the old account summary")
+        XCTAssertNil(store.trading.accountEpoch)
+        XCTAssertTrue(store.orders.isEmpty)
+        XCTAssertTrue(store.filledOrders.isEmpty)
+        XCTAssertTrue(store.completedOrders.isEmpty)
+        XCTAssertTrue(store.opportunities.rows.isEmpty)
+        XCTAssertNil(store.weekly)
+        XCTAssertTrue(store.trading.uncertain, "Account cache cleanup must preserve unresolved writes")
+        await store.refreshPortfolio(includeWeekly: false)
+        XCTAssertEqual(store.portfolio?.summary.account_value, 2000)
+        XCTAssertEqual(store.trading.accountEpoch, "second")
+        XCTAssertNil(store.error)
+        XCTAssertEqual(MockProtocol.requests.map { $0.url!.path },
+                       ["/api/portfolio/bootstrap", "/api/portfolio/live", "/api/portfolio/live", "/api/portfolio/bootstrap"])
+        XCTAssertTrue(MockProtocol.requests.allSatisfy { $0.httpMethod == "GET" })
+    }
+
+    func testRemoteModeChangeClearsHoldingsAndRequiresSelectedMode() async {
+        let savedMode = UserDefaults.standard.object(forKey: "selectedBrokerMode")
+        defer {
+            UserDefaults.standard.set(savedMode, forKey: "selectedBrokerMode")
+            MockProtocol.payload = nil
+        }
+        UserDefaults.standard.set("paper", forKey: "selectedBrokerMode")
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        let store = WheelStore(session: URLSession(configuration: config))
+        store.demo = false; store.address = "https://mock.invalid"
+        store.portfolio = Bootstrap(summary: Summary(account_value: 1000, cash_balance: 500),
+                                    positions: [Position(symbol: "OLD", position: 1, security_type: "STK", con_id: 7)],
+                                    connection: AccountConnection(account_epoch: "old", mode: "paper", execution_enabled: true, chart_execution_enabled: true))
+        store.trading.accountEpoch = "old"
+        MockProtocol.fail = false; MockProtocol.statusCode = 200; MockProtocol.requests = []
+        MockProtocol.payload = { _ in
+            ["summary": ["account_value": 9999, "cash_balance": 500], "positions": [],
+             "connection": ["mode": "live", "account_epoch": "new", "execution_enabled": true, "chart_execution_enabled": true]]
+        }
+        await store.refreshPortfolio(includeWeekly: false)
+        XCTAssertNil(store.portfolio)
+        XCTAssertNil(store.trading.accountEpoch)
+        XCTAssertFalse(store.chartTradingAvailable)
+        await store.refreshPortfolio(includeWeekly: false)
+        XCTAssertNil(store.portfolio)
+        XCTAssertFalse(store.isConnected(to: store.address))
+        XCTAssertTrue(store.error?.contains("selected mode") == true)
+        XCTAssertTrue(MockProtocol.requests.allSatisfy { $0.httpMethod == "GET" })
+    }
+
+    func testOldExecutionHistoryCannotRepopulateAfterRemoteAccountChange() async throws {
+        let savedMode = UserDefaults.standard.object(forKey: "selectedBrokerMode")
+        defer {
+            UserDefaults.standard.set(savedMode, forKey: "selectedBrokerMode")
+            MockProtocol.payload = nil
+            AccountHistoryProtocol.hold = nil
+        }
+        UserDefaults.standard.set("paper", forKey: "selectedBrokerMode")
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        let historyConfig = URLSessionConfiguration.ephemeral; historyConfig.protocolClasses = [AccountHistoryProtocol.self]
+        let store = WheelStore(session: URLSession(configuration: config))
+        store.demo = false; store.address = "https://mock.invalid"
+        store.trading = TradingSession(session: URLSession(configuration: historyConfig))
+        store.trading.accountEpoch = "old"
+        store.portfolio = Bootstrap(summary: Summary(account_value: 1000, cash_balance: 500), positions: [],
+                                    connection: AccountConnection(account_epoch: "old", mode: "paper", execution_enabled: true, chart_execution_enabled: true))
+        let waiting = expectation(description: "Old account history is in flight")
+        var held: AccountHistoryProtocol?
+        AccountHistoryProtocol.hold = { request in held = request; waiting.fulfill() }
+        let refresh = Task { await store.refreshOrders() }
+        await fulfillment(of: [waiting], timeout: 3)
+        MockProtocol.fail = false; MockProtocol.statusCode = 200
+        MockProtocol.payload = { _ in
+            ["summary": ["account_value": 2000, "cash_balance": 500], "positions": [],
+             "connection": ["mode": "paper", "account_epoch": "new", "execution_enabled": true, "chart_execution_enabled": true]]
+        }
+        await store.refreshPortfolio(includeWeekly: false)
+        try XCTUnwrap(held).finish(["orders": [["id": 91, "ticker": "OLD", "status": "executed", "quantity": 1, "filled": 1]]])
+        await refresh.value
+        XCTAssertTrue(store.completedOrders.isEmpty)
+        XCTAssertTrue(store.orders.isEmpty)
+        XCTAssertNil(store.fillPreview.notice)
+        XCTAssertNil(store.ordersUpdated)
+    }
+
     func testAccountVerificationRequiresMatchingModeAndEpoch() throws {
         XCTAssertNil(try AccountConnectionRules.verifiedEpoch(["selected": "paper", "verified": false], mode: "paper"))
         XCTAssertEqual(try AccountConnectionRules.verifiedEpoch(["selected": "paper", "verified": true, "epoch": "new"], mode: "paper"), "new")

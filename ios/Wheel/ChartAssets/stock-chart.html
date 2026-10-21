@@ -705,7 +705,7 @@ function positionChartConfirmation(){
  if(!onScreen){
   if(row.parentElement!==document.body){document.body.append(row);row.dataset.floating='true';}
   const body=chartConfirmation.body,role=body.action==='edit_entry'?'entry':body.role||(levels.sl?'sl':'tp');
-  const anchor=series.priceToCoordinate(role==='entry'?entry:levels[role]),width=row.getBoundingClientRect().width;
+  const anchor=series.priceToCoordinate(role==='entry'?entry:role==='close'?body.price:levels[role]),width=row.getBoundingClientRect().width;
   Object.assign(row.style,{position:'absolute',visibility:'visible',zIndex:'30',height:'30px',background:'#f4f5f3',borderRadius:'4px',boxShadow:'0 2px 8px #0004',left:Math.max(plotLeft()+4,plotRight()-width-12)+'px',top:Math.max(38,Math.min(height-34,(anchor??height/2)+22))+'px'});
  }else if(row.dataset.floating){
   handle.prepend(row);delete row.dataset.floating;
@@ -731,15 +731,15 @@ function confirmChartDraft(){
  discardChartConfirmation();paperAction(body);
 }
 function confirmationIdentity(){return JSON.stringify([paperCID,paperConfig.web_account_epoch,paperConfig.order_ref,paperConfig.position,paperConfig.tp,paperConfig.sl,paperConfig.edit_snapshot,paperConfig.cancelable_exits,(paperConfig.orders||[]).map(o=>[o.order_id,o.role,o.status,o.quantity,o.filled,o.price])]);}
-function discardChartConfirmation(){chartConfirmation=null;document.getElementById('chart-confirmation')?.remove();levels=protectionDisplayLevels();if(paperConfig.entry)entry=paperConfig.entry;updateLines();}
+function discardChartConfirmation(){chartConfirmation=null;document.getElementById('chart-confirmation')?.remove();levels=protectionDisplayLevels();if(paperConfig.entry)entry=paperConfig.entry;updateLines();window.refreshCloseLimitDraft?.();}
 function stageChartConfirmation(body){
- const cancel=body.action==='cancelProtectionPreview',protection=body.action==='amend'&&['tp','sl'].includes(body.role),edit=body.action==='edit_entry'&&Number.isFinite(body.price)&&!body.cancel;
+ const cancel=body.action==='cancelProtectionPreview',protection=body.action==='amend'&&['tp','sl','close'].includes(body.role),edit=body.action==='edit_entry'&&Number.isFinite(body.price)&&!body.cancel;
  if(body.chart_confirmed||!(cancel||protection||edit))return false;
  if((cancel||protection||edit)&&displayOptions.rightClickTrading===true){body.chart_confirmed=true;return false;}
  document.getElementById('chart-confirmation')?.remove();
  chartConfirmation={body:{...body,expected_ref:body.expected_ref??paperConfig.order_ref,chart_confirmed:true},identity:confirmationIdentity()};
- if(edit)entry=body.price;else if(protection)levels[body.role]=body.price;
- updateLines();document.querySelector('#chart-confirmation [role=button]')?.focus();return true;
+ if(edit)entry=body.price;else if(protection&&body.role!=='close')levels[body.role]=body.price;
+ updateLines();window.refreshCloseLimitDraft?.();document.querySelector('#chart-confirmation [role=button]')?.focus();return true;
 }
 window.requestProtectionCancellation=body=>paperAction({...body,action:'cancelProtectionPreview'});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&chartConfirmation){e.preventDefault();discardChartConfirmation();}});
@@ -840,7 +840,7 @@ window.configure=(config)=>{const wasLocked=nativeTradingLocked();optionQuoteDar
  if(config.previewRevision>lastPreviewRevision){lastPreviewRevision=config.previewRevision;if(!paperConfig.active&&(config.previewSide===1||config.previewSide===-1)){explicitPreviewSide=config.previewSide;setSide(config.previewSide);canceled=false;levels={tp:0,sl:0};appliedTemplate=-1;}}
  if(paperConfig.active&&paperConfig.entry>0){if(dragging!=='entry')entry=paperConfig.entry_target??paperConfig.entry;entryType=paperConfig.entry_type||entryType;qty=Math.abs(paperConfig.position)||paperConfig.quantity||paperConfig.orders?.find(o=>o.role==='entry')?.quantity||qty;side=paperConfig.side;breakEven=paperConfig.be_applied===true;if(!dragging){levels=protectionDisplayLevels();if(paperConfig.protection_drag_role&&paperConfig.protection_target!=null)levels[paperConfig.protection_drag_role]=paperConfig.protection_target;}canceled=false;}
  if(quantityDraft){if(quantityDraftValid()&&!paperConfig.busy)qty=quantityDraft.value;else {quantityDraft=null;quantityPopup.hidden=true;}}
- if(chartConfirmation){if(chartConfirmation.identity!==confirmationIdentity()||paperConfig.busy)discardChartConfirmation();else if(chartConfirmation.body.action==='amend'&&dragging!==chartConfirmation.body.role)levels[chartConfirmation.body.role]=chartConfirmation.body.price;else if(chartConfirmation.body.action==='edit_entry'&&dragging!=='entry')entry=chartConfirmation.body.price;}
+ if(chartConfirmation){if(chartConfirmation.identity!==confirmationIdentity()||paperConfig.busy)discardChartConfirmation();else if(chartConfirmation.body.action==='amend'&&chartConfirmation.body.role!=='close'&&dragging!==chartConfirmation.body.role)levels[chartConfirmation.body.role]=chartConfirmation.body.price;else if(chartConfirmation.body.action==='edit_entry'&&dragging!=='entry')entry=chartConfirmation.body.price;}
  updateLines();
  document.getElementById('entry').style.pointerEvents=(paperConfig.active?!canDragEntry():paperConfig.busy)?'none':'auto';
  for(const role of ['tp','sl'])document.getElementById(role).style.pointerEvents=canDragProtection(role)?'auto':'none';

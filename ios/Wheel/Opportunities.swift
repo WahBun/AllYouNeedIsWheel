@@ -84,6 +84,41 @@ struct ContractQuote: Decodable, Identifiable {
     var spread: Double? { mid.map { ((ask ?? 0) - (bid ?? 0)) / $0 * 100 } }
 }
 
+struct OpportunityChartContract: Equatable {
+    let ticker: String
+    let expiration: String
+    let strike: Double
+    let right: String
+
+    init?(row: OpportunityRow, preference: OpportunityPreference) {
+        guard let quote = row.quote, quote.expiration == preference.expiration,
+              let strike = preference.strike ?? row.quote?.strike, strike.isFinite, strike > 0,
+              ["CALL", "PUT"].contains(row.type) else { return nil }
+        ticker = row.ticker; expiration = preference.expiration
+        self.strike = strike; right = row.type == "CALL" ? "C" : "P"
+    }
+
+    var query: [URLQueryItem] {
+        ["type": "OPT", "q": ticker, "expiration": expiration, "right": right, "strike": String(strike)]
+            .map { URLQueryItem(name: $0.key, value: $0.value) }
+    }
+
+    func position(conID: Int? = nil) -> Position {
+        Position(symbol: ticker, position: 0, security_type: "OPT", strike: strike,
+                 expiration: expiration, option_type: right, con_id: conID)
+    }
+
+    func resolve(_ response: [String: Any]) throws -> Position {
+        let contracts = (response["contracts"] as? [[String: Any]] ?? []).compactMap(ChartInstrument.init)
+        guard contracts.count == 1, let contract = contracts.first,
+              contract.type == "OPT", contract.symbol == ticker, contract.expiration == expiration,
+              contract.right == right, contract.strike == strike else {
+            throw AppError.message("Exact contract unavailable. Refresh the quote and try again.")
+        }
+        return position(conID: contract.id)
+    }
+}
+
 enum TradingMath {
     static func orderedStrikes(_ values: [Double]) -> [Double] {
         Set(values.filter { $0.isFinite && $0 > 0 }).sorted()
@@ -678,14 +713,24 @@ struct OpportunityDetail: View {
     @State private var strikeLoadID = UUID()
     @State private var strikeRetry = 0
     @State private var strikeInput = ""
+    @State private var chartOpening = false
+    @State private var chartError: String?
+    @State private var chartRequest: UUID?
     @Environment(WheelStore.self) private var store
     private var book: OpportunityBook { store.opportunities }
     private var key: String { book.key(ticker, type) }
     private var row: OpportunityRow { book.rows[key] ?? OpportunityRow(ticker: ticker, type: type) }
     private var preference: OpportunityPreference { book.preferences[key] ?? OpportunityPreference() }
+    private var chartContract: OpportunityChartContract? { OpportunityChartContract(row: row, preference: preference) }
     private var autoRefresh: Bool { visible && !showStrikes && phase == .active && store.selectedTab == "trade" && !book.batchRunning && !store.trading.busy }
     var body: some View {
         Form {
+            Section {
+                Button("𝑺𝒖𝒑𝒆𝒓𝒄𝒉𝒂𝒓𝒕𝒔") { chartRequest = UUID() }
+                    .disabled(chartContract == nil || chartOpening)
+                if chartOpening { ProgressView("Finding exact contract…") }
+                if let chartError { NoticeText(chartError).font(.caption).foregroundStyle(.orange) }
+            }
             MarketSessionNotice()
             if let error = book.priceError { NoticeText(error).font(.caption).foregroundStyle(.orange) }
             Section(LocalizedStringKey(type == "CALL" ? "Covered call" : "Cash-secured put")) {
@@ -772,6 +817,29 @@ struct OpportunityDetail: View {
             Section { TradingNotice() }
         }.symbolTitle(ticker)
         .modifier(KeyboardDismissal())
+        .task(id: chartRequest) {
+            guard chartRequest != nil, let selected = chartContract else { return }
+            chartOpening = true; chartError = nil
+            defer { chartOpening = false }
+            let address = store.address, demo = store.demo, epoch = store.trading.accountEpoch
+            do {
+                let position: Position
+                if demo {
+                    position = selected.position()
+                } else {
+                    let response = try await store.trading.get("api/portfolio/chart-contracts", base: address, query: selected.query)
+                    position = try selected.resolve(response)
+                }
+                guard !Task.isCancelled, visible, store.selectedTab == "trade",
+                      selected == chartContract, address == store.address, demo == store.demo,
+                      epoch == store.trading.accountEpoch else { return }
+                store.openTradeChart(position)
+            } catch {
+                guard !Task.isCancelled, visible, selected == chartContract,
+                      address == store.address, demo == store.demo, epoch == store.trading.accountEpoch else { return }
+                chartError = connectionMessage(error)
+            }
+        }
         .onAppear { visible = true }
         .onDisappear { visible = false }
         .task(id: "prices-\(autoRefresh)-\(store.demo)-\(store.address)-\(key)") {

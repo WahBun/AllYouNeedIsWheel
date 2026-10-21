@@ -140,7 +140,9 @@ class ChartStreams:
                 latest_charts.invalidate(cid)
                 continue
             state['used']=now
-            if state.get('option_bars') and now-state.get('quote_keepalive',0)>60:
+            stock_chart.refresh_option_quotes(state)
+            if (state.get('option_bars') and not state.get('quote_refresh_attempts')
+                    and now-state.get('quote_keepalive',0)>60):
                 state['quote_keepalive']=now
                 state['conn'].get_market_ticker(state['contract'])
             state['conn'].ib.sleep(.005)

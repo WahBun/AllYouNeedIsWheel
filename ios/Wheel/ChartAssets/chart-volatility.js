@@ -39,9 +39,18 @@ function calculate(p,data,o){
   levels.forEach((price,i)=>{if(i%2?Number.isFinite(anchor.low)&&anchor.low<=price:Number.isFinite(anchor.high)&&anchor.high>=price)hits[i]=true;});
   if(levels)sessions.push({day,start:anchor.start,end:rows.at(-1).time,levels,hits,marks,seed});
  }
- return {sessions,gauge,rth,last,day:lc.day};
+ return {sessions,gauge,rth,last,day:lc.day,rthEnd:anchors.get(lc.day)?.end};
 }
-window.WheelVolatility={family,sources,clock,calculate};
+// Panel visibility follows the current session, not the last retained RTH candle.
+// Keep historical channel calculations and price badges independent of this gate.
+function panelsVisible(p,model,now){
+ if(!Number.isFinite(now)||!model.rth)return false;
+ const current=clock(Math.floor(now/60)*60);
+ if(current.day!==model.day||current.minute<570)return false;
+ const weekday=new Date(current.day+'T12:00:00Z').getUTCDay();
+ return weekday!==0&&weekday!==6&&(Number.isFinite(model.rthEnd)?now<model.rthEnd:current.minute<(p.rth_close_minutes||960));
+}
+window.WheelVolatility={family,sources,clock,calculate,panelsVisible};
 if(typeof series==='undefined')return;
 const canvas=document.createElement('canvas');canvas.style.cssText='position:absolute;inset:0;pointer-events:none;z-index:2';document.body.append(canvas);
 const table=document.createElement('div'),gauge=document.createElement('div'),notice=document.createElement('div');
@@ -61,7 +70,12 @@ window.configureVolatility=(p,data,o)=>{renderRevision++;const identity=p.con_id
  if(!family(p)||!settings.channels)notice.textContent='';
 };
 window.drawVolatility=()=>{
- const w=innerWidth,h=chart.paneSize().height,dpr=devicePixelRatio||1,key=JSON.stringify([renderRevision,w,h,dpr,plotLeft(),document.getElementById('tv-attr-logo')?.getBoundingClientRect().right,chart.timeScale().getVisibleLogicalRange(),series.priceToCoordinate(1),series.priceToCoordinate(2)]);if(key===renderKey)return;renderKey=key;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);canvas.style.width=w+'px';canvas.style.height=h+'px';}
+ // Reuse the frame's advancing server clock and existing animation loop, including
+ // when no quote arrives. Reconfiguring an indicator must not reset this clock.
+ const live=typeof countdownPacket!=='undefined'?countdownPacket:null;
+ const now=Number.isFinite(live?.server_time)&&live.con_id===packet.con_id?live.server_time+Math.max(0,(Date.now()-countdownReceived)/1000):Date.now()/1000;
+ const panelsOpen=panelsVisible(packet,model,now);
+ const w=innerWidth,h=chart.paneSize().height,dpr=devicePixelRatio||1,key=JSON.stringify([renderRevision,panelsOpen,w,h,dpr,plotLeft(),document.getElementById('tv-attr-logo')?.getBoundingClientRect().right,chart.timeScale().getVisibleLogicalRange(),series.priceToCoordinate(1),series.priceToCoordinate(2)]);if(key===renderKey)return;renderKey=key;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);canvas.style.width=w+'px';canvas.style.height=h+'px';}
  const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);const o=settings,colors=[alpha(o.up1||'#c8e6c9',12),alpha(o.down1||'#FF1493',50),alpha(o.up2||'#008000',88),alpha(o.down2||'#ff0000',88)],names=['1𝒔𝒕 𝑩𝒖𝒍𝒍𝒔 𝑴𝒐𝒐𝒏𝑺𝒉𝒊𝒏𝒆','1𝒔𝒕 𝑩𝒆𝒂𝒓𝒔 𝑴𝒐𝒐𝒏𝑺𝒉𝒊𝒏𝒆','2𝒏𝒅 𝑩𝒖𝒍𝒍𝒔 𝑴𝒐𝒐𝒏𝑺𝒉𝒊𝒏𝒆','2𝒏𝒅 𝑩𝒆𝒂𝒓𝒔 𝑴𝒐𝒐𝒏𝑺𝒉𝒊𝒏𝒆'];
  priceBadges.forEach(el=>el.hidden=true);
  const enabled=i=>i<2?o.showInner:o.showOuter,axis=w-priceAxisWidth('right');
@@ -72,12 +86,12 @@ window.drawVolatility=()=>{
  if(o.markHits)for(const m of s.marks){if(!enabled(m.i))continue;const x=timeToScreenCoordinate(m.time),y=series.priceToCoordinate(m.price);if(x!==null&&y!==null){ctx.fillStyle=colors[m.i];ctx.fillText((m.i<2?'1st':'2nd')+' Hit',x,y+(m.i%2?12:-8));}}
  }
  ctx.restore();
- const s=model.sessions.at(-1);table.replaceChildren();table.hidden=!s||!o.distance||o.rthOnly&&!model.rth||s.day!==model.day;
+ const s=model.sessions.at(-1);table.replaceChildren();table.hidden=!panelsOpen||!s||!o.distance||o.rthOnly&&!model.rth||s.day!==model.day;
  Object.assign(table.style,{right:(priceAxisWidth('right')+(w<600?36:10))+'px',top:w<600?'48px':'10px',background:'transparent',padding:'0',font:(w<600?'12':'14')+'px Arial, sans-serif',display:table.hidden?'none':'grid',gridTemplateColumns:'auto auto',columnGap:'0',rowGap:'0'});
  if(!table.hidden){for(const text of ['𝕄𝕠𝕠𝕟𝕊𝕙𝕚𝕟𝕖','𝔸𝕨𝕒𝕪']){const cell=document.createElement('span');cell.textContent=text;Object.assign(cell.style,{background:'#ffffff1f',padding:'3px 6px',textAlign:'center',color:'#000'});table.append(cell);}
  const labels=['𝟙𝕤𝕥 𝔹𝕦𝕝𝕝𝕤','𝟙𝕤𝕥 𝔹𝕖𝕒𝕣𝕤','𝟚𝕟𝕕 𝔹𝕦𝕝𝕝𝕤','𝟚𝕟𝕕 𝔹𝕖𝕒𝕣𝕤'];
  for(const i of [0,2,1,3]){if(!enabled(i))continue;const d=s.levels[i]-model.last.close,hit=s.hits[i]||(i%2?d>=0:d<=0);for(const text of [labels[i],hit?'𝙷𝚒𝚝':priceText(d)+' ('+(d/model.last.close*100).toFixed(2)+'%)']){const cell=document.createElement('span');cell.style.color=alpha([o.up1||'#c8e6c9',o.down1||'#FF1493',o.up2||'#008000',o.down2||'#ff0000'][i],i<2?0:35);Object.assign(cell.style,{background:'#ffffff14',padding:'3px 6px',textAlign:'center'});cell.textContent=text;table.append(cell);}}}
 
- gauge.hidden=!model.gauge;gauge.replaceChildren();if(model.gauge){const v=model.gauge.value,pos=o.position||'Bottom Left';gauge.style.left=pos.includes('Left')?'12px':'auto';gauge.style.right=pos.includes('Right')?(priceAxisWidth('right')+12)+'px':'auto';gauge.style.top=pos.includes('Top')?'60px':'auto';gauge.style.bottom=pos.includes('Bottom')?(innerHeight-h+28)+'px':'auto';gauge.style.background=alpha(o.background||'#ECF1EC',o.backgroundTransparency??50);gauge.style.display='flex';gauge.style.gap='0';gauge.style.padding='0';gauge.style.font=(w<600?'11':'14')+'px Arial, sans-serif';gauge.style.alignItems='center';for(let i=1;i<=10;i++){const b=document.createElement('span');b.style.cssText='width:'+(w<600?4:13)+'px;height:'+(w<600?15:17)+'px;flex:none';b.style.background=v>=i*10-.01?alpha(v<40?o.lowColor||'#22c55e':v<70?o.midColor||'#eab308':o.highColor||'#ef4444',o.fillTransparency??35):alpha(o.track||'#C5CFC5',o.trackTransparency??60);gauge.append(b);}const value=document.createElement('span');value.style.color=o.textColor||'#1f2937';value.style.padding='0 3px';value.textContent=(model.gauge.after?'>':'')+v.toFixed(1)+'%';gauge.append(value);if(pos==='Bottom Left'||displayOptions.nativeCompact&&['Bottom Right','Bottom Center'].includes(pos)){const logo=document.getElementById('tv-attr-logo')?.getBoundingClientRect();if(logo&&logo.width){if(displayOptions.nativeCompact&&pos==='Bottom Center'){gauge.style.left=((innerWidth-gauge.getBoundingClientRect().width)/2)+'px';gauge.style.right='auto';}else if(displayOptions.nativeCompact&&pos==='Bottom Right'){gauge.style.left='auto';gauge.style.right=(priceAxisWidth('right')+4)+'px';}else gauge.style.left=(logo.right+10)+'px';gauge.style.bottom='auto';gauge.style.top=(logo.top+(logo.height-gauge.getBoundingClientRect().height)/2)+'px';}}}else gauge.style.display='none';
+ gauge.hidden=!panelsOpen||!model.gauge;gauge.replaceChildren();if(!gauge.hidden){const v=model.gauge.value,pos=o.position||'Bottom Left';gauge.style.left=pos.includes('Left')?'12px':'auto';gauge.style.right=pos.includes('Right')?(priceAxisWidth('right')+12)+'px':'auto';gauge.style.top=pos.includes('Top')?'60px':'auto';gauge.style.bottom=pos.includes('Bottom')?(innerHeight-h+28)+'px':'auto';gauge.style.background=alpha(o.background||'#ECF1EC',o.backgroundTransparency??50);gauge.style.display='flex';gauge.style.gap='0';gauge.style.padding='0';gauge.style.font=(w<600?'11':'14')+'px Arial, sans-serif';gauge.style.alignItems='center';for(let i=1;i<=10;i++){const b=document.createElement('span');b.style.cssText='width:'+(w<600?4:13)+'px;height:'+(w<600?15:17)+'px;flex:none';b.style.background=v>=i*10-.01?alpha(v<40?o.lowColor||'#22c55e':v<70?o.midColor||'#eab308':o.highColor||'#ef4444',o.fillTransparency??35):alpha(o.track||'#C5CFC5',o.trackTransparency??60);gauge.append(b);}const value=document.createElement('span');value.style.color=o.textColor||'#1f2937';value.style.padding='0 3px';value.textContent=(model.gauge.after?'>':'')+v.toFixed(1)+'%';gauge.append(value);if(pos==='Bottom Left'||displayOptions.nativeCompact&&['Bottom Right','Bottom Center'].includes(pos)){const logo=document.getElementById('tv-attr-logo')?.getBoundingClientRect();if(logo&&logo.width){if(displayOptions.nativeCompact&&pos==='Bottom Center'){gauge.style.left=((innerWidth-gauge.getBoundingClientRect().width)/2)+'px';gauge.style.right='auto';}else if(displayOptions.nativeCompact&&pos==='Bottom Right'){gauge.style.left='auto';gauge.style.right=(priceAxisWidth('right')+4)+'px';}else gauge.style.left=(logo.right+10)+'px';gauge.style.bottom='auto';gauge.style.top=(logo.top+(logo.height-gauge.getBoundingClientRect().height)/2)+'px';}}}else gauge.style.display='none';
 };
 })();

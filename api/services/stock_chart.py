@@ -192,6 +192,8 @@ class StockChart:
             for historical in state.get('higher', {}).values():
                 state['conn'].ib.cancelHistoricalData(historical)
             state['ticker'].updateEvent -= state['handler']
+            if state.get('permission_handler') is not None:
+                state['conn'].ib.errorEvent -= state['permission_handler']
             try:
                 if state.get('option_bars'): return  # Shared quote subscription belongs to the connection cache.
                 state['conn'].ib.cancelTickByTickData(state['contract'], 'Last')
@@ -206,6 +208,43 @@ class StockChart:
             self.stop_state(state)
         else:
             asyncio.get_event_loop().call_later(30, self.expire, state)
+
+    def refresh_option_quotes(self, state):
+        """Renew a silent option stream on the IB owner, never cached prices."""
+        conn=state['conn']
+        if (not state.get('option_bars') or self.states.get(state['con_id']) is not state
+                or not conn.is_connected() or state['client'] is not conn.ib.client
+                or conn.ib.ticker(state['contract']) is not state['ticker']
+                or getattr(conn,'_market_data_type',None) not in (None,1)):
+            return
+        now=time.monotonic()
+        requested=state.setdefault('quote_requested_at',now)
+        if now-state.get('quote_checked_at',-1e9)<1:
+            return
+        state['quote_checked_at']=now
+        wall=time.time()
+        quotes=state['quotes']
+        if (getattr(state['ticker'],'marketDataType',None)==1 and all(
+                side in quotes and positive(quotes[side][1]) is not None
+                and 0<=wall-quotes[side][0]<30 for side in ('bid','ask'))):
+            state['quote_refresh_attempts']=0
+            return
+        attempts=state.get('quote_refresh_attempts',0)
+        if now-requested<min(300,30*2**min(attempts,4)):
+            return
+        state.update(quote_requested_at=now,quote_refresh_attempts=attempts+1)
+        # Cancellation can reuse the same Ticker. Only later IB callbacks may
+        # establish either side again; historical bars/last never count.
+        state['quotes'].clear()
+        state.pop('iv_quote',None)
+        try:
+            ticker=conn.get_market_ticker(state['contract'],refresh=True)
+        except Exception:
+            return  # Retain the chart; bounded retries also cover request errors.
+        if ticker is not state['ticker']:
+            state['ticker'].updateEvent -= state['handler']
+            state['ticker']=ticker
+            ticker.updateEvent += state['handler']
 
     def request_eight_hour_history(self, state):
         self.eight_history.request(state)
@@ -273,6 +312,8 @@ class StockChart:
                       or conn.ib.ticker(state['contract']) is not state['ticker']):
             self.stop_state(state)
             state = None
+        if state is not None:
+            self.refresh_option_quotes(state)
         if state is None and len(self.states) >= self.MAX_CONTRACTS:
             idle = [item for item in self.states.values() if not self.has_subscribers(item['con_id'])]
             if not idle:
@@ -369,9 +410,10 @@ class StockChart:
                     raise
             state = dict(conn=conn, client=conn.ib.client, contract=contract, ticker=ticker,
                 con_id=con_id, bars=bars[-12000:], used=now, last_tick=None, received=None,
-                generation=time.time_ns(), ticks=0, live_bars={}, quotes={},option_bars=option_bars,model_greeks=getattr(ticker,'modelGreeks',None))
+                generation=time.time_ns(), ticks=0, live_bars={}, quotes={},option_bars=option_bars,
+                quote_requested_at=time.monotonic(),model_greeks=getattr(ticker,'modelGreeks',None))
             def on_tick(updated):
-                if self.states.get(state['con_id']) is not state:
+                if self.states.get(state['con_id']) is not state or updated is not state['ticker']:
                     return
                 if option_bars:
                     greeks=getattr(updated,'modelGreeks',None)
@@ -417,6 +459,22 @@ class StockChart:
             self.active = state
             self.states[con_id] = state
             ticker.updateEvent += on_tick
+            if not option_bars:
+                # Match IB subscription IDs, not just the contract: retired
+                # subscriptions can report errors after the same chart reopens.
+                mapping = getattr(getattr(conn.ib, 'wrapper', None), 'ticker2ReqId', {})
+                request_ids = {mapping.get(kind, {}).get(ticker): kind for kind in ('Last', 'BidAsk')} if isinstance(mapping, dict) else {}
+                request_ids.pop(None, None)
+                def on_permission_error(req_id, code, message, error_contract=None):
+                    if (code != 10189 or req_id not in request_ids
+                            or getattr(error_contract, 'conId', con_id) != con_id
+                            or self.states.get(con_id) is not state
+                            or state['client'] is not conn.ib.client):
+                        return
+                    state.setdefault('permission_errors', {})[request_ids[req_id]] = (
+                        state['last_tick'], dict(state['quotes']))
+                state['permission_handler'] = on_permission_error
+                conn.ib.errorEvent += on_permission_error
             if minutes != 480:
                 self.eight_history.schedule_preload(state)
             if option_bars:
@@ -606,6 +664,16 @@ class StockChart:
         quote_time = min(valid_times) if valid_times else None
         if bid is not None and ask is not None and bid > ask:
             bid = ask = None
+        # Display metadata only. Never turn an entitlement error or cached
+        # ticker fields into executable quotes, nor change candle freshness.
+        permission_errors = state.get('permission_errors', {})
+        for kind, (previous_last, previous_quotes) in list(permission_errors.items()):
+            recovered = (last != previous_last and age is not None and 0 <= age < 10) if kind == 'Last' else (
+                bid is not None and ask is not None
+                and all(quotes.get(side) != previous_quotes.get(side) for side in ('bid', 'ask')))
+            if recovered:
+                permission_errors.pop(kind)
+        message = 'Live market data permission unavailable; verify this contract entitlement in Gateway' if permission_errors else None
         output_bars = higher_bars
         if output_bars is None:
             bars = state['bars']
@@ -650,7 +718,7 @@ class StockChart:
             if cached_bid is not None and cached_ask is not None and cached_bid <= cached_ask:
                 display_quote = dict(bid=cached_bid, ask=cached_ask)
         return dict(option_display_quote=display_quote,covered_call_capacity=cc_capacity,option_right=getattr(contract, 'right', ''),iv_percent=iv if iv_valid else None,iv_expires_at=iv_time+30 if iv_valid else None,data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
-            con_id=con_id, symbol=contract.symbol,
+            con_id=con_id, symbol=contract.symbol, message=message,
             # Display-only quote metadata; independent of chart interval/session.
             last_price=positive(state['bars'][-1]['close']) if state['bars'] else None,
             previous_close=positive(getattr(ticker, 'close', None)) if getattr(ticker, 'marketDataType', None) in (1, 2) else None,

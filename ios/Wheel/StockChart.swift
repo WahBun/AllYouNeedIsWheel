@@ -174,6 +174,33 @@ struct ChartOrderProgressView: View {
     }
 }
 
+enum ChartHistoryPresentation {
+    static func viewingInactiveDayOrder(_ state: [String: Any], tradingLocked: Bool, busy: Bool, pending: Bool) -> Bool {
+        tradingLocked && !busy && !pending && state["inactive_day_history"] as? Bool == true
+            && state["position"] as? Double == 0
+            && (state["sync_error"] == nil || state["sync_error"] as? Bool == false)
+    }
+}
+
+struct ChartTradingStatusSections: View {
+    var text: String
+    var state: [String: Any]
+    var hasPreview: Bool
+    var viewingHistory: Bool
+
+    var body: some View {
+        Section("Trading") {
+            Text(verbatim: text)
+            if !hasPreview && !viewingHistory { ChartOrderProgressView(state: state) }
+        }
+        if viewingHistory {
+            Section("Order history") {
+                Text("Previous DAY order · No current open orders or position")
+            }
+        }
+    }
+}
+
 struct ChartBarCountInput: View {
     @Binding var value: Int
     @State private var draft = ""
@@ -1113,6 +1140,10 @@ struct StockChartView: View {
          "positionUnit": positionProfitUnit, "bracketUnit": bracketProfitUnit]
     }
     private var chartStatusText: String {
+        if viewingInactiveDayOrder {
+            let name = chartType == "OPT" ? "Option chart" : chartType == "FUT" ? "Futures chart" : "Stock chart"
+            return "\(store.accountModeLabel) · \(name) · View"
+        }
         let chinese = locale.language.languageCode?.identifier == "zh"
         let chartName: String
         switch chartType {
@@ -1125,6 +1156,11 @@ struct StockChartView: View {
         }
         let state = paperEnabled ? (chinese ? "交易" : "Trading") : (chinese ? "查看" : "View")
         return localizedLabel(store.accountModeLabel, locale: locale) + " · " + chartName + " · " + state
+    }
+    private var viewingInactiveDayOrder: Bool {
+        Date().timeIntervalSince(paperReceived ?? .distantPast) < 3 &&
+        ChartHistoryPresentation.viewingInactiveDayOrder(paperState, tradingLocked: tradingLocked,
+            busy: paperBusy, pending: store.trading.paperPending(base: store.address, conID: chartID ?? 0, groupID: selectedOrderGroup))
     }
     private var paperStatusText: String {
         let rows = paperState["orders"] as? [[String: Any]] ?? []
@@ -1272,7 +1308,7 @@ struct StockChartView: View {
     @State private var received: Date?
     @State private var loadedChartKey = ""
     private var cacheKey: String { "\(store.address)-\(chartID ?? 0)-\(interval)-\(session)" }
-    private var context: String { "\(store.demo)-\(store.address)-\(chartID ?? 0)-\(interval)-\(session)-\(phase == .active)-\(visible)" }
+    private var context: String { "\(store.demo)-\(store.address)-\(store.trading.accountEpoch ?? "")-\(chartID ?? 0)-\(interval)-\(session)-\(phase == .active)-\(visible)" }
     private var validEntry: Double { Double(entry).flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 0 }
     private var validQuantity: Double { Double(quantity).flatMap { $0.isFinite && $0 > 0 && (paperActive || $0 <= Double(quantityLimit)) && $0.rounded(.towardZero) == $0 ? $0 : nil } ?? 0 }
     private var joinMidContext: String { "\(context)-\(store.trading.accountEpoch ?? "")-\(selectedOrderGroup)" }
@@ -1642,10 +1678,8 @@ struct StockChartView: View {
         .sheet(isPresented: $showChartStatus) {
             NavigationStack {
                 Form {
-                    Section("Trading") {
-                        Text(verbatim: chartStatusText)
-                        if !hasOrderPreview { ChartOrderProgressView(state: paperState) }
-                    }
+                    ChartTradingStatusSections(text: chartStatusText, state: paperState,
+                        hasPreview: hasOrderPreview, viewingHistory: viewingInactiveDayOrder)
                     Section("Market data") {
                         if quoteStatusCID == chartID, !quoteStatusMessage.isEmpty { Text(verbatim: quoteStatusMessage) }
                         TimelineView(.periodic(from: .now, by: 1)) { time in
@@ -1909,6 +1943,10 @@ struct StockChartView: View {
         }
         .onChange(of: chartID) { _, _ in selectOrderGroup("") }
         .onChange(of: store.accountModeLabel) { _, _ in selectOrderGroup("") }
+        .onChange(of: store.trading.accountEpoch) { _, _ in
+            tradingLocked = true
+            selectOrderGroup("")
+        }
         .task(id: "paper-" + context + selectedOrderGroup + String(store.chartTradingAvailable)) {
             paperState = [:]; paperReceived = nil
             guard visible, phase == .active, store.chartTradingAvailable, let cid = chartID else { return }
@@ -1965,7 +2003,7 @@ struct StockChartView: View {
                                 guard !Task.isCancelled, context == requestContext, result["con_id"] as? Int == conID else { return }
                                 packet = retainingHistory(result); received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
                                 RecentStockCharts.save(packet, key: requestCacheKey)
-                                notice = chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (result["status"] as? String == "live" ? "IB Last ticks · live push" : "Historical bars · waiting for IB Last ticks")
+                                notice = result["message"] as? String ?? (chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (result["status"] as? String == "live" ? "IB Last ticks · live push" : "Historical bars · waiting for IB Last ticks"))
                             }
                         } catch {
                             try Task.checkCancellation()
@@ -1992,7 +2030,7 @@ struct StockChartView: View {
                     snapshotLoaded = true
                     packet = retainingHistory(result); received = .now; packet["chart_received_at"] = Date().timeIntervalSince1970; failures = 0
                     RecentStockCharts.save(packet, key: requestCacheKey)
-                    notice = chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (interval >= 1440 || (interval == 480 && session == "rth")) ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks"
+                    notice = result["message"] as? String ?? (chartType == "OPT" ? (result["data_notice"] as? String ?? "Historical option bars · waiting for updates") : (interval >= 1440 || (interval == 480 && session == "rth")) ? "IB historical bars · chart updates" : result["status"] as? String == "live" ? "IB Last ticks · display batches ≈250ms" : "Historical bars · waiting for IB Last ticks")
                 } catch {
                     guard !Task.isCancelled else { return }
                     failures = min(failures + 1, 5)
