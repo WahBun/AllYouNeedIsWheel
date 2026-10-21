@@ -1,3 +1,54 @@
+## 2026-10-21 — Cold Performance entry, Portfolio title row, and account-switch startup
+
+REA read-only runtime evidence on deployed `ecc7c8b8a8da6046c8cd729f2fbf5007d4fa074f`
+confirmed two Live switches took 20.129 / 20.125 seconds, with only 0.1 ms
+queue time. The SDK logged `completed orders request timed out`; its default
+startup waits for that optional history before completing connection. Current
+Mini and local SDK are both ib_async 2.1.0. Historical Performance requests in
+the same window returned 200 in 2–85 ms. A current read returned 210 points.
+The previous asynchronous warm cache was cleared on reconnect and did not
+establish that history was available before the user navigated. A 210-point
+SwiftUI replay rendered in under one second, so no chart rewrite was justified.
+
+- iOS requests retained YTD history inside its existing Portfolio bootstrap.
+  The backend includes it only for the matching configured/verified account;
+  optional history failure does not fail Portfolio. The client accepts it only
+  after its existing mode/epoch checks and populates the cache before showing
+  Portfolio. Background refresh, report-age warnings and live P&L remain intact.
+  Other clients opt in explicitly; no additional read is needed on entry when
+  bootstrap supplied history. History reads reject a different selected account
+  so a Live report cannot appear in Paper.
+- IB startup excludes only completed-order history; positions, open orders,
+  account updates and executions still synchronize. Completed-history queries
+  and reconciliation keep their existing explicit failure/no-replay behavior.
+  Requirements now declare the already installed 2.1.0 SDK API minimum.
+- Portfolio's large title and compact data-status button share one row. Native
+  destination titles remain large; scrolling retains a compact Portfolio title.
+- A first transient QUEUE_FULL/NOT_EXECUTED with recent portfolio data does not
+  flash a large disconnected banner. Repeated busy responses get a precise
+  refresh-delay message; real backend/network failures remain visible. Internal
+  error/freshness and trading guards remain conservative and timestamps do not
+  advance on failed reads.
+
+Validation: 79 focused backend tests passed (connection, profile switching,
+account isolation, order-state recovery and performance). 14 focused iOS tests
+passed, including cold bootstrap with 210 synthetic history points while all
+subsequent history requests were held, old-account rejection, no selection-POST
+retry, independent live P&L, and transient-versus-real backend errors. Targeted
+layout verification additionally covers title scrolling and 320/393/768-point
+light/dark presentations. The cold entry replay displayed cached history within
+0.45 seconds, measured locally; this is not physical-phone or live-broker proof.
+Controlled real-SDK replay with an 80 ms missing history end marker changed
+startup from 82 ms to below 1 ms while asserting all required startup reads.
+Evidence: `ev_47c1ca42a7dd128390b2aba4682a77df285c9b7851bb2ed55a060ae0361bede6`,
+`ev_7ef982a2af18bdb71d2d3f202c2e1635124e3d232a134d8848dd82f33e43e253`.
+
+Not deployed and no physical iPhone operation, account selection, Gateway
+restart or broker write was performed. Upstream completed-history availability
+and Flex generation are not claimed repaired. After merge use **Deploy & Restart
+Backend**, then re-Run iPhone. Existing uncommitted Localizable.xcstrings remains
+byte-identical and excluded.
+
 ## 2026-10-21 — Performance entry, completed-history backoff, compact Portfolio status
 
 Read-only REA capture on deployed `ea662cb5a4d0ddade01b5f04ce0486cb83b7abb6`

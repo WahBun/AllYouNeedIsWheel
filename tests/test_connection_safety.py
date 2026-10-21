@@ -49,6 +49,46 @@ class PositionIB:
 
 
 class ConnectionSafetyTests(unittest.TestCase):
+    def test_connection_does_not_wait_for_unresponsive_completed_history(self):
+        from unittest.mock import AsyncMock, Mock, patch
+        import time
+        from ib_async import StartupFetch, StartupFetchALL
+        connection = IBConnection(account_id='U_TEST', timeout=0.08, readonly=False)
+        ib = connection.ib
+        async def missing_end_marker(*args):
+            await asyncio.sleep(60)
+        with patch.object(ib.client, 'connectAsync', new=AsyncMock()), \
+             patch.object(ib.client, 'getAccounts', return_value=['U_TEST']), \
+             patch.object(ib.client, 'serverVersion', return_value=180), \
+             patch.object(ib.client, 'isReady', return_value=True), \
+             patch.object(ib, 'isConnected', return_value=True), \
+             patch.object(ib, 'reqPositionsAsync', new=AsyncMock(return_value=[])) as positions, \
+             patch.object(ib, 'reqOpenOrdersAsync', new=AsyncMock(return_value=[])) as opened, \
+             patch.object(ib, 'reqAccountUpdatesAsync', new=AsyncMock()) as account, \
+             patch.object(ib, 'reqAccountUpdatesMultiAsync', new=AsyncMock()) as subaccounts, \
+             patch.object(ib, 'reqExecutionsAsync', new=AsyncMock(return_value=[])) as executions, \
+             patch.object(ib, 'reqCompletedOrdersAsync', new=AsyncMock(side_effect=missing_end_marker)) as completed:
+            start = time.monotonic()
+            ib.connect(account='U_TEST', timeout=.08, readonly=False)
+            before = time.monotonic() - start
+            completed.assert_awaited_once()
+            completed.reset_mock()
+            start = time.monotonic()
+            self.assertTrue(connection.connect())
+            after = time.monotonic() - start
+            completed.assert_not_called()
+            self.assertLess(after, before / 2)
+            self.assertEqual(positions.await_count, 2)
+            self.assertEqual(opened.await_count, 2)
+            self.assertEqual(account.await_count, 2)
+            self.assertEqual(subaccounts.await_count, 2)
+            self.assertEqual(executions.await_count, 2)
+            print(f'IB startup controlled replay: default={before:.4f}s repaired={after:.4f}s; positions/open orders/account/executions preserved')
+            # Explicit history remains a real broker read after connection.
+            with patch.object(ib, 'reqCompletedOrders', return_value=['evidence']) as read:
+                self.assertEqual(connection._bounded_order_read(ib.reqCompletedOrders, False), ['evidence'])
+                read.assert_called_once_with(False)
+
     def test_what_if_timeout_disconnects_without_sending_order(self):
         connection = IBConnection(order_preflight_timeout=10)
         fake_ib = TimeoutIB()

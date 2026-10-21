@@ -43,6 +43,37 @@ private final class AccountHistoryProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testTransientBusyBannerDoesNotClaimLogoutOrWeakenFreshness() async throws {
+        let savedMode = UserDefaults.standard.object(forKey: "selectedBrokerMode")
+        UserDefaults.standard.set("live", forKey: "selectedBrokerMode")
+        defer { UserDefaults.standard.set(savedMode, forKey: "selectedBrokerMode"); MockProtocol.payload = nil; MockProtocol.statusCode = 200 }
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        let store = WheelStore(session: URLSession(configuration: config))
+        store.demo = false; store.address = "https://mock.invalid"
+        MockProtocol.fail = false; MockProtocol.statusCode = 200
+        let good: [String: Any] = ["summary": ["account_value": 1000, "cash_balance": 500], "positions": [], "is_frozen": false,
+            "connection": ["mode": "live", "account_epoch": "first", "execution_enabled": false, "chart_execution_enabled": false]]
+        MockProtocol.payload = { _ in good }
+        await store.refreshPortfolio(includeWeekly: false)
+        let timestamp = store.updated
+        MockProtocol.statusCode = 503; MockProtocol.payload = { _ in ["code": "QUEUE_FULL", "error": "IB requests are busy"] }
+        await store.refreshPortfolio(includeWeekly: false)
+        XCTAssertNil(store.portfolioNotice)
+        XCTAssertNotNil(store.error)
+        XCTAssertFalse(store.isConnected(to: store.address), "A recent snapshot must not bypass trading freshness guards")
+        XCTAssertEqual(store.updated, timestamp)
+        XCTAssertEqual(store.accountModeLabel, "Live")
+        await store.refreshPortfolio(includeWeekly: false)
+        XCTAssertTrue(store.portfolioNotice?.contains("backend busy") == true)
+        XCTAssertFalse(store.portfolioNotice?.contains("Tailscale") == true)
+        MockProtocol.statusCode = 200; MockProtocol.payload = { _ in good }
+        await store.refreshPortfolio(includeWeekly: false)
+        XCTAssertNil(store.error); XCTAssertNil(store.portfolioNotice)
+        MockProtocol.statusCode = 503; MockProtocol.payload = { _ in ["error": "Gateway unavailable."] }
+        await store.refreshPortfolio(includeWeekly: false)
+        XCTAssertEqual(store.portfolioNotice, "Gateway unavailable.", "Real backend failures must remain immediately visible")
+    }
+
     func testRemoteAccountEpochChangeClearsCachedAccountBeforeFullReload() async throws {
         let savedMode = UserDefaults.standard.object(forKey: "selectedBrokerMode")
         let savedAddress = UserDefaults.standard.object(forKey: "backendURL")

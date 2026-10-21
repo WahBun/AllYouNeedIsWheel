@@ -120,7 +120,7 @@ struct AccountConnection: Decodable {
     var chart_execution_enabled: Bool
     var label: String { mode == "paper" ? "Paper" : mode == "live" ? "Live" : "Unknown" }
 }
-struct Bootstrap: Decodable { var summary: Summary; var positions: [Position]; var connection: AccountConnection? = nil }
+struct Bootstrap: Decodable { var summary: Summary; var positions: [Position]; var connection: AccountConnection? = nil; var performance_history: PerformanceHistory? = nil }
 struct LivePortfolio: Decodable { var positions: [Position]; var is_frozen: Bool; var streaming: Bool?; var connection: AccountConnection? = nil }
 struct WeeklyIncome: Decodable { var total_income: Double; var positions_count: Int; var total_put_notional: Double?; var this_friday: String? }
 struct Order: Decodable, Identifiable {
@@ -294,6 +294,15 @@ final class WheelStore {
     var ordersBusy = false
     var ordersUpdated: Date?
     var error: String?
+    private var transientPortfolioFailures = 0
+    var portfolioNotice: String? {
+        guard let error else { return nil }
+        // Keep the health/trading guards conservative. Only the large banner
+        // waits for a repeated busy response while recent portfolio data exists.
+        if transientPortfolioFailures == 1, portfolio != nil,
+           Date().timeIntervalSince(updated ?? .distantPast) < 15 { return nil }
+        return error
+    }
     var updated: Date?
     var fillPreview = FillPreview()
     private var fillTracker = FillTracker()
@@ -386,7 +395,7 @@ final class WheelStore {
             let next: Bootstrap
             let reloadSummary = portfolio == nil || Date().timeIntervalSince(lastSummary ?? .distantPast) > 30
             if reloadSummary {
-                next = try await read(base.appendingPathComponent("api/portfolio/bootstrap"))
+                next = try await read(base.appendingPathComponent("api/portfolio/bootstrap").appending(queryItems: [URLQueryItem(name: "include_performance", value: "1")]))
             } else {
                 let live: LivePortfolio = try await read(base.appendingPathComponent("api/portfolio/live"))
                 var summary = portfolio!.summary
@@ -420,9 +429,13 @@ final class WheelStore {
                 throw AppError.message("Another device changed the selected account. Select your account again.")
             }
             trading.accountEpoch = next.connection?.account_epoch
+            if let history = next.performance_history {
+                performanceHistoryCache[performanceCacheKey("YTD")] = history
+            }
             portfolio = next
             if reloadSummary { lastSummary = Date() }
             updated = Date()
+            transientPortfolioFailures = 0
             error = nil
             UserDefaults.standard.set(address, forKey: "backendURL")
             if includeWeekly && reloadSummary && selectedTab != "trade" {
@@ -433,6 +446,8 @@ final class WheelStore {
         } catch is CancellationError {
         } catch {
             guard requestedRevision == revision, !Task.isCancelled else { return }
+            if error is PortfolioRefreshBusy { transientPortfolioFailures += 1 }
+            else { transientPortfolioFailures = 0 }
             self.error = connectionMessage(error)
         }
     }
@@ -494,7 +509,15 @@ final class WheelStore {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
         request.httpMethod = "GET"
         let (data, response) = try await session.data(for: request)
-        guard let response = response as? HTTPURLResponse, response.statusCode == 200 else { throw AppError.message("Backend unavailable. Check your connection and Tailscale.") }
+        guard let response = response as? HTTPURLResponse else { throw AppError.message("Invalid backend response.") }
+        guard response.statusCode == 200 else {
+            let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            let code = payload?["code"] as? String
+            if response.statusCode == 503, ["QUEUE_FULL", "NOT_EXECUTED"].contains(code ?? "") {
+                throw PortfolioRefreshBusy()
+            }
+            throw AppError.message(payload?["error"] as? String ?? "Backend request failed (HTTP \(response.statusCode)).")
+        }
         return try JSONDecoder().decode(T.self, from: data)
     }
     func loadFilled() async {
@@ -515,7 +538,11 @@ final class WheelStore {
             if token == revision, version == trading.version, !Task.isCancelled { filledError = connectionMessage(error) }
         }
     }
-    func changeMode() { ChartTradeSounds.shared.reset(); connectingEpoch = nil; connectingMode = nil; completedOrders = [:]; performanceHistoryCache = [:]; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; filledUpdated = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
+    func changeMode() { ChartTradeSounds.shared.reset(); connectingEpoch = nil; connectingMode = nil; completedOrders = [:]; performanceHistoryCache = [:]; transientPortfolioFailures = 0; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; filledUpdated = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
+}
+
+struct PortfolioRefreshBusy: LocalizedError {
+    var errorDescription: String? { "Data refresh delayed: backend busy. Retrying…" }
 }
 
 func connectionMessage(_ error: Error) -> String {
@@ -714,7 +741,7 @@ struct StatusView: View {
                     Text(LocalizedStringKey(store.accountModeLabel)).fontWeight(.semibold)
                     if !compact { Spacer() }
                     Image(systemName: "info.circle").accessibilityHidden(true)
-                }.font(compact ? .caption2 : .caption).foregroundStyle(.secondary)
+                }.font(compact ? .caption2 : .caption).foregroundStyle(compact ? Color(uiColor: .secondaryLabel) : Color.secondary)
                     .frame(minHeight: compact ? 44 : nil).contentShape(Rectangle())
             }.buttonStyle(.plain)
                 .accessibilityLabel("\(store.accountModeLabel), \(status)")
@@ -769,6 +796,7 @@ struct PortfolioView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("portfolioShowCashMetrics") private var showCashMetrics = false
     @State private var cashMetricsHeight: CGFloat = 0
+    @State private var titleRowVisible = true
     @Environment(WheelStore.self) private var store
     private enum SummaryDestination: String, Identifiable {
         case performance, margin, allocation
@@ -849,8 +877,15 @@ struct PortfolioView: View {
                     }
                     LeverageMeter(percentage: store.portfolio?.summary.leverage_percentage, showsLabel: false)
                 }.font(.subheadline).padding(.vertical, 4)
+            } header: {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Portfolio").font(.largeTitle.bold()).foregroundStyle(Color(uiColor: .label))
+                    Spacer(minLength: 12)
+                    StatusView(compact: true)
+                }.textCase(nil).padding(.horizontal, -16).padding(.top, -24).padding(.bottom, -16)
+                    .accessibilityIdentifier("portfolioTitleRow")
             }
-            if let error = store.error { Section { Label { NoticeText(error) } icon: { Image(systemName: "wifi.exclamationmark") }.foregroundStyle(.orange) } }
+            if let error = store.portfolioNotice { Section { Label { NoticeText(error) } icon: { Image(systemName: "wifi.exclamationmark") }.foregroundStyle(.orange) } }
             let heldPositions = (store.portfolio?.positions ?? []).filter { $0.position != 0 }
             ForEach(["OPT", "STK", "FUT"].filter { type in
                 heldPositions.contains { $0.security_type == type }
@@ -908,8 +943,15 @@ struct PortfolioView: View {
                 }
             }
             if store.portfolio == nil && !store.busy { ContentUnavailableView("No portfolio", systemImage: "chart.pie", description: Text("Connect your backend in Settings.")) }
-        }.navigationTitle(localizedLabel("Portfolio", locale: locale)).refreshable { await store.refresh() }
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { StatusView(compact: true) } }
+        }.onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top < 44 } action: { _, visible in titleRowVisible = visible }
+            .navigationTitle(localizedLabel("Portfolio", locale: locale)).refreshable { await store.refresh() }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    if titleRowVisible { Color.clear.frame(width: 1, height: 1) }
+                    else { Text("Portfolio").font(.headline) }
+                }
+            }
             .navigationDestination(item: $positionDestination) { destination in
                 if let position = store.portfolio?.positions.first(where: { $0.con_id == destination.conID && $0.position != 0 }) {
                     if destination.rollover && position.security_type == "OPT" && position.position < 0 {
@@ -921,9 +963,9 @@ struct PortfolioView: View {
             }
             .navigationDestination(item: $summaryDestination) { destination in
                 switch destination {
-                case .performance: PerformanceView()
-                case .margin: MarginOverview()
-                case .allocation: AllocationView()
+                case .performance: PerformanceView().navigationBarTitleDisplayMode(.large)
+                case .margin: MarginOverview().navigationBarTitleDisplayMode(.large)
+                case .allocation: AllocationView().navigationBarTitleDisplayMode(.large)
                 }
             }
     }

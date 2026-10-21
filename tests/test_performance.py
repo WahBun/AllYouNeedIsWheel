@@ -4,6 +4,43 @@ from api.services.performance_service import parse_flex, parse_benchmark, curves
 
 
 class PerformanceTests(unittest.TestCase):
+    def test_bootstrap_includes_only_selected_account_retained_history(self):
+        from unittest.mock import patch, Mock
+        from flask import Flask
+        from api.routes import portfolio
+        app = Flask(__name__); app.register_blueprint(portfolio.bp)
+        history = {'points': [{'date': '2026-10-19', 'portfolio': 3}], 'stale': True}
+        for mode, selected, expected in [('live', 'U_TEST', True), ('paper', 'DU_TEST', False), ('unknown', 'U_TEST', False)]:
+            fake = Mock(config={'account_id': selected})
+            fake.get_portfolio_bootstrap.return_value = {'summary': {}, 'positions': [], 'connection': {'mode': mode}}
+            with patch.object(portfolio, 'portfolio_service', fake), \
+                 patch('api.services.performance_service.configuration', return_value={'account_id': 'U_TEST'}), \
+                 patch('api.services.performance_service.service.read', return_value=(history, 200)) as read:
+                response = app.test_client().get('/api/portfolio/bootstrap?include_performance=1')
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json.get('performance_history'), history if expected else None)
+                self.assertEqual(read.call_count, int(expected))
+        fake = Mock(config={'account_id': 'U_TEST'})
+        fake.get_portfolio_bootstrap.return_value = {'summary': {}, 'positions': [], 'connection': {'mode': 'live'}}
+        with patch.object(portfolio, 'portfolio_service', fake), \
+             patch('api.services.performance_service.configuration', return_value={'account_id': 'U_TEST'}), \
+             patch('api.services.performance_service.service.read', side_effect=RuntimeError('Unavailable')) as read:
+            self.assertEqual(app.test_client().get('/api/portfolio/bootstrap?include_performance=1').status_code, 200)
+            read.reset_mock()
+            self.assertEqual(app.test_client().get('/api/portfolio/bootstrap').status_code, 200)
+            read.assert_not_called()
+
+    def test_history_does_not_show_live_report_in_paper(self):
+        from unittest.mock import patch
+        from flask import Flask
+        from api.routes.performance import bp
+        app = Flask(__name__); app.register_blueprint(bp)
+        with patch('api.routes.performance.configuration', return_value={'account_id': 'U_TEST'}), \
+             patch('api.routes.performance.Config', return_value={'account_id': 'DU_TEST'}), \
+             patch('api.routes.performance.service.read') as read:
+            self.assertEqual(app.test_client().get('/api/performance/history').status_code, 409)
+            read.assert_not_called()
+
     def test_late_benchmark_keeps_latest_portfolio_and_legacy_compatibility(self):
         import json, time
         from api.services.performance_service import PerformanceService

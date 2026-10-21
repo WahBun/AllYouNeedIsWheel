@@ -17,7 +17,10 @@ from api.services.performance_service import configuration, service
 @bp.get('/history')
 def history():
     try:
-        data, status = service.read(configuration(), request.args.get('period', 'YTD'),
+        config = configuration()
+        if config.get('account_id') and Config().get('account_id') != config['account_id']:
+            return jsonify(error='Performance history is not configured for the selected account.'), 409
+        data, status = service.read(config, request.args.get('period', 'YTD'),
                                    include_unmatched=request.args.get('include_unmatched') == '1',
                                    force=request.args.get('refresh') == '1')
     except Exception:
