@@ -1,3 +1,28 @@
+## 2026-10-21 — RTH-only volatility information panels
+
+The MoonShine/Away table and probability gauge now use the advancing frame
+server clock, current NY session date and confirmed session end. Retained RTH
+candles no longer keep these panels visible overnight. The existing animation
+loop handles a silent close without adding a timer or changing quote delivery.
+Fresh same-day data restores eligible panels; MoonShine still waits for B1.
+Historical channels, price badges, calculations and native gauge placement stay
+unchanged. The equivalent web and bundled iOS display changes require **Deploy
+only** plus a web refresh, and a user-operated iPhone Run for the native app.
+No backend/Gateway restart or trading write is part of this change.
+
+REA inspected the existing dedicated TradingView NQ1! RTH page at NY 23:14:
+the two information panels were absent while historical channels remained.
+Screenshot evidence: `ev_d7fb7db9a57704e2fb39d41bd1f40c2241a1e387a4cf061ed722e8c98b94d3c7`.
+This confirms the visible reference state, not TradingView's internal code.
+
+Validation: existing volatility calculation/session/B1/render/native checks and
+new browser clock coverage for both assets, desktop/mobile and light/dark
+configuration passed. Covered silent close, reconfiguration after close, stale
+prior-day data, next-session recovery, DST, CME early close and weekends; bars
+and price-badge visibility remain unchanged. B1 parity now compares shared pure
+logic rather than incorrectly requiring native-specific gauge placement to be
+byte-identical. No deployed-page or physical-iPhone acceptance is claimed.
+
 ## 2026-10-21 — Deployment acceptance exposed a Close restart-recovery gap
 
 PR #26 merged at `71b3922f005585c0ecbc02537adec6fdeb35e2aa`, and the user

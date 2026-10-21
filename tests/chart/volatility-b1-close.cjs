@@ -13,5 +13,7 @@ for(const interval of [1,5,15,60]){
  const touched=V.calculate(p,{...data,session_anchors:[{...data.session_anchors[0],low:30000,high:32000}]},o).sessions[0];
  assert.equal(touched.hits.every(Boolean),true,'canonical minute extrema retain touches within coarse opening candle');
 }
-assert.equal(fs.readFileSync('frontend/static/js/chart-volatility.js','utf8'),fs.readFileSync('ios/Wheel/ChartAssets/chart-volatility.js','utf8'));
+// Native gauge placement differs; calculations and session visibility must match.
+const pure=path=>fs.readFileSync(path,'utf8').split("if(typeof series==='undefined')return;")[0];
+assert.equal(pure('frontend/static/js/chart-volatility.js'),pure('ios/Wheel/ChartAssets/chart-volatility.js'));
 console.log('Confirmed canonical B1 close, identical 1/5/15/60m levels, fixed VXN cutoff and missing-anchor wait PASS',reference[1]);
