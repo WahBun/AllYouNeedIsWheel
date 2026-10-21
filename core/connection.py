@@ -381,6 +381,7 @@ class IBConnection:
                 self._external_completed_snapshot = []
                 self._futures_completed_cache = None
                 self._futures_completed_retry = None
+                self._completed_order_read = None
                 self._market_ticker_cache.clear()
                 self._market_data_type = None
                 logger.info(f"Successfully connected to IB with client ID {self.client_id}")
@@ -1182,7 +1183,7 @@ class IBConnection:
 
         return remaining_quantity
 
-    def get_option_position_quote(self, con_id, account_id=None, tif=None):
+    def get_option_position_quote(self, con_id, account_id=None, tif=None, *, wait_for_quote=True):
         """Fetch a quote for an exact held option or stock contract."""
         position = self.get_option_position_by_con_id(con_id, account_id)
         if not position:
@@ -1196,13 +1197,17 @@ class IBConnection:
         position = dict(position)
         position['contract'] = contract
         ticker = self.get_market_ticker(contract, '' if contract.secType == 'STK' else '106')
-        for _ in range(25):
-            self.ib.sleep(0.1)
-            if any(
-                self._valid_price(getattr(ticker, field, None)) is not None
-                for field in ('bid', 'ask', 'last', 'close')
-            ):
-                break
+        if wait_for_quote:
+            # One-shot close/rollover consumers retain their initial quote wait.
+            for _ in range(25):
+                self.ib.sleep(0.1)
+                if any(self._valid_price(getattr(ticker, field, None)) is not None
+                       for field in ('bid', 'ask', 'last', 'close')):
+                    break
+        else:
+            # Portfolio polling keeps this subscription alive between reads.
+            # Missing bid/ask remain unavailable; never wait on the IB owner.
+            self.ib.sleep(0.005)
 
         bid = self._valid_price(getattr(ticker, 'bid', None))
         ask = self._valid_price(getattr(ticker, 'ask', None))
@@ -2123,7 +2128,45 @@ class IBConnection:
 
         return self._trade_matches_order_details(trade, order_details)
 
+    def _read_completed_orders(self, api_only=False):
+        """Poll one SDK history request without blocking the shared IB owner.
+
+        IB uses a fixed request key (no request ID) for completed orders. Keep
+        an unfinished request alive until its end marker or disconnect; cancelling
+        and reissuing it could mistake an old response for a new complete snapshot.
+        All completed-history consumers share this request on the owner thread.
+        """
+        key = (self.account_id, api_only)
+        state = getattr(self, '_completed_order_read', None)
+        if state is not None and state['key'] != key:
+            # Account changes normally reconnect and clear this state. Never
+            # replace an in-flight request on the same SDK connection.
+            raise TimeoutError('Completed order history context changed; reconnect required.')
+        if state is not None and state['finished_at'] is not None and time.monotonic() - state['finished_at'] >= 5:
+            state = None
+        if state is None:
+            future = self.ib.reqCompletedOrdersAsync(api_only)
+            # Consume disconnect exceptions even if no HTTP poll follows.
+            future.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+            state = dict(key=key, future=future, finished_at=None)
+            self._completed_order_read = state
+        self.ib.sleep(0)
+        future = state['future']
+        if not future.done():
+            raise TimeoutError('Completed order history is still pending.')
+        if future.cancelled():
+            raise TimeoutError('Completed order history was interrupted; reconnect required.')
+        result = future.result()
+        if state['finished_at'] is None:
+            state['finished_at'] = time.monotonic()
+        return list(result or [])
+
     def _bounded_order_read(self, request, *args, timeout_seconds=3):
+        # Completed history is an optional read, unlike bounded order preflight.
+        # Detect the SDK method itself so every existing reconciliation caller
+        # shares one nonblocking request, without changing other read semantics.
+        if getattr(request, '__func__', None) is IB.reqCompletedOrders:
+            return self._read_completed_orders(*args)
         previous_timeout = getattr(self.ib, 'RequestTimeout', 0)
         self.ib.RequestTimeout = timeout_seconds
         try:

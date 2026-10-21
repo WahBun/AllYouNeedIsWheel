@@ -509,6 +509,7 @@ struct OpportunityRow: Identifiable {
 struct OpportunitiesView: View {
     @Environment(\.scenePhase) private var phase
     @State private var visible = false
+    @State private var titleRowVisible = true
     @Environment(\.locale) private var locale
     @Environment(WheelStore.self) private var store
     @State private var type = "PUT"
@@ -517,10 +518,37 @@ struct OpportunitiesView: View {
     private var symbols: [String] { book.symbols(store, type: type) }
     private var ready: [OpportunityRow] { symbols.compactMap { book.rows[book.key($0, type)] }.filter(\.canStage) }
     private var autoRefresh: Bool { visible && phase == .active && store.selectedTab == "trade" && !book.batchRunning && !store.trading.busy }
+    private var titleActions: some View {
+        HStack(spacing: 8) {
+            Button {
+                store.openTradeChart(store.portfolio?.positions.first(where: { $0.security_type == "STK" && ($0.con_id ?? 0) > 0 }) ?? Position(symbol: "Chart", position: 0, security_type: "STK"), resumeLast: true)
+            } label: {
+                Image(systemName: "chart.xyaxis.line").frame(width: 44, height: 44)
+            }.accessibilityLabel("Open recent chart")
+
+            if book.hasHidden(type: type) {
+                Button("Restore hidden opportunity tickers", systemImage: "eye") {
+                    book.restoreHidden(type: type)
+                }.labelStyle(.iconOnly)
+                    .frame(width: 44, height: 44)
+                    .help("Restore hidden opportunity tickers")
+            }
+        }
+    }
+
     var body: some View {
         List {
-            MarketSessionNotice()
-            if let error = book.priceError { NoticeText(error).font(.caption).foregroundStyle(.orange) }
+            Section {
+                MarketSessionNotice()
+                if let error = book.priceError { NoticeText(error).font(.caption).foregroundStyle(.orange) }
+            } header: {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Trade").font(.largeTitle.bold()).foregroundStyle(Color(uiColor: .label))
+                    Spacer(minLength: 12)
+                    titleActions.font(.body).foregroundStyle(Color.accentColor)
+                }.textCase(nil).padding(.horizontal, -16).padding(.top, -24).padding(.bottom, -16)
+                    .accessibilityIdentifier("tradeTitleRow")
+            }
             Section {
                 Picker("Strategy", selection: $type) { Text("Cash-secured puts").tag("PUT"); Text("Covered calls").tag("CALL") }.pickerStyle(.segmented)
                 if type == "PUT" {
@@ -548,7 +576,7 @@ struct OpportunitiesView: View {
                 let displayQuantity = type == "CALL" && row?.quote == nil
                     ? book.defaultCallQuantity(symbol, store: store)
                     : (row?.quantity ?? 1)
-                ArrowlessNavigationLink { OpportunityDetail(ticker: symbol, type: type) } label: {
+                ArrowlessNavigationLink { OpportunityDetail(ticker: symbol, type: type).navigationBarTitleDisplayMode(.large) } label: {
                     VStack(alignment: .leading, spacing: 8) {
                         Grid(horizontalSpacing: 10, verticalSpacing: 8) {
                             GridRow(alignment: .firstTextBaseline) {
@@ -627,18 +655,15 @@ struct OpportunitiesView: View {
             }
             Section { TradingNotice() }
         }.navigationTitle(localizedLabel("Trade", locale: locale))
+        .navigationBarTitleDisplayMode(.inline)
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top < 44 } action: { _, visible in titleRowVisible = visible }
         .toolbar {
-            Button {
-                store.openTradeChart(store.portfolio?.positions.first(where: { $0.security_type == "STK" && ($0.con_id ?? 0) > 0 }) ?? Position(symbol: "Chart", position: 0, security_type: "STK"), resumeLast: true)
-            } label: {
-                Image(systemName: "chart.xyaxis.line").frame(width: 36, height: 36)
-            }.accessibilityLabel("Open recent chart")
-
-            if book.hasHidden(type: type) {
-                Button("Restore hidden opportunity tickers", systemImage: "eye") {
-                    book.restoreHidden(type: type)
-                }.labelStyle(.iconOnly)
-                    .help("Restore hidden opportunity tickers")
+            ToolbarItem(placement: .principal) {
+                if titleRowVisible { Color.clear.frame(width: 1, height: 1) }
+                else { Text("Trade").font(.headline) }
+            }
+            if !titleRowVisible {
+                ToolbarItem(placement: .topBarTrailing) { titleActions }
             }
         }
         .refreshable {

@@ -93,7 +93,9 @@ def get_option_position_quote(con_id):
         tif = request.args.get('tif')
         if tif is not None and tif not in ('DAY', 'GTC', 'OVERNIGHT'):
             return _no_store_json({'error': 'Invalid stock time in force'}, 400)
-        result = portfolio_service.get_option_position_quote(con_id, tif=tif) if tif else portfolio_service.get_option_position_quote(con_id)
+        options = {'tif': tif} if tif else {}
+        if request.args.get('wait') == '0': options['wait_for_quote'] = False
+        result = portfolio_service.get_option_position_quote(con_id, **options)
         if not result:
             return jsonify({
                 'error': 'Option position was not found in the configured IB account'
