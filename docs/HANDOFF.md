@@ -1,3 +1,31 @@
+## 2026-10-21 — Portfolio option Mid price presentation (after v1.8.0)
+
+PR #15 replaces only the iOS Portfolio option valuation-price display with the
+existing exact-contract bid/ask midpoint. A visible English `Mid` label identifies
+the basis. Direction colors compare successive fresh midpoint observations,
+using the existing custom gain/loss palette; frozen, missing, failed or 15-second
+stale observations are neutral. Account epoch/context changes reset comparison
+state. Stock rows, broker P&L and quote-request cadence remain unchanged.
+
+REA read-only runtime evidence `ev_b5b57d4b4a3c550f6d57b2e90a9d0f019001fc1ffe92ae4a80b4c15ce200404d`
+confirmed the current held-option response matched its exact contract and that
+bid/ask midpoint differed from portfolio valuation. No broker writes occurred.
+Simulator build and six focused tests passed, covering midpoint math, average
+price, polling cadence, direction/reset/frozen/stale handling and SwiftUI render
+checks at 320/393pt in both themes. Inspected snapshots show Mid $0.40 with
+unchanged $32.00 demo P&L, custom up/down colors, neutral frozen and missing data.
+Physical-iPhone acceptance remains user-operated.
+
+PR #14 workflow documentation merged at
+`075af835796de12f2740826faf8937e0e5860c88`. New branch names should use `ben/`.
+`main` was archived as `archive/main-2026-10-21` at
+`90bb58a77c4be4bcc021607d4bab8fd156da6237`; GitHub deletion rule 25222039
+blocked its deletion. No branch-protection rules were changed.
+The existing v1.8.0 Release/tag remains at
+`c1d8bc98b05b6b3b71c82fddd644f2e3628584a1`.
+These iOS/documentation changes require no backend restart; use Deploy only if
+synchronizing Mini source. The updated iPhone display requires the user's Run.
+
 ## 2026-10-21 — RTH-only volatility information panels
 
 The MoonShine/Away table and probability gauge now use the advancing frame
