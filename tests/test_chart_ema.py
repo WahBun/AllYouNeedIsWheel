@@ -9,7 +9,7 @@ from api.services.stock_chart import stock_chart
 def snapshot(*args):
     # Drive asynchronous cache population for existing value/format assertions.
     value=read_snapshot(*args)
-    for _ in range(4):
+    for _ in range(16):
         asyncio.get_event_loop().run_until_complete(asyncio.sleep(0))
         value=read_snapshot(*args)
     return value

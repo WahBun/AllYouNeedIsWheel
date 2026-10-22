@@ -1,4 +1,5 @@
 """Bounded initial history reads on the existing IB event loop."""
+from api.services.chart_history_budget import read_history
 import asyncio
 import time
 
@@ -77,7 +78,7 @@ class InitialChartHistory:
                     event += history_error
                 started = time.monotonic()
                 try:
-                    history = await conn.ib.reqHistoricalDataAsync(contract, '', '2 D', '1 min', 'TRADES',
+                    history = await read_history(conn, contract, '', '2 D', '1 min', 'TRADES',
                         useRTH=False, formatDate=2, keepUpToDate=option, timeout=6 if option else 15)
                     record['history'] = history
                 except Exception:

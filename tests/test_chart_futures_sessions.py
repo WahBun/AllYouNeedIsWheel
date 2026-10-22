@@ -120,8 +120,9 @@ class FuturesSessionTests(unittest.TestCase):
         try:
             with patch.object(stock_chart,'states',{7:current}),patch.object(stock_chart,'active',current):
                 frames=[3,5,10,15,60,240]
-                for _ in range(6):
+                for _ in range(20):
                     result=ema_snapshot(conn,7,frames,'rth')
+                    if len(result['frames']) == len(frames): break
                     loop.run_until_complete(asyncio.sleep(0))
                 for frame in frames:
                     rows=result['frames'][str(frame)]

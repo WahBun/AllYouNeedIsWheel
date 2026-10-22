@@ -1,4 +1,5 @@
 """Cached 8h RTH history on the existing IB loop, separate from live ticks."""
+from api.services.chart_history_budget import read_history
 import asyncio
 from datetime import datetime, timezone
 import math
@@ -183,9 +184,9 @@ class EightHourHistory:
             event += on_error
         began = time.monotonic()
         try:
-            history = await conn.ib.reqHistoricalDataAsync(contract, datetime.fromtimestamp(end, timezone.utc),
+            history = await read_history(conn, contract, datetime.fromtimestamp(end, timezone.utc),
                 f'{days} D', '15 mins' if cme_regular(contract) else '30 mins', 'TRADES',
-                useRTH=not cme_regular(contract), formatDate=2, keepUpToDate=False, timeout=60)
+                useRTH=not cme_regular(contract), formatDate=2, keepUpToDate=False, timeout=60,optional=True)
             req_id = getattr(history, 'reqId', None)
             messages = [message.lower() for identifier, message, cid in errors
                         if (identifier == req_id if req_id is not None else cid == contract.conId)]
