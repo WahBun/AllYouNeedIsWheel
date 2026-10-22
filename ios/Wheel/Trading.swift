@@ -5,6 +5,7 @@ struct BackendHTTPError: LocalizedError {
     let status: Int
     let message: String
     var confirmedRejection = false
+    var retryAfter: TimeInterval? = nil
     var errorDescription: String? { message }
 }
 
@@ -633,7 +634,8 @@ final class TradingSession {
             if request.httpMethod != "GET", source == "application", [400, 403, 409, 422].contains(http.statusCode) {
                 ChartTradeSounds.shared.play("rejected", enabled: ChartTradeSounds.shared.enabled)
             }
-            throw BackendHTTPError(status: http.statusCode, message: "\(payload?["error"] as? String ?? "Request failed.") [HTTP \(http.statusCode) · \(source) · \(diagnostic)]", confirmedRejection: source == "application" && [400, 403, 409, 422].contains(http.statusCode))
+            let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init)
+            throw BackendHTTPError(status: http.statusCode, message: "\(payload?["error"] as? String ?? "Request failed.") [HTTP \(http.statusCode) · \(source) · \(diagnostic)]", confirmedRejection: source == "application" && [400, 403, 409, 422].contains(http.statusCode), retryAfter: retryAfter.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil })
         }
         if request.httpMethod != "GET", payload["status"] as? String == "rejected" {
             ChartTradeSounds.shared.play("rejected", enabled: ChartTradeSounds.shared.enabled)

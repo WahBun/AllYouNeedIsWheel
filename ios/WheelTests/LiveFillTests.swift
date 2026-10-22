@@ -1,8 +1,64 @@
 import XCTest
 @testable import Wheel
 
+
+private final class FillHistoryFailureProtocol: URLProtocol {
+    static var historyReads = 0
+    static var orderReads = 0
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let history = request.url?.lastPathComponent == "pending-orders"
+        if history { Self.historyReads += 1 } else { Self.orderReads += 1 }
+        let response = HTTPURLResponse(url: request.url!, statusCode: history ? 503 : 200,
+            httpVersion: nil, headerFields: history ? ["Retry-After": "15"] : nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        let body: [String: Any] = history ? ["error": "History is busy"] : ["success": true, "orders": []]
+        client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: body))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 @MainActor
 final class LiveFillTests: XCTestCase {
+    func testHistoryFailureBacksOffWhileCurrentOrdersKeepRefreshing() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [FillHistoryFailureProtocol.self]
+        FillHistoryFailureProtocol.historyReads = 0
+        FillHistoryFailureProtocol.orderReads = 0
+        let store = WheelStore()
+        store.demo = false; store.address = "https://example.test"
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        await store.refreshOrders()
+        for _ in 0..<8 { await store.refreshOrders() }
+        XCTAssertEqual(FillHistoryFailureProtocol.historyReads, 1)
+        XCTAssertEqual(FillHistoryFailureProtocol.orderReads, 9)
+        XCTAssertNil(store.orderError)
+        XCTAssertNil(store.fillPreview.notice)
+        // A disappearing order must not turn an active history failure into a retry loop.
+        store.orders = [order()]
+        await store.refreshOrders()
+        XCTAssertEqual(FillHistoryFailureProtocol.historyReads, 1)
+        XCTAssertTrue(store.orders.isEmpty)
+        store.changeMode()
+        await store.refreshOrders()
+        XCTAssertEqual(FillHistoryFailureProtocol.historyReads, 2, "A new account context has its own retry budget")
+    }
+
+    func testHistoryHTTPErrorRetainsServerRetryDelay() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [FillHistoryFailureProtocol.self]
+        let trading = TradingSession(session: URLSession(configuration: config))
+        do {
+            _ = try await trading.get("api/options/pending-orders", base: "https://example.test")
+            XCTFail("Expected history failure")
+        } catch let error as BackendHTTPError {
+            XCTAssertEqual(error.status, 503)
+            XCTAssertEqual(error.retryAfter, 15)
+        } catch { XCTFail("Unexpected error: \(error)") }
+    }
+
     func order(_ id: Int = 1, _ filled: Double = 0) -> Order {
         Order(id: OrderID(id), ticker: "TEST", action: "SELL", option_type: "PUT", strike: 10,
               quantity: 2, status: filled >= 2 ? "executed" : "processing", filled: filled, avg_fill_price: 0.48)
