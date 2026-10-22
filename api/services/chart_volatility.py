@@ -74,17 +74,27 @@ def snapshot(conn,cid,source=None):
     if not family: return dict(con_id=cid,supported=False)
     source=source or SOURCES[family]
     if source not in SOURCES.values(): raise ValueError('Unsupported volatility index')
+    identity = (conn.ib, conn.ib.client, getattr(conn, 'account_id', None))
     cache=state.setdefault('volatility_cache',{})
-    # Reuse completed index data only within this exact IB connection.
+    if source in cache and cache[source].get('identity') != identity:
+        cache.pop(source)
+    # Share pending work and its partial results, scoped to the current client/account.
     if source not in cache:
         for other in stock_chart.states.values():
             candidate=other.get('volatility_cache',{}).get(source)
-            if other.get('conn') is conn and candidate and candidate.get('status')=='ready' and time.monotonic()<candidate.get('retry',0):
-                cache[source]=dict(candidate)
+            if other.get('conn') is conn and candidate and candidate.get('identity') == identity:
+                cache[source]=candidate
                 break
-    item=cache.setdefault(source,dict(status='waiting',intraday=[],daily=[]))
-    if source not in state.setdefault('volatility_pending',{}) and time.monotonic()>=item.get('retry',0):
+    item=cache.setdefault(source,dict(status='waiting',intraday=[],daily=[],identity=identity))
+    pending = state.setdefault('volatility_pending',{})
+    if item.get('task') is not None and not item['task'].done():
+        pending[source] = item['task']
+    elif time.monotonic()>=item.get('retry',0):
         item['retry']=time.monotonic()+60
+        def current():
+            return (conn.ib, conn.ib.client, getattr(conn, 'account_id', None)) == identity and conn.is_connected() and any(
+                other.get('conn') is conn and other.get('volatility_cache', {}).get(source) is item
+                for other in stock_chart.states.values())
         async def load():
             try:
                 contract=item.get('contract')
@@ -92,6 +102,7 @@ def snapshot(conn,cid,source=None):
                     contracts=await asyncio.wait_for(conn.ib.qualifyContractsAsync(Index(source,'CBOE','USD')),6)
                     if len(contracts)!=1: raise ValueError('Index unavailable')
                     contract=item['contract']=contracts[0]
+                if not current(): return
                 def rows(bars):
                     out=[]
                     for b in bars:
@@ -105,7 +116,7 @@ def snapshot(conn,cid,source=None):
                     try:
                         bars=await conn.ib.reqHistoricalDataAsync(contract,'',duration,size,'TRADES',useRTH=False,formatDate=2,timeout=6)
                         values=rows(bars)
-                        if values and stock_chart.states.get(cid) is state:
+                        if values and current():
                             item[key]=values
                     except asyncio.CancelledError: raise
                     except Exception: pass
@@ -113,8 +124,16 @@ def snapshot(conn,cid,source=None):
                 item['status']='ready' if item['intraday'] or item['daily'] else 'unavailable'
             except asyncio.CancelledError: raise
             except Exception: item['status']='ready' if item['intraday'] or item['daily'] else 'unavailable'
-            finally: state['volatility_pending'].pop(source,None)
+            finally:
+                task = asyncio.current_task()
+                if item.get('task') is task: item.pop('task', None)
+                for other in stock_chart.states.values():
+                    slots = other.get('volatility_pending', {})
+                    if slots.get(source) is task: slots.pop(source, None)
         # Bound qualification too; all work remains on the existing IB event loop.
-        state['volatility_pending'][source]=asyncio.get_event_loop().create_task(load())
+        pending[source] = item['task'] = asyncio.get_event_loop().create_task(load())
+        for other in stock_chart.states.values():
+            if other.get('volatility_cache', {}).get(source) is item:
+                other.setdefault('volatility_pending', {})[source] = item['task']
     conn.ib.sleep(.005)
     return dict(con_id=cid,supported=True,group=family,source=source,session_anchors=session_anchors(state.get('bars', []), time.time(), state['contract']),**{k:item[k] for k in ('status','intraday','daily')})
