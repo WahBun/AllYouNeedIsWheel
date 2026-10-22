@@ -115,7 +115,14 @@ class EightHourHistory:
                         return await self.read(conn, state['contract'], page)
 
                 if preload:
-                    results = [await read_page(page) for page in pages]
+                    results = []
+                    for page in pages:
+                        result = await read_page(page)
+                        results.append(result)
+                        if result is None:
+                            # Optional warming must not keep querying an unhealthy
+                            # history service. Unread pages remain coverage gaps.
+                            break
                 else:
                     results = await asyncio.gather(*(read_page(page) for page in pages))
                 if not valid():
@@ -148,7 +155,8 @@ class EightHourHistory:
                 else:
                     self.foreground -= 1
                 state.pop('rth_eight_task', None)
-                if preload and valid() and self.preloaded < self.MAX_PRELOADS:
+                if (preload and valid() and not state.get('rth_eight_refresh_failed')
+                        and self.preloaded < self.MAX_PRELOADS):
                     candidate = next((item for item in self.feed.states.values()
                                       if item is not state and not item.get('rth_eight_cache_loaded')
                                       and item.get('rth_eight_task') is None), None)

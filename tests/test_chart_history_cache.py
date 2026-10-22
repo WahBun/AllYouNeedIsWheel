@@ -310,6 +310,43 @@ class PersistentHistoryTests(unittest.TestCase):
         self.loop.run_until_complete(asyncio.sleep(.02))
         self.assertFalse(history)
 
+    def test_failed_preload_stops_remaining_pages_without_claiming_coverage(self):
+        conn, ticker, calls = self.source()
+        feed, state = self.open(conn, 1)
+        conn.ib.reqHistoricalDataAsync.side_effect = TimeoutError('history unavailable')
+        feed.eight_history.request(state, preload=True)
+        self.finish(state)
+        self.assertEqual(conn.ib.reqHistoricalDataAsync.await_count, 1)
+        self.assertTrue(state['rth_eight_refresh_failed'])
+        self.assertFalse(state['rth_eight_expanded'])
+        self.assertEqual(state['rth_eight_coverage'], [])
+        self.assertFalse(feed.eight_history.preload_running)
+        self.assertIsNone(state.get('rth_eight_task'))
+
+    def test_failed_preload_preserves_successful_prefix_for_later_foreground_read(self):
+        conn, ticker, calls = self.source()
+        feed, state = self.open(conn, 1)
+        normal = conn.ib.reqHistoricalDataAsync.side_effect
+        async def fail_after_one(*args, **kwargs):
+            if calls:
+                raise TimeoutError('history unavailable')
+            return await normal(*args, **kwargs)
+        conn.ib.reqHistoricalDataAsync.side_effect = fail_after_one
+        feed.eight_history.request(state, preload=True)
+        self.finish(state)
+        self.assertEqual(conn.ib.reqHistoricalDataAsync.await_count, 2)
+        prefix = list(state['rth_eight_history'])
+        self.assertTrue(prefix)
+        self.assertFalse(state['rth_eight_expanded'])
+        self.assertTrue(missing(state['rth_eight_coverage'], self.now - 183 * DAY, self.now))
+        conn.ib.reqHistoricalDataAsync.side_effect = normal
+        state['rth_eight_retry'] = 0
+        feed.eight_history.request(state)
+        self.finish(state)
+        self.assertTrue(state['rth_eight_expanded'])
+        self.assertFalse(state['rth_eight_refresh_failed'])
+        self.assertGreater(len(state['rth_eight_history']), len(prefix))
+
     def test_corrupt_expired_and_oversized_cache_falls_back_and_disk_has_a_bound(self):
         conn, ticker, calls = self.source()
         feed, state = self.open(conn)
