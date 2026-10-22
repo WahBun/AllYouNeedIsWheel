@@ -1,4 +1,5 @@
 """Optional index history; starts only after primary chart is available."""
+from api.services.chart_history_budget import read_history
 import asyncio
 import math
 import time
@@ -114,7 +115,7 @@ def snapshot(conn,cid,source=None):
                     return out
                 async def history(key,duration,size):
                     try:
-                        bars=await conn.ib.reqHistoricalDataAsync(contract,'',duration,size,'TRADES',useRTH=False,formatDate=2,timeout=6)
+                        bars=await read_history(conn, contract,'',duration,size,'TRADES',useRTH=False,formatDate=2,timeout=6,optional=True)
                         values=rows(bars)
                         if values and current():
                             item[key]=values

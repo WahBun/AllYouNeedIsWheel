@@ -1,4 +1,5 @@
 """Independent EMA timeframe bars, owned and cancelled with the active chart."""
+from api.services.chart_history_budget import read_history
 import math
 import asyncio
 from datetime import datetime, date, time as clock_time, timedelta
@@ -39,7 +40,7 @@ def snapshot(conn, cid, frames, session):
             retry[key]=time.monotonic()+60
             async def load(key=key,duration=duration,size=size,futures_rth=futures_rth):
                 try:
-                    history=await conn.ib.reqHistoricalDataAsync(state['contract'],'',duration,size,'TRADES',useRTH=key[1]=='rth' and not futures_rth,formatDate=2,keepUpToDate=True,timeout=15)
+                    history=await read_history(conn, state['contract'],'',duration,size,'TRADES',useRTH=key[1]=='rth' and not futures_rth,formatDate=2,keepUpToDate=True,timeout=15,optional=True)
                     valid=(stock_chart.states.get(cid) is state or stock_chart.active is state)
                     if not valid or key not in state.get('ema_wanted',set()) or not history:
                         conn.ib.cancelHistoricalData(history)

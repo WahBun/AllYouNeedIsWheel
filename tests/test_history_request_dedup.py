@@ -34,6 +34,7 @@ class HistoryDedupTests(unittest.IsolatedAsyncioTestCase):
             for minutes, before in [(15, stamp(10).timestamp()), (60, stamp(11).timestamp())]:
                 self.assertTrue(feed.page(conn, 7, minutes, 'rth', before, background=True, recent=True)['loading'])
             await asyncio.sleep(0)
+            await asyncio.sleep(0)  # Shared admission starts the owned SDK task.
             for _ in range(100):
                 feed.page(conn, 7, 60, 'rth', stamp(11).timestamp(), background=True, recent=True)
             self.assertEqual(conn.ib.reqHistoricalDataAsync.await_count, 1)

@@ -1,4 +1,5 @@
 """Bounded, cached historical pages on the existing IB owner thread."""
+from api.services.chart_history_budget import read_history
 from collections import OrderedDict
 import asyncio
 from datetime import date, datetime, timezone
@@ -69,7 +70,7 @@ class ChartHistory:
                     # The same IB owner loop services ticks while this read waits.
                     # Let ib_async finish/timeout its one-shot request; canceling
                     # the task would skip that library's timeout cleanup.
-                    history = await conn.ib.reqHistoricalDataAsync(*args, **kwargs)
+                    history = await read_history(conn, *args, **kwargs)
                     if conn.ib.client is client and getattr(conn, 'account_id', None) == account and conn.is_connected():
                         if history:
                             self.raw_cache[request_key] = (time.monotonic(), history)
