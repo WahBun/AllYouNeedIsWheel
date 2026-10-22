@@ -14,6 +14,7 @@ class ChartHistory:
     def __init__(self):
         self.cache = OrderedDict()
         self.pending = {}
+        self.raw_cache = OrderedDict()
         self.retry = OrderedDict()
 
     def page(self, conn, cid, minutes, session, before, background=False, recent=False):
@@ -34,11 +35,6 @@ class ChartHistory:
             self.cache.move_to_end(key)
             return cached[1]
         empty = dict(con_id=cid, interval=minutes, session=session, bars=[], before=before, next_before=None)
-        if background:
-            if time.monotonic() < self.retry.get(key, 0):
-                return empty
-            if key in self.pending or len(self.pending) >= self.MAX_PENDING:
-                return dict(empty, loading=True, retry_after=.5)
         contract = contracts.resolve(conn,cid)
         futures_rth = session == 'rth' and minutes < 1440 and cme_regular(contract)
         intraday_eight_rth = minutes == 480 and session == 'rth' and not futures_rth
@@ -51,13 +47,23 @@ class ChartHistory:
         # Background pages do not hold the HTTP/IB owner. Canceling a valid
         # cold read at eight seconds discards its bars and adds a 30s cooldown.
         kwargs = dict(useRTH=session=='rth' and not futures_rth, formatDate=2, keepUpToDate=False, timeout=30 if background else 8)
-        def save(history):
+        def save(history, cached_at=None):
             result = self.result(history, contract, cid, minutes, session, before, futures_rth or intraday_eight_rth)
             if result['bars']:
-                self.cache[key] = (time.monotonic(), result)
+                self.cache[key] = (time.monotonic() if cached_at is None else cached_at, result)
                 while len(self.cache)>64: self.cache.popitem(last=False)
             return result
+        # Share the broker read, not the pane-specific aggregation/boundary.
+        request_key = (id(conn), id(client), account, cid, repr(contract), args[1:], tuple(kwargs.items()))
+        raw = self.raw_cache.get(request_key)
+        if raw and time.monotonic() - raw[0] < 300:
+            self.raw_cache.move_to_end(request_key)
+            return save(raw[1], raw[0])
         if background:
+            if time.monotonic() < self.retry.get(request_key, 0):
+                return empty
+            if request_key in self.pending or len(self.pending) >= self.MAX_PENDING:
+                return dict(empty, loading=True, retry_after=.5)
             async def load():
                 try:
                     # The same IB owner loop services ticks while this read waits.
@@ -65,14 +71,17 @@ class ChartHistory:
                     # the task would skip that library's timeout cleanup.
                     history = await conn.ib.reqHistoricalDataAsync(*args, **kwargs)
                     if conn.ib.client is client and getattr(conn, 'account_id', None) == account and conn.is_connected():
+                        if history:
+                            self.raw_cache[request_key] = (time.monotonic(), history)
+                            while len(self.raw_cache) > 64: self.raw_cache.popitem(last=False)
                         save(history)
                 except Exception:
                     pass
                 finally:
-                    self.pending.pop(key, None)
-                    self.retry[key] = time.monotonic() + 30
+                    self.pending.pop(request_key, None)
+                    self.retry[request_key] = time.monotonic() + 30
                     while len(self.retry)>64: self.retry.popitem(last=False)
-            self.pending[key] = asyncio.get_event_loop().create_task(load())
+            self.pending[request_key] = asyncio.get_event_loop().create_task(load())
             return dict(empty, loading=True, retry_after=.5)
         return save(conn.ib.reqHistoricalData(*args, **kwargs))
 

@@ -181,7 +181,10 @@ class StockChart:
         self.states.pop(state['con_id'], None)
         if self.active is state: self.active = None
         if state:
-            for task in state.get('volatility_pending', {}).values(): task.cancel()
+            for task in state.get('volatility_pending', {}).values():
+                # Evicting one chart must not cancel another chart's shared index read.
+                if not any(task in other.get('volatility_pending', {}).values() for other in self.states.values()):
+                    task.cancel()
             task = state.pop('rules_task', None)
             if task is not None: task.cancel()
             if state.get('minute_history') is not None:
