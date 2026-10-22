@@ -308,6 +308,8 @@ final class WheelStore {
     private var fillTracker = FillTracker()
     private var fillSnapshot: [Order] = []
     private var fillSnapshotAt: Date?
+    private var fillHistoryRetryAt: Date?
+    private var fillHistoryFailures = 0
     var completedOrders: [OrderID: Order] = [:]
     func retainCompleted(_ records: [Order]) {
         for order in records where order.isTerminal { completedOrders[order.id] = order }
@@ -478,7 +480,8 @@ final class WheelStore {
             guard token == revision, tradeVersion == trading.version, !trading.busy, !Task.isCancelled else { return }
             let disappeared = !Set(orders.map(\.id)).subtracting(result.orders.map(\.id)).isEmpty
             orders = result.orders; ordersUpdated = Date(); orderError = nil
-            if fillSnapshotAt == nil || disappeared || Date().timeIntervalSince(fillSnapshotAt!) >= 10 {
+            let historyRetryReady = fillHistoryRetryAt.map { Date() >= $0 } ?? true
+            if historyRetryReady && (fillSnapshotAt == nil || disappeared || Date().timeIntervalSince(fillSnapshotAt!) >= 10) {
                 do {
                     let payload = try await trading.get("api/options/pending-orders", base: address,
                         query: [URLQueryItem(name: "executed", value: "true")])
@@ -487,9 +490,14 @@ final class WheelStore {
                     retainCompleted(history.orders)
                     fillSnapshot = history.orders
                     fillSnapshotAt = Date()
+                    fillHistoryRetryAt = nil
+                    fillHistoryFailures = 0
                 } catch {
                     // Keep known quantities on failures; a missing response is never a fill.
                     guard token == revision, tradeVersion == trading.version, !Task.isCancelled else { return }
+                    fillHistoryFailures = min(fillHistoryFailures + 1, 4)
+                    let delay = min(60.0, 10.0 * pow(2.0, Double(fillHistoryFailures - 1)))
+                    fillHistoryRetryAt = Date().addingTimeInterval(max(delay, (error as? BackendHTTPError)?.retryAfter ?? 0))
                 }
             }
             if fillSnapshotAt != nil {
@@ -538,7 +546,7 @@ final class WheelStore {
             if token == revision, version == trading.version, !Task.isCancelled { filledError = connectionMessage(error) }
         }
     }
-    func changeMode() { ChartTradeSounds.shared.reset(); connectingEpoch = nil; connectingMode = nil; completedOrders = [:]; performanceHistoryCache = [:]; transientPortfolioFailures = 0; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; filledUpdated = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
+    func changeMode() { ChartTradeSounds.shared.reset(); connectingEpoch = nil; connectingMode = nil; completedOrders = [:]; performanceHistoryCache = [:]; transientPortfolioFailures = 0; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; fillHistoryRetryAt = nil; fillHistoryFailures = 0; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; filledUpdated = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
 }
 
 struct PortfolioRefreshBusy: LocalizedError {
