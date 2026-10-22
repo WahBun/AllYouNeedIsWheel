@@ -1601,6 +1601,22 @@ class PaperChart:
             # At least one broker write may have happened. Do not offer a blind retry.
             raise RuntimeError('Entry amendment needs broker reconciliation') from error
 
+    @staticmethod
+    def pending_add_lot(group, oid, trades):
+        lot = next((lot for lot in (group.get('lots') or group.get('stock_brackets', []))
+                    if lot['entry'] == oid), None)
+        if lot:
+            return lot
+        # Independent call Adds have an exact persisted parent, but no bracket
+        # lot. Recover only that parent; never infer ownership from the position.
+        if (group.get('simple_add', {}).get('order_id') == oid
+                and group.get('entry_kinds', {}).get(str(oid)) == 'add'
+                and any(role.split('_')[0] == 'entry' and value == oid
+                        for role, value in group.get('ids', {}).items())
+                and not any(t.order.parentId == oid for t in trades.values())):
+            return dict(entry=oid)
+        return None
+
     def cancel_add(self, conn, account, cid, body):
         """Cancel one owned, unfilled unit parent; never cancel its protection directly."""
         conn._bounded_order_read(conn.ib.reqOpenOrders, timeout_seconds=3)
@@ -1611,10 +1627,10 @@ class PaperChart:
         oid = body.get('order_id')
         if isinstance(oid, bool) or not isinstance(oid, int):
             raise ValueError('Exact add order ID required')
-        lot = next((lot for lot in (group.get('lots') or group.get('stock_brackets', [])) if lot['entry'] == oid), None)
+        trades = getattr(self, '_resolved_trades', {})
+        lot = self.pending_add_lot(group, oid, trades)
         if not lot:
             raise ValueError('This is not an owned add order')
-        trades = getattr(self, '_resolved_trades', {})
         parent = trades.get(oid)
         if (not parent or parent.contract.conId != cid or parent.order.account != account
                 or parent.order.orderRef != group.get('ref')):
@@ -2358,9 +2374,9 @@ class PaperChart:
             if not group or not current['known'] or body.get('expected_ref')!=group.get('ref'):
                 raise ValueError('Add identity/status changed; refresh before amending')
             oid=body.get('order_id')
-            lot=next((l for l in (group.get('lots') or group.get('stock_brackets',[])) if l['entry']==oid),None)
             row=next((r for r in current['orders'] if r['order_id']==oid),None)
             trades=getattr(self,'_resolved_trades',{})
+            lot=self.pending_add_lot(group,oid,trades)
             parent=trades.get(oid)
             if not lot or not row or not parent or parent.contract.conId!=cid or parent.order.account!=account or parent.order.orderRef!=group['ref']:
                 raise ValueError('Exact owned add order required')
@@ -2370,8 +2386,8 @@ class PaperChart:
                 raise ValueError('Add changed; refresh before moving')
             target=price(body.get('price'))
             take,stop=trades.get(lot.get('tp')),trades.get(lot.get('sl'))
-            unprotected_option = contract.secType in ('OPT', 'STK') and not any(r in lot for r in ('tp','sl'))
-            if unprotected_option:
+            unprotected_add = contract.secType in ('OPT', 'STK', 'FUT') and not any(r in lot for r in ('tp','sl'))
+            if unprotected_add:
                 if any(t.order.account == account and t.contract.conId == cid and t.order.action != parent.order.action for t in conn.ib.openTrades()):
                     raise ValueError('Option Add cannot be amended while opposite orders are working')
             else:
