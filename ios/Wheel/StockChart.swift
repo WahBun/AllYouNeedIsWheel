@@ -409,6 +409,44 @@ struct StockChartView: View {
         entry = "0"; beApplied = false; paperMessage = nil
         showAdjustment = false; showPositionProtection = false; showQuantityEditor = false
     }
+    private func newIndependentOrder() {
+        guard !tradingLocked, !paperBusy, !store.trading.busy, store.chartTradingAvailable, let cid = chartID else { return }
+        let id = UUID().uuidString.lowercased()
+        guard paperState["known"] as? Bool == false else { selectOrderGroup(id); return }
+        guard let received = paperReceived, (0..<3).contains(Date().timeIntervalSince(received)),
+              let epoch = store.trading.accountEpoch, !epoch.isEmpty,
+              !store.trading.paperPending(base: store.address, conID: cid, groupID: selectedOrderGroup) else {
+            paperMessage = "Wait for current account and order status before starting a new group."
+            return
+        }
+        let body: [String: Any]
+        do { body = try TradeRules.flatHistoryRecoveryRequest(state: paperState, groupID: id) }
+        catch { paperMessage = connectionMessage(error); return }
+        let base = store.address, original = selectedOrderGroup
+        paperBusy = true
+        paperMessage = "Checking broker positions and open orders before starting a new group…"
+        Task {
+            defer { paperBusy = false }
+            guard !tradingLocked, chartID == cid, selectedOrderGroup == original,
+                  store.address == base, store.trading.accountEpoch == epoch else { return }
+            do {
+                let result = try await store.trading.paperChartWrite(base: base, conID: cid, body: body)
+                guard chartID == cid, selectedOrderGroup == original, store.address == base,
+                      store.trading.accountEpoch == epoch else { return }
+                if result["success"] as? Bool == true || store.trading.paperPending(base: base, conID: cid, groupID: id) {
+                    paperBusy = false; selectOrderGroup(id)
+                }
+                paperMessage = result["message"] as? String
+            } catch {
+                guard chartID == cid, selectedOrderGroup == original, store.address == base,
+                      store.trading.accountEpoch == epoch else { return }
+                if store.trading.paperPending(base: base, conID: cid, groupID: id) {
+                    paperBusy = false; selectOrderGroup(id)
+                }
+                paperMessage = connectionMessage(error) + " · No trading order was sent."
+            }
+        }
+    }
     @State private var paperReceived: Date?
     @State private var paperBusy = false
     @State private var submitRevision = 0
@@ -1491,8 +1529,8 @@ struct StockChartView: View {
                         }
                     }
                     Spacer()
-                    Button { selectOrderGroup(UUID().uuidString.lowercased()) } label: {
-                        Label(locale.language.languageCode?.identifier == "zh" ? "新订单" : "New order", systemImage: "plus")
+                    Button { newIndependentOrder() } label: {
+                        Label("New order", systemImage: "plus")
                     }
                 }.disabled(paperBusy || store.trading.busy)
             }

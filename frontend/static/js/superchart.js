@@ -677,7 +677,21 @@ window.addEventListener('message',event=>{if(event.origin!==location.origin||eve
 window.installOptionSearch({api,select,symbol:()=>packet.symbol||$('symbol').value,canSelect:()=>!busy,onError:trace});
 function renderGroups(value){const choices=value.group_choices||[],picker=$('order-group');picker.replaceChildren(new Option('Original order',''),...choices.filter(g=>g.id).map((g,i)=>new Option('Order '+(i+2)+' · '+(g.ref||g.id).slice(-6),g.id)));if(groupID&&!choices.some(g=>g.id===groupID))picker.append(new Option('New order draft',groupID));picker.value=groupID;picker.disabled=busy;}
 function selectGroup(id){if(busy)return;resetNewQuantity();groupID=id;localStorage.setItem('wheel.web.group:'+cid,id);generation++;marketStream.stop();lastFallback=0;lastPnL=0;entry=0;state={};received=0;revision++;$('editor').close();renderGroups({});sync();refresh();}
-$('new-order').onclick=()=>{if($('new-order').disabled)return;selectGroup(crypto.randomUUID());log('New independent order · previous orders remain in Orders.');};
+$('new-order').onclick=async()=>{
+ if($('new-order').disabled)return;
+ const id=crypto.randomUUID();
+ if(state.known!==false){selectGroup(id);log('New independent order · previous orders remain in Orders.');return;}
+ if(profile.selected!=='paper'||!epoch||Date.now()-received>=15000||state.sync_error||localStorage.getItem(pendingKey()))return log(tradingBlockReason());
+ const refs=state.group_attribution?.recovery_refs||state.group_choices?.map(g=>g.ref)||[];
+ if(!refs.length||(state.account_position??state.position)!==0)return log('Resolve the current position and orders before starting a new group.');
+ const selected=cid,token=generation,accountEpoch=epoch,request={action:'reconcile_flat_history',expected_refs:refs,request_id:crypto.randomUUID()};
+ const key=`wheel.web.pending:${profile.selected}:${selected}:${id}`;
+ busy=true;writeVersion++;localStorage.setItem(key,request.request_id);sync();log('Checking broker positions and open orders before starting a new group…');
+ let result;
+ try{result=await api(`portfolio/paper-chart/${selected}?group_id=${encodeURIComponent(id)}`,request);if(terminal.has(result.status))localStorage.removeItem(key);log(result.message||result.status);}
+ catch(error){if(error.confirmed)localStorage.removeItem(key);log(error.message+' · No trading order was sent.');}
+ finally{busy=false;if(token===generation&&accountEpoch===epoch&&(result?.success||localStorage.getItem(key)))selectGroup(id);else sync();}
+};
 $('order-group').onchange=()=>selectGroup($('order-group').value);
 $('contracts').onchange=()=>select(Number($('contracts').value),$('contracts').selectedOptions[0].textContent);
 const periods=[[1,'1m','Minutes'],[3,'3m','Minutes'],[5,'5m','Minutes'],[10,'10m','Minutes'],[15,'15m','Minutes'],[60,'1h','Hours'],[480,'8h','Hours'],[1440,'1D','Days'],[10080,'1W','Days'],[43200,'1M','Days']];

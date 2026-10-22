@@ -154,7 +154,7 @@ def durable_terminal_trades(path, account, cid, trades):
         return _durable_terminal_trades(db, account, cid, trades)
 
 
-def project(path, account, cid, client, groups, trades, fills, account_position):
+def project(path, account, cid, client, groups, trades, fills, account_position, *, baseline_records=()):
     """Return quantities only from exact, nonconflicting executions.
 
     Every observed payload is retained. Duplicate callbacks are harmless;
@@ -227,7 +227,7 @@ def project(path, account, cid, client, groups, trades, fills, account_position)
             digest=hashlib.sha256(encoded.encode()).hexdigest()
             db.execute('INSERT OR IGNORE INTO group_execution_evidence VALUES(?,?,?,?)',(digest,account,cid,encoded))
         baseline_row=db.execute('SELECT payload FROM group_ledger_baseline WHERE account=? AND con_id=?',(account,cid)).fetchone()
-        baseline=json.loads(baseline_row[0]) if baseline_row else []
+        baseline=(json.loads(baseline_row[0]) if baseline_row else []) + list(baseline_records)
         records=[SimpleNamespace(**json.loads(row[0])) for row in db.execute('SELECT payload FROM group_execution_evidence WHERE account=? AND con_id=?',(account,cid))]
         dedup,unambiguous=execution_groups(records)
         if not unambiguous:conflict('Execution identity or correction conflict')
