@@ -163,3 +163,15 @@ class FlatHistoryRecovery(unittest.TestCase):
             return []
         self.conn._bounded_order_read.side_effect=read
         self.assertFalse(self.recover()['success']);self.assertIsNone(latest(self.new,'DU_TEST',7))
+
+    def test_original_history_stays_read_only_before_any_new_order_is_sent(self):
+        self.old();self.assertTrue(self.recover()['success'])
+        # Even if old terminal evidence subsequently becomes complete, that
+        # original group remains outside the newly established lifecycle.
+        group=self.service.group('DU_TEST',7)
+        for role,oid in group['ids'].items():
+            group.setdefault('terminal',{})[role]=dict(role=role,order_id=oid,status='Cancelled',price=10,quantity=1,filled=0)
+        self.service.save_group('DU_TEST',7,group)
+        self.assertFalse(self.service.state(self.conn,7)['known'])
+        result=self.service.execute(self.conn,7,dict(action='submit',request_id=str(uuid4()),side=1,quantity=1,entry_type='LMT',entry=10))
+        self.assertFalse(result['success']);self.conn.ib.placeOrder.assert_not_called()

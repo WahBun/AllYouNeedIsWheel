@@ -186,11 +186,11 @@ class PaperChart:
                 from core.order_group_ledger import flat_baseline
                 flat_baseline(self.path,account,cid,conn.ib.fills())
         historical=self.historical_groups(account,cid,{c['ref'] for c in choices})
-        if len(choices)+len(historical)<2 and not (self.group_id and choices and not self.group(account,cid)):
-            return None
-        from core.order_group_ledger import project
         from api.services.chart_flat_recovery import latest, active_old_order
         checkpoint = latest(self, account, cid)
+        if not checkpoint and len(choices)+len(historical)<2 and not (self.group_id and choices and not self.group(account,cid)):
+            return None
+        from core.order_group_ledger import project
         groups=[PaperChart(self.path,c['id'] or None).group(account,cid) for c in choices]+historical
         recovery_refs = sorted(g['ref'] for g in groups)
         selected_historical = checkpoint and (self.group(account, cid) or {}).get('ref') in checkpoint['references']
@@ -2184,6 +2184,8 @@ class PaperChart:
             return reconcile(self, conn, account, cid, body, request_id)
         checkpoint = latest(self, account, cid)
         if checkpoint:
+            if (self.group(account, cid) or {}).get('ref') in checkpoint['references']:
+                raise ValueError('Historical group is read-only; choose a new independent order group')
             opened = conn._bounded_order_read(conn.ib.reqAllOpenOrders, timeout_seconds=3)
             if not isinstance(opened, (list, tuple)) or active_old_order(checkpoint, opened, account, cid):
                 raise ValueError('Historical orders need reconciliation before any new operation')
