@@ -95,6 +95,7 @@ class PaperChart:
         db.execute('CREATE TABLE IF NOT EXISTS chart_paper_requests (id TEXT PRIMARY KEY, account TEXT NOT NULL, body TEXT NOT NULL, result TEXT)')
         db.execute('CREATE TABLE IF NOT EXISTS chart_paper_groups (account TEXT, con_id INTEGER, orders TEXT NOT NULL, PRIMARY KEY(account,con_id))')
         db.execute('CREATE TABLE IF NOT EXISTS chart_paper_independent (account TEXT, con_id INTEGER, group_id TEXT, orders TEXT NOT NULL, PRIMARY KEY(account,con_id,group_id))')
+        db.execute('CREATE TABLE IF NOT EXISTS chart_flat_checkpoints (request_id TEXT PRIMARY KEY, account TEXT, con_id INTEGER, payload TEXT NOT NULL)')
         db.execute('CREATE TABLE IF NOT EXISTS chart_paper_group_history (account TEXT, con_id INTEGER, reference TEXT, orders TEXT NOT NULL, PRIMARY KEY(account,con_id,reference))')
         db.commit()
         return db
@@ -188,7 +189,13 @@ class PaperChart:
         if len(choices)+len(historical)<2 and not (self.group_id and choices and not self.group(account,cid)):
             return None
         from core.order_group_ledger import project
+        from api.services.chart_flat_recovery import latest, active_old_order
+        checkpoint = latest(self, account, cid)
         groups=[PaperChart(self.path,c['id'] or None).group(account,cid) for c in choices]+historical
+        recovery_refs = sorted(g['ref'] for g in groups)
+        selected_historical = checkpoint and (self.group(account, cid) or {}).get('ref') in checkpoint['references']
+        if checkpoint:
+            groups = [g for g in groups if g['ref'] not in checkpoint['references']]
         trades=list(conn.reconciled_order_trades() if hasattr(type(conn),'reconciled_order_trades') else conn.ib.trades())
         # Durable terminal evidence is already used by the ledger below. Do
         # not block its recovery on a second download of the same broker facts.
@@ -197,10 +204,21 @@ class PaperChart:
         expected={perm for g in groups for perm in g.get('perms',{}).values() if perm}
         observed={t.order.permId or t.orderStatus.permId for t in trades+restored}
         if expected-observed:
-            trades += [t for t in completed_trades(conn,account)
-                       if t.contract.conId==cid and (t.order.permId or t.orderStatus.permId) not in observed]
+            try:
+                trades += [t for t in completed_trades(conn,account)
+                           if t.contract.conId==cid and (t.order.permId or t.orderStatus.permId) not in observed]
+            except TimeoutError:
+                pass  # Missing evidence stays unknown in the projection below.
         total=sum(float(p.position) for p in conn.ib.positions() if p.account==account and p.contract.conId==cid)
-        return project(self.path,account,cid,conn.ib.client.clientId,groups,trades,conn.ib.fills(),total)
+        view = project(self.path,account,cid,conn.ib.client.clientId,groups,trades,conn.ib.fills(),total,
+                       baseline_records=checkpoint['baseline'] if checkpoint else ())
+        view['recovery_refs'] = recovery_refs
+        if checkpoint:
+            view.update(flat_checkpoint=checkpoint['request_id'], historical_unresolved_refs=checkpoint['references'])
+            if selected_historical or active_old_order(checkpoint, trades, account, cid):
+                view['known'] = False
+                view['errors'].append('Historical group is read-only' if selected_historical else 'An order from before the flat checkpoint reappeared')
+        return view
 
     def group_size(self, conn, account, cid, positions):
         total=sum(float(p.position) for p in positions if p.account==account and p.contract.conId==cid)
@@ -386,7 +404,11 @@ class PaperChart:
                     continue
                 candidates = []
                 if perm or ref:
-                    for t in completed_trades(conn, account):
+                    try:
+                        completed = completed_trades(conn, account)
+                    except TimeoutError:
+                        completed = []  # Preserve Unknown rows without failing the entire status read.
+                    for t in completed:
                         if t.order.account != account or t.contract.conId != cid: continue
                         if perm:
                             matches = (t.order.permId or t.orderStatus.permId) == perm
@@ -915,6 +937,13 @@ class PaperChart:
         if body.get('group_id') != self.group_id: raise ValueError('Request order group mismatch')
         if body.get('con_id') != cid: raise ValueError('Request contract mismatch')
         result = json.loads(row[1]) if row[1] else {}
+        if body.get('action') == 'reconcile_flat_history':
+            with self.database() as db:
+                saved = db.execute('SELECT 1 FROM chart_flat_checkpoints WHERE request_id=? AND account=? AND con_id=?', (request_id, account, cid)).fetchone()
+                status = 'reconciled' if saved else 'rejected'
+                db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
+                           (json.dumps(dict(result, success=bool(saved), status=status, awaiting_broker=False)), request_id, account))
+            return dict(confirmed=True, status=status)
         if result.get('operator_release'):
             return dict(confirmed=True,status='released',message='Operator released the lock; original outcome remains unknown')
         legacy_inactive = any(r.get('status') == 'Inactive' for r in result.get('state', {}).get('orders', []))
@@ -2150,6 +2179,17 @@ class PaperChart:
                 conn.ib.cancelOrder(trade.order)
 
     def perform(self, conn, account, cid, body, request_id):
+        from api.services.chart_flat_recovery import latest, reconcile, active_old_order
+        if body.get('action') == 'reconcile_flat_history':
+            return reconcile(self, conn, account, cid, body, request_id)
+        checkpoint = latest(self, account, cid)
+        if checkpoint:
+            opened = conn._bounded_order_read(conn.ib.reqAllOpenOrders, timeout_seconds=3)
+            if not isinstance(opened, (list, tuple)) or active_old_order(checkpoint, opened, account, cid):
+                raise ValueError('Historical orders need reconciliation before any new operation')
+            positions = conn._bounded_order_read(conn.ib.reqPositions, timeout_seconds=3)
+            if not isinstance(positions, (list, tuple)):
+                raise ValueError('Complete broker positions are required after flat recovery')
         pending_add = (self.group(account, cid) or {}).get('pending_add_edit')
         if pending_add and pending_add.get('id') != request_id:
             raise ValueError('Previous Add edit needs broker reconciliation; do not resubmit')
