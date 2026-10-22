@@ -501,7 +501,12 @@ function ensureMarket(){
  if((!supported||!marketStream.healthy())&&Date.now()-lastFallback>=(supported?(Date.now()<marketPriorityUntil?250:1000):2000))refreshMarket();
  refreshPnL();
 }
-async function refresh(){if(document.hidden||Date.now()<marketPriorityUntil||polling||busy||!ready)return;polling=true;let token=generation;const selected=cid,readVersion=writeVersion;let stateRead=false,readScope='Account connection';try{
+let lastConnectionRead=0;
+async function refresh(){
+// A hidden page must recover a backend/account epoch change after its stream
+// fails. Keep healthy push untouched and leave trading reads foreground-only.
+if((document.hidden&&(marketStream.healthy()||Date.now()-lastConnectionRead<5000))||Date.now()<marketPriorityUntil||polling||busy||!ready)return;
+polling=true;lastConnectionRead=Date.now();let token=generation;const selected=cid,readVersion=writeVersion;let stateRead=false,readScope='Account connection';try{
 const p=await api('account/profiles');if(token!==generation||readVersion!==writeVersion)return;
 if(profile.selected&&(p.selected!==profile.selected||p.epoch!==profile.epoch||p.account_identity!==profile.account_identity||(profile.verified&&!p.verified))){
  pnlBusy?.abort();pnlBusy=null;pnlPhase='loading';pendingJoin=null;resetNewQuantity();token=++generation;marketStream.stop();cancelMarketReads();lastFallback=0;lastPnL=0;marketReadError='';quoteConfigKey='';
@@ -511,6 +516,7 @@ if(profile.selected&&(p.selected!==profile.selected||p.epoch!==profile.epoch||p.
 window.WheelNotifications?.setContext(p);window.wheelTradeSounds?.connection(p.verified===true);profile=p;epoch=p.verified?p.epoch:null;if(!p.verified)pnlPhase='unavailable';$('connection').textContent=`${p.selected||'Disconnected'} · ${p.verified?'IB connected':'Not verified'}`;$('connection').className=p.selected||'';
 $('connection').title=p.verified?'IB account connection verified. Market data and order availability are reported separately.':'IB account connection is not verified.';clearReadNotice('Account connection');
 sync();chartLayout.tick();ensureMarket();
+if(document.hidden)return;
 try{if(selected){
 readScope='Order status';
 if((profile.selected==='paper'||profile.chart_execution_enabled===true)&&profile.verified){const pending=localStorage.getItem(pendingKey());if(pending){const r=await api(orderPath(selected)+(groupID?'&':'?')+'request_id='+encodeURIComponent(pending));if(token!==generation||readVersion!==writeVersion)return;if(r.confirmed===true&&(terminal.has(r.status)||r.status==='reconciled')){localStorage.removeItem(pendingKey());log(`Reconciled: ${r.status}`);}}
