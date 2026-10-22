@@ -1,5 +1,6 @@
 """Account-scoped futures and journal-owned chart stock/option Orders rows."""
 import math
+import asyncio
 import time
 import json
 import sqlite3
@@ -13,7 +14,15 @@ def completed_trades(conn, account):
     cache = getattr(conn, '_futures_completed_cache', None)
     if not isinstance(cache, tuple) or cache[0] != account or time.monotonic()-cache[1] > 15:
         retry = getattr(conn, '_futures_completed_retry', None)
-        if isinstance(retry, tuple) and retry[0] == account and time.monotonic() < retry[1]:
+        pending = getattr(conn, '_completed_order_read', None)
+        future = pending.get('future') if isinstance(pending, dict) else None
+        # A cooldown must not hide a newly completed, still-unconsumed SDK read.
+        # Only that same account/request may bypass it; never cancel or resend.
+        ready = (isinstance(future, asyncio.Future) and pending.get('key') == (account, False)
+                 and getattr(conn, 'account_id', None) == account
+                 and pending.get('finished_at') is None
+                 and future.done() and not future.cancelled() and future.exception() is None)
+        if isinstance(retry, tuple) and retry[0] == account and time.monotonic() < retry[1] and not ready:
             raise CompletedHistoryUnavailable('Completed order history is temporarily unavailable; retrying shortly.')
         try:
             trades = conn._bounded_order_read(conn.ib.reqCompletedOrders, False)

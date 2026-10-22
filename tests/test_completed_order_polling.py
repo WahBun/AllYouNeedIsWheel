@@ -55,6 +55,41 @@ class CompletedOrderPollingTests(unittest.TestCase):
         with self.assertRaises(TimeoutError): self.read()
         self.assertEqual(self.conn.ib.client.reqCompletedOrders.call_count, 2)
 
+    def test_completed_history_cooldown_does_not_hide_newly_arrived_end(self):
+        from api.services.futures_orders import completed_trades, CompletedHistoryUnavailable
+        with self.assertRaises(CompletedHistoryUnavailable): completed_trades(self.conn, 'DU_TEST')
+        self.conn.ib.wrapper.completedOrder(Stock('TEST', 'SMART', 'USD'),
+            LimitOrder('BUY', 1, 10, account='DU_TEST', permId=1), OrderState(status='Filled'))
+        with self.assertRaises(CompletedHistoryUnavailable): completed_trades(self.conn, 'DU_TEST')
+        self.conn.ib.wrapper.completedOrdersEnd()
+        self.assertEqual(len(completed_trades(self.conn, 'DU_TEST')), 1)
+        self.assertIsNone(self.conn._futures_completed_retry)
+        self.conn.ib.client.reqCompletedOrders.assert_called_once_with(False)
+
+    def test_ready_history_cannot_bypass_other_account_cooldown(self):
+        from api.services.futures_orders import completed_trades, CompletedHistoryUnavailable
+        with self.assertRaises(CompletedHistoryUnavailable): completed_trades(self.conn, 'DU_TEST')
+        self.conn.ib.wrapper.completedOrdersEnd()
+        self.conn._futures_completed_retry = ('OTHER', time.monotonic() + 15)
+        with self.assertRaises(CompletedHistoryUnavailable): completed_trades(self.conn, 'OTHER')
+        self.conn.ib.client.reqCompletedOrders.assert_called_once_with(False)
+
+    def test_canceled_history_does_not_bypass_cooldown_or_resend(self):
+        from api.services.futures_orders import completed_trades, CompletedHistoryUnavailable
+        with self.assertRaises(CompletedHistoryUnavailable): completed_trades(self.conn, 'DU_TEST')
+        self.conn._completed_order_read['future'].cancel()
+        with self.assertRaises(CompletedHistoryUnavailable): completed_trades(self.conn, 'DU_TEST')
+        self.conn.ib.client.reqCompletedOrders.assert_called_once_with(False)
+
+    def test_consumed_snapshot_cooldown_cannot_start_another_request(self):
+        from api.services.futures_orders import completed_trades, CompletedHistoryUnavailable
+        with self.assertRaises(CompletedHistoryUnavailable): completed_trades(self.conn, 'DU_TEST')
+        self.conn.ib.wrapper.completedOrdersEnd()
+        self.read()
+        self.conn._completed_order_read['finished_at'] -= 6
+        with self.assertRaises(CompletedHistoryUnavailable): completed_trades(self.conn, 'DU_TEST')
+        self.conn.ib.client.reqCompletedOrders.assert_called_once_with(False)
+
     def test_context_change_cannot_read_or_replace_old_request(self):
         with self.assertRaises(TimeoutError): self.read()
         self.conn.account_id = 'OTHER'
