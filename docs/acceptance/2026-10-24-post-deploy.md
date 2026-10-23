@@ -57,7 +57,8 @@ All 11 history tests and five shared-budget tests pass, including the existing
 nine-second slow-response case. `git diff --check` passes. These checks use mocked
 broker responses and an isolated offline runner.
 
-This follow-up changes tests and acceptance documentation only. It needs no
+The initial follow-up at `80b1a8acd06aa20335f90435fe627d71c15f5e22`
+changes tests and acceptance documentation only. That commit needs no
 Backend deployment, restart, web refresh, or iPhone Run. If synchronizing these
 files after merge, choose **Deploy only**. Unrelated local localization edits
 remain excluded.

@@ -499,8 +499,12 @@ final class TradingTests: XCTestCase {
         XCTAssertEqual(MockProtocol.requests.filter { $0.httpMethod == "POST" }.count, 1)
         _ = try await restarted.paperChartWrite(base: "https://mock.invalid", conID: 8, body: ["action": "edit_entry", "price": 50])
         XCTAssertFalse(restarted.paperPending(base: "https://mock.invalid", conID: 8))
-        MockProtocol.payload = { _ in ["confirmed": true, "status": "reconciled"] }
-        await restarted.reconcilePaper(base: "https://mock.invalid", conID: 7)
+        let recovery = "Original entry canceled. No replacement order was submitted."
+        MockProtocol.payload = { _ in ["confirmed": true, "status": "canceled", "message": recovery] }
+        let recoveredMessage = await restarted.reconcilePaper(base: "https://mock.invalid", conID: 7)
+        XCTAssertEqual(recoveredMessage, recovery)
+        let repeatedMessage = await restarted.reconcilePaper(base: "https://mock.invalid", conID: 7)
+        XCTAssertNil(repeatedMessage)
         XCTAssertFalse(restarted.paperPending(base: "https://mock.invalid", conID: 7))
         XCTAssertEqual(MockProtocol.requests.filter { $0.httpMethod == "POST" }.count, 2)
     }

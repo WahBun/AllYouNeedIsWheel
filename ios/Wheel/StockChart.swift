@@ -1991,7 +1991,10 @@ struct StockChartView: View {
             let requestedGroup = selectedOrderGroup
             while !Task.isCancelled {
                 do {
-                    await store.trading.reconcilePaper(base: store.address, conID: cid, groupID: requestedGroup)
+                    let recoveryMessage = await store.trading.reconcilePaper(base: store.address, conID: cid, groupID: requestedGroup)
+                    try Task.checkCancellation()
+                    guard chartID == cid, selectedOrderGroup == requestedGroup else { return }
+                    if !paperBusy, let recoveryMessage { paperMessage = recoveryMessage }
                     let state = try await store.trading.get("api/portfolio/paper-chart/\(cid)", base: store.address, query: requestedGroup.isEmpty ? [] : [URLQueryItem(name: "group_id", value: requestedGroup)])
                     try Task.checkCancellation()
                     guard chartID == cid else { return }

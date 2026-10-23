@@ -949,20 +949,23 @@ class PaperChart:
         legacy_inactive = any(r.get('status') == 'Inactive' for r in result.get('state', {}).get('orders', []))
         pending_close = (self.group(account, cid) or {}).get('close_cancellation', {}).get('request_id') == request_id
         if not pending_close and not legacy_inactive and result.get('status') in ('acknowledged','rejected','working','filled','canceled','pending','done','reconciled'):
-            return dict(confirmed=True, status=result['status'])
+            reply = dict(confirmed=True, status=result['status'])
+            if result.get('recovery_message'): reply['message'] = result['recovery_message']
+            return reply
         authoritative = conn._bounded_order_read(conn.ib.reqOpenOrders, timeout_seconds=3)
         state = self.state(conn, cid)
         group = self.group(account, cid) or {}
         if not state['known']:
             return dict(confirmed=False, status='unknown')
-        def resolved(status):
+        def resolved(status, message=None):
             # Persist reconciliation: a later read/restart must not resurrect the lock.
             if group.get('pending_edit') == request_id:
                 group.pop('pending_edit'); self.save_group(account, cid, group)
             with self.database() as db:
                 db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
-                    (json.dumps(dict(result, success=status != 'rejected', status=status, awaiting_broker=False, state=state)), request_id, account))
-            return dict(confirmed=True, status=status)
+                    (json.dumps(dict(result, success=status != 'rejected', status=status, awaiting_broker=False, state=state,
+                                     **(dict(message=message, recovery_message=message) if message else {}))), request_id, account))
+            return dict(confirmed=True, status=status, **(dict(message=message) if message else {}))
         # Legacy manual BE on an unadopted holding failed before its durable
         # protection intent (and therefore before placeOrder). Only reconcile
         # this exact no-group case after fresh all-client and position reads.
@@ -1224,7 +1227,8 @@ class PaperChart:
                     r['status'] in ('Cancelled', 'ApiCancelled') and not r['filled'] for r in state['orders']):
                 # A delayed cancellation can finish after the replacement timed out.
                 # Release the old request, but never submit its replacement on a GET.
-                return resolved('canceled')
+                return resolved('canceled', None if body.get('cancel') else
+                                'Original entry canceled. No replacement order was submitted.')
             # For a price-only edit, a fresh broker snapshot of that same order
             # resolves uncertainty even if IB retained the old price. Never resend.
             parent_ids = [oid for role, oid in group.get('ids', {}).items() if role.split('_')[0] == 'entry']

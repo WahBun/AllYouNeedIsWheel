@@ -235,6 +235,7 @@ class EntryEditTests(unittest.TestCase):
 
     def test_late_full_cancel_releases_replacement_lock_without_new_order(self):
         from unittest.mock import patch
+        from api.services.paper_chart import PaperChart
         self.submit()
         self.conn.ib.cancelOrder.side_effect = RuntimeError('lost cancellation response')
         result = self.edit(quantity=2, tif='GTC')
@@ -244,9 +245,11 @@ class EntryEditTests(unittest.TestCase):
         self.trades[0].orderStatus.status = 'PendingCancel'
         self.assertFalse(self.service.request_status(self.conn,7,request_id)['confirmed'])
         for trade in self.trades: trade.orderStatus.status = 'Cancelled'
-        self.assertEqual(self.service.request_status(self.conn,7,request_id),dict(confirmed=True,status='canceled'))
+        expected = dict(confirmed=True, status='canceled',
+            message='Original entry canceled. No replacement order was submitted.')
+        self.assertEqual(self.service.request_status(self.conn,7,request_id), expected)
         self.assertNotIn('pending_edit',self.service.group('DU_TEST',7))
-        self.assertEqual(self.service.request_status(self.conn,7,request_id),dict(confirmed=True,status='canceled'))
+        self.assertEqual(PaperChart(self.service.path).request_status(self.conn,7,request_id), expected)
         self.assertEqual(self.conn.ib.placeOrder.call_count,before)
         self.assertEqual(self.conn.ib.cancelOrder.call_count,1)
 
@@ -319,7 +322,8 @@ class EntryEditTests(unittest.TestCase):
         self.assertEqual(self.conn.ib.placeOrder.call_count, writes)
         self.trades[-1].orderStatus.status = 'Cancelled'
         self.assertEqual(self.service.request_status(self.conn, 7, request_id),
-                         dict(confirmed=True, status='canceled'))
+                         dict(confirmed=True, status='canceled',
+                              message='Original entry canceled. No replacement order was submitted.'))
         self.assertNotIn('pending_edit', self.service.group('DU_TEST', 7))
         self.assertEqual(self.conn.ib.placeOrder.call_count, writes)
 

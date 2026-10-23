@@ -392,13 +392,16 @@ final class TradingSession {
     private func paperKey(_ base: String, _ cid: Int, groupID: String = "") -> String { base.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "|" + String(cid) + (groupID.isEmpty ? "" : "|" + groupID) }
     func paperPending(base: String, conID: Int, groupID: String = "") -> Bool { paperRequests[paperKey(base, conID, groupID: groupID)] != nil }
     private func savePaperRequests() { UserDefaults.standard.set(paperRequests, forKey: "pendingPaperChartRequests") }
-    func reconcilePaper(base: String, conID: Int, groupID: String = "") async {
+    @discardableResult
+    func reconcilePaper(base: String, conID: Int, groupID: String = "") async -> String? {
         let key = paperKey(base, conID, groupID: groupID)
-        guard !busy, let id = paperRequests[key] else { return }
+        guard !busy, let id = paperRequests[key] else { return nil }
         if let result = try? await get("api/portfolio/paper-chart/\(conID)", base: base, query: [URLQueryItem(name: "request_id", value: id)] + (groupID.isEmpty ? [] : [URLQueryItem(name: "group_id", value: groupID)])),
            result["confirmed"] as? Bool == true, paperRequests[key] == id {
             paperRequests.removeValue(forKey: key); savePaperRequests()
+            return result["message"] as? String
         }
+        return nil
     }
     var demoOrders = [Order(id: 1, ticker: "TSLL", action: "BUY", option_type: "PUT", strike: 9, expiration: "20261016", premium: 0.01, quantity: 1, status: "pending", tif: "GTC", intent: "CLOSE")]
     private let metadataCache = ContractMetadataCache()
