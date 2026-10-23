@@ -95,6 +95,7 @@ class PaperChart:
         db.execute('CREATE TABLE IF NOT EXISTS chart_paper_requests (id TEXT PRIMARY KEY, account TEXT NOT NULL, body TEXT NOT NULL, result TEXT)')
         db.execute('CREATE TABLE IF NOT EXISTS chart_paper_groups (account TEXT, con_id INTEGER, orders TEXT NOT NULL, PRIMARY KEY(account,con_id))')
         db.execute('CREATE TABLE IF NOT EXISTS chart_paper_independent (account TEXT, con_id INTEGER, group_id TEXT, orders TEXT NOT NULL, PRIMARY KEY(account,con_id,group_id))')
+        db.execute('CREATE TABLE IF NOT EXISTS chart_position_checkpoints (account TEXT, con_id INTEGER, payload TEXT NOT NULL, PRIMARY KEY(account,con_id))')
         db.execute('CREATE TABLE IF NOT EXISTS chart_flat_checkpoints (request_id TEXT PRIMARY KEY, account TEXT, con_id INTEGER, payload TEXT NOT NULL)')
         db.execute('CREATE TABLE IF NOT EXISTS chart_paper_group_history (account TEXT, con_id INTEGER, reference TEXT, orders TEXT NOT NULL, PRIMARY KEY(account,con_id,reference))')
         db.commit()
@@ -186,6 +187,10 @@ class PaperChart:
                 from core.order_group_ledger import flat_baseline
                 flat_baseline(self.path,account,cid,conn.ib.fills())
         historical=self.historical_groups(account,cid,{c['ref'] for c in choices})
+        from api.services.chart_position_recovery import checkpoint as position_checkpoint
+        position_boundary = position_checkpoint(self, account, cid)
+        if position_boundary:
+            historical = [g for g in historical if g['ref'] not in position_boundary['references']]
         from api.services.chart_flat_recovery import latest, active_old_order
         checkpoint = latest(self, account, cid)
         if not checkpoint and len(choices)+len(historical)<2 and not (self.group_id and choices and not self.group(account,cid)):
@@ -211,7 +216,7 @@ class PaperChart:
                 pass  # Missing evidence stays unknown in the projection below.
         total=sum(float(p.position) for p in conn.ib.positions() if p.account==account and p.contract.conId==cid)
         view = project(self.path,account,cid,conn.ib.client.clientId,groups,trades,conn.ib.fills(),total,
-                       baseline_records=checkpoint['baseline'] if checkpoint else ())
+                       baseline_records=checkpoint['baseline'] if checkpoint else (position_boundary or {}).get('baseline', ()))
         view['recovery_refs'] = recovery_refs
         if checkpoint:
             view.update(flat_checkpoint=checkpoint['request_id'], historical_unresolved_refs=checkpoint['references'])
@@ -831,6 +836,15 @@ class PaperChart:
                     and targets and all(0 < r['price'] < 1e100 and r['quantity'] > 0 for r in targets)
                     and abs(sum(r['quantity'] for r in targets)-abs(result['position'])) < .000001)
                 result['sl_projection'] = dict(known=known, realized=0.0, targets=targets)
+        from api.services.chart_position_recovery import checkpoint as position_checkpoint
+        boundary = position_checkpoint(self, account, cid)
+        if boundary:
+            from api.services.chart_flat_recovery import active_old_order
+            result['position_history_retained'] = True
+            if active_old_order(boundary, raw_trades, account, cid):
+                result.update(known=False, status='unknown', sync_error='A historical order is active again')
+                for key in ('add_allowed','trim_allowed','protection_manageable','scalable'):
+                    result[key] = False
         self.action_availability(conn, account, scaling_contract, result)
         if attribution_view is not None and not attribution_view['known']:
             result['protection']['status']='unknown'
@@ -838,6 +852,9 @@ class PaperChart:
             result['scalable']=False
             for key in ('add_allowed','trim_allowed','stop_trim_allowed','unprotected_trim','protection_cancelable','entry_editable','protected_stock_scaling','stock_trim_editable'):
                 result[key]=False
+        from api.services.chart_position_recovery import recover
+        if recover(self, conn, account, cid, group, result):
+            return self.state(conn, cid)
         from api.services.chart_day_history import inactive_day_history
         if inactive_day_history(self, conn, account, cid, group, result):
             result['inactive_day_history'] = True
@@ -2196,6 +2213,8 @@ class PaperChart:
                 conn.ib.cancelOrder(trade.order)
 
     def perform(self, conn, account, cid, body, request_id):
+        from api.services.chart_position_recovery import guard
+        guard(self, conn, account, cid)
         from api.services.chart_flat_recovery import latest, reconcile, active_old_order
         if body.get('action') == 'reconcile_flat_history':
             return reconcile(self, conn, account, cid, body, request_id)
@@ -2509,6 +2528,8 @@ class PaperChart:
             if (tp is not None and side*(tp-entry)<=0) or (sl is not None and side*(sl-entry)>=0): raise ValueError('TP and SL must be on opposite sides of entry')
             if body.get('entry_type') not in ('LMT','STP'): raise ValueError('Unsupported entry type')
             if side == -1: require_call_coverage(conn,account,contract,int(qty))
+            from api.services.chart_position_recovery import retire_completed
+            retire_completed(self, conn, account, cid, self.group(account, cid))
             if contract.secType == 'FUT' or contract.secType == 'OPT' and (qty == 1 or not (tp is not None or sl is not None)):
                 group=dict(ids={},lots=[],side=side,ref='WheelPaper:'+request_id,tif=tif)
                 aggregate = contract.secType == 'OPT' and tp is None and sl is None
