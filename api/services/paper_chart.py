@@ -1227,8 +1227,21 @@ class PaperChart:
                 return resolved('canceled')
             # For a price-only edit, a fresh broker snapshot of that same order
             # resolves uncertainty even if IB retained the old price. Never resend.
-            price_only = 'price' in body and not any(k in body for k in ('quantity','tif','cancel'))
             parent_ids = [oid for role, oid in group.get('ids', {}).items() if role.split('_')[0] == 'entry']
+            # OVT price changes cancel/replace too; an unchanged working parent
+            # cannot resolve that cancellation, even if only price was sent.
+            price_only = (group.get('pending_edit') == request_id and 'price' in body and not body.get('cancel')
+                and not (group.get('mode') == 'overnight_entry' and state.get('tif') == 'OVERNIGHT'))
+            if price_only and any(k in body for k in ('quantity', 'tif')):
+                # The full editor includes unchanged size/TIF. Compare its
+                # validated original snapshot, never the locally mutated order,
+                # before applying the existing price-only recovery rule.
+                originals = [r for r in body.get('expected_snapshot', []) if r.get('order_id') in parent_ids]
+                price_only = (bool(parent_ids) and len(originals) == len(parent_ids)
+                    and {r['order_id'] for r in originals} == set(parent_ids)
+                    and all(r.get('filled') == 0 for r in originals)
+                    and ('quantity' not in body or body['quantity'] == sum(r['quantity'] for r in originals))
+                    and ('tif' not in body or all(r.get('tif') == body['tif'] for r in originals)))
             confirmed_parent = [t for t in authoritative if t.order.orderId in parent_ids
                 and t.order.account == account and t.contract.conId == cid and t.order.orderRef == body.get('expected_ref')
                 and t.orderStatus.status in ('Submitted','PreSubmitted')]
