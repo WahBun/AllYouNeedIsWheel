@@ -25,6 +25,12 @@ Read-only request diagnostics for 21:33–22:23 Shanghai separated **130 read 50
 
 No queue capacity, quote path, or polling frequency was changed. The earlier
 121-response count used a shorter observation window and is not an A/B baseline.
+Fourteen of the 27 actual rejections coincided with an identified HTTP owner job
+(five pending-order reads, three EMA reads, two profile reads, and one each of
+history, chart-order, P&L, and order POST). Thirteen could not be assigned to an
+HTTP job from these diagnostics; background work and admission/release timing
+remain possible explanations, not established causes. This does not justify
+attributing all rejections to order writes or increasing queue capacity.
 
 A new unprotected one-contract Paper limit entry was changed from DAY to GTC
 through the actual chart order editor. The editor sent exactly one request,
