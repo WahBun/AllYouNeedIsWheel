@@ -174,21 +174,24 @@ class BackgroundHistoryTests(unittest.IsolatedAsyncioTestCase):
         conn = Mock(account_id='paper-fixture')
         conn.is_connected.return_value = True
         answer = asyncio.Future()
+        started = asyncio.Event()
         conn.ib.reqHistoricalDataAsync = AsyncMock(side_effect=lambda *a, **kw: None)
         async def request(*args, **kwargs):
+            started.set()
             return await answer
         conn.ib.reqHistoricalDataAsync.side_effect = request
         with patch('api.services.chart_history.contracts.resolve', return_value=S(conId=7, secType='STK')):
             first = feed.page(conn, 7, 60, 'all', 300, background=True)
             self.assertTrue(first['loading'])
-            await asyncio.sleep(0)
+            task = next(iter(feed.pending.values()))
+            await asyncio.wait_for(started.wait(), 2)
             self.assertTrue(feed.page(conn, 7, 60, 'all', 300, background=True)['loading'])
             tick = asyncio.Future()
             asyncio.get_running_loop().call_soon(tick.set_result, 'tick delivered')
             self.assertEqual(await tick, 'tick delivered')
             self.assertFalse(answer.done())
             answer.set_result([S(date=datetime.fromtimestamp(t, timezone.utc), open=10, high=11, low=9, close=10) for t in (100, 200, 300)])
-            await asyncio.sleep(0)
+            await asyncio.wait_for(asyncio.shield(task), 2)
             result = feed.page(conn, 7, 60, 'all', 300, background=True)
             self.assertEqual([b['time'] for b in result['bars']], [100, 200])
             self.assertNotIn('loading', result)
@@ -199,16 +202,21 @@ class BackgroundHistoryTests(unittest.IsolatedAsyncioTestCase):
     async def test_capacity_is_bounded_without_queueing_abandoned_symbols(self):
         feed, conn = ChartHistory(), Mock(account_id='paper-fixture')
         answer = asyncio.Future()
-        async def request(*args, **kwargs): return await answer
+        started = asyncio.Event()
+        async def request(*args, **kwargs):
+            if conn.ib.reqHistoricalDataAsync.await_count == 2:
+                started.set()
+            return await answer
         conn.ib.reqHistoricalDataAsync = AsyncMock(side_effect=request)
         with patch('api.services.chart_history.contracts.resolve', return_value=S(conId=7, secType='STK')):
             for cid in range(7, 25):
                 self.assertTrue(feed.page(conn, cid, 60, 'all', 300, background=True)['loading'])
-            await asyncio.sleep(0)
+            tasks = tuple(feed.pending.values())
+            await asyncio.wait_for(started.wait(), 2)
             self.assertEqual(len(feed.pending), 2)
             self.assertEqual(conn.ib.reqHistoricalDataAsync.await_count, 2)
             answer.set_result([])
-            await asyncio.sleep(0)
+            await asyncio.wait_for(asyncio.gather(*tasks), 2)
             self.assertEqual(len(feed.pending), 0)
             # Unrequested waiting symbols never start after a slot is freed.
             self.assertEqual(conn.ib.reqHistoricalDataAsync.await_count, 2)
@@ -221,15 +229,19 @@ class BackgroundHistoryTests(unittest.IsolatedAsyncioTestCase):
         for change in ('client', 'account'):
             feed, conn = ChartHistory(), Mock(account_id='paper-fixture')
             answer = asyncio.Future()
-            async def request(*args, **kwargs): return await answer
+            started = asyncio.Event()
+            async def request(*args, **kwargs):
+                started.set()
+                return await answer
             conn.ib.reqHistoricalDataAsync = AsyncMock(side_effect=request)
             with patch('api.services.chart_history.contracts.resolve', return_value=S(conId=7, secType='STK')):
                 feed.page(conn, 7, 60, 'all', 300, background=True)
-                await asyncio.sleep(0)
+                task = next(iter(feed.pending.values()))
+                await asyncio.wait_for(started.wait(), 2)
                 if change == 'client': conn.ib.client = object()
                 else: conn.account_id = 'other-fixture'
                 answer.set_result([S(date=datetime.fromtimestamp(100, timezone.utc), open=10, high=11, low=9, close=10)])
-                await asyncio.sleep(0)
+                await asyncio.wait_for(asyncio.shield(task), 2)
             self.assertFalse(feed.cache)
             self.assertFalse(feed.pending)
 
@@ -238,7 +250,8 @@ class BackgroundHistoryTests(unittest.IsolatedAsyncioTestCase):
         conn.ib.reqHistoricalDataAsync = AsyncMock(side_effect=TimeoutError())
         with patch('api.services.chart_history.contracts.resolve', return_value=S(conId=7, secType='STK')):
             feed.page(conn, 7, 60, 'all', 300, background=True)
-            await asyncio.sleep(0)
+            task = next(iter(feed.pending.values()))
+            await asyncio.wait_for(asyncio.shield(task), 2)
             for _ in range(3):
                 self.assertEqual(feed.page(conn, 7, 60, 'all', 300, background=True)['bars'], [])
         conn.ib.reqHistoricalDataAsync.assert_awaited_once()
