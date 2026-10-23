@@ -99,8 +99,8 @@ class ApiDispatcherTests(unittest.TestCase):
                 both_waiting = threading.Event()
                 waiters = []
 
-                def instrumented_submit(fn):
-                    future = submit(fn)
+                def instrumented_submit(fn, **kwargs):
+                    future = submit(fn, **kwargs)
                     result = future.result
                     def wait(*args, **kwargs):
                         waiters.append(1)
@@ -176,8 +176,8 @@ class ApiDispatcherTests(unittest.TestCase):
         self.assertTrue(entered.wait(1))
         submit = executor.submit
         now = [100.0]
-        def observed_submit(fn):
-            future = submit(fn)
+        def observed_submit(fn, **kwargs):
+            future = submit(fn, **kwargs)
             queued.set()
             return future
         try:
@@ -206,8 +206,8 @@ class ApiDispatcherTests(unittest.TestCase):
         executor.submit(blocker)
         self.assertTrue(entered.wait(1))
         submit = executor.submit
-        def timed_submit(fn):
-            future = submit(fn)
+        def timed_submit(fn, **kwargs):
+            future = submit(fn, **kwargs)
             future.result = Mock(side_effect=TimeoutError())
             return future
         try:
@@ -247,8 +247,8 @@ class ApiDispatcherTests(unittest.TestCase):
         both_waiting = threading.Event()
         waiters = []
 
-        def instrumented_submit(fn):
-            future = submit(fn)
+        def instrumented_submit(fn, **kwargs):
+            future = submit(fn, **kwargs)
             result = future.result
             def wait(*args, **kwargs):
                 waiters.append(1)
@@ -277,8 +277,8 @@ class ApiDispatcherTests(unittest.TestCase):
         submit = executor.submit
         all_waiting = threading.Event()
         waiters = []
-        def instrumented_submit(fn):
-            future = submit(fn)
+        def instrumented_submit(fn, **kwargs):
+            future = submit(fn, **kwargs)
             result = future.result
             def wait(*args, **kwargs):
                 waiters.append(1)
@@ -309,8 +309,8 @@ class ApiDispatcherTests(unittest.TestCase):
         joined = threading.Event()
         count = []
 
-        def instrumented_submit(fn):
-            future = submit(fn)
+        def instrumented_submit(fn, **kwargs):
+            future = submit(fn, **kwargs)
             result = future.result
             def wait(*args, **kwargs):
                 count.append(1)
@@ -343,8 +343,8 @@ class ApiDispatcherTests(unittest.TestCase):
         submit = executor.submit
         admitted = threading.Condition()
         count = [0]
-        def observed_submit(fn):
-            future = submit(fn)
+        def observed_submit(fn, **kwargs):
+            future = submit(fn, **kwargs)
             with admitted:
                 count[0] += 1
                 admitted.notify_all()
@@ -364,6 +364,8 @@ class ApiDispatcherTests(unittest.TestCase):
                     self.release.set()
                 self.assertTrue(all(r.result().status_code == 200 for r in reads))
                 self.assertEqual(write.result().status_code, 200)
+        self.assertEqual([method for _, method, _ in self.calls], ['GET', 'POST', 'GET', 'GET'],
+                         'An admitted write must run before reads that have not started')
         self.assertEqual(sum(method == 'POST' for _, method, _ in self.calls), 1)
         self.assertEqual(len({thread for thread, _, _ in self.calls}), 1)
         self.assertEqual(self.get('/api/slow?value=recovered').status_code, 200)
