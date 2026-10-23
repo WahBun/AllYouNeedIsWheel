@@ -27,6 +27,7 @@ const {start}=require('./market-feed/harness.cjs');
    return route.fulfill({json:url.searchParams.has('request_id')?{confirmed,status:confirmed?'reconciled':'unknown'}:state()});
   });
   await p.goto(h.url+'/superchart?con_id=7&session=all');
+  await p.getByRole('button',{name:'Unlock trading',exact:true}).click();
   await p.waitForFunction(()=>document.querySelector('#order-status').textContent.includes('Confirming outcome'));
   const frame=await p.locator('iframe').first().contentFrame();
   await frame.locator('#cancel').waitFor();await frame.locator('#cancel').click();

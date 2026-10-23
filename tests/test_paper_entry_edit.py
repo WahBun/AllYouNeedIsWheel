@@ -250,6 +250,79 @@ class EntryEditTests(unittest.TestCase):
         self.assertEqual(self.conn.ib.placeOrder.call_count,before)
         self.assertEqual(self.conn.ib.cancelOrder.call_count,1)
 
+    def test_price_editor_timeout_recovers_with_unchanged_quantity_and_tif(self):
+        from unittest.mock import patch
+        from api.services.paper_chart import PaperChart
+        self.submit()
+        # The full editor sends all three fields even when only price changes.
+        before = self.conn.ib.placeOrder.call_count
+        def lost_confirmation(conn, trade, order, field):
+            old_price = trade.order.lmtPrice
+            conn.ib.placeOrder(trade.contract, order)
+            trade.order.lmtPrice = old_price  # A later broker echo retains the original limit.
+            raise RuntimeError('timeout')
+        with patch.object(self.service, 'modify_exit', side_effect=lost_confirmation):
+            result = self.edit(price=10.25, quantity=1, tif='DAY')
+        self.assertEqual(result['status'], 'unknown')
+        self.assertEqual(self.conn.ib.placeOrder.call_count, before + 1)
+        request_id = self.service.group('DU_TEST', 7)['pending_edit']
+        writes = self.conn.ib.placeOrder.call_count
+        restarted = PaperChart(self.service.path)
+        # Locally cached Submitted rows cannot replace a fresh exact broker read.
+        read = self.conn._bounded_order_read.side_effect
+        self.conn._bounded_order_read.side_effect = lambda *a, **k: []
+        self.assertEqual(restarted.request_status(self.conn, 7, request_id),
+                         dict(confirmed=False, status='unknown'))
+        self.assertEqual(restarted.group('DU_TEST', 7)['pending_edit'], request_id)
+        self.conn._bounded_order_read.side_effect = read
+        self.assertEqual(restarted.request_status(self.conn, 7, request_id),
+                         dict(confirmed=True, status='reconciled'))
+        state = restarted.state(self.conn, 7)
+        self.assertEqual(state['entry'], 10)
+        self.assertTrue(state['entry_editable'])
+        self.assertNotIn('pending_edit', restarted.group('DU_TEST', 7))
+        self.assertEqual(restarted.request_status(self.conn, 7, request_id),
+                         dict(confirmed=True, status='reconciled'))
+        self.assertEqual(self.conn.ib.placeOrder.call_count, writes)
+        self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_structural_editor_timeout_cannot_resolve_from_old_working_parent(self):
+        self.submit()
+        self.conn.ib.cancelOrder.side_effect = RuntimeError('lost cancellation response')
+        for changes in [dict(quantity=2, tif='DAY'), dict(quantity=1, tif='GTC')]:
+            with self.subTest(changes=changes):
+                # Restore the prior fixture marker, not any broker order state.
+                group = self.service.group('DU_TEST', 7)
+                group.pop('pending_edit', None)
+                self.service.save_group('DU_TEST', 7, group)
+                result = self.edit(price=10.25, **changes)
+                self.assertEqual(result['status'], 'unknown')
+                request_id = self.service.group('DU_TEST', 7)['pending_edit']
+                writes = self.conn.ib.placeOrder.call_count
+                self.assertEqual(self.service.request_status(self.conn, 7, request_id),
+                                 dict(confirmed=False, status='unknown'))
+                self.assertEqual(self.service.group('DU_TEST', 7)['pending_edit'], request_id)
+                self.assertEqual(self.conn.ib.placeOrder.call_count, writes)
+
+    def test_overnight_price_replace_timeout_keeps_original_request_pending(self):
+        self.submit(quantity=100)
+        self.overnight_rules()
+        self.assertTrue(self.edit(tif='OVERNIGHT', confirm_remove_protection=True)['success'])
+        self.conn.ib.cancelOrder.side_effect = RuntimeError('lost cancellation response')
+        result = self.edit(price=10.25)
+        self.assertEqual(result['status'], 'unknown')
+        request_id = self.service.group('DU_TEST', 7)['pending_edit']
+        writes = self.conn.ib.placeOrder.call_count
+        self.assertEqual(self.service.request_status(self.conn, 7, request_id),
+                         dict(confirmed=False, status='unknown'))
+        self.assertEqual(self.service.group('DU_TEST', 7)['pending_edit'], request_id)
+        self.assertEqual(self.conn.ib.placeOrder.call_count, writes)
+        self.trades[-1].orderStatus.status = 'Cancelled'
+        self.assertEqual(self.service.request_status(self.conn, 7, request_id),
+                         dict(confirmed=True, status='canceled'))
+        self.assertNotIn('pending_edit', self.service.group('DU_TEST', 7))
+        self.assertEqual(self.conn.ib.placeOrder.call_count, writes)
+
     def test_session_warning_does_not_reject_amendment(self):
         from ib_async import TradeLogEntry
         from datetime import datetime, timezone
