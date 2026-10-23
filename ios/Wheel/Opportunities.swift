@@ -546,16 +546,15 @@ struct OpportunitiesView: View {
 
     var body: some View {
         List {
-            // Keep the title's section empty in every account mode. A populated
-            // section uses a different header-to-row gap than the Demo layout.
-            Section {} header: {
-                HStack(alignment: .center) {
-                    Text("Trade").font(.largeTitle.bold()).foregroundStyle(Color(uiColor: .label))
-                    Spacer(minLength: 12)
-                    titleActions
-                }.textCase(nil).padding(.horizontal, -16).padding(.top, -24).padding(.bottom, 10)
-                    .accessibilityIdentifier("tradeTitleRow")
+            HStack(alignment: .center) {
+                Text("Trade").font(.largeTitle.bold()).foregroundStyle(Color(uiColor: .label))
+                Spacer(minLength: 12)
+                titleActions
             }
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .accessibilityIdentifier("tradeTitleRow")
             if (!store.demo && book.marketOpen != true) || book.priceError != nil {
                 Section {
                     MarketSessionNotice()
@@ -667,7 +666,10 @@ struct OpportunitiesView: View {
                 }.disabled(ready.isEmpty || store.trading.busy || book.batchRunning || (!store.demo && store.trading.uncertain))
             }
             Section { TradingNotice() }
-        }.navigationTitle(localizedLabel("Trade", locale: locale))
+        }
+        .contentMargins(.top, 0, for: .scrollContent)
+        .listSectionSpacing(12)
+        .navigationTitle(localizedLabel("Trade", locale: locale))
         .navigationBarTitleDisplayMode(.inline)
         .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top < 44 } action: { _, visible in titleRowVisible = visible }
         .toolbar {
