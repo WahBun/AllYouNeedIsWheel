@@ -117,7 +117,7 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
             executed=trade.isDone(),ib_order_id=o.orderId,client_id=o.clientId,perm_id=perm,con_id=c.conId,tif='OVERNIGHT' if c.exchange == 'OVERNIGHT' else o.tif,
             filled=filled,avg_fill_price=average or None,
             fill_time=max(f.time for f in fills).isoformat() if fills else None,fill_action=o.action,
-            order_type=o.orderType,contract_multiplier='1' if c.secType == 'STK' else c.multiplier)
+            order_type=o.orderType,currency=c.currency,contract_multiplier='1' if c.secType == 'STK' else c.multiplier)
         metadata = IBConnection._fill_metadata(fills, filled)
         result[identity].update(metadata)
         ref = o.orderRef

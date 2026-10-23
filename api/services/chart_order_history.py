@@ -80,7 +80,7 @@ def saved_chart_orders(conn, path, known_orders):
                    filled=quantity, avg_fill_price=price,
                    fill_time=datetime.fromtimestamp(max(f['stamp'] for f in fills), timezone.utc).isoformat(),
                    status='executed', ib_status='Execution recorded', executed=True, external_ib=True,
-                   order_type='—', tif='—', contract_multiplier=contract.multiplier or '1',
+                   order_type='—', tif='—', currency=contract.currency, contract_multiplier=contract.multiplier or '1',
                    history_source='persisted_broker_executions')
         pnl = [reports.get((cid, f['exec_id'])) for f in fills]
         if all(p and p['ready'] and p['currency'] == 'USD' and isinstance(p['realized'], (int, float))

@@ -1954,7 +1954,26 @@ class IBConnection:
             else:
                 fees.append(fee)
                 currencies.add(currency)
+        # Execution prices are gross per-unit prices. Fees and position cost
+        # never participate, and an incomplete replay cannot replace the mean.
+        price_metadata = {}
+        try:
+            expected = float(expected_filled or 0)
+            quantities = [float(fill.execution.shares) for fill in unique]
+            prices = [float(fill.execution.price) for fill in unique]
+            total = sum(quantities)
+            if (unique and len(identified) == len(fills) and unambiguous
+                    and len(actions) == 1 and math.isfinite(expected) and expected > 0
+                    and all(math.isfinite(q) and q > 0 for q in quantities)
+                    and all(math.isfinite(p) and 0 < p < 1e100 for p in prices)
+                    and math.isclose(total, expected, rel_tol=0, abs_tol=1e-8)):
+                average = sum(q * p for q, p in zip(quantities, prices)) / total
+                if math.isfinite(average):
+                    price_metadata['avg_fill_price'] = average
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            pass
         return {
+            **price_metadata,
             'fill_time': max(times).isoformat() if times else None,
             'fill_action': next(iter(actions)) if len(actions) == 1 else None,
             '_fee_conflict': not unambiguous or fee_conflict or len(currencies) > 1,
