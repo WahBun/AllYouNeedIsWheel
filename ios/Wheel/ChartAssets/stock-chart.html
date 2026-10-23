@@ -176,7 +176,7 @@ function updateExecutionMarks(){
   const bar=previous[lo];if(group.time>=bar.time+(countdownPacket?.interval||1)*60)continue;
   group.price=group.cost/group.quantity;executionDetails.set(group.id,group);
   const buy=group.side==='BUY';
-  marks.push({id:group.id,time:bar.time,position:buy?'belowBar':'aboveBar',color:buy?'#315fc4':'#d63950',shape:buy?'arrowUp':'arrowDown',text:displayOptions.executionLabels===false?'':Math.abs(group.quantity)+'@'+priceText(group.price)});
+  marks.push({id:group.id,time:bar.time,position:buy?'belowBar':'aboveBar',color:buy?'#315fc4':'#d63950',shape:buy?'arrowUp':'arrowDown',text:displayOptions.executionLabels===false?'':(buy?'':'-')+Math.abs(group.quantity)+'@'+priceText(group.price)});
  }
  if(selectedExecution&&!executionDetails.has(selectedExecution))hideExecutionPopup();
  marks.sort((a,b)=>a.time-b.time);
