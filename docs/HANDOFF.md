@@ -1,3 +1,49 @@
+## 2026-10-24 — Permanent QQQ / ES MoonShine notifications
+
+Base: `Ben/wheel-1.8` at `756152055d2aa90f2b3395a438345bd06a247c33`.
+REA passively inspected the deployed QQQ four-pane page, its MoonShine table,
+hit notice, notification feed and audio implementation. The shipped script
+hashes matched the local baseline. Existing on-chart notices were temporary
+and did not enter the durable price-alert/push outbox.
+
+- The existing notification runtime now watches QQQ stock and the nearest
+  unexpired CME ES future for the selected, verified IB account. Its persisted
+  notification enrollment keeps the owner loop running after the web page
+  closes; no additional service, broker connection or chart slot is created.
+- Use the current default MoonShine parameters: confirmed NY 09:30–09:35 close,
+  QQQ/VXN or ES/VIX, pre-confirmation volatility seed with prior-day fallback,
+  and 0.5 / 0.8 multipliers. Custom chart-only source/multiplier settings do not
+  change these permanent rules. ES contract discovery repeats on each session
+  and reconnect; each notification names the actual local contract symbol.
+- Each of the four targets fires once per NY session and account/exact contract.
+  First Bulls/Bears use **Soft Chime**; second Bulls/Bears use **Three Notes** in
+  the browser. The ordinary price-alert outbox also sends to existing enabled
+  APNs/Bark registrations, with their existing phone sound behavior.
+- Target/hit persistence and event/outbox creation are transactional. Initial
+  historical touches and recovery history are silent. Session calendars handle
+  holidays, early closes, DST and ES RTH's additional 15 minutes. Only live last
+  ticks can trigger; closed-session, frozen/delayed and unrelated-symbol quotes
+  do not. A processing gap reloads the historical baseline before resuming.
+- Initial history uses the shared optional budget and any usable chart caches;
+  after targets are ready, this monitor does not poll history. Its two watches
+  share the existing market ticker cache. Four-pane quote delivery, overlays,
+  ordinary price alerts and broker order handling retain their existing paths.
+
+Validation: 41 isolated backend checks passed, including cold setup without a
+browser, reconnect, account change during setup, historical silence, daily reset,
+four-hit deduplication, exact symbol/contract scope, target/sound persistence,
+APNs/Bark outbox delivery with fake senders, and existing notification/volatility
+regressions. The real browser/audio fixture passed desktop four panes and mobile
+one pane in light/dark themes, both MoonShine cues once per event, duplicate/stale
+suppression, mute and continued pane updates. Canonical B1 chart tests passed.
+These are isolated fixtures; actual exchange-triggered phone receipt remains to
+be checked after deployment. No test notification was sent to a real device.
+
+After merge, choose **Deploy & Restart Backend**, then refresh the web page.
+No iPhone Run or Gateway restart is required. This change is not yet deployed;
+the read-only Mini checkout check still reported the base SHA above. Preserve
+the unrelated `Localizable.xcstrings` edit.
+
 ## 2026-10-24 — Live holding management with missing legacy entry history
 
 Base: `Ben/wheel-1.8` at `d09e218c52bca4a05a2fabe3dd2b6275a949413a`.

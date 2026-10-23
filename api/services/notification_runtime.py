@@ -5,6 +5,7 @@ import queue
 import threading
 import time
 from api.services.notifications import NotificationStore, account_scope
+from api.services.moonshine_alerts import MoonshineMonitor
 
 log = logging.getLogger(__name__)
 
@@ -28,8 +29,12 @@ class NotificationRuntime:
         self.confirmed_cancels = set()
         self.gap = False
         self.health = 'Waiting for a live quote'
+        self.moonshine = MoonshineMonitor(self.enqueue)
+        self.moonshine_plans = {}
+        self.moonshine_resync = threading.Event()
 
     def enqueue(self, event):
+        if event[0] == 'moonshine': self.next_refresh = 0
         try: self.queue.put_nowait(event)
         except queue.Full:
             # Never infer a crossing across an unobserved gap.
@@ -37,6 +42,7 @@ class NotificationRuntime:
             self.health = 'Notification processing delayed'
 
     def detach(self):
+        self.moonshine.reset()
         for ticker, callback in self.bindings.values(): ticker.updateEvent -= callback
         self.bindings.clear()
         if self.conn:
@@ -94,6 +100,10 @@ class NotificationRuntime:
     def pulse(self, portfolio_service, chart_pumping=False):
         """Called only by ib-api. No filesystem or HTTP in the fast callback path."""
         now = time.monotonic()
+        if self.moonshine_resync.is_set():
+            self.moonshine_resync.clear()
+            self.moonshine.reset()
+            self.next_refresh = 0
         if not self.enabled:
             self.detach(); return
         if self.conn and not self.conn.is_connected():
@@ -113,13 +123,14 @@ class NotificationRuntime:
                 conn.ib.execDetailsEvent += self.fill
                 self.next_orders = 0
                 self.next_completed = 0
-            wanted = {a['cid'] for a in self.active if a['scope'] == scope}
+            moonshine = self.moonshine.pulse(conn, scope)
+            wanted = {a['cid'] for a in self.active if a['scope'] == scope} | set(moonshine)
             for cid in set(self.bindings) - wanted:
                 ticker, callback = self.bindings.pop(cid); ticker.updateEvent -= callback
             from api.services.chart_contracts import contracts
             for cid in wanted:
                 try:
-                    contract = contracts.resolve(conn, cid)
+                    contract = moonshine.get(cid) or contracts.resolve(conn, cid)
                     retained = conn.has_market_subscription(contract)
                     ticker = conn.get_market_ticker(contract)
                     previous = self.bindings.get(cid)
@@ -167,16 +178,32 @@ class NotificationRuntime:
 
     def process(self, event):
         kind, *args = event
-        if kind == 'reset':
-            if not args: self.previous.clear()
+        if kind == 'gap':
+            self.previous.clear()
+            self.moonshine_plans.clear()
+            self.moonshine_resync.set()
+        elif kind == 'reset':
+            if not args:
+                self.previous.clear()
+                self.moonshine_plans.clear()
             else:
                 ids = {a['id'] for a in self.active if a['cid'] == args[0]}
                 self.previous = {k: v for k, v in self.previous.items() if k[0] not in ids}
+        elif kind == 'moonshine':
+            scope, plan = args
+            self.moonshine_plans = {k: p for k, p in self.moonshine_plans.items() if p['day'] == plan['day']}
+            self.moonshine_plans[scope, plan['cid']] = self.store.moonshine_plan(scope, plan)
         elif kind == 'order': self.store.observe_order(*args)
         elif kind == 'fill': self.store.observe_fill(*args)
         elif kind == 'price':
             scope, cid, price, mode, now = args
             self.health = 'Monitoring live last price'
+            plan = self.moonshine_plans.get((scope, cid))
+            if plan and plan['start'] <= now < plan['end']:
+                for i, target in enumerate(plan['levels']):
+                    if not plan['hits'][i] and (price <= target if i % 2 else price >= target):
+                        self.store.moonshine_hit(scope, plan, i, price, mode, now)
+                        plan['hits'][i] = True
             for alert in self.active:
                 if alert['scope'] != scope or alert['cid'] != cid or now < (alert.get('monitor_since') or alert['created']): continue
                 key = alert['id'], alert['version']
@@ -200,7 +227,7 @@ class NotificationRuntime:
                     if time.monotonic() >= next_refresh:
                         self.refresh(); next_refresh = time.monotonic() + .5
                     if self.gap:
-                        self.previous.clear(); self.gap = False
+                        self.process(('gap',)); self.gap = False
                         while not self.queue.empty(): self.queue.get_nowait()
                     if pending_event is None: pending_event = self.queue.get(timeout=.1)
                     self.process(pending_event)
