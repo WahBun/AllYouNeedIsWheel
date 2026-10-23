@@ -2,9 +2,11 @@
 const {chromium}=require('playwright'),assert=require('node:assert/strict');
 const {start}=require('./market-feed/harness.cjs');
 (async()=>{const h=await start(),browser=await chromium.launch();try{
- for(const mode of ['paper','live'])for(const width of [1400,393]){
+ for(const mode of ['paper','live'])for(const width of [1400,393])for(const lateCancel of [false,true])for(const theme of ['light','dark']){
   const p=await browser.newPage({viewport:{width,height:900}}),writes=[];
+  await p.emulateMedia({colorScheme:theme});
   let confirmed=false,canceled=false;
+  const recovery='Original entry canceled. No replacement order was submitted.';
   const orders=[{role:'entry',order_id:101,filled:0,quantity:2,price:100,status:'Submitted'},
    {role:'tp',order_id:102,filled:0,quantity:2,price:175,status:'PreSubmitted'},
    {role:'sl',order_id:103,filled:0,quantity:2,price:25,status:'PreSubmitted'}];
@@ -24,7 +26,7 @@ const {start}=require('./market-feed/harness.cjs');
     assert.equal(body.expected_ref,'fixture');assert.equal(req.headers()['x-wheel-account-epoch'],'mock-epoch');
     canceled=true;return route.fulfill({json:{status:'acknowledged',state:state()}});
    }
-   return route.fulfill({json:url.searchParams.has('request_id')?{confirmed,status:confirmed?'reconciled':'unknown'}:state()});
+   return route.fulfill({json:url.searchParams.has('request_id')?{confirmed,status:confirmed?(lateCancel?'canceled':'reconciled'):'unknown',...(confirmed&&lateCancel?{message:recovery}:{})}:state()});
   });
   await p.goto(h.url+'/superchart?con_id=7&session=all');
   await p.getByRole('button',{name:'Unlock trading',exact:true}).click();
@@ -34,11 +36,16 @@ const {start}=require('./market-feed/harness.cjs');
   assert.equal(writes.length,0,'Unknown outcome never resends or cancels an order');
   assert.equal(await p.locator('#close').isDisabled(),true);
   assert.ok(!(await frame.locator('#tp').textContent()).includes('Σ +$0.00'));
-  confirmed=true;
+  confirmed=true;if(lateCancel)canceled=true;
   await p.waitForFunction(()=>document.querySelector('#order-status').textContent.startsWith('Trading'),{},{timeout:12000});
   assert.equal(await p.evaluate(mode=>localStorage.getItem('wheel.web.pending:'+mode+':7'),mode),null);
   assert.equal(await p.evaluate(mode=>localStorage.getItem('wheel.web.pending:'+(mode==='paper'?'live':'paper')+':7'),mode),'other-account-request');
   assert.equal(writes.length,0,'Broker reconciliation is read-only');
+  if(lateCancel){
+   assert.equal(await p.locator('#trade-feedback').textContent(),recovery);
+   assert.equal(writes.length,0,'Canceled replacement never creates a new order');
+   await p.close();continue;
+  }
   await frame.locator('#cancel').click();
   await p.waitForFunction(()=>document.querySelector('#order-status').textContent.includes('canceled'));
   assert.equal(writes.length,1,'Only the explicit user cancellation is sent');
