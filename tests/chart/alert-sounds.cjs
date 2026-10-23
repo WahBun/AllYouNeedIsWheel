@@ -57,8 +57,16 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),{sta
    fire('fresh','hand-bell');await p.waitForFunction(before=>heard.length===before+1,before);
    fire('fresh','hand-bell');fire('old','alarm-clock',90);fire('silent','none');
    await p.waitForTimeout(1300);assert.equal(await p.evaluate(()=>heard.length),before+1,'No duplicates, stale replay, or silent sound');
+   for(const [index,sound] of ['soft-chime','three-notes'].entries()){
+    const id='moonshine:'+index,title='IB Paper · MoonShine · '+(index?'2nd Bulls':'1st Bulls');
+    events.push({id,seq:++cursor,kind:'price',created:Date.now()/1000,sound,title,body:'QQQ hit 103.25 · Last 103.25'});
+    await p.waitForFunction(expected=>heard.length===expected,before+2+index);
+    await p.locator('#wheel-notification-stack').getByText(title,{exact:true}).waitFor();
+    fire(id,sound);await p.waitForTimeout(1100);
+    assert.equal(await p.evaluate(()=>heard.length),before+2+index,'One MoonShine cue across all panes');
+   }
    await p.locator('#trade-sounds').click();fire('muted','chirpy');
-   await p.waitForTimeout(1300);assert.equal(await p.evaluate(()=>heard.length),before+1,'Global mute applies');
+   await p.waitForTimeout(1300);assert.equal(await p.evaluate(()=>heard.length),before+3,'Global mute applies');
    const counts=await p.evaluate(()=>[...document.querySelectorAll('.chart-pane iframe')].map(e=>e.contentWindow.__latency.length));
    await p.waitForFunction(counts=>[...document.querySelectorAll('.chart-pane iframe')].every((e,i)=>e.contentWindow.__latency.length>counts[i]),counts);
    assert.deepEqual(errors,[]);assert.equal(h.metrics.posts,0);

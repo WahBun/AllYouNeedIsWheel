@@ -48,6 +48,8 @@ class NotificationStore:
                 CREATE TABLE IF NOT EXISTS cleared_alert_history(id TEXT PRIMARY KEY);
                 CREATE TABLE IF NOT EXISTS alert_sounds(id TEXT PRIMARY KEY,sound TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS event_sounds(id TEXT PRIMARY KEY,sound TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS moonshine_targets(scope TEXT,cid INTEGER,day TEXT,target INTEGER,
+                    price REAL,hit INTEGER DEFAULT 0,PRIMARY KEY(scope,cid,day,target));
             ''')
         self.path.chmod(0o600)
 
@@ -185,6 +187,38 @@ class NotificationStore:
                         self._alert_value(db, row)['sound'])
             db.execute('UPDATE alerts SET state=?,last_fire=? WHERE id=?', ('triggered' if row['repeat'] == 'once' else 'active', now, row['id']))
             return True
+
+    def moonshine_plan(self, scope, plan):
+        """Seed historical touches silently; preserve fired identities on restart."""
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            for i, price in enumerate(plan['levels']):
+                db.execute('INSERT OR IGNORE INTO moonshine_targets VALUES (?,?,?,?,?,?)',
+                           (scope, plan['cid'], plan['day'], i, price, int(plan['hits'][i])))
+            # A later seed correction must not rearm or shift an existing target.
+            for column, sign, parity in [('high', '>=', 0), ('low', '<=', 1)]:
+                extreme = plan.get(column)
+                if isinstance(extreme, (int, float)) and math.isfinite(extreme):
+                    db.execute(f'UPDATE moonshine_targets SET hit=1 WHERE scope=? AND cid=? AND day=? AND target%2=? AND ?{sign}price',
+                               (scope, plan['cid'], plan['day'], parity, extreme))
+            saved = db.execute('SELECT price,hit FROM moonshine_targets WHERE scope=? AND cid=? AND day=? ORDER BY target',
+                               (scope, plan['cid'], plan['day'])).fetchall()
+        return dict(plan, levels=[r['price'] for r in saved], hits=[bool(r['hit']) for r in saved])
+
+    def moonshine_hit(self, scope, plan, target, price, mode, now):
+        from api.services.moonshine_alerts import NAMES, SOUNDS
+        if not plan['start'] <= now < plan['end']: return False
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            key = (scope, plan['cid'], plan['day'], target)
+            row = db.execute('SELECT price,hit FROM moonshine_targets WHERE scope=? AND cid=? AND day=? AND target=?', key).fetchone()
+            if not row or row['hit']: return False
+            if not (price <= row['price'] if target % 2 else price >= row['price']): return False
+            ident = f"moonshine:{scope}:{plan['cid']}:{plan['day']}:{target}"
+            self._event(db, ident, scope, 'price', f'{mode} · MoonShine · {NAMES[target]}',
+                        f"{plan['label']} hit {row['price']:g} · Last {price:g}", now, SOUNDS[target])
+            db.execute('UPDATE moonshine_targets SET hit=1 WHERE scope=? AND cid=? AND day=? AND target=?', key)
+        return True
 
     def observe_order(self, scope, ident, status, label, mode):
         if not ident: return

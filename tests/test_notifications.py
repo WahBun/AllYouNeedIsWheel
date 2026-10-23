@@ -271,7 +271,7 @@ class NotificationsTests(unittest.TestCase):
         conn=SimpleNamespace(ib=ib,account_id='DU_TEST',is_connected=lambda:connected[0],
             get_market_ticker=lambda c:ticker,has_market_subscription=lambda c:True,refresh_execution_history=lambda:None,get_order_status_snapshot=lambda:{'trades':[]})
         service=SimpleNamespace(_ensure_connection=lambda:conn,config={'account_id':'DU_TEST'},connection_status=lambda c:{'mode':'paper'})
-        with patch('api.services.chart_contracts.contracts.resolve',return_value=object()):
+        with patch('api.services.chart_contracts.contracts.resolve',return_value=object()), patch.object(self.runtime.moonshine, 'pulse', return_value={}):
             self.runtime.pulse(service)
             self.assertEqual(len(ticker.updateEvent),1);self.assertEqual(sleeps,[.005])
             for price in (99,101):
