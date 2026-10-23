@@ -23,6 +23,23 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
   return {seed,gap,warmup,initial,appended,replaced,hidden,changed,switched,waiting};
  });
  assert.deepEqual(result,{seed:3.5,gap:4.625,warmup:null,initial:'ATR (4): 3.50',appended:'ATR (4): 4.75',replaced:'ATR (4): 3.75',hidden:true,changed:'ATR (1): 4.00',switched:'ATR (1): 2.00',waiting:'ATR (4): —'});
+ for(const nativeCompact of [false,true]){
+  const states=await page.evaluate(nativeCompact=>{
+   const bars=[{time:1000,open:10,high:11,low:9,close:10}];
+   const config=epoch=>({con_id:7,entry:0,quantity:1,paper:{web_account_epoch:epoch},display:{nativeCompact,atr:true,atrLength:1}});
+   const packet=(security_type,generation,barsValue=bars)=>({con_id:7,security_type,generation,interval:5,session:'all',bars:barsValue});
+   configure(config('paper'));receive(packet('STK','stock'));const stock=!atrBadge.hidden;
+   receive(packet('OPT','option'));const option=atrBadge.hidden;
+   configure(config('live'));const switching=atrBadge.hidden;
+   receive(packet('OPT','live',[]));const loading=atrBadge.hidden;
+   receive(packet('OPT','live'));const loaded=atrBadge.hidden;
+   configure(config('paper'));receive(packet('OPT','paper'));const returned=atrBadge.hidden;
+   receive(packet('FUT','future'));const future=!atrBadge.hidden;
+   configure({...config('paper'),display:{nativeCompact,atr:false}});const disabled=atrBadge.hidden;
+   return {stock,option,switching,loading,loaded,returned,future,disabled};
+  },nativeCompact);
+  assert.ok(Object.values(states).every(Boolean),JSON.stringify({nativeCompact,...states}));
+ }
  assert.deepEqual(errors,[]);
  console.log('ATR: Wilder seed, gaps, live replacement, tick formatting, settings and symbol reset passed');
 }finally{await browser.close();}})();

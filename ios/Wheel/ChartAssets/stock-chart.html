@@ -264,7 +264,7 @@ atrBadge.setAttribute('aria-label','Average true range');document.body.append(at
 function updateATR(){
  atrBadge.dataset.option=String(countdownPacket?.security_type==='OPT');
  const length=Number.isInteger(displayOptions.atrLength)&&displayOptions.atrLength>0?displayOptions.atrLength:4;
- atrBadge.hidden=displayOptions.atr===false||!previous.length;
+ atrBadge.hidden=countdownPacket?.security_type==='OPT'||displayOptions.atr===false||!previous.length;
  if(atrBadge.hidden)return;
  const value=calculateATR(previous,length),tick=tickAt(previous.at(-1).close);
  const digits=tick?Math.max(0,Math.min(8,(tick.toFixed(8).replace(/0+$/,'').split('.')[1]||'').length)):2;
