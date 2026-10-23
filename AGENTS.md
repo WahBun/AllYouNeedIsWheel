@@ -77,6 +77,7 @@ below retain the existing Wheel behavior and implementation requirements.
 - Verify account routing, exact contracts, quantities and prices when changing execution code.
 - Check mobile and desktop layouts and light/dark themes for UI changes.
 - Inspect actual deployed state; conversation history and folder names are not deployment evidence.
+- During version updates, verify the iOS marketing/build version shown in Settings against the intended release, including all Xcode build configurations. Report the installed iPhone version separately; a backend deployment does not update it. Physical iPhone Run/install remains user-operated.
 
 ## Order changes: physical-device Run gate
 
