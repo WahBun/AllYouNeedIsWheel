@@ -877,18 +877,30 @@ class StockChartTests(unittest.TestCase):
             packet=feed.packet(feed.active,1,'all')
             self.assertEqual(packet['bars'][-1]['close'],12)
             self.assertEqual(packet['status'],'live')
-            ticker.modelGreeks=S(impliedVol=.255)
+            ticker.modelGreeks=S(impliedVol=.255,delta=-.25)
             ticker.updateEvent.emit(ticker)
             self.assertAlmostEqual(feed.packet(feed.active,1,'all')['iv_percent'],25.5)
+            self.assertEqual(feed.packet(feed.active,1,'all')['delta'],-.25)
+            initial_delta_time=feed.active['delta_quote'][0]
             initial_iv_time=feed.active['iv_quote'][0]
             ticker.updateEvent.emit(ticker)
             self.assertEqual(feed.active['iv_quote'][0],initial_iv_time,'Other ticker events must not refresh stale IV')
+            self.assertEqual(feed.active['delta_quote'][0],initial_delta_time)
+            feed.active['delta_quote']=(initial_delta_time-31,-.25)
+            self.assertIsNone(feed.packet(feed.active,1,'all')['delta'])
+            for value in (0,1,-1):
+                ticker.modelGreeks=S(impliedVol=.255,delta=value);ticker.updateEvent.emit(ticker)
+                self.assertEqual(feed.packet(feed.active,1,'all')['delta'],value)
+            for value in (None,float('nan'),float('inf'),2,-2):
+                ticker.modelGreeks=S(impliedVol=.255,delta=value);ticker.updateEvent.emit(ticker)
+                self.assertIsNone(feed.packet(feed.active,1,'all')['delta'])
             feed.active['iv_quote']=(initial_iv_time-31,25.5)
             self.assertIsNone(feed.packet(feed.active,1,'all')['iv_percent'])
             ticker.modelGreeks=S(impliedVol=float('nan'));ticker.updateEvent.emit(ticker)
             self.assertIsNone(feed.packet(feed.active,1,'all')['iv_percent'])
             ticker.marketDataType=3
-            ticker.modelGreeks=S(impliedVol=.3);ticker.updateEvent.emit(ticker)
+            ticker.modelGreeks=S(impliedVol=.3,delta=.3);ticker.updateEvent.emit(ticker)
+            self.assertIsNone(feed.packet(feed.active,1,'all')['delta'])
             self.assertIsNone(feed.packet(feed.active,1,'all')['iv_percent'])
             self.assertEqual(feed.packet(feed.active,1,'all')['status'],'waiting')
             conn.ib.placeOrder.assert_not_called()

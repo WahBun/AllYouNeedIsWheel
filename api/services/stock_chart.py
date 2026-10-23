@@ -424,6 +424,8 @@ class StockChart:
                         state['model_greeks']=greeks
                         value=positive(getattr(greeks,'impliedVol',None))
                         state['iv_quote']=(time.time(),value*100 if value and getattr(updated,'marketDataType',None)==1 else None)
+                        delta=getattr(greeks,'delta',None)
+                        state['delta_quote']=(state['iv_quote'][0],delta if isinstance(delta,(int,float)) and math.isfinite(delta) and -1<=delta<=1 and getattr(updated,'marketDataType',None)==1 else None)
                 # Actual side-specific price or size events establish quote freshness.
                 # ib_async carries the matching price on a size-only update.
                 for quote in getattr(updated, 'ticks', []):
@@ -701,6 +703,8 @@ class StockChart:
         closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time, contract)
         iv_time,iv=state.get('iv_quote',(0,None))
         iv_valid=contract.secType=='OPT' and iv is not None and server_time-iv_time<30 and in_session and getattr(ticker,'marketDataType',None)==1
+        delta_time,delta=state.get('delta_quote',(0,None))
+        delta_valid=contract.secType=='OPT' and delta is not None and server_time-delta_time<30 and in_session and getattr(ticker,'marketDataType',None)==1
         cc_capacity = None
         if contract.secType == 'OPT' and contract.right == 'C':
             cc_capacity = 0
@@ -720,7 +724,7 @@ class StockChart:
             cached_bid, cached_ask = positive(getattr(ticker, 'bid', None)), positive(getattr(ticker, 'ask', None))
             if cached_bid is not None and cached_ask is not None and cached_bid <= cached_ask:
                 display_quote = dict(bid=cached_bid, ask=cached_ask)
-        return dict(option_display_quote=display_quote,covered_call_capacity=cc_capacity,option_right=getattr(contract, 'right', ''),iv_percent=iv if iv_valid else None,iv_expires_at=iv_time+30 if iv_valid else None,data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
+        return dict(delta=delta if delta_valid else None,delta_expires_at=delta_time+30 if delta_valid else None,option_display_quote=display_quote,covered_call_capacity=cc_capacity,option_right=getattr(contract, 'right', ''),iv_percent=iv if iv_valid else None,iv_expires_at=iv_time+30 if iv_valid else None,data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
             con_id=con_id, symbol=contract.symbol, message=message,
             # Display-only quote metadata; independent of chart interval/session.
             last_price=positive(state['bars'][-1]['close']) if state['bars'] else None,
