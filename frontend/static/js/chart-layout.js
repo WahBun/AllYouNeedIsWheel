@@ -167,10 +167,10 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   // A bounded background page may wait behind another 30s read before it
   // starts. Keep polling that same request instead of abandoning it at 15s.
   signal=AbortSignal.any([signal,AbortSignal.timeout(65000)]);
-  const pause=()=>new Promise((resolve,reject)=>{
+  const pause=(delay=500)=>new Promise((resolve,reject)=>{
    signal.throwIfAborted();
    const aborted=()=>{clearTimeout(timer);reject(signal.reason);};
-   const timer=setTimeout(()=>{signal.removeEventListener('abort',aborted);resolve();},500);
+   const timer=setTimeout(()=>{signal.removeEventListener('abort',aborted);resolve();},delay);
    signal.addEventListener('abort',aborted,{once:true});
   });
   while(true){
@@ -180,7 +180,8 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
    if(initialReadPending||loading()){await pause();continue;}
    let page;
    try{page=await api(`portfolio/stock-chart-history/${c.cid}?interval=${c.interval}&session=${c.session}&before=${before}&background=1${recent?'&recent=1':''}&epoch=${encodeURIComponent(c.epoch)}`,undefined,signal);}
-   catch(error){if(!error.retryableReadBusy)throw error;await pause();continue;}
+   // Queue admission returns Retry-After: 2; successful loading still polls at 500ms.
+   catch(error){if(!error.retryableReadBusy)throw error;await pause(2000);continue;}
    if(page.account_epoch!==undefined&&page.account_epoch!==c.epoch)throw Error('Account changed; refresh connection state');
    if(!page.loading)return page;
    await pause();
