@@ -1,3 +1,39 @@
+## 2026-10-24 — Live holding management with missing legacy entry history
+
+Base: `Ben/wheel-1.8` at `d09e218c52bca4a05a2fabe3dd2b6275a949413a`.
+REA observed the deployed four-pane Live page with a real option holding and
+an unknown original entry blocking the management controls. Read-only broker
+and journal evidence showed no current pending order and a separate holding;
+missing completion history did not establish the old order's terminal outcome.
+
+- Web group selection now belongs to the verified profile and account identity.
+  Legacy contract-only preferences are retained but ignored. Account changes,
+  reloads, position/order navigation and pane activation use the same scope.
+- For a single original Live option DAY entry with acknowledged submission,
+  missing current history, no pending request and no allocation conflict, two
+  complete broker position/all-client order snapshots can establish management
+  of the unchanged current whole holding. Old history remains verbatim; no old
+  cancellation/fill is invented and recovery itself sends no broker order.
+- The current-position boundary and history archive commit atomically. Every
+  subsequent write checks fresh positions/orders, rejects other active orders,
+  and still uses the existing identity, quantity and no-replay protections.
+  A verified full close permits the next entry without reviving the old history.
+  Missing read results, changing positions and ambiguous multiple groups do not
+  establish a boundary. Failed snapshot checks have a short retry cooldown.
+
+Validation: 161 focused offline backend checks passed, including 13 recovery
+cases, existing Live management, TP/SL, flat recovery and DAY-history behavior.
+Browser fixtures passed Paper/Live and two-Live-account isolation, reload and
+four-pane activation, recovered Close/BE/TP-SL availability, desktop/mobile and
+light/dark presentation. Existing One-click on/off and Confirm/Discard checks
+passed at desktop/mobile widths. These are mocked broker/browser checks, not
+Live order acceptance. No Live order was submitted, amended or canceled.
+
+After merge, choose **Deploy & Restart Backend**, then refresh the web page.
+No Gateway restart, iOS source change, version bump or fresh iPhone Run is
+required by this patch. Deployed Live recovery must be verified after the
+user-controlled deployment. Preserve the unrelated Localizable.xcstrings edit.
+
 ## 2026-10-21 — Restore Trade action appearance after moving the buttons
 
 Base: `Ben/wheel-1.8` at `ea8b3aa2647055fd953cb55d4b455344f76d2a69`.
