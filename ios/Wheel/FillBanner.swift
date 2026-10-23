@@ -148,7 +148,7 @@ struct FillBannerOverlay: ViewModifier {
                         Text(notice.order.expiration ?? "")
                         LabeledContent("Status") { Text(LocalizedStringKey(notice.complete ? "Order filled" : "Partially filled")) }
                         LabeledContent("Filled quantity", value: notice.quantityLabel)
-                        LabeledContent("Average fill price", value: money(notice.order.fillPrice))
+                        OrderFillPrices(order: notice.order)
                     }
                     if notice.demo { Text("Preview only. No order was submitted or changed.").foregroundStyle(.secondary) }
                     else {

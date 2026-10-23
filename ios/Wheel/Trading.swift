@@ -112,7 +112,7 @@ struct PriceInput: View {
 extension Order {
     private enum CodingKeys: String, CodingKey {
         case con_id, chart_con_id, chart_order_ref, chart_group_id, chart_protection_ref, chart_protection_group_id
-        case gross_pnl, net_pnl, round_trip_commission
+        case gross_pnl, net_pnl, round_trip_commission, contract_multiplier, currency
         case id, ticker, symbol, action, order_type, option_type, strike, expiration, premium, quantity, status
         case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, amendment_pending, error_message, isRollover, filled, avg_fill_price, fill_time, fill_action, commission, commission_currency, realized_pnl
     }
@@ -167,6 +167,9 @@ extension Order {
         net_pnl = try values.decodeIfPresent(Double.self, forKey: .net_pnl)
         round_trip_commission = try values.decodeIfPresent(Double.self, forKey: .round_trip_commission)
         order_type = try values.decodeIfPresent(String.self, forKey: .order_type)
+        contract_multiplier = (try? values.decode(Double.self, forKey: .contract_multiplier))
+            ?? (try? values.decode(String.self, forKey: .contract_multiplier)).flatMap(Double.init)
+        currency = try values.decodeIfPresent(String.self, forKey: .currency)
         avg_fill_price = try values.decodeIfPresent(Double.self, forKey: .avg_fill_price)
         fill_time = try values.decodeIfPresent(String.self, forKey: .fill_time)
         fill_action = try values.decodeIfPresent(String.self, forKey: .fill_action)
@@ -914,7 +917,7 @@ struct OrderDetail: View {
                         LabeledContent("Status", value: record.ib_status ?? record.status)
                         Text(LocalizedStringKey(record.statusExplanation)).font(.caption).foregroundStyle(.secondary)
                         LabeledContent("Filled quantity", value: record.filledQuantity?.formatted() ?? "—")
-                        LabeledContent("Average fill price", value: money(record.fillPrice))
+                        OrderFillPrices(order: record)
                         LabeledContent("Last fill time", value: record.fillTimeLabel)
                         LabeledContent("Commission", value: record.commissionLabel)
                     } else {

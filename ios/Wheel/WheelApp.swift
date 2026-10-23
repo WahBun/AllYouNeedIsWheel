@@ -171,6 +171,8 @@ struct Order: Decodable, Identifiable {
     var net_pnl: Double? = nil
     var round_trip_commission: Double? = nil
     var order_type: String? = nil
+    var contract_multiplier: Double? = nil
+    var currency: String? = nil
     var avg_fill_price: Double? = nil
     var fill_time: String? = nil
     var fill_action: String? = nil
@@ -225,6 +227,18 @@ struct Order: Decodable, Identifiable {
     var fillPrice: Double? {
         guard let value = avg_fill_price, value.isFinite, value > 0 else { return nil }
         return value
+    }
+    var feeAdjustedFillPrice: Double? {
+        guard let price = fillPrice, let quantity = filledQuantity,
+              let multiplier = contract_multiplier, multiplier.isFinite, multiplier > 0,
+              currency == "USD", commission_currency == currency,
+              let fee = commission, fee.isFinite, abs(fee) < 1e100 else { return nil }
+        let units = quantity * multiplier
+        guard units.isFinite, units > 0 else { return nil }
+        let side = (fill_action ?? action ?? "").uppercased()
+        guard ["BUY", "BOT", "SELL", "SLD"].contains(side) else { return nil }
+        let adjusted = price + (["BUY", "BOT"].contains(side) ? fee : -fee) / units
+        return adjusted.isFinite ? adjusted : nil
     }
     var filledQuantity: Double? {
         guard let value = filled, value.isFinite, value > 0 else { return nil }
@@ -1588,7 +1602,7 @@ struct OrdersView: View {
                 }
                 ArrowlessNavigationLink {
                     Group {
-                    if history { Form { SymbolText(symbol: order.name); Text(order.option_type == "FUTURE" ? "\(order.expiration ?? "") · FUTURE" : "\(order.expiration ?? "") · \(money(order.strike)) · \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Action", value: order.fill_action ?? order.action ?? "—"); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: order.commissionLabel); if order.option_type == "FUTURE" { FuturesProfit(order: order) } else if order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: order) } }; LabeledContent("Average fill price", value: money(order.fillPrice)); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
+                    if history { Form { SymbolText(symbol: order.name); Text(order.option_type == "FUTURE" ? "\(order.expiration ?? "") · FUTURE" : "\(order.expiration ?? "") · \(money(order.strike)) · \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Action", value: order.fill_action ?? order.action ?? "—"); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: order.commissionLabel); if order.option_type == "FUTURE" { FuturesProfit(order: order) } else if order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: order) } }; OrderFillPrices(order: order); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
                     else { OrderDetail(initial: order) }
                     }.toolbar(.visible, for: .navigationBar)
                 } label: {

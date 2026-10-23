@@ -172,3 +172,13 @@ struct CompactOrderRow: View {
         }.padding(.vertical, 4)
     }
 }
+
+struct OrderFillPrices: View {
+    let order: Order
+    var body: some View {
+        LabeledContent("Average fill price", value: money(order.fillPrice))
+        LabeledContent("Net average price (incl. fees)", value: order.feeAdjustedFillPrice.map {
+            $0.formatted(.currency(code: "USD").precision(.fractionLength(2...4)))
+        } ?? "—")
+    }
+}
