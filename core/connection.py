@@ -85,6 +85,8 @@ class IBConnection:
         if execution_timezone:
             ZoneInfo(execution_timezone)  # Reject invalid configuration before connecting.
         self.ib = IB()
+        from core.contract_details import install_contract_details_guard
+        install_contract_details_guard(self.ib)
         if execution_timezone:
             self.ib.TimezoneTWS = execution_timezone
         from core.realized_pnl import install_realized_pnl_capture
