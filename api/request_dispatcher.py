@@ -1,6 +1,7 @@
 """Keep IB operations on one thread while web pages remain independently responsive."""
 
-from concurrent.futures import ThreadPoolExecutor, TimeoutError, CancelledError
+from concurrent.futures import TimeoutError, CancelledError
+from api.ib_executor import IBExecutor
 from threading import RLock, BoundedSemaphore, Event, Thread
 import logging
 import time
@@ -9,7 +10,7 @@ from flask import copy_current_request_context, jsonify, request
 
 
 def install_api_dispatcher(app):
-    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='ib-api')
+    executor = IBExecutor()
     # Leave HTTP threads available for navigation even when IB is slow.
     slots = BoundedSemaphore(4)
     # Read polling/background work cannot occupy the last admission slot.
@@ -163,7 +164,7 @@ def install_api_dispatcher(app):
                     response.headers['Retry-After'] = '2'
                     return response
                 try:
-                    future = executor.submit(run)
+                    future = executor.submit(run, kind='read' if key is not None else 'write')
                     future.wheel_job_id = request_id
                 except Exception:
                     release_slot(key is not None)
