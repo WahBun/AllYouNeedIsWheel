@@ -390,3 +390,6 @@ body.page-chart-fullscreen{overflow:hidden}
 body.page-chart-fullscreen>header{display:none}
 body.page-chart-fullscreen .workspace{position:fixed;inset:0;z-index:100;height:100dvh;min-height:0;background:var(--bg);padding-bottom:env(safe-area-inset-bottom)}
 body.page-chart-fullscreen #mobile-open-trading,body.page-chart-fullscreen #toggle-trading-panel{display:none}
+
+/* Separate ticket groups with space only, on desktop and mobile web. */
+#trade>label:has(>#quantity-label),#trade>#bracket-control,#trade>#preview{margin-top:16px}
