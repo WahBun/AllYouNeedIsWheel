@@ -47,6 +47,50 @@ class MoonshineTests(unittest.TestCase):
         self.runtime.process(('price', scope or self.scope, cid, price, 'IB Paper', now or START+361))
     def events(self, scope=None): return self.store.events(scope or self.scope, 0)['events']
 
+    def test_shared_rules_conflicts_persistence_and_account_isolation(self):
+        defaults = self.store.moonshine_rules(self.scope)
+        self.assertEqual(defaults, dict(version=1, inner=.5, outer=.8, spx='VIX', ndx='VXN'))
+        updated = self.store.moonshine_rules(self.scope, dict(version=1, inner=.6, ndx='VIX'))
+        self.assertEqual(updated['version'], 2)
+        self.assertEqual(NotificationStore(self.path).moonshine_rules(self.scope), updated)
+        self.assertEqual(self.store.moonshine_rules(self.other), defaults)
+        self.assertEqual(self.store.moonshine_rules(self.scope, dict(version=1, inner=.6, ndx='VIX')), updated)
+        from api.services.notifications import AlertConflict
+        with self.assertRaises(AlertConflict): self.store.moonshine_rules(self.scope, dict(version=1, outer=.9))
+        for patch in [dict(version=2, inner=True), dict(version=2, outer=float('nan')),
+                      dict(version=2, inner=-1), dict(version=2, ndx='BAD'), dict(inner=.7), dict(version=2, unknown=1)]:
+            with self.assertRaises(ValueError): self.store.moonshine_rules(self.scope, patch)
+
+    def test_rule_change_reprices_without_rearming_or_accepting_old_plans(self):
+        self.install()
+        self.tick(self.plan['levels'][0])
+        self.assertEqual(len(self.events()), 1)
+        rules = self.store.moonshine_rules(self.scope, dict(version=1, inner=.7, outer=1.0))
+        self.tick(110)  # The old plan is invalid immediately, before consumer refresh.
+        self.assertEqual(len(self.events()), 1)
+        new = m.plan(contract(), bars(), [dict(time=START+240, close=20)], [], START+360, rules)
+        self.install(new)
+        saved = self.runtime.moonshine_plans[self.scope, 7]
+        self.assertEqual(saved['levels'], new['levels'])
+        self.assertTrue(saved['hits'][0])
+        self.install(self.plan)  # Late asynchronous old plan cannot replace the new one.
+        self.assertEqual(self.runtime.moonshine_plans[self.scope, 7], saved)
+        self.tick(110)
+        self.assertEqual(len(self.events()), 2)
+        self.assertIn('2nd Bulls', self.events()[-1]['title'])
+        self.install(new)
+        self.tick(110)
+        self.assertEqual(len(self.events()), 2)
+
+    def test_changed_rules_seed_historical_touches_silently(self):
+        self.install()
+        rules = self.store.moonshine_rules(self.scope, dict(version=1, inner=.1, outer=.2))
+        history = bars(); history[-1]['high'] = 110
+        new = m.plan(contract(), history, [dict(time=START+240, close=20)], [], START+360, rules)
+        self.install(new); self.tick(110)
+        self.assertEqual(self.events(), [])
+        self.assertEqual(self.runtime.moonshine_plans[self.scope, 7]['hits'], [True, False, True, False])
+
     def test_chart_formula_seed_cutoff_pre_anchor_extremes_and_scope(self):
         p = self.plan
         self.assertEqual(p['hits'], [False]*4, 'B1 highs/lows do not count as hits')
@@ -163,7 +207,7 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
         conn.ib.reqContractDetailsAsync = AsyncMock(return_value=[S(contract=c) for c in [next_month, expired, es]])
         async def history(owner, c, *args, **kwargs):
             self.assertTrue(kwargs['optional']); self.assertFalse(kwargs['useRTH'])
-            if c.symbol in ('VXN','VIX'):
+            if c.symbol in ('VXN','VIX','RVX','OVX'):
                 return [S(date=datetime.fromtimestamp(START+240,timezone.utc), close=20, high=20, low=20)]
             return [S(date=datetime.fromtimestamp(b['time'],timezone.utc),close=b['close'],high=b['high'],low=b['low']) for b in bars()]
         queued = []; monitor = m.MoonshineMonitor(queued.append)
@@ -179,6 +223,12 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(read.await_count, 4, 'No periodic history after levels are ready')
                 self.assertEqual(stock_chart.states, {}, 'No invisible chart slots or eviction')
                 conn.ib.placeOrder.assert_not_called()
+                revised = dict(version=2, inner=.6, outer=.9, spx='OVX', ndx='RVX')
+                self.assertEqual(monitor.pulse(conn, 'paper', START+363, rules=revised), {})
+                await asyncio.gather(*monitor.tasks.values())
+                self.assertEqual({event[2]['rules_version'] for event in queued[-2:]}, {2})
+                self.assertEqual({call.args[1].symbol for call in read.await_args_list[-4:]}, {'QQQ', 'ES', 'RVX', 'OVX'})
+                self.assertAlmostEqual(queued[-2][2]['levels'][0], 100 + 100 * .2 / math.sqrt(252) * .6)
                 monitor.reset(); self.assertFalse(monitor.ready)
 
     async def test_late_old_account_results_do_not_install(self):

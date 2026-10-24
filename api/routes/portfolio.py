@@ -347,6 +347,9 @@ def chart_history_page(con_id):
 def get_chart_volatility(con_id):
     from api.services.chart_volatility import snapshot
     try:
-        return _no_store_json(snapshot(portfolio_service._ensure_connection(),con_id,request.args.get('source')))
+        from flask import current_app
+        from api.services.notifications import account_scope
+        rules = current_app.extensions['notifications'].store.moonshine_rules(account_scope(str(portfolio_service.config.get('account_id', ''))))
+        return _no_store_json(snapshot(portfolio_service._ensure_connection(),con_id,request.args.get('source'),rules))
     except Exception:
         return _no_store_json({'error':'Volatility index history unavailable'},503)

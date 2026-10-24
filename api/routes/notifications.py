@@ -124,3 +124,21 @@ def events():
     if epoch() != requested_epoch:
         return jsonify(error='Account connection changed. Refresh notifications.'), 409
     return jsonify(result)
+
+
+@bp.route('/moonshine-rules', methods=['GET', 'POST'])
+def moonshine_rules():
+    from api.routes.account import epoch
+    requested_epoch = epoch()
+    if requested_epoch and request.headers.get('X-Wheel-Account-Epoch') != requested_epoch:
+        return jsonify(error='Account connection changed. Refresh MoonShine settings.'), 409
+    runtime, scope, _ = context()
+    body = request.get_json(silent=True) if request.method == 'POST' else None
+    if request.method == 'POST' and not isinstance(body, dict): raise ValueError('Invalid MoonShine rules')
+    rules = runtime.store.moonshine_rules(scope, body)
+    if body is not None: runtime.next_refresh = 0
+    if epoch() != requested_epoch:
+        return jsonify(error='Account connection changed. Refresh MoonShine settings.'), 409
+    response = jsonify(rules=rules, scope=scope, epoch=requested_epoch)
+    response.headers['Cache-Control'] = 'no-store'
+    return response

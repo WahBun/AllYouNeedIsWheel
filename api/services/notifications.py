@@ -9,6 +9,8 @@ import time
 import uuid
 from pathlib import Path
 
+MOONSHINE_DEFAULTS = dict(version=1, inner=.5, outer=.8, spx='VIX', ndx='VXN')
+
 ALERT_SOUNDS = ('alarm-clock', 'beep-beep', 'three-notes', 'soft-chime', 'hand-bell', 'chirpy', 'none')
 
 
@@ -48,6 +50,9 @@ class NotificationStore:
                 CREATE TABLE IF NOT EXISTS cleared_alert_history(id TEXT PRIMARY KEY);
                 CREATE TABLE IF NOT EXISTS alert_sounds(id TEXT PRIMARY KEY,sound TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS event_sounds(id TEXT PRIMARY KEY,sound TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS moonshine_rules(scope TEXT PRIMARY KEY,value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS moonshine_revisions(scope TEXT,cid INTEGER,day TEXT,version INTEGER,
+                    PRIMARY KEY(scope,cid,day));
                 CREATE TABLE IF NOT EXISTS moonshine_targets(scope TEXT,cid INTEGER,day TEXT,target INTEGER,
                     price REAL,hit INTEGER DEFAULT 0,PRIMARY KEY(scope,cid,day,target));
             ''')
@@ -188,10 +193,48 @@ class NotificationStore:
             db.execute('UPDATE alerts SET state=?,last_fire=? WHERE id=?', ('triggered' if row['repeat'] == 'once' else 'active', now, row['id']))
             return True
 
+    @staticmethod
+    def _moonshine_rules(db, scope):
+        row = db.execute('SELECT value FROM moonshine_rules WHERE scope=?', (scope,)).fetchone()
+        return json.loads(row['value']) if row else dict(MOONSHINE_DEFAULTS)
+
+    def moonshine_rules(self, scope, patch=None):
+        with self.connect() as db:
+            if patch is not None: db.execute('BEGIN IMMEDIATE')
+            current = self._moonshine_rules(db, scope)
+            if patch is None: return current
+            if not isinstance(patch, dict) or not patch or set(patch) - set(MOONSHINE_DEFAULTS):
+                raise ValueError('Invalid MoonShine rules')
+            if type(patch.get('version')) is not int: raise ValueError('Refresh MoonShine rules first')
+            changes = {k: v for k, v in patch.items() if k != 'version'}
+            for key, value in changes.items():
+                if key in ('inner', 'outer'):
+                    if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 10:
+                        raise ValueError('Multipliers must be between 0 and 10')
+                elif value not in ('VIX', 'VXN', 'VXD', 'RVX', 'GVZ', 'OVX'):
+                    raise ValueError('Unsupported volatility index')
+            if all(current[k] == v for k, v in changes.items()): return current
+            if patch['version'] != current['version']:
+                raise AlertConflict('MoonShine rules changed on another device. Refresh before saving.')
+            updated = dict(current, **changes)
+            updated['version'] += 1
+            db.execute('INSERT OR REPLACE INTO moonshine_rules VALUES (?,?)', (scope, json.dumps(updated)))
+            return updated
+
     def moonshine_plan(self, scope, plan):
         """Seed historical touches silently; preserve fired identities on restart."""
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
+            version = plan.get('rules_version', 1)
+            if version != self._moonshine_rules(db, scope)['version']: return None
+            key = (scope, plan['cid'], plan['day'])
+            prior = db.execute('SELECT version FROM moonshine_revisions WHERE scope=? AND cid=? AND day=?', key).fetchone()
+            changed = version != (prior['version'] if prior else 1)
+            if changed:
+                for i, price in enumerate(plan['levels']):
+                    db.execute('UPDATE moonshine_targets SET price=?,hit=MAX(hit,?) WHERE scope=? AND cid=? AND day=? AND target=?',
+                               (price, int(plan['hits'][i]), *key, i))
+            db.execute('INSERT OR REPLACE INTO moonshine_revisions VALUES (?,?,?,?)', (*key, version))
             for i, price in enumerate(plan['levels']):
                 db.execute('INSERT OR IGNORE INTO moonshine_targets VALUES (?,?,?,?,?,?)',
                            (scope, plan['cid'], plan['day'], i, price, int(plan['hits'][i])))
@@ -210,6 +253,7 @@ class NotificationStore:
         if not plan['start'] <= now < plan['end']: return False
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
+            if plan.get('rules_version', 1) != self._moonshine_rules(db, scope)['version']: return False
             key = (scope, plan['cid'], plan['day'], target)
             row = db.execute('SELECT price,hit FROM moonshine_targets WHERE scope=? AND cid=? AND day=? AND target=?', key).fetchone()
             if not row or row['hit']: return False

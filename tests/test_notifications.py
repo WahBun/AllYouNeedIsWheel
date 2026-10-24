@@ -4,7 +4,7 @@ import unittest
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 from api.services.notifications import NotificationStore, account_scope, AlertConflict
 from api.services.notification_runtime import NotificationRuntime
 from api.services.push_delivery import deliver_once
@@ -281,6 +281,33 @@ class NotificationsTests(unittest.TestCase):
             connected[0]=False;self.runtime.pulse(service);self.assertEqual(len(ticker.updateEvent),0)
             connected[0]=True;self.runtime.next_refresh=0;self.runtime.pulse(service);self.assertEqual(len(ticker.updateEvent),1)
             self.runtime.enabled=False;self.runtime.pulse(service);self.assertEqual(len(ticker.updateEvent),0)
+
+    def test_shared_rules_route_offline_guards_conflict_and_chart_read(self):
+        from api import create_app
+        app = create_app({'TESTING': True, 'NOTIFICATION_DB': str(self.path)})
+        service = SimpleNamespace(config={'account_id': 'DU_TEST'}, connection=None,
+                                  _ensure_connection=Mock(side_effect=AssertionError('Settings must not connect to IB')))
+        try:
+            with patch('api.routes.portfolio.portfolio_service', service), patch('api.routes.account.epoch', return_value='current'):
+                client = app.test_client(); url = '/api/notifications/moonshine-rules'
+                headers = {'X-All-You-Need-Is-Wheel': '1', 'X-Wheel-Account-Epoch': 'current'}
+                self.assertEqual(client.get(url).status_code, 409)
+                self.assertEqual(client.post(url, json={'version': 1, 'inner': .6}).status_code, 403)
+                self.assertEqual(client.post(url, json={'version': 1, 'inner': .6}, headers={**headers, 'X-Wheel-Account-Epoch': 'old'}).status_code, 409)
+                read = client.get(url, headers=headers)
+                self.assertEqual(read.json['rules']['inner'], .5)
+                self.assertEqual(read.headers['Cache-Control'], 'no-store')
+                saved = client.post(url, json={'version': 1, 'inner': .6, 'ndx': 'VIX'}, headers=headers)
+                self.assertEqual(saved.status_code, 200, saved.json)
+                self.assertEqual(saved.json['rules']['version'], 2)
+                self.assertEqual(client.post(url, json={'version': 1, 'outer': .9}, headers=headers).status_code, 409)
+                service._ensure_connection.assert_not_called()
+                service._ensure_connection = Mock(return_value=object())
+                with patch('api.services.chart_volatility.snapshot', return_value={'status': 'ready'}) as snapshot:
+                    self.assertEqual(client.get('/api/portfolio/chart-volatility/7?source=VXN').status_code, 200)
+                    self.assertEqual(snapshot.call_args.args[3], saved.json['rules'])
+        finally:
+            app.extensions['ib_background_stop'].set(); app.extensions['ib_api_executor'].shutdown(wait=True)
 
     def test_routes_keep_epoch_and_same_origin_guards(self):
         from api import create_app

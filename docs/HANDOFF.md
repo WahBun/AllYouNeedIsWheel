@@ -1,3 +1,49 @@
+## 2026-10-24 — Shared MoonShine pricing rules
+
+Base/target: `Ben/wheel-1.8` at `1675f613d24c797ef070ae2a0d400c2c2e81ffd3`.
+Development branch: `codex/moonshine-shared-rules`. Mini's checkout was verified
+read-only at that same base SHA; this change has not been deployed.
+
+REA inspected the running dedicated-browser QQQ page and its shipped settings
+script (matching the baseline), confirming browser-local pricing preferences.
+The native settings and background monitor also stored independent values.
+The repair makes the existing notification database authoritative for each
+account's inner/outer multipliers and SPX/NDX volatility sources. Defaults stay
+0.5 / 0.8 and VIX / VXN. Other display preferences remain local.
+
+- Web and iOS read the shared rules without uploading local defaults. Explicit
+  edits carry a rule version; concurrent changes produce a visible conflict.
+  Failed/uncertain saves reconcile with a read and never replay the write.
+  Late responses after an account switch cannot change the new account's UI.
+- Chart volatility responses include the same rules used by the QQQ/ES monitor.
+  A stale client-selected SPX/NDX source is overridden at the backend; stale
+  rule-version chart responses are withheld while fresh data is loading.
+  The two multipliers apply across chart families, as the existing control does.
+- A rule change rebuilds monitor targets through the existing optional-history
+  path. Old plans cannot install or fire after the rules change. Already-hit
+  target identities remain hit; historical touches of revised levels are seeded
+  silently. First/second target sounds remain Soft Chime / Three Notes.
+- No order workflow, quote stream, chart-slot layout, additional broker owner,
+  recurring service or Gateway setting was changed. Rules can be saved outside
+  trading hours without connecting to IB.
+
+Validation: 46 focused Python tests passed across the initial regression and
+new route/source cases, with network, real IB construction and persistent user
+DB access blocked. Browser tests passed for desktop four panes and mobile one
+pane in both themes: initial read-only sync, save acknowledgment, shared values
+in all panes, display preference preservation, conflict recovery, reload,
+old-account response isolation and continued tick updates. Visual inspection
+confirmed the status next to the multiplier controls. The sound regression
+passed all four viewport/theme combinations, including deduplication and mute.
+Web/native pure calculations match, including authoritative multipliers and
+stale-response suppression. Xcode simulator build and 8 focused settings tests
+passed; no physical iPhone install or market-open broker acceptance was run.
+
+After merge, recommend **Deploy & Restart Backend**, then refresh browser tabs.
+A fresh user-operated iPhone Run/install is required for native settings sync;
+marketing/build remains **1.8.2 (2)**. Push/PR does not update either runtime or
+phone. Existing uncommitted `Localizable.xcstrings` changes are excluded.
+
 ## 2026-10-24 — Permanent QQQ / ES MoonShine notifications
 
 Base: `Ben/wheel-1.8` at `756152055d2aa90f2b3395a438345bd06a247c33`.
