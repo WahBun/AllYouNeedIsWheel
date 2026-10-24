@@ -1,3 +1,46 @@
+## 2026-10-24 — Mobile web workspace and fullscreen fallback
+
+Base/target: `Ben/wheel-1.8` at `1633dbb50b02ea33d8e15cf14e0ba43f02f64120`
+(PR #70 merged). Mini's checkout was verified read-only at that same SHA.
+Branch: `codex/mobile-web-layout`. No deployment, native app build or trading.
+
+The user reported excessive toolbar wrapping on the phone and a fullscreen
+button that did nothing. REA passively inspected the existing dedicated-browser
+Wheel target and its shipped scripts (evidence
+`ev_42d011f7ec1a10a7c27470cbe4d99f96e225dcc3f6c5c205596c64295e649753`).
+The running handler called `requestFullscreen()` unconditionally, without
+unsupported/rejected handling. The source layout wrapped the center controls
+and then forced the end controls onto another row. iPhone runtime exceptions
+were not captured; the screenshot and handler support the fallback repair.
+
+- At widths up to 850px, use two compact toolbar rows, larger touch controls,
+  a smaller header/footer and a chart sized to the dynamic viewport. The clock
+  is omitted on narrow screens; desktop styling remains unchanged.
+- Add phone-only Trading / Chart scroll shortcuts. Retain the original ticket,
+  chart iframes, layout options, order state and input nodes. Use 16px phone
+  form inputs and bottom safe-area spacing.
+- Phone fullscreen fills the available web viewport and retains the exit
+  control. Unsupported or rejected desktop element-fullscreen requests use the
+  same fallback. Normal desktop fullscreen is retained. Browser address/tab
+  bars remain under browser control; this does not claim OS-level fullscreen.
+
+Validation: local mocked-browser tests passed phone widths 320/393/430,
+844px landscape, both themes, enter/exit fullscreen, a rejected desktop
+fullscreen request, panel navigation, interval selection, continued tick
+updates and retained iframe nodes. Desktop geometry matched the original
+stylesheet at 1024/1440/1920px. Existing unified-toolbar tests passed both
+themes, narrow four-pane layouts and desktop native fullscreen. The full-page
+One-click on/off test and protection, fast-entry-drag and order-line-drag
+regressions passed. The coordinate-driven entry test now scrolls its iframe
+into view after using the bottom-axis settings menu; order assertions remain
+unchanged. Mobile screenshots were visually inspected. Tests use Chromium
+fixtures, not an actual iPhone Safari session or broker acceptance.
+
+After merge, recommend **Deploy & Restart Backend** because the page template
+loads a new script, then reload the phone/desktop web page. No iPhone Run/install
+is needed: native app sources and version are unchanged. Preserve the existing
+uncommitted localization catalog; it is excluded from this change.
+
 ## 2026-10-24 — Shared MoonShine pricing rules
 
 Base/target: `Ben/wheel-1.8` at `1675f613d24c797ef070ae2a0d400c2c2e81ffd3`.

@@ -350,3 +350,42 @@ body>header #settings{display:none!important}
 @media(max-width:560px){#display.indicator-settings .timeframe-visibility-row{flex-wrap:wrap;gap:0;padding:6px 0 12px}#display.indicator-settings .timeframe-visibility-row>label{width:100%;min-height:40px}#display.indicator-settings .timeframe-visibility-bounds{width:100%;flex:0 0 100%;gap:18px}#display.indicator-settings .timeframe-visibility-bounds label{min-height:36px;padding:0}}
 
 .positions-heading{display:flex;align-items:center;gap:4px}.positions-heading #sort-positions{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin:0;padding:4px;border:0;background:transparent;color:var(--muted)}#sort-positions svg{fill:currentColor;opacity:.65}#sort-positions[data-direction="asc"] .sort-up,#sort-positions[data-direction="desc"] .sort-down{fill:var(--accent)}#sort-positions[data-direction] svg{opacity:1}#sort-positions:hover{background:#8882}
+
+/* Phone-only composition. Desktop controls, chart frames and tickets stay intact. */
+.mobile-chart-control{display:none}
+@media(max-width:850px){
+ body>header{height:44px;padding:4px 10px;gap:8px}
+ header #theme,header #trade-sounds{width:36px;height:36px;padding:7px}
+ main{height:auto;grid-template-columns:minmax(0,1fr)}
+ .workspace,body.trading-panel-collapsed .workspace{height:calc(100dvh - 44px);min-height:320px}
+ .workspace>nav{display:grid;grid-template-columns:minmax(0,1fr) 26px 78px auto;grid-template-rows:40px 40px;gap:4px 6px;padding:6px 8px}
+ .toolbar-center,.toolbar-end{display:contents}
+ .toolbar-instrument{grid-row:1;grid-column:1 / 3;min-width:0;max-width:none;height:40px}
+ .toolbar-instrument #option-search{flex:1;width:0;max-width:none;min-width:0;font-size:14px;height:38px;padding:6px 8px}
+ .toolbar-instrument #favorite-contract{width:30px;height:38px;flex:none}
+ .favorite-contract-picker{grid-row:1;grid-column:3;min-width:0}
+ #favorite-contracts{width:78px;min-width:0;max-width:100%;height:40px;padding:4px;font-size:12px}
+ .toolbar-views{grid-row:1;grid-column:4;gap:2px;padding-left:0;border:0}
+ .toolbar-views #layout-button,.toolbar-views #maximize-chart,.toolbar-views #fullscreen{width:36px;min-width:36px;height:40px;padding:5px}
+ .toolbar-center #intervals{grid-row:2;grid-column:1 / 3;flex-wrap:nowrap;justify-content:flex-start;overflow-x:auto;max-width:none;min-width:0;scrollbar-width:none}
+ #intervals::before{display:none}
+ #intervals button{flex:none;min-width:32px;height:40px;padding:0 6px}
+ .interval-picker{grid-row:2;grid-column:3;justify-self:start}
+ #interval{width:36px;height:40px;margin:0}
+ #session-picker{grid-row:2;grid-column:4;justify-self:end}
+ .toolbar-end #session-button{height:40px;min-width:54px;padding:6px 10px}
+ #market-clock{display:none}
+ .chart-footer{gap:8px;padding:4px 8px;height:44px;min-height:44px}
+ #order-status{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+ .mobile-chart-control{display:inline-flex;align-items:center;justify-content:center;min-height:36px;white-space:nowrap}
+ #trade:not([hidden]){scroll-margin-top:8px;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+ #trade #mobile-back-chart{width:auto;min-width:64px;margin:0 0 0 8px;padding:6px;font-size:12px}
+ .trade-heading{flex-wrap:wrap}
+ #chart-detail:not([hidden]){flex-shrink:0;max-height:35dvh}
+ #option-picker input,#option-picker select,#trade input,#trade select,dialog input:not([type=checkbox]),dialog select{font-size:16px}
+}
+/* Fallback for browsers without element fullscreen, including iPhone browsers. */
+body.page-chart-fullscreen{overflow:hidden}
+body.page-chart-fullscreen>header{display:none}
+body.page-chart-fullscreen .workspace{position:fixed;inset:0;z-index:100;height:100dvh;min-height:0;background:var(--bg);padding-bottom:env(safe-area-inset-bottom)}
+body.page-chart-fullscreen #mobile-open-trading,body.page-chart-fullscreen #toggle-trading-panel{display:none}
