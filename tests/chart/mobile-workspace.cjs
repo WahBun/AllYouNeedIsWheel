@@ -13,6 +13,7 @@ const {chromium,webkit}=require('playwright'),assert=require('node:assert/strict
     const box=await p.evaluate(()=>{const r=document.getElementById('chart-grid').getBoundingClientRect(),nav=document.querySelector('.workspace>nav').getBoundingClientRect();return {top:r.top,height:r.height,navHeight:nav.height,scroll:document.documentElement.scrollWidth,viewport:innerWidth};});
     assert.ok(box.scroll<=width,'No horizontal page overflow');assert.ok(box.navHeight<=96,'Two compact control rows');assert.ok(box.top<=140,'Header and controls leave room for the chart');
     if(height>600)assert.ok(box.height>=height-190,'Chart uses available phone height '+JSON.stringify(box));
+    await p.locator('#interval').click();const menu=await p.locator('#interval-menu').boundingBox();assert.ok(menu.x>=0&&menu.x+menu.width<=width&&menu.y+menu.height<=height,'Phone interval menu fits viewport');await p.keyboard.press('Escape');
     await p.locator('#fullscreen').click();await p.waitForFunction(()=>document.body.classList.contains('page-chart-fullscreen'));
     assert.equal(await p.locator('#fullscreen').getAttribute('aria-label'),'Exit fullscreen chart');
     const full=await p.locator('.workspace').boundingBox();assert.equal(Math.round(full.y),0);assert.equal(Math.round(full.height),height);
