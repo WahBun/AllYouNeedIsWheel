@@ -27,6 +27,22 @@ class VolatilityTests(unittest.TestCase):
                 conn.ib.placeOrder.assert_not_called()
         finally:loop.close();asyncio.set_event_loop(None)
 
+    def test_shared_source_overrides_stale_client_selection(self):
+        loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
+        conn = Mock(); conn.is_connected.return_value = True
+        conn.ib.qualifyContractsAsync = AsyncMock(return_value=[S(conId=99)])
+        conn.ib.reqHistoricalDataAsync = AsyncMock(return_value=[S(date=datetime.now(timezone.utc), close=20)])
+        rules = dict(version=2, inner=.6, outer=.9, spx='RVX', ndx='VIX')
+        state = {'conn': conn, 'contract': S(symbol='QQQ', secType='STK')}
+        try:
+            with patch.dict(v.stock_chart.states, {7: state}, clear=True):
+                result = v.snapshot(conn, 7, 'VXN', rules)
+                self.assertEqual(result['source'], 'VIX')
+                self.assertEqual(result['rules'], rules)
+                loop.run_until_complete(asyncio.gather(*state['volatility_pending'].values()))
+                self.assertEqual(conn.ib.qualifyContractsAsync.call_args.args[0].symbol, 'VIX')
+        finally: loop.close(); asyncio.set_event_loop(None)
+
     def test_parallel_progress_and_connection_scoped_reuse(self):
         loop=asyncio.new_event_loop();asyncio.set_event_loop(loop)
         conn=Mock();conn.is_connected.return_value=True

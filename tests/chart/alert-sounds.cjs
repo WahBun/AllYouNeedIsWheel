@@ -18,6 +18,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),{sta
     const req=route.request(),url=new URL(req.url());assert.equal(url.origin,h.url,'No external requests');
     if(!url.pathname.startsWith('/api/notifications/'))return route.continue();
     assert.equal(req.headers()['x-wheel-account-epoch'],'mock-epoch');
+    if(url.pathname.endsWith('/moonshine-rules'))return route.fulfill({json:{epoch:'mock-epoch',rules:{version:1,inner:.5,outer:.8,spx:'VIX',ndx:'VXN'}}});
     if(url.pathname.endsWith('/events')){
      reads++;const after=url.searchParams.has('after')?Number(url.searchParams.get('after')):null;
      return route.fulfill({json:{scope:'paper-test',server_time:Date.now()/1000,cursor,events:after===null?[]:events.filter(e=>e.seq>after)}});

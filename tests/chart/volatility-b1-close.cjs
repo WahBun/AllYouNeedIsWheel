@@ -17,3 +17,10 @@ for(const interval of [1,5,15,60]){
 const pure=path=>fs.readFileSync(path,'utf8').split("if(typeof series==='undefined')return;")[0];
 assert.equal(pure('frontend/static/js/chart-volatility.js'),pure('ios/Wheel/ChartAssets/chart-volatility.js'));
 console.log('Confirmed canonical B1 close, identical 1/5/15/60m levels, fixed VXN cutoff and missing-anchor wait PASS',reference[1]);
+
+const q={security_type:'STK',symbol:'QQQ',session:'rth',interval:1,bars:[{time:t+300,high:30953,low:30952,close:30952}]};
+const shared={...data,rules:{version:2,inner:.6,outer:1,spx:'VIX',ndx:'VXN'}};
+const sharedLevels=V.calculate(q,shared,{...o,inner:9,outer:9,rulesVersion:2}).sessions[0].levels;
+assert.equal(sharedLevels[0],30952.25+30952.25*21.04/100/Math.sqrt(252)*.6);
+assert.equal(V.calculate(q,shared,{...o,rulesVersion:3}).sessions.length,0,'old source/seed response cannot draw against newer rules');
+console.log('Authoritative shared multipliers and stale rule response rejection PASS');

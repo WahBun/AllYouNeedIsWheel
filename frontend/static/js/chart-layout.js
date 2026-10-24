@@ -256,5 +256,6 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   visible.forEach(({rect},i)=>ctx.drawImage(images[i],rect.left-bounds.left,rect.top-bounds.top,rect.width,rect.height));return canvas;
  };
  function showTable(target){return panes.get(count>=3?count-1:0)?.frame===target;}
- return {tick,readInitial,readHistory,expandHistory,follow,showTable,loading,checkSwitch,showEmpty,axisFor:target=>configs[[...panes.values()].find(pane=>pane.frame===target)?.index]?.axis,refreshTradingLock:()=>{for(const pane of panes.values())pane.render();}};
+ function rulesChanged(){for(const p of panes.values()){p.lastExtras=0;p.render();}}
+ return {rulesChanged,tick,readInitial,readHistory,expandHistory,follow,showTable,loading,checkSwitch,showEmpty,axisFor:target=>configs[[...panes.values()].find(pane=>pane.frame===target)?.index]?.axis,refreshTradingLock:()=>{for(const pane of panes.values())pane.render();}};
 };

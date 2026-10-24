@@ -11,6 +11,7 @@ const clockCache=new Map();
 function clock(t){if(clockCache.has(t))return clockCache.get(t);const x=Object.fromEntries(fmt.formatToParts(new Date(t*1000)).map(p=>[p.type,p.value]));const value=Object.freeze({day:`${x.year}-${x.month}-${x.day}`,minute:Number(x.hour)*60+Number(x.minute)});clockCache.set(t,value);if(clockCache.size>20000)clockCache.delete(clockCache.keys().next().value);return value;}
 function calculate(p,data,o){
  const g=family(p),bars=p.bars||[],last=bars.at(-1);if(data?.con_id!==undefined&&data.con_id!==p.con_id)data=null;if(!g||!last)return {sessions:[],gauge:null};
+ if(data?.rules){o={...o,inner:data.rules.inner,outer:data.rules.outer};if(o.rulesVersion&&o.rulesVersion!==data.rules.version)data=null;}
  const anchors=new Map((data?.session_anchors||[]).map(a=>[a.day,a]));
  const inRTH=(bar,c)=>{const anchor=anchors.get(c.day);return c.minute>=570&&(Number.isFinite(anchor?.end)?bar.time<anchor.end:c.minute<(p.rth_close_minutes||960));};
  const lc=clock(last.time),rth=inRTH(last,lc);

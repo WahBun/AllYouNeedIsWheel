@@ -743,22 +743,28 @@ struct StockChartView: View {
     @AppStorage("chartVolatilityV1") private var volatilityJSON = ""
     @AppStorage("chartVolatilityMobileDefaultV2") private var volatilityMobileDefaultApplied = false
     @AppStorage("chartVolatilityGaugeCenterV2") private var volatilityGaugeCenterApplied = false
+    @State private var moonshineRules = MoonshineRulesModel()
+    private var moonshineAccount: NotificationAccount? { .current(store) }
     @State private var volatilityData: [String: Any] = [:]
     @State private var volatilityContext = ""
     private var volatilitySettings: VolatilitySettings {
-        guard let data = volatilityJSON.data(using: .utf8), let value = try? JSONDecoder().decode(VolatilitySettings.self, from: data) else { return VolatilitySettings() }
-        return value
+        let value = volatilityJSON.data(using: .utf8).flatMap { try? JSONDecoder().decode(VolatilitySettings.self, from: $0) } ?? VolatilitySettings()
+        return store.demo ? value : moonshineRules.rules?.applying(to: value) ?? value
     }
     private var volatilityBinding: Binding<VolatilitySettings> {
         Binding(get: { volatilitySettings }, set: { value in
-            if let data = try? JSONEncoder().encode(value), let text = String(data: data, encoding: .utf8) { volatilityJSON = text }
+            let expectedAccount = moonshineAccount, expectedVersion = moonshineRules.rules?.version
+            if !store.demo { Task { await moonshineRules.save(value, account: expectedAccount, version: expectedVersion) } }
+            let local = store.demo ? value : moonshineRules.rules?.applying(to: value) ?? value
+            if let data = try? JSONEncoder().encode(local), let text = String(data: data, encoding: .utf8) { volatilityJSON = text }
         })
     }
     private var volatilityFamily: String? { VolatilitySettings.family(symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType) }
     private var volatilitySource: String { volatilitySettings.dictionary[volatilityFamily ?? ""] as? String ?? "" }
-    private var volatilityRequestKey: String { context + (store.trading.accountEpoch ?? "") + volatilitySource + String(expandedIndicatorsActive && volatilitySettings.channels) }
+    private var volatilityRequestKey: String { context + (store.trading.accountEpoch ?? "") + volatilitySource + String(moonshineRules.rules?.version ?? 0) + String(expandedIndicatorsActive && volatilitySettings.channels) }
     private var volatilityDisplay: [String: Any] {
         var value = volatilitySettings.dictionary
+        value["rulesVersion"] = moonshineRules.rules?.version ?? 0
         if !expandedIndicatorsActive { value["channels"] = false; value["gauge"] = false }
         return value
     }
@@ -1074,7 +1080,13 @@ struct StockChartView: View {
                 if indicatorTab == "Style" {
                     Section("Indicators") { Toggle("Show indicators", isOn: $indicatorVisible) }
                 }
-                VolatilitySettingsSections(settings: volatilityBinding, tab: indicatorTab)
+                VolatilitySettingsSections(settings: volatilityBinding, tab: indicatorTab, sharedRulesEditable: store.demo || (moonshineRules.rules != nil && !moonshineRules.busy))
+                if indicatorTab == "Inputs" && !store.demo {
+                    Section("Shared MoonShine rules") {
+                        Text(moonshineRules.message).font(.footnote)
+                        Button("Refresh rules") { Task { await moonshineRules.refresh() } }.disabled(moonshineRules.busy)
+                    }
+                }
                 if indicatorTab == "Inputs" {
                     Section("EMA") {
                         Stepper("Length: \(emaLength)", value: $emaLength, in: 1...500)
@@ -1903,6 +1915,14 @@ struct StockChartView: View {
                     } else { dailyChangeReference = nil }
                 } catch { if Task.isCancelled { return } }
                 do { try await Task.sleep(for: .seconds(15)) } catch { return }
+            }
+        }
+        .task(id: "moonshine-" + String(describing: moonshineAccount) + String(visible && phase == .active)) {
+            moonshineRules.select(moonshineAccount)
+            guard visible, phase == .active, !store.demo else { return }
+            while !Task.isCancelled {
+                await moonshineRules.refresh()
+                do { try await Task.sleep(for: .seconds(10)) } catch { return }
             }
         }
         .task(id: "volatility-" + volatilityRequestKey) {

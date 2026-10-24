@@ -65,7 +65,7 @@ def session_anchors(bars, now, contract=None):
         result.append(dict(day=day, start=start, ready_at=start+300, close=rows[574][1], **({'end':closes[day]} if windows is not None else {}), **extremes.get(day, {})))
     return result
 
-def snapshot(conn,cid,source=None):
+def snapshot(conn,cid,source=None,rules=None):
     state=stock_chart.states.get(cid)
     if not state or state['conn'] is not conn or not conn.is_connected():
         raise ValueError('Waiting for primary chart')
@@ -73,6 +73,7 @@ def snapshot(conn,cid,source=None):
     conn.ib.sleep(.005)
     family=group(state['contract'])
     if not family: return dict(con_id=cid,supported=False)
+    if rules and family in ('spx', 'ndx'): source = rules[family]
     source=source or SOURCES[family]
     if source not in SOURCES.values(): raise ValueError('Unsupported volatility index')
     identity = (conn.ib, conn.ib.client, getattr(conn, 'account_id', None))
@@ -137,4 +138,4 @@ def snapshot(conn,cid,source=None):
             if other.get('volatility_cache', {}).get(source) is item:
                 other.setdefault('volatility_pending', {})[source] = item['task']
     conn.ib.sleep(.005)
-    return dict(con_id=cid,supported=True,group=family,source=source,session_anchors=session_anchors(state.get('bars', []), time.time(), state['contract']),**{k:item[k] for k in ('status','intraday','daily')})
+    return dict(con_id=cid,supported=True,rules=rules,group=family,source=source,session_anchors=session_anchors(state.get('bars', []), time.time(), state['contract']),**{k:item[k] for k in ('status','intraday','daily')})

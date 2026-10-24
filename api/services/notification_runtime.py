@@ -1,4 +1,5 @@
 """Observe IB on its existing owner thread; persistence and APNs run off that thread."""
+import json
 import logging
 import math
 import queue
@@ -31,6 +32,7 @@ class NotificationRuntime:
         self.health = 'Waiting for a live quote'
         self.moonshine = MoonshineMonitor(self.enqueue)
         self.moonshine_plans = {}
+        self.moonshine_rules = {}
         self.moonshine_resync = threading.Event()
 
     def enqueue(self, event):
@@ -123,7 +125,7 @@ class NotificationRuntime:
                 conn.ib.execDetailsEvent += self.fill
                 self.next_orders = 0
                 self.next_completed = 0
-            moonshine = self.moonshine.pulse(conn, scope)
+            moonshine = self.moonshine.pulse(conn, scope, rules=self.moonshine_rules.get(scope))
             wanted = {a['cid'] for a in self.active if a['scope'] == scope} | set(moonshine)
             for cid in set(self.bindings) - wanted:
                 ticker, callback = self.bindings.pop(cid); ticker.updateEvent -= callback
@@ -169,6 +171,7 @@ class NotificationRuntime:
         self.active = self.store.alerts(active=True)
         with self.store.connect() as db:
             self.enabled = bool(self.active or db.execute('SELECT 1 FROM order_scopes LIMIT 1').fetchone())
+            self.moonshine_rules = {r['scope']: json.loads(r['value']) for r in db.execute('SELECT scope,value FROM moonshine_rules')}
             tracked = {}
             for row in db.execute("SELECT scope,id FROM broker_orders WHERE status NOT IN ('Cancelled','Filled','ApiCancelled','Inactive')"):
                 tracked.setdefault(row['scope'], set()).add(row['id'])
@@ -191,8 +194,10 @@ class NotificationRuntime:
                 self.previous = {k: v for k, v in self.previous.items() if k[0] not in ids}
         elif kind == 'moonshine':
             scope, plan = args
-            self.moonshine_plans = {k: p for k, p in self.moonshine_plans.items() if p['day'] == plan['day']}
-            self.moonshine_plans[scope, plan['cid']] = self.store.moonshine_plan(scope, plan)
+            saved = self.store.moonshine_plan(scope, plan)
+            if saved:
+                self.moonshine_plans = {k: p for k, p in self.moonshine_plans.items() if p['day'] == plan['day']}
+                self.moonshine_plans[scope, plan['cid']] = saved
         elif kind == 'order': self.store.observe_order(*args)
         elif kind == 'fill': self.store.observe_fill(*args)
         elif kind == 'price':
