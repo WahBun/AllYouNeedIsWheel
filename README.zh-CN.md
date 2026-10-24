@@ -2,21 +2,21 @@
 
 [English](README.md) · **简体中文** · [繁體中文](README.zh-TW.md)
 
-An unofficial, self-hosted iOS trading workstation for Interactive Brokers.
+An unofficial, self-hosted iPhone and web trading workspace for Interactive Brokers.
 
-**Wheel 策略的原生 iPhone 工作台。** 用一个 App 查看 IBKR 持仓、比较收益、筛选现金担保看跌期权（CSP）和备兑看涨期权（CC），并管理订单。
+**Wheel 策略的 iPhone 与桌面工作台。** 查看 IBKR 持仓、比较收益、筛选现金担保看跌期权（CSP）和备兑看涨期权（CC）、管理订单，并通过多图 Supercharts 分析行情。
 
 SwiftUI 构建，支持 iOS 18 及以上，以及浅色／深色模式。当前 UI 开发统一使用英文；已有本地化资源保留，完整中文本地化待功能与交互成熟后统一整理。App 连接你自己运行的后端；IB 登录、行情连接和数据库留在后端主机，iPhone 不保存 IB 密码。
 
-项目保留了原有网页界面，作为同一后端的辅助入口。日常使用与界面开发以 **iOS App** 为主。
+**桌面网页工作台**将 1／2／3／4 图、画线、指标、价格提醒和交易面板放在同一屏幕；**原生 iPhone App** 提供 Portfolio、Trade、Orders 与图表，两端共用后端。网页布局也适配较小屏幕。
 
-> 本文对应当前 iOS 开发版本。源码构建安装不等于 App Store 发布；更新 GitHub、更新后端服务和安装手机 App 是三个独立步骤。
+> 本文对应当前开发分支。源码构建安装不等于 App Store 发布；更新 GitHub、更新后端服务和安装手机 App 是三个独立步骤。
 
 ## 当前阶段与版本
 
-截至 **2026-10-16**，项目以日常使用和稳定性维护为主：先持续使用，遇到实际问题再做最小修复，暂不扩展大量新功能或重构现有布局。保留现有 1／2／3／4 图布局、tick 级行情刷新及已验证的交易交互；这一维护方向不代表所有场景或 Live 交易均已验收。
+截至 **2026-10-25**，项目以日常使用和稳定性维护为主：普通问题先收集归类，攒一批做最小修复；交易安全或影响正常使用的问题及时处理。保留现有布局、tick 级行情刷新和已确认的交易交互。这一维护方向不代表所有场景或 Live 交易均已验收。
 
-正式代码以 [WahBun/AllYouNeedIsWheel](https://github.com/WahBun/AllYouNeedIsWheel) 的指定分支和 commit SHA 为准。本文更新所在分支为 **`codex/chart-labels-1.7`**，不默认 `main` 是最新版本。开发代码、经过验证的版本、后端主机已部署代码和 iPhone 已安装 App 分别核对，不能用文件夹日期或一次 Push 代替版本确认。
+正式代码以仓库、目标分支和 commit SHA 为准。当前目标分支为 **`Ben/wheel-1.8`**，不默认 `main` 最新。本次回顾对应 [`0745e3d`](https://github.com/WahBun/AllYouNeedIsWheel/commit/0745e3d3c3cf54a39809cceaff54774a9f96c349)。回顾时最新已发布版本为 [Wheel: v1.8.2](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.8.2)；下文也包含此后已合入的更新，不代表另一次发版。开发版、已验证版、已合并版、已部署版及 iPhone 已安装版本分别核对。
 
 推荐分工：**开发 Mac** 负责开发、Xcode 与手机构建；**后端主机** 长期运行 Gateway、Backend 和 API；开发 Mac 与 iPhone 通过 Tailscale 访问后端主机。部署与重启由用户在电脑或手机上选择执行，手机 App 的 Xcode Run 也由用户操作。
 
@@ -28,11 +28,24 @@ SwiftUI 构建，支持 iOS 18 及以上，以及浅色／深色模式。当前 
 
 ## 界面预览
 
-以下为此前保存的 iPhone 模拟器截图，使用 App 内置 **Demo 合成数据**，不代表真实账户或成交，也不保证与当前分支每个控件完全一致。实际布局以当前安装版本为准。
+截图于 **2026-10-25**，对应上述代码。iPhone 模拟器使用内置 **Demo 合成数据**；桌面截图在隔离、只读的本地预览中展示 **截至 2026-10-23 的 QQQ RTH 历史行情快照**，不含账户或持仓数据，不代表当前券商连接或交易验收。
+
+### 桌面网页 · Supercharts
+
+![Wheel 桌面 Supercharts：QQQ 历史蜡烛图与四图布局](docs/screenshots/web-desktop.png)
+
+### iPhone · 原生 App
 
 | Portfolio · 持仓概览 | Trade · CSP / CC | Orders · 订单管理 |
 | :---: | :---: | :---: |
 | <img src="docs/screenshots/portfolio.png" width="250" alt="Wheel Portfolio Demo：资产、保证金和股票期权持仓"> | <img src="docs/screenshots/trade.png" width="250" alt="Wheel Trade Demo：CSP 和 CC 合约筛选及权利金估算"> | <img src="docs/screenshots/orders.png" width="250" alt="Wheel Orders Demo：待处理订单和成交记录入口"> |
+
+## 这段时间的变化
+
+- **跨端图表工作台：**桌面工具栏更紧凑，保留 1／2／3／4 图、画线与合约收藏同步；网页补齐窄屏布局和手机全屏回退。网页持仓默认期权在上。
+- **价格提醒与手机通知：**支持独立价格阈值、水平射线提醒、拖动提醒线、图内通知及可选 Bark 推送。后端监控当前选中账户；关闭网页不会收到浏览器推送。配置与边界见[价格提醒与通知](docs/PRICE_ALERTS_AND_PUSH.md)。
+- **MoonShine：**QQQ 与 ES 常驻监控和图表价位共用定价规则。价位取决于交易时段及有效数据；必要数据或账户连接不可用时暂停监控。提醒不会自动下单。
+- **恢复与稳定性：**针对订单状态恢复、已有持仓管理做局部修复，保留确认流程、报价新鲜度及 P&L 语义。代码已合入不等于已安装或已通过券商验收。
 
 ## App 能做什么
 
@@ -115,6 +128,9 @@ Executed records 默认 **Today**，可切换 **7 Days** 或 **MTD**（美东本
 
 ```mermaid
 flowchart LR
+    GitHub[GitHub · branch + commit SHA] --> Dev
+    GitHub -->|Deploy| API
+    Web[Desktop browser · Supercharts] -->|Private Tailscale HTTPS| Serve
     Dev[开发 Mac · Xcode / 签名 / 构建] -->|安装| Phone[iPhone · Wheel iOS]
     Phone -->|Tailscale 私有 HTTPS| Serve[后端主机 · Tailscale Serve]
     Serve -->|127.0.0.1:8000| API[Python / Flask · 单进程]
@@ -145,7 +161,7 @@ flowchart LR
 ```sh
 mkdir -p "$HOME/Projects"
 cd "$HOME/Projects"
-git clone --branch codex/chart-labels-1.7 https://github.com/WahBun/AllYouNeedIsWheel.git
+git clone --branch Ben/wheel-1.8 https://github.com/WahBun/AllYouNeedIsWheel.git
 cd AllYouNeedIsWheel
 git branch --show-current
 git rev-parse HEAD
@@ -418,11 +434,11 @@ iOS 回归：ios/WheelTests/
 IB 连接与配置：core/、config.py
 订单数据库：db/
 后端与网页回归：tests/
-辅助网页：frontend/
+网页工作台：frontend/
 部署与数据说明：docs/
 ```
 
-更多开发细节见 [iOS 指南](ios/README.md)。原网页与 App 共用后端，适合辅助核对；浏览器偏好不会自动迁移到 App。
+构建细节见 [iOS 指南](ios/README.md)。网页与 iPhone 共用后端数据及已支持的同步功能；浏览器偏好不会自动迁移到 App。
 
 ## License & Credits
 

@@ -2,21 +2,21 @@
 
 **English** · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md)
 
-An unofficial, self-hosted iOS trading workstation for Interactive Brokers.
+An unofficial, self-hosted iPhone and web trading workspace for Interactive Brokers.
 
-**A native iPhone workspace for the Wheel strategy.** View IBKR holdings, compare returns, screen cash-secured puts (CSP) and covered calls (CC), and manage orders in one app.
+**An iPhone and desktop workspace for the Wheel strategy.** View IBKR holdings, compare returns, screen cash-secured puts (CSP) and covered calls (CC), manage orders, and work across synchronized Supercharts.
 
 Built with SwiftUI for iOS 18 and later, with light and dark themes. Current UI development uses English; existing localization resources remain, with a coordinated Chinese localization pass deferred until the features and interactions mature. The app connects to your own backend. IB authentication, market-data connections and databases stay on the backend host; the iPhone does not store your IB password.
 
-The original web interface remains available as a companion to the same backend. **The iOS app** is the primary focus for everyday use and interface development.
+The **desktop web workspace** brings 1/2/3/4 charts, drawings, indicators, price alerts and a trading panel into one screen. The **native iPhone app** provides Portfolio, Trade, Orders and charts on the same backend. The web layout also adapts to smaller screens.
 
-> This README describes the current iOS development version. Building from source is not an App Store release. Publishing to GitHub, updating the backend and installing the iPhone app are three separate steps.
+> This README describes the current development branch. Building from source is not an App Store release. Publishing to GitHub, updating the backend and installing the iPhone app are three separate steps.
 
 ## Project status and versions
 
-As of **2026-10-16**, the project focuses on everyday use and stability: use it, fix observed problems with minimal changes, and avoid broad feature expansion or layout refactoring. Preserve the existing 1/2/3/4-chart layouts, tick-level market-data updates and verified trading interactions. This maintenance direction does not mean every scenario or Live trading workflow has passed acceptance.
+As of **2026-10-25**, Wheel is in everyday use and stability maintenance. Ordinary issues are collected and grouped for small, focused repairs; trading-safety problems and normal-use blockers take priority. Preserve the established layouts, tick-level market-data path and confirmed trading interactions. This direction does not imply acceptance of every scenario or Live trading workflow.
 
-Official source is identified by the repository [WahBun/AllYouNeedIsWheel](https://github.com/WahBun/AllYouNeedIsWheel), a specific branch and a commit SHA. This README is maintained on **`codex/chart-labels-1.7`**; do not assume `main` is the latest version. Check development code, validated versions, code deployed on the backend host and the installed iPhone app separately. A folder date or a successful push does not establish all of those versions.
+Official code is identified by repository, branch and commit SHA. The current target is **`Ben/wheel-1.8`**, not necessarily `main`. This review covers [`0745e3d`](https://github.com/WahBun/AllYouNeedIsWheel/commit/0745e3d3c3cf54a39809cceaff54774a9f96c349). The latest published release at this review is [Wheel: v1.8.2](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.8.2); subsequent merged work is described below and is not a new release. Verify development, validated, merged, deployed and installed-iPhone versions separately.
 
 Recommended roles: the **development Mac** handles development, Xcode and iPhone builds; the **backend host** runs Gateway, Backend and the API continuously. The development Mac and iPhone reach the backend host through Tailscale. The user chooses deployments and restarts from a computer or phone, and performs the iPhone Xcode Run.
 
@@ -28,11 +28,24 @@ Recommended roles: the **development Mac** handles development, Xcode and iPhone
 
 ## Screenshots
 
-These are previously captured iPhone Simulator screenshots using the app's **synthetic Demo data**. They do not represent real accounts or fills, and individual controls may differ from the current branch. The installed version determines the actual interface.
+Captured on **2026-10-25** from the code reviewed above. iPhone Simulator views use built-in **synthetic Demo data**. The desktop screenshot renders a **QQQ RTH historical-price snapshot through 2026-10-23** in an isolated, read-only local preview with no account or position data; it is not a live broker session or trading acceptance.
+
+### Desktop · Supercharts
+
+![Wheel desktop Supercharts: QQQ historical candles in a four-chart layout](docs/screenshots/web-desktop.png)
+
+### iPhone · Native app
 
 | Portfolio | Trade · CSP / CC | Orders |
 | :---: | :---: | :---: |
 | <img src="docs/screenshots/portfolio.png" width="250" alt="Wheel Portfolio Demo: assets, margin, stock and option holdings"> | <img src="docs/screenshots/trade.png" width="250" alt="Wheel Trade Demo: CSP and CC screening and premium estimates"> | <img src="docs/screenshots/orders.png" width="250" alt="Wheel Orders Demo: pending orders and execution history"> |
+
+## Since the previous README review
+
+- **A shared chart workspace:** a compact desktop toolbar, preserved 1/2/3/4 layouts, synchronized drawings and contract favorites; responsive web controls and a phone fullscreen fallback. Web positions default to options first.
+- **Price alerts and phone notifications:** standalone thresholds and horizontal-ray alerts, draggable alert lines, in-chart notifications and optional Bark delivery. Monitoring runs on the backend for the selected account; a closed browser receives no browser push. See [alerts and notification setup](docs/PRICE_ALERTS_AND_PUSH.md).
+- **MoonShine:** permanent QQQ and ES watches share pricing rules with chart levels. Levels depend on the session and eligible source data; monitoring pauses when required data or the account connection is unavailable. These are alerts, not automatic orders.
+- **Recovery and stability:** focused repairs to order-state recovery and management of existing positions, alongside the preserved confirmation, quote-freshness and P&L rules. Merged code is not proof of installation or broker acceptance.
 
 ## Features
 
@@ -114,6 +127,9 @@ The **backend host** is the always-on computer running IB Gateway, Wheel API and
 
 ```mermaid
 flowchart LR
+    GitHub[GitHub · branch + commit SHA] --> Dev
+    GitHub -->|Deploy| API
+    Web[Desktop browser · Supercharts] -->|Private Tailscale HTTPS| Serve
     Dev[Development Mac · Xcode / signing / builds] -->|install| Phone[iPhone · Wheel iOS]
     Phone -->|Private Tailscale HTTPS| Serve[Backend host · Tailscale Serve]
     Serve -->|127.0.0.1:8000| API[Python / Flask · one web worker]
@@ -144,7 +160,7 @@ Clone and install backend dependencies on the backend host:
 ```sh
 mkdir -p "$HOME/Projects"
 cd "$HOME/Projects"
-git clone --branch codex/chart-labels-1.7 https://github.com/WahBun/AllYouNeedIsWheel.git
+git clone --branch Ben/wheel-1.8 https://github.com/WahBun/AllYouNeedIsWheel.git
 cd AllYouNeedIsWheel
 git branch --show-current
 git rev-parse HEAD
@@ -417,11 +433,11 @@ Backend routes and services: api/
 IB connection/configuration: core/, config.py
 Order database: db/
 Backend/web regressions: tests/
-Companion web interface: frontend/
+Web workspace: frontend/
 Deployment/data guides: docs/
 ```
 
-See the [iOS guide](ios/README.md) for more detail. Web and app share the backend, and the web interface is useful for cross-checks; browser preferences do not automatically migrate to the app.
+See the [iOS guide](ios/README.md) for build details. Web and iPhone share backend data and supported synchronization; browser preferences do not automatically migrate to the app.
 
 ## License & Credits
 

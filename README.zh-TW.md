@@ -2,21 +2,21 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · **繁體中文**
 
-An unofficial, self-hosted iOS trading workstation for Interactive Brokers.
+An unofficial, self-hosted iPhone and web trading workspace for Interactive Brokers.
 
-**Wheel 策略的原生 iPhone 工作台。** 用一個 App 查看 IBKR 持倉、比較收益、篩選現金擔保看跌期權（CSP）和備兌看漲期權（CC），並管理訂單。
+**Wheel 策略的 iPhone 與桌面工作台。** 查看 IBKR 持倉、比較收益、篩選現金擔保看跌期權（CSP）和備兌看漲期權（CC）、管理訂單，並透過多圖 Supercharts 分析行情。
 
 SwiftUI 構建，支持 iOS 18 及以上，以及淺色／深色模式。當前 UI 開發統一使用英文；已有本地化資源保留，完整中文本地化待功能與交互成熟後統一整理。App 連接你自己運行的後端；IB 登錄、行情連接和資料庫留在後端主機，iPhone 不保存 IB 密碼。
 
-項目保留了原有網頁介面，作為同一後端的輔助入口。日常使用與介面開發以 **iOS App** 為主。
+**桌面網頁工作台**將 1／2／3／4 圖、畫線、指標、價格提醒和交易面板放在同一畫面；**原生 iPhone App** 提供 Portfolio、Trade、Orders 與圖表，兩端共用後端。網頁佈局也適配較小螢幕。
 
-> 本文對應當前 iOS 開發版本。源碼構建安裝不等於 App Store 發佈；更新 GitHub、更新後端服務和安裝手機 App 是三個獨立步驟。
+> 本文對應當前開發分支。源碼構建安裝不等於 App Store 發佈；更新 GitHub、更新後端服務和安裝手機 App 是三個獨立步驟。
 
 ## 當前階段與版本
 
-截至 **2026-10-16**，項目以日常使用和穩定性維護為主：先持續使用，遇到實際問題再做最小修復，暫不擴展大量新功能或重構現有佈局。保留現有 1／2／3／4 圖佈局、tick 級行情刷新及已驗證的交易交互；這一維護方向不代表所有場景或 Live 交易均已驗收。
+截至 **2026-10-25**，項目以日常使用和穩定性維護為主：普通問題先收集歸類，攢一批做最小修復；交易安全或影響正常使用的問題及時處理。保留現有佈局、tick 級行情刷新和已確認的交易互動。這一維護方向不代表所有場景或 Live 交易均已驗收。
 
-正式程式碼以 [WahBun/AllYouNeedIsWheel](https://github.com/WahBun/AllYouNeedIsWheel) 的指定分支和 commit SHA 為準。本文更新所在分支為 **`codex/chart-labels-1.7`**，不預設 `main` 是最新版本。開發程式碼、經過驗證的版本、後端主機已部署程式碼和 iPhone 已安裝 App 分別核對，不能用資料夾日期或一次 Push 代替版本確認。
+正式程式碼以倉庫、目標分支和 commit SHA 為準。當前目標分支為 **`Ben/wheel-1.8`**，不預設 `main` 最新。本次回顧對應 [`0745e3d`](https://github.com/WahBun/AllYouNeedIsWheel/commit/0745e3d3c3cf54a39809cceaff54774a9f96c349)。回顧時最新已發佈版本為 [Wheel: v1.8.2](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.8.2)；下文也包含此後已合入的更新，不代表另一次發版。開發版、已驗證版、已合併版、已部署版及 iPhone 已安裝版本分別核對。
 
 推薦分工：**開發 Mac** 負責開發、Xcode 與手機構建；**後端主機** 長期運行 Gateway、Backend 和 API；開發 Mac 與 iPhone 通過 Tailscale 訪問後端主機。部署與重啓由用戶在電腦或手機上選擇執行，手機 App 的 Xcode Run 也由用戶操作。
 
@@ -28,11 +28,24 @@ SwiftUI 構建，支持 iOS 18 及以上，以及淺色／深色模式。當前 
 
 ## 介面預覽
 
-以下為此前保存的 iPhone 模擬器截圖，使用 App 內置 **Demo 合成資料**，不代表真實賬戶或成交，也不保證與當前分支每個控件完全一致。實際佈局以當前安裝版本為準。
+截圖於 **2026-10-25**，對應上述程式碼。iPhone 模擬器使用內置 **Demo 合成資料**；桌面截圖在隔離、唯讀的本地預覽中展示 **截至 2026-10-23 的 QQQ RTH 歷史行情快照**，不含賬戶或持倉資料，不代表當前券商連線或交易驗收。
+
+### 桌面網頁 · Supercharts
+
+![Wheel 桌面 Supercharts：QQQ 歷史蠟燭圖與四圖佈局](docs/screenshots/web-desktop.png)
+
+### iPhone · 原生 App
 
 | Portfolio · 持倉概覽 | Trade · CSP / CC | Orders · 訂單管理 |
 | :---: | :---: | :---: |
 | <img src="docs/screenshots/portfolio.png" width="250" alt="Wheel Portfolio Demo：資產、保證金和股票期權持倉"> | <img src="docs/screenshots/trade.png" width="250" alt="Wheel Trade Demo：CSP 和 CC 合約篩選及權利金估算"> | <img src="docs/screenshots/orders.png" width="250" alt="Wheel Orders Demo：待處理訂單和成交記錄入口"> |
+
+## 這段時間的變化
+
+- **跨端圖表工作台：**桌面工具列更緊湊，保留 1／2／3／4 圖、畫線與合約收藏同步；網頁補齊窄螢幕佈局和手機全螢幕回退。網頁持倉預設期權在上。
+- **價格提醒與手機通知：**支持獨立價格閾值、水平射線提醒、拖動提醒線、圖內通知及可選 Bark 推送。後端監控當前選中賬戶；關閉網頁不會收到瀏覽器推送。設定與邊界見[價格提醒與通知](docs/PRICE_ALERTS_AND_PUSH.md)。
+- **MoonShine：**QQQ 與 ES 常駐監控和圖表價位共用定價規則。價位取決於交易時段及有效資料；必要資料或賬戶連線不可用時暫停監控。提醒不會自動下單。
+- **恢復與穩定性：**針對訂單狀態恢復、已有持倉管理做局部修復，保留確認流程、報價新鮮度及 P&L 語義。程式碼已合入不等於已安裝或已通過券商驗收。
 
 ## App 能做什麼
 
@@ -115,6 +128,9 @@ Executed records 預設 **Today**，可切換 **7 Days** 或 **MTD**（美東本
 
 ```mermaid
 flowchart LR
+    GitHub[GitHub · branch + commit SHA] --> Dev
+    GitHub -->|Deploy| API
+    Web[Desktop browser · Supercharts] -->|Private Tailscale HTTPS| Serve
     Dev[開發 Mac · Xcode / 簽名 / 構建] -->|安裝| Phone[iPhone · Wheel iOS]
     Phone -->|Tailscale 私有 HTTPS| Serve[後端主機 · Tailscale Serve]
     Serve -->|127.0.0.1:8000| API[Python / Flask · 單進程]
@@ -145,7 +161,7 @@ flowchart LR
 ```sh
 mkdir -p "$HOME/Projects"
 cd "$HOME/Projects"
-git clone --branch codex/chart-labels-1.7 https://github.com/WahBun/AllYouNeedIsWheel.git
+git clone --branch Ben/wheel-1.8 https://github.com/WahBun/AllYouNeedIsWheel.git
 cd AllYouNeedIsWheel
 git branch --show-current
 git rev-parse HEAD
@@ -418,11 +434,11 @@ iOS 回歸：ios/WheelTests/
 IB 連接與配置：core/、config.py
 訂單數據庫：db/
 後端與網頁回歸：tests/
-輔助網頁：frontend/
+網頁工作台：frontend/
 部署與數據說明：docs/
 ```
 
-更多開發細節見 [iOS 指南](ios/README.md)。原網頁與 App 共用後端，適合輔助核對；瀏覽器偏好不會自動遷移到 App。
+構建細節見 [iOS 指南](ios/README.md)。網頁與 iPhone 共用後端資料及已支持的同步功能；瀏覽器偏好不會自動遷移到 App。
 
 ## License & Credits
 
