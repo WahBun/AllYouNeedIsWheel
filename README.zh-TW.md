@@ -32,13 +32,13 @@ SwiftUI 構建，支持 iOS 18 及以上，以及淺色／深色模式。當前 
 
 ### 桌面網頁 · Supercharts
 
-![Wheel 桌面 Supercharts：QQQ 歷史蠟燭圖與四圖佈局](docs/screenshots/web-desktop.png)
+![Wheel 桌面 Supercharts：QQQ 歷史蠟燭圖、四圖佈局與交易面板](docs/screenshots/web-desktop-trading-20261025.png)
 
 ### iPhone · 原生 App
 
 | Portfolio · 持倉概覽 | Trade · CSP / CC | Orders · 訂單管理 |
 | :---: | :---: | :---: |
-| <img src="docs/screenshots/portfolio.png" width="250" alt="Wheel Portfolio Demo：資產、保證金和股票期權持倉"> | <img src="docs/screenshots/trade.png" width="250" alt="Wheel Trade Demo：CSP 和 CC 合約篩選及權利金估算"> | <img src="docs/screenshots/orders.png" width="250" alt="Wheel Orders Demo：待處理訂單和成交記錄入口"> |
+| <img src="docs/screenshots/ios-portfolio-20261025.png" width="250" alt="Wheel Portfolio Demo：資產、保證金和股票期權持倉"> | <img src="docs/screenshots/ios-trade-20261025.png" width="250" alt="Wheel Trade Demo：CSP 合約詳情、到期日與買賣報價"> | <img src="docs/screenshots/ios-orders-20261025.png" width="250" alt="Wheel Orders Demo：待處理訂單和成交記錄入口"> |
 
 ## 這段時間的變化
 
@@ -83,7 +83,7 @@ Executed records 預設 **Today**，可切換 **7 Days** 或 **MTD**（美東本
 
 ### Demo / Live / Paper
 
-<img src="docs/screenshots/settings.png" width="280" alt="Wheel Settings：Demo、Live、Paper；Demo 隱藏後端地址和連接按鈕">
+<img src="docs/screenshots/ios-settings-20261025.png" width="280" alt="Wheel Settings：Demo、Live、Paper；Demo 隱藏後端地址和連接按鈕">
 
 - **Demo**：使用本地合成資料，不連接 IB。隱藏地址和 Connect，已保存的後端地址仍保留。
 - **Paper**：使用 IBKR 模擬賬戶。設定好自動登錄後，選擇即切換後端連接，復用已登錄的 Paper 會話或啓動 Gateway，核對實際賬戶後自動恢複資料。

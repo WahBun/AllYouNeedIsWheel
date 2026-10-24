@@ -32,13 +32,13 @@ Captured on **2026-10-25** from the code reviewed above. iPhone Simulator views 
 
 ### Desktop · Supercharts
 
-![Wheel desktop Supercharts: QQQ historical candles in a four-chart layout](docs/screenshots/web-desktop.png)
+![Wheel desktop Supercharts: QQQ historical candles in a four-chart layout with the trading panel](docs/screenshots/web-desktop-trading-20261025.png)
 
 ### iPhone · Native app
 
 | Portfolio | Trade · CSP / CC | Orders |
 | :---: | :---: | :---: |
-| <img src="docs/screenshots/portfolio.png" width="250" alt="Wheel Portfolio Demo: assets, margin, stock and option holdings"> | <img src="docs/screenshots/trade.png" width="250" alt="Wheel Trade Demo: CSP and CC screening and premium estimates"> | <img src="docs/screenshots/orders.png" width="250" alt="Wheel Orders Demo: pending orders and execution history"> |
+| <img src="docs/screenshots/ios-portfolio-20261025.png" width="250" alt="Wheel Portfolio Demo: assets, margin, stock and option holdings"> | <img src="docs/screenshots/ios-trade-20261025.png" width="250" alt="Wheel Trade Demo: CSP contract details, expiration and bid/ask quotes"> | <img src="docs/screenshots/ios-orders-20261025.png" width="250" alt="Wheel Orders Demo: pending orders and execution history"> |
 
 ## Since the previous README review
 
@@ -83,7 +83,7 @@ Date filters apply to records already obtained by the app, not all IB history. R
 
 ### Demo / Live / Paper
 
-<img src="docs/screenshots/settings.png" width="280" alt="Wheel Settings: Demo, Live and Paper; Demo hides the backend address and Connect button">
+<img src="docs/screenshots/ios-settings-20261025.png" width="280" alt="Wheel Settings: Demo, Live and Paper; Demo hides the backend address and Connect button">
 
 - **Demo:** synthetic local data, without IB. The address and Connect button are hidden, while a previously saved backend address is retained.
 - **Paper:** the IBKR simulated account. With auto-login configured, selection switches the backend connection, reuses a signed-in Paper session or starts Gateway, verifies the account and restores data.
