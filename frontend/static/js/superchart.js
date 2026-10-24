@@ -806,7 +806,7 @@ window.bindChartMagnetKeys=magnetKeys;
 magnetKeys(document);magnetKeys(frame.contentDocument);frame.addEventListener('load',e=>{magnetKeys(e.currentTarget.contentDocument);e.currentTarget.contentWindow.addEventListener('focus',resumeMarket);});
 // A cached iframe may have sent chartReady before this host script loaded.
 if(frame.contentDocument.readyState==='complete'&&typeof frame.contentWindow.configureDrawings==='function')initializeChart();
-$('fullscreen').title='Fullscreen · Shift+F';$('fullscreen').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.querySelector('.workspace').requestFullscreen();
+
 for(const b of $('intervals').children)b.classList.toggle('active',Number(b.dataset.interval)===interval);
 setInterval(()=>{sync();refresh();},2000);
 setInterval(ensureMarket,250);

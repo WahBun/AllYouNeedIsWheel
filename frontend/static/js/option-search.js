@@ -36,7 +36,7 @@ window.installOptionSearch=({api,select,symbol,canSelect,onError=()=>{}})=>{
   if(left>=$('connection').getBoundingClientRect().right+12&&left+width<=end.getBoundingClientRect().left-12){center.style.setProperty('--centered-controls-width',width+'px');header.classList.add('centered-chart-controls');}
  }
  function placeToolbar(){
-  const unified=desktopToolbar.matches&&!document.fullscreenElement;
+  const unified=desktopToolbar.matches&&!document.fullscreenElement&&!document.body.classList.contains('page-chart-fullscreen');
   document.body.classList.toggle('unified-chart-toolbar',unified);
   if(unified&&nav.parentElement!==header)header.insertBefore(nav,$('theme'));
   else if(!unified&&nav.parentElement!==workspace)workspace.prepend(nav);
@@ -44,7 +44,7 @@ window.installOptionSearch=({api,select,symbol,canSelect,onError=()=>{}})=>{
  }
  const toolbarSize=new ResizeObserver(centerToolbar);for(const node of [header,center,end,$('connection'),...center.children])toolbarSize.observe(node);
  new MutationObserver(centerToolbar).observe(center,{childList:true,subtree:true,characterData:true});
- desktopToolbar.addEventListener('change',placeToolbar);document.addEventListener('fullscreenchange',placeToolbar);placeToolbar();
+ desktopToolbar.addEventListener('change',placeToolbar);document.addEventListener('fullscreenchange',placeToolbar);document.addEventListener('wheel-fullscreenchange',placeToolbar);placeToolbar();
 
 
  function optionLoading(busy){$('option-load').disabled=right.disabled=busy;$('option-load').textContent=busy?'Loading…':'Load dates';form.setAttribute('aria-busy',String(busy));}

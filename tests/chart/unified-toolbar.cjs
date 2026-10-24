@@ -21,7 +21,7 @@ const {start}=require('./market-feed/harness.cjs');
    assert.equal(await page.locator('#interval-menu').isVisible(),false,'Selecting a period closes the menu');
    await page.locator('#interval').click();await page.locator('#interval-menu').getByRole('button',{name:'5m',exact:true}).click();await page.waitForFunction(()=>document.getElementById('chart').contentDocument.getElementById('chart-title')?.textContent.endsWith('· 5')&&!document.getElementById('chart-grid').hasAttribute('aria-busy'));
    const strip=await page.locator('#intervals button.active').evaluate(e=>({height:e.getBoundingClientRect().height,border:getComputedStyle(e).borderTopWidth,background:getComputedStyle(e).backgroundColor}));
-   assert.equal(strip.height,34);assert.equal(strip.border,'0px');assert.notEqual(strip.background,'rgb(49, 95, 196)','Compact interval selection uses neutral emphasis');
+   assert.equal(strip.height,width<=850?40:34);assert.equal(strip.border,'0px');assert.notEqual(strip.background,'rgb(49, 95, 196)','Compact interval selection uses neutral emphasis');
    await page.locator('#intervals [data-interval="15"]').focus();await page.keyboard.press('Enter');
    await page.waitForFunction(()=>document.getElementById('chart').contentDocument.getElementById('chart-title')?.textContent.endsWith('· 15')&&!document.getElementById('chart-grid').hasAttribute('aria-busy'));
    assert.equal(await page.evaluate(()=>document.activeElement===document.querySelector('#intervals [data-interval="15"]')),true,'Keyboard focus stays on the selected interval');

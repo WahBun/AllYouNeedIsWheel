@@ -10,6 +10,8 @@ const {start}=require('./market-feed/harness.cjs');
  const settingsFrame=await (await p.locator('#chart').elementHandle()).contentFrame();await settingsFrame.locator('#price-axis-settings').click();await settingsFrame.getByRole('menuitem',{name:'More settings...',exact:true}).click();await p.getByRole('checkbox',{name:'One-click trading',exact:true}).setChecked(direct);await p.keyboard.press('Escape');
  const frame=await (await p.locator('#chart').elementHandle()).contentFrame();await frame.waitForFunction(()=>paperConfig.entry_editable===true&&paperConfig.enabled&&previous.length>0);
 
+ // Opening the bottom-axis menu can scroll a tall phone chart; bring the chart back before coordinate-based dragging.
+ await p.locator('#chart').scrollIntoViewIfNeeded();
  const origin=await frame.frameElement().then(el=>el.boundingBox());const pt=await frame.evaluate(()=>({x:plotLeft()+30,y:series.priceToCoordinate(entry)}));
  await p.mouse.move(origin.x+pt.x,origin.y+pt.y);await p.mouse.down();await p.mouse.move(origin.x+pt.x,origin.y+pt.y-35,{steps:6});await p.mouse.up();
  if(!direct){await frame.locator('#chart-confirmation').waitFor();assert.equal(writes.length,0);assert.equal(await frame.locator('#entry #chart-confirmation').count(),1);const target=await frame.evaluate(()=>entry);await frame.evaluate(()=>{window.savedConfirm=document.querySelector('#chart-confirmation');
