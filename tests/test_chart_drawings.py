@@ -17,6 +17,28 @@ class DrawingsTests(unittest.TestCase):
   with self.assertRaises(ValueError):self.call([self.op('good'),self.op('bad',price=float('nan'))])
   self.assertEqual(self.call()['drawings'],[])
 
+ def test_ray_sharing_keeps_alert_until_actual_deletion(self):
+  import uuid
+  from api.services.notifications import NotificationStore, account_scope
+  store=NotificationStore(Path(self.temp.name)/'notifications.db');scope=account_scope('DU_TEST')
+  result=self.call([self.op('create',id='ray',price=100)])
+  alert=store.create_alert(scope,1,'TEST',dict(id=str(uuid.uuid4()),price=100,drawing='ray'))
+  # Sharing changes, including undo/redo, update the same saved ray.
+  for index,sharing in enumerate(['primary','global','primary','global']):
+   op=self.op('scope-'+str(index),id='ray',base=result['revision'],price=100)
+   op['value']['sharing']=sharing;result=self.call([op]);store.sync_rays(self.path)
+   current=store.alerts(scope)[0]
+   self.assertEqual((current['id'],current['drawing'],current['state'],current['price'],current['version']),
+                    (alert['id'],'ray','active',100,alert['version']))
+  store=NotificationStore(store.path)
+  store.sync_rays(self.path);self.assertEqual(store.alerts(scope)[0]['state'],'active')
+  result=self.call([self.op('move',id='ray',base=result['revision'],price=105)])
+  store.sync_rays(self.path);self.assertEqual(store.alerts(scope)[0]['price'],105)
+  result=self.call([self.op('delete',id='ray',kind='delete',base=result['revision'])])
+  store.sync_rays(self.path);self.assertEqual(store.alerts(scope)[0]['state'],'drawing_removed')
+  self.call([self.op('stale',id='ray',base=1,price=100)])
+  store.sync_rays(self.path);self.assertEqual(store.alerts(scope)[0]['state'],'drawing_removed')
+
  def test_long_text_and_dimensions_round_trip(self):
   text=('Market analysis 中英文 🧭\n'*600)+'END'
   op=self.op('long-text');op['value'].update(type='text',text=text,textWidth=280,textHeight=160)
