@@ -19,11 +19,17 @@ await a.getByRole('button',{name:'Show drawing tools',exact:true}).click();await
 await a.waitForTimeout(3200);assert.equal(await a.evaluate(()=>chartDrawingActions.undo()),true);await waitCount(peer,0);await waitCount(device,0);
 assert.equal(await a.evaluate(()=>chartDrawingActions.redo()),true);await waitCount(peer,1);await waitCount(device,1);
 const choose=async(f,title)=>{const show=f.getByRole('button',{name:'Show drawing tools',exact:true});if(await show.count())await show.click();await f.locator('[data-drawing]').first().dispatchEvent('click');await f.getByRole('button',{name:/^Drawing sync:/}).click();await f.getByRole('menuitemradio',{name:title,exact:true}).click();};
+const rayID=[...remote.keys()][0],scopeStart=requests.length;
+const sameRay=async()=>{for(const f of [a,peer,device])assert.deepEqual(await f.evaluate(()=>saved.drawings.map(d=>d.id)),[rayID],'sharing preserves the identity used by ray alerts');assert.deepEqual([...remote.keys()],[rayID]);};
 await choose(a,'Main chart only');await waitCount(peer,0);await waitCount(device,1);assert.equal(await count(a),1);assert.equal(remote.size,1);
+await sameRay();
+assert.equal(await a.evaluate(()=>chartDrawingActions.undo()),true);await waitCount(peer,1);await sameRay();
+assert.equal(await a.evaluate(()=>chartDrawingActions.redo()),true);await waitCount(peer,0);await sameRay();
 await a.waitForTimeout(3200);assert.equal(await count(a),1,'polling preserves main-chart drawing');
 assert.equal(await peer.locator('[data-drawing]').count(),0);assert.equal(await peer.evaluate(()=>drawingPriceAxisLines().length),0);assert.ok(await device.locator('[data-drawing]').count()>0);
 await device.evaluate(()=>receive({...countdownPacket,interval:1}));await waitCount(device,1);await peer.evaluate(()=>receive({...countdownPacket,interval:5}));await waitCount(peer,0);
 await choose(a,'All charts');await waitCount(peer,1);await waitCount(device,1);assert.equal(remote.size,1);
+await sameRay();assert.ok(requests.slice(scopeStart).every(op=>op.kind==='put'&&op.id===rayID),'scope changes and undo/redo must not delete the ray behind its alert');
 // Both choices are available to main charts in other layouts and devices.
 const isolated=await c.newPage();await isolated.goto(url);await isolated.waitForFunction(()=>document.querySelector('iframe')?.contentWindow.configureDrawings);await isolated.locator('iframe').first().evaluate(e=>e.dataset.drawingLayout='layoutB');const isolatedFrame=isolated.frames()[1];await init(isolatedFrame);await waitCount(isolatedFrame,1);
 await choose(a,'All charts');await waitCount(device,1);await waitCount(isolatedFrame,1);await waitCount(peer,1);assert.equal(remote.size,1);assert.ok(requests.filter(o=>o.value).every(o=>!o.value.sharing||['global','primary'].includes(o.value.sharing)),'only cross-device payloads reach server');

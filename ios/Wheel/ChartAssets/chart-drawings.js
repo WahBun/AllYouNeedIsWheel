@@ -194,7 +194,8 @@ function drawingSyncButton(d){
   for(const [mode,title] of [['primary','Main chart only'],['global','All charts']]){
    const item=button((sharingMode(d)===mode?'✓  ':'    ')+title,title,()=>{
     closeDrawingSyncMenu();const current=drawings.find(value=>value.id===d.id);if(!current||locked||current.locked||sharingMode(current)===mode)return;
-    remember();const replacement={...current,id:drawingOperationID(),sharing:mode};
+    // Ray alerts bind to this ID; changing visibility must not replace the ray.
+    remember();const replacement={...current,id:current.type==='hray'?current.id:drawingOperationID(),sharing:mode};
     delete replacement.pane;
     delete replacement.timeframe;
     drawings=drawings.map(value=>value.id===d.id?replacement:value);selected=replacement.id;save();renderToolbar();
