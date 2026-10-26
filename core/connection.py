@@ -379,6 +379,7 @@ class IBConnection:
             if self._connected:
                 self._fill_refresh_at = {}
                 self._last_order_status_refresh = 0
+                self._broker_order_tifs = {}
                 self._external_open_snapshot = None
                 self._external_completed_snapshot = []
                 self._futures_completed_cache = None
@@ -2191,6 +2192,10 @@ class IBConnection:
         previous_timeout = getattr(self.ib, 'RequestTimeout', 0)
         self.ib.RequestTimeout = timeout_seconds
         try:
+            if request in (getattr(self.ib, 'reqOpenOrders', None), getattr(self.ib, 'reqAllOpenOrders', None)):
+                from core.order_amendments import broker_messages
+                with broker_messages(self):
+                    return request(*args)
             return request(*args)
         finally:
             self.ib.RequestTimeout = previous_timeout
@@ -2203,11 +2208,14 @@ class IBConnection:
         now = time.monotonic()
         last_refresh = getattr(self, '_last_order_status_refresh', 0)
         refreshed_trades = []
+        broker_records = []
         authoritative_open_trades = None
         if force_refresh or now - last_refresh >= 5:
             try:
-                refreshed_trades.extend(self._bounded_order_read(self.ib.reqOpenOrders) or [])
-                refreshed_trades.extend(self._bounded_order_read(self.ib.reqAllOpenOrders) or [])
+                from core.order_amendments import broker_messages
+                with broker_messages(self) as broker_records:
+                    refreshed_trades.extend(self._bounded_order_read(self.ib.reqOpenOrders) or [])
+                    refreshed_trades.extend(self._bounded_order_read(self.ib.reqAllOpenOrders) or [])
                 self.ib.sleep(0.15)
                 # An empty response is meaningful: IB currently has no open
                 # orders. Keep it separate from ib.trades(), whose entries from
@@ -2246,9 +2254,11 @@ class IBConnection:
             completed = getattr(self, '_external_completed_snapshot', [])
             raw = project(raw, getattr(self, '_external_open_snapshot', None), completed,
                           list(self.ib.fills()), self.client_id, terminals)
+        from core.order_amendments import display_broker_terms
+        display = display_broker_terms(raw, broker_records, self)
         return {
             'trades': raw,
-            'display_trades': raw,
+            'display_trades': display,
             'authoritative_open_trades': authoritative_open_trades,
             'completed_trades': completed
         }

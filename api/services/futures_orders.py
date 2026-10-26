@@ -79,6 +79,9 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
                         ref = group.get('ref', '')
                         if ref.startswith('WheelPaper:'):
                             journal[ref] = dict(con_id=cid, group_id=group_id, side=group.get('side'), mode=group.get('mode'), order_ids=list(group.get('ids', {}).values()), entry_ids=[oid for role, oid in group.get('ids', {}).items() if role.split('_')[0] == 'entry'], protection_ids=[oid for role, oid in group.get('ids', {}).items() if role.split('_')[0] in ('tp','sl')])
+                            journal[ref]['tif_ids'] = [oid for role, oid in group.get('ids', {}).items()
+                                if role.split('_')[0] in ('tp', 'sl', 'close') and '_retired_' not in role]
+                            journal[ref]['tif_pending'] = bool(group.get('pending_tif'))
     from core.connection import IBConnection
     result = {}
     brackets = {}
@@ -122,6 +125,14 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
         result[identity].update(metadata)
         ref = o.orderRef
         request = journal.get(ref)
+        if (request and chart_owned and o.orderId in request.get('tif_ids', [])
+                and not request.get('tif_pending') and o.clientId == conn.client_id and perm > 0
+                and s.status in ('Submitted', 'PreSubmitted') and o.tif in ('DAY', 'GTC')
+                and o.orderType in ('LMT', 'STP') and c.exchange != 'OVERNIGHT' and conn.readonly is False):
+            from api.services.live_options import contract_allowed
+            if (account.startswith('DU') and conn.port == 4002) or contract_allowed(conn, c):
+                result[identity]['chart_tif_ref'] = ref
+                result[identity]['chart_tif_group_id'] = request.get('group_id') or ''
         # Navigation ownership includes protection legs; entry-edit authority does not.
         if (request and chart_owned and o.orderId in request.get('order_ids', [])
                 and account.startswith('DU') and conn.port == 4002 and conn.readonly is False):

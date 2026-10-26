@@ -112,6 +112,7 @@ struct PriceInput: View {
 extension Order {
     private enum CodingKeys: String, CodingKey {
         case con_id, chart_con_id, chart_order_ref, chart_group_id, chart_protection_ref, chart_protection_group_id
+        case chart_tif_ref, chart_tif_group_id, client_id
         case gross_pnl, net_pnl, round_trip_commission, contract_multiplier, currency
         case id, ticker, symbol, action, order_type, option_type, strike, expiration, premium, quantity, status
         case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, amendment_pending, error_message, isRollover, filled, avg_fill_price, fill_time, fill_action, commission, commission_currency, realized_pnl
@@ -154,6 +155,9 @@ extension Order {
         chart_group_id = try values.decodeIfPresent(String.self, forKey: .chart_group_id)
         chart_protection_ref = try values.decodeIfPresent(String.self, forKey: .chart_protection_ref)
         chart_protection_group_id = try values.decodeIfPresent(String.self, forKey: .chart_protection_group_id)
+        chart_tif_ref = try values.decodeIfPresent(String.self, forKey: .chart_tif_ref)
+        chart_tif_group_id = try values.decodeIfPresent(String.self, forKey: .chart_tif_group_id)
+        client_id = try values.decodeIfPresent(Int.self, forKey: .client_id)
         external_ib = try flag(.external_ib)
         ib_status = try values.decodeIfPresent(String.self, forKey: .ib_status)
         executed = try flag(.executed)
@@ -361,6 +365,12 @@ enum TradeRules {
         order.con_id != nil && order.chart_protection_ref?.hasPrefix("WheelPaper:") == true &&
         order.executed != true && ["submitted", "presubmitted"].contains(order.status.lowercased())
     }
+    static func exitTIFEditable(_ order: Order) -> Bool {
+        order.con_id != nil && order.chart_tif_ref?.hasPrefix("WheelPaper:") == true &&
+        order.perm_id != nil && order.client_id != nil && order.ib_order_id != nil &&
+        order.executed != true && ["DAY", "GTC"].contains(order.tif ?? "") &&
+        ["submitted", "presubmitted"].contains(order.status.lowercased())
+    }
     static func cancelable(_ order: Order) -> Bool {
         if protectionCancelable(order) { return true }
         if chartManageable(order) { return true }
@@ -472,9 +482,10 @@ final class TradingSession {
         return result
     }
 
-    func paperChartWrite(base: String, conID: Int, body: [String: Any]) async throws -> [String: Any] {
+    func paperChartWrite(base: String, conID: Int, body: [String: Any], expectedEpoch: String? = nil) async throws -> [String: Any] {
         let groupID = body["group_id"] as? String ?? ""
         await reconcilePaper(base: base, conID: conID, groupID: groupID)
+        guard expectedEpoch == nil || expectedEpoch == accountEpoch else { throw AppError.message("Account changed; refresh before editing.") }
         guard !busy, !paperPending(base: base, conID: conID, groupID: groupID) else { throw AppError.message("This order is awaiting broker confirmation. Other charts remain available.") }
         var components = URLComponents(url: try endpoint(base, "api/portfolio/paper-chart/\(conID)"), resolvingAgainstBaseURL: false)!
         if !groupID.isEmpty { components.queryItems = [URLQueryItem(name: "group_id", value: groupID)] }
@@ -529,6 +540,24 @@ final class TradingSession {
                 chartReplacementRefs[ref] = replacement
             }
             return result["success"] as? Bool == true || result["status"] as? String == "canceled"
+        } catch { message = error.localizedDescription; return false }
+    }
+    func amendExitTIF(_ order: Order, tif: String, store: WheelStore) async -> Bool {
+        guard !store.demo, store.chartTradingAvailable, TradeRules.exitTIFEditable(order),
+              ["DAY", "GTC"].contains(tif), let cid = order.con_id,
+              let ref = order.chart_tif_ref, let oid = order.ib_order_id,
+              let perm = order.perm_id, let client = order.client_id,
+              let quantity = order.quantity, let price = order.premium, let currentTIF = order.tif,
+              let epoch = accountEpoch else { return false }
+        let body: [String: Any] = ["action": "amend_exit_tif", "expected_ref": ref,
+            "order_id": oid, "perm_id": perm, "client_id": client, "tif": tif,
+            "group_id": order.chart_tif_group_id ?? "",
+            "expected": ["quantity": quantity, "price": price, "tif": currentTIF]]
+        do {
+            let result = try await paperChartWrite(base: store.address, conID: cid, body: body, expectedEpoch: epoch)
+            message = result["message"] as? String
+            await store.refreshOrders()
+            return result["success"] as? Bool == true
         } catch { message = error.localizedDescription; return false }
     }
     func cancelFromOrders(_ order: Order, store: WheelStore) async -> Bool {
@@ -820,7 +849,7 @@ struct OrderDetail: View {
     @State private var pricePicker: PricePickerSnapshot?
     @AppStorage("confirmBeforeOrderExecution") private var confirmExecution = true
     @State private var sourceContext: String?
-    private var context: String { "\(store.demo)-\(store.address)" }
+    private var context: String { "\(store.demo)-\(store.address)-\(store.trading.accountEpoch ?? "")" }
     private var completed: Order? { sourceContext == context ? store.completedOrders[initial.id] : nil }
     private var current: Order? {
         guard sourceContext == nil || sourceContext == context else { return nil }
@@ -857,7 +886,7 @@ struct OrderDetail: View {
                             }
                         } else { Text(money(order.premium)) }
                     }
-                    if (TradeRules.amendable(order) && order.tif != "OVERNIGHT") || (TradeRules.chartManageable(order) && (order.filled ?? 0) == 0) {
+                    if TradeRules.exitTIFEditable(order) || (TradeRules.amendable(order) && order.tif != "OVERNIGHT") || (TradeRules.chartManageable(order) && (order.filled ?? 0) == 0) {
                         Picker("Time in force", selection: $timing) {
                             Text("DAY").tag("DAY")
                             Text("GTC").tag("GTC")
@@ -874,7 +903,14 @@ struct OrderDetail: View {
                 }
                 header: { SymbolText(symbol: order.name) }
                 Text(LocalizedStringKey(order.statusExplanation)).font(.caption).foregroundStyle(.secondary)
-                if order.external_ib == true && order.chart_order_ref == nil { Text("IB-managed order. Modify or cancel in IB.").foregroundStyle(.secondary) }
+                if order.external_ib == true && order.chart_order_ref == nil && !TradeRules.exitTIFEditable(order) { Text("IB-managed order. Modify or cancel in IB.").foregroundStyle(.secondary) }
+                if TradeRules.exitTIFEditable(order) {
+                    Section {
+                        Button("Save time in force") { action = "Save time in force" }
+                            .disabled(timing == order.tif)
+                        Text("Applies to this order only. DAY expires at the end of its trading session.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 if TradeRules.editable(order) {
                     if order.intent != "CLOSE" {
                         Section("Quantity") {
@@ -963,6 +999,9 @@ struct OrderDetail: View {
             quantity = max(1, Int(current.quantity ?? 1))
             timing = current.tif ?? "DAY"
         }
+        .onChange(of: current?.tif) { oldValue, newValue in
+            if timing == oldValue { timing = newValue ?? "DAY" }
+        }
         .confirmationDialog(LocalizedStringKey(action ?? "Confirm"), isPresented: Binding(get: { action != nil }, set: { if !$0 { action = nil } }), titleVisibility: .visible) {
             Button(store.demo ? LocalizedStringKey("Confirm demo action") : "Confirm \(localizedAction)") {
                 guard let action else { return }
@@ -970,12 +1009,17 @@ struct OrderDetail: View {
                 self.action = nil
             }
         } message: {
+            if action == "Save time in force" { Text("Time in force: \(timing). Applies to this order only.") }
             if action == "Cancel order" && TradeRules.protectionCancelable(current ?? initial) { Text("Both TP and SL will be canceled. The position remains open without protection.") }
-            Text("\(current?.name ?? initial.name) · \(current?.action ?? "") \((action == "Save quantity" || action == "Save changes") ? String(quantity) : current?.quantity?.formatted() ?? "") · \(current?.option_type ?? "") · \(money(current?.strike)) · \(current?.expiration ?? "")\nLimit \(money((action == "Execute" || action == "Save changes" || action == "Save price") ? TradeRules.price(price) : current?.premium)) · \(action == "Save changes" ? (timing == "OVERNIGHT" ? "OVT" : timing) : (current ?? initial).timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
+            Text("\(current?.name ?? initial.name) · \(current?.action ?? "") \((action == "Save quantity" || action == "Save changes") ? String(quantity) : current?.quantity?.formatted() ?? "") · \(current?.option_type ?? "") · \(money(current?.strike)) · \(current?.expiration ?? "")\nLimit \(money((action == "Execute" || action == "Save changes" || action == "Save price") ? TradeRules.price(price) : current?.premium)) · \((action == "Save changes" || action == "Save time in force") ? (timing == "OVERNIGHT" ? "OVT" : timing) : (current ?? initial).timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
         }
     }
     private func perform(_ action: String) {
         guard let order = current else { return }
+        if action == "Save time in force" {
+            Task { _ = await store.trading.amendExitTIF(order, tif: timing, store: store) }
+            return
+        }
         if action == "Cancel order" && TradeRules.protectionCancelable(order) {
             Task { _ = await store.trading.cancelFromOrders(order, store: store) }
             return
