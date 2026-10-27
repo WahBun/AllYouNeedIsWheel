@@ -191,7 +191,7 @@ const quoteStyle=document.createElement('style');quoteStyle.textContent='#option
 let optionQuoteDark=false,optionQuoteIdentity='',optionQuoteKey='',optionPreviousMid=null,optionMidDirection=0;
 let optionDisplayIdentity='',optionLastQuote=null,optionLastIV=null,optionLastDelta=null;
 const optionStale=document.createElement('small');optionStale.id='option-quote-status';optionStale.style.cssText='grid-column:1 / -1;font-size:10px;line-height:13px;min-height:13px;color:#666;white-space:normal;max-width:240px';optionQuote.append(optionStale);
-const optionQuoteFormat=new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
+const optionQuoteFormat=new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 let quoteStatusIdentity='',quoteStatusHadMessage=false;
 function publishQuoteStatus(p,message){if(!message&&!quoteStatusHadMessage)return;quoteStatusHadMessage=!!message;const body={action:'quoteStatus',con_id:p?.con_id||0,symbol:p?.symbol||'',message};const identity=JSON.stringify(body);if(identity===quoteStatusIdentity)return;quoteStatusIdentity=identity;window.webkit?.messageHandlers.paperAction?.postMessage(body);}
 function updateOptionQuote(){

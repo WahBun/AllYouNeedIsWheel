@@ -6,7 +6,7 @@ for(const [width,native] of [[1440,false],[393,false],[393,true],[320,true]])for
  await page.goto(h.url+'/superchart/frame');
  await page.evaluate(({width,native,dark})=>{configure({con_id:7,dark,display:{nativeCompact:native}});if(native)setNativeViewport(width,650);},{width,native,dark});
  const packet={con_id:7,generation:'option',security_type:'OPT',symbol:'TEST',interval:5,session:'rth',server_time:1000,quote_expires_at:1030,delta:-.25,delta_expires_at:1030,iv_percent:25.5,iv_expires_at:1030,bid:1.10,ask:1.15,bars:[{time:1000,open:1,high:1.2,low:.9,close:1.1}]};
- await page.evaluate(p=>receive(p),packet);await page.waitForFunction(()=>document.getElementById('option-mid').textContent==='1.125');
+ await page.evaluate(p=>receive(p),packet);await page.waitForFunction(()=>document.getElementById('option-mid').textContent==='1.13');
  assert.equal(await page.locator('#option-spread').textContent(),'4.4%');assert.equal(await page.locator('#option-iv').textContent(),'25.5%');
  assert.equal(await page.locator('#option-delta').textContent(),'-0.25');
  assert.deepEqual(await page.locator('#option-quote strong').evaluateAll(es=>es.map(e=>e.id)),['option-spread','option-mid','option-delta','option-iv']);
