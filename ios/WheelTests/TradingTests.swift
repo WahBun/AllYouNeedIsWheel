@@ -43,6 +43,94 @@ private final class AccountHistoryProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testExitTIFDetailPreviewFollowsBrokerRefresh() async throws {
+        let data = try JSONSerialization.data(withJSONObject: ["id": "ib-91", "ticker": "TQQQ", "action": "BUY",
+            "intent": "CLOSE", "option_type": "PUT", "strike": 60, "expiration": "20261120",
+            "premium": 1.52, "quantity": 1, "status": "submitted", "ib_status": "Submitted", "tif": "GTC",
+            "con_id": 7, "ib_order_id": 17, "perm_id": 91, "client_id": 71, "external_ib": true,
+            "chart_tif_ref": "WheelPaper:test", "chart_tif_group_id": ""])
+        let order = try JSONDecoder().decode(Order.self, from: data)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for dark in [false, true] {
+            for width in [393.0, 834.0] {
+                let store = WheelStore(); store.demo = true; store.orders = [order]
+                let root = NavigationStack { OrderDetail(initial: order) }.environment(store)
+                    .environment(\.locale, Locale(identifier: "en"))
+                let host = UIHostingController(rootView: root)
+                let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: width, height: 852)
+                window.overrideUserInterfaceStyle = dark ? .dark : .light
+                window.rootViewController = host; window.makeKeyAndVisible(); host.view.frame = window.bounds
+                host.view.layoutIfNeeded(); try await Task.sleep(for: .milliseconds(400))
+                var refreshed = order; refreshed.tif = "DAY"; store.orders = [refreshed]
+                try await Task.sleep(for: .milliseconds(300))
+                let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                    XCTAssertTrue(host.view.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+                }
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "TIF-detail-\(Int(width))-\(dark ? "dark" : "light")"
+                attachment.lifetime = .keepAlways; add(attachment)
+                let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(attachment.name!).png")
+                try XCTUnwrap(image.pngData()).write(to: url)
+                print("TIF_PREVIEW \(url.path)")
+                // Expand only the preview canvas to inspect the complete form.
+                window.frame.size.height = 1200; host.view.frame = window.bounds
+                host.view.layoutIfNeeded(); try await Task.sleep(for: .milliseconds(300))
+                let fullForm = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                    XCTAssertTrue(host.view.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+                }
+                let fullURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(attachment.name!)-full.png")
+                try XCTUnwrap(fullForm.pngData()).write(to: fullURL)
+                print("TIF_PREVIEW \(fullURL.path)")
+                window.isHidden = true
+            }
+        }
+    }
+    func testExitTIFEditPreservesExactOrderAndGroup() async throws {
+        let saved = UserDefaults.standard.object(forKey: "pendingPaperChartRequests")
+        UserDefaults.standard.removeObject(forKey: "pendingPaperChartRequests")
+        defer {
+            UserDefaults.standard.set(saved, forKey: "pendingPaperChartRequests")
+            MockProtocol.payload = nil
+        }
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        let store = WheelStore(session: URLSession(configuration: config))
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        store.trading.accountEpoch = "mock-live"
+        store.demo = false; store.address = "https://mock.invalid"; store.updated = .now
+        store.portfolio = Bootstrap(summary: Summary(account_value: 1000, cash_balance: 500), positions: [],
+            connection: AccountConnection(mode: "live", execution_enabled: false, chart_execution_enabled: true))
+        let group = UUID().uuidString
+        let data = try JSONSerialization.data(withJSONObject: ["id": "ib-91", "ticker": "TEST", "action": "SELL",
+            "option_type": "STOCK", "premium": 11, "quantity": 2, "status": "submitted", "tif": "GTC",
+            "con_id": 7, "ib_order_id": 17, "perm_id": 91, "client_id": 71,
+            "chart_tif_ref": "WheelPaper:test", "chart_tif_group_id": group])
+        var order = try JSONDecoder().decode(Order.self, from: data)
+        XCTAssertTrue(TradeRules.exitTIFEditable(order))
+        XCTAssertFalse(TradeRules.chartManageable(order))
+        MockProtocol.requests = []; MockProtocol.fail = false; MockProtocol.statusCode = 200
+        MockProtocol.payload = { _ in ["success": true, "status": "acknowledged", "orders": []] }
+        let success = await store.trading.amendExitTIF(order, tif: "DAY", store: store)
+        XCTAssertTrue(success)
+        let writes = MockProtocol.requests.filter { $0.httpMethod == "POST" && $0.url?.path == "/api/portfolio/paper-chart/7" }
+        XCTAssertEqual(writes.count, 1)
+        let request = try XCTUnwrap(writes.first)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Wheel-Account-Epoch"), "mock-live")
+        XCTAssertEqual(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first?.value, group)
+        let stream = try XCTUnwrap(request.httpBodyStream); stream.open(); defer { stream.close() }
+        var bytes = [UInt8](repeating: 0, count: 4096)
+        let count = stream.read(&bytes, maxLength: bytes.count)
+        XCTAssertGreaterThan(count, 0)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(bytes.prefix(max(0, count)))) as? [String: Any])
+        XCTAssertEqual(body["action"] as? String, "amend_exit_tif")
+        XCTAssertEqual(body["tif"] as? String, "DAY")
+        XCTAssertEqual(body["perm_id"] as? Int, 91)
+        XCTAssertEqual((body["expected"] as? [String: Any])?["tif"] as? String, "GTC")
+        XCTAssertNil(body["quantity"]); XCTAssertNil(body["price"])
+        order.status = "filled"
+        XCTAssertFalse(TradeRules.exitTIFEditable(order))
+        order.status = "submitted"; order.chart_tif_ref = nil
+        XCTAssertFalse(TradeRules.exitTIFEditable(order))
+    }
     func testTransientBusyBannerDoesNotClaimLogoutOrWeakenFreshness() async throws {
         let savedMode = UserDefaults.standard.object(forKey: "selectedBrokerMode")
         UserDefaults.standard.set("live", forKey: "selectedBrokerMode")

@@ -34,7 +34,7 @@ def validate(conn,contract,body,current):
     if not contract_allowed(conn, contract):
         raise ValueError('Live chart trading is not enabled for this account and asset')
     action=body.get('action')
-    if action not in ('submit','edit_entry','close','set_protection','cancel_protection','amend','be','add','resize_add','amend_add','cancel_add','trim','resize_trim','resize_stop','cancel_trim','cancel_exit'):
+    if action not in ('submit','edit_entry','close','set_protection','cancel_protection','amend','be','add','resize_add','amend_add','cancel_add','trim','resize_trim','resize_stop','cancel_trim','cancel_exit','amend_exit_tif'):
         raise ValueError('This action is not enabled for Live charts')
     if action=='submit':
         if isinstance(body.get('side'),bool) or body.get('side') not in (-1,1) or body.get('entry_type') not in ('LMT','STP'):

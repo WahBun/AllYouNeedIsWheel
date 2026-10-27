@@ -146,6 +146,8 @@ struct Order: Decodable, Identifiable {
     var chart_group_id: String? = nil
     var chart_protection_ref: String? = nil
     var chart_protection_group_id: String? = nil
+    var chart_tif_ref: String? = nil
+    var chart_tif_group_id: String? = nil
     var chartPosition: Position? {
         guard let cid = [chart_con_id, con_id].compactMap({ $0 }).first(where: { $0 > 0 }) else { return nil }
         let type: String
@@ -163,6 +165,7 @@ struct Order: Decodable, Identifiable {
     var executed: Bool? = nil
     var ib_order_id: Int? = nil
     var perm_id: Int? = nil
+    var client_id: Int? = nil
     var amendment_pending: String? = nil
     var error_message: String? = nil
     var isRollover: Bool? = nil

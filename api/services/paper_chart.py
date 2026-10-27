@@ -845,6 +845,8 @@ class PaperChart:
                 result.update(known=False, status='unknown', sync_error='A historical order is active again')
                 for key in ('add_allowed','trim_allowed','protection_manageable','scalable'):
                     result[key] = False
+        if group.get('pending_tif'):
+            result.update(broker_pending=True, sync_error='Time in force change awaiting broker confirmation', entry_editable=False)
         self.action_availability(conn, account, scaling_contract, result)
         if attribution_view is not None and not attribution_view['known']:
             result['protection']['status']='unknown'
@@ -978,11 +980,17 @@ class PaperChart:
             # Persist reconciliation: a later read/restart must not resurrect the lock.
             if group.get('pending_edit') == request_id:
                 group.pop('pending_edit'); self.save_group(account, cid, group)
+            if group.get('pending_tif') == request_id:
+                group.pop('pending_tif'); self.save_group(account, cid, group)
             with self.database() as db:
                 db.execute('UPDATE chart_paper_requests SET result=? WHERE id=? AND account=?',
                     (json.dumps(dict(result, success=status != 'rejected', status=status, awaiting_broker=False, state=state,
                                      **(dict(message=message, recovery_message=message) if message else {}))), request_id, account))
             return dict(confirmed=True, status=status, **(dict(message=message) if message else {}))
+        if body.get('action') == 'amend_exit_tif':
+            from api.services.chart_order_tif import reconcile
+            status = reconcile(conn, account, cid, body)
+            return resolved(status) if status else dict(confirmed=False, status='unknown')
         # Legacy manual BE on an unadopted holding failed before its durable
         # protection intent (and therefore before placeOrder). Only reconcile
         # this exact no-group case after fresh all-client and position reads.
@@ -1466,6 +1474,12 @@ class PaperChart:
             return (t.order.orderId, t.order.account, t.contract.conId, t.order.orderRef,
                     t.order.clientId, t.order.permId or t.orderStatus.permId)
         identity=identity_of(trade)
+        # The SDK omits TIF from updates to existing Trade objects. A later
+        # price/quantity edit must not undo a DAY/GTC change made in IB.
+        from core.order_amendments import broker_tif
+        fresh_tif = broker_tif(conn, trade)
+        if fresh_tif is not None:
+            order.tif = fresh_tif
         conn.ib.placeOrder(trade.contract,order)
         import time
         deadline=time.monotonic()+3
@@ -2229,6 +2243,8 @@ class PaperChart:
             if not isinstance(positions, (list, tuple)):
                 raise ValueError('Complete broker positions are required after flat recovery')
         pending_add = (self.group(account, cid) or {}).get('pending_add_edit')
+        if (self.group(account, cid) or {}).get('pending_tif'):
+            raise ValueError('Previous time in force change needs broker reconciliation; do not resubmit')
         if pending_add and pending_add.get('id') != request_id:
             raise ValueError('Previous Add edit needs broker reconciliation; do not resubmit')
         if (self.group(account, cid) or {}).get('stock_adjustment', {}).get('pending'):
@@ -2239,6 +2255,9 @@ class PaperChart:
         if body.get('action') == 'manage_broker_order':
             from api.services.chart_broker_orders import manage
             return manage(self.path, conn, account, cid, body)
+        if body.get('action') == 'amend_exit_tif':
+            from api.services.chart_order_tif import amend
+            return amend(self, conn, account, cid, body, request_id)
         if body.get('action')=='release_stale_lock':
             if not account.startswith('DU') or body.get('acknowledge_unknown') is not True:
                 raise ValueError('Explicit Paper recovery acknowledgement required')
