@@ -11,6 +11,21 @@ from api.services.moonshine_alerts import MoonshineMonitor
 log = logging.getLogger(__name__)
 
 
+def notification_contract_label(contract):
+    """Display-only option name; broker identities and event deduplication stay intact."""
+    fallback = getattr(contract, 'localSymbol', '') or getattr(contract, 'symbol', '')
+    if getattr(contract, 'secType', '') != 'OPT':
+        return fallback
+    symbol = getattr(contract, 'symbol', '')
+    expiry = getattr(contract, 'lastTradeDateOrContractMonth', '')
+    right = getattr(contract, 'right', '')
+    strike = getattr(contract, 'strike', None)
+    if (symbol and len(expiry) == 8 and expiry.isdigit() and right in ('C', 'P')
+            and isinstance(strike, (int, float)) and math.isfinite(strike) and strike > 0):
+        return f'{symbol} {expiry} {strike:g} {right}'
+    return fallback
+
+
 class NotificationRuntime:
     def __init__(self, store=None):
         self.store = store or NotificationStore()
@@ -75,7 +90,7 @@ class NotificationRuntime:
                 status = 'Cancelled'
             elif confirmed:
                 self.cancel_candidates.discard(ident)
-            label = f"{trade.contract.localSymbol or trade.contract.symbol} · {order.action} {order.totalQuantity:g}"
+            label = f"{notification_contract_label(trade.contract)} · {order.action} {order.totalQuantity:g}"
             self.enqueue(('order', self.scope, ident, status, label, self.mode))
 
     def fill(self, trade, fill):
@@ -84,7 +99,7 @@ class NotificationRuntime:
         if execution.acctNumber != self.conn.account_id or not execution.execId: return
         try: stamp = execution.time.timestamp()
         except (AttributeError, ValueError): return
-        label = f"{fill.contract.localSymbol or fill.contract.symbol} · {execution.side} {execution.shares:g} @ {execution.price:g}"
+        label = f"{notification_contract_label(fill.contract)} · {execution.side} {execution.shares:g} @ {execution.price:g}"
         parts = execution.execId.split('.')
         # IB four-segment correction revisions are not additional executions.
         ident = '.'.join(parts[:-1]) if len(parts) == 4 and parts[-1].isdigit() else execution.execId

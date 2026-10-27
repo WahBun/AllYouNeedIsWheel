@@ -419,7 +419,7 @@ private struct PerformanceSelectionOverlay: View {
         HStack {
             Text(LocalizedStringKey(title))
             Spacer()
-            Text(value.map { String(format: "%+.2f%%", $0) } ?? "Unavailable").fontWeight(.semibold)
+            NoticeText(value.map { String(format: "%+.2f%%", $0) } ?? "Unavailable").fontWeight(.semibold)
         }.foregroundStyle(color)
     }
 }

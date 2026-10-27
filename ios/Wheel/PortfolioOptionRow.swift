@@ -132,13 +132,13 @@ struct OptionMidPrice: View {
         TimelineView(.animation(minimumInterval: 1, paused: !active)) { context in
             let direction = active ? movement.direction(at: context.date) : 0
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(verbatim: "Mid").font(.caption).foregroundStyle(.secondary)
+                Text("Mid").font(.caption).foregroundStyle(.secondary)
                 Text(money(value)).monospacedDigit()
                     .foregroundStyle(direction > 0 ? customPalette.color("gain", scheme: scheme, fallback: FinancialColors.gain) : direction < 0 ? customPalette.color("loss", scheme: scheme, fallback: FinancialColors.loss) : Color.primary)
             }
             .lineLimit(1).fixedSize(horizontal: true, vertical: false)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(verbatim: "Mid price"))
+            .accessibilityLabel(Text("Mid price"))
             .accessibilityValue(Text(verbatim: money(value)))
         }
     }

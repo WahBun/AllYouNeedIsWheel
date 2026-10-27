@@ -1,728 +1,330 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "Buy" : {},
-    "Off" : {},
-    "On" : {},
-    "Quick Add, Trim and Close use fresh midpoint limits. Prices selected on the chart are preserved. Orders do not automatically follow quotes; immediate fill is not guaranteed." : {},
-    "Sell" : {},
-    "Submit chart right-click Buy/Sell and drag or remove TP/SL without confirmation. Other order edits still require confirmation." : {},
-    "Trim" : {},
-    "● NDX" : {},
-    "SL input" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "止损输入" } },
-        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "止損輸入" } }
-      }
-    },
-    "Loss %" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "亏损 %" } },
-        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "虧損 %" } }
-      }
-    },
-    "IBKR excluded the configured account from this Flex report. Previous history is retained; a complete report is required." : {
+    "Account connection changed. Refresh notification settings." : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "IBKR 本次报表未包含所选账户。已保留历史数据，等待完整报表后更新。"
+            "value" : "账户连接已更改，请刷新通知设置。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "IBKR 本次報表未包含所選帳戶。已保留歷史資料，等待完整報表後更新。"
+            "value" : "帳戶連接已更改，請刷新通知設定。"
           }
         }
       }
     },
-    "The configured account is missing from this Flex report. Previous history is retained." : {
+    "Account connection changed. Refresh notifications." : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "本次 Flex 报表缺少所选账户，已保留历史数据。"
+            "value" : "账户连接已更改，请刷新通知。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "本次 Flex 報表缺少所選帳戶，已保留歷史資料。"
+            "value" : "帳戶連接已更改，請刷新通知。"
           }
         }
       }
     },
-    "Performance data download failed; check backend connectivity/configuration." : {
+    "Connect and verify the selected IB account first" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "收益数据下载失败，请检查后端网络连接与配置。"
+            "value" : "请先连接并验证所选 IB 账户"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "收益資料下載失敗，請檢查後端網路連線與設定。"
+            "value" : "請先連接並驗證所選 IB 帳戶"
           }
         }
       }
     },
-    "IBKR could not generate the Flex report; check query and token." : {
+    "Enable Bark for this account first" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "IBKR 未能生成 Flex 报表，请检查查询配置和令牌。"
+            "value" : "请先为此账户启用 Bark"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "IBKR 未能產生 Flex 報表，請檢查查詢設定和權杖。"
+            "value" : "請先為此帳戶啟用 Bark"
           }
         }
       }
     },
-    "IBKR rejected the Flex report request." : {
+    "Paste the push address or device key shown in Bark" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "IBKR 拒绝了 Flex 报表请求。"
+            "value" : "请粘贴 Bark 中显示的推送地址或设备密钥"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "IBKR 拒絕了 Flex 報表請求。"
+            "value" : "請貼上 Bark 中顯示的推送地址或設備密鑰"
           }
         }
       }
     },
-    "Flex report is still generating; retry later." : {
+    "Use the https://api.day.app/ address shown in Bark" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Flex 报表仍在生成中，请稍后重试。"
+            "value" : "请使用 Bark 中显示的 https://api.day.app/ 地址"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Flex 報表仍在產生中，請稍後重試。"
+            "value" : "請使用 Bark 中顯示的 https://api.day.app/ 地址"
           }
         }
       }
     },
-    "Benchmark history unavailable; account history is retained." : {
+    "Date" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "暂时无法获取基准历史数据，账户历史数据已保留。"
+            "value" : "日期"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "暫時無法取得基準歷史資料，帳戶歷史資料已保留。"
+            "value" : "日期"
           }
         }
       }
     },
-    "Performance history could not be parsed." : {
+    "Filter" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法解析收益历史数据，已保留原有记录。"
+            "value" : "筛选"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "無法解析收益歷史資料，已保留原有紀錄。"
+            "value" : "篩選"
           }
         }
       }
     },
-    "Flex needs daily Change in NAV with TWR (Breakout by Day)." : {
+    "High" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Flex 报表需要包含按日拆分的净资产变化及时间加权收益率（TWR）。"
+            "value" : "高"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Flex 報表需要包含按日拆分的淨資產變化及時間加權報酬率（TWR）。"
+            "value" : "高"
           }
         }
       }
     },
-    "Log in to the selected IB Gateway mode on Mini. Connection will complete automatically." : {
-      "extractionState" : "stale",
+    "Low" : {
+      "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Log in to the selected IB Gateway mode on Mini. Connection will complete automatically."
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "请在 Mini 登录所选模式的 IB Gateway，App 将自动完成连接。"
+            "value" : "低"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "請在 Mini 登入所選模式的 IB Gateway，App 將自動完成連線。"
+            "value" : "低"
           }
         }
       }
     },
-    "Gateway login is still pending. Complete IB Key if prompted, then retry connection." : {
+    "Medium" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gateway login is still pending. Complete IB Key if prompted, then retry connection."
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gateway 仍在等待登录。如有提示，请完成 IB Key 验证后重试连接。"
+            "value" : "中"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gateway 仍在等待登入。如有提示，請完成 IB Key 驗證後重試連線。"
+            "value" : "中"
           }
         }
       }
     },
-    "Account verification is incomplete. Retry connection." : {
+    "Paper" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Account verification is incomplete. Retry connection."
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "账户验证尚未完成，请重试连接。"
+            "value" : "模拟盘"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "帳戶驗證尚未完成，請重試連線。"
+            "value" : "模擬盤"
           }
         }
       }
     },
-    "Account data is not ready. Retry connection." : {
+    "Return" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Account data is not ready. Retry connection."
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "账户数据尚未就绪，请重试连接。"
+            "value" : "收益率"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "帳戶資料尚未就緒，請重試連線。"
+            "value" : "收益率"
           }
         }
       }
     },
-    "Loading account…" : {
+    "Series" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loading account…"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在加载账户…"
+            "value" : "序列"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在載入帳戶…"
+            "value" : "序列"
           }
         }
       }
     },
-    "Retry connection" : {
+    "Zero" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Retry connection"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "重试连接"
+            "value" : "零"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "重試連線"
+            "value" : "零"
           }
         }
       }
     },
-    "Connected" : {
+    "Cancel" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Connected"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已连接"
+            "value" : "取消"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已連線"
+            "value" : "取消"
           }
         }
       }
     },
-    "Add exits to the current position. Profit % uses the broker cost basis, which may include fees." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "为当前持仓补挂退出单。获利百分比按券商成本计算，成本可能含手续费。"
-          }
-        }
-      }
-    },
-    "Confirm adding exits" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "确认添加退出订单"
-          }
-        }
-      }
-    },
-    "Manage TP / SL" : {
+    "OK" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "管理 TP / SL"
-          }
-        }
-      }
-    },
-    "Position TP / SL" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "持仓 TP / SL"
-          }
-        }
-      }
-    },
-    "Optional TP / SL · GTC" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "TP / SL 独立可选 · GTC"
-          }
-        }
-      }
-    },
-    "Enable TP" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "启用止盈 TP"
-          }
-        }
-      }
-    },
-    "Enable SL" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "启用止损 SL"
-          }
-        }
-      }
-    },
-    "TP input" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "止盈输入方式"
-          }
-        }
-      }
-    },
-    "Distance" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "价差"
-          }
-        }
-      }
-    },
-    "Target price" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "目标价"
-          }
-        }
-      }
-    },
-    "Profit %" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "获利百分比"
-          }
-        }
-      }
-    },
-    "SL distance" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "止损价差"
-          }
-        }
-      }
-    },
-    "SL target price" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "止损目标价"
-          }
-        }
-      }
-    },
-    "Confirm replacing protection" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "确认重建退出订单"
-          }
-        }
-      }
-    },
-    "Apply TP / SL" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "应用 TP / SL"
-          }
-        }
-      }
-    },
-    "Cancel all TP / SL" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "撤销全部 TP / SL"
-          }
-        }
-      }
-    },
-    "Back" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "返回"
-          }
-        }
-      }
-    },
-    "Enter a positive value for each enabled exit." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请为已启用的退出订单填写正数。"
-          }
-        }
-      }
-    },
-    "Profit % uses the entry premium before fees. A short option sold at 2.12 with 75% profit targets 0.53, rounded to the contract tick." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "获利百分比按开仓权利金计算，未计手续费。以 2.12 卖出期权，获利 75% 的目标买回价为 0.53，并按合约最小价位取整。"
-          }
-        }
-      }
-    },
-    "Existing exits will be canceled before replacement. Protection may be interrupted. A fill or uncertain response stops replacement; inspect the refreshed orders." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "先确认撤销旧退出单，再建立新单，期间可能没有保护。若出现成交或结果不明确，将停止重建，请核对刷新后的订单。"
-          }
-        }
-      }
-    },
-    "The selected exits will be canceled. Your position remains open. Check remaining orders after cancellation." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将撤销选定的退出订单，持仓保留。撤单后请核对剩余订单。"
-          }
-        }
-      }
-    },
-    "Cancel TP?" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "撤销止盈 TP？"
-          }
-        }
-      }
-    },
-    "Cancel SL?" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "撤销止损 SL？"
-          }
-        }
-      }
-    },
-    "Remove TP; keep position" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "撤销 TP，保留持仓"
-          }
-        }
-      }
-    },
-    "Remove SL; keep position" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "撤销 SL，保留持仓"
-          }
-        }
-      }
-    },
-    "tp_only" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅止盈"
-          }
-        }
-      }
-    },
-    "sl_only" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅止损"
-          }
-        }
-      }
-    },
-    "not_requested" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未设置退出订单"
-          }
-        }
-      }
-    },
-    "Account mode" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "账户模式"
+            "value" : "好"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "帳戶模式"
+            "value" : "好"
           }
         }
       }
     },
-    "Trading enabled" : {
+    "P&L" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "允许提交订单"
+            "value" : "盈亏"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "允許提交訂單"
+            "value" : "盈虧"
           }
         }
       }
     },
-    "Read only" : {
+    "Search" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "只读"
+            "value" : "搜索"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "唯讀"
+            "value" : "搜尋"
           }
         }
       }
     },
-    "Unknown" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未确认"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未確認"
-          }
-        }
-      }
-    },
-    "Disconnected" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未连接"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未連線"
-          }
-        }
-      }
-    },
-    "Filled" : {
+    "executed" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
@@ -739,55 +341,417 @@
         }
       }
     },
-    "Position" : {
+    "pending" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "持仓"
+            "value" : "待处理"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "持倉"
+            "value" : "待處理"
           }
         }
       }
     },
-    "trim" : {
+    "pendingcancel" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Trim"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "减仓"
+            "value" : "待撤单"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "減倉"
+            "value" : "待撤單"
           }
         }
       }
     },
-    "close" : {
+    "presubmitted" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Close"
+            "value" : "预提交"
           }
         },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "預提交"
+          }
+        }
+      }
+    },
+    "* IB average cost; may include fees" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "* IB 平均成本，可能含手续费"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "* IB 平均成本，可能含手續費"
+          }
+        }
+      }
+    },
+    "Account changed; refresh before editing." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "账户已更改，请刷新后再编辑。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "帳戶已更改，請刷新後再編輯。"
+          }
+        }
+      }
+    },
+    "Account connection changed. Refreshing account data." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "账户连接已更改，正在刷新账户数据。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "帳戶連接已更改，正在刷新帳戶資料。"
+          }
+        }
+      }
+    },
+    "Advanced" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高级"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "進階"
+          }
+        }
+      }
+    },
+    "Allow notifications in iPhone Settings to receive alerts." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请在 iPhone 设置中允许通知，以接收提醒。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請在 iPhone 設定中允許通知，以接收提醒。"
+          }
+        }
+      }
+    },
+    "Another device changed the selected account. Select your account again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "另一台设备更改了所选账户，请重新选择账户。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "另一台設備更改了所選帳戶，請重新選擇帳戶。"
+          }
+        }
+      }
+    },
+    "ApiCancelled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "API 已撤单"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "API 已撤單"
+          }
+        }
+      }
+    },
+    "ApiPending" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待 API 确认"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待 API 確認"
+          }
+        }
+      }
+    },
+    "Asset type" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "资产类型"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "資產類型"
+          }
+        }
+      }
+    },
+    "Assignment notional" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "指派名义金额"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "指派名義金額"
+          }
+        }
+      }
+    },
+    "Average entry fill price" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均开仓成交价"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平均開倉成交價"
+          }
+        }
+      }
+    },
+    "BOT" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "买入"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "買入"
+          }
+        }
+      }
+    },
+    "BUY" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "买入"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "買入"
+          }
+        }
+      }
+    },
+    "BUY TO CLOSE" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "买入平仓"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "買入平倉"
+          }
+        }
+      }
+    },
+    "BUY TO OPEN" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "买入开仓"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "買入開倉"
+          }
+        }
+      }
+    },
+    "Bark address" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bark 地址"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bark 地址"
+          }
+        }
+      }
+    },
+    "Bark is managed separately from direct Wheel notifications." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bark 与 Wheel 直接推送分别管理。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bark 與 Wheel 直接推送分別管理。"
+          }
+        }
+      }
+    },
+    "Bark push address" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bark 推送地址"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bark 推送地址"
+          }
+        }
+      }
+    },
+    "Bark rejected this address. Copy a fresh push address from Bark." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bark 拒绝了此地址，请从 Bark 重新复制推送地址。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bark 拒絕了此地址，請從 Bark 重新複製推送地址。"
+          }
+        }
+      }
+    },
+    "Bought" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "买入"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "買入"
+          }
+        }
+      }
+    },
+    "CALL" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "看涨"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "看漲"
+          }
+        }
+      }
+    },
+    "CLOSE" : {
+      "extractionState" : "manual",
+      "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
@@ -802,38 +766,1148 @@
         }
       }
     },
-    "filled" : {
+    "Cancel TP/SL" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Filled"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已完成"
+            "value" : "撤销止盈／止损"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已完成"
+            "value" : "撤銷止盈／止損"
           }
         }
       }
     },
-    "working" : {
+    "Cancelled" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Working"
+            "value" : "已撤单"
           }
         },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已撤單"
+          }
+        }
+      }
+    },
+    "Change Bark address" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更换 Bark 地址"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更換 Bark 地址"
+          }
+        }
+      }
+    },
+    "Check broker protection status." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请核对券商端的保护订单状态。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請核對券商端的保護訂單狀態。"
+          }
+        }
+      }
+    },
+    "Checking account connection…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在检查账户连接…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在檢查帳戶連接…"
+          }
+        }
+      }
+    },
+    "Checking…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在检查…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在檢查…"
+          }
+        }
+      }
+    },
+    "Close search" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭搜索"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉搜尋"
+          }
+        }
+      }
+    },
+    "Confirm OVT without TP/SL" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认 OVT 不附带止盈／止损"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "確認 OVT 不附帶止盈／止損"
+          }
+        }
+      }
+    },
+    "Connect and verify your private backend first." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先连接并验证你的私人后端。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請先連接並驗證你的私人後端。"
+          }
+        }
+      }
+    },
+    "Connect to Paper or Live in Settings to manage notifications." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先在设置中连接模拟盘或实盘，再管理通知。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請先在設定中連接模擬盤或實盤，再管理通知。"
+          }
+        }
+      }
+    },
+    "Connect to your private HTTPS backend first." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先连接你的私人 HTTPS 后端。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請先連接你的私人 HTTPS 後端。"
+          }
+        }
+      }
+    },
+    "Connection status" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接状态"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連接狀態"
+          }
+        }
+      }
+    },
+    "Could not update notification settings. Pull to refresh before trying again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法更新通知设置，请先下拉刷新，再重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法更新通知設定，請先下拉刷新，再重試。"
+          }
+        }
+      }
+    },
+    "Data refresh delayed: backend busy. Retrying…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "数据刷新延迟：后端繁忙，正在重试…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "資料刷新延遲：後端繁忙，正在重試…"
+          }
+        }
+      }
+    },
+    "Date range" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日期范围"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日期範圍"
+          }
+        }
+      }
+    },
+    "Delta / Spread / IV" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delta／价差／隐含波动率"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delta／價差／隱含波動率"
+          }
+        }
+      }
+    },
+    "Direct app notifications" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App 直接推送"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App 直接推送"
+          }
+        }
+      }
+    },
+    "Disable for this account" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭此账户的通知"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉此帳戶的通知"
+          }
+        }
+      }
+    },
+    "Draft" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "草稿"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "草稿"
+          }
+        }
+      }
+    },
+    "Enable Bark" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用 Bark"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "啟用 Bark"
+          }
+        }
+      }
+    },
+    "Enable iPhone notifications" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用 iPhone 通知"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "啟用 iPhone 通知"
+          }
+        }
+      }
+    },
+    "Enable notifications for this account." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为此账户启用通知。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "為此帳戶啟用通知。"
+          }
+        }
+      }
+    },
+    "Enabled for IB Live." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已为 IB 实盘启用通知。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已為 IB 實盤啟用通知。"
+          }
+        }
+      }
+    },
+    "Enabled for IB Paper." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已为 IB 模拟盘启用通知。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已為 IB 模擬盤啟用通知。"
+          }
+        }
+      }
+    },
+    "Exact contract unavailable. Refresh the quote and try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法获取准确合约，请刷新报价后重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法取得準確合約，請刷新報價後重試。"
+          }
+        }
+      }
+    },
+    "FUTURE" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "期货"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "期貨"
+          }
+        }
+      }
+    },
+    "Filled quantity" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成交数量"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成交數量"
+          }
+        }
+      }
+    },
+    "Finding exact contract…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在查找准确合约…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在查找準確合約…"
+          }
+        }
+      }
+    },
+    "Gateway account does not match the selected mode. Log in to the selected account on Mini." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gateway 账户与所选模式不符，请在 Mini 上登录所选账户。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gateway 帳戶與所選模式不符，請在 Mini 上登入所選帳戶。"
+          }
+        }
+      }
+    },
+    "Hide daily price range" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收起当日价格区间"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收起當日價格區間"
+          }
+        }
+      }
+    },
+    "History is still generating. Retrying shortly." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "历史数据仍在生成，稍后自动重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "歷史資料仍在生成，稍後自動重試。"
+          }
+        }
+      }
+    },
+    "IB Live" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IB 实盘"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IB 實盤"
+          }
+        }
+      }
+    },
+    "IB Paper" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IB 模拟盘"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IB 模擬盤"
+          }
+        }
+      }
+    },
+    "IB average cost per contract point" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IB 每合约点平均成本"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IB 每合約點平均成本"
+          }
+        }
+      }
+    },
+    "Inactive" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "非活动"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "非活動"
+          }
+        }
+      }
+    },
+    "Invalid trading date" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "交易日期无效"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "交易日期無效"
+          }
+        }
+      }
+    },
+    "Last test accepted by Bark. Check your iPhone for delivery." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bark 已接收上次测试通知，请在 iPhone 上确认是否送达。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bark 已接收上次測試通知，請在 iPhone 上確認是否送達。"
+          }
+        }
+      }
+    },
+    "Live order management requires an explicit valid price." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理实盘订单需要明确的有效价格。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理實盤訂單需要明確的有效價格。"
+          }
+        }
+      }
+    },
+    "Load more (%lld / %lld)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加载更多（已显示 %lld / %lld）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "載入更多（已顯示 %lld / %lld）"
+          }
+        }
+      }
+    },
+    "Loading performance history…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载收益历史…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在載入收益歷史…"
+          }
+        }
+      }
+    },
+    "Mid" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中间价"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中間價"
+          }
+        }
+      }
+    },
+    "Mid price" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中间价"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中間價"
+          }
+        }
+      }
+    },
+    "Midpoint does not match contract price increments." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中间价不符合合约最小价格变动单位。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中間價不符合合約最小價格變動單位。"
+          }
+        }
+      }
+    },
+    "Net average price (incl. fees)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "净平均价（含手续费）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "淨平均價（含手續費）"
+          }
+        }
+      }
+    },
+    "Not connected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未连接"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未連接"
+          }
+        }
+      }
+    },
+    "Notification permission could not be requested. Try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法申请通知权限，请重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法申請通知權限，請重試。"
+          }
+        }
+      }
+    },
+    "Notification registration failed. Try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通知注册失败，请重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通知註冊失敗，請重試。"
+          }
+        }
+      }
+    },
+    "Notification settings are unavailable. Try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂时无法获取通知设置，请重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暫時無法取得通知設定，請重試。"
+          }
+        }
+      }
+    },
+    "Notification status is unavailable. Try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂时无法获取通知状态，请重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暫時無法取得通知狀態，請重試。"
+          }
+        }
+      }
+    },
+    "Notifications" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通知"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通知"
+          }
+        }
+      }
+    },
+    "Notifications are disabled in iPhone Settings." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone 设置中已关闭通知。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone 設定中已關閉通知。"
+          }
+        }
+      }
+    },
+    "Notifications disabled for this account." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已关闭此账户的通知。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已關閉此帳戶的通知。"
+          }
+        }
+      }
+    },
+    "OPEN" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开仓"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開倉"
+          }
+        }
+      }
+    },
+    "Open Bark, allow notifications, then paste its api.day.app push address here. Alert summaries are sent through Bark. Your address is stored privately on your backend." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开 Bark 并允许通知，然后在此粘贴其 api.day.app 推送地址。提醒摘要将通过 Bark 发送，地址仅保存在你的私人后端。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打開 Bark 並允許通知，然後在此貼上其 api.day.app 推送地址。提醒摘要將通過 Bark 發送，地址僅儲存在你的私人後端。"
+          }
+        }
+      }
+    },
+    "Open position details" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开持仓详情"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打開持倉詳情"
+          }
+        }
+      }
+    },
+    "Open recent chart" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开最近的图表"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打開最近的圖表"
+          }
+        }
+      }
+    },
+    "Optional. Requires Push Notifications signing and server setup. Bark works independently." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可选。需要推送通知签名及服务器配置，Bark 可独立使用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可選。需要推送通知簽名及伺服器配置，Bark 可獨立使用。"
+          }
+        }
+      }
+    },
+    "Order changed or settings unavailable; refresh before editing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "订单已更改或设置不可用，请刷新后再编辑"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "訂單已更改或設定不可用，請刷新後再編輯"
+          }
+        }
+      }
+    },
+    "Order changed; refresh before canceling" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "订单已更改，请刷新后再撤单"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "訂單已更改，請刷新後再撤單"
+          }
+        }
+      }
+    },
+    "PUT" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "看跌"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "看跌"
+          }
+        }
+      }
+    },
+    "PartiallyFilled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分成交"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分成交"
+          }
+        }
+      }
+    },
+    "PendingCancel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "待撤单"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "待撤單"
+          }
+        }
+      }
+    },
+    "PendingSubmit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "待提交"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "待提交"
+          }
+        }
+      }
+    },
+    "Position changed; refresh before managing Live orders." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "持仓已更改，请刷新后再管理实盘订单。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "持倉已更改，請刷新後再管理實盤訂單。"
+          }
+        }
+      }
+    },
+    "PreSubmitted" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "预提交"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "預提交"
+          }
+        }
+      }
+    },
+    "Price alerts, executions and confirmed cancellations." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "价格提醒、成交和已确认的撤单通知。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "價格提醒、成交和已確認的撤單通知。"
+          }
+        }
+      }
+    },
+    "Price alerts, executions and confirmed cancellations. Notifications continue when Wheel is closed while this account is connected on your backend." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "价格提醒、成交和已确认的撤单通知。只要此账户仍在后端保持连接，关闭 Wheel 后也会继续推送通知。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "價格提醒、成交和已確認的撤單通知。只要此帳戶仍在後端保持連接，關閉 Wheel 後也會繼續推送通知。"
+          }
+        }
+      }
+    },
+    "Processing" : {
+      "extractionState" : "manual",
+      "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
@@ -848,445 +1922,845 @@
         }
       }
     },
-    "unknown" : {
+    "Push registration failed. Enable Push Notifications signing and try again." : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unknown"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "未确认"
+            "value" : "推送注册失败。请启用推送通知签名后重试。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "未確認"
+            "value" : "推送註冊失敗。請啟用推送通知簽名後重試。"
           }
         }
       }
     },
-    "rejected" : {
+    "Refresh notification status" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rejected"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "被拒绝"
+            "value" : "刷新通知状态"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "被拒絕"
+            "value" : "刷新通知狀態"
           }
         }
       }
     },
-    "canceled" : {
+    "Registering this iPhone…" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Canceled"
-          }
-        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已取消"
+            "value" : "正在注册此 iPhone…"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已取消"
+            "value" : "正在註冊此 iPhone…"
           }
         }
       }
     },
-    "Awaiting fill" : {
+    "Rejected" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "等待成交"
+            "value" : "已拒绝"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "等待成交"
+            "value" : "已拒絕"
           }
         }
       }
     },
-    "Entry type" : {
+    "Resolve the current position and orders before starting a new group." : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "入场类型"
+            "value" : "请先核实当前持仓和订单，再创建新订单组。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "進場類型"
+            "value" : "請先核實當前持倉和訂單，再建立新訂單組。"
           }
         }
       }
     },
-    "Shares" : {
+    "Retry notification registration" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "股数"
+            "value" : "重试通知注册"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "股數"
+            "value" : "重試通知註冊"
           }
         }
       }
     },
-    "Join Bid" : {
+    "SELL" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "取买价"
+            "value" : "卖出"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "取買價"
+            "value" : "賣出"
           }
         }
       }
     },
-    "Join Ask" : {
+    "SELL TO CLOSE" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "取卖价"
+            "value" : "卖出平仓"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "取賣價"
+            "value" : "賣出平倉"
           }
         }
       }
     },
-    "Chart details" : {
+    "SLD" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "图表说明"
+            "value" : "卖出"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "圖表說明"
+            "value" : "賣出"
           }
         }
       }
     },
-    "ETH includes available extended-hours data. Time: New York." : {
+    "STOCK" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ETH 包含可用的延长时段行情。时间：纽约。"
+            "value" : "股票"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ETH 包含可用的延長時段行情。時間：紐約。"
+            "value" : "股票"
           }
         }
       }
     },
-    "Interval" : {
+    "Save address" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "周期"
+            "value" : "保存地址"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "週期"
+            "value" : "儲存地址"
           }
         }
       }
     },
-    "Session" : {
+    "Save time in force" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "交易时段"
+            "value" : "保存有效期"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "交易時段"
+            "value" : "儲存有效期"
           }
         }
       }
     },
-    "Entry reference" : {
+    "Search executions" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "参考入场价"
+            "value" : "搜索成交记录"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "參考進場價"
+            "value" : "搜尋成交記錄"
           }
         }
       }
     },
-    "Loading chart…" : {
+    "Send test notification" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在加载图表…"
+            "value" : "发送测试通知"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在載入圖表…"
+            "value" : "發送測試通知"
           }
         }
       }
     },
-    "Chart updates paused · verify connection" : {
+    "Session range · Delayed" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "图表更新暂停 · 请检查连接"
+            "value" : "日内区间 · 延迟"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "圖表更新暫停 · 請檢查連線"
+            "value" : "日內區間 · 延遲"
           }
         }
       }
     },
-    "IB Last ticks · display batches ≈250ms" : {
+    "Session range · Frozen" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "IB 逐笔成交 · 约 250ms 批量显示"
+            "value" : "日内区间 · 冻结"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "IB 逐筆成交 · 約 250ms 批次顯示"
+            "value" : "日內區間 · 凍結"
           }
         }
       }
     },
-    "Historical bars · waiting for IB Last ticks" : {
+    "Session range · Unavailable" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "历史 K 线 · 等待 IB 逐笔成交"
+            "value" : "日内区间 · 暂无行情"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "歷史 K 線 · 等待 IB 逐筆成交"
+            "value" : "日內區間 · 暫無行情"
           }
         }
       }
     },
-    "Diagnostics" : {
+    "Show daily price range" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "诊断信息"
-          }
-        }
-      }
-    },
-    "Preview diagnostics" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "预览诊断信息"
-          }
-        }
-      }
-    },
-    "Diagnostics copied" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已复制诊断信息"
-          }
-        }
-      }
-    },
-    "Copy diagnostics" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "复制诊断信息"
-          }
-        }
-      }
-    },
-    "Includes app version, refresh status and request reference only. No account, positions, private address or credentials." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅包含应用版本、刷新状态和请求编号，不含账户、持仓、私人地址或凭据。"
-          }
-        }
-      }
-    },
-    "Final result not yet verified. Absence from pending orders does not confirm a fill or cancellation." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Final result not yet verified. Absence from pending orders does not confirm a fill or cancellation."
+            "value" : "展开当日价格区间"
           }
         },
-        "zh-Hans" : {
+        "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最终结果尚待核实。订单移出待处理列表，不代表已成交或撤单成功。"
+            "value" : "展開當日價格區間"
           }
         }
       }
     },
-    "Estimate" : {
+    "Show data status" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "预估"
+            "value" : "显示数据状态"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示資料狀態"
           }
         }
       }
     },
-    "Estimated change" : {
+    "Sold" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "预计变化"
+            "value" : "卖出"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "賣出"
           }
         }
       }
     },
-    "Update the backend to enable entry margin estimates." : {
+    "Submitted" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "请更新后端以启用开仓保证金预估。"
+            "value" : "已提交"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已提交"
           }
         }
       }
     },
-    "Margin estimate does not match the selected order." : {
+    "Switching account…" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "保证金预估与所选订单不一致。"
+            "value" : "正在切换账户…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在切換帳戶…"
           }
         }
       }
     },
-    "IB what-if estimate in USD, not cash collateral. Positive adds required margin; negative reduces it. Changes with account positions and market conditions; no order is submitted." : {
+    "Test delivery could not be confirmed. Check Bark before trying again." : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "IB What-if 美元预估，并非现金担保金额。正数表示增加所需保证金，负数表示减少；会随账户持仓和行情变化，不会提交订单。"
+            "value" : "无法确认测试通知是否送达。请先检查 Bark，再决定是否重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法確認測試通知是否送達。請先檢查 Bark，再決定是否重試。"
           }
         }
       }
     },
-    "Reported shares differ from current holdings. This cost snapshot does not describe the current position." : {
+    "Test delivery is pending. Pull to refresh its status." : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "报表股数与当前持仓不同，这份成本快照不能代表当前持仓成本。"
+            "value" : "测试通知正在等待送达，下拉可刷新状态。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "測試通知正在等待送達，下拉可刷新狀態。"
           }
         }
       }
     },
-    "· %@" : {},
+    "Test queued. Check Bark on your iPhone." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "测试通知已排队，请在 iPhone 上查看 Bark。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "測試通知已排隊，請在 iPhone 上查看 Bark。"
+          }
+        }
+      }
+    },
+    "The last test expired. Send a new test." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上次测试已过期，请重新发送测试通知。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上次測試已過期，請重新發送測試通知。"
+          }
+        }
+      }
+    },
+    "This order is awaiting broker confirmation. Other charts remain available." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此订单正在等待券商确认，其他图表仍可使用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此訂單正在等待券商確認，其他圖表仍可使用。"
+          }
+        }
+      }
+    },
+    "This stops new notifications for the selected account. A notification already in transit may still arrive." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这将停止所选账户的新通知。已经发送的通知仍可能到达。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這將停止所選帳戶的新通知。已經發送的通知仍可能到達。"
+          }
+        }
+      }
+    },
+    "Today's range" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今日波动"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今日波動"
+          }
+        }
+      }
+    },
+    "Trading sounds" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "交易提示音"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "交易提示音"
+          }
+        }
+      }
+    },
+    "Turn off Bark notifications?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭 Bark 通知？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉 Bark 通知？"
+          }
+        }
+      }
+    },
+    "Turn off for this account" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭此账户的通知"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉此帳戶的通知"
+          }
+        }
+      }
+    },
+    "Unable to obtain valid stock price" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法获取有效股价"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法取得有效股價"
+          }
+        }
+      }
+    },
+    "Unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂不可用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暫不可用"
+          }
+        }
+      }
+    },
+    "Unknown date" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日期未知"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日期未知"
+          }
+        }
+      }
+    },
+    "Updating…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在更新…"
+          }
+        }
+      }
+    },
+    "Via Bark" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通过 Bark"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通過 Bark"
+          }
+        }
+      }
+    },
+    "Wait for a fresh quote for this account and contract." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请等待此账户和合约的最新报价。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請等待此帳戶和合約的最新報價。"
+          }
+        }
+      }
+    },
+    "Wait for the current request before switching accounts." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请等待当前请求结束后再切换账户。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請等待當前請求結束後再切換帳戶。"
+          }
+        }
+      }
+    },
+    "Waiting for Gateway login…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待 Gateway 登录…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待 Gateway 登入…"
+          }
+        }
+      }
+    },
+    "Waiting for contract price increments." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待合约最小价格变动单位。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待合約最小價格變動單位。"
+          }
+        }
+      }
+    },
+    "cancelled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已撤单"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已撤單"
+          }
+        }
+      }
+    },
+    "draft" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "草稿"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "草稿"
+          }
+        }
+      }
+    },
+    "iPhone registered. APNs setup on Mini is pending." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone 已注册，等待在 Mini 上完成 APNs 配置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iPhone 已註冊，等待在 Mini 上完成 APNs 配置。"
+          }
+        }
+      }
+    },
+    "inactive" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "非活动"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "非活動"
+          }
+        }
+      }
+    },
+    "partially_filled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分成交"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分成交"
+          }
+        }
+      }
+    },
+    "processing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "处理中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "處理中"
+          }
+        }
+      }
+    },
+    "staged" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已暂存"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已暫存"
+          }
+        }
+      }
+    },
+    "submitted" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已提交"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已提交"
+          }
+        }
+      }
+    },
+    "—" : {
+
+    },
+    "· %@" : {
+
+    },
     "%@ · %@" : {
       "localizations" : {
         "en" : {
@@ -1313,6 +2787,28 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@ · %2$@ · %3$@ · %4$@ · %5$@\n%6$@ · %7$@ · %8$@\n%9$@"
+          }
+        }
+      }
+    },
+    "%@ · %@ · FUTURE" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@ · FUTURE"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@ · 期货"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %@ · 期貨"
           }
         }
       }
@@ -1363,6 +2859,42 @@
         }
       }
     },
+    "%@ %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ %2$@"
+          }
+        }
+      }
+    },
+    "%@ %@ %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ %2$@ %3$@"
+          }
+        }
+      }
+    },
+    "%@ awaiting P&L" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 等待盈亏数据"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 等待盈虧資料"
+          }
+        }
+      }
+    },
     "%@ shares" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1380,7 +2912,22 @@
         }
       }
     },
-    "×" : {},
+    "%@-%@-%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@-%2$@-%3$@"
+          }
+        }
+      }
+    },
+    "×" : {
+
+    },
+    "● NDX" : {
+
+    },
     "● Portfolio" : {
       "localizations" : {
         "zh-Hans" : {
@@ -1397,7 +2944,52 @@
         }
       }
     },
-    "● SPX" : {},
+    "● SPX" : {
+
+    },
+    "1 day" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1天"
+          }
+        }
+      }
+    },
+    "1 hour" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1小时"
+          }
+        }
+      }
+    },
+    "1 month" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1个月"
+          }
+        }
+      }
+    },
+    "1 week" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1周"
+          }
+        }
+      }
+    },
+    "1–%@" : {
+
+    },
     "1. Keep Tailscale connected on both devices." : {
       "localizations" : {
         "en" : {
@@ -1486,6 +3078,39 @@
         }
       }
     },
+    "7 Days" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7天"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7天"
+          }
+        }
+      }
+    },
+    "7-Day P&L" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7天盈亏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7天盈虧"
+          }
+        }
+      }
+    },
     "A confirmed working order owned by this API client is required" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1534,6 +3159,12 @@
             "state" : "translated",
             "value" : "成功响应只表示后端可访问，并不保证行情实时更新。冻结或缺失的价格可能与交易时段、行情订阅或券商数据权限有关。请先核对报价时间和 Gateway 状态，再判断是否需要重启。"
           }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成功回應只表示後端可訪問，並不保證行情即時更新。凍結或缺失的價格可能與交易時段、行情訂閱或券商資料權限有關。請先核對報價時間和 Gateway 狀態，再判斷是否需要重啟。"
+          }
         }
       }
     },
@@ -1559,6 +3190,9 @@
           }
         }
       }
+    },
+    "Above 1 hour, only the primary EMA20 is shown. Applies to all indicators in this chart. Hidden indicators return when you switch to an allowed timeframe. Changes apply immediately and are saved." : {
+
     },
     "Access & Feedback" : {
       "extractionState" : "manual",
@@ -1616,6 +3250,69 @@
         }
       }
     },
+    "Account data is not ready. Retry connection." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account data is not ready. Retry connection."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "账户数据尚未就绪，请重试连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "帳戶資料尚未就緒，請重試連線。"
+          }
+        }
+      }
+    },
+    "Account mode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "账户模式"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "帳戶模式"
+          }
+        }
+      }
+    },
+    "Account verification is incomplete. Retry connection." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account verification is incomplete. Retry connection."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "账户验证尚未完成，请重试连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "帳戶驗證尚未完成，請重試連線。"
+          }
+        }
+      }
+    },
     "Action" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1646,6 +3343,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "新增"
+          }
+        }
+      }
+    },
+    "Add exits to the current position. Profit % uses the broker cost basis, which may include fees." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为当前持仓补挂退出单。获利百分比按券商成本计算，成本可能含手续费。"
           }
         }
       }
@@ -1790,6 +3497,22 @@
         }
       }
     },
+    "Applies to this order only. DAY expires at the end of its trading session." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅适用于此订单。DAY 在所属交易时段结束时到期。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "僅適用於此訂單。DAY 在所屬交易時段結束時到期。"
+          }
+        }
+      }
+    },
     "Apply" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1803,6 +3526,27 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "應用"
+          }
+        }
+      }
+    },
+    "Apply TP / SL" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "应用 TP / SL"
+          }
+        }
+      }
+    },
+    "Apply updates the current preview and saves these distances for new orders." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "应用后将更新当前预览，并将这些距离保存用于新订单。"
           }
         }
       }
@@ -1917,6 +3661,29 @@
             "state" : "translated",
             "value" : "等待券商状态更新；处理中不代表已成交。"
           }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待券商狀態更新；處理中不代表已成交。"
+          }
+        }
+      }
+    },
+    "Awaiting fill" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待成交"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待成交"
+          }
         }
       }
     },
@@ -1943,6 +3710,23 @@
         }
       }
     },
+    "Back" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回"
+          }
+        }
+      }
+    },
     "Backend responding" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1950,6 +3734,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "后端有响应"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "後端有回應"
           }
         }
       }
@@ -1971,19 +3761,91 @@
         }
       }
     },
+    "Bars to render" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示K线数量"
+          }
+        }
+      }
+    },
+    "BE" : {
+
+    },
+    "Bearish opacity" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下跌透明度"
+          }
+        }
+      }
+    },
+    "Before fees · commission confirmation pending" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未扣手续费 · 等待佣金确认"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未扣手續費 · 等待傭金確認"
+          }
+        }
+      }
+    },
+    "Benchmark history unavailable; account history is retained." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂时无法获取基准历史数据，账户历史数据已保留。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暫時無法取得基準歷史資料，帳戶歷史資料已保留。"
+          }
+        }
+      }
+    },
     "Bid / Ask" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bid / Ask"
+            "value" : "买价／卖价"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bid / Ask"
+            "value" : "買價／賣價"
+          }
+        }
+      }
+    },
+    "Both TP and SL will be canceled. The position remains open without protection." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将同时撤销止盈和止损。持仓保持不变，但不再有保护订单。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "將同時撤銷止盈和止損。持倉保持不變，但不再有保護訂單。"
           }
         }
       }
@@ -2057,6 +3919,32 @@
         }
       }
     },
+    "Bullish opacity" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上涨透明度"
+          }
+        }
+      }
+    },
+    "Buy" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "买入"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "買入"
+          }
+        }
+      }
+    },
     "BUY %@ %@ at %@\nSELL %@ %@ · %@ · %@ at %@\nExecution is separate in Orders." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2086,13 +3974,13 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "BUY TO CLOSE · GTC"
+            "value" : "买入平仓 · GTC"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "BUY TO CLOSE · GTC"
+            "value" : "買入平倉 · GTC"
           }
         }
       }
@@ -2109,6 +3997,33 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "目前顯示快取歷史資料 · 等待重新整理"
+          }
+        }
+      }
+    },
+    "Call" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "看涨期权"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "看漲期權"
+          }
+        }
+      }
+    },
+    "Cancel all TP / SL" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "撤销全部 TP / SL"
           }
         }
       }
@@ -2147,6 +4062,51 @@
         }
       }
     },
+    "Cancel SL?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "撤销止损 SL？"
+          }
+        }
+      }
+    },
+    "Cancel TP?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "撤销止盈 TP？"
+          }
+        }
+      }
+    },
+    "canceled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canceled"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已取消"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已取消"
+          }
+        }
+      }
+    },
     "Canceled. Any earlier fills remain valid." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2154,6 +4114,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已撤单，此前发生的成交仍然有效。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已撤單，此前發生的成交仍然有效。"
           }
         }
       }
@@ -2165,6 +4131,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已申请撤单；IB 确认撤单前仍有可能成交。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已申請撤單；IB 確認撤單前仍有可能成交。"
           }
         }
       }
@@ -2252,6 +4224,16 @@
         }
       }
     },
+    "Changes apply immediately and are saved." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更改立即生效并自动保存。"
+          }
+        }
+      }
+    },
     "Changing the overnight route requires canceling and recreating the order" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2271,6 +4253,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "切換隔夜交易須先撤單，再重新建立訂單"
+          }
+        }
+      }
+    },
+    "Chart details" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图表说明"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "圖表說明"
+          }
+        }
+      }
+    },
+    "Chart updates paused · verify connection" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图表更新暂停 · 请检查连接"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "圖表更新暫停 · 請檢查連線"
           }
         }
       }
@@ -2300,6 +4316,12 @@
             "state" : "translated",
             "value" : "请检查 Tailscale、系统自动日期与时间，并在 Safari 打开相同的 HTTPS 地址。不要跳过证书验证。"
           }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請檢查 Tailscale、系統自動日期與時間，並在 Safari 打開相同的 HTTPS 地址。不要跳過證書驗證。"
+          }
         }
       }
     },
@@ -2327,6 +4349,12 @@
             "state" : "translated",
             "value" : "先检查 Wi-Fi 或蜂窝网络及 Tailscale，再确认后端地址和 Mini 服务。仅凭超时无法判断哪一段连接出现故障。"
           }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先檢查 Wi-Fi 或行動網路及 Tailscale，再確認後端地址和 Mini 服務。僅憑超時無法判斷哪一段連接出現故障。"
+          }
         }
       }
     },
@@ -2342,6 +4370,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "請選擇其他圖片後重試。"
+          }
+        }
+      }
+    },
+    "close" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平仓"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平倉"
           }
         }
       }
@@ -2393,6 +4444,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "平倉每股限價"
+          }
+        }
+      }
+    },
+    "Close Position" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "平仓"
           }
         }
       }
@@ -2471,6 +4532,16 @@
         }
       }
     },
+    "Confirm adding exits" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认添加退出订单"
+          }
+        }
+      }
+    },
     "Confirm demo action" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2505,6 +4576,33 @@
         }
       }
     },
+    "Confirm replacing protection" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认重建退出订单"
+          }
+        }
+      }
+    },
+    "Confirmed closed-order net P&L for the selected period · New York dates" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所选期间已确认的平仓净盈亏 · 按纽约日期统计"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所選期間已確認的平倉淨盈虧 · 按紐約日期統計"
+          }
+        }
+      }
+    },
     "Connect" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2534,6 +4632,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "請在設定中連接後端。"
+          }
+        }
+      }
+    },
+    "Connected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connected"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已连接"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已連線"
           }
         }
       }
@@ -2736,6 +4857,23 @@
         }
       }
     },
+    "Copy diagnostics" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制诊断信息"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "複製診斷資訊"
+          }
+        }
+      }
+    },
     "Copy the connection address into your VNC client, or use Screen Sharing on your Mac." : {
       "localizations" : {
         "en" : {
@@ -2765,6 +4903,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "成本总额"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成本總額"
           }
         }
       }
@@ -2881,6 +5025,16 @@
         }
       }
     },
+    "Current position: %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前持仓：%@"
+          }
+        }
+      }
+    },
     "Current price" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2965,6 +5119,16 @@
         }
       }
     },
+    "Dashed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "虚线"
+          }
+        }
+      }
+    },
     "Data status" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2973,10 +5137,18 @@
             "state" : "translated",
             "value" : "数据状态"
           }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "資料狀態"
+          }
         }
       }
     },
-    "DAY" : {},
+    "DAY" : {
+
+    },
     "Debit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3011,7 +5183,9 @@
         }
       }
     },
-    "Delta" : {},
+    "Delta" : {
+
+    },
     "Demo" : {
       "localizations" : {
         "en" : {
@@ -3123,6 +5297,40 @@
         }
       }
     },
+    "Diagnostics" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "诊断信息"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "診斷資訊"
+          }
+        }
+      }
+    },
+    "Diagnostics copied" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已复制诊断信息"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已複製診斷資訊"
+          }
+        }
+      }
+    },
     "Difference" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3136,6 +5344,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "差額"
+          }
+        }
+      }
+    },
+    "Disconnected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未连接"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未連線"
           }
         }
       }
@@ -3159,6 +5384,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "關閉通知"
+          }
+        }
+      }
+    },
+    "Distance" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "价差"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "價差"
           }
         }
       }
@@ -3197,6 +5438,38 @@
         }
       }
     },
+    "Dotted" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点线"
+          }
+        }
+      }
+    },
+    "Enable SL" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用止损 SL"
+          }
+        }
+      }
+    },
+    "Enable TP" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用止盈 TP"
+          }
+        }
+      }
+    },
     "English lettering" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3220,6 +5493,16 @@
         }
       }
     },
+    "Enter a positive value for each enabled exit." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请为已启用的退出订单填写正数。"
+          }
+        }
+      }
+    },
     "Enter your private HTTPS backend address in Settings." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3233,6 +5516,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "請在設置中輸入你的私有 HTTPS 後端地址。"
+          }
+        }
+      }
+    },
+    "Entry fill · P&L shown on exit" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开仓成交 · 平仓后显示盈亏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開倉成交 · 平倉後顯示盈虧"
           }
         }
       }
@@ -3254,6 +5553,57 @@
         }
       }
     },
+    "Entry reference" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "参考入场价"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "參考進場價"
+          }
+        }
+      }
+    },
+    "Entry type" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "入场类型"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "進場類型"
+          }
+        }
+      }
+    },
+    "Estimate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "预估"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "預估"
+          }
+        }
+      }
+    },
     "Estimate margin impact" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3267,6 +5617,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "查詢保證金影響"
+          }
+        }
+      }
+    },
+    "Estimated change" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "预计变化"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "預計變化"
           }
         }
       }
@@ -3321,6 +5688,35 @@
         }
       }
     },
+    "ETH" : {
+
+    },
+    "ETH includes available extended-hours data. Time: New York." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ETH 包含可用的延长时段行情。时间：纽约。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ETH 包含可用的延長時段行情。時間：紐約。"
+          }
+        }
+      }
+    },
+    "Every third bar, plus the reference indicator’s highlighted counts." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每隔三根K线显示计数，并显示参考指标突出标记的计数。"
+          }
+        }
+      }
+    },
     "Excess liquidity" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3367,6 +5763,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已執行記錄"
+          }
+        }
+      }
+    },
+    "Existing exits will be canceled before replacement. Protection may be interrupted. A fill or uncertain response stops replacement; inspect the refreshed orders." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先确认撤销旧退出单，再建立新单，期间可能没有保护。若出现成交或结果不明确，将停止重建，请核对刷新后的订单。"
           }
         }
       }
@@ -3428,6 +5834,68 @@
         }
       }
     },
+    "filled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filled"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已完成"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已完成"
+          }
+        }
+      }
+    },
+    "Filled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已成交"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已成交"
+          }
+        }
+      }
+    },
+    "Filled %@ / %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Filled %1$@ / %2$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已成交 %@ / %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已成交 %@ / %@"
+          }
+        }
+      }
+    },
     "Filled %@ / %@ · %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3458,6 +5926,84 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已成交，请核对记录中的成交数量和价格。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已成交，請核對記錄中的成交數量和價格。"
+          }
+        }
+      }
+    },
+    "Final result not yet verified. Absence from pending orders does not confirm a fill or cancellation." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Final result not yet verified. Absence from pending orders does not confirm a fill or cancellation."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最终结果尚待核实。订单移出待处理列表，不代表已成交或撤单成功。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最終結果尚待核實。訂單移出待處理列表，不代表已成交或撤單成功。"
+          }
+        }
+      }
+    },
+    "Flex needs daily Change in NAV with TWR (Breakout by Day)." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flex 报表需要包含按日拆分的净资产变化及时间加权收益率（TWR）。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flex 報表需要包含按日拆分的淨資產變化及時間加權報酬率（TWR）。"
+          }
+        }
+      }
+    },
+    "Flex report is still generating; retry later." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flex 报表仍在生成中，请稍后重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flex 報表仍在產生中，請稍後重試。"
+          }
+        }
+      }
+    },
+    "From" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "從"
           }
         }
       }
@@ -3512,6 +6058,48 @@
         }
       }
     },
+    "Future" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "期货"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "期貨"
+          }
+        }
+      }
+    },
+    "Futures" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "期货"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "期貨"
+          }
+        }
+      }
+    },
+    "Futures use one protected bracket per contract. Add creates new brackets. Trim exits selected contracts at bid/ask while keeping every other bracket unchanged." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "期货每手使用独立的保护括号订单。加仓会创建新的括号订单；减仓按买卖报价平掉所选合约，其余括号订单保持不变。"
+          }
+        }
+      }
+    },
     "Gateway average cost" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3519,6 +6107,35 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gateway 平均成本"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gateway 平均成本"
+          }
+        }
+      }
+    },
+    "Gateway login is still pending. Complete IB Key if prompted, then retry connection." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gateway login is still pending. Complete IB Key if prompted, then retry connection."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gateway 仍在等待登录。如有提示，请完成 IB Key 验证后重试连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gateway 仍在等待登入。如有提示，請完成 IB Key 驗證後重試連線。"
           }
         }
       }
@@ -3540,7 +6157,31 @@
         }
       }
     },
-    "GTC" : {},
+    "Gross %@ · Entry + exit fees %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Gross %1$@ · Entry + exit fees %2$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "毛盈亏 %@ · 开平仓手续费 %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "毛盈虧 %@ · 開平倉手續費 %@"
+          }
+        }
+      }
+    },
+    "GTC" : {
+
+    },
     "Half" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3631,6 +6272,23 @@
         }
       }
     },
+    "Historical bars · waiting for IB Last ticks" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "历史 K 线 · 等待 IB 逐笔成交"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "歷史 K 線 · 等待 IB 逐筆成交"
+          }
+        }
+      }
+    },
     "History is still generating. Try Refresh shortly." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3644,6 +6302,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "歷史資料仍在產生，請稍後重新整理。"
+          }
+        }
+      }
+    },
+    "History: compounded daily IBKR TWR. SPX and NDX: IBKR daily closes with retained FRED history as fallback, excluding reinvested dividends. Intraday estimate uses daily P&L / last reported NAV; deposits, withdrawals and IB reset times may affect comparability. Final returns follow the next Flex report." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "历史收益按 IBKR 每日时间加权收益率复利计算。SPX 和 NDX 优先使用 IBKR 每日收盘价，缺失时使用保留的 FRED 历史数据，不包含股息再投资。盘中收益率按当日盈亏除以上次报告的资产净值估算；出入金及 IB 数据重置时间可能影响可比性。最终收益以下一份 Flex 报告为准。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "歷史收益按 IBKR 每日時間加權收益率復利計算。SPX 和 NDX 優先使用 IBKR 每日收盤價，缺失時使用保留的 FRED 歷史資料，不包含股息再投資。盤中收益率按當日盈虧除以上次報告的資產淨值估算；出入金及 IB 資料重置時間可能影響可比性。最終收益以下一份 Flex 報告為準。"
           }
         }
       }
@@ -3695,6 +6369,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "我已核對訂單結果"
+          }
+        }
+      }
+    },
+    "IB Last ticks · display batches ≈250ms" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IB 逐笔成交 · 约 250ms 批量显示"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IB 逐筆成交 · 約 250ms 批次顯示"
           }
         }
       }
@@ -3763,6 +6454,28 @@
             "state" : "translated",
             "value" : "IB 显示订单正在工作，这不代表已经成交。"
           }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IB 顯示訂單正在工作，這不代表已經成交。"
+          }
+        }
+      }
+    },
+    "IB what-if estimate in USD, not cash collateral. Positive adds required margin; negative reduces it. Changes with account positions and market conditions; no order is submitted." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IB What-if 美元预估，并非现金担保金额。正数表示增加所需保证金，负数表示减少；会随账户持仓和行情变化，不会提交订单。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IB What-if 美元預估，並非現金擔保金額。正數表示增加所需保證金，負數表示減少；會隨帳戶持倉和行情變化，不會提交訂單。"
+          }
         }
       }
     },
@@ -3799,12 +6512,69 @@
         }
       }
     },
+    "IBKR could not generate the Flex report; check query and token." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IBKR 未能生成 Flex 报表，请检查查询配置和令牌。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IBKR 未能產生 Flex 報表，請檢查查詢設定和權杖。"
+          }
+        }
+      }
+    },
+    "IBKR excluded the configured account from this Flex report. Previous history is retained; a complete report is required." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IBKR 本次报表未包含所选账户。已保留历史数据，等待完整报表后更新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IBKR 本次報表未包含所選帳戶。已保留歷史資料，等待完整報表後更新。"
+          }
+        }
+      }
+    },
+    "IBKR rejected the Flex report request." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IBKR 拒绝了 Flex 报表请求。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IBKR 拒絕了 Flex 報表請求。"
+          }
+        }
+      }
+    },
     "IBKR reported cost" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "IBKR 报表成本"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IBKR 報表成本"
           }
         }
       }
@@ -3844,6 +6614,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "導入背景"
+          }
+        }
+      }
+    },
+    "Includes app version, refresh status and request reference only. No account, positions, private address or credentials." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅包含应用版本、刷新状态和请求编号，不含账户、持仓、私人地址或凭据。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "僅包含應用版本、刷新狀態和請求編號，不含帳戶、持倉、私人地址或憑據。"
           }
         }
       }
@@ -3894,6 +6680,33 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "水墨山景"
+          }
+        }
+      }
+    },
+    "Inputs" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "参数"
+          }
+        }
+      }
+    },
+    "Interval" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "周期"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "週期"
           }
         }
       }
@@ -3989,7 +6802,44 @@
         }
       }
     },
-    "IV" : {},
+    "IV" : {
+
+    },
+    "Join Ask" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取卖价"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取賣價"
+          }
+        }
+      }
+    },
+    "Join Bid" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取买价"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取買價"
+          }
+        }
+      }
+    },
+    "Join Mid" : {
+
+    },
     "Keyboard and access" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4036,6 +6886,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "上次后端响应"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上次後端回應"
           }
         }
       }
@@ -4253,6 +7109,49 @@
         }
       }
     },
+    "LMT" : {
+
+    },
+    "Loading account…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading account…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载账户…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在載入帳戶…"
+          }
+        }
+      }
+    },
+    "Loading chart…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载图表…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在載入圖表…"
+          }
+        }
+      }
+    },
     "Loading opportunities…" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4278,6 +7177,35 @@
             "state" : "translated",
             "value" : "本地草稿，尚未发送给 IB。"
           }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本地草稿，尚未發送給 IB。"
+          }
+        }
+      }
+    },
+    "Log in to the selected IB Gateway mode on Mini. Connection will complete automatically." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Log in to the selected IB Gateway mode on Mini. Connection will complete automatically."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请在 Mini 登录所选模式的 IB Gateway，App 将自动完成连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請在 Mini 登入所選模式的 IB Gateway，App 將自動完成連線。"
+          }
         }
       }
     },
@@ -4294,6 +7222,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "虧損"
+          }
+        }
+      }
+    },
+    "Loss %" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "亏损 %"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "虧損 %"
           }
         }
       }
@@ -4315,6 +7260,17 @@
         }
       }
     },
+    "Manage TP / SL" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "管理 TP / SL"
+          }
+        }
+      }
+    },
     "Margin details" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4328,6 +7284,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "保證金明細"
+          }
+        }
+      }
+    },
+    "Margin estimate does not match the selected order." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保证金预估与所选订单不一致。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保證金預估與所選訂單不一致。"
           }
         }
       }
@@ -4417,6 +7390,16 @@
         }
       }
     },
+    "Min Gap ATR Factor" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最小缺口 ATR 系数"
+          }
+        }
+      }
+    },
     "Mini must allow your macOS account to observe and control the screen. Use Standard sharing; no public port forwarding is needed." : {
       "localizations" : {
         "en" : {
@@ -4486,6 +7469,45 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "修改正在等待确认；当前显示的参数可能仍是修改前的值。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修改正在等待確認；當前顯示的參數可能仍是修改前的值。"
+          }
+        }
+      }
+    },
+    "Money" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "金额"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "金額"
+          }
+        }
+      }
+    },
+    "Month-to-date P&L" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本月盈亏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本月盈虧"
           }
         }
       }
@@ -4746,12 +7768,61 @@
         }
       }
     },
+    "not_requested" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未设置退出订单"
+          }
+        }
+      }
+    },
+    "Off" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉"
+          }
+        }
+      }
+    },
     "Official report snapshot. Live Gateway cost and P&L below use a separate basis; recent trades may not yet be included." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "官方报表快照。下方实时 Gateway 成本与盈亏使用另一口径，最近的交易可能尚未计入报表。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "官方報表快照。下方即時 Gateway 成本與盈虧使用另一口徑，最近的交易可能尚未計入報表。"
+          }
+        }
+      }
+    },
+    "On" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟"
           }
         }
       }
@@ -4791,6 +7862,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "只能對明確匹配的期權空頭持倉進行移倉。"
+          }
+        }
+      }
+    },
+    "Opacity" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透明度"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "透明度"
           }
         }
       }
@@ -4835,6 +7922,22 @@
         }
       }
     },
+    "Option" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "期权"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "期權"
+          }
+        }
+      }
+    },
     "Option data unavailable." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4848,6 +7951,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "暫時無法獲取期權數據。"
+          }
+        }
+      }
+    },
+    "Optional TP / SL · GTC" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TP / SL 独立可选 · GTC"
           }
         }
       }
@@ -5065,6 +8179,12 @@
             "state" : "translated",
             "value" : "订单已被拒绝或处于非活动状态，请查看券商详情。"
           }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "訂單已被拒絕或處於非活動狀態，請查看券商詳情。"
+          }
         }
       }
     },
@@ -5119,7 +8239,9 @@
         }
       }
     },
-    "OVT" : {},
+    "OVT" : {
+
+    },
     "OVT · Overnight session only. Requires broker permission and an eligible stock." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5139,6 +8261,48 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "OVT · 僅限單次隔夜時段，需券商權限及標的支援。"
+          }
+        }
+      }
+    },
+    "OVT uses an overnight limit order without TP/SL. No TP/SL protection is attached to an OVT entry." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OVT 使用隔夜限价单，不附带止盈或止损保护。"
+          }
+        }
+      }
+    },
+    "P&L —" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "盈亏 —"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "盈虧 —"
+          }
+        }
+      }
+    },
+    "P&L awaiting matched entry / broker report" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "盈亏等待匹配开仓记录或券商报告"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "盈虧等待匹配開倉記錄或券商報告"
           }
         }
       }
@@ -5174,6 +8338,12 @@
             "state" : "translated",
             "value" : "已部分成交；剩余数量尚未确认成交。"
           }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已部分成交；剩餘數量尚未確認成交。"
+          }
         }
       }
     },
@@ -5189,6 +8359,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "待處理"
+          }
+        }
+      }
+    },
+    "Percent" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "百分比"
           }
         }
       }
@@ -5209,6 +8389,23 @@
         }
       }
     },
+    "Performance data download failed; check backend connectivity/configuration." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收益数据下载失败，请检查后端网络连接与配置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收益資料下載失敗，請檢查後端網路連線與設定。"
+          }
+        }
+      }
+    },
     "Performance endpoint unavailable." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5222,6 +8419,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "收益資料服務暫時無法使用。"
+          }
+        }
+      }
+    },
+    "Performance history could not be parsed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法解析收益历史数据，已保留原有记录。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法解析收益歷史資料，已保留原有紀錄。"
           }
         }
       }
@@ -5311,6 +8525,23 @@
         }
       }
     },
+    "Position" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "持仓"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "持倉"
+          }
+        }
+      }
+    },
     "Position changed. Return to Portfolio and review." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5367,6 +8598,17 @@
         }
       }
     },
+    "Position TP / SL" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "持仓 TP / SL"
+          }
+        }
+      }
+    },
     "Positions" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5418,6 +8660,23 @@
         }
       }
     },
+    "Preview diagnostics" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "预览诊断信息"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "預覽診斷資訊"
+          }
+        }
+      }
+    },
     "Preview only. No order was submitted or changed." : {
       "localizations" : {
         "en" : {
@@ -5440,6 +8699,19 @@
         }
       }
     },
+    "Previous DAY order · No current open orders or position" : {
+
+    },
+    "Prices and market-data permissions come from the connected IB account." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "价格及行情权限由当前连接的 IB 账户提供。"
+          }
+        }
+      }
+    },
     "Profit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5453,6 +8725,43 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "盈利"
+          }
+        }
+      }
+    },
+    "Profit %" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "获利百分比"
+          }
+        }
+      }
+    },
+    "Profit % uses the entry premium before fees. A short option sold at 2.12 with 75% profit targets 0.53, rounded to the contract tick." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "获利百分比按开仓权利金计算，未计手续费。以 2.12 卖出期权，获利 75% 的目标买回价为 0.53，并按合约最小价位取整。"
+          }
+        }
+      }
+    },
+    "Put" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "看跌期权"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "看跌期權"
           }
         }
       }
@@ -5582,6 +8891,19 @@
         }
       }
     },
+    "Quantity or time-in-force changes cancel and replace the unfilled order. Queue priority resets." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修改数量或有效期将撤销并替换未成交订单，排队优先级会重置。"
+          }
+        }
+      }
+    },
+    "Quick Add, Trim and Close use fresh midpoint limits. Prices selected on the chart are preserved. Orders do not automatically follow quotes; immediate fill is not guaranteed." : {
+
+    },
     "Quote" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5663,6 +8985,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "隨機背景"
+          }
+        }
+      }
+    },
+    "Read only" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只读"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "唯讀"
           }
         }
       }
@@ -5803,6 +9142,29 @@
         }
       }
     },
+    "rejected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rejected"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "被拒绝"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "被拒絕"
+          }
+        }
+      }
+    },
     "Remaining" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5883,6 +9245,38 @@
         }
       }
     },
+    "Remove SL; keep position" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "撤销 SL，保留持仓"
+          }
+        }
+      }
+    },
+    "Remove TP; keep position" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "撤销 TP，保留持仓"
+          }
+        }
+      }
+    },
+    "Replace the saved settings for %@?" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "替换 %@ 已保存的设置？"
+          }
+        }
+      }
+    },
     "Report date" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5890,6 +9284,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "报表日期"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "報表日期"
           }
         }
       }
@@ -5918,6 +9318,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "报表股数"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "報表股數"
+          }
+        }
+      }
+    },
+    "Reported shares differ from current holdings. This cost snapshot does not describe the current position." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "报表股数与当前持仓不同，这份成本快照不能代表当前持仓成本。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "報表股數與當前持倉不同，這份成本快照不能代表當前持倉成本。"
           }
         }
       }
@@ -5998,6 +9420,12 @@
             "state" : "translated",
             "value" : "结果尚未确认，请先在 IB 核实，再执行其他操作。"
           }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "結果尚未確認，請先在 IB 核實，再執行其他操作。"
+          }
         }
       }
     },
@@ -6031,6 +9459,29 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "重試"
+          }
+        }
+      }
+    },
+    "Retry connection" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry connection"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重试连接"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重試連線"
           }
         }
       }
@@ -6090,6 +9541,9 @@
           }
         }
       }
+    },
+    "RTH" : {
+
     },
     "Save changes" : {
       "extractionState" : "manual",
@@ -6242,6 +9696,12 @@
         }
       }
     },
+    "Select expiration" : {
+
+    },
+    "Select strike" : {
+
+    },
     "Selected contract unavailable. Refresh before staging." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6272,6 +9732,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "所選合約估算"
+          }
+        }
+      }
+    },
+    "Sell" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "卖出"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "賣出"
           }
         }
       }
@@ -6327,6 +9803,23 @@
         }
       }
     },
+    "Session" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "交易时段"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "交易時段"
+          }
+        }
+      }
+    },
     "Settings" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6374,6 +9867,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "分享圖片"
+          }
+        }
+      }
+    },
+    "Shares" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "股数"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "股數"
           }
         }
       }
@@ -6428,6 +9938,9 @@
         }
       }
     },
+    "Show on timeframes" : {
+
+    },
     "Simulation only" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6445,6 +9958,56 @@
         }
       }
     },
+    "SL distance" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "止损价差"
+          }
+        }
+      }
+    },
+    "SL input" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "止损输入"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "止損輸入"
+          }
+        }
+      }
+    },
+    "SL target price" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "止损目标价"
+          }
+        }
+      }
+    },
+    "sl_only" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅止损"
+          }
+        }
+      }
+    },
     "Snapshot quote · verify before execution" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6458,6 +10021,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "快照報價 · 執行前請核對"
+          }
+        }
+      }
+    },
+    "Solid" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实线"
           }
         }
       }
@@ -6670,6 +10243,22 @@
         }
       }
     },
+    "Stock" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "股票"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "股票"
+          }
+        }
+      }
+    },
     "Stock price" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6720,6 +10309,12 @@
         }
       }
     },
+    "Stocks / Futures" : {
+
+    },
+    "STP" : {
+
+    },
     "Strategy" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6754,6 +10349,25 @@
         }
       }
     },
+    "Style" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "样式"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "樣式"
+          }
+        }
+      }
+    },
+    "Submit chart right-click Buy/Sell and drag or remove TP/SL without confirmation. Other order edits still require confirmation." : {
+
+    },
     "System" : {
       "localizations" : {
         "zh-Hans" : {
@@ -6786,6 +10400,29 @@
         }
       }
     },
+    "Tap a star to save an instrument across web and iOS." : {
+
+    },
+    "Target price" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目标价"
+          }
+        }
+      }
+    },
+    "Template actions: %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模板操作：%@"
+          }
+        }
+      }
+    },
     "The backend is reachable, but IB requests are busy. Allow automatic retries to back off. If this persists, check Mini and Gateway; this does not by itself mean Gateway disconnected." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6793,6 +10430,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "可以连接后端，但 IB 请求繁忙。请等待自动刷新退避重试；如果持续出现，请检查 Mini 和 Gateway。这并不直接代表 Gateway 已断开。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可以連接後端，但 IB 請求繁忙。請等待自動刷新退避重試；如果持續出現，請檢查 Mini 和 Gateway。這並不直接代表 Gateway 已斷開。"
+          }
+        }
+      }
+    },
+    "The configured account is missing from this Flex report. Previous history is retained." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本次 Flex 报表缺少所选账户，已保留历史数据。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本次 Flex 報表缺少所選帳戶，已保留歷史資料。"
+          }
+        }
+      }
+    },
+    "The selected exits will be canceled. Your position remains open. Check remaining orders after cancellation." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将撤销选定的退出订单，持仓保留。撤单后请核对剩余订单。"
           }
         }
       }
@@ -6803,6 +10474,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此处时间是上次成功刷新后端数据的时间，并非交易所报价时间。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此處時間是上次成功刷新後端資料的時間，並非交易所報價時間。"
           }
         }
       }
@@ -6823,6 +10500,26 @@
         }
       }
     },
+    "This will close the current symbol when live chart trading is enabled. No order has been sent; your position is unchanged." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用实盘图表交易后，此操作将平掉当前品种的持仓。目前未发送订单，持仓未发生变化。"
+          }
+        }
+      }
+    },
+    "Ticks" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最小跳动"
+          }
+        }
+      }
+    },
     "Time in force" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6836,6 +10533,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "有效期"
+          }
+        }
+      }
+    },
+    "Time in force: %@. Applies to this order only." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有效期：%@。仅适用于此订单。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有效期：%@。僅適用於此訂單。"
+          }
+        }
+      }
+    },
+    "to" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "至"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "至"
           }
         }
       }
@@ -6918,6 +10647,28 @@
         }
       }
     },
+    "TP input" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "止盈输入方式"
+          }
+        }
+      }
+    },
+    "tp_only" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅止盈"
+          }
+        }
+      }
+    },
     "Trade" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6952,10 +10703,62 @@
         }
       }
     },
+    "Trading enabled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "允许提交订单"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "允許提交訂單"
+          }
+        }
+      }
+    },
+    "TradingView Lightweight Charts™ · Copyright © 2025 TradingView, Inc." : {
+
+    },
+    "trim" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trim"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "减仓"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "減倉"
+          }
+        }
+      }
+    },
+    "Trim" : {
+
+    },
     "Troubleshooting" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "故障排查"
+          }
+        },
+        "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "故障排查"
@@ -7030,6 +10833,62 @@
         }
       }
     },
+    "unknown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unknown"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未确认"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未確認"
+          }
+        }
+      }
+    },
+    "Unknown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未确认"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未確認"
+          }
+        }
+      }
+    },
+    "Unknown and unsupported orders are excluded. TP/SL pairs are canceled together; positions remain open without protection. Stops on the first failure. Wait for IB confirmation." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不包含状态未知或不支持的订单。止盈止损订单会成对撤销；持仓保留，但不再有保护。首次失败时停止操作，请等待 IB 确认。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不包含狀態未知或不支持的訂單。止盈止損訂單會成對撤銷；持倉保留，但不再有保護。首次失敗時停止操作，請等待 IB 確認。"
+          }
+        }
+      }
+    },
     "Unrealized P&L" : {
       "localizations" : {
         "zh-Hans" : {
@@ -7059,6 +10918,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "不支持此移倉合約。"
+          }
+        }
+      }
+    },
+    "Update the backend to enable entry margin estimates." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请更新后端以启用开仓保证金预估。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請更新後端以啟用開倉保證金預估。"
           }
         }
       }
@@ -7153,6 +11029,25 @@
         }
       }
     },
+    "Visibility" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可见性"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可見性"
+          }
+        }
+      }
+    },
+    "Wait for the current order request to finish." : {
+
+    },
     "Wall Street" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7208,6 +11103,29 @@
         }
       }
     },
+    "working" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Working"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "处理中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "處理中"
+          }
+        }
+      }
+    },
     "YTD" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7224,586 +11142,7 @@
           }
         }
       }
-    },
-    "—" : {},
-    "%@ · %@ · FUTURE" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ · %2$@ · FUTURE"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ · %@ · 期货"
-          }
-        }
-      }
-    },
-    "%@ %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ %2$@"
-          }
-        }
-      }
-    },
-    "%@ %@ %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ %2$@ %3$@"
-          }
-        }
-      }
-    },
-    "%@ awaiting P&L" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 等待盈亏数据"
-          }
-        }
-      }
-    },
-    "1 day" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1天"
-          }
-        }
-      }
-    },
-    "1 hour" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1小时"
-          }
-        }
-      }
-    },
-    "1 month" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1个月"
-          }
-        }
-      }
-    },
-    "1 week" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1周"
-          }
-        }
-      }
-    },
-    "1–%@" : {},
-    "7 Days" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "7天"
-          }
-        }
-      }
-    },
-    "Apply updates the current preview and saves these distances for new orders." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "应用后将更新当前预览，并将这些距离保存用于新订单。"
-          }
-        }
-      }
-    },
-    "Bars to render" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "显示K线数量"
-          }
-        }
-      }
-    },
-    "BE" : {},
-    "Bearish opacity" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "下跌透明度"
-          }
-        }
-      }
-    },
-    "Before fees · commission confirmation pending" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未扣手续费 · 等待佣金确认"
-          }
-        }
-      }
-    },
-    "Bullish opacity" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "上涨透明度"
-          }
-        }
-      }
-    },
-    "Changes apply immediately and are saved." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "更改立即生效并自动保存。"
-          }
-        }
-      }
-    },
-    "Close Position" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "平仓"
-          }
-        }
-      }
-    },
-    "Current position: %@" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前持仓：%@"
-          }
-        }
-      }
-    },
-    "Dashed" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "虚线"
-          }
-        }
-      }
-    },
-    "Dotted" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "点线"
-          }
-        }
-      }
-    },
-    "Entry fill · P&L shown on exit" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "开仓成交 · 平仓后显示盈亏"
-          }
-        }
-      }
-    },
-    "ETH" : {},
-    "Every third bar, plus the reference indicator’s highlighted counts." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "每隔三根K线显示计数，并显示参考指标突出标记的计数。"
-          }
-        }
-      }
-    },
-    "Filled %@ / %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Filled %1$@ / %2$@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已成交 %@ / %@"
-          }
-        }
-      }
-    },
-    "Future" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "期货"
-          }
-        }
-      }
-    },
-    "Futures" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "期货"
-          }
-        }
-      }
-    },
-    "Futures use one protected bracket per contract. Add creates new brackets. Trim exits selected contracts at bid/ask while keeping every other bracket unchanged." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "期货每手使用独立的保护括号订单。加仓会创建新的括号订单；减仓按买卖报价平掉所选合约，其余括号订单保持不变。"
-          }
-        }
-      }
-    },
-    "Gross %@ · Entry + exit fees %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Gross %1$@ · Entry + exit fees %2$@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "毛盈亏 %@ · 开平仓手续费 %@"
-          }
-        }
-      }
-    },
-    "Inputs" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "参数"
-          }
-        }
-      }
-    },
-    "LMT" : {},
-    "Min Gap ATR Factor" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最小缺口 ATR 系数"
-          }
-        }
-      }
-    },
-    "Money" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "金额"
-          }
-        }
-      }
-    },
-    "Opacity" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "透明度"
-          }
-        }
-      }
-    },
-    "Option" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "期权"
-          }
-        }
-      }
-    },
-    "OVT uses an overnight limit order without TP/SL. No TP/SL protection is attached to an OVT entry." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OVT 使用隔夜限价单，不附带止盈或止损保护。"
-          }
-        }
-      }
-    },
-    "P&L —" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "盈亏 —"
-          }
-        }
-      }
-    },
-    "P&L awaiting matched entry / broker report" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "盈亏等待匹配开仓记录或券商报告"
-          }
-        }
-      }
-    },
-    "Percent" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "百分比"
-          }
-        }
-      }
-    },
-    "Prices and market-data permissions come from the connected IB account." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "价格及行情权限由当前连接的 IB 账户提供。"
-          }
-        }
-      }
-    },
-    "Quantity or time-in-force changes cancel and replace the unfilled order. Queue priority resets." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "修改数量或有效期将撤销并替换未成交订单，排队优先级会重置。"
-          }
-        }
-      }
-    },
-    "Replace the saved settings for %@?" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "替换 %@ 已保存的设置？"
-          }
-        }
-      }
-    },
-    "RTH" : {},
-    "Solid" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "实线"
-          }
-        }
-      }
-    },
-    "Stock" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "股票"
-          }
-        }
-      }
-    },
-    "STP" : {},
-    "Style" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "样式"
-          }
-        }
-      }
-    },
-    "Template actions: %@" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "模板操作：%@"
-          }
-        }
-      }
-    },
-    "This will close the current symbol when live chart trading is enabled. No order has been sent; your position is unchanged." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "启用实盘图表交易后，此操作将平掉当前品种的持仓。目前未发送订单，持仓未发生变化。"
-          }
-        }
-      }
-    },
-    "Ticks" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最小跳动"
-          }
-        }
-      }
-    },
-    "TradingView Lightweight Charts™ · Copyright © 2025 TradingView, Inc." : {},
-    "Visibility" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "可见性"
-          }
-        }
-      }
-    },
-    "Both TP and SL will be canceled. The position remains open without protection." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将同时撤销止盈和止损。持仓保持不变，但不再有保护订单。"
-          }
-        }
-      }
-    },
-    "History: compounded daily IBKR TWR. SPX and NDX: IBKR daily closes with retained FRED history as fallback, excluding reinvested dividends. Intraday estimate uses daily P&L / last reported NAV; deposits, withdrawals and IB reset times may affect comparability. Final returns follow the next Flex report." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "历史收益按 IBKR 每日时间加权收益率复利计算。SPX 和 NDX 优先使用 IBKR 每日收盘价，缺失时使用保留的 FRED 历史数据，不包含股息再投资。盘中收益率按当日盈亏除以上次报告的资产净值估算；出入金及 IB 数据重置时间可能影响可比性。最终收益以下一份 Flex 报告为准。"
-          }
-        }
-      }
-    },
-    "Unknown and unsupported orders are excluded. TP/SL pairs are canceled together; positions remain open without protection. Stops on the first failure. Wait for IB confirmation." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "不包含状态未知或不支持的订单。止盈止损订单会成对撤销；持仓保留，但不再有保护。首次失败时停止操作，请等待 IB 确认。"
-          }
-        }
-      }
-    },
-    "7-Day P&L" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "7天盈亏"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "7天盈虧"
-          }
-        }
-      }
-    },
-    "Month-to-date P&L" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本月盈亏"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本月盈虧"
-          }
-        }
-      }
-    },
-    "Confirmed closed-order net P&L for the selected period · New York dates" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "所选期间已确认的平仓净盈亏 · 按纽约日期统计"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "所選期間已確認的平倉淨盈虧 · 按紐約日期統計"
-          }
-        }
-      }
-    },
-    "%@-%@-%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@-%2$@-%3$@"
-          }
-        }
-      }
-    },
-    "Above 1 hour, only the primary EMA20 is shown. Applies to all indicators in this chart. Hidden indicators return when you switch to an allowed timeframe. Changes apply immediately and are saved." : {},
-    "Call" : {},
-    "From" : {},
-    "Join Mid" : {},
-    "Put" : {},
-    "Select expiration" : {},
-    "Select strike" : {},
-    "Show on timeframes" : {},
-    "Stocks / Futures" : {},
-    "Tap a star to save an instrument across web and iOS." : {},
-    "Wait for the current order request to finish." : {},
-    "to" : {}
+    }
   },
   "version" : "1.0"
 }

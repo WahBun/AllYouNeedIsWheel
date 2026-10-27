@@ -109,6 +109,7 @@ final class PhoneNotificationSettingsTests: XCTestCase {
         store.portfolio = Bootstrap(summary: Summary(account_value: 1000, cash_balance: 1000), positions: [],
                                     connection: AccountConnection(account_epoch: paper.epoch, mode: "paper", execution_enabled: false, chart_execution_enabled: false))
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for language in ["en", "zh-Hans", "zh-Hant"] {
         for dark in [false, true] {
             for page in ["home", "enabled", "setup", "large"] {
                 NotificationProtocol.reply = ["enabled": page != "setup"]
@@ -117,7 +118,7 @@ final class PhoneNotificationSettingsTests: XCTestCase {
                     if page == "home" {
                         SettingsView(notificationSettings: settings)
                     } else { PhoneNotificationDetails(settings: settings) }
-                }.environment(store).environment(\.locale, Locale(identifier: "en"))
+                }.environment(store).environment(\.locale, Locale(identifier: language))
                     .environment(\.dynamicTypeSize, page == "large" ? .accessibility2 : .large)
                 let host = UIHostingController(rootView: root)
                 let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
@@ -129,10 +130,12 @@ final class PhoneNotificationSettingsTests: XCTestCase {
                     XCTAssertTrue(host.view.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
                 }
                 let data = try XCTUnwrap(image.pngData()); XCTAssertGreaterThan(data.count, 20000)
-                let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("phone-notifications-\(page)-\(dark ? "dark" : "light").png")
+                let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("phone-notifications-\(language)-\(page)-\(dark ? "dark" : "light").png")
                 try data.write(to: url); print("PHONE_NOTIFICATIONS_PREVIEW=\(url.path)")
                 window.isHidden = true
             }
         }
+        }
+        XCTAssertTrue(NotificationProtocol.requests.allSatisfy { $0.httpMethod == "GET" })
     }
 }

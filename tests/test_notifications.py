@@ -6,12 +6,46 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch, Mock
 from api.services.notifications import NotificationStore, account_scope, AlertConflict
-from api.services.notification_runtime import NotificationRuntime
+from api.services.notification_runtime import NotificationRuntime, notification_contract_label
 from api.services.push_delivery import deliver_once
 from api.services.chart_drawings import exchange
 
 
 class NotificationsTests(unittest.TestCase):
+    def test_option_order_notifications_use_chart_contract_names(self):
+        from datetime import datetime, timezone
+        self.runtime.conn = SimpleNamespace(account_id='DU_TEST')
+        self.runtime.scope, self.runtime.mode = self.scope, 'IB Paper'
+        contract = SimpleNamespace(secType='OPT', symbol='TQQQ', localSymbol='TQQQ  261120P00060000',
+                                   lastTradeDateOrContractMonth='20261120', strike=60.0, right='P')
+        trade = SimpleNamespace(contract=contract,
+            order=SimpleNamespace(account='DU_TEST', permId=42, action='BUY', totalQuantity=1),
+            orderStatus=SimpleNamespace(status='Submitted'))
+        self.runtime.order(trade)
+        event = self.runtime.queue.get_nowait()
+        self.assertEqual(event, ('order', self.scope, '42', 'Submitted', 'TQQQ 20261120 60 P · BUY 1', 'IB Paper'))
+        fill = SimpleNamespace(contract=contract, execution=SimpleNamespace(acctNumber='DU_TEST',
+            execId='a.b.c.1', time=datetime.now(timezone.utc), side='BOT', shares=1, price=1.5))
+        self.runtime.fill(trade, fill)
+        event = self.runtime.queue.get_nowait()
+        self.assertEqual(event[1:3], (self.scope, 'a.b.c'))
+        self.assertEqual(event[4:], ('TQQQ 20261120 60 P · BOT 1 @ 1.5', 'IB Paper'))
+        # Display formatting never mutates the original broker contract.
+        self.assertEqual(contract.localSymbol, 'TQQQ  261120P00060000')
+        fill.execution.acctNumber = 'U_OTHER'
+        self.runtime.fill(trade, fill)
+        self.assertTrue(self.runtime.queue.empty())
+        contract.symbol, contract.strike, contract.right = 'TSLL', 13.5, 'C'
+        contract.lastTradeDateOrContractMonth = '20261218'
+        self.assertEqual(notification_contract_label(contract), 'TSLL 20261218 13.5 C')
+        for field, invalid in [('strike', float('nan')), ('lastTradeDateOrContractMonth', ''), ('right', '')]:
+            previous = getattr(contract, field)
+            setattr(contract, field, invalid)
+            self.assertEqual(notification_contract_label(contract), contract.localSymbol)
+            setattr(contract, field, previous)
+        for kind, symbol in [('STK', 'TQQQ'), ('FUT', 'MESZ6')]:
+            self.assertEqual(notification_contract_label(SimpleNamespace(secType=kind, symbol=symbol, localSymbol=symbol)), symbol)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.path = Path(self.temp.name)/'notifications.db'

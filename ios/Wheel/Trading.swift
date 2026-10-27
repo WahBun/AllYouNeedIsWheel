@@ -866,10 +866,10 @@ struct OrderDetail: View {
                 Section {
                     LabeledContent("Contract") {
                         if order.option_type == "FUTURE" { Text("\(order.name) · \(order.expiration ?? "") · FUTURE") }
-                        else if order.option_type == "STOCK" { SymbolText(symbol: order.name) }
-                        else { Text("\(order.expiration ?? "") · \(money(order.strike)) · \(order.option_type ?? "")") }
+                        else if order.option_type == "STOCK" { SymbolText(symbol: order.displaySymbol) }
+                        else { Text("\(order.expiration ?? "") · \(money(order.strike)) · \(localizedLabel(order.option_type ?? "", locale: locale))") }
                     }
-                    LabeledContent("Action", value: "\(order.action ?? "") TO \(order.intent ?? "OPEN")")
+                    LabeledContent("Action", value: localizedLabel("\(order.action ?? "") TO \(order.intent ?? "OPEN")", locale: locale))
                     if (TradeRules.amendable(order) && !TradeRules.amendmentQuantityLocked(order)) || (TradeRules.chartManageable(order) && (order.filled ?? 0) == 0) {
                         Stepper("Total quantity: \(quantity)", value: $quantity, in: 1...(TradeRules.chartManageable(order) ? (order.option_type == "STOCK" ? 1000 : 10) : max(100, Int(order.quantity ?? 1))))
                     } else { LabeledContent("Quantity", value: order.quantity?.formatted() ?? "—") }
@@ -896,12 +896,12 @@ struct OrderDetail: View {
                             Toggle("Confirm OVT without TP/SL", isOn: $confirmChartOVT)
                         }
                     } else { LabeledContent("Time in force", value: order.timingLabel) }
-                    LabeledContent("Status", value: order.ib_status ?? order.status)
+                    LabeledContent("Status", value: localizedLabel(order.ib_status ?? order.status, locale: locale))
                     if let id = order.ib_order_id { LabeledContent("IB order ID", value: String(id)) }
                     if let id = order.perm_id { LabeledContent("Permanent ID", value: String(id)) }
                     if let error = order.error_message, !error.isEmpty { NoticeText(error).foregroundStyle(.orange) }
                 }
-                header: { SymbolText(symbol: order.name) }
+                header: { SymbolText(symbol: order.displaySymbol) }
                 Text(LocalizedStringKey(order.statusExplanation)).font(.caption).foregroundStyle(.secondary)
                 if order.external_ib == true && order.chart_order_ref == nil && !TradeRules.exitTIFEditable(order) { Text("IB-managed order. Modify or cancel in IB.").foregroundStyle(.secondary) }
                 if TradeRules.exitTIFEditable(order) {
@@ -1011,7 +1011,7 @@ struct OrderDetail: View {
         } message: {
             if action == "Save time in force" { Text("Time in force: \(timing). Applies to this order only.") }
             if action == "Cancel order" && TradeRules.protectionCancelable(current ?? initial) { Text("Both TP and SL will be canceled. The position remains open without protection.") }
-            Text("\(current?.name ?? initial.name) · \(current?.action ?? "") \((action == "Save quantity" || action == "Save changes") ? String(quantity) : current?.quantity?.formatted() ?? "") · \(current?.option_type ?? "") · \(money(current?.strike)) · \(current?.expiration ?? "")\nLimit \(money((action == "Execute" || action == "Save changes" || action == "Save price") ? TradeRules.price(price) : current?.premium)) · \((action == "Save changes" || action == "Save time in force") ? (timing == "OVERNIGHT" ? "OVT" : timing) : (current ?? initial).timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
+            Text("\(current?.name ?? initial.name) · \(localizedLabel(current?.action ?? "", locale: locale)) \((action == "Save quantity" || action == "Save changes") ? String(quantity) : current?.quantity?.formatted() ?? "") · \(localizedLabel(current?.option_type ?? "", locale: locale)) · \(money(current?.strike)) · \(current?.expiration ?? "")\nLimit \(money((action == "Execute" || action == "Save changes" || action == "Save price") ? TradeRules.price(price) : current?.premium)) · \((action == "Save changes" || action == "Save time in force") ? (timing == "OVERNIGHT" ? "OVT" : timing) : (current ?? initial).timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
         }
     }
     private func perform(_ action: String) {

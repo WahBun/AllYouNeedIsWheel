@@ -109,15 +109,15 @@ struct PushNotificationSettings: View {
                 HStack(spacing: 12) {
                     Image(systemName: "bell.badge").font(.title3).frame(width: 25)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(verbatim: "Notifications")
-                        Text(verbatim: "Via Bark").font(.caption).foregroundStyle(.secondary)
+                        Text("Notifications")
+                        Text("Via Bark").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 8)
-                    Text(verbatim: status).font(.subheadline)
+                    NoticeText(status).font(.subheadline)
                         .foregroundStyle(status == "On" ? Color.green : .secondary)
                 }.padding(.vertical, 3)
             }
-        } header: { Text(verbatim: "Notifications") }
+        } header: { Text("Notifications") }
         .onAppear { settings.select(account); Task { await settings.refresh() } }
         .onChange(of: account) { _, account in settings.select(account); Task { await settings.refresh() } }
     }
@@ -137,63 +137,63 @@ struct PhoneNotificationDetails: View {
         Form {
             Section {
                 LabeledContent {
-                    Text(verbatim: enabled.map { $0 ? "On" : "Off" } ?? (account == nil ? "Not connected" : "Unavailable"))
+                    NoticeText(enabled.map { $0 ? "On" : "Off" } ?? (account == nil ? "Not connected" : "Unavailable"))
                         .foregroundStyle(enabled == true ? Color.green : .secondary)
-                } label: { Label { Text(verbatim: "Bark") } icon: { Image(systemName: "bell.badge") } }
-                if let account { LabeledContent { Text(verbatim: "IB \(account.mode.capitalized)") } label: { Text(verbatim: "Account") } }
+                } label: { Label { Text("Bark") } icon: { Image(systemName: "bell.badge") } }
+                if let account { LabeledContent { NoticeText("IB \(account.mode.capitalized)") } label: { Text("Account") } }
             } footer: {
-                Text(verbatim: "Price alerts, executions and confirmed cancellations. Notifications continue when Wheel is closed while this account is connected on your backend.")
+                Text("Price alerts, executions and confirmed cancellations. Notifications continue when Wheel is closed while this account is connected on your backend.")
             }
 
             if account == nil {
-                Section { Text(verbatim: "Connect to Paper or Live in Settings to manage notifications.").foregroundStyle(.secondary) }
+                Section { Text("Connect to Paper or Live in Settings to manage notifications.").foregroundStyle(.secondary) }
             } else {
                 if enabled == true && !editingAddress {
                     Section {
-                        Button { Task { await settings.sendTest() } } label: { Label { Text(verbatim: "Send test notification") } icon: { Image(systemName: "paperplane") } }
-                        Button { editingAddress = true } label: { Text(verbatim: "Change Bark address") }
-                        Button(role: .destructive) { confirmingDisable = true } label: { Text(verbatim: "Turn off for this account") }
+                        Button { Task { await settings.sendTest() } } label: { Label { Text("Send test notification") } icon: { Image(systemName: "paperplane") } }
+                        Button { editingAddress = true } label: { Text("Change Bark address") }
+                        Button(role: .destructive) { confirmingDisable = true } label: { Text("Turn off for this account") }
                     }.disabled(settings.busy || !current)
                 } else if enabled == false || editingAddress {
                     Section {
-                        SecureField(text: $settings.pushAddress) { Text(verbatim: "Bark push address") }
+                        SecureField(text: $settings.pushAddress) { Text("Bark push address") }
                             .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                         Button { Task { await settings.save(); if settings.error == nil { editingAddress = false } } } label: {
-                            Text(verbatim: editingAddress ? "Save address" : "Enable Bark")
+                            Text(LocalizedStringKey(editingAddress ? "Save address" : "Enable Bark"))
                         }.disabled(settings.pushAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        if editingAddress { Button { editingAddress = false; settings.pushAddress = "" } label: { Text(verbatim: "Cancel") } }
-                    } header: { Text(verbatim: "Bark address") }
-                    footer: { Text(verbatim: "Open Bark, allow notifications, then paste its api.day.app push address here. Alert summaries are sent through Bark. Your address is stored privately on your backend.") }
+                        if editingAddress { Button { editingAddress = false; settings.pushAddress = "" } label: { Text("Cancel") } }
+                    } header: { Text("Bark address") }
+                    footer: { Text("Open Bark, allow notifications, then paste its api.day.app push address here. Alert summaries are sent through Bark. Your address is stored privately on your backend.") }
                     .disabled(settings.busy || !current)
                 }
                 if settings.busy || settings.error != nil || settings.message != nil {
                     Section {
-                        if settings.busy { ProgressView { Text(verbatim: "Updating…") } }
-                        if let error = settings.error { Text(verbatim: error).foregroundStyle(.orange) }
-                        else if let message = settings.message { Text(verbatim: message).foregroundStyle(.secondary) }
+                        if settings.busy { ProgressView { Text("Updating…") } }
+                        if let error = settings.error { NoticeText(error).foregroundStyle(.orange) }
+                        else if let message = settings.message { NoticeText(message).foregroundStyle(.secondary) }
                     }.font(.footnote)
                 }
             }
             Section {
                 NavigationLink {
                     Form { DirectPushNotificationSettings() }.navigationTitle("Direct app notifications").navigationBarTitleDisplayMode(.inline)
-                } label: { Text(verbatim: "Direct app notifications") }
-            } header: { Text(verbatim: "Advanced") }
-            footer: { Text(verbatim: "Bark is managed separately from direct Wheel notifications.") }
+                } label: { Text("Direct app notifications") }
+            } header: { Text("Advanced") }
+            footer: { Text("Bark is managed separately from direct Wheel notifications.") }
         }
         .navigationTitle("Notifications").navigationBarTitleDisplayMode(.inline)
         .refreshable { settings.select(account); await settings.refresh() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { Task { settings.select(account); await settings.refresh() } } label: { Image(systemName: "arrow.clockwise") }
-                    .accessibilityLabel(Text(verbatim: "Refresh notification status"))
+                    .accessibilityLabel(Text("Refresh notification status"))
                     .disabled(settings.busy || account == nil)
             }
         }
         .task(id: account) { settings.select(account); editingAddress = false; confirmingDisable = false; await settings.refresh() }
         .onChange(of: scenePhase) { _, phase in if phase == .active { Task { settings.select(account); await settings.refresh() } } }
         .confirmationDialog("Turn off Bark notifications?", isPresented: $confirmingDisable, titleVisibility: .visible) {
-            Button(role: .destructive) { Task { await settings.disable() } } label: { Text(verbatim: "Turn off for this account") }
-        } message: { Text(verbatim: "This stops new notifications for the selected account. A notification already in transit may still arrive.") }
+            Button(role: .destructive) { Task { await settings.disable() } } label: { Text("Turn off for this account") }
+        } message: { Text("This stops new notifications for the selected account. A notification already in transit may still arrive.") }
     }
 }

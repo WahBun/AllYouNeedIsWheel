@@ -1448,7 +1448,7 @@ struct PositionDetail: View {
                 LabeledContent("Quantity", value: latest.position.formatted())
                 LabeledContent("Gateway average cost", value: money(latest.avg_cost))
                 if latest.optionAverageUsesBrokerCost {
-                    Text(locale.language.languageCode?.identifier == "zh" ? "* IB 平均成本，可能含手续费" : "* IB average cost; may include fees")
+                    Text("* IB average cost; may include fees")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 LabeledContent("Current price", value: money(latest.market_price))
@@ -1474,7 +1474,7 @@ struct ExecutionHistoryPage {
     var headings: [OrderID: String]
     var total: Int
     static var empty: Self { Self(orders: [], headings: [:], total: 0) }
-    static func build(_ source: [Order], days: Int, asset: String, search: String, limit: Int, now: Date = .now) -> Self {
+    static func build(_ source: [Order], days: Int, asset: String, search: String, limit: Int, now: Date = .now, locale: Locale = Locale(identifier: "en_US_POSIX")) -> Self {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "America/New_York")!
         let today = calendar.startOfDay(for: now)
@@ -1486,8 +1486,9 @@ struct ExecutionHistoryPage {
         let fractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
         let integral = Date.ISO8601FormatStyle(includingFractionalSeconds: false)
         let label = DateFormatter()
-        label.locale = Locale(identifier: "en_US_POSIX")
-        label.timeZone = calendar.timeZone; label.dateFormat = "MMM d, yyyy"
+        label.locale = locale
+        label.timeZone = calendar.timeZone
+        label.setLocalizedDateFormatFromTemplate("yMMMd")
         var result = Self.empty
         var seenDays = Set<Date>()
         var seenIDs = Set<OrderID>()
@@ -1526,7 +1527,7 @@ struct OrdersView: View {
     private var refreshHistory: Bool { RefreshLoop.shouldRefreshHistory(tab: store.selectedTab, showingHistory: true, active: phase == .active) }
     private var cancelable: [Order] { store.orders.filter { TradeRules.cancelable($0) } }
     var body: some View {
-        let page = history ? ExecutionHistoryPage.build(store.filledOrders, days: historyDays, asset: historyAsset, search: historySearch, limit: historyLimit) : ExecutionHistoryPage.empty
+        let page = history ? ExecutionHistoryPage.build(store.filledOrders, days: historyDays, asset: historyAsset, search: historySearch, limit: historyLimit, locale: locale) : ExecutionHistoryPage.empty
         let displayedOrders = history ? page.orders : store.orders
         List {
             HStack(alignment: .lastTextBaseline) {
@@ -1579,7 +1580,7 @@ struct OrdersView: View {
                             Text("Option").tag("OPTION")
                         }
                     } label: {
-                        Label(historyAsset == "ALL" ? "Filter" : historyAsset == "STOCK" ? "Stock" : historyAsset == "FUTURE" ? "Future" : "Option", systemImage: "line.3.horizontal.decrease")
+                        Label(LocalizedStringKey(historyAsset == "ALL" ? "Filter" : historyAsset == "STOCK" ? "Stock" : historyAsset == "FUTURE" ? "Future" : "Option"), systemImage: "line.3.horizontal.decrease")
                             .font(.subheadline).fixedSize().frame(minHeight: 40)
                     }.tint(.primary)
 
@@ -1605,7 +1606,7 @@ struct OrdersView: View {
                 }
                 ArrowlessNavigationLink {
                     Group {
-                    if history { Form { SymbolText(symbol: order.name); Text(order.option_type == "FUTURE" ? "\(order.expiration ?? "") · FUTURE" : "\(order.expiration ?? "") · \(money(order.strike)) · \(order.option_type ?? "")"); LabeledContent("Status", value: order.ib_status ?? order.status); LabeledContent("Action", value: order.fill_action ?? order.action ?? "—"); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: order.commissionLabel); if order.option_type == "FUTURE" { FuturesProfit(order: order) } else if order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: order) } }; OrderFillPrices(order: order); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
+                    if history { Form { SymbolText(symbol: order.displaySymbol); Text(order.option_type == "FUTURE" ? "\(order.expiration ?? "") · \(localizedLabel("FUTURE", locale: locale))" : "\(order.expiration ?? "") · \(money(order.strike)) · \(localizedLabel(order.option_type ?? "", locale: locale))"); LabeledContent("Status", value: localizedLabel(order.ib_status ?? order.status, locale: locale)); LabeledContent("Action", value: localizedLabel(order.fill_action ?? order.action ?? "—", locale: locale)); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: localizedNotice(order.commissionLabel, locale: locale)); if order.option_type == "FUTURE" { FuturesProfit(order: order) } else if order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: order) } }; OrderFillPrices(order: order); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
                     else { OrderDetail(initial: order) }
                     }.toolbar(.visible, for: .navigationBar)
                 } label: {
@@ -1629,7 +1630,7 @@ struct OrdersView: View {
                 }
             }
             if history && page.total > displayedOrders.count {
-                Button(locale.language.languageCode?.identifier == "zh" ? "加载更多（已显示 \(displayedOrders.count) / \(page.total)）" : "Load more (\(displayedOrders.count) / \(page.total))") { historyLimit += 50 }
+                Button("Load more (\(displayedOrders.count) / \(page.total))") { historyLimit += 50 }
             }
             if !history { Button("Cancel all eligible (\(cancelable.count))", role: .destructive) {
                 if confirmExecution || cancelable.contains(where: TradeRules.protectionCancelable) { cancelAll = true } else { performCancelAll() }
@@ -1658,7 +1659,7 @@ struct OrdersView: View {
         } message: {
             if let order = quickOrder {
                 if quickCancel && TradeRules.protectionCancelable(order) { Text("Both TP and SL will be canceled. The position remains open without protection.") }
-                Text("\(order.name) · \(order.action ?? "") · \(order.option_type ?? "") · \(money(order.strike)) · \(order.expiration ?? "")\n\(order.quantity?.formatted() ?? "—") · \(money(order.premium)) · \(order.timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
+                Text("\(order.name) · \(localizedLabel(order.action ?? "", locale: locale)) · \(localizedLabel(order.option_type ?? "", locale: locale)) · \(money(order.strike)) · \(order.expiration ?? "")\n\(order.quantity?.formatted() ?? "—") · \(money(order.premium)) · \(order.timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
             }
         }
         .confirmationDialog("Cancel \(cancelable.count) eligible orders?", isPresented: $cancelAll, titleVisibility: .visible) {
@@ -1781,7 +1782,7 @@ struct SettingsView: View {
                         let selected = requestedMode == mode
                         let color: Color = mode == "live" ? .green : mode == "paper" ? .red : Color(uiColor: .systemGray)
                         Button { selectMode(mode) } label: {
-                            Text(mode == "demo" ? "Demo" : mode == "live" ? "Live" : "Paper")
+                            Text(LocalizedStringKey(mode == "demo" ? "Demo" : mode == "live" ? "Live" : "Paper"))
                                 .font(.subheadline.weight(.semibold))
                                 .frame(maxWidth: .infinity, minHeight: 32)
                                 .foregroundStyle(selected ? Color.white : Color.primary)
@@ -1795,7 +1796,7 @@ struct SettingsView: View {
                 .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 9))
                 .disabled(switchingAccount || store.trading.busy)
                 if switchingAccount { ProgressView("Switching account…") }
-                if let accountSwitchMessage { Text(localizedLabel(accountSwitchMessage, locale: locale)).font(.footnote).foregroundStyle(.orange) }
+                if let accountSwitchMessage { NoticeText(accountSwitchMessage).font(.footnote).foregroundStyle(.orange) }
                 if requestedMode != "demo" {
                 TextField("https://your-mini.ts.net", text: $draft).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL).focused($addressFocused).submitLabel(.done)
                     .disabled(switchingAccount)
@@ -1847,7 +1848,7 @@ struct SettingsView: View {
                     Label("Custom colors", systemImage: "paintpalette")
                 }
                 Toggle(isOn: $tradingSoundsEnabled) {
-                    Label(locale.language.languageCode?.identifier == "zh" ? "交易提示音" : "Trading sounds", systemImage: "speaker.wave.2")
+                    Label("Trading sounds", systemImage: "speaker.wave.2")
                 }
                 .onChange(of: tradingSoundsEnabled) { _, enabled in if !enabled { ChartTradeSounds.shared.stop() } }
             }.tint(.teal)
@@ -2059,9 +2060,7 @@ struct ExpandablePositionRow<Content: View>: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityHint(Text(verbatim: locale.language.languageCode?.identifier == "zh"
-                ? (expanded ? "打开持仓详情" : "展开当日价格区间")
-                : (expanded ? "Open position details" : "Show daily price range")))
+            .accessibilityHint(Text(LocalizedStringKey(expanded ? "Open position details" : "Show daily price range")))
             if expanded {
                 Button {
                     withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { expanded = false }
@@ -2071,7 +2070,7 @@ struct ExpandablePositionRow<Content: View>: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(Text(verbatim: locale.language.languageCode?.identifier == "zh" ? "收起价格区间" : "Hide daily price range"))
+                .accessibilityLabel(Text("Hide daily price range"))
             }
         }
         .navigationDestination(isPresented: $showDetails) { PositionDetail(position: position) }
@@ -2085,7 +2084,6 @@ struct PositionDayRange: View {
     let position: Position
     @State private var movementColor: Color = .secondary
     @Environment(\.locale) private var locale
-    private var chinese: Bool { locale.language.languageCode?.identifier == "zh" }
     private var bounds: (Double, Double)? {
         guard let low = position.day_low, let high = position.day_high,
               low.isFinite, high.isFinite, low > 0, high >= low else { return nil }
@@ -2093,10 +2091,10 @@ struct PositionDayRange: View {
     }
     private var status: String {
         switch position.day_range_status {
-        case "live": return chinese ? "今日波动" : "Today's range"
-        case "delayed": return chinese ? "日内区间 · 延迟" : "Session range · Delayed"
-        case "frozen": return chinese ? "日内区间 · 冻结" : "Session range · Frozen"
-        default: return chinese ? "日内区间 · 暂无行情" : "Session range · Unavailable"
+        case "live": return localizedLabel("Today's range", locale: locale)
+        case "delayed": return localizedLabel("Session range · Delayed", locale: locale)
+        case "frozen": return localizedLabel("Session range · Frozen", locale: locale)
+        default: return localizedLabel("Session range · Unavailable", locale: locale)
         }
     }
     var body: some View {

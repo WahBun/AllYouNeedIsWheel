@@ -116,15 +116,15 @@ struct DirectPushNotificationSettings: View {
     private var push: WheelPush { .shared }
     var body: some View {
         Section {
-            Text(verbatim: "Price alerts, executions and confirmed cancellations.").font(.footnote)
+            Text("Price alerts, executions and confirmed cancellations.").font(.footnote)
             Button { Task { await push.enable() } } label: {
-                Text(verbatim: push.enabled ? "Retry notification registration" : "Enable iPhone notifications")
+                Text(LocalizedStringKey(push.enabled ? "Retry notification registration" : "Enable iPhone notifications"))
             }.disabled(push.busy || store.demo || store.trading.accountEpoch == nil)
             if push.enabled {
-                Button { Task { await push.disable() } } label: { Text(verbatim: "Disable for this account") }.disabled(push.busy)
+                Button { Task { await push.disable() } } label: { Text("Disable for this account") }.disabled(push.busy)
             }
-            Text(verbatim: push.status).font(.footnote).foregroundStyle(.secondary)
-        } header: { Text(verbatim: "Direct app notifications") }
-        footer: { Text(verbatim: "Optional. Requires Push Notifications signing and server setup. Bark works independently.") }
+            NoticeText(push.status).font(.footnote).foregroundStyle(.secondary)
+        } header: { Text("Direct app notifications") }
+        footer: { Text("Optional. Requires Push Notifications signing and server setup. Bark works independently.") }
     }
 }

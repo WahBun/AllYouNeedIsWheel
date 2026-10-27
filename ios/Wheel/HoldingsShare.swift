@@ -28,6 +28,7 @@ enum HoldingsShareBackground: String, CaseIterable, Identifiable {
 }
 
 struct HoldingsSharePreview: View {
+    @Environment(\.locale) private var locale
     @Environment(\.dismiss) private var dismiss
     @State private var slices: [HoldingsShareSlice]
     init(portfolio: Bootstrap?) { _slices = State(initialValue: HoldingsShareSlice.make(portfolio)) }
@@ -85,7 +86,7 @@ struct HoldingsSharePreview: View {
             }.padding() }.navigationTitle("Share holdings").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
                 .task(id: renderID) {
-                    let renderer = ImageRenderer(content: HoldingsShareArtwork(slices: slices, background: background, customImage: customActive ? customImage : nil, showLettering: showLettering).frame(width: 1080, height: 1080))
+                    let renderer = ImageRenderer(content: HoldingsShareArtwork(slices: slices, background: background, customImage: customActive ? customImage : nil, showLettering: showLettering).environment(\.locale, locale).frame(width: 1080, height: 1080))
                     renderer.scale = 1
                     if let rendered = renderer.uiImage { image = Image(uiImage: rendered) }
                 }
@@ -118,6 +119,7 @@ struct HoldingsSharePreview: View {
 }
 
 struct HoldingsShareArtwork: View {
+    @Environment(\.locale) private var locale
     let slices: [HoldingsShareSlice]
     var background: HoldingsShareBackground = .wallStreet
     var customImage: UIImage?
@@ -176,7 +178,7 @@ struct HoldingsShareArtwork: View {
                             let point = CGPoint(x: center.x + cos(middle) * radius * 0.68, y: center.y + sin(middle) * radius * 0.68)
                             let fontSize = radius * (fraction < 0.09 ? 0.09 : 0.13)
                             context.draw(Text(String(format: "%.1f%%", fraction * 100)).font(.system(size: fontSize, weight: .black)).foregroundStyle(.white), at: CGPoint(x: point.x, y: point.y - fontSize * 0.3))
-                            context.draw(Text(slice.name).font(.system(size: fontSize * 0.48, weight: .bold)).foregroundStyle(.white), at: CGPoint(x: point.x, y: point.y + fontSize * 0.55))
+                            context.draw(Text(verbatim: slice.name == "Cash" ? localizedLabel("Cash", locale: locale) : slice.name).font(.system(size: fontSize * 0.48, weight: .bold)).foregroundStyle(.white), at: CGPoint(x: point.x, y: point.y + fontSize * 0.55))
                         }
                         start = end
                     }

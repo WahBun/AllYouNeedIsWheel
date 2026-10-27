@@ -106,7 +106,7 @@ struct RolloverTicket: View {
                     await store.refresh(); if staged { store.selectedTab = "orders" }
                 }
             }
-        } message: { Text("BUY \(quantity) \(position.detail) at \(closePrice)\nSELL \(quantity) \(quote?.expiration ?? "") · \(money(quote?.strike)) · \(position.option_type ?? "") at \(openPrice)\nExecution is separate in Orders.") }
+        } message: { Text("BUY \(quantity) \(position.detail) at \(closePrice)\nSELL \(quantity) \(quote?.expiration ?? "") · \(money(quote?.strike)) · \(localizedLabel(position.option_type ?? "", locale: locale)) at \(openPrice)\nExecution is separate in Orders.") }
     }
     private func invalidate() { candidates = []; selected = ""; openPrice = ""; closing = nil; closePrice = ""; staged = false }
     private func loadDates() async {
