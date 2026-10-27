@@ -41,6 +41,7 @@ private struct PaletteEditTarget: Identifiable {
     let fallback: Color
 }
 struct MetricPalettePreview: View {
+    @Environment(\.locale) private var locale
     @State private var editing: PaletteEditTarget?
     @AppStorage("demoCustomColors") private var json = "{}"
     @Environment(\.colorScheme) private var scheme
@@ -97,12 +98,12 @@ struct MetricPalettePreview: View {
             ForEach(Array(["Delta", "Spread", "IV"].enumerated()), id: \.offset) { index, name in
                 let key = name.lowercased() + "." + band
                 let fallback = CustomPalette.metricFallback(name.lowercased(), band: progress, scheme: scheme)
-                Button { editing = PaletteEditTarget(id: key, title: name + " · " + title, fallback: fallback) } label: {
+                Button { editing = PaletteEditTarget(id: key, title: localizedLabel(name, locale: locale) + " · " + localizedLabel(title, locale: locale), fallback: fallback) } label: {
                     Text(values[index]).font(.caption).monospacedDigit()
                         .foregroundStyle(palette.color(key, scheme: scheme, fallback: fallback))
                         .modifier(MetricHighFinish(active: band == "high", color: palette.color(key, scheme: scheme, fallback: fallback)))
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityLabel(name + " " + title)
+                }.buttonStyle(.plain).accessibilityLabel(localizedLabel(name, locale: locale) + " " + localizedLabel(title, locale: locale))
             }
         }
     }

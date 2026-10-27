@@ -1,6 +1,23 @@
 import SwiftUI
 
 extension Order {
+    /// Shorten only a verified OCC option label for presentation, never its broker identity.
+    var displaySymbol: String {
+        let raw = name
+        let kind = (option_type ?? "").uppercased()
+        guard ["CALL", "PUT", "C", "P"].contains(kind),
+              let match = Self.occDisplayPattern.firstMatch(in: raw, range: NSRange(raw.startIndex..., in: raw)),
+              let rootRange = Range(match.range(at: 1), in: raw),
+              let dateRange = Range(match.range(at: 2), in: raw),
+              let rightRange = Range(match.range(at: 3), in: raw),
+              let strikeRange = Range(match.range(at: 4), in: raw),
+              let encodedStrike = Double(raw[strikeRange]), let strike,
+              strike.isFinite, abs(encodedStrike / 1000 - strike) < 0.000001,
+              let expiration, expiration.replacingOccurrences(of: "-", with: "").suffix(6) == raw[dateRange],
+              String(raw[rightRange]) == (kind == "CALL" || kind == "C" ? "C" : "P") else { return raw }
+        return String(raw[rootRange])
+    }
+    private static let occDisplayPattern = try! NSRegularExpression(pattern: #"^([A-Z0-9.]{1,6}) *([0-9]{6})([CP])([0-9]{8})$"#)
     var realizedProfit: Double? {
         guard intent == "CLOSE", hasFill, commission_currency == "USD",
               let value = realized_pnl, value.isFinite, abs(value) < 1e100 else { return nil }
@@ -37,7 +54,7 @@ struct FuturesProfit: View {
         } else if let value, value.isFinite {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text(order.net_pnl != nil ? "Net P&L" : order.gross_pnl != nil ? "Gross P&L" : "Realized P&L")
+                    Text(LocalizedStringKey(order.net_pnl != nil ? "Net P&L" : order.gross_pnl != nil ? "Gross P&L" : "Realized P&L"))
                     Spacer()
                     Text((value > 0 ? "+" : "") + money(value)).monospacedDigit().bold()
                         .foregroundStyle(value == 0 ? Color.secondary : palette.color(value > 0 ? "gain" : "loss", scheme: scheme, fallback: value > 0 ? FinancialColors.gain : FinancialColors.loss))
@@ -87,7 +104,7 @@ struct OrdersDailyProfit: View {
             let total = DailyClosedProfit.calculate(store.filledOrders, days: days, now: clock.date)
             let ready = store.filledError == nil && store.filledUpdated != nil
             VStack(alignment: .trailing, spacing: 3) {
-                Text(days == 7 ? "7-Day P&L" : (days == 0 || days == 30) ? "Month-to-date P&L" : "Daily P&L").font(.caption).foregroundStyle(.secondary)
+                Text(LocalizedStringKey(days == 7 ? "7-Day P&L" : (days == 0 || days == 30) ? "Month-to-date P&L" : "Daily P&L")).font(.caption).foregroundStyle(.secondary)
                 Text(ready ? (total.amount > 0 ? "+" : "") + money(total.amount) : "—")
                     .font(.title3.weight(.semibold)).monospacedDigit()
                     .foregroundStyle(!ready || total.amount == 0 ? Color.secondary : palette.color(total.amount > 0 ? "gain" : "loss", scheme: scheme, fallback: total.amount > 0 ? FinancialColors.gain : FinancialColors.loss))
@@ -120,6 +137,7 @@ extension Order {
 }
 
 struct CompactOrderRow: View {
+    @Environment(\.locale) private var locale
     let order: Order
     let history: Bool
     @Environment(\.customPalette) private var palette
@@ -130,12 +148,12 @@ struct CompactOrderRow: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    SymbolText(symbol: order.name).font(.headline)
+                    SymbolText(symbol: order.displaySymbol).font(.headline)
                     if order.option_type != "STOCK" && order.option_type != "FUTURE" {
-                        Text("\(order.expiration ?? "") \(money(order.strike)) \(order.option_type ?? "")")
+                        Text("\(order.expiration ?? "") \(money(order.strike)) \(localizedLabel(order.option_type ?? "", locale: locale))")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    Text("\(history ? (isBuy ? "Bought" : "Sold") : action) \((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—")")
+                    Text("\(localizedLabel(history ? (isBuy ? "Bought" : "Sold") : action, locale: locale)) \((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—")")
                         .font(.subheadline).foregroundStyle(isBuy ? Color.blue : Color.red)
                     Text("\(order.order_type ?? "LMT") · \(order.timingLabel)")
                         .font(.caption).foregroundStyle(.secondary)
@@ -147,7 +165,7 @@ struct CompactOrderRow: View {
                     }
                 }.monospacedDigit()
                 VStack(alignment: .trailing, spacing: 6) {
-                    Text(history ? order.fillClockLabel : order.status)
+                    NoticeText(history ? order.fillClockLabel : order.status)
                         .font(.caption).foregroundStyle(.secondary)
                     if history && order.intent == "CLOSE" {
                         if let value = order.closedNetProfit {

@@ -43,6 +43,80 @@ private final class AccountHistoryProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testNativeLocalizationAndOptionDisplayKeepBrokerDataIntact() throws {
+        var order = Order(id: 1, ticker: "TQQQ  261120P00060000", action: "BUY", option_type: "PUT", strike: 60,
+                          expiration: "20261120", quantity: 1, status: "executed", intent: "CLOSE", filled: 1)
+        XCTAssertEqual(order.displaySymbol, "TQQQ")
+        XCTAssertEqual(order.name, "TQQQ  261120P00060000")
+        order.ticker = "TQQQ261120P00060000"
+        XCTAssertEqual(order.displaySymbol, "TQQQ")
+        order.strike = 61
+        XCTAssertEqual(order.displaySymbol, order.name, "Conflicting contract details must retain the original label")
+        order.strike = 60; order.option_type = "STOCK"
+        XCTAssertEqual(order.displaySymbol, order.name)
+        order.option_type = "CALL"; order.ticker = "TSLL"; order.strike = 13; order.expiration = "20261218"
+        XCTAssertEqual(order.displaySymbol, "TSLL")
+        order.fill_time = "2026-10-27T16:03:55Z"
+        let now = try Date.ISO8601FormatStyle().parse("2026-10-27T18:00:00Z")
+        let history = ExecutionHistoryPage.build([order], days: 1, asset: "ALL", search: "", limit: 50, now: now, locale: Locale(identifier: "zh-Hant"))
+        XCTAssertTrue(try XCTUnwrap(history.headings[order.id]).contains("年"))
+        XCTAssertEqual(history.orders.count, 1)
+        let hans = Locale(identifier: "zh-Hans"), hant = Locale(identifier: "zh-Hant")
+        XCTAssertEqual(localizedLabel("Trading sounds", locale: hans), "交易提示音")
+        XCTAssertEqual(localizedLabel("Trading sounds", locale: hant), "交易提示音")
+        XCTAssertEqual(localizedNotice("Enabled for IB Live.", locale: hant), "已為 IB 實盤啟用通知。")
+        XCTAssertEqual(localizedLabel("BUY TO CLOSE", locale: hans), "买入平仓")
+        XCTAssertEqual(localizedLabel("BUY TO CLOSE", locale: hant), "買入平倉")
+        for locale in [hans, hant] {
+            for key in ["Direct app notifications", "Save time in force", "Send test notification", "Net average price (incl. fees)", "Filled quantity"] {
+                XCTAssertNotEqual(localizedLabel(key, locale: locale), key)
+                XCTAssertEqual(localizedLabel(key, locale: Locale(identifier: "en")), key)
+            }
+            let format = localizedLabel("Load more (%lld / %lld)", locale: locale)
+            XCTAssertTrue(String(format: format, 50, 150).contains("50 / 150"))
+            let unknown = "IB diagnostic 123: unexpected status"
+            XCTAssertEqual(localizedNotice(unknown, locale: locale), unknown)
+        }
+    }
+
+    func testLocalizedOrderScreensPreview() async throws {
+        let order = Order(id: 1, ticker: "TQQQ  261120P00060000", action: "BUY", option_type: "PUT", strike: 60,
+                          expiration: "20261120", premium: 1.5, quantity: 1, status: "executed", intent: "CLOSE", filled: 1,
+                          avg_fill_price: 1.5, fill_time: "2026-10-27T16:03:55Z", commission: 1.04, commission_currency: "USD", realized_pnl: 156.11)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for language in ["en", "zh-Hans", "zh-Hant"] {
+            for dark in [false, true] {
+                for width in [393.0, 834.0] {
+                    let store = WheelStore(); store.demo = true
+                    let locale = Locale(identifier: language)
+                    let root = NavigationStack {
+                        Form {
+                            Section("Executed records") { CompactOrderRow(order: order, history: true) }
+                            Section("Contract") {
+                                LabeledContent("Action", value: localizedLabel("BUY TO CLOSE", locale: locale))
+                                LabeledContent("Status", value: localizedLabel(order.status, locale: locale))
+                                OrderFillPrices(order: order)
+                                Text(LocalizedStringKey(order.statusExplanation))
+                            }
+                            Section("Notifications") { DirectPushNotificationSettings() }
+                        }.navigationTitle("Orders")
+                    }.environment(store).environment(\.locale, locale)
+                    let host = UIHostingController(rootView: root)
+                    let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: width, height: 1100)
+                    window.overrideUserInterfaceStyle = dark ? .dark : .light
+                    window.rootViewController = host; window.makeKeyAndVisible(); host.view.frame = window.bounds
+                    host.view.layoutIfNeeded(); try await Task.sleep(for: .milliseconds(350))
+                    let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                        XCTAssertTrue(host.view.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+                    }
+                    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("localized-orders-\(language)-\(Int(width))-\(dark ? "dark" : "light").png")
+                    try XCTUnwrap(image.pngData()).write(to: url); print("LOCALIZATION_PREVIEW=\(url.path)")
+                    window.isHidden = true
+                }
+            }
+        }
+    }
+
     func testExitTIFDetailPreviewFollowsBrokerRefresh() async throws {
         let data = try JSONSerialization.data(withJSONObject: ["id": "ib-91", "ticker": "TQQQ", "action": "BUY",
             "intent": "CLOSE", "option_type": "PUT", "strike": 60, "expiration": "20261120",
