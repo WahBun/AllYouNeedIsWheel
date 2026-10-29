@@ -95,6 +95,112 @@ class InitialHistoryTests(unittest.TestCase):
             executor.submit(cleanup).result(timeout=2)
             app.extensions['ib_background_stop'].set(); executor.shutdown(wait=True)
 
+    def test_cold_owner_pump_finishes_history_without_http_or_warm_charts(self):
+        from flask import Flask
+        from api.request_dispatcher import install_api_dispatcher
+        from api.services.chart_stream import ChartStreams
+        from api.services.chart_latest import LatestCharts
+        for wanted in (False, True):
+            with self.subTest(latest_context=wanted):
+                conn, _ = test_stock_chart.StockChartTests().connection()
+                conn.account_id = 'fixture'
+                feed, hub, latest = StockChart(), ChartStreams(), LatestCharts()
+                if wanted:
+                    latest.read(7, 5, 'rth', 'fixture')
+                loops, owners = [], []
+                received = threading.Event()
+
+                def advance(seconds):
+                    if not loops:
+                        loops.append(asyncio.new_event_loop())
+                        asyncio.set_event_loop(loops[0])
+                    owners.append(threading.get_ident())
+                    loops[0].run_until_complete(asyncio.sleep(seconds))
+
+                async def history(*args, **kwargs):
+                    await asyncio.sleep(.015)
+                    received.set()
+                    return conn.ib.reqHistoricalData.return_value
+
+                conn.ib.sleep.side_effect = advance
+                conn.ib.reqHistoricalDataAsync = AsyncMock(side_effect=history)
+                app = Flask(__name__)
+                with patch('api.services.stock_chart.stock_chart', feed), \
+                     patch('api.services.chart_stream.stock_chart', feed), \
+                     patch('api.services.chart_stream.streams', hub), \
+                     patch('api.services.chart_stream.latest_charts', latest), \
+                     patch('api.services.chart_latest.latest_charts', latest), \
+                     patch('api.routes.account.epoch', return_value='fixture'):
+                    install_api_dispatcher(app)
+                    executor = app.extensions['ib_api_executor']
+                    try:
+                        def start():
+                            with self.assertRaises(ChartHistoryPending):
+                                feed.initial_history.read(conn, S(conId=7, secType='STK'))
+                        executor.submit(start).result(timeout=1)
+                        self.assertFalse(feed.states)
+                        self.assertFalse(hub.clients)
+                        self.assertTrue(received.wait(.35), 'Cold history must progress without another HTTP read')
+                        self.assertEqual(len(set(owners)), 1)
+                        self.assertNotEqual(owners[0], threading.get_ident())
+                        conn.ib.reqHistoricalDataAsync.assert_awaited_once()
+                        conn.ib.placeOrder.assert_not_called()
+                    finally:
+                        app.extensions['ib_background_stop'].set()
+                        def cleanup():
+                            feed.stop()
+                            if loops:
+                                for task in asyncio.all_tasks(loops[0]): task.cancel()
+                                loops[0].run_until_complete(asyncio.sleep(0))
+                                loops[0].close()
+                                asyncio.set_event_loop(None)
+                        executor.submit(cleanup).result(timeout=1)
+                        executor.shutdown(wait=True)
+
+    def test_unclaimed_option_history_expires_without_further_reads(self):
+        loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
+        conn, _ = test_stock_chart.StockChartTests().connection()
+        conn.account_id = 'fixture'
+        conn.ib.sleep.side_effect = lambda seconds: loop.run_until_complete(asyncio.sleep(seconds))
+        history = [S()]
+        conn.ib.reqHistoricalDataAsync = AsyncMock(return_value=history)
+        pending = InitialChartHistory()
+        call_later = loop.call_later
+        def timer(delay, callback, *args, **kwargs):
+            return call_later(.015 if delay == 30 else delay, callback, *args, **kwargs)
+        try:
+            with patch.object(loop, 'call_later', side_effect=timer):
+                with self.assertRaises(ChartHistoryPending): pending.read(conn, S(conId=7, secType='OPT'))
+                deadline = time.monotonic() + .35
+                while pending.needs_pump() and time.monotonic() < deadline:
+                    pending.pump()
+            self.assertFalse(pending.needs_pump())
+            conn.ib.cancelHistoricalData.assert_called_once_with(history)
+            conn.ib.reqHistoricalDataAsync.assert_awaited_once()
+            conn.ib.placeOrder.assert_not_called()
+        finally:
+            pending.clear()
+            for task in asyncio.all_tasks(loop): task.cancel()
+            loop.run_until_complete(asyncio.sleep(0)); loop.close(); asyncio.set_event_loop(None)
+
+    def test_stock_and_future_timeout_retry_avoids_full_minute_penalty(self):
+        for kind, permissions, errors, elapsed, delay in (
+                ('STK', [], [], 15, 15), ('FUT', [], [], 15, 15),
+                ('STK', [], [], .1, 60), ('FUT', [], [162], 15, 60),
+                ('STK', ['Not subscribed'], [354], 15, 60)):
+            with self.subTest(kind=kind, errors=errors, elapsed=elapsed):
+                conn, _ = test_stock_chart.StockChartTests().connection()
+                feed = StockChart()
+                contract = S(conId=7, secType=kind, currency='USD', symbol='TEST')
+                with patch('api.services.chart_contracts.contracts.resolve', return_value=contract), \
+                     patch.object(feed.initial_history, 'read', return_value=([], permissions, errors, elapsed)) as read, \
+                     patch('api.services.stock_chart.time.monotonic', return_value=100):
+                    with self.assertRaises(ValueError): feed.snapshot(conn, 7, 5, background=True)
+                    self.assertEqual(feed.next_request[7], 100 + delay)
+                    with self.assertRaises(ValueError): feed.snapshot(conn, 7, 5, background=True)
+                    read.assert_called_once()
+                conn.ib.placeOrder.assert_not_called()
+
     def test_late_option_history_is_released_after_account_handover(self):
         loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
         conn, _ = test_stock_chart.StockChartTests().connection(); conn.account_id = 'old'

@@ -119,7 +119,7 @@ class ChartStreams:
             latest_charts.start_owner_pump(stock_chart,epoch)
             stock_chart.listeners.add(self.publish_changed)
         if not self.clients and not contexts:
-            return
+            return False
         now = time.monotonic()
         for key, sub in list(self.clients.items()):
             if sub.closed or now-sub.created > 120:
@@ -128,9 +128,10 @@ class ChartStreams:
                 if sub.ready is not None: sub.ready.set()
                 self.clients.pop(key, None)
         if not self.clients and not contexts:
-            return
+            return False
         # Each browser/phone may view a different contract. A global active
         # pointer belongs to the most recent request, not to every subscriber.
+        pumped = False
         for cid in {s.con_id for s in self.clients.values()} | {key[0] for key in contexts}:
             clients=[s for s in self.clients.values() if s.con_id==cid and not s.closed]
             state=stock_chart.states.get(cid)
@@ -146,10 +147,13 @@ class ChartStreams:
                 state['quote_keepalive']=now
                 state['conn'].get_market_ticker(state['contract'])
             state['conn'].ib.sleep(.005)
+            pumped = True
             self.publish_changed(state)
             # The live pump must never start historical requests. Initial bars
             # load in open(); older bars load through explicit history paging.
             # Retrying a failed 5-day backfill here stalled quotes every 30s.
+
+        return pumped
 
 
 

@@ -102,6 +102,19 @@ class InitialChartHistory:
             task.add_done_callback(self.tasks.discard)
         raise ChartHistoryPending('Loading chart history')
 
+    def needs_pump(self):
+        return bool(self.tasks or self.records)
+
+    def pump(self):
+        # The first chart has no live state/subscriber to drain IB events yet.
+        # Advance the existing owner loop, including unclaimed-result expiry;
+        # never start another request or create an additional IB connection.
+        if self.needs_pump():
+            from ib_async import util
+            util.sleep(.005)
+            return True
+        return False
+
     def expire(self, key, record):
         if self.records.get(key) is record:
             self.discard(key, record)
