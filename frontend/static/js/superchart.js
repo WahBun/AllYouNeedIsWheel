@@ -58,7 +58,7 @@ let titleReferenceKey='',titleReferenceAt=0,titleReferenceBusy=false,titleRefere
 const titleFormats=new Map();
 function updateTabTitle(){
  const valid=packet.con_id===cid&&packet.account_epoch===epoch&&!switchingChart;
- const symbol=valid?(packet.local_symbol||packet.display_symbol||packet.symbol):'';
+ const symbol=valid?(packet.security_type==='OPT'&&packet.display_symbol?packet.display_symbol.replace(/\s+(CALL|PUT)$/,(_,right)=>' '+(right==='CALL'?'C':'P')):packet.local_symbol||packet.display_symbol||packet.symbol):'';
  const price=valid?packet.last_price:null;
  let title=symbol||'Wheel · Superchart';
  if(symbol&&Number.isFinite(price)&&price>0&&Date.now()-packetReceived<30000){

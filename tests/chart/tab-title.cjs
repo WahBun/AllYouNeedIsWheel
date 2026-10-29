@@ -1,8 +1,20 @@
 const {chromium}=require('playwright'),assert=require('node:assert/strict');
 const {start}=require('./market-feed/harness.cjs');
 (async()=>{const server=await start(),browser=await chromium.launch();try{
+ const exerciseTitles=()=>{
+   const saved=packet,at=packetReceived,result=[];
+   for(const fields of [
+    {security_type:'OPT',symbol:'GOOG',local_symbol:'GOOG  261120P00270000',display_symbol:'GOOG 20261120 270 PUT'},
+    {security_type:'OPT',symbol:'TSLL',local_symbol:'TSLL  261218C00013500',display_symbol:'TSLL 20261218 13.5 CALL'},
+    {security_type:'FUT',symbol:'MES',local_symbol:'MESZ6',display_symbol:'MES Dec 2026'},
+    {security_type:'STK',symbol:'GOOG',local_symbol:'GOOG',display_symbol:'Alphabet'},
+    {security_type:'OPT',symbol:'GOOG',local_symbol:'GOOG  261120P00270000',display_symbol:''}
+   ]){packet={...saved,...fields,last_price:1.6,previous_close:1.6,price_rules:[]};packetReceived=Date.now();updateTabTitle();result.push(document.title);}
+   packet=saved;packetReceived=at;updateTabTitle();return result;
+  };
  for(const width of [1400,393]){
   const page=await browser.newPage({viewport:{width,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.route('**/static/js/superchart.js',async route=>{const response=await route.fetch();const body=(await response.text()).replace('const titleFormats=new Map();','const titleFormats=new Map();window.testTabTitles='+exerciseTitles.toString()+';');await route.fulfill({response,body});});
   const references=new Map([[7,70],[8,50]]);let releaseReference,referenceStarted=false;
   const delayedReference=new Promise(resolve=>releaseReference=resolve);
   await page.route('**/api/portfolio/chart-reference/*',async route=>{const id=Number(new URL(route.request().url()).pathname.split('/').at(-1));if(id===8){referenceStarted=true;await delayedReference;}await route.fulfill({json:{con_id:id,previous_close:references.get(id)??null}});});
@@ -29,6 +41,8 @@ const {start}=require('./market-feed/harness.cjs');
   for(let i=0;!referenceStarted&&i<100;i++)await page.waitForTimeout(20);assert.equal(referenceStarted,true);
   await page.mouse.click(r.x+10,r.y+70);releaseReference();await page.waitForFunction(()=>document.title==='SYNTH7 77.00 ▲ +10.00%');await page.waitForTimeout(350);assert.equal(await page.title(),'SYNTH7 77.00 ▲ +10.00%');
   assert.match(await page.locator('link[rel="icon"]').getAttribute('href'),/wheel-app-icon/);
+  const names=await page.evaluate(()=>window.testTabTitles());
+  assert.deepEqual(names,['GOOG 20261120 270 P 1.60 0.00%','TSLL 20261218 13.5 C 1.60 0.00%','MESZ6 1.60 0.00%','GOOG 1.60 0.00%','GOOG 261120P00270000 1.60 0.00%']);
   assert.deepEqual(errors,[]);await page.close();console.log('Tab price/change checks passed:',width);
  }
  assert.equal(server.metrics.posts,0);
