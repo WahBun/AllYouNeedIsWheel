@@ -1,3 +1,57 @@
+## 2026-10-30 — Cold-start chart progress and all-pane network recovery
+
+Base/target: `Ben/wheel-1.8` at `9d4d36aea3234237f7ebe5e9e2592f18c706d83a`.
+Development branch: `ben/chart-cold-start-recovery`. Mini was verified read-only
+at the same SHA. Its existing Backend LaunchAgent has RunAtLoad and KeepAlive
+with a 10-second throttle: it starts after macOS login and recovers process exits,
+not before login/unlock. No service configuration change is required.
+
+REA inspected the existing dedicated-browser four-pane page, its loaded scripts,
+console and requests (evidence
+`ev_8cafb0eafb331dbc49706a411dd30d19ff024dd3fdfee8f3be2a048e008c97bb`).
+The page had recovered by observation. Mini logs establish automatic Backend
+startup at 00:03:01, Gateway connection at 00:03:48, user-triggered Backend restart
+at 00:05, and repeated initial-history timeouts/503s. Ordinary queued jobs were
+short; one queue-full event does not establish sustained queue saturation.
+
+- The existing serialized owner now drains pending initial-history callbacks
+  even with no established chart, SSE subscriber or latest-snapshot context.
+  A context alone no longer falsely tells notifications that IB was pumped.
+  Unclaimed history results also retain bounded expiry/cleanup progress. No new
+  connection, owner, polling service or history request is created by this pump.
+- An empty stock/futures history response matching the existing timeout detector
+  retries after 15 seconds instead of 60. Explicit errors, denied permissions
+  and fast empty responses retain the longer backoff; option behavior is retained.
+  This removes 45 seconds of local waiting per qualifying timeout, not IB latency.
+- Online/pageshow/visible recovery wakes failed auxiliary chart transports along
+  with the active pane. Healthy streams remain attached. Layout, order writes,
+  confirmation drafts, quote freshness and tick aggregation stay unchanged.
+
+Validation: new cold-owner and timeout regressions failed on the original code
+and pass after the repair. Initial-history, subscription cleanup, shared history
+budget, dispatcher, connection-manager, notification reconnect and executor checks
+passed offline. The 212-test chart/order suite found one existing date-dependent
+8h fixture failure, reproduced against the unchanged baseline; pinning its clock
+restores the intended six-month window, and the focused test passes. All other
+211 checks passed. The 68 frontend tests passed. Desktop/mobile One-click on/off, delayed
+Confirm/Discard and full-line entry/TP/SL drag regressions also passed.
+
+Browser validation covers four-pane offline/online recovery at desktop/mobile
+widths in both themes, healthy-stream retention, 1–4 pane layout changes,
+symbol/period changes, close/reopen, visibility recovery, two four-pane pages,
+eight distinct symbols, 100Hz stress, stream lifecycle and volatility semantics.
+The same 5/10Hz workload before/after produced source-to-chart-apply p95 ranges
+of 2–7ms and 2–7ms respectively; no steady-state improvement is claimed. Local
+online recovery reattached all four contexts in 31–33ms; the baseline missed the
+2.5s threshold when auxiliary streams retained a 15s backoff. These are isolated
+browser/fake-broker results, not Mini/network or exchange latency guarantees.
+No real outage, Gateway restart, trade, deployment or iPhone install was performed.
+
+After merge, choose **Deploy & Restart Backend**, then refresh web pages. No
+native source/version change or iPhone Run is needed. Confirm real startup and
+four-chart recovery after the user-controlled deployment. Preserve the unrelated
+uncommitted `ios/Wheel/Localizable.xcstrings` metadata and exclude it from this PR.
+
 ## 2026-10-24 — Mobile web workspace and fullscreen fallback
 
 Base/target: `Ben/wheel-1.8` at `1633dbb50b02ea33d8e15cf14e0ba43f02f64120`

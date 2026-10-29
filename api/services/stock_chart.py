@@ -386,15 +386,18 @@ class StockChart:
             bars = list({b['time']: b for b in bars}.values())
             bars.sort(key=lambda b: b['time'])
             from api.services.history_health import record as record_history_health
+            history_timed_out = not other_history_errors and history_elapsed >= (6 if option_bars else 15)*0.95
             if bars:
                 record_history_health(conn, con_id, 'success')
-            elif not other_history_errors and history_elapsed >= (6 if option_bars else 15)*0.95:
+            elif history_timed_out:
                 record_history_health(conn, con_id, 'timeout')
             if not bars:
                 # Failed history must not monopolize the serialized account/order lane.
-                # Transient option history timeouts should not impose a full minute
-                # of blank chart. Keep IB's identical-request pacing floor.
-                self.next_request[con_id] = time.monotonic() + (15 if option_bars and not permission_errors else 60)
+                # Transient history timeouts should not impose a full minute
+                # of blank chart. Keep the existing 15-second pacing floor,
+                # and the longer backoff for denied or genuinely empty history.
+                retry_soon = (option_bars or history_timed_out) and not permission_errors
+                self.next_request[con_id] = time.monotonic() + (15 if retry_soon else 60)
                 if option_bars: conn.ib.cancelHistoricalData(historical)
                 self.request_errors[con_id] = 'Option market data permission unavailable; verify this contract entitlement in Gateway' if permission_errors else 'No historical trades returned for this contract; check history range and market data permissions'
                 raise ValueError(self.request_errors[con_id])

@@ -77,15 +77,17 @@ def install_api_dispatcher(app):
     def chart_loop():
         from api.services.chart_stream import streams
         from api.services.chart_latest import latest_charts
+        from api.services.stock_chart import stock_chart
         outstanding = None
         while not stop_background.wait(.005):
-            if (not streams.clients and not latest_charts.contexts() and not (notifications and (notifications.enabled or notifications.conn is not None))) or (outstanding is not None and not outstanding.done()):
+            if (not streams.clients and not latest_charts.contexts() and not stock_chart.initial_history.needs_pump() and not (notifications and (notifications.enabled or notifications.conn is not None))) or (outstanding is not None and not outstanding.done()):
                 continue
             def pulse():
                 try:
                     with app.app_context():
-                        chart_pumping = bool(streams.clients or latest_charts.contexts())
-                        streams.pulse()
+                        chart_pumping = streams.pulse()
+                        if not chart_pumping:
+                            chart_pumping = stock_chart.initial_history.pump()
                         if notifications and (notifications.enabled or notifications.conn is not None):
                             from api.routes.portfolio import portfolio_service
                             notifications.pulse(portfolio_service, chart_pumping)

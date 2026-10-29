@@ -440,7 +440,9 @@ class StockChartTests(unittest.TestCase):
         conn.ib.reqHistoricalDataAsync=MethodType(IB.reqHistoricalDataAsync,conn.ib)
         conn.ib.reqHistoricalData.return_value=[S(date=datetime(2026,10,19,14,tzinfo=timezone.utc),open=10,high=11,low=9,close=10)]
         try:
-            with patch('ib_async.ib.asyncio.wait_for',side_effect=scaled_wait):
+            # The six-month fixture must not age out as the real date advances.
+            with patch('api.services.stock_chart.time.time',return_value=datetime(2026,10,20,16,tzinfo=timezone.utc).timestamp()), \
+                 patch('ib_async.ib.asyncio.wait_for',side_effect=scaled_wait):
                 feed.snapshot(conn,7,480,fast=True,defer_history=True)
                 loop.run_until_complete(asyncio.sleep(.075))
                 # Still loading beyond the old deadline; no duplicate request.

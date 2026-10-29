@@ -247,7 +247,14 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   }
  }
  function tick(){const c=current();if(!c.cid||!c.ready)return;if(!started){started=true;for(let i=0;i<4;i++)configs[i]={...configs[i],cid:links.symbol?c.cid:(configs[i].cid||c.cid),label:links.symbol?c.label:(configs[i].label||c.label),session:configs[i].cid?configs[i].session:c.session};arrange();beginSwitch();}captureActive();for(const other of panes.values())if(other.index!==active)void other.tick();checkSwitch();persist();}
- panes.set(active,new Pane(active,frame));arrange();setInterval(tick,2000);window.addEventListener('pagehide',()=>{for(const p of panes.values())p.stream.stop();});window.addEventListener('pageshow',tick);document.addEventListener('visibilitychange',tick);
+ function resume(){
+  if(document.hidden)return;
+  // Recovery applies to every visible pane. Healthy streams stay attached;
+  // failed ones may reconnect now instead of waiting for their outage backoff.
+  for(const pane of panes.values())if(pane.index!==active&&!pane.stream.healthy()){pane.stream.stop();pane.lastRead=0;}
+  tick();
+ }
+ panes.set(active,new Pane(active,frame));arrange();setInterval(tick,2000);window.addEventListener('pagehide',()=>{for(const p of panes.values())p.stream.stop();});window.addEventListener('pageshow',resume);window.addEventListener('online',resume);document.addEventListener('visibilitychange',()=>document.hidden?tick():resume());
  window.renderChartLayoutImage=async()=>{
   const bounds=grid.getBoundingClientRect(),scale=devicePixelRatio||1;
   const visible=[...panes.values()].filter(p=>getComputedStyle(p.el).visibility!=='hidden').map(p=>({pane:p,rect:p.frame.getBoundingClientRect()}));
