@@ -155,7 +155,44 @@ class MoonshineTests(unittest.TestCase):
         holiday = datetime(2026,12,25,14,30,tzinfo=timezone.utc).timestamp()
         self.assertIsNone(make_plan(start=holiday))
 
-    def test_frozen_target_survives_later_seed_change_and_old_event(self):
+    def test_daily_fallback_promotes_to_chart_seed_without_early_hit_or_downgrade(self):
+        history = [dict(b, close=695.47, high=695.47, low=695.47) for b in bars()]
+        daily = [dict(day='2026-10-22', close=25.18)]
+        provisional = m.plan(contract(), history, [], daily, START+360)
+        confirmed = m.plan(contract(), history, [dict(time=START+240, close=27.46)], daily, START+420)
+        self.assertAlmostEqual(provisional['levels'][1], 689.9542590562825)
+        self.assertAlmostEqual(confirmed['levels'][1], 689.4548194473994)
+        self.install(provisional); self.install(confirmed)
+        self.assertEqual(self.runtime.moonshine_plans[self.scope,7]['levels'], confirmed['levels'])
+        self.tick(689.92, now=START+421)
+        self.assertEqual(self.events(), [], 'The superseded fallback must not fire early')
+        self.tick(689.45, now=START+422)
+        self.assertEqual(len(self.events()), 1)
+        self.assertIn('689.455', self.events()[0]['body'])
+        self.runtime = NotificationRuntime(NotificationStore(self.path))
+        self.install(dict(provisional, observed_at=START+500))
+        restored = self.runtime.moonshine_plans[self.scope,7]
+        self.assertEqual(restored['levels'], confirmed['levels'], 'Reconnect fallback cannot downgrade a confirmed seed')
+        self.assertTrue(restored['hits'][1]); self.tick(689.45, now=START+501)
+        self.assertEqual(len(self.events()), 1)
+
+    def test_seed_correction_preserves_sent_event_and_legacy_database(self):
+        initial = m.plan(contract(), bars(), [], [dict(day='2026-10-22', close=20)], START+360)
+        self.install(initial); self.tick(initial['levels'][1])
+        event = self.events()[0]
+        # Upgrade a deployed database without provenance; old fired identities stay intact.
+        with self.store.connect() as db: db.execute('DROP TABLE moonshine_seeds')
+        self.runtime = NotificationRuntime(NotificationStore(self.path))
+        correction = m.plan(contract(), bars(), [dict(time=START+240, close=27.46)], [], START+420)
+        self.install(correction)
+        self.assertEqual(self.runtime.moonshine_plans[self.scope,7]['levels'], correction['levels'])
+        self.tick(correction['levels'][1], now=START+421)
+        self.assertEqual(self.events(), [event], 'No duplicate or rewritten push after seed correction')
+        later = m.plan(contract(), bars(), [dict(time=START+240, close=28)], [], START+480)
+        self.install(later); self.install(correction)
+        self.assertEqual(self.runtime.moonshine_plans[self.scope,7]['levels'], later['levels'], 'Stale plans cannot undo a correction')
+
+    def test_unproven_level_change_cannot_shift_target(self):
         self.install(); self.tick(self.plan['levels'][0])
         corrected = dict(self.plan, levels=[200,50,220,40], hits=[False]*4)
         self.install(corrected)
@@ -194,6 +231,62 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(read.await_count,3)
             monitor.pulse(conn,'paper',START+361)
             self.assertEqual(read.await_count,3)
+
+    async def test_fallback_recovers_without_browser_and_cached_promotion_needs_no_reads(self):
+        from api.services.stock_chart import stock_chart
+        conn=Mock();conn.account_id='DU_TEST';conn.is_connected.return_value=True
+        conn.ib.reqContractDetailsAsync=AsyncMock(return_value=[])
+        async def qualify(c): return [contract()] if isinstance(c,Stock) else [S(symbol=c.symbol)]
+        conn.ib.qualifyContractsAsync=AsyncMock(side_effect=qualify)
+        available=False
+        async def history(owner,c,end,duration,size,*args,**kwargs):
+            if c.symbol=='QQQ':
+                return [S(date=datetime.fromtimestamp(v['time'],timezone.utc),close=v['close'],high=v['high'],low=v['low']) for v in bars()]
+            if size=='1 min':
+                if not available: raise TimeoutError('Temporary index failure')
+                return [S(date=datetime.fromtimestamp(START+240,timezone.utc),close=27.46,high=27.46,low=27.46)]
+            return [S(date='20261022',close=25.18)]
+        queued=[];monitor=m.MoonshineMonitor(queued.append)
+        with patch.dict(stock_chart.states,{},clear=True),patch.object(m,'read_history',new=AsyncMock(side_effect=history)) as read:
+            with patch.object(m.time,'time',return_value=START+360):
+                monitor.pulse(conn,'paper',START+360);await asyncio.gather(*monitor.tasks.values())
+            self.assertEqual(monitor.plans['QQQ']['basis']['kind'],'daily')
+            available=True
+            with patch.object(m.time,'time',return_value=START+421):
+                monitor.pulse(conn,'paper',START+421);await asyncio.gather(*monitor.tasks.values())
+            self.assertEqual(monitor.plans['QQQ']['basis']['kind'],'intraday')
+            count=read.await_count
+            cached=dict(identity=(conn.ib,conn.ib.client,conn.account_id),intraday=[dict(time=START+240,close=28)],daily=[])
+            stock_chart.states[7]=dict(conn=conn,client=conn.ib.client,bars=bars(),volatility_cache={'VXN':cached})
+            monitor.pulse(conn,'paper',START+482)
+            self.assertEqual(monitor.plans['QQQ']['basis']['volatility'],28)
+            self.assertEqual(read.await_count,count,'Reuse the chart cache; no added history request')
+            n=len(queued)
+            for _ in range(10): monitor.pulse(conn,'paper',START+483)
+            self.assertEqual(len(queued),n,'Unchanged caches do not enqueue repeated plans')
+            self.assertEqual(read.await_count,count)
+            conn.ib.placeOrder.assert_not_called();conn.ib.cancelOrder.assert_not_called()
+
+    async def test_cached_fallback_stays_active_when_index_recovery_fails(self):
+        from api.services.stock_chart import stock_chart
+        conn=Mock();conn.account_id='DU_TEST';conn.is_connected.return_value=True
+        conn.ib.reqContractDetailsAsync=AsyncMock(return_value=[])
+        async def qualify(c):
+            if isinstance(c,Stock): return [contract()]
+            raise TimeoutError('Index temporarily unavailable')
+        conn.ib.qualifyContractsAsync=AsyncMock(side_effect=qualify)
+        cached=dict(identity=(conn.ib,conn.ib.client,conn.account_id),intraday=[],daily=[dict(day='2026-10-22',close=25.18)])
+        state=dict(conn=conn,client=conn.ib.client,bars=bars(),volatility_cache={'VXN':cached})
+        queued=[];monitor=m.MoonshineMonitor(queued.append)
+        with patch.dict(stock_chart.states,{7:state},clear=True),patch.object(m.time,'time',return_value=START+360),patch.object(m,'read_history',new=AsyncMock()) as read:
+            monitor.pulse(conn,'paper',START+360);await asyncio.gather(*monitor.tasks.values())
+            self.assertIn('QQQ',monitor.ready)
+            self.assertEqual(monitor.plans['QQQ']['basis']['kind'],'daily')
+            cached['intraday']=[dict(time=START+240,close=27.46)]
+            monitor.pulse(conn,'paper',START+361)
+            self.assertEqual(monitor.plans['QQQ']['basis']['kind'],'intraday')
+            self.assertEqual(len(queued),2)
+            read.assert_not_awaited()
 
     async def test_background_without_chart_exact_contract_budget_daily_bound_and_reset(self):
         conn = Mock(); conn.account_id = 'DU_TEST'; conn.is_connected.return_value = True

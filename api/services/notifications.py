@@ -60,6 +60,8 @@ class NotificationStore:
                 CREATE TABLE IF NOT EXISTS moonshine_rules(scope TEXT PRIMARY KEY,value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS moonshine_revisions(scope TEXT,cid INTEGER,day TEXT,version INTEGER,
                     PRIMARY KEY(scope,cid,day));
+                CREATE TABLE IF NOT EXISTS moonshine_seeds(scope TEXT,cid INTEGER,day TEXT,value TEXT NOT NULL,observed REAL NOT NULL,
+                    PRIMARY KEY(scope,cid,day));
                 CREATE TABLE IF NOT EXISTS moonshine_targets(scope TEXT,cid INTEGER,day TEXT,target INTEGER,
                     price REAL,hit INTEGER DEFAULT 0,PRIMARY KEY(scope,cid,day,target));
             ''')
@@ -259,15 +261,30 @@ class NotificationStore:
             key = (scope, plan['cid'], plan['day'])
             prior = db.execute('SELECT version FROM moonshine_revisions WHERE scope=? AND cid=? AND day=?', key).fetchone()
             changed = version != (prior['version'] if prior else 1)
-            if changed:
+            seed_row = db.execute('SELECT value,observed FROM moonshine_seeds WHERE scope=? AND cid=? AND day=?', key).fetchone()
+            previous_basis = json.loads(seed_row['value']) if seed_row else None
+            basis = plan.get('basis')
+            exists = db.execute('SELECT 1 FROM moonshine_targets WHERE scope=? AND cid=? AND day=? LIMIT 1', key).fetchone()
+            # A daily fallback is provisional. Promote to the same confirmed minute
+            # seed used by the chart, but never downgrade it after a reconnect.
+            rank = lambda value: (value['kind'] == 'intraday', value['stamp'])
+            fresh = basis and (not exists or
+                (previous_basis is None and basis['kind'] == 'intraday') or
+                (previous_basis is not None and rank(basis) >= rank(previous_basis) and
+                 plan.get('observed_at', 0) >= seed_row['observed']))
+            revised = changed or fresh and basis != previous_basis
+            if revised:
                 for i, price in enumerate(plan['levels']):
                     db.execute('UPDATE moonshine_targets SET price=?,hit=MAX(hit,?) WHERE scope=? AND cid=? AND day=? AND target=?',
                                (price, int(plan['hits'][i]), *key, i))
+            if basis and (revised or not exists):
+                db.execute('INSERT OR REPLACE INTO moonshine_seeds VALUES (?,?,?,?,?)',
+                           (*key, json.dumps(basis, sort_keys=True), plan.get('observed_at', 0)))
             db.execute('INSERT OR REPLACE INTO moonshine_revisions VALUES (?,?,?,?)', (*key, version))
             for i, price in enumerate(plan['levels']):
                 db.execute('INSERT OR IGNORE INTO moonshine_targets VALUES (?,?,?,?,?,?)',
                            (scope, plan['cid'], plan['day'], i, price, int(plan['hits'][i])))
-            # A later seed correction must not rearm or shift an existing target.
+            # Corrected levels retain fired identities and silently seed past touches.
             for column, sign, parity in [('high', '>=', 0), ('low', '<=', 1)]:
                 extreme = plan.get(column)
                 if isinstance(extreme, (int, float)) and math.isfinite(extreme):
