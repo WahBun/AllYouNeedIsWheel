@@ -9,10 +9,10 @@
  }
  const css=document.createElement('style');css.textContent=`
  #chart-alert-editor{position:fixed;inset:0;z-index:200;display:grid;place-items:center;background:#0005;padding:12px;color:#171919;font:13px -apple-system,system-ui}
- #chart-alert-editor .alert-card{box-sizing:border-box;width:min(360px,100%);max-height:calc(100dvh - 24px);overflow:auto;background:#f4f5f3;border:1px solid #8885;border-radius:12px;padding:16px;box-shadow:0 8px 32px #0004}
+ #chart-alert-editor .alert-card{box-sizing:border-box;width:min(380px,100%);max-height:calc(100dvh - 24px);overflow:auto;background:#f4f5f3;border:1px solid #8885;border-radius:12px;padding:16px;box-shadow:0 8px 32px #0004}
  body[data-dark=true] #chart-alert-editor .alert-card{background:#20242d;color:#eee}
  #chart-alert-editor h2{font-size:17px;margin:0 0 12px}#chart-alert-editor label{display:block;margin:10px 0}
- #chart-alert-editor input,#chart-alert-editor select{box-sizing:border-box;width:100%;margin-top:5px;padding:9px;border:1px solid #8887;border-radius:5px;background:transparent;color:inherit;font:inherit}
+ #chart-alert-editor input,#chart-alert-editor select,#chart-alert-editor textarea{box-sizing:border-box;width:100%;margin-top:5px;padding:9px;border:1px solid #8887;border-radius:5px;background:transparent;color:inherit;font:inherit}
  #chart-alert-editor button{min-height:40px;border:1px solid #8887;border-radius:6px;background:transparent;color:inherit;padding:7px 12px;font:inherit;cursor:pointer}
  #chart-alert-editor button:disabled{opacity:.5}#chart-alert-editor .alert-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
  #chart-alert-editor .alert-sound-controls{display:flex;gap:8px;align-items:center;margin-top:5px}
@@ -26,6 +26,26 @@
  #chart-alert-editor .alert-history-heading{margin:14px 0 4px}#chart-alert-editor .alert-history-heading h3{font-size:13px;margin:0}
  #chart-alert-editor [data-clear-history]{min-height:36px;padding:6px 8px;font-size:12px}#chart-alert-editor [data-clear-history][hidden]{display:none}
  #chart-alert-editor [data-status]{line-height:1.5;opacity:.85;margin:9px 0}#chart-alert-editor .alert-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid #8884}#chart-alert-editor .alert-row span{flex:1;line-height:1.5}
+ #chart-alert-editor textarea{resize:vertical;min-height:64px}#chart-alert-editor .alert-row span{min-width:0;overflow-wrap:anywhere}#chart-alert-editor .alert-note{display:block;white-space:pre-wrap;font-size:12px;opacity:.85}#chart-alert-editor .alert-row button{flex:none;padding:7px 8px}
+ #chart-alert-editor [data-contract]{font-size:12px;opacity:.6;margin-bottom:10px;overflow-wrap:anywhere}
+ #chart-alert-editor .alert-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+ #chart-alert-editor .alert-fields label{min-width:0;margin:0}
+ #chart-alert-editor [data-price]{font-size:18px;font-variant-numeric:tabular-nums;height:42px}
+ #chart-alert-editor [data-condition]{height:42px}
+ #chart-alert-editor textarea{display:block;font-size:13px;line-height:1.45}
+ #chart-alert-editor .alert-muted{font-weight:400;opacity:.5}
+ #chart-alert-editor details{border-top:1px solid #8883;margin-top:8px}
+ #chart-alert-editor summary{display:flex;align-items:center;gap:8px;min-height:40px;cursor:pointer;list-style:none;font-size:12px}
+ #chart-alert-editor summary::-webkit-details-marker{display:none}
+ #chart-alert-editor summary::before{content:'›';font-size:18px;transition:transform .15s}
+ #chart-alert-editor details[open]>summary::before{transform:rotate(90deg)}
+ #chart-alert-editor summary span{margin-left:auto;opacity:.55;font-size:11px}
+ #chart-alert-editor [data-status]{font-size:11px;line-height:1.4;margin:5px 0;overflow-wrap:anywhere}
+ #chart-alert-editor [data-status]:empty{display:none}
+ #chart-alert-editor [data-create]{width:100%;background:#2962ff;border-color:#2962ff;color:#fff;font-weight:600}
+ #chart-alert-editor [data-create]:hover{background:#2458e6}
+ #chart-alert-editor .alert-actions{margin:10px 0 12px}
+ #chart-alert-editor input:focus-visible,#chart-alert-editor textarea:focus-visible,#chart-alert-editor select:focus-visible,#chart-alert-editor summary:focus-visible{outline:2px solid #2962ff;outline-offset:2px}
  #chart-alert-lines{position:absolute;inset:0;z-index:3;pointer-events:none;overflow:hidden;color:#e7b17b}
  .chart-alert-line{position:absolute;height:18px;transform:translateY(-50%);pointer-events:none;--alert-width:300px}
  .chart-alert-hit{position:absolute;inset:0;touch-action:none;cursor:ns-resize;pointer-events:auto;outline:none;overflow:hidden}
@@ -135,7 +155,7 @@
    const price=line.previewPrice??line.alert.price,y=series.priceToCoordinate(price),hidden=!Number.isFinite(y)||y<0||y>height;
    line.hidden=hidden;if(hidden)continue;
    const geometry=left+':'+width+':'+y;if(line.geometry!==geometry){line.geometry=geometry;line.style.left=left+'px';line.style.width=width+'px';line.style.top=y+'px';line.style.setProperty('--alert-width',width+'px');}
-   const title=(countdownPacket?.local_symbol||countdownPacket?.symbol||'')+' '+conditionName(line.alert.condition)+' '+priceText(price);
+   const title=(countdownPacket?.local_symbol||countdownPacket?.symbol||'')+' '+conditionName(line.alert.condition)+' '+priceText(price)+(line.alert.note?' · '+line.alert.note:'');
    if(line.title!==title){line.title=title;line.querySelector('[data-edit-alert]').textContent=title;const hit=line.querySelector('.chart-alert-hit');hit.setAttribute('aria-label','Price alert · '+title);hit.setAttribute('aria-valuenow',String(price));line.querySelector('[data-edit-alert]').setAttribute('aria-label','Edit alert · '+title);}
   }
  }
@@ -157,12 +177,12 @@
  function close(){soundPlayer()?.stopPreview();editor?.remove();editor=null;}
  function open({price,drawing=null,alert=null}={}){
   if(!Number.isFinite(price)||price<=0||!paperCID)return;
-  close();closePriceMenu();const cid=paperCID,epoch=paperConfig.web_account_epoch,ident=requestID(),source=drawing;
-  const overlay=document.createElement('div');overlay.id='chart-alert-editor';overlay.dataset.scope=cid+':'+epoch;overlay.innerHTML=`<section class="alert-card" role="dialog" aria-modal="true" aria-label="Price alert"><div class="alert-heading"><h2>Price alert</h2><button data-close type="button" aria-label="Close" title="Close"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div><div data-contract></div><label>Condition<select data-condition><option value="crossing">Crossing</option><option value="up">Crossing up</option><option value="down">Crossing down</option></select></label><label>Price<input data-price type="number" min="0" step="any" inputmode="decimal" required></label><label>Trigger<select data-repeat><option value="once">Only once</option><option value="every">Every crossing · at most once per minute</option></select></label><div data-status role="status"></div><div class="alert-actions"><button data-create>Create alert</button></div><div class="alert-history-heading"><h3>Saved alerts</h3><button data-clear-history type="button" hidden>Clear history</button></div><div data-alert-list></div></section>`;
+  close();closePriceMenu();const cid=paperCID,epoch=paperConfig.web_account_epoch,ident=requestID(),source=drawing||alert?.drawing||null;
+  const overlay=document.createElement('div');overlay.id='chart-alert-editor';overlay.dataset.scope=cid+':'+epoch;overlay.innerHTML=`<section class="alert-card" role="dialog" aria-modal="true" aria-label="Price alert"><div class="alert-heading"><h2>Price alert</h2><button data-close type="button" aria-label="Close" title="Close"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg></button></div><div data-contract></div><div class="alert-fields"><label>Price<input data-price type="number" min="0" step="any" inputmode="decimal" required></label><label>Condition<select data-condition><option value="crossing">Crossing</option><option value="up">Crossing up</option><option value="down">Crossing down</option></select></label></div><label>Note <span class="alert-muted">· optional</span><textarea data-note maxlength="500" rows="2" placeholder="Why this price? Shown in your notification."></textarea></label><details data-options><summary>Alert options <span data-option-summary></span></summary><label>Trigger<select data-repeat><option value="once">Only once</option><option value="every">Every crossing · once per minute</option></select></label><p class="alert-sound-help">Monitors live last price. Alerts pause when this account is disconnected or not selected.</p></details><div data-status role="status"></div><div class="alert-actions"><button data-create>Create alert</button></div><details data-history><summary>Saved alerts <span data-alert-count></span></summary><div class="alert-history-heading"><h3>For this contract</h3><button data-clear-history type="button" hidden>Clear history</button></div><div data-alert-list></div></details></section>`;
   editor=overlay;document.body.append(overlay);const status=overlay.querySelector('[data-status]'),create=overlay.querySelector('[data-create]'),input=overlay.querySelector('[data-price]'),list=overlay.querySelector('[data-alert-list]');
   const clear=overlay.querySelector('[data-clear-history]');let historyIds=[],clearing=false,renderSerial=0;
   overlay.querySelector('[data-contract]').textContent=countdownPacket?.local_symbol||countdownPacket?.symbol||'Contract '+cid;
-  input.value=String(price);input.disabled=!!source;
+  input.value=String(price);input.disabled=!!source;const note=overlay.querySelector('[data-note]');note.value=alert?.note||'';
   const current=()=>editor===overlay&&cid===paperCID&&epoch===paperConfig.web_account_epoch;
   const player=soundPlayer();let soundSelect=null;
   if(player){
@@ -170,28 +190,32 @@
    label.textContent='Browser sound';controls.className='alert-sound-controls';soundSelect=document.createElement('select');soundSelect.dataset.sound='';
    for(const [value,text] of player.choices)soundSelect.add(new Option(text,value));
    let preferred='alarm-clock';try{preferred=localStorage.getItem('wheel.alert.sound')||preferred;}catch{}
-   soundSelect.value=alert?.sound||preferred;if(!soundSelect.value)soundSelect.value='alarm-clock';
+   soundSelect.value=alert?.sound||preferred;if(!soundSelect.value)soundSelect.value='alarm-clock';if(alert&&source)soundSelect.disabled=true;
    preview.type='button';preview.textContent='▶';preview.setAttribute('aria-label','Preview sound');preview.title='Preview sound';
    help.className='alert-sound-help';help.textContent='Plays once in this browser when the alert triggers.';
-   controls.append(soundSelect,preview);label.append(controls,help);status.before(label);
+   controls.append(soundSelect,preview);label.append(controls,help);overlay.querySelector('[data-options] label').after(label);
    const update=()=>{player.stopPreview();preview.disabled=soundSelect.value==='none';};soundSelect.onchange=update;update();
    preview.onclick=async()=>{const selected=soundSelect.value;try{const played=await player.preview(selected);if(current()&&selected===soundSelect.value)help.textContent=played?'Preview playing · once per trigger.':'Enable sounds in the chart toolbar, then try Preview.';}catch{if(current())help.textContent='Sound unavailable. Try Preview again.';}};
   }
   if(alert){create.textContent='Save alert';overlay.querySelector('[data-condition]').value=alert.condition;overlay.querySelector('[data-repeat]').value=alert.repeat;overlay.querySelector('[data-condition]').disabled=true;overlay.querySelector('[data-repeat]').disabled=true;}
+  const repeat=overlay.querySelector('[data-repeat]');
+  const optionSummary=()=>{overlay.querySelector('[data-option-summary]').textContent=repeat.value==='every'?'Repeating':'Once';};
+  repeat.addEventListener('change',optionSummary);optionSummary();
   addPhoneSettings(overlay,current);
   const render=async()=>{
    const serial=++renderSerial,result=await api('alerts/'+cid,'GET',null,epoch);if(!current()||serial!==renderSerial)return;
    publish(result,cid,epoch);
    historyIds=(result.alerts||[]).filter(a=>['stopped','triggered','drawing_removed'].includes(a.state)).map(a=>a.id);
    clear.hidden=!historyIds.length;clear.disabled=clearing;
-   list.replaceChildren();for(const alert of result.alerts||[]){const row=document.createElement('div'),text=document.createElement('span');row.className='alert-row';const states={active:'Active',triggered:'Triggered',stopped:'Stopped',drawing_removed:'Ray removed'};text.textContent=priceText(alert.price)+' · '+({crossing:'Crossing',up:'Crossing up',down:'Crossing down'}[alert.condition]||alert.condition)+' · '+(states[alert.state]||alert.state)+(alert.drawing?' · Horizontal ray':'');row.append(text);if(alert.state==='active'){const stop=document.createElement('button');stop.textContent='Stop';stop.onclick=async()=>{if(!current())return;stop.disabled=true;try{await api('alerts/'+alert.id+'/stop','POST',{},epoch);await render();}catch(error){status.textContent=error.message;stop.disabled=false;}};row.append(stop);}list.append(row);}
+   overlay.querySelector('[data-alert-count]').textContent=String((result.alerts||[]).length);
+   list.replaceChildren();for(const alert of result.alerts||[]){const row=document.createElement('div'),text=document.createElement('span');row.className='alert-row';const states={active:'Active',triggered:'Triggered',stopped:'Stopped',drawing_removed:'Ray removed'};text.textContent=priceText(alert.price)+' · '+({crossing:'Crossing',up:'Crossing up',down:'Crossing down'}[alert.condition]||alert.condition)+' · '+(states[alert.state]||alert.state)+(alert.drawing?' · Horizontal ray':'');if(alert.note){const memo=document.createElement('small');memo.className='alert-note';memo.textContent=alert.note;text.append(memo);}row.append(text);if(alert.state==='active'){const edit=document.createElement('button');edit.textContent='Edit';edit.setAttribute('aria-label','Edit alert at '+priceText(alert.price));edit.onclick=()=>{if(current())open({price:alert.price,alert});};row.append(edit);const stop=document.createElement('button');stop.textContent='Stop';stop.onclick=async()=>{if(!current())return;stop.disabled=true;try{await api('alerts/'+alert.id+'/stop','POST',{},epoch);await render();}catch(error){status.textContent=error.message;stop.disabled=false;}};row.append(stop);}list.append(row);}
    if(!list.childElementCount)list.textContent='No alerts for this contract.';
    return result;
   };
   clear.onclick=async()=>{if(!current()||clearing||!historyIds.length)return;clearing=true;clear.disabled=true;renderSerial++;try{await api('alerts/'+cid+'/clear-history','POST',{ids:historyIds},epoch);if(!current())return;status.textContent='History cleared. Active alerts kept.';await render();}catch(error){if(current()){status.textContent=error.message;await render().catch(()=>{});}}finally{clearing=false;if(current())clear.disabled=false;}};
-  render().then(result=>{if(!current()||!result)return;status.textContent=(source?'Follows the saved horizontal ray. ':'Monitors live last price. ')+(result.bark_enabled?'Bark notifications are enabled.':result.push_configured?'Enable iPhone notifications in Settings.':'Enable Bark below for iPhone lock-screen alerts.')+' Alerts pause when this account is disconnected or not selected.';}).catch(error=>{if(current())status.textContent=error.message;});
-  create.onclick=async()=>{if(!current())return;create.disabled=true;status.textContent='Saving alert…';try{const value=Number(input.value),sound=soundSelect?{sound:soundSelect.value}:{};if(alert)await api('alerts/'+alert.id+'/price','POST',{cid,version:alert.version,price:value,...sound},epoch);else await api('alerts/'+cid,'POST',{id:ident,price:value,condition:overlay.querySelector('[data-condition]').value,repeat:overlay.querySelector('[data-repeat]').value,drawing:source,...sound},epoch);if(!current())return;if(soundSelect)try{localStorage.setItem('wheel.alert.sound',sound.sound);}catch{}status.textContent='Alert saved. Monitoring starts with the next live price.';await render();}catch(error){if(current()){status.textContent=error.message;create.disabled=false;}}};
-  overlay.querySelector('[data-close]').onclick=close;overlay.addEventListener('pointerdown',event=>{if(event.target===overlay)close();event.stopPropagation();});overlay.addEventListener('keydown',event=>{if(event.key==='Escape'){event.stopPropagation();close();}if(event.key==='Tab'){const controls=[...overlay.querySelectorAll('input,select,button')].filter(el=>!el.disabled);const first=controls[0],last=controls.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}});overlay.querySelector('[data-condition]').focus();
+  render().then(result=>{if(!current()||!result)return;status.textContent=(source?'Follows horizontal ray · ':'')+(result.bark_enabled?'Bark enabled':result.push_configured?'iPhone alerts: Settings':'Phone alerts: set up below');}).catch(error=>{if(current())status.textContent=error.message;});
+  create.onclick=async()=>{if(!current())return;create.disabled=true;status.textContent='Saving alert…';try{const value=Number(input.value),sound=soundSelect?{sound:soundSelect.value}:{};if(alert)await api('alerts/'+alert.id+'/price','POST',{cid,version:alert.version,price:value,note:note.value,note_version:alert.note_version??0,...sound},epoch);else await api('alerts/'+cid,'POST',{id:ident,price:value,condition:overlay.querySelector('[data-condition]').value,repeat:overlay.querySelector('[data-repeat]').value,drawing:source,note:note.value,...sound},epoch);if(!current())return;if(soundSelect)try{localStorage.setItem('wheel.alert.sound',sound.sound);}catch{}status.textContent=alert?'Alert saved.':'Alert saved. Monitoring starts with the next live price.';await render();}catch(error){if(current()){status.textContent=error.message;create.disabled=false;}}};
+  overlay.querySelector('[data-close]').onclick=close;overlay.addEventListener('pointerdown',event=>{if(event.target===overlay)close();event.stopPropagation();});overlay.addEventListener('keydown',event=>{if(event.key==='Escape'){event.stopPropagation();close();}if(event.key==='Tab'){const controls=[...overlay.querySelectorAll('input,select,textarea,button,summary')].filter(el=>!el.disabled&&el.getClientRects().length&&(el.matches('summary')||!el.closest('details:not([open])')));const first=controls[0],last=controls.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}});(input.disabled?note:input).focus();
  }
  window.chartAlerts={open,api,refresh:()=>{nextLoad=0;void reload();},receive:(result,cid,epoch)=>{loadSerial++;accept(result,cid,epoch);}};
  // Context cancellation already runs in the drawing module before this handler.
