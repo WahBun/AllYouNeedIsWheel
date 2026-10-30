@@ -918,7 +918,8 @@ struct PortfolioView: View {
                 heldPositions.contains { $0.security_type == type }
             }, id: \.self) { type in
                 Section(LocalizedStringKey(type == "STK" ? "Stocks" : type == "FUT" ? "Futures" : "Options")) {
-                    ForEach(heldPositions.filter { $0.security_type == type }) { position in
+                    let sectionPositions = heldPositions.filter { $0.security_type == type }
+                    ForEach(type == "OPT" ? OptionPositionOrder.sorted(sectionPositions) : sectionPositions) { position in
                         ExpandablePositionRow(position: position) { expanded in
                             if position.security_type == "OPT" {
                                 PortfolioOptionRow(position: position, showsRange: false)
