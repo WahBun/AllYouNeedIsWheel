@@ -64,6 +64,75 @@ class NotificationsTests(unittest.TestCase):
         for index, price in enumerate(prices):
             self.runtime.process(('price', scope or self.scope, 7, price, 'IB Paper', (start or self.start)+index+1))
     def events(self, scope=None): return self.store.events(scope or self.scope, 0)['events']
+
+    def test_note_only_edit_preserves_crossing_and_notification_snapshot(self):
+        alert = self.alert(note='Old reason')
+        self.prices(99)
+        edit = dict(cid=7, price=100, version=alert['version'], note_version=alert['note_version'],
+                    note='  Support retest\n等待确认 <b>not HTML</b>  ')
+        updated = self.store.amend_alert(self.scope, alert['id'], edit)
+        self.assertEqual(updated['note'], 'Support retest\n等待确认 <b>not HTML</b>')
+        self.assertEqual(updated['version'], alert['version'])
+        self.assertEqual(updated['monitor_since'], alert['monitor_since'])
+        with patch('api.services.chart_drawings.DB', Path(self.temp.name)/'absent.db'):
+            self.runtime.refresh()
+        self.prices(101, start=self.start+2)
+        self.assertEqual(len(self.events()), 1, 'Editing a note must not lose the previous crossing price')
+        self.assertEqual(self.events()[0]['body'], 'TEST crossed 100 · Last 101\nNote: Support retest\n等待确认 <b>not HTML</b>')
+        # A lost note-save reply can be retried after firing without rearming.
+        retry = self.store.amend_alert(self.scope, alert['id'], edit)
+        self.assertEqual(retry['state'], 'triggered')
+        self.assertEqual(retry['note_version'], updated['note_version'])
+        self.assertFalse(self.store.fire(alert, 102, 'IB Paper'))
+
+    def test_note_storage_legacy_clients_and_concurrent_edits(self):
+        alert = self.alert(note='Original')
+        edit = dict(cid=7, price=101, version=1, note_version=1, note='Updated')
+        updated = self.store.amend_alert(self.scope, alert['id'], edit)
+        self.assertEqual((updated['version'], updated['note_version']), (2, 2))
+        self.assertEqual(self.store.amend_alert(self.scope, alert['id'], edit), updated)
+        legacy = self.store.amend_alert(self.scope, alert['id'], dict(cid=7, price=102, version=2))
+        self.assertEqual((legacy['note'], legacy['note_version']), ('Updated', 2))
+        with self.assertRaises(AlertConflict):
+            self.store.amend_alert(self.scope, alert['id'], dict(cid=7, price=103, version=3, note_version=1, note='Stale overwrite'))
+        self.assertEqual(self.store.alerts(self.scope)[0]['price'], 102, 'Conflicts must roll back price and note together')
+        for scope, cid in [(self.other, 7), (self.scope, 8)]:
+            with self.assertRaises(AlertConflict):
+                self.store.amend_alert(scope, alert['id'], dict(cid=cid, price=102, version=3, note_version=2, note='Wrong context'))
+        cleared = self.store.amend_alert(self.scope, alert['id'], dict(cid=7, price=102, version=3, note_version=2, note=''))
+        restored = NotificationStore(self.path).alerts(self.scope)[0]
+        self.assertEqual((restored['note'], restored['note_version'], restored['version']), ('', 3, 3))
+        self.assertEqual(cleared, restored)
+
+    def test_ray_note_edit_keeps_drawing_price_ownership(self):
+        alert = self.alert(drawing='ray', note='Watch support')
+        edit = dict(cid=7, price=100, version=1, note_version=1, note='Wait for reclaim')
+        updated = self.store.amend_alert(self.scope, alert['id'], edit)
+        self.assertEqual(updated['monitor_since'], alert['monitor_since'])
+        self.assertEqual(updated['version'], 1)
+        with self.assertRaises(AlertConflict):
+            self.store.amend_alert(self.scope, alert['id'], dict(edit, price=101, note_version=2))
+        with self.assertRaises(AlertConflict):
+            self.store.amend_alert(self.scope, alert['id'], dict(cid=7, price=100, version=1))
+
+    def test_note_validation_and_existing_database_compatibility(self):
+        for note in [None, 5, {}, 'a'*501, 'bad\x00text']:
+            with self.assertRaises(ValueError): self.alert(note=note)
+        alert = self.alert(note='a'*500)
+        # Simulate a database created before the additive notes table existed.
+        with self.store.connect() as db: db.execute('DROP TABLE alert_notes')
+        restored = NotificationStore(self.path)
+        old = restored.alerts(self.scope)[0]
+        self.assertEqual((old['note'], old['note_version']), ('', 0))
+        updated = restored.amend_alert(self.scope, alert['id'], dict(cid=7, price=100, version=1, note_version=0, note='New note'))
+        self.assertEqual((updated['note'], updated['note_version']), ('New note', 1))
+        for revision in [None, True, -1, '1']:
+            with self.assertRaises(ValueError):
+                restored.amend_alert(self.scope, alert['id'], dict(cid=7, price=100, version=1, note_version=revision, note='Invalid'))
+        # An old create retry keeps the latest note rather than overwriting it.
+        retry = restored.create_alert(self.scope, 7, 'TEST', dict(id=alert['id'], price=100))
+        self.assertEqual(retry['note'], 'New note')
+
     def test_crossing_once_replay_and_scope(self):
         a = self.alert(); self.prices(99, 101, 99, 101, scope=self.other)
         self.assertEqual(self.events(), [])
@@ -263,11 +332,12 @@ class NotificationsTests(unittest.TestCase):
         key = 'temporaryDeviceKey123'
         self.store.register_bark(self.scope, dict(url=key, enabled=True))
         self.store.register(self.scope, dict(id=str(uuid.uuid4()), token='ab'*32, environment='sandbox', enabled=True))
-        self.alert(); self.prices(99,101)
+        self.alert(note='Support retest'); self.prices(99,101)
         with patch.dict(os.environ, {}, clear=True): deliver_once(self.store, sender)
         self.assertEqual(len(requests), 1)
         self.assertEqual(requests[0].full_url, 'https://api.day.app/push')
         payload = json.loads(requests[0].data)
+        self.assertEqual(payload['body'], 'TEST crossed 100 · Last 101\nNote: Support retest')
         self.assertEqual(payload['device_key'], key); self.assertEqual(payload['group'], 'Wheel · Paper')
         self.assertNotIn(key, requests[0].full_url); self.assertEqual(payload['level'], 'active')
         with self.store.connect() as db:
@@ -430,7 +500,7 @@ class NotificationsTests(unittest.TestCase):
         try:
             with patch.dict(os.environ,dict(WHEEL_APNS_KEY_ID='TESTKEY',WHEEL_APNS_TEAM_ID='TESTTEAM',WHEEL_APNS_KEY_PATH=str(path),WHEEL_APNS_TOPIC='test.wheel')):
                 for ident in ['fill:'+self.scope+':one','fill:'+self.scope+':two']:
-                    self.assertEqual(sender.send({'environment':'sandbox','token':'ab'*32},dict(id=ident,kind='fill',title='IB Paper',body='TEST',created=time.time()))[0],200)
+                    self.assertEqual(sender.send({'environment':'sandbox','token':'ab'*32},dict(id=ident,kind='fill',title='IB Paper',body='TEST\nNote: Support retest',created=time.time()))[0],200)
             claims=jwt.decode(requests[0].headers['authorization'].split(' ')[1],key.public_key(),algorithms=['ES256'])
             self.assertEqual(claims['iss'],'TESTTEAM')
             self.assertEqual(requests[0].url.host,'api.sandbox.push.apple.com')
@@ -438,6 +508,7 @@ class NotificationsTests(unittest.TestCase):
             self.assertNotEqual(requests[0].headers['apns-collapse-id'],requests[1].headers['apns-collapse-id'])
             import json
             self.assertEqual(json.loads(requests[0].content)['wheel_kind'],'fill')
+            self.assertEqual(json.loads(requests[0].content)['aps']['alert']['body'],'TEST\nNote: Support retest')
         finally: client.close()
 
     def test_sdk_local_cancel_waits_for_broker_completed_evidence(self):

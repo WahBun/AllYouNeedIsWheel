@@ -34,7 +34,7 @@ const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
   await p.waitForFunction(()=>chart.paneSize().height>200&&series.priceToCoordinate(100)!==null);
   p.setDefaultTimeout(5000);
   const open=async()=>{await p.locator('#chart').click({button:'right',position:{x:170,y:140}});if(!native)await p.getByRole('menuitem',{name:/Add alert at/}).click();await p.locator('#chart-alert-editor').waitFor();};
-  await open();await p.locator('.alert-row').nth(3).waitFor();
+  await open();await p.locator('[data-history] summary').click();await p.locator('.alert-row').nth(3).waitFor();
   const close=p.getByRole('button',{name:'Close',exact:true}),card=await p.locator('.alert-card').boundingBox(),button=await close.boundingBox();
   assert.ok(button.x+button.width>card.x+card.width-16&&button.y<card.y+24,'Close belongs at top right');
   assert.equal(await p.locator('.alert-actions [data-close]').count(),0);

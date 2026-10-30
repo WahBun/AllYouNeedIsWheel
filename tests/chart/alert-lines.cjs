@@ -11,7 +11,8 @@ const {start}=require('./market-feed/harness.cjs');
    if(!url.pathname.startsWith('/api/notifications/'))return route.continue();
    const path=url.pathname.slice('/api/notifications/'.length);let result={};
    if(req.method()==='POST')assert.equal(req.headers()['x-wheel-account-epoch'],'mock-epoch');
-   if(path==='alerts/7')result={alerts,scope:'paper-test',epoch:'mock-epoch',bark_enabled:bark.enabled};
+   if(path==='moonshine-rules')result={epoch:'mock-epoch',rules:{version:1,inner:.5,outer:.8,spx:'VIX',ndx:'VXN'}};
+   else if(path==='alerts/7')result={alerts,scope:'paper-test',epoch:'mock-epoch',bark_enabled:bark.enabled};
    else if(path==='alerts/8')result={alerts:[],scope:'paper-test',epoch:'other'};
    else if(path.endsWith('/price')){
     const body=req.postDataJSON(),alert=alerts.find(a=>a.id===path.split('/')[1]);writes.push(body);

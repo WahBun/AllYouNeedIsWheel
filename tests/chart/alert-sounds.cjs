@@ -37,6 +37,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),{sta
    await f.locator('#chart').click({button:'right',position:{x:90,y:70}});
    await f.getByRole('menuitem',{name:/Add alert at/}).click();
    assert.equal(await f.locator('[data-sound] option').count(),7);
+   await f.locator('[data-options] summary').click();
    const durations=[];
    for(const sound of ['alarm-clock','beep-beep','three-notes','soft-chime','hand-bell','chirpy']){
     await f.locator('[data-sound]').selectOption(sound);
