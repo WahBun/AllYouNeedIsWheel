@@ -55,6 +55,26 @@ struct PerformanceLive: Decodable {
 }
 
 extension PerformanceHistory {
+    // Display-only daily estimate, using the same reported-NAV basis as the
+    // intraday curve. It remains available after RTH while today's P&L is fresh.
+    func dailyReturnEstimate(_ live: PerformanceLive?, now: Date = .now) -> Double? {
+        guard live?.fresh == true, let pnl = live?.daily_pnl, pnl.isFinite,
+              let latest, latest.nav.isFinite, latest.nav > 0, latest.date == end else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let received = live?.received_at,
+              let stamp = formatter.date(from: received) ?? ISO8601DateFormatter().date(from: received),
+              calendar.isDate(stamp, inSameDayAs: now),
+              let reported = ISO8601DateFormatter().date(from: latest.date + "T12:00:00Z"),
+              let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: reported),
+                                                to: calendar.startOfDay(for: now)).day,
+              (1...4).contains(days) else { return nil }
+        let percent = pnl / latest.nav * 100
+        return percent.isFinite ? percent : nil
+    }
+
     // Preserve the live account-P&L estimate independently of benchmark availability.
     func intradayEstimate(_ live: PerformanceLive?, now: Date = .now) -> Double? {
         guard live?.fresh == true, let pnl = live?.daily_pnl, pnl.isFinite,
@@ -75,6 +95,27 @@ extension PerformanceHistory {
               let stamp = live?.received_at.flatMap({ formatter.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) }),
               calendar.isDate(stamp, inSameDayAs: today) else { return nil }
         return ((1 + last.portfolio / 100) * (1 + pnl / latest.nav) - 1) * 100
+    }
+}
+
+struct PerformanceDailyPnlValue: View {
+    let pnl: Double?
+    let percent: Double?
+    private var percentage: String {
+        guard let pnl, pnl.isFinite, let percent, percent.isFinite else { return "(—)" }
+        return String(format: "(%+.2f%%)", percent)
+    }
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
+                Text(money(pnl))
+                Text(percentage)
+            }.fixedSize()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(money(pnl))
+                Text(percentage)
+            }.lineLimit(1).minimumScaleFactor(0.7)
+        }.monospacedDigit()
     }
 }
 
@@ -232,10 +273,11 @@ struct PerformanceView: View {
             Section("Today") {
                 LabeledContent("Daily P&L") {
                     let pnl = live?.fresh == true ? live?.daily_pnl : nil
-                    Text(money(pnl)).monospacedDigit()
+                    PerformanceDailyPnlValue(pnl: pnl, percent: history?.dailyReturnEstimate(live))
                         .foregroundStyle(pnl.map { $0 > 0 ? gain : ($0 < 0 ? loss : Color.secondary) } ?? Color.secondary)
                 }
                 Text("Account base currency · IBKR daily P&L").font(.caption).foregroundStyle(.secondary)
+                Text("Daily %: estimate using last reported NAV.").font(.caption).foregroundStyle(.secondary)
                 if let liveError { NoticeText(liveError).font(.caption).foregroundStyle(.orange) }
             }
             Section {
