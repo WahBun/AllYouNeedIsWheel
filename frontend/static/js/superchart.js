@@ -163,6 +163,11 @@ const chartLayout=window.installChartLayout({frame,api,onReady:()=>sync(),onPlus
   const url=new URL(location);url.searchParams.set('con_id',cid);history.replaceState(null,'',url);
   frame.contentWindow.addEventListener('focus',resumeMarket);sync();ensureMarket();void refresh();return true;
  },
+ onHoldingChart:body=>{
+  if(busy||switchingChart||chartLayout.loading()||document.querySelector('dialog[open]')||body.source!==cid||body.epoch!==epoch||packet.security_type!=='STK')return;
+  const position=positions.find(p=>p.con_id===body.con_id&&p.position&&p.security_type==='OPT'&&p.symbol===packet.symbol);
+  if(position)select(position.con_id,position.local_symbol||position.symbol);
+ },
  holdings:(id,data)=>holdingRows(id,data),
  executions:()=>executionContext===executionsKey()?chartExecutions:[]
 });
@@ -548,7 +553,7 @@ clearReadNotice('Orders / positions');clearReadNotice('IB request');
  readNotice(readScope,`${readScope} refresh ${error.retryableReadBusy?'delayed: IB request queue is busy':'unavailable'}. Retrying automatically.`,String(error.message));
  trace(`${readScope}: ${error.message}`);
 }finally{polling=false;sync();}}
-function holdingRows(id=cid,chartPacket=packet){return positions.flatMap(p=>{const exact=p.con_id===id&&p.security_type===chartPacket.security_type,strike=chartPacket.security_type==='STK'&&p.security_type==='OPT'&&p.symbol===chartPacket.symbol;if(!(p.position&&p.con_id&&(exact||strike)))return [];const report=p.reported_cost;let price=strike?p.strike:p.security_type==='STK'&&report&&Math.abs(report.quantity-p.position)<.000001?report.average:p.entry_fill_price;const multiplier=p.security_type==='STK'?1:p.multiplier;const brokerAverage=!strike&&['STK','OPT','FUT'].includes(p.security_type)&&!(price>0)&&Number.isFinite(p.avg_cost)&&p.avg_cost>0&&Number.isFinite(multiplier)&&multiplier>0;if(brokerAverage)price=p.avg_cost/multiplier;if(!(price>0))price=null;if(strike&&!price)return [];return [{id:(strike?'strike-':'holding-')+p.con_id,kind:strike?'strike':'holding',price,title:strike?`${p.position} ${p.strike}${p.option_type==='CALL'?'C':'P'}@${p.entry_fill_price??'—'}`:`${p.position} · ${brokerAverage?'IB Avg*':'Avg'}${price?'':' —'}`,side:p.position>0?1:-1,pnl:p.unrealized_pnl,basis:Math.abs(p.avg_cost*p.position),marketPrice:p.market_price}];});}
+function holdingRows(id=cid,chartPacket=packet){return positions.flatMap(p=>{const exact=p.con_id===id&&p.security_type===chartPacket.security_type,strike=chartPacket.security_type==='STK'&&p.security_type==='OPT'&&p.symbol===chartPacket.symbol;if(!(p.position&&p.con_id&&(exact||strike)))return [];const report=p.reported_cost;let price=strike?p.strike:p.security_type==='STK'&&report&&Math.abs(report.quantity-p.position)<.000001?report.average:p.entry_fill_price;const multiplier=p.security_type==='STK'?1:p.multiplier;const brokerAverage=!strike&&['STK','OPT','FUT'].includes(p.security_type)&&!(price>0)&&Number.isFinite(p.avg_cost)&&p.avg_cost>0&&Number.isFinite(multiplier)&&multiplier>0;if(brokerAverage)price=p.avg_cost/multiplier;if(!(price>0))price=null;if(strike&&!price)return [];return [{id:(strike?'strike-':'holding-')+p.con_id,kind:strike?'strike':'holding',con_id:strike?p.con_id:null,price,title:strike?`${p.position} ${p.strike}${p.option_type==='CALL'?'C':'P'}@${p.entry_fill_price??'—'}`:`${p.position} · ${brokerAverage?'IB Avg*':'Avg'}${price?'':' —'}`,side:p.position>0?1:-1,pnl:p.unrealized_pnl,basis:Math.abs(p.avg_cost*p.position),marketPrice:p.market_price}];});}
 // Match native CoreAssetStyle / SymbolText without changing contract identity.
 const coreLettering={SGOV:'𝕊𝔾𝕆𝕍',VTI:'𝕍𝕋𝕀',QQQ:'ℚℚℚ',SPY:'𝕊ℙ𝕐',VOO:'𝕍𝕆𝕆'};
 function stylePositionSymbol(button,row){
