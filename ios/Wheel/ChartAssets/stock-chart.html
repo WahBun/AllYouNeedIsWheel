@@ -681,7 +681,17 @@ function syncHoldingOverlays(config) {
   if(row.price===null){axisBadge?.remove();holdingAxisBadges.delete(row.id);}
   else {if(!axisBadge){axisBadge=document.createElement("div");axisBadge.className="holding-axis";document.body.append(axisBadge);holdingAxisBadges.set(row.id,axisBadge);}axisBadge.dataset.price=String(row.price);axisBadge.style.background=options.color;}
   let badge=holdingBadges.get(row.id);
-  if(!badge){badge=document.createElement('div');badge.className='holding-badge';badge.style.cssText='position:absolute;z-index:3;pointer-events:none;max-width:calc(100% - 75px);padding:3px 6px;border-radius:3px;font:600 12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:16px;color:white;overflow-wrap:anywhere;transform:translateY(-50%)';document.body.append(badge);holdingBadges.set(row.id,badge);}
+  if(!badge){badge=document.createElement('div');badge.className='holding-badge';badge.style.cssText='position:absolute;z-index:3;pointer-events:none;max-width:calc(100% - 75px);padding:3px 6px;border-radius:3px;font:600 12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:16px;color:white;overflow-wrap:anywhere;transform:translateY(-50%)';document.body.append(badge);holdingBadges.set(row.id,badge);
+   let press=null;
+   const open=()=>{if(!badge.dataset.contract)return;parent.postMessage({wheelChart:true,name:'holdingChart',body:{con_id:Number(badge.dataset.contract),source:paperCID,epoch:paperConfig.web_account_epoch}},location.origin);};
+   badge.onpointerdown=e=>{if(!badge.dataset.contract)return;e.stopPropagation();press=e.button===0?{x:e.clientX,y:e.clientY}:null;};
+   badge.onpointercancel=()=>{press=null;};
+   badge.onclick=e=>{if(!badge.dataset.contract)return;e.preventDefault();e.stopPropagation();if(press&&Math.hypot(e.clientX-press.x,e.clientY-press.y)<5)open();press=null;};
+   badge.onkeydown=e=>{if(badge.dataset.contract&&(e.key==='Enter'||e.key===' ')){e.preventDefault();e.stopPropagation();if(!e.repeat)open();}};
+  }
+  const navigable=row.kind==='strike'&&Number.isSafeInteger(row.con_id)&&row.con_id>0&&parent!==window;
+  if(navigable){badge.dataset.contract=String(row.con_id);badge.style.pointerEvents='auto';badge.style.cursor='pointer';badge.tabIndex=0;badge.setAttribute('role','link');badge.title='Open option chart';badge.setAttribute('aria-label','Open option chart · '+row.title);}
+  else{delete badge.dataset.contract;badge.style.pointerEvents='none';badge.style.cursor='';badge.removeAttribute('tabindex');badge.removeAttribute('role');badge.removeAttribute('title');badge.removeAttribute('aria-label');}
   badge.dataset.kind=row.kind;badge.textContent=row.title+(config.display?.profit!==false&&config.display?.positions===true?' · '+holdingProfitText(row,config.display?.positionUnit,config.priceRules):'');badge.style.background=options.color;badge.dataset.price=row.price===null?'':String(row.price);
  }
  // Holdings are overlays; keep candle scaling independent of position cost.
