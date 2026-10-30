@@ -17,7 +17,10 @@ const {start}=require('./market-feed/harness.cjs');
   await p.route('**/static/js/superchart.js',async r=>{const res=await r.fetch();await r.fulfill({response:res,body:(await res.text()).replace(/\}\)\(\);?\s*$/,'window.positionTest={refresh};})();')})});
   await p.goto(h.url+'/superchart?con_id=7');await p.waitForFunction(()=>document.querySelectorAll('#positions button').length===7);
   if(!dark)await p.locator('#theme').click();await p.locator('#toggle-trade').click();
-  const buttons=p.locator('#positions button');
+  const allButtons=p.locator('#positions button');
+  // Find contracts by label so the default option-first sorting does not affect assertions.
+  const byRow=rows.map(row=>allButtons.filter({has:p.locator('.position-label',{hasText:(row.symbol==='VOO'?'𝕍𝕆𝕆':row.local_symbol||row.symbol)+' · '+row.position})}));
+  const buttons={nth:i=>byRow[i],first:()=>byRow[0]};
   assert.equal(await buttons.nth(0).locator('.position-pnl').textContent(),'$125.00');
   assert.equal(await buttons.nth(0).locator('.position-rate').textContent(),'+12.5%');
   assert.equal(await buttons.nth(1).locator('.position-rate').textContent(),'-12.9%','Option average cost already includes multiplier');
@@ -28,12 +31,12 @@ const {start}=require('./market-feed/harness.cjs');
   assert.equal(await buttons.nth(3).locator('.position-pnl').textContent(),'—');
   for(const i of [3,4,5])assert.equal(await buttons.nth(i).locator('.position-rate').count(),0);
   assert.equal(await buttons.nth(6).locator('.position-pnl').textContent(),'$1,234,567.89');
-  const overflow=await buttons.evaluateAll(es=>es.map(e=>({width:e.clientWidth,scroll:e.scrollWidth})).filter(r=>r.scroll>r.width+1));assert.deepEqual(overflow,[]);
+  const overflow=await allButtons.evaluateAll(es=>es.map(e=>({width:e.clientWidth,scroll:e.scrollWidth})).filter(r=>r.scroll>r.width+1));assert.deepEqual(overflow,[]);
   await buttons.first().scrollIntoViewIfNeeded();
   await p.screenshot({path:`/private/tmp/wheel-position-pnl-${width}-${dark}.png`});
   // Exercise the same portfolio-refresh path used by the page.
   rows[0].unrealized_pnl=-25;await p.evaluate(()=>positionTest.refresh());
-  await p.waitForFunction(()=>document.querySelector('.position-pnl').textContent==='-$25.00');
+  await p.waitForFunction(()=>[...document.querySelectorAll('.position-pnl')].some(e=>e.textContent==='-$25.00'));
   assert.equal(await buttons.first().locator('.position-rate').textContent(),'-2.5%');
   await buttons.first().click();await p.waitForFunction(()=>new URL(location).searchParams.get('con_id')==='8');
   assert.equal(await p.locator('#chart-detail').isVisible(),false);

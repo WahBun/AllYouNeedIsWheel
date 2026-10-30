@@ -23,13 +23,13 @@ class NotificationsTests(unittest.TestCase):
             orderStatus=SimpleNamespace(status='Submitted'))
         self.runtime.order(trade)
         event = self.runtime.queue.get_nowait()
-        self.assertEqual(event, ('order', self.scope, '42', 'Submitted', 'TQQQ 20261120 60 P · BUY 1', 'IB Paper'))
+        self.assertEqual(event, ('order', self.scope, '42', 'Submitted', 'TQQQ · 11/20/26 · 60P · BUY 1', 'IB Paper'))
         fill = SimpleNamespace(contract=contract, execution=SimpleNamespace(acctNumber='DU_TEST',
             execId='a.b.c.1', time=datetime.now(timezone.utc), side='BOT', shares=1, price=1.5))
         self.runtime.fill(trade, fill)
         event = self.runtime.queue.get_nowait()
         self.assertEqual(event[1:3], (self.scope, 'a.b.c'))
-        self.assertEqual(event[4:], ('TQQQ 20261120 60 P · BOT 1 @ 1.5', 'IB Paper'))
+        self.assertEqual(event[4:], ('TQQQ · 11/20/26 · 60P · BOT 1 @ 1.5', 'IB Paper'))
         # Display formatting never mutates the original broker contract.
         self.assertEqual(contract.localSymbol, 'TQQQ  261120P00060000')
         fill.execution.acctNumber = 'U_OTHER'
@@ -37,7 +37,7 @@ class NotificationsTests(unittest.TestCase):
         self.assertTrue(self.runtime.queue.empty())
         contract.symbol, contract.strike, contract.right = 'TSLL', 13.5, 'C'
         contract.lastTradeDateOrContractMonth = '20261218'
-        self.assertEqual(notification_contract_label(contract), 'TSLL 20261218 13.5 C')
+        self.assertEqual(notification_contract_label(contract), 'TSLL · 12/18/26 · 13.5C')
         for field, invalid in [('strike', float('nan')), ('lastTradeDateOrContractMonth', ''), ('right', '')]:
             previous = getattr(contract, field)
             setattr(contract, field, invalid)
@@ -64,6 +64,15 @@ class NotificationsTests(unittest.TestCase):
         for index, price in enumerate(prices):
             self.runtime.process(('price', scope or self.scope, 7, price, 'IB Paper', (start or self.start)+index+1))
     def events(self, scope=None): return self.store.events(scope or self.scope, 0)['events']
+
+    def test_legacy_price_alert_name_is_compact_only_in_notification(self):
+        raw = 'TQQQ  261120P00060000'
+        self.store.create_alert(self.scope, 7, raw, dict(id=str(uuid.uuid4()), price=100,
+            condition='crossing', repeat='once', note='Support'))
+        self.runtime.active = self.store.alerts(active=True)
+        self.prices(99, 101)
+        self.assertEqual(self.events()[0]['body'], 'TQQQ · 11/20/26 · 60P crossed 100 · Last 101\nNote: Support')
+        self.assertEqual(self.store.alerts()[0]['label'], raw)
 
     def test_note_only_edit_preserves_crossing_and_notification_snapshot(self):
         alert = self.alert(note='Old reason')

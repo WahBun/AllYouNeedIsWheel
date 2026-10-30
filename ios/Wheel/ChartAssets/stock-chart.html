@@ -646,6 +646,7 @@ function updateLines(){
  if(displayOptions.holdingsVisible===false&&paperConfig.position){eh.hidden=true;document.getElementById('cancel').hidden=true;if(entryLine){series.removePriceLine(entryLine);entryLine=null;}}
  renderChartConfirmation();
 }
+function chartContractLabel(value){return window.WheelContractLabel?.(value)||value?.display_symbol||value?.local_symbol||value?.symbol||'';}
 // Account holdings are read-only overlays, independent of order previews and paper brackets.
 const holdingLines = new Map();
 const holdingBadges = new Map();
@@ -873,7 +874,7 @@ function captureTailView(packet){
  return range&&logical!==null&&range.from<=logical&&range.to>=logical?{range,logical}:null;
 }
 function restoreTailView(view){if(!view)return;const logical=latestBarLogical();if(logical===null)return;const shift=logical-view.logical;if(shift>0)chart.timeScale().setVisibleLogicalRange({from:view.range.from+shift,to:view.range.to+shift});}
-window.receive=(packet)=>{const tailView=captureTailView(packet);extremaBars=null;if(countdownPacket?.server_time!==packet.server_time){countdownReceived=Number.isFinite(packet.chart_received_at)?packet.chart_received_at*1000:Date.now();}countdownPacket=packet;document.getElementById('chart-header').classList.toggle('option-header',packet.security_type==='OPT');document.getElementById('chart-title').textContent=[packet.display_symbol||packet.local_symbol||packet.symbol,packet.interval<60?String(packet.interval):packet.interval<1440?(packet.interval/60)+'h':packet.interval===1440?'D':packet.interval===10080?'W':'M',packet.exchange].filter(Boolean).join(' · ');let bars=packet.bars||[];
+window.receive=(packet)=>{const tailView=captureTailView(packet);extremaBars=null;if(countdownPacket?.server_time!==packet.server_time){countdownReceived=Number.isFinite(packet.chart_received_at)?packet.chart_received_at*1000:Date.now();}countdownPacket=packet;document.getElementById('chart-header').classList.toggle('option-header',packet.security_type==='OPT');document.getElementById('chart-title').textContent=[chartContractLabel(packet),packet.interval<60?String(packet.interval):packet.interval<1440?(packet.interval/60)+'h':packet.interval===1440?'D':packet.interval===10080?'W':'M',packet.exchange].filter(Boolean).join(' · ');let bars=packet.bars||[];
  const incomingKey=(packet.con_id||'')+'-'+packet.generation+'-'+packet.interval+'-'+packet.session;
  // A recent snapshot may be shorter than cached/paged history already drawn.
  // Retain that older prefix in the model too, so later history is not counted twice.
@@ -993,7 +994,7 @@ function openPriceMenu(price,y,x=null){
  for(const choice of choices){
   const row=document.createElement('div');row.style.cssText='display:flex;align-items:stretch';
   const button=document.createElement('button'),expand=document.createElement('button'),presets=document.createElement('div');
-  button.dataset.orderChoice='true';button.textContent=choice.label+' '+qty+' '+(countdownPacket?.local_symbol||countdownPacket?.symbol||'')+' @ '+priceText(menuOrderPrice);
+  button.dataset.orderChoice='true';button.textContent=choice.label+' '+qty+' '+chartContractLabel(countdownPacket)+' @ '+priceText(menuOrderPrice);
   button.style.cssText='display:block;flex:1;background:transparent;color:inherit;border:0;text-align:left;padding:10px;font:13px -apple-system;min-height:44px;touch-action:manipulation';
   button.disabled=!paperConfig.enabled||paperConfig.active||paperConfig.busy||ovtStopBlocked(choice.type);
   button.onclick=e=>{e.stopPropagation();sendPriceOrder(choice);};

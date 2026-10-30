@@ -362,7 +362,7 @@ struct StockChartView: View {
         guard initialized, let id = chartID, id > 0 else { return }
         var contract = selectedContract
         contract["con_id"] = id
-        contract["local_symbol"] = chartSymbol
+        contract["local_symbol"] = rawChartSymbol
         contract["security_type"] = chartType
         let record: [String: Any] = ["contract": contract, "interval": interval, "session": session]
         if let data = try? JSONSerialization.data(withJSONObject: record) {
@@ -634,7 +634,8 @@ struct StockChartView: View {
     @State private var selectedContract: [String: Any] = [:]
     @State private var showSymbols = false
     private var chartID: Int? { selectedContract["con_id"] as? Int ?? position.con_id }
-    private var chartSymbol: String { selectedContract["local_symbol"] as? String ?? position.chartLabel }
+    private var rawChartSymbol: String { selectedContract["local_symbol"] as? String ?? position.chartContractSymbol }
+    private var chartSymbol: String { selectedContract["local_symbol"] as? String != nil ? ContractLabel.compact(rawChartSymbol) : position.chartLabel }
     private var chartType: String { selectedContract["security_type"] as? String ?? position.security_type }
     private func dailyChangeColor(_ value: Double?) -> Color {
         guard let value, value != 0 else { return .secondary }
@@ -647,7 +648,7 @@ struct StockChartView: View {
     private var currentInstrument: ChartInstrument? {
         var contract = selectedContract
         contract["con_id"] = chartID
-        contract["local_symbol"] = chartSymbol
+        contract["local_symbol"] = rawChartSymbol
         contract["security_type"] = chartType
         contract["symbol"] = selectedContract["symbol"] as? String ?? position.symbol
         return ChartInstrument(contract)
@@ -2176,12 +2177,13 @@ private struct StockChartWeb: UIViewRepresentable {
         }
         if let html = resource("stock-chart", "html"), let library = resource("lightweight-charts.standalone.production", "js"),
            let template = try? String(contentsOf: html, encoding: .utf8), let js = try? String(contentsOf: library, encoding: .utf8) {
+            let labelJS = resource("contract-labels", "js").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
             let drawingJS = resource("chart-drawings", "js").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
             let alertJS = resource("chart-alerts", "js").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
             let addJS = resource("chart-add-orders", "js").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
             let volatilityJS = resource("chart-volatility", "js").flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
             let html = template.replacingOccurrences(of: "/*LIBRARY*/", with: js)
-                .replacingOccurrences(of: "</body>", with: "<script>" + drawingJS + "</script><script>" + alertJS + "</script><script>" + addJS + "</script><script>" + volatilityJS + "</script></body>")
+                .replacingOccurrences(of: "</body>", with: "<script>" + labelJS + "</script><script>" + drawingJS + "</script><script>" + alertJS + "</script><script>" + addJS + "</script><script>" + volatilityJS + "</script></body>")
             web.loadHTMLString(html, baseURL: nil)
         } else { web.loadHTMLString("<p>Chart resources unavailable</p>", baseURL: nil) }
         return web

@@ -63,7 +63,8 @@ final class ChartViewportTests: XCTestCase {
             let data = Data("{\"symbol\":\"TSLA\",\"position\":\(quantity),\"security_type\":\"OPT\",\"strike\":250,\"expiration\":\"20261218\",\"option_type\":\"C\",\"con_id\":70}".utf8)
             var position = try JSONDecoder().decode(Position.self, from: data)
             XCTAssertTrue(position.hasChart)
-            XCTAssertEqual(position.chartLabel, "TSLA 20261218 250 C")
+            XCTAssertEqual(position.chartLabel, "TSLA · 12/18/26 · 250C")
+            XCTAssertEqual(position.chartContractSymbol, "TSLA 20261218 250 C")
             position.con_id = nil
             XCTAssertFalse(position.hasChart)
         }

@@ -22,6 +22,7 @@ struct ChartInstrument: Codable, Identifiable, Equatable {
         right = value["right"] as? String ?? ""
         strike = (value["strike"] as? Double).flatMap { $0 > 0 && $0.isFinite ? $0 : nil }
     }
+    var displayLabel: String { ContractLabel.label(symbol: symbol, expiration: expiration, strike: strike, right: right, raw: label, type: type) }
     var contract: [String: Any] {
         var result: [String: Any] = ["con_id": id, "symbol": symbol, "local_symbol": label,
             "security_type": type, "exchange": exchange, "expiration": expiration, "right": right]
@@ -158,14 +159,14 @@ struct ChartInstrumentPicker: View {
                 else { choose(item) }
             } label: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(item.label).foregroundStyle(.primary)
+                    Text(verbatim: item.displayLabel).foregroundStyle(.primary)
                     Text([item.type, item.exchange].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain).disabled(!canSelect || !selectable || search.busy)
             Button { Task { await favorites.toggle(item) } } label: {
                 Image(systemName: favorites.items.contains { $0.id == item.id } ? "star.fill" : "star")
                     .foregroundStyle(.yellow).frame(width: 44, height: 44)
-            }.buttonStyle(.plain).disabled(!favorites.ready || favorites.busy).accessibilityLabel((favorites.items.contains { $0.id == item.id } ? "Remove favorite " : "Favorite ") + item.label)
+            }.buttonStyle(.plain).disabled(!favorites.ready || favorites.busy).accessibilityLabel((favorites.items.contains { $0.id == item.id } ? "Remove favorite " : "Favorite ") + item.displayLabel)
         }
     }
     var body: some View {

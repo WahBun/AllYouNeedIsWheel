@@ -14,13 +14,11 @@ struct PortfolioOptionRow: View {
     private var context: String { "\(visible)-\(store.demo)-\(store.address)-\(store.trading.accountEpoch ?? "")-\(position.id)-\(store.selectedTab)-\(phase == .active)-\(store.portfolio?.summary.is_frozen == true)" }
     private var emptyQuote: ContractQuote { ContractQuote(strike: position.strike ?? 0, expiration: position.expiration ?? "") }
     private var contractSummary: String {
-        let code = ["PUT": "P", "CALL": "C", "P": "P", "C": "C"][position.option_type?.uppercased() ?? ""] ?? "—"
-        let strike = position.strike.map { $0.formatted(.number.grouping(.never).precision(.fractionLength(0...4))) } ?? "—"
         let entry = position.optionAveragePrice.flatMap { value -> String? in
             guard value.isFinite, value > 0 else { return nil }
             return String(format: "%.2f", value)
         } ?? "—"
-        var parts = ["\(strike)\(code)@\(entry)\(position.optionAverageUsesBrokerCost ? "*" : "")"]
+        var parts = ["\(ContractLabel.details(expiration: position.expiration, strike: position.strike, right: position.option_type))@\(entry)\(position.optionAverageUsesBrokerCost ? "*" : "")"]
         if let expiration = position.expiration, let days = TradingMath.daysToExpiration(expiration) {
             parts.append(String(max(0, days)))
         }
