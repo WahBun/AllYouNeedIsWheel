@@ -399,6 +399,70 @@ final class PerformanceTests: XCTestCase {
         XCTAssertNil(history.intradayEstimate(PerformanceLive(daily_pnl: 25, fresh: true, received_at: "2026-10-19T21:00:00Z"), now: now.addingTimeInterval(12600)))
         XCTAssertNil(history.intradayEstimate(nil, now: now))
     }
+
+    func testDailyPercentageUsesReportedNAVIncludingAfterHours() throws {
+        let history = try history()
+        // Monday evening in New York, already Tuesday in UTC/Shanghai.
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-20T00:30:00Z"))
+        for (pnl, expected) in [(25.0, 2.5), (-10, -1), (0, 0)] {
+            let live = PerformanceLive(daily_pnl: pnl, fresh: true, received_at: "2026-10-20T00:30:00.000Z")
+            XCTAssertEqual(try XCTUnwrap(history.dailyReturnEstimate(live, now: now)), expected, accuracy: 0.00001)
+            XCTAssertNil(history.intradayEstimate(live, now: now), "The existing curve's RTH gate must stay unchanged")
+        }
+    }
+
+    func testDailyPercentageRejectsMissingStaleAndInvalidBasis() throws {
+        let history = try history()
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-19T17:30:00Z"))
+        let fresh = PerformanceLive(daily_pnl: 25, fresh: true, received_at: "2026-10-19T17:30:00Z")
+        XCTAssertNil(history.dailyReturnEstimate(nil, now: now))
+        for live in [
+            PerformanceLive(daily_pnl: nil, fresh: true, received_at: fresh.received_at),
+            PerformanceLive(daily_pnl: .infinity, fresh: true, received_at: fresh.received_at),
+            PerformanceLive(daily_pnl: 25, fresh: false, received_at: fresh.received_at),
+            PerformanceLive(daily_pnl: 25, fresh: true, received_at: nil),
+            PerformanceLive(daily_pnl: 25, fresh: true, received_at: "invalid"),
+            PerformanceLive(daily_pnl: 25, fresh: true, received_at: "2026-10-16T17:30:00Z")
+        ] { XCTAssertNil(history.dailyReturnEstimate(live, now: now)) }
+        for (date, nav, end) in [
+            ("2026-10-16", 0.0, "2026-10-16"), ("2026-10-16", -1, "2026-10-16"),
+            ("2026-10-16", .infinity, "2026-10-16"), ("2026-10-16", .nan, "2026-10-16"),
+            ("2026-10-09", 1000, "2026-10-09"), ("2026-10-19", 1000, "2026-10-19"),
+            ("2026-10-20", 1000, "2026-10-20"), ("2026-10-16", 1000, "2026-10-15")
+        ] {
+            let invalid = PerformanceHistory(points: history.points, start: history.start, end: end,
+                refreshing: nil, awaiting_report: nil, limited_history: false, stale: false, warning: nil,
+                latest: .init(date: date, nav: nav))
+            XCTAssertNil(invalid.dailyReturnEstimate(fresh, now: now))
+        }
+        let missing = PerformanceHistory(points: history.points, start: history.start, end: history.end,
+            refreshing: nil, awaiting_report: nil, limited_history: false, stale: false, warning: nil, latest: nil)
+        XCTAssertNil(missing.dailyReturnEstimate(fresh, now: now))
+    }
+
+    @MainActor
+    func testDailyPercentageRowLayouts() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        for (width, dark, size) in [(393.0, true, DynamicTypeSize.large), (320, false, .large), (320, true, .accessibility3)] {
+            let controller = UIHostingController(rootView: List {
+                Section("Today") {
+                    LabeledContent("Daily P&L") { PerformanceDailyPnlValue(pnl: -144.28, percent: -0.61).foregroundStyle(.red) }
+                    LabeledContent("Daily P&L") { PerformanceDailyPnlValue(pnl: 25, percent: 2.5).foregroundStyle(.green) }
+                    LabeledContent("Daily P&L") { PerformanceDailyPnlValue(pnl: 0, percent: 0) }
+                    LabeledContent("Daily P&L") { PerformanceDailyPnlValue(pnl: nil, percent: nil) }
+                    LabeledContent("Daily P&L") { PerformanceDailyPnlValue(pnl: 123456789.12, percent: 1234.56) }
+                    Text("Daily %: estimate using last reported NAV.").font(.caption)
+                }
+            }.environment(\.dynamicTypeSize, size).environment(\.locale, Locale(identifier: "en")))
+            let window = UIWindow(windowScene: scene)
+            window.frame = CGRect(x: 0, y: 0, width: width, height: 850)
+            window.overrideUserInterfaceStyle = dark ? .dark : .light
+            window.rootViewController = controller; window.makeKeyAndVisible()
+            try await Task.sleep(for: .milliseconds(200))
+            capture(controller, "Daily-percent-\(Int(width))-\(dark)-\(size)")
+            window.rootViewController = nil; window.isHidden = true
+        }
+    }
 }
 
 @MainActor @Observable private final class PerformanceTestRoute { var path: [String] = [] }
