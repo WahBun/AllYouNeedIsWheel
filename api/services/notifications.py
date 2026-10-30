@@ -1,4 +1,5 @@
 """Durable, account-scoped alerts and notification outbox. No broker writes."""
+from api.services.contract_labels import compact_label
 import hashlib
 from contextlib import contextmanager
 import json
@@ -217,7 +218,7 @@ class NotificationStore:
             row = db.execute("SELECT * FROM alerts WHERE id=? AND version=? AND state='active'", (alert['id'], alert['version'])).fetchone()
             if not row or now - row['last_fire'] < 60: return False
             saved = self._alert_value(db, row)
-            body = f"{row['label']} crossed {row['price']:g} · Last {price:g}"
+            body = f"{compact_label(row['label'])} crossed {row['price']:g} · Last {price:g}"
             if saved['note']: body += '\nNote: ' + saved['note']
             self._event(db, str(uuid.uuid4()), row['scope'], 'price', f"{mode} · Price alert",
                         body, now, saved['sound'])

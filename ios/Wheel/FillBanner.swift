@@ -8,10 +8,8 @@ struct FillNotice: Identifiable {
     var filled: Double { order.filledQuantity ?? 0 }
     var complete: Bool { order.ib_status?.lowercased() == "filled" || order.status.lowercased() == "executed" || (order.quantity.map { $0 > 0 && filled >= $0 } ?? false) }
     var quantityLabel: String { "\(filled.formatted())/\(order.quantity?.formatted() ?? "—")" }
-    var contractLabel: String { "\(order.displaySymbol) · \(order.fill_action ?? order.action ?? "—") · \(money(order.strike)) \(order.option_type ?? "")" }
-    func contractLabel(locale: Locale) -> String {
-        "\(order.displaySymbol) · \(localizedLabel(order.fill_action ?? order.action ?? "—", locale: locale)) · \(money(order.strike)) \(localizedLabel(order.option_type ?? "", locale: locale))"
-    }
+    var contractLabel: String { "\(order.contractLabel) · \(order.fill_action ?? order.action ?? "—")" }
+    func contractLabel(locale: Locale) -> String { contractLabel }
     static func sample(_ filled: Double) -> FillNotice {
         FillNotice(order: Order(id: 0, ticker: "TSLL", action: "SELL", option_type: "PUT", strike: 9,
             expiration: "20261016", quantity: 2, status: filled == 2 ? "executed" : "processing",
@@ -111,7 +109,7 @@ struct FillBannerOverlay: ViewModifier {
                                     if notice.demo { Text("Demo").font(.caption2.bold()).foregroundStyle(.secondary) }
                                 }
                                 Text(verbatim: notice.contractLabel(locale: locale)).font(.subheadline.weight(.semibold))
-                                Text("\(notice.order.expiration ?? "") · \(notice.quantityLabel)").font(.caption).foregroundStyle(.secondary)
+                                Text(verbatim: notice.quantityLabel).font(.caption).foregroundStyle(.secondary)
                                 HStack(spacing: 4) {
                                     Text("Average fill price")
                                     Text(verbatim: money(notice.order.fillPrice))
@@ -149,7 +147,6 @@ struct FillBannerOverlay: ViewModifier {
                 Form {
                     Section {
                         Text(verbatim: notice.contractLabel(locale: locale))
-                        Text(notice.order.expiration ?? "")
                         LabeledContent("Status") { Text(LocalizedStringKey(notice.complete ? "Order filled" : "Partially filled")) }
                         LabeledContent("Filled quantity", value: notice.quantityLabel)
                         OrderFillPrices(order: notice.order)

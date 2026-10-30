@@ -150,7 +150,7 @@ struct CompactOrderRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     SymbolText(symbol: order.displaySymbol).font(.headline)
                     if order.option_type != "STOCK" && order.option_type != "FUTURE" {
-                        Text("\(order.expiration ?? "") \(money(order.strike)) \(localizedLabel(order.option_type ?? "", locale: locale))")
+                        Text(verbatim: order.contractDetails)
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Text("\(localizedLabel(history ? (isBuy ? "Bought" : "Sold") : action, locale: locale)) \((history ? order.filledQuantity : order.quantity)?.formatted() ?? "—")")

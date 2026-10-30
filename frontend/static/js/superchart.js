@@ -5,7 +5,7 @@ if(!window.WheelContractFavorites){
  await new Promise(resolve=>{const script=document.createElement('script');script.src='/static/js/contract-favorites.js';script.onload=script.onerror=resolve;document.head.append(script);});
 }
 if(!window.WheelContractFavorites)window.WheelContractFavorites=({onError})=>({items:[],ready:false,busy:false,refresh:async()=>onError('Favorites unavailable. Reload after updating the backend.'),toggle:async()=>{}});
-const $=id=>document.getElementById(id);let frame=$('chart');
+const $=id=>document.getElementById(id);const contractLabel=value=>window.WheelContractLabel(value);let frame=$('chart');
 if(!$('mid')){const button=document.createElement('button');button.id='mid';button.textContent='Join Mid';button.hidden=true;document.querySelector('.join-actions').append(button);}
 // An opaque footer clips scrolling content behind the entire Close area.
 const closeFooter=document.createElement('div');closeFooter.className='close-footer';$('close').before(closeFooter);closeFooter.append($('close'));
@@ -58,7 +58,7 @@ let titleReferenceKey='',titleReferenceAt=0,titleReferenceBusy=false,titleRefere
 const titleFormats=new Map();
 function updateTabTitle(){
  const valid=packet.con_id===cid&&packet.account_epoch===epoch&&!switchingChart;
- const symbol=valid?(packet.security_type==='OPT'&&packet.display_symbol?packet.display_symbol.replace(/\s+(CALL|PUT)$/,(_,right)=>' '+(right==='CALL'?'C':'P')):packet.local_symbol||packet.display_symbol||packet.symbol):'';
+ const symbol=valid?contractLabel(packet):'';
  const price=valid?packet.last_price:null;
  let title=symbol||'Wheel · Superchart';
  if(symbol&&Number.isFinite(price)&&price>0&&Date.now()-packetReceived<30000){
@@ -93,7 +93,7 @@ $('favorite-contracts').setAttribute('aria-label','Favorite contracts');
 function renderContractFavorites(){
  const saved=contractFavorites.some(x=>x.id===cid),button=$('favorite-contract');button.disabled=!cid||!favoritesSync.ready||favoritesSync.busy;button.textContent=saved?'★':'☆';button.setAttribute('aria-pressed',String(saved));
  button.title=saved?'Remove favorite':'Favorite current contract';button.setAttribute('aria-label',button.title);
- const menu=$('favorite-contracts'),options=[['','Favorites'],...contractFavorites.map(x=>[String(x.id),x.label])];
+ const menu=$('favorite-contracts'),options=[['','Favorites'],...contractFavorites.map(x=>[String(x.id),contractLabel(x)])];
  // Background sync must not reset an in-progress native picker selection.
  if(menu.options.length!==options.length||options.some(([value,label],i)=>menu.options[i].value!==value||menu.options[i].text!==label)){
   const selected=menu.value;menu.replaceChildren(...options.map(([value,label])=>new Option(label,value)));
@@ -150,7 +150,7 @@ function volatilityContext(){return JSON.stringify([epoch,cid,generation,WheelVo
 function syncVolatility(){const status=volatilityKey===volatilityContext()?volatilityData?.status:null;if(status&&status!==volatilityDiagnostic){volatilityDiagnostic=status;if(status==='unavailable')trace('Volatility index unavailable; awaiting a later refresh');else if(status==='ready')trace('Volatility index ready');}const o=window.WheelMoonshineRules?.overlay(display.volatility)||{...display.volatility};if(interval>60||!display.indicatorVisible||!WheelChartSettings.visibleOnTimeframe(display,interval)){o.channels=false;o.gauge=false;}frame.contentWindow.configureVolatility?.(packet,volatilityKey===volatilityContext()?volatilityData:null,o);}
 async function refreshVolatility({sync=true}={}){if(chartLayout.loading())return;if(sync)syncVolatility();const family=WheelVolatility.family(packet);if(!family||!packet.bars?.length||interval>60||!display.indicatorVisible||!WheelChartSettings.visibleOnTimeframe(display,interval)||!display.volatility.channels||document.hidden||Date.now()<marketPriorityUntil||volatilityBusy||!epoch)return;const key=volatilityContext();if(key===volatilityKey&&Date.now()-volatilityLast<(volatilityData?.status==='waiting'?1000:10000))return;volatilityBusy=true;volatilityLast=Date.now();if(volatilityKey!==key)volatilityData=null;volatilityKey=key;try{const value=await api(`portfolio/chart-volatility/${cid}?source=${encodeURIComponent(display.volatility[family])}`);if(key!==volatilityContext())return;volatilityData=value;syncVolatility();}catch{if(key===volatilityContext()){volatilityData={...volatilityData,status:'unavailable'};syncVolatility();}}finally{volatilityBusy=false;}}
 const chartLayout=window.installChartLayout({frame,api,onReady:()=>sync(),onPlusButtonChange:enabled=>saveDisplay({...display,plusButton:enabled}),
- current:()=>({cid,interval,session,epoch,packet,display,dark,ready,busy,tradingLocked,emaFrames:emaContext===emaKey()?emaFrames:{},volatility:volatilityKey===volatilityContext()?volatilityData:null,axis:frame.contentWindow.priceAxisSide||'right',label:packet.display_symbol||packet.local_symbol||packet.symbol||$('contracts').selectedOptions[0]?.textContent||''}),
+ current:()=>({cid,interval,session,epoch,packet,display,dark,ready,busy,tradingLocked,emaFrames:emaContext===emaKey()?emaFrames:{},volatility:volatilityKey===volatilityContext()?volatilityData:null,axis:frame.contentWindow.priceAxisSide||'right',label:contractLabel(packet)||$('contracts').selectedOptions[0]?.textContent||''}),
  activate:(target,nextFrame,seed)=>{
   if(busy||switchingChart||document.querySelector('dialog[open]'))return false;
   cancelMarketReads();frame.contentWindow.removeEventListener('focus',resumeMarket);marketStream.stop();generation++;marketReadError='';quoteConfigKey='';
@@ -158,7 +158,7 @@ const chartLayout=window.installChartLayout({frame,api,onReady:()=>sync(),onPlus
   groupID=savedGroup(cid);state={};received=0;entry=0;resetNewQuantity();
   emaFrames=seed.ema||{};emaContext=emaKey();volatilityData=seed.volatility;volatilityKey=volatilityContext();
   executionContext='';chartExecutions=[];packetReceived=Date.now();lastFallback=Date.now();
-  if(![...$('contracts').options].some(o=>o.value===String(cid)))$('contracts').append(new Option(target.label,String(cid)));
+  if(![...$('contracts').options].some(o=>o.value===String(cid)))$('contracts').append(new Option(contractLabel(target.label),String(cid)));
   $('contracts').value=String(cid);rememberSession();renderIntervals();renderContractFavorites();
   const url=new URL(location);url.searchParams.set('con_id',cid);history.replaceState(null,'',url);
   frame.contentWindow.addEventListener('focus',resumeMarket);sync();ensureMarket();void refresh();return true;
@@ -419,7 +419,7 @@ function applyMarket(bars,push=false){
  const pnl=pushedPnL?{daily_pnl:bars.daily_pnl,account_epoch:bars.account_epoch}:{daily_pnl:packet.daily_pnl};
  if(pushedPnL){pnlReceived=Date.now();pnlPhase='ready';}
  packet={...mergeHistory(bars),...pnl};loadProtection();
- if($('contracts').selectedOptions[0])$('contracts').selectedOptions[0].textContent=bars.display_symbol||bars.local_symbol||bars.symbol||String(cid);
+ if($('contracts').selectedOptions[0])$('contracts').selectedOptions[0].textContent=contractLabel(bars)||String(cid);
  marketReadError='';packetReceived=Date.now();
  // Keep paged history in the host; send only changed bars to the shared renderer.
  frame.contentWindow.receive(bars.mode==='delta'&&!switchingChart?bars:packet);
@@ -579,7 +579,7 @@ function renderPositionSummary(button,row){
   rate.textContent=new Intl.NumberFormat('en-US',{minimumFractionDigits:1,maximumFractionDigits:1,signDisplay:'always'}).format(percentage)+'%';
   rate.dataset.direction=percentage===0?'neutral':percentage>0?'positive':'negative';summary.append(rate);
  }
- button.classList.add('position-row');button.setAttribute('aria-label',`${row.local_symbol||row.symbol} · ${row.position??row.quantity??''}; Unrealized P&L ${amount.textContent}${Number.isFinite(percentage)?'; Return '+summary.lastChild.textContent:''}`);
+ button.classList.add('position-row');button.setAttribute('aria-label',`${contractLabel(row)} · ${row.position??row.quantity??''}; Unrealized P&L ${amount.textContent}${Number.isFinite(percentage)?'; Return '+summary.lastChild.textContent:''}`);
  summary.title='Unrealized P&L and return on absolute position cost; not daily price change.';
  button.replaceChildren(label,summary);
 }
@@ -597,8 +597,8 @@ function sortedPositions(rows){
  const optionRank=row=>['OPT','FOP'].includes(String(row.security_type||'').toUpperCase())?0:1;
  return [...rows].sort((a,b)=>{if(positionSort==='options'){const rank=optionRank(a)-optionRank(b);if(rank)return rank;}const x=quantity(a),y=quantity(b);return x===null?(y===null?0:1):y===null?-1:(positionSort==='desc'?y-x:x-y);});
 }
-function renderRows(id,rows,isOrder){if(id==='positions'){renderedPositions=rows;if(positionSort)rows=sortedPositions(rows);}$(id).replaceChildren();if(!rows.length){$(id).textContent=isOrder?'No pending orders':'No positions';return;}for(const row of rows){const target=row.chart_con_id||row.con_id;const button=document.createElement('button');button.textContent=isOrder?`${row.local_symbol||row.symbol||row.ticker||''} ${row.action||''} ${row.quantity||''}\n${row.order_type||''} ${row.tif||''} @ ${row.premium??row.limit_price??'—'} · ${row.status||''}`:`${row.local_symbol||row.symbol} · ${row.position??row.quantity??''}`;if(!isOrder)renderPositionSummary(button,row);else{const action=String(row.action||'').toUpperCase();if(['BUY','BOT','SELL','SLD'].includes(action)){const label=button.textContent,at=label.indexOf(' '+row.action+' ');if(at>=0){const badge=document.createElement('span');badge.className=['BUY','BOT'].includes(action)?'order-buy':'order-sell';const sideAndQuantity=String(row.action)+' '+(row.quantity||'');badge.textContent=sideAndQuantity;button.replaceChildren(document.createTextNode(label.slice(0,at+1)),badge,document.createTextNode(label.slice(at+1+sideAndQuantity.length)));}}}button.disabled=!target||busy;button.onclick=()=>{if(busy)return;if(isOrder&&('chart_navigation_group_id' in row||row.chart_order_ref))saveSelectedGroup(target,row.chart_navigation_group_id??row.chart_group_id??'');select(Number(target),row.local_symbol||row.symbol||row.ticker);if(!$('chart-detail').hidden)$('toggle-trade').click();};$(id).append(button);}}
-function select(id,label){if(busy)return;cancelMarketReads();resetNewQuantity();cid=id;groupID=savedGroup(id);generation++;marketStream.stop();lastFallback=0;lastPnL=0;entry=0;state={};received=0;packet={};$('tif').value='DAY';$('editor').close();const url=new URL(location);url.searchParams.set('con_id',id);history.replaceState(null,'',url);if(![...$('contracts').options].some(o=>o.value===String(id)))$('contracts').append(new Option(label&&!/^\d+$/.test(label)?label:(contractFavorites.find(x=>x.id===id&&!/^\d+$/.test(x.label))?.label||'Loading contract…'),String(id)));$('contracts').value=String(id);renderContractFavorites();chartLayout.follow('symbol');frame.contentWindow.configureDrawings({key:`web:${location.origin}:${id}`,value:{...stored(`wheel.drawings:${id}`),magnet:'off'}});frame.contentWindow.receive({bars:[],con_id:id,generation:'clear',interval,session});sync();refreshMarket({full:true});refresh();}
+function renderRows(id,rows,isOrder){if(id==='positions'){renderedPositions=rows;if(positionSort)rows=sortedPositions(rows);}$(id).replaceChildren();if(!rows.length){$(id).textContent=isOrder?'No pending orders':'No positions';return;}for(const row of rows){const target=row.chart_con_id||row.con_id;const button=document.createElement('button');button.textContent=isOrder?`${contractLabel(row)} ${row.action||''} ${row.quantity||''}\n${row.order_type||''} ${row.tif||''} @ ${row.premium??row.limit_price??'—'} · ${row.status||''}`:`${contractLabel(row)} · ${row.position??row.quantity??''}`;if(!isOrder)renderPositionSummary(button,row);else{const action=String(row.action||'').toUpperCase();if(['BUY','BOT','SELL','SLD'].includes(action)){const label=button.textContent,at=label.indexOf(' '+row.action+' ');if(at>=0){const badge=document.createElement('span');badge.className=['BUY','BOT'].includes(action)?'order-buy':'order-sell';const sideAndQuantity=String(row.action)+' '+(row.quantity||'');badge.textContent=sideAndQuantity;button.replaceChildren(document.createTextNode(label.slice(0,at+1)),badge,document.createTextNode(label.slice(at+1+sideAndQuantity.length)));}}}button.disabled=!target||busy;button.onclick=()=>{if(busy)return;if(isOrder&&('chart_navigation_group_id' in row||row.chart_order_ref))saveSelectedGroup(target,row.chart_navigation_group_id??row.chart_group_id??'');select(Number(target),contractLabel(row));if(!$('chart-detail').hidden)$('toggle-trade').click();};$(id).append(button);}}
+function select(id,label){if(busy)return;label=contractLabel(label);cancelMarketReads();resetNewQuantity();cid=id;groupID=savedGroup(id);generation++;marketStream.stop();lastFallback=0;lastPnL=0;entry=0;state={};received=0;packet={};$('tif').value='DAY';$('editor').close();const url=new URL(location);url.searchParams.set('con_id',id);history.replaceState(null,'',url);if(![...$('contracts').options].some(o=>o.value===String(id)))$('contracts').append(new Option(label&&!/^\d+$/.test(label)?label:(contractFavorites.find(x=>x.id===id&&!/^\d+$/.test(x.label))?.label||'Loading contract…'),String(id)));$('contracts').value=String(id);renderContractFavorites();chartLayout.follow('symbol');frame.contentWindow.configureDrawings({key:`web:${location.origin}:${id}`,value:{...stored(`wheel.drawings:${id}`),magnet:'off'}});frame.contentWindow.receive({bars:[],con_id:id,generation:'clear',interval,session});sync();refreshMarket({full:true});refresh();}
 function entryPriceOnly(body){return !('order_id' in body)&&( body.action==='edit_entry'||body.action==='amend'&&['tp','sl'].includes(body.role))&&Number.isFinite(body.price)&&body.price>0&&!body.cancel&&!('quantity' in body)&&!('tif' in body);}
 function midManagement(body){
  if(!['OPT','STK'].includes(packet.security_type)||!state.position||!['add','trim','close'].includes(body.action))return body;

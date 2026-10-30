@@ -8,22 +8,9 @@ import time
 from api.services.notifications import NotificationStore, account_scope
 from api.services.moonshine_alerts import MoonshineMonitor
 
+from api.services.contract_labels import contract_label as notification_contract_label
+
 log = logging.getLogger(__name__)
-
-
-def notification_contract_label(contract):
-    """Display-only option name; broker identities and event deduplication stay intact."""
-    fallback = getattr(contract, 'localSymbol', '') or getattr(contract, 'symbol', '')
-    if getattr(contract, 'secType', '') != 'OPT':
-        return fallback
-    symbol = getattr(contract, 'symbol', '')
-    expiry = getattr(contract, 'lastTradeDateOrContractMonth', '')
-    right = getattr(contract, 'right', '')
-    strike = getattr(contract, 'strike', None)
-    if (symbol and len(expiry) == 8 and expiry.isdigit() and right in ('C', 'P')
-            and isinstance(strike, (int, float)) and math.isfinite(strike) and strike > 0):
-        return f'{symbol} {expiry} {strike:g} {right}'
-    return fallback
 
 
 class NotificationRuntime:

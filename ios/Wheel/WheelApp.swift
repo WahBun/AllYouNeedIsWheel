@@ -74,6 +74,7 @@ struct Position: Decodable, Identifiable {
     var market_value: Double?
     var unrealized_pnl: Double?
     var security_type: String
+    var local_symbol: String? = nil
     var strike: Double?
     var expiration: String?
     var option_type: String?
@@ -99,9 +100,10 @@ struct Position: Decodable, Identifiable {
         optionAveragePrice != nil && !(entry_fill_price.map { $0.isFinite && $0 > 0 } ?? false)
     }
     var hasChart: Bool { ["STK", "OPT", "FUT"].contains(security_type) && position != 0 && (con_id ?? 0) > 0 }
-    var chartLabel: String { security_type == "OPT" ? "\(symbol) \(expiration ?? "") \((strike ?? 0).formatted()) \(option_type ?? "")" : symbol }
+    var chartContractSymbol: String { local_symbol ?? (security_type == "OPT" ? "\(symbol) \(expiration ?? "") \((strike ?? 0).formatted()) \(option_type ?? "")" : symbol) }
+    var chartLabel: String { ContractLabel.label(symbol: symbol, expiration: expiration, strike: strike, right: option_type, raw: local_symbol ?? symbol, type: security_type) }
     var detail: String {
-        security_type == "OPT" ? "\(expiration ?? "") · \((strike ?? 0).formatted()) · \(option_type ?? "")" : security_type == "FUT" ? "\(position.formatted()) contracts" : "\(Int(position)) shares"
+        security_type == "OPT" ? ContractLabel.details(expiration: expiration, strike: strike, right: option_type) : security_type == "FUT" ? "\(position.formatted()) contracts" : "\(Int(position)) shares"
     }
 }
 
@@ -1606,7 +1608,7 @@ struct OrdersView: View {
                 }
                 ArrowlessNavigationLink {
                     Group {
-                    if history { Form { SymbolText(symbol: order.displaySymbol); Text(order.option_type == "FUTURE" ? "\(order.expiration ?? "") · \(localizedLabel("FUTURE", locale: locale))" : "\(order.expiration ?? "") · \(money(order.strike)) · \(localizedLabel(order.option_type ?? "", locale: locale))"); LabeledContent("Status", value: localizedLabel(order.ib_status ?? order.status, locale: locale)); LabeledContent("Action", value: localizedLabel(order.fill_action ?? order.action ?? "—", locale: locale)); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: localizedNotice(order.commissionLabel, locale: locale)); if order.option_type == "FUTURE" { FuturesProfit(order: order) } else if order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: order) } }; OrderFillPrices(order: order); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
+                    if history { Form { SymbolText(symbol: order.displaySymbol); Text(order.option_type == "FUTURE" ? "\(order.expiration ?? "") · \(localizedLabel("FUTURE", locale: locale))" : order.contractDetails); LabeledContent("Status", value: localizedLabel(order.ib_status ?? order.status, locale: locale)); LabeledContent("Action", value: localizedLabel(order.fill_action ?? order.action ?? "—", locale: locale)); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: localizedNotice(order.commissionLabel, locale: locale)); if order.option_type == "FUTURE" { FuturesProfit(order: order) } else if order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: order) } }; OrderFillPrices(order: order); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
                     else { OrderDetail(initial: order) }
                     }.toolbar(.visible, for: .navigationBar)
                 } label: {
@@ -1659,7 +1661,7 @@ struct OrdersView: View {
         } message: {
             if let order = quickOrder {
                 if quickCancel && TradeRules.protectionCancelable(order) { Text("Both TP and SL will be canceled. The position remains open without protection.") }
-                Text("\(order.name) · \(localizedLabel(order.action ?? "", locale: locale)) · \(localizedLabel(order.option_type ?? "", locale: locale)) · \(money(order.strike)) · \(order.expiration ?? "")\n\(order.quantity?.formatted() ?? "—") · \(money(order.premium)) · \(order.timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
+                Text("\(order.contractLabel) · \(localizedLabel(order.action ?? "", locale: locale))\n\(order.quantity?.formatted() ?? "—") · \(money(order.premium)) · \(order.timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
             }
         }
         .confirmationDialog("Cancel \(cancelable.count) eligible orders?", isPresented: $cancelAll, titleVisibility: .visible) {

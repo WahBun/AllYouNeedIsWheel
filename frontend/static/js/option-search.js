@@ -50,7 +50,7 @@ window.installOptionSearch=({api,select,symbol,canSelect,onError=()=>{}})=>{
  function optionLoading(busy){$('option-load').disabled=right.disabled=busy;$('option-load').textContent=busy?'Loading…':'Load dates';form.setAttribute('aria-busy',String(busy));}
  function mode(options){if(form.hidden===options){revision++;if(open.disabled)loaded='';stockFeedback();optionLoading(false);}form.hidden=!options;stockPanel.hidden=options;stockTab.classList.toggle('active',!options);optionTab.classList.toggle('active',options);stockTab.setAttribute('aria-pressed',String(!options));optionTab.setAttribute('aria-pressed',String(options));}
  stockTab.onclick=()=>{mode(false);$('symbol').focus();};optionTab.onclick=()=>{mode(true);if(!loaded)dates();};
- function label(){const full=$('contracts').selectedOptions[0]?.textContent||'Select instrument';const compact=full.replace(/^(\S+) (\d{4})(\d{2})(\d{2}) ([\d.]+) (CALL|PUT)$/,(m,t,y,mo,d,k,r)=>`${t} · ${mo}/${d}/${y.slice(2)} · ${k}${r==='CALL'?'C':'P'}`);launcher.textContent=compact;launcher.title=full;}
+ function label(){const full=$('contracts').selectedOptions[0]?.textContent||'Select instrument';const compact=window.WheelContractLabel?.(full)||full;launcher.textContent=compact;launcher.title=full;}
  new MutationObserver(label).observe($('contracts'),{childList:true,subtree:true,characterData:true});$('contracts').addEventListener('change',()=>{label();dialog.close();});label();
  launcher.setAttribute('aria-haspopup','dialog');launcher.setAttribute('aria-controls','option-picker');
  let revision=0,loaded='';
@@ -66,7 +66,7 @@ window.installOptionSearch=({api,select,symbol,canSelect,onError=()=>{}})=>{
   try{const result=await api('portfolio/chart-contracts?q='+encodeURIComponent(name.trim()));if(!current())return;
    if(!Array.isArray(result.contracts))throw Error('Search results are unavailable. Try again.');
    if(!result.contracts.length){stockFeedback('No matching instruments. Check the symbol and try again.');return;}
-   $('contracts').replaceChildren(...result.contracts.map(c=>new Option(c.local_symbol,c.con_id)));
+   $('contracts').replaceChildren(...result.contracts.map(c=>new Option(window.WheelContractLabel?.(c)||c.local_symbol,c.con_id)));
    if(result.contracts.length){select(result.contracts[0].con_id,result.contracts[0].local_symbol);dialog.close();}
   }catch(error){if(current()){stockFeedback(error.retryableReadBusy?'Search is temporarily busy. Try again.':error.message||'Search is unavailable. Try again.');onError(error.message);}}
   finally{if(sameSearch())stockFeedback(canSelect()?stockStatus.textContent:'Wait for the current order request to finish.');}
