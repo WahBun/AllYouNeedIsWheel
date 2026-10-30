@@ -12,12 +12,20 @@ const {start}=require('./market-feed/harness.cjs');
   await p.evaluate(rows=>renderRows('positions',rows,false),rows);
   const names=()=>p.locator('#positions>button').allTextContents();
   const check=async expected=>assert.deepEqual((await names()).map(s=>s.split(' · ')[0].normalize('NFKC')),expected);
-  await check(['TSLL PUT','TQQQ PUT','TIE','SGOV','TSLL','UNKNOWN']);
+  await check(['TQQQ PUT','TSLL PUT','TIE','SGOV','TSLL','UNKNOWN']);
   const mixed=[{con_id:8,symbol:'SHORT STOCK',security_type:'STK',position:-100},...rows,{con_id:7,symbol:'LONG CALL',security_type:'OPT',position:500},{con_id:9,symbol:'FUTURE OPTION',security_type:'FOP',position:1}];
   await p.evaluate(rows=>renderRows('positions',rows,false),mixed);
-  await check(['TSLL PUT','TQQQ PUT','FUTURE OPTION','LONG CALL','SHORT STOCK','TIE','SGOV','TSLL','UNKNOWN']);
+  await check(['FUTURE OPTION','LONG CALL','TQQQ PUT','TSLL PUT','SHORT STOCK','TIE','SGOV','TSLL','UNKNOWN']);
   await p.evaluate(rows=>renderRows('positions',rows,false),mixed);
-  await check(['TSLL PUT','TQQQ PUT','FUTURE OPTION','LONG CALL','SHORT STOCK','TIE','SGOV','TSLL','UNKNOWN']);
+  await check(['FUTURE OPTION','LONG CALL','TQQQ PUT','TSLL PUT','SHORT STOCK','TIE','SGOV','TSLL','UNKNOWN']);
+  const option=(con_id,symbol,expiration,option_type,strike)=>({con_id,symbol,expiration,option_type,strike,security_type:'OPT',position:-1});
+  const contracts=[option(60,'TQQQ','20261120','PUT',60),option(13,'TSLL','20261218','CALL',13),option(55,'TQQQ','20261120','P',55),option(10,'TQQQ','20261113','CALL',65),option(20,'TQQQ','20261120','CALL',50)];
+  const expected=['TQQQ · 11/13/26 · 65C','TQQQ · 11/20/26 · 55P','TQQQ · 11/20/26 · 60P','TQQQ · 11/20/26 · 50C','TSLL · 12/18/26 · 13C'];
+  for(const input of [contracts,[...contracts].reverse().map(r=>({...r,unrealized_pnl:900,position:r.con_id}))]){
+   await p.evaluate(rows=>renderRows('positions',rows,false),input);
+   assert.deepEqual(await p.locator('.position-label').allTextContents(),expected.map((v,i)=>v+' · '+input.find(r=>r.con_id===[10,55,60,20,13][i]).position));
+  }
+  await p.locator('#chart-detail').screenshot({path:`/tmp/wheel-option-grouping-${width}-${dark?'dark':'light'}.png`});
   await p.evaluate(rows=>renderRows('positions',rows,false),rows);
   await p.locator('#sort-positions').click();
   await check(['TSLL PUT','TQQQ PUT','TIE','SGOV','TSLL','UNKNOWN']);
