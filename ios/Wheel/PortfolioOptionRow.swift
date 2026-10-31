@@ -5,6 +5,7 @@ struct PortfolioOptionRow: View {
     let position: Position
     var showsRange = true
     @Environment(\.locale) private var locale
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(WheelStore.self) private var store
     @Environment(\.scenePhase) private var phase
     @State private var quote: ContractQuote?
@@ -13,17 +14,23 @@ struct PortfolioOptionRow: View {
     @State private var visible = false
     private var context: String { "\(visible)-\(store.demo)-\(store.address)-\(store.trading.accountEpoch ?? "")-\(position.id)-\(store.selectedTab)-\(phase == .active)-\(store.portfolio?.summary.is_frozen == true)" }
     private var emptyQuote: ContractQuote { ContractQuote(strike: position.strike ?? 0, expiration: position.expiration ?? "") }
-    private var contractSummary: String {
+    private var contractSummary: AttributedString {
         let entry = position.optionAveragePrice.flatMap { value -> String? in
             guard value.isFinite, value > 0 else { return nil }
             return String(format: "%.2f", value)
         } ?? "—"
-        var parts = ["\(ContractLabel.details(expiration: position.expiration, strike: position.strike, right: position.option_type))@\(entry)\(position.optionAverageUsesBrokerCost ? "*" : "")"]
+        var summary = AttributedString(ContractLabel.details(expiration: position.expiration, strike: position.strike, right: position.option_type))
+        var cost = AttributedString("@\(entry)\(position.optionAverageUsesBrokerCost ? "*" : "")")
+        cost.foregroundColor = colorScheme == .dark
+            ? Color(red: 0.76, green: 0.65, blue: 0.94)
+            : Color(red: 0.49, green: 0.35, blue: 0.69)
+        summary.append(cost)
         if let expiration = position.expiration, let days = TradingMath.daysToExpiration(expiration) {
-            parts.append(String(max(0, days)))
+            summary.append(AttributedString(" · \(max(0, days))"))
         }
-        return parts.joined(separator: " · ")
+        return summary
     }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -36,7 +43,7 @@ struct PortfolioOptionRow: View {
                 OptionMidPrice(value: quote?.mid, movement: midMovement,
                                active: visible && phase == .active && store.selectedTab == "portfolio")
             }
-            Text(verbatim: contractSummary)
+            Text(contractSummary)
                 .font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
