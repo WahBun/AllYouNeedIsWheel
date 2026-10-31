@@ -283,6 +283,19 @@ function populateOptionPositionsTable(optionPositions) {
     }
 }
 
+// Display-only date formatting; contract identifiers remain unchanged.
+function formatOptionExpiration(value) {
+    const raw = String(value ?? '');
+    const compact = raw.replaceAll('-', '');
+    if (!/^\d{8}$/.test(compact)) return raw || '-';
+    const year = Number(compact.slice(0, 4));
+    const month = Number(compact.slice(4, 6));
+    const day = Number(compact.slice(6, 8));
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return raw;
+    return `${compact.slice(4, 6)}/${compact.slice(6, 8)}/${compact.slice(2, 4)}`;
+}
+
 /**
  * Add options to the table
  * @param {Array} options - Array of option positions
@@ -347,7 +360,7 @@ function addOptionsToTable(options, tableBody) {
             <td class="position-quantity">${position.position}</td>
             <td>${optionType}</td>
             <td>${strike}</td>
-            <td>${expiry}</td>
+            <td>${formatOptionExpiration(expiry)}</td>
             <td class="position-avg-cost">${formatCurrency(avgCost)}</td>
             <td class="position-current-price" data-market-price="${hasNumericValue(perSharePrice) ? Number(perSharePrice) : ''}">${formatOptionalCurrency(perContractPrice)}</td>
             <td class="position-market-value">${formatOptionalCurrency(marketValue)}</td>

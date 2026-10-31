@@ -506,6 +506,18 @@ struct OpportunityRow: Identifiable {
     }
 }
 
+enum OpportunityTickerInput {
+    static func error(for input: String) -> String? {
+        let symbol = input.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !symbol.isEmpty else { return "Enter a ticker symbol." }
+        guard symbol.range(of: "^[A-Z0-9.-]{1,15}$", options: .regularExpression) != nil else {
+            return "Use 1–15 letters, numbers, dots or hyphens."
+        }
+        guard symbol != "SGOV" else { return "SGOV is not supported for cash-secured puts." }
+        return nil
+    }
+}
+
 struct OpportunitiesView: View {
     @Environment(\.scenePhase) private var phase
     @State private var visible = false
@@ -514,6 +526,7 @@ struct OpportunitiesView: View {
     @Environment(WheelStore.self) private var store
     @State private var type = "PUT"
     @State private var ticker = ""
+    @State private var tickerError: String?
     private var book: OpportunityBook { store.opportunities }
     private var symbols: [String] { book.symbols(store, type: type) }
     private var ready: [OpportunityRow] { symbols.compactMap { book.rows[book.key($0, type)] }.filter(\.canStage) }
@@ -568,7 +581,8 @@ struct OpportunitiesView: View {
                         TextField("Add ticker", text: $ticker).textInputAutocapitalization(.characters).autocorrectionDisabled()
                         Button("Add", systemImage: "plus") {
                             let symbol = ticker.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-                            guard symbol != "SGOV", symbol.range(of: "^[A-Z0-9.-]{1,15}$", options: .regularExpression) != nil else { return }
+                            tickerError = OpportunityTickerInput.error(for: ticker)
+                            guard tickerError == nil else { return }
                             book.custom = Array(Set(book.custom + [symbol])).sorted()
                             book.excluded.removeAll { $0 == book.key(symbol, type) }
                             book.removedPuts.removeAll { $0 == symbol }; book.save(); ticker = ""
@@ -579,6 +593,10 @@ struct OpportunitiesView: View {
                             .frame(minWidth: 44, minHeight: 44)
                             .help("Add")
                             .disabled(ticker.isEmpty)
+                    }
+                    .onChange(of: ticker) { _, _ in tickerError = nil }
+                    if let tickerError {
+                        Text(verbatim: tickerError).font(.caption).foregroundStyle(.orange)
                     }
                 }
                 if book.loading && symbols.allSatisfy({ book.rows[book.key($0, type)]?.quote == nil }) { ProgressView("Loading opportunities…") }
