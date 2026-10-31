@@ -1608,6 +1608,61 @@ final class TradingTests: XCTestCase {
         XCTAssertEqual(RefreshLoop.optionMetricsDelay(frozen: true, marketClosed: true, missing: true, failed: true, failures: 2), 2)
         XCTAssertEqual(RefreshLoop.optionMetricsDelay(frozen: false, marketClosed: false, missing: true, failed: false, failures: 1), 1)
     }
+    func testMissingMidpointRecoversBeforeClosedSessionCadence() {
+        // A frozen quote whose bid/ask arrive four seconds after subscribing
+        // used to wait until the 32-second read (two 1s retries, then 30s).
+        var elapsed: TimeInterval = 0
+        var failures = 0
+        while elapsed < 4 {
+            failures += 1
+            elapsed += RefreshLoop.optionMetricsDelay(frozen: true, marketClosed: true,
+                missing: true, failed: false, failures: failures, warming: elapsed < 30)
+        }
+        XCTAssertEqual(elapsed, 7)
+        XCTAssertEqual(RefreshLoop.optionMetricsDelay(frozen: true, marketClosed: true,
+            missing: true, failed: false, failures: 0, warming: false), 30)
+        // A permanently absent midpoint backs off and exits warmup; no tight loop.
+        XCTAssertEqual((1...7).map { RefreshLoop.optionMetricsDelay(frozen: true,
+            marketClosed: true, missing: true, failed: false, failures: $0, warming: true) },
+            [1, 2, 4, 8, 10, 10, 10])
+        XCTAssertEqual(RefreshLoop.optionMetricsDelay(frozen: true, marketClosed: true,
+            missing: true, failed: false, failures: 5, warming: false), 30)
+    }
+    func testAccountRecoveryDefersOnlyOptionalInitialHistory() {
+        XCTAssertTrue(RefreshLoop.deferInitialFillHistory(recoveryAge: .seconds(4), tab: "portfolio", hasSnapshot: false, reconciliationNeeded: false))
+        XCTAssertFalse(RefreshLoop.deferInitialFillHistory(recoveryAge: .seconds(5), tab: "portfolio", hasSnapshot: false, reconciliationNeeded: false))
+        XCTAssertFalse(RefreshLoop.deferInitialFillHistory(recoveryAge: nil, tab: "portfolio", hasSnapshot: false, reconciliationNeeded: false))
+        XCTAssertFalse(RefreshLoop.deferInitialFillHistory(recoveryAge: .zero, tab: "orders", hasSnapshot: false, reconciliationNeeded: false))
+        XCTAssertFalse(RefreshLoop.deferInitialFillHistory(recoveryAge: .zero, tab: "portfolio", hasSnapshot: true, reconciliationNeeded: false))
+        XCTAssertFalse(RefreshLoop.deferInitialFillHistory(recoveryAge: .zero, tab: "portfolio", hasSnapshot: false, reconciliationNeeded: true))
+    }
+    func testAccountRecoveryStillReconcilesCurrentAndDisappearedOrders() async {
+        let store = WheelStore()
+        store.demo = false; store.address = "https://mock.invalid"
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        store.changeMode(); store.selectedTab = "portfolio"; store.trading.uncertain = false
+        MockProtocol.fail = false; MockProtocol.statusCode = 200; MockProtocol.requests = []
+        MockProtocol.payload = { _ in ["success": true, "orders": []] }
+        defer { MockProtocol.payload = nil; MockProtocol.requests = [] }
+        await store.refreshOrders()
+        XCTAssertNil(store.orderError)
+        XCTAssertNotNil(store.ordersUpdated)
+        XCTAssertEqual(MockProtocol.requests.map { $0.url!.path }, ["/api/options/check-orders"])
+        store.orders = [Order(id: 42, ticker: "TEST", quantity: 1, status: "processing")]
+        MockProtocol.requests = []
+        MockProtocol.payload = { request in
+            if request.url?.query?.contains("executed=true") == true {
+                return ["orders": [["id": 42, "ticker": "TEST", "quantity": 1,
+                                    "status": "executed", "filled": 1, "avg_fill_price": 2.25]]]
+            }
+            return ["success": true, "orders": []]
+        }
+        await store.refreshOrders()
+        XCTAssertEqual(MockProtocol.requests.map { $0.url!.path }, ["/api/options/check-orders", "/api/options/pending-orders"])
+        XCTAssertEqual(store.completedOrders[42]?.filledQuantity, 1)
+    }
     func testRefreshCadenceAccountsForRequestTimeAndBackoff() {
         XCTAssertEqual(RefreshLoop.delay(elapsed: 0.4, failed: false), 1.6, accuracy: 0.001)
         XCTAssertEqual(RefreshLoop.delay(elapsed: 8, failed: false), 0.25)

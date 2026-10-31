@@ -119,6 +119,17 @@ def install_api_dispatcher(app):
         optional_history = (request.method == 'GET' and request.endpoint == 'portfolio.get_stock_chart'
                             and request.args.get('expand_history') == '1')
         logger = logging.getLogger('autotrader.api')
+        from api.routes.account import epoch
+        admitted_epoch = epoch()
+        scoped_read = request.method == 'GET' and request.endpoint != 'account.get_profiles'
+
+        def changed_account_response():
+            return jsonify(status='rejected', code='ACCOUNT_EPOCH_CHANGED',
+                           error='Account connection changed. Refresh and verify the account before continuing.'), 409
+
+        if (scoped_read and admitted_epoch is not None
+                and request.headers.get('X-Wheel-Account-Epoch') not in (None, admitted_epoch)):
+            return changed_account_response()
         if request.method == 'GET':
             args = tuple(sorted(
                 (name, value) for name, value in request.args.items(multi=True)
@@ -126,7 +137,7 @@ def install_api_dispatcher(app):
             ))
             # A copied request carries its owner's account context. Stale and
             # current clients must each run their own endpoint epoch guard.
-            key = (request.path, args, request.headers.get('X-Wheel-Account-Epoch'))
+            key = (request.path, args, request.headers.get('X-Wheel-Account-Epoch'), admitted_epoch)
 
         def expired_response():
             response = jsonify(status='rejected', code='NOT_EXECUTED', error='Request expired before execution; no operation was started')
@@ -137,6 +148,11 @@ def install_api_dispatcher(app):
         @copy_current_request_context
         def run():
             started = time.monotonic()
+            if scoped_read and epoch() != admitted_epoch:
+                # A switch is serialized ahead of queued reads. Obsolete reads
+                # must not rebuild subscriptions or query orders on the new account.
+                response = app.make_response(changed_account_response())
+                return response.get_data(), response.status_code, list(response.headers)
             if started - queued_at >= (2 if optional_history else 10):
                 response = expired_response()
                 return response.get_data(), response.status_code, list(response.headers)

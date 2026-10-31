@@ -2,6 +2,11 @@ import Foundation
 import Observation
 
 enum RefreshLoop {
+    static func deferInitialFillHistory(recoveryAge: Duration?, tab: String, hasSnapshot: Bool, reconciliationNeeded: Bool) -> Bool {
+        guard let recoveryAge else { return false }
+        return recoveryAge < .seconds(5) && tab != "orders" && !hasSnapshot && !reconciliationNeeded
+    }
+
     static func shouldRefreshHistory(tab: String, showingHistory: Bool, active: Bool) -> Bool {
         active && tab == "orders" && showingHistory
     }
@@ -15,11 +20,11 @@ enum RefreshLoop {
     static func delay(elapsed: TimeInterval, failed: Bool, interval: TimeInterval = 2, consecutiveFailures: Int = 1) -> TimeInterval {
         failed ? min(10, pow(2, Double(min(4, max(0, consecutiveFailures - 1))))) : max(0.25, interval - elapsed)
     }
-    static func optionMetricsDelay(frozen: Bool, marketClosed: Bool, missing: Bool, failed: Bool, failures: Int) -> TimeInterval {
+    static func optionMetricsDelay(frozen: Bool, marketClosed: Bool, missing: Bool, failed: Bool, failures: Int, warming: Bool = false) -> TimeInterval {
         // Frozen alone can mean delayed data during an open session. Only a
         // confirmed closed session makes missing Greeks normal, not a failure.
-        if !failed && frozen && marketClosed { return 30 }
-        if failed || missing { return delay(elapsed: 0, failed: true, consecutiveFailures: failures) }
+        if !failed && frozen && marketClosed && !warming { return 30 }
+        if failed || missing || warming { return delay(elapsed: 0, failed: true, consecutiveFailures: failures) }
         return 15
     }
     @MainActor static func run(interval: TimeInterval = 2, _ operation: () async -> Bool) async {

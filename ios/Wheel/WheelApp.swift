@@ -329,6 +329,7 @@ final class WheelStore {
     private var fillSnapshotAt: Date?
     private var fillHistoryRetryAt: Date?
     private var fillHistoryFailures = 0
+    private var accountRecoveryStarted: ContinuousClock.Instant?
     var completedOrders: [OrderID: Order] = [:]
     func retainCompleted(_ records: [Order]) {
         for order in records where order.isTerminal { completedOrders[order.id] = order }
@@ -500,7 +501,13 @@ final class WheelStore {
             let disappeared = !Set(orders.map(\.id)).subtracting(result.orders.map(\.id)).isEmpty
             orders = result.orders; ordersUpdated = Date(); orderError = nil
             let historyRetryReady = fillHistoryRetryAt.map { Date() >= $0 } ?? true
-            if historyRetryReady && (fillSnapshotAt == nil || disappeared || Date().timeIntervalSince(fillSnapshotAt!) >= 10) {
+            // Account handover should restore quotes before optional full history.
+            // Current orders, observed fills, disappearances and unknown writes keep priority.
+            let deferHistory = RefreshLoop.deferInitialFillHistory(
+                recoveryAge: accountRecoveryStarted?.duration(to: .now), tab: selectedTab,
+                hasSnapshot: fillSnapshotAt != nil,
+                reconciliationNeeded: disappeared || trading.uncertain || orders.contains(where: \.hasFill))
+            if !deferHistory && historyRetryReady && (fillSnapshotAt == nil || disappeared || Date().timeIntervalSince(fillSnapshotAt!) >= 10) {
                 do {
                     let payload = try await trading.get("api/options/pending-orders", base: address,
                         query: [URLQueryItem(name: "executed", value: "true")])
@@ -565,7 +572,7 @@ final class WheelStore {
             if token == revision, version == trading.version, !Task.isCancelled { filledError = connectionMessage(error) }
         }
     }
-    func changeMode() { ChartTradeSounds.shared.reset(); connectingEpoch = nil; connectingMode = nil; completedOrders = [:]; performanceHistoryCache = [:]; transientPortfolioFailures = 0; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; fillHistoryRetryAt = nil; fillHistoryFailures = 0; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; filledUpdated = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
+    func changeMode() { accountRecoveryStarted = .now; ChartTradeSounds.shared.reset(); connectingEpoch = nil; connectingMode = nil; completedOrders = [:]; performanceHistoryCache = [:]; transientPortfolioFailures = 0; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; fillHistoryRetryAt = nil; fillHistoryFailures = 0; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; filledUpdated = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
 }
 
 struct PortfolioRefreshBusy: LocalizedError {

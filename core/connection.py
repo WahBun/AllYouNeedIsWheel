@@ -333,11 +333,36 @@ class IBConnection:
         ticker.time = None
         self._market_ticker_cache[key] = {
             'used_at': time.time(),
+            'requested_at': time.monotonic(),
             'ticker': ticker,
             'contract': contract,
             'requested_data_type': self._market_data_type
         }
         return ticker
+
+    def _recover_frozen_position_quote(self, contract, ticker):
+        """Retry only an incomplete held-option metrics subscription, on its owner.
+
+        Frozen last/valuation/Greeks do not establish a bid/ask midpoint. Repeated
+        portfolio reads keep a partial subscription alive, so cache expiry alone
+        cannot recover it. Leave the chart's separate subscription untouched.
+        """
+        key = self._market_ticker_key(contract, '106')
+        entry = self._market_ticker_cache.get(key)
+        if not entry or entry['ticker'] is not ticker:
+            return ticker
+        now = time.monotonic()
+        bid = self._valid_price(getattr(ticker, 'bid', None))
+        ask = self._valid_price(getattr(ticker, 'ask', None))
+        if bid is not None and ask is not None and ask >= bid:
+            entry.update(requested_at=now, quote_refresh_attempts=0)
+            return ticker
+        attempts = entry.get('quote_refresh_attempts', 0)
+        if now - entry.setdefault('requested_at', now) < min(300, 30 * 2 ** min(attempts, 4)):
+            return ticker
+        renewed = self.get_market_ticker(contract, '106', refresh=True)
+        self._market_ticker_cache[key]['quote_refresh_attempts'] = attempts + 1
+        return renewed
     
     def connect(self):
         """
@@ -1211,6 +1236,8 @@ class IBConnection:
             # Portfolio polling keeps this subscription alive between reads.
             # Missing bid/ask remain unavailable; never wait on the IB owner.
             self.ib.sleep(0.005)
+            if is_frozen and contract.secType == 'OPT':
+                ticker = self._recover_frozen_position_quote(contract, ticker)
 
         bid = self._valid_price(getattr(ticker, 'bid', None))
         ask = self._valid_price(getattr(ticker, 'ask', None))
