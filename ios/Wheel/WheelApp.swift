@@ -685,6 +685,32 @@ struct NoticeText: View {
     var body: some View { Text(verbatim: localizedNotice(message, locale: locale)) }
 }
 
+// Keep list rows from changing the floating tab bar's dark selection material.
+private struct TabBarBackdrop: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.overlay {
+                GeometryReader { geometry in
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, Color(uiColor: .systemGroupedBackground)], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 32)
+                        Color(uiColor: .systemGroupedBackground)
+                            .frame(height: geometry.safeAreaInsets.bottom)
+                    }
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .offset(y: geometry.safeAreaInsets.bottom)
+                    .opacity(scheme == .dark && geometry.safeAreaInsets.bottom > 40 ? 1 : 0)
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        } else {
+            content
+        }
+    }
+}
+
 struct RootView: View {
     @AppStorage("allHighGildedV3") private var spreadWarningRedApplied = false
     @AppStorage("demoCustomColors") private var customColorsJSON = "{}"
@@ -704,15 +730,18 @@ struct RootView: View {
     var body: some View {
         @Bindable var store = store
         TabView(selection: $store.selectedTab) {
-            NavigationStack(path: $portfolioPath) { PortfolioView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Portfolio", locale: appLocale), systemImage: "chart.pie") }.tag("portfolio")
-            NavigationStack(path: $tradePath) {
-                OpportunitiesView().modifier(KeyboardDismissal())
-                    .navigationDestination(for: TradeChartDestination.self) { destination in
-                        StockChartView(position: destination.position, resumeLast: destination.resumeLast).id(destination.id)
-                    }
-            }.tabItem { Label(localizedLabel("Trade", locale: appLocale), systemImage: "arrow.left.arrow.right") }.tag("trade")
-            NavigationStack(path: $ordersPath) { OrdersView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Orders", locale: appLocale), systemImage: "list.bullet.rectangle") }.tag("orders")
-            NavigationStack { SettingsView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Settings", locale: appLocale), systemImage: "gearshape") }.tag("settings")
+            Group {
+                NavigationStack(path: $portfolioPath) { PortfolioView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Portfolio", locale: appLocale), systemImage: "chart.pie") }.tag("portfolio")
+                NavigationStack(path: $tradePath) {
+                    OpportunitiesView().modifier(KeyboardDismissal())
+                        .navigationDestination(for: TradeChartDestination.self) { destination in
+                            StockChartView(position: destination.position, resumeLast: destination.resumeLast).id(destination.id)
+                        }
+                }.tabItem { Label(localizedLabel("Trade", locale: appLocale), systemImage: "arrow.left.arrow.right") }.tag("trade")
+                NavigationStack(path: $ordersPath) { OrdersView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Orders", locale: appLocale), systemImage: "list.bullet.rectangle") }.tag("orders")
+                NavigationStack { SettingsView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Settings", locale: appLocale), systemImage: "gearshape") }.tag("settings")
+            }
+            .modifier(TabBarBackdrop())
         }
         .onChange(of: phase, initial: true) { _, phase in
             ChartTradeSounds.shared.reset()
@@ -785,7 +814,6 @@ struct StatusView: View {
     @Environment(WheelStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showHealth = false
-    @State private var copiedDiagnostics = false
     private var error: String? { orders ? store.orderError : store.error }
     private var busy: Bool { orders ? store.ordersBusy : store.busy }
     private var updated: Date? { orders ? store.ordersUpdated : store.updated }
@@ -793,7 +821,7 @@ struct StatusView: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let status = DataHealth.status(demo: store.demo, failed: error != nil, updated: updated,
                 frozen: !orders && store.portfolio?.summary.is_frozen == true, now: context.date)
-            Button { copiedDiagnostics = false; showHealth = true } label: {
+            Button { showHealth = true } label: {
                 HStack(spacing: 6) {
                     Circle().fill(status == "STALE" || status == "FROZEN" ? Color.orange : .teal).frame(width: 6, height: 6)
                         .opacity(busy && !reduceMotion ? 0.35 : 1)
@@ -809,46 +837,64 @@ struct StatusView: View {
                 .accessibilityHint("Show data status")
         }
         .sheet(isPresented: $showHealth) {
-            NavigationStack {
-                Form {
-                    Section("Data status") {
-                        LabeledContent("Account mode") { Text(LocalizedStringKey(store.accountModeLabel)) }
-                        LabeledContent("Connection status") {
-                            Text(LocalizedStringKey(DataHealth.status(demo: store.demo, failed: error != nil, updated: updated,
-                                frozen: !orders && store.portfolio?.summary.is_frozen == true, now: .now)))
-                        }
-                        LabeledContent("Trading access") { Text(LocalizedStringKey(store.tradingAccessLabel)) }
-                        if let date = updated { LabeledContent("Last backend response", value: date.formatted(.dateTime.hour().minute().second())) }
-                        Text("The time shown is the last successful backend refresh, not the exchange quote time.")
-                        if store.demo { Text("Demo quote") }
-                        else if !orders && store.portfolio?.summary.is_frozen == true { Text("Frozen portfolio · verify quote") }
-                    }
-                    Section("Troubleshooting") {
-                        if let error { NoticeText(error).foregroundStyle(.orange) }
-                        Text(LocalizedStringKey(DataHealth.guidance(error)))
-                    }
-                    Section("Diagnostics") {
-                        let report = SafeDiagnostics.report(demo: store.demo, orders: orders,
-                            frozen: store.portfolio?.summary.is_frozen == true,
-                            marketOpen: store.opportunities.marketOpen, updated: updated, error: error,
-                            uncertain: store.trading.uncertain, now: .now,
-                            version: "\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""))",
-                            systemVersion: UIDevice.current.systemVersion)
-                        Text("Includes app version, refresh status and request reference only. No account, positions, private address or credentials.")
-                            .font(.caption).foregroundStyle(.secondary)
-                        DisclosureGroup("Preview diagnostics") {
-                            Text(report).font(.caption.monospaced()).textSelection(.enabled)
-                        }
-                        Button(copiedDiagnostics ? "Diagnostics copied" : "Copy diagnostics", systemImage: "doc.on.doc") {
-                            UIPasteboard.general.setItems([["public.utf8-plain-text": report]],
-                                options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(300)])
-                            copiedDiagnostics = true
-                        }
-                    }
-                }.navigationTitle("Data status")
-                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showHealth = false } } }
-            }
+            DataStatusDetails(orders: orders)
         }
+    }
+}
+
+struct DataStatusDetails: View {
+    var orders = false
+    @Environment(WheelStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var copiedDiagnostics = false
+    private var error: String? { orders ? store.orderError : store.error }
+    private var updated: Date? { orders ? store.ordersUpdated : store.updated }
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    LabeledContent("Account mode") { Text(LocalizedStringKey(store.accountModeLabel)).foregroundStyle(.secondary) }
+                    LabeledContent("Connection status") {
+                        Text(LocalizedStringKey(DataHealth.status(demo: store.demo, failed: error != nil, updated: updated,
+                            frozen: !orders && store.portfolio?.summary.is_frozen == true, now: .now))).foregroundStyle(.secondary)
+                    }
+                    LabeledContent("Trading access") { Text(LocalizedStringKey(store.tradingAccessLabel)).foregroundStyle(.secondary) }
+                    if let date = updated { LabeledContent("Last backend response") { Text(date.formatted(.dateTime.hour().minute().second())).foregroundStyle(.secondary) } }
+                    Text("The time shown is the last successful backend refresh, not the exchange quote time.")
+                    if store.demo { Text("Demo quote") }
+                    else if !orders && store.portfolio?.summary.is_frozen == true { Text("Frozen portfolio · verify quote") }
+                } header: { statusHeader("Data status") }
+                Section {
+                    if let error { NoticeText(error).foregroundStyle(.orange) }
+                    Text(LocalizedStringKey(DataHealth.guidance(error)))
+                } header: { statusHeader("Troubleshooting") }
+                Section {
+                    let report = SafeDiagnostics.report(demo: store.demo, orders: orders,
+                        frozen: store.portfolio?.summary.is_frozen == true,
+                        marketOpen: store.opportunities.marketOpen, updated: updated, error: error,
+                        uncertain: store.trading.uncertain, now: .now,
+                        version: "\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""))",
+                        systemVersion: UIDevice.current.systemVersion)
+                    Text("Includes app version, refresh status and request reference only. No account, positions, private address or credentials.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    DisclosureGroup("Preview diagnostics") {
+                        Text(report).font(.caption.monospaced()).textSelection(.enabled)
+                    }
+                    Button(copiedDiagnostics ? "Diagnostics copied" : "Copy diagnostics", systemImage: "doc.on.doc") {
+                        UIPasteboard.general.setItems([["public.utf8-plain-text": report]],
+                            options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(300)])
+                        copiedDiagnostics = true
+                    }
+                } header: { statusHeader("Diagnostics") }
+            }.navigationTitle("Data status")
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        .font(.body)
+        .foregroundStyle(.primary)
+        .textCase(nil)
+    }
+    private func statusHeader(_ title: LocalizedStringKey) -> some View {
+        Text(title).font(.footnote).foregroundStyle(.secondary).textCase(.uppercase)
     }
 }
 

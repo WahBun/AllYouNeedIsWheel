@@ -165,6 +165,51 @@ final class PerformanceTests: XCTestCase {
     }
 
     @MainActor
+    func testTabBarAppearanceAcrossAllTabs() async throws {
+        URLProtocol.registerClass(PerformancePageProtocol.self)
+        defer { URLProtocol.unregisterClass(PerformancePageProtocol.self) }
+        let defaults = UserDefaults.standard
+        let keys = ["appearance", "appLanguage", "demoCustomColors"]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        defer { for (key, value) in zip(keys, saved) { defaults.set(value, forKey: key) } }
+        defaults.set("en", forKey: "appLanguage"); defaults.set("{}", forKey: "demoCustomColors")
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        for dark in [false, true] {
+            defaults.set(dark ? "dark" : "light", forKey: "appearance")
+            let store = WheelStore(); store.demo = false; store.address = "https://performance.invalid"
+            store.portfolio = Bootstrap(summary: Summary(account_value: 1000, cash_balance: 500), positions: [])
+            store.opportunities.custom = []; store.opportunities.excluded = ["HIDDEN:PUT"]
+            let host = UIHostingController(rootView: RootView().environment(store).environment(\.scenePhase, .inactive))
+            let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+            window.overrideUserInterfaceStyle = dark ? .dark : .light
+            window.rootViewController = host; window.makeKeyAndVisible()
+            for tab in ["portfolio", "trade", "orders", "settings"] {
+                store.selectedTab = tab
+                try await Task.sleep(for: .milliseconds(400))
+                host.view.layoutIfNeeded()
+                func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
+                let bar = try XCTUnwrap(descendants(host.view).compactMap { $0 as? UITabBar }.first)
+                XCTAssertEqual(bar.traitCollection.userInterfaceStyle, dark ? .dark : .light)
+                XCTAssertEqual(bar.items?.count, 4)
+                let fullImage = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true) }
+                try fullImage.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory() + "full-tab-\(dark ? "dark" : "light")-\(tab).png"))
+                let image = UIGraphicsImageRenderer(bounds: bar.bounds).image { _ in bar.drawHierarchy(in: bar.bounds, afterScreenUpdates: true) }
+                let path = NSTemporaryDirectory() + "tab-\(dark ? "dark" : "light")-\(tab).png"
+                try image.pngData()?.write(to: URL(fileURLWithPath: path)); print("TAB_PREVIEW=\(path)")
+                if let scroll = descendants(host.view).compactMap({ $0 as? UICollectionView }).first(where: { !$0.isHidden && $0.window != nil }) {
+                    let bottom = max(-scroll.adjustedContentInset.top, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
+                    scroll.setContentOffset(CGPoint(x: 0, y: bottom), animated: false)
+                    try await Task.sleep(for: .milliseconds(300))
+                    let scrolled = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true) }
+                    try scrolled.pngData()?.write(to: URL(fileURLWithPath: NSTemporaryDirectory() + "scrolled-tab-\(dark ? "dark" : "light")-\(tab).png"))
+                    capture(host, "Tab-\(dark ? "dark" : "light")-\(tab)-bottom")
+                }
+            }
+            window.rootViewController = nil; window.isHidden = true
+        }
+    }
+
+    @MainActor
     func testTradeAccountModeLayouts() async throws {
         let defaults = UserDefaults.standard
         let savedAppearance = defaults.object(forKey: "appearance")

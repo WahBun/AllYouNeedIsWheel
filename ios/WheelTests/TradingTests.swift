@@ -43,6 +43,38 @@ private final class AccountHistoryProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testDataStatusPresentationAcrossHeaderStyles() async throws {
+        let store = WheelStore(); store.demo = false
+        store.portfolio = Bootstrap(summary: Summary(account_value: 1000, cash_balance: 1000, is_frozen: true), positions: [],
+            connection: AccountConnection(mode: "live", execution_enabled: true, chart_execution_enabled: true))
+        store.updated = Date(timeIntervalSince1970: 1793435267)
+        for dark in [false, true] {
+            var reference: Data?
+            for inherited in [false, true] {
+                let root = DataStatusDetails().environment(store).environment(\.locale, Locale(identifier: "en_US"))
+                    .font(inherited ? .footnote : .body)
+                    .foregroundStyle(inherited ? Color.secondary : Color.primary)
+                    .textCase(inherited ? nil : .uppercase)
+                let host = UIHostingController(rootView: root)
+                let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+                let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+                window.overrideUserInterfaceStyle = dark ? .dark : .light
+                window.rootViewController = host; window.makeKeyAndVisible()
+                host.view.frame = window.bounds; host.view.layoutIfNeeded()
+                try await Task.sleep(for: .milliseconds(200))
+                let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                    host.view.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+                }
+                let path = NSTemporaryDirectory() + "status-\(inherited ? "header" : "body")-\(dark ? "dark" : "light").png"
+                let data = try XCTUnwrap(image.pngData())
+                if let reference { XCTAssertEqual(data, reference, "Status appearance must not inherit the presenting header style") }
+                else { reference = data }
+                try data.write(to: URL(fileURLWithPath: path)); print("STATUS_PREVIEW=\(path)")
+                window.isHidden = true
+            }
+        }
+    }
+
     func testCashBalancesDecodeSortAndClearWithAccountContext() async throws {
         let old = Data(#"{"account_value":100,"cash_balance":20}"#.utf8)
         XCTAssertNil(try JSONDecoder().decode(Summary.self, from: old).cash_balances)
