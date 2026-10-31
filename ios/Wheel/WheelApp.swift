@@ -949,21 +949,27 @@ struct PortfolioView: View {
                         }
                         .swipeActions(edge: .leading, allowsFullSwipe: false) {
                             if position.hasChart {
-                                Button("Superchart", systemImage: "chart.xyaxis.line") {
+                                Button {
                                     store.openTradeChart(position)
-                                }.tint(.teal)
+                                } label: {
+                                    Image(systemName: "chart.xyaxis.line")
+                                }.tint(.teal).accessibilityLabel("Superchart")
                             }
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if let conID = position.con_id, conID > 0, position.position != 0,
                                position.security_type == "OPT" || (position.security_type == "STK" && position.position > 0) {
-                                Button("Close") {
+                                Button {
                                     positionDestination = PositionDestination(conID: conID, rollover: false)
-                                }.tint(.orange).disabled(stockHasCall(position))
+                                } label: {
+                                    Image(systemName: "xmark")
+                                }.tint(.orange).accessibilityLabel("Close").disabled(stockHasCall(position))
                                 if position.security_type == "OPT" && position.position < 0 {
-                                    Button("Rollover") {
+                                    Button {
                                         positionDestination = PositionDestination(conID: conID, rollover: true)
-                                    }.tint(.blue)
+                                    } label: {
+                                        Image(systemName: "arrow.triangle.2.circlepath")
+                                    }.tint(.blue).accessibilityLabel("Rollover")
                                 }
                             }
                         }
