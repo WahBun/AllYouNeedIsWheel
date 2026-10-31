@@ -947,6 +947,13 @@ struct PortfolioView: View {
                             }.padding(.vertical, 6)
                             }
                         }
+                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                            if position.hasChart {
+                                Button("Superchart", systemImage: "chart.xyaxis.line") {
+                                    store.openTradeChart(position)
+                                }.tint(.teal)
+                            }
+                        }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if let conID = position.con_id, conID > 0, position.position != 0,
                                position.security_type == "OPT" || (position.security_type == "STK" && position.position > 0) {
