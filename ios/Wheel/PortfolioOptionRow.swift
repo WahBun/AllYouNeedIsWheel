@@ -33,25 +33,30 @@ struct PortfolioOptionRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                SymbolText(symbol: position.symbol).font(.headline)
-                Text(verbatim: position.position.formatted())
-                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    .accessibilityLabel(Text("Quantity"))
-                    .accessibilityValue(position.position.formatted())
-                Spacer(minLength: 4)
-                OptionMidPrice(value: quote?.mid, movement: midMovement,
-                               active: visible && phase == .active && store.selectedTab == "portfolio")
-            }
-            Text(contractSummary)
-                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                OpportunityMetrics(quote: quote ?? emptyQuote)
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        SymbolText(symbol: position.symbol).font(.headline)
+                        Text(verbatim: position.position.formatted())
+                            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            .accessibilityLabel(Text("Quantity"))
+                            .accessibilityValue(position.position.formatted())
+                    }
+                    Text(contractSummary)
+                        .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    OpportunityMetrics(quote: quote ?? emptyQuote)
+                        .font(.caption)
+                }
                 Spacer(minLength: 0)
-                PositionPnLMeter(position: position)
-                    .accessibilityLabel(Text("Unrealized P&L"))
-            }.font(.caption)
+                VStack(alignment: .trailing, spacing: 8) {
+                    OptionMidPrice(value: quote?.mid, movement: midMovement,
+                                   active: visible && phase == .active && store.selectedTab == "portfolio")
+                    PositionPnLMeter(position: position)
+                        .font(.caption)
+                        .accessibilityLabel(Text("Unrealized P&L"))
+                }
+            }
             if showsRange { PositionDayRange(position: position) }
         }.padding(.vertical, 4)
         .onAppear { visible = true }
