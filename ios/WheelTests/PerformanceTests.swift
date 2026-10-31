@@ -165,6 +165,79 @@ final class PerformanceTests: XCTestCase {
     }
 
     @MainActor
+    func testPortfolioSummaryLayouts() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        for dark in [false, true] {
+            for width in [320.0, 393.0, 834.0] {
+                for amount in [44307.92, 4444307.92, 444444444307.92] {
+                    print("SUMMARY_CASE width=\(width) amount=\(amount) dark=\(dark)")
+                    let store = WheelStore(); store.demo = false; store.address = "https://performance.invalid"
+                    store.portfolio = Bootstrap(summary: Summary(account_value: amount, cash_balance: 21280.68,
+                        excess_liquidity: 31178.44, initial_margin: 14160.83, leverage_percentage: 32), positions: [])
+                    let host = UIHostingController(rootView: NavigationStack { PortfolioView() }
+                        .environment(store).environment(\.scenePhase, .inactive)
+                        .environment(\.locale, Locale(identifier: "en")))
+                    let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: width, height: 852)
+                    window.overrideUserInterfaceStyle = dark ? .dark : .light
+                    window.rootViewController = host; window.makeKeyAndVisible(); host.view.frame = window.bounds
+                    try await Task.sleep(for: .milliseconds(350))
+                    let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                        XCTAssertTrue(host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true))
+                    }
+                    let path = NSTemporaryDirectory() + "summary-\(Int(width))-\(Int(amount))-\(dark ? "dark" : "light").png"
+                    try XCTUnwrap(image.pngData()).write(to: URL(fileURLWithPath: path)); print("SUMMARY_PREVIEW=\(path)")
+                    capture(host, "Summary-\(Int(width))-\(Int(amount))-\(dark)")
+                    window.rootViewController = nil; window.isHidden = true
+                }
+            }
+        }
+    }
+
+    func testSummaryNumbersKeepPrecisionWithoutCurrencySymbols() {
+        XCTAssertEqual(summaryNumber(44307.92), "44,307.92")
+        XCTAssertEqual(summaryNumber(444444444307.92), "444,444,444,307.92")
+        XCTAssertEqual(summaryNumber(-21280.68), "-21,280.68")
+        XCTAssertEqual(summaryNumber(0), "0.00")
+        XCTAssertEqual(summaryNumber(nil), "—")
+        XCTAssertEqual(summaryNumber(.infinity), "—")
+        XCTAssertEqual(summaryNumber(.nan), "—")
+        XCTAssertEqual(money(44307.92), "$44,307.92")
+    }
+
+    @MainActor
+    func testWeeklyExpirySectionTracksPositionCount() async throws {
+        let store = WheelStore(); store.demo = false; store.address = "https://performance.invalid"
+        store.portfolio = Bootstrap(summary: Summary(account_value: 1000, cash_balance: 500), positions: [])
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        for dark in [false, true] {
+            let host = UIHostingController(rootView: NavigationStack { PortfolioView() }
+                .environment(store).environment(\.scenePhase, .inactive)
+                .environment(\.locale, Locale(identifier: "en")))
+            let window = UIWindow(windowScene: scene)
+            window.overrideUserInterfaceStyle = dark ? .dark : .light
+            window.rootViewController = host; window.makeKeyAndVisible()
+            defer { window.rootViewController = nil; window.isHidden = true }
+            store.weekly = nil
+            try await Task.sleep(for: .milliseconds(300))
+            func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
+            let list = try XCTUnwrap(descendants(host.view).compactMap { $0 as? UICollectionView }.first)
+            let baseline = list.numberOfSections
+            for count in [0, 1, 0] {
+                // A zero premium must not hide a real expiring position.
+                store.weekly = WeeklyIncome(total_income: 0, positions_count: count, total_put_notional: 0)
+                try await Task.sleep(for: .milliseconds(350))
+                host.view.layoutIfNeeded()
+                print("WEEKLY_SECTION dark=\(dark) count=\(count) sections=\(list.numberOfSections) baseline=\(baseline)")
+                XCTAssertEqual(list.numberOfSections, baseline + (count > 0 ? 1 : 0))
+                let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true) }
+                let path = NSTemporaryDirectory() + "weekly-\(dark ? "dark" : "light")-\(count).png"
+                try image.pngData()?.write(to: URL(fileURLWithPath: path)); print("WEEKLY_PREVIEW=\(path)")
+                capture(host, "Weekly-\(dark ? "dark" : "light")-\(count)")
+            }
+        }
+    }
+
+    @MainActor
     func testTabBarAppearanceAcrossAllTabs() async throws {
         URLProtocol.registerClass(PerformancePageProtocol.self)
         defer { URLProtocol.unregisterClass(PerformancePageProtocol.self) }
