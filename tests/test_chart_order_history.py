@@ -68,6 +68,52 @@ class ChartOrderHistoryTests(unittest.TestCase):
         self.assertEqual(self.rows(),[])
         self.resolve.assert_not_called()
 
+    def test_partial_display_recovers_saved_fills_without_broker_or_order_writes(self):
+        from api.services.options_service import OptionsService
+        from api.services.futures_orders import CompletedHistoryUnavailable
+        service = OptionsService.__new__(OptionsService)
+        service.config = {'account_id': 'LIVE_TEST'}
+        service.db = Mock(db_path=self.path)
+        service.db.get_pending_orders.return_value = [
+            {'id': 1, 'perm_id': 123, 'filled': 1, 'account_id': 'LIVE_TEST'},
+            {'id': 2, 'perm_id': 999, 'filled': 1, 'account_id': 'OTHER'}]
+        service._ensure_connection = Mock(return_value=self.conn)
+        self.add(); self.add(perm=124, key='b'); self.add(perm=125, key='c', account='OTHER')
+        with patch.object(service, 'get_pending_orders_with_ib', side_effect=CompletedHistoryUnavailable()), \
+                patch.dict('api.services.chart_order_history.contracts.contracts', {7: self.contract}, clear=True):
+            for _ in range(3):
+                result = service.get_executed_records()
+                self.assertFalse(result['history_complete'])
+                self.assertEqual([r['perm_id'] for r in result['orders']], [123, 124])
+                self.assertIn('Recent fills may be missing', result['warning'])
+            self.conn._order_account.return_value = 'OTHER'
+            with self.assertRaises(CompletedHistoryUnavailable): service.get_executed_records()
+        self.resolve.assert_not_called()
+        service.db.update_order_status.assert_not_called()
+        self.conn.ib.placeOrder.assert_not_called()
+        self.conn.ib.cancelOrder.assert_not_called()
+
+    def test_partial_display_without_cached_contract_does_not_query_ib(self):
+        self.add()
+        with patch.dict('api.services.chart_order_history.contracts.contracts', {}, clear=True):
+            self.assertEqual(saved_chart_orders(self.conn, self.path, [], cached_only=True), [])
+        self.resolve.assert_not_called()
+
+    def test_display_recovers_to_complete_and_rejects_disconnected_account(self):
+        from api.services.options_service import OptionsService
+        from api.services.futures_orders import CompletedHistoryUnavailable
+        service = OptionsService.__new__(OptionsService)
+        service.config = {'account_id': 'LIVE_TEST'}
+        service.db = Mock(db_path=self.path)
+        service.db.get_pending_orders.return_value = []
+        service._ensure_connection = Mock(return_value=self.conn)
+        with patch.object(service, 'get_pending_orders_with_ib', side_effect=[CompletedHistoryUnavailable(), [{'id': 5, 'filled': 2}]]) as strict:
+            self.assertFalse(service.get_executed_records()['history_complete'])
+            self.assertEqual(service.get_executed_records(), {'orders': [{'id': 5, 'filled': 2}], 'history_complete': True})
+            self.conn.is_connected.return_value = False
+            with self.assertRaises(CompletedHistoryUnavailable): service.get_executed_records()
+            self.assertEqual(strict.call_count, 2)
+
     def test_exact_contract_required(self):
         self.add();self.contract.conId=8
         self.assertEqual(self.rows(),[])

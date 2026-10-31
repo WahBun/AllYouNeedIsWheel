@@ -224,6 +224,8 @@ def get_pending_orders():
     try:
         # Get executed parameter (optional)
         executed = request.args.get('executed', 'false').lower() == 'true'
+        if executed and request.args.get('view') == 'records':
+            return jsonify(options_service.get_executed_records())
         
         # Get isRollover parameter (optional)
         is_rollover_param = request.args.get('isRollover')

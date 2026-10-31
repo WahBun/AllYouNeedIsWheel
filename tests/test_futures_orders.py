@@ -146,6 +146,21 @@ class FuturesOrdersTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.headers['Retry-After'], '15')
         self.assertNotIn('orders', response.json)
+
+    def test_display_history_is_explicit_and_cannot_replace_pending_or_strict_reads(self):
+        from flask import Flask
+        from api.routes.options import bp, options_service
+        app = Flask(__name__); app.register_blueprint(bp)
+        payload = {'orders': [{'id': 7, 'filled': 1}], 'history_complete': False, 'warning': 'History is syncing.'}
+        with patch.object(options_service, 'get_executed_records', return_value=payload) as display, \
+                patch.object(options_service, 'get_pending_orders_with_ib', return_value=[]) as strict:
+            client = app.test_client()
+            self.assertEqual(client.get('/api/options/pending-orders?executed=true&view=records').json, payload)
+            strict.assert_not_called()
+            client.get('/api/options/pending-orders?view=records')
+            client.get('/api/options/pending-orders?executed=true')
+            self.assertEqual(strict.call_count, 2)
+            display.assert_called_once()
     def test_bracket_profit_uses_multiplier_and_both_fees(self):
         import json,sqlite3
         for side,entry_price,exit_price,expected in [(1,7790.75,7792.75,10),(-1,7792.75,7790.75,10),(1,7792.75,7790.75,-10)]:
