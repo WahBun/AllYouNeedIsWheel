@@ -1046,9 +1046,15 @@ class IBConnection:
         if not account_values:
             return None
 
+        # $LEDGER:ALL summary rows can belong to the aggregate account "All".
+        # Use the already-subscribed, explicitly scoped account update cache.
+        cash_values = getattr(self.ib, 'accountValues', lambda account: [])(account_id)
+        cash_balances = self._cash_balances(cash_values, account_id)
+        if not cash_balances:
+            cash_balances = self._cash_balances(account_values, account_id)
         account_info = {
             'account_id': account_id,
-            'cash_balances': self._cash_balances(account_values, account_id),
+            'cash_balances': cash_balances,
             'available_cash': 0,
             'account_value': 0,
             'excess_liquidity': 0,
@@ -1080,12 +1086,14 @@ class IBConnection:
 
     @staticmethod
     def _cash_balances(account_values, account_id):
-        """Original-currency balances from the existing $LEDGER:ALL snapshot."""
+        """Original-currency cash for one account; never accept aggregate rows."""
         import math
         balances, invalid = {}, set()
         for row in account_values:
             currency = getattr(row, 'currency', '')
-            if (getattr(row, 'account', None) != account_id or row.tag != 'CashBalance'
+            if (getattr(row, 'account', None) != account_id
+                    or getattr(row, 'modelCode', '')
+                    or row.tag not in ('CashBalance', '$LEDGER-CashBalance')
                     or not isinstance(currency, str) or len(currency) != 3
                     or not currency.isascii() or not currency.isalpha() or currency != currency.upper()):
                 continue

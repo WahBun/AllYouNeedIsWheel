@@ -83,3 +83,36 @@ class AccountSummaryCleanupTests(unittest.TestCase):
         self.assertEqual(IBConnection._cash_balances(rows, 'DU_TEST'), [{'currency': 'EUR', 'balance': -5}])
         self.assertEqual(IBConnection._cash_balances(rows, 'OTHER'), [])
         self.assertEqual(IBConnection._cash_balances([], 'DU_TEST'), [])
+
+    def test_aggregate_ledger_summary_uses_existing_scoped_account_update_cache(self):
+        conn = self.connection()
+        conn._convert_to_usd = lambda value, currency: value
+        conn.ib.wrapper.accountSummary(123, 'DU_TEST', 'TotalCashValue', '21000', 'USD')
+        for currency, value in [('USD', '13000'), ('HKD', '0.02'), ('CNH', '50000')]:
+            conn.ib.wrapper.accountSummary(123, 'All', 'CashBalance', '999999', currency)
+            conn.ib.wrapper.updateAccountValue('CashBalance', value, currency, 'DU_TEST')
+            conn.ib.wrapper.updateAccountValue('CashBalance', '888888', currency, 'OTHER')
+        result = conn._account_info_from_summary('DU_TEST', {'TotalCashValue': 'available_cash'})
+        self.assertEqual({r['currency']: r['balance'] for r in result['cash_balances']},
+                         {'USD': 13000, 'HKD': .02, 'CNH': 50000})
+        self.assertEqual(conn.ib.client.mock_calls, [])
+        # Account updates win over older summary rows without currency conversion.
+        conn.ib.wrapper.accountSummary(123, 'DU_TEST', 'CashBalance', '1', 'USD')
+        conn.ib.wrapper.updateAccountValue('CashBalance', '14000', 'USD', 'DU_TEST')
+        result = conn._account_info_from_summary('DU_TEST', {'TotalCashValue': 'available_cash'})
+        self.assertEqual(next(r['balance'] for r in result['cash_balances'] if r['currency'] == 'USD'), 14000)
+
+    def test_prefixed_ledger_values_exclude_model_and_aggregate_accounts(self):
+        conn = self.connection()
+        conn._convert_to_usd = lambda value, currency: value
+        conn.ib.wrapper.accountSummary(123, 'DU_TEST', 'TotalCashValue', '10', 'USD')
+        conn.ib.wrapper.updateAccountValue('$LEDGER-CashBalance', '-2.5', 'CNH', 'DU_TEST')
+        conn.ib.wrapper.updateAccountValue('$LEDGER-CashBalance', '100', 'BASE', 'DU_TEST')
+        conn.ib.wrapper.accountUpdateMulti(1, 'DU_TEST', 'MODEL', 'CashBalance', '999', 'CNH')
+        conn.ib.wrapper.accountSummary(123, 'All', 'CashBalance', '999', 'HKD')
+        result = conn._account_info_from_summary('DU_TEST', {'TotalCashValue': 'available_cash'})
+        self.assertEqual(result['cash_balances'], [{'currency': 'CNH', 'balance': -2.5}])
+        conn.ib.wrapper.accountValues.clear()
+        result = conn._account_info_from_summary('DU_TEST', {'TotalCashValue': 'available_cash'})
+        self.assertEqual(result['cash_balances'], [])
+        self.assertEqual(conn.ib.client.mock_calls, [])
