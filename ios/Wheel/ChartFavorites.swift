@@ -83,6 +83,33 @@ final class ChartFavorites {
             if token == generation { ready = false; message = connectionMessage(error) }
         }
     }
+    func move(from offsets: IndexSet, to destination: Int) {
+        guard ready, !busy, offsets.count == 1, let source = offsets.first,
+              items.indices.contains(source), (0...items.count).contains(destination) else { return }
+        let target = destination > source ? destination - 1 : destination
+        guard source != target else { return }
+        let original = items, token = generation, baseRevision = revision
+        let item = items.remove(at: source)
+        items.insert(item, at: target)
+        let before = target + 1 < items.count ? items[target + 1].id : nil
+        busy = true; message = nil
+        Task {
+            guard token == generation else { return }
+            defer { if token == generation { busy = false } }
+            do {
+                let result = try await request([["op": UUID().uuidString, "kind": "move", "id": item.id,
+                    "base": baseRevision, "before": before.map { $0 as Any } ?? NSNull()]])
+                guard token == generation else { return }
+                try accept(result)
+            } catch {
+                // The write may have succeeded. Restore the last confirmed list and reconcile by read only.
+                if token == generation {
+                    items = original; ready = false
+                    message = "Favorite order could not be confirmed. Refresh to check the saved order."
+                }
+            }
+        }
+    }
     func toggle(_ item: ChartInstrument) async {
         guard ready, !busy else { return }
         let token = generation; busy = true; message = nil
