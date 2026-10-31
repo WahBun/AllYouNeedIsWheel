@@ -196,7 +196,12 @@ struct ChartInstrumentPicker: View {
                 if !search.results.isEmpty { Section("Search results") { ForEach(search.results) { row($0) } } }
                 Section("Favorites") {
                     if favorites.items.isEmpty { Text("Tap a star to save an instrument across web and iOS.").font(.caption).foregroundStyle(.secondary) }
-                    ForEach(favorites.items) { row($0, saved: true) }
+                    ForEach(favorites.items) { item in
+                        row(item, saved: true)
+                            .moveDisabled(!favorites.ready || favorites.busy)
+                            .accessibilityIdentifier("favorite-\(item.id)")
+                    }.onMove { favorites.move(from: $0, to: $1) }
+                    if favorites.items.count > 1 { Text("Touch and hold a favorite to reorder.").font(.caption).foregroundStyle(.secondary) }
                     if favorites.busy { ProgressView("Syncing favorites…") }
                     if let message = favorites.message { Text(message).font(.caption).foregroundStyle(.orange) }
                     Button("Refresh favorites") { Task { await favorites.refresh() } }.disabled(favorites.busy)

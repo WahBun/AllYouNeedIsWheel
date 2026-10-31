@@ -59,6 +59,63 @@ class ChartFavoritesTests(unittest.TestCase):
         self.assertEqual(len(result['favorites']), 100)
         self.assertEqual(result['conflicts'], [{'id': 101, 'reason': 'limit'}])
 
+    def move(self, key, cid, before, base):
+        return dict(op=key, kind='move', id=cid, before=before, base=base)
+
+    def ids(self, result):
+        return [row['id'] for row in result['favorites']]
+
+    def test_moves_persist_without_changing_instruments_and_are_idempotent(self):
+        original = self.call([self.op(str(i), cid=i) for i in (7, 8, 9)])
+        move = self.move('move-first', 9, 7, original['revision'])
+        first = self.call([move])
+        self.assertEqual(self.ids(first), [9, 7, 8])
+        self.assertEqual({v['id']: v for v in first['favorites']}, {v['id']: v for v in original['favorites']})
+        self.assertEqual(self.call([move]), first)
+        self.assertEqual(self.call(), first)
+        last = self.call([self.move('move-last', 9, None, first['revision'])])
+        self.assertEqual(self.ids(last), [7, 8, 9])
+        middle = self.call([self.move('move-middle', 9, 8, last['revision'])])
+        self.assertEqual(self.ids(middle), [7, 9, 8])
+        self.assertGreater(middle['revision'], original['revision'])
+
+    def test_old_clients_add_delete_update_without_losing_manual_order(self):
+        state = self.call([self.op(str(i), cid=i) for i in (7, 8, 9)])
+        state = self.call([self.move('move', 9, 7, state['revision'])])
+        state = self.call([self.op('rename', cid=7, base=state['revision']), self.op('add', cid=10)])
+        self.assertEqual(self.ids(state), [9, 7, 8, 10])
+        state = self.call([self.op('delete', cid=7, kind='delete', base=state['revision'])])
+        self.assertEqual(self.ids(state), [9, 8, 10])
+        state = self.call([self.op('readd', cid=7, base=state['revision'])])
+        self.assertEqual(self.ids(state), [9, 8, 10, 7])
+
+    def test_stale_moves_cannot_overwrite_concurrent_changes_or_resurrect_deletes(self):
+        initial = self.call([self.op(str(i), cid=i) for i in (7, 8, 9)])
+        current = self.call([self.move('one-phone', 9, 7, initial['revision'])])
+        rejected = self.call([self.move('second-phone', 7, None, initial['revision'])])
+        self.assertEqual(self.ids(rejected), self.ids(current))
+        self.assertEqual(rejected['conflicts'], [{'id': 7, 'reason': 'changed'}])
+        deleted = self.call([self.op('delete', cid=7, kind='delete', base=current['revision'])])
+        for cid, before in [(7, 9), (8, 7)]:
+            rejected = self.call([self.move(f'missing-{cid}', cid, before, deleted['revision'])])
+            self.assertEqual(self.ids(rejected), [9, 8])
+            self.assertTrue(rejected['conflicts'])
+
+    def test_existing_database_migrates_in_current_order(self):
+        import sqlite3, json
+        with sqlite3.connect(self.path) as db:
+            db.execute('CREATE TABLE favorites(id INTEGER PRIMARY KEY,value TEXT,rev INTEGER)')
+            for cid, rev in [(7, 3), (8, 1), (9, 2)]:
+                db.execute('INSERT INTO favorites VALUES (?,?,?)', (cid, json.dumps(dict(id=cid,label=str(cid))), rev))
+        self.assertEqual(self.ids(self.call()), [8, 9, 7])
+        self.assertEqual(self.ids(self.call([self.move('move', 7, 8, 3)])), [7, 8, 9])
+
+    def test_move_validation_rejects_bad_anchor_before_any_write(self):
+        for anchor in (True, 7, -1, '8', 2**53):
+            with self.assertRaises(ValueError):
+                self.call([self.op('put'), self.move('bad', 7, anchor, 0)])
+            self.assertEqual(self.call()['favorites'], [])
+
     def test_endpoint_never_uses_broker_dispatcher_or_order_guard(self):
         from api import create_app
         with patch('api.services.chart_favorites.DB', self.path):

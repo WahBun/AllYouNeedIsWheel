@@ -44,6 +44,15 @@ const {start}=require('./market-feed/harness.cjs');
   await b.evaluate(()=>window.dispatchEvent(new Event('focus')));
   await b.waitForFunction(()=>document.querySelector('#favorite-contracts option[value="9"]'));
   assert.equal(await b.locator('#favorite-contracts').inputValue(),'8','A new shared favorite preserves the pending existing choice');
+  // Model the ordered snapshot after a native device moves 9 before 8.
+  const saved=[...rows];rows.clear();rows.set(9,saved.find(([id])=>id===9)[1]);
+  for(const [id,value] of saved)if(id!==9)rows.set(id,value);revision++;
+  for(const p of [a,b]){
+   await p.evaluate(()=>window.dispatchEvent(new Event('focus')));
+   await p.waitForFunction(()=>document.querySelector('#favorite-contracts option:nth-child(2)')?.value==='9');
+   assert.deepEqual(await p.locator('#favorite-contracts option').evaluateAll(es=>es.slice(1).map(e=>e.value)),['9','8']);
+  }
+  assert.equal(await b.locator('#favorite-contracts').inputValue(),'8','A native reorder preserves the pending existing choice');
   await b.locator('#favorite-contracts').selectOption('8');
   await b.waitForFunction(()=>document.getElementById('favorite-contract').getAttribute('aria-pressed')==='true'&&!document.getElementById('favorite-contract').disabled);
   await b.locator('#favorite-contract').click();
