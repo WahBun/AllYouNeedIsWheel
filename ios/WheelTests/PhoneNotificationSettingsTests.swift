@@ -111,8 +111,9 @@ final class PhoneNotificationSettingsTests: XCTestCase {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         for language in ["en", "zh-Hans", "zh-Hant"] {
         for dark in [false, true] {
-            for page in ["home", "enabled", "setup", "large"] {
-                NotificationProtocol.reply = ["enabled": page != "setup"]
+            for page in ["home", "enabled", "sent", "error", "setup", "large"] {
+                NotificationProtocol.reply = ["enabled": page != "setup", "test_state": page == "sent" ? "sent" : "none"]
+                NotificationProtocol.status = page == "error" ? 503 : 200
                 await settings.refresh()
                 let root = NavigationStack {
                     if page == "home" {

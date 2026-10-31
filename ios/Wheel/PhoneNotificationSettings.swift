@@ -108,14 +108,11 @@ struct PushNotificationSettings: View {
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "bell.badge").font(.title3).frame(width: 25)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Notifications")
-                        Text("Via Bark").font(.caption).foregroundStyle(.secondary)
-                    }
+                    Text("Notifications")
                     Spacer(minLength: 8)
                     NoticeText(status).font(.subheadline)
                         .foregroundStyle(status == "On" ? Color.green : .secondary)
-                }.padding(.vertical, 3)
+                }
             }
         } header: { Text("Notifications") }
         .onAppear { settings.select(account); Task { await settings.refresh() } }
@@ -139,48 +136,50 @@ struct PhoneNotificationDetails: View {
                 LabeledContent {
                     NoticeText(enabled.map { $0 ? "On" : "Off" } ?? (account == nil ? "Not connected" : "Unavailable"))
                         .foregroundStyle(enabled == true ? Color.green : .secondary)
-                } label: { Label { Text("Bark") } icon: { Image(systemName: "bell.badge") } }
+                } label: { Text("Status") }
                 if let account { LabeledContent { NoticeText("IB \(account.mode.capitalized)") } label: { Text("Account") } }
             } footer: {
-                Text("Price alerts, executions and confirmed cancellations. Notifications continue when Wheel is closed while this account is connected on your backend.")
+                Text("Price alerts and order updates. Works with Wheel closed while this account is connected on your backend.")
             }
 
             if account == nil {
                 Section { Text("Connect to Paper or Live in Settings to manage notifications.").foregroundStyle(.secondary) }
             } else {
-                if enabled == true && !editingAddress {
-                    Section {
-                        Button { Task { await settings.sendTest() } } label: { Label { Text("Send test notification") } icon: { Image(systemName: "paperplane") } }
+                Section {
+                    if enabled == true && !editingAddress {
+                        Button { Task { await settings.sendTest() } } label: { Text("Send test notification") }
                         Button { editingAddress = true } label: { Text("Change Bark address") }
                         Button(role: .destructive) { confirmingDisable = true } label: { Text("Turn off for this account") }
-                    }.disabled(settings.busy || !current)
-                } else if enabled == false || editingAddress {
-                    Section {
+                    } else if enabled == false || editingAddress {
                         SecureField(text: $settings.pushAddress) { Text("Bark push address") }
                             .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                         Button { Task { await settings.save(); if settings.error == nil { editingAddress = false } } } label: {
                             Text(LocalizedStringKey(editingAddress ? "Save address" : "Enable Bark"))
                         }.disabled(settings.pushAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         if editingAddress { Button { editingAddress = false; settings.pushAddress = "" } label: { Text("Cancel") } }
-                    } header: { Text("Bark address") }
-                    footer: { Text("Open Bark, allow notifications, then paste its api.day.app push address here. Alert summaries are sent through Bark. Your address is stored privately on your backend.") }
-                    .disabled(settings.busy || !current)
-                }
-                if settings.busy || settings.error != nil || settings.message != nil {
-                    Section {
+                    }
+                } header: {
+                    if enabled == false || editingAddress { Text("Bark address") }
+                } footer: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if enabled == false || editingAddress {
+                            Text("Paste your push address from Bark. It is stored privately on your backend.")
+                        }
                         if settings.busy { ProgressView { Text("Updating…") } }
                         if let error = settings.error { NoticeText(error).foregroundStyle(.orange) }
-                        else if let message = settings.message { NoticeText(message).foregroundStyle(.secondary) }
-                    }.font(.footnote)
+                        else if let message = settings.message { NoticeText(message) }
+                    }
                 }
+                .disabled(settings.busy || !current)
             }
             Section {
                 NavigationLink {
                     Form { DirectPushNotificationSettings() }.navigationTitle("Direct app notifications").navigationBarTitleDisplayMode(.inline)
                 } label: { Text("Direct app notifications") }
             } header: { Text("Advanced") }
-            footer: { Text("Bark is managed separately from direct Wheel notifications.") }
+
         }
+        .contentMargins(.top, 16, for: .scrollContent)
         .navigationTitle("Notifications").navigationBarTitleDisplayMode(.inline)
         .refreshable { settings.select(account); await settings.refresh() }
         .toolbar {
