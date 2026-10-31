@@ -32,13 +32,13 @@ struct PortfolioOptionRow: View {
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     .accessibilityLabel(Text("Quantity"))
                     .accessibilityValue(position.position.formatted())
-                Text(verbatim: contractSummary)
-                    .font(.caption).monospacedDigit()
-                    .lineLimit(1).minimumScaleFactor(0.8)
                 Spacer(minLength: 4)
                 OptionMidPrice(value: quote?.mid, movement: midMovement,
                                active: visible && phase == .active && store.selectedTab == "portfolio")
             }
+            Text(verbatim: contractSummary)
+                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 OpportunityMetrics(quote: quote ?? emptyQuote)
                 Spacer(minLength: 0)
