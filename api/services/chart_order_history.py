@@ -10,7 +10,7 @@ from api.services.chart_contracts import contracts
 logger = logging.getLogger(__name__)
 
 
-def saved_chart_orders(conn, path, known_orders):
+def saved_chart_orders(conn, path, known_orders, *, cached_only=False):
     """No order writes or inferred fills; use the verified account and exact conId."""
     if not conn or not path or not conn.is_connected():
         return []
@@ -60,7 +60,11 @@ def saved_chart_orders(conn, path, known_orders):
             continue
         cid = next(iter(cids))
         try:
-            contract = contracts.resolve(conn, cid)
+            # A partial display response must not queue per-contract IB reads
+            # behind an already unavailable history request.
+            contract = contracts.contracts.get(cid) if cached_only else contracts.resolve(conn, cid)
+            if contract is None:
+                continue
         except Exception:
             logger.warning('Saved execution contract %s unavailable', cid)
             continue

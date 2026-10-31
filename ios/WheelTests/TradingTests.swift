@@ -853,6 +853,53 @@ final class TradingTests: XCTestCase {
         XCTAssertNil(store.filledError)
     }
 
+    func testPartialExecutionDisplayRetainsKnownFillsWithoutUnlockingTrading() async {
+        defer { MockProtocol.payload = nil; MockProtocol.requests = []; MockProtocol.fail = false }
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        let store = WheelStore()
+        store.demo = false; store.address = "https://mock.invalid"
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        store.trading.uncertain = true
+        MockProtocol.fail = false; MockProtocol.statusCode = 200; MockProtocol.requests = []
+        let first: [String: Any] = ["id": 1, "ticker": "TEST", "quantity": 1, "status": "executed", "filled": 1, "avg_fill_price": 2]
+        let second: [String: Any] = ["id": 2, "ticker": "TEST", "quantity": 1, "status": "executed", "filled": 1, "avg_fill_price": 3]
+        MockProtocol.payload = { _ in ["orders": [first], "history_complete": true] }
+        await store.loadFilled()
+        MockProtocol.payload = { _ in ["orders": [second], "history_complete": false] }
+        await store.loadFilled()
+        XCTAssertEqual(store.filledOrders.count, 2)
+        XCTAssertNotNil(store.filledError)
+        XCTAssertNotNil(store.filledUpdated)
+        XCTAssertTrue(store.trading.uncertain)
+        XCTAssertTrue(store.completedOrders.isEmpty)
+        XCTAssertTrue(store.orders.isEmpty)
+        XCTAssertTrue(MockProtocol.requests.allSatisfy { $0.httpMethod == "GET" && $0.url!.query!.contains("view=records") })
+        MockProtocol.payload = { _ in ["orders": [second], "history_complete": true] }
+        await store.loadFilled()
+        XCTAssertEqual(store.filledOrders.count, 1)
+        XCTAssertNil(store.filledError)
+        XCTAssertTrue(store.trading.uncertain)
+    }
+
+    func testPartialExecutionDisplayCannotRepopulateChangedAccount() async {
+        defer { AccountHistoryProtocol.hold = nil }
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [AccountHistoryProtocol.self]
+        let store = WheelStore()
+        store.demo = false; store.address = "https://mock.invalid"
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        let waiting = expectation(description: "Execution display is in flight")
+        var held: AccountHistoryProtocol?
+        AccountHistoryProtocol.hold = { request in held = request; waiting.fulfill() }
+        let task = Task { await store.loadFilled() }
+        await fulfillment(of: [waiting], timeout: 3)
+        store.changeMode()
+        held?.finish(["orders": [["id": 1, "ticker": "OLD", "quantity": 1, "status": "executed", "filled": 1]], "history_complete": false])
+        await task.value
+        XCTAssertTrue(store.filledOrders.isEmpty)
+        XCTAssertNil(store.filledError)
+        XCTAssertNil(store.filledUpdated)
+    }
+
     func testPricePickerFirstLayoutShowsReferenceAndDoesNotResetScrolling() {
         for height in [300.0, 600.0] {
             for price in [0.01, 0.72, 0.81, 90.0] {

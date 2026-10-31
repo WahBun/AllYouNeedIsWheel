@@ -75,6 +75,28 @@ class OptionsService:
                 logger.error("Asyncio event loop error - please check connection.py for proper handling")
             return None
 
+    def get_executed_records(self):
+        """Display known fills without weakening strict order reconciliation."""
+        from api.services.futures_orders import CompletedHistoryUnavailable
+        from api.services.chart_order_history import saved_chart_orders
+        conn = self._ensure_connection()
+        account = self.config.get('account_id')
+        if not account or not conn or not conn.is_connected() or conn._order_account() != account:
+            raise CompletedHistoryUnavailable('Verify the account connection before loading execution records.')
+        try:
+            rows = self.get_pending_orders_with_ib(executed=True)
+            return dict(orders=rows, history_complete=True)
+        except (CompletedHistoryUnavailable, ConnectionError):
+            if not conn.is_connected() or conn._order_account() != account:
+                raise CompletedHistoryUnavailable('Account connection changed; refresh execution records.') from None
+            # These records are display evidence only. Never update order state,
+            # consume a partial SDK response, cancel or resend its fixed-key read.
+            rows = [row for row in self.db.get_pending_orders(executed=True)
+                    if not row.get('account_id') or row['account_id'] == account]
+            rows += saved_chart_orders(conn, self.db.db_path, rows, cached_only=True)
+            return dict(orders=rows, history_complete=False,
+                        warning='Showing recorded fills; broker history is still syncing. Recent fills may be missing.')
+
     def get_pending_orders_with_ib(
         self, executed=False, is_rollover=None, force_refresh=False
     ):

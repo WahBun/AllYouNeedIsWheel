@@ -562,12 +562,16 @@ final class WheelStore {
         let version = trading.version
         if demo { filledOrders = Order.latestFillsFirst(trading.demoOrders.filter { $0.hasFill }); filledError = nil; filledUpdated = .now; return }
         do {
-            let result = try await trading.get("api/options/pending-orders", base: address, query: [URLQueryItem(name: "executed", value: "true")])
+            let result = try await trading.get("api/options/pending-orders", base: address, query: [URLQueryItem(name: "executed", value: "true"), URLQueryItem(name: "view", value: "records")])
             let decoded = try JSONDecoder().decode(Orders.self, from: JSONSerialization.data(withJSONObject: result))
             guard token == revision, version == trading.version, !Task.isCancelled else { return }
+            let partial = result["history_complete"] as? Bool == false
             let completedIDs = Set(decoded.orders.map(\.id))
-            filledOrders = Order.latestFillsFirst((decoded.orders + orders.filter { !completedIDs.contains($0.id) }).filter { $0.hasFill })
-            filledError = nil; filledUpdated = .now
+            let currentIDs = Set(orders.map(\.id))
+            let retained = partial ? filledOrders.filter { !completedIDs.contains($0.id) && !currentIDs.contains($0.id) } : []
+            filledOrders = Order.latestFillsFirst((decoded.orders + orders.filter { !completedIDs.contains($0.id) } + retained).filter { $0.hasFill })
+            filledError = partial ? "Showing recorded fills; broker history is still syncing. Recent fills may be missing." : nil
+            filledUpdated = .now
         } catch {
             if token == revision, version == trading.version, !Task.isCancelled { filledError = connectionMessage(error) }
         }
