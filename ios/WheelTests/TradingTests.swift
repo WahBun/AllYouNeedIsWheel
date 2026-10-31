@@ -43,6 +43,37 @@ private final class AccountHistoryProtocol: URLProtocol {
 
 @MainActor
 final class TradingTests: XCTestCase {
+    func testCashBalancesDecodeSortAndClearWithAccountContext() async throws {
+        let old = Data(#"{"account_value":100,"cash_balance":20}"#.utf8)
+        XCTAssertNil(try JSONDecoder().decode(Summary.self, from: old).cash_balances)
+        let data = Data(#"{"summary":{"account_value":25000,"cash_balance":21000,"cash_balances":[{"currency":"EUR","balance":-12.5},{"currency":"CNH","balance":50000},{"currency":"HKD","balance":0.02},{"currency":"USD","balance":13000}]},"positions":[]}"#.utf8)
+        let portfolio = try JSONDecoder().decode(Bootstrap.self, from: data)
+        let balances = CashBalance.ordered(portfolio.summary.cash_balances ?? [])
+        XCTAssertEqual(balances.map(\.currency), ["USD", "HKD", "CNH", "EUR"])
+        XCTAssertEqual(balances[1].balance, 0.02)
+        XCTAssertEqual(balances[3].balance, -12.5)
+        let store = WheelStore(); store.portfolio = portfolio
+        for scheme in [ColorScheme.light, .dark] {
+            let view = NavigationStack { CashBalancesView() }
+                .environment(store).environment(\.locale, Locale(identifier: "en_US"))
+                .environment(\.colorScheme, scheme)
+            let controller = UIHostingController(rootView: view)
+            let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+            window.rootViewController = controller; window.isHidden = false
+            controller.view.frame = window.bounds; controller.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(100))
+            let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { _ in
+                controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+            }
+            let path = NSTemporaryDirectory() + "wheel-cash-\(scheme == .dark ? "dark" : "light").png"
+            try image.pngData()?.write(to: URL(fileURLWithPath: path))
+            print("CASH_PREVIEW=\(path)")
+            window.isHidden = true
+        }
+        store.changeMode()
+        XCTAssertNil(store.portfolio?.summary.cash_balances)
+    }
+
     func testNativeLocalizationAndOptionDisplayKeepBrokerDataIntact() throws {
         var order = Order(id: 1, ticker: "TQQQ  261120P00060000", action: "BUY", option_type: "PUT", strike: 60,
                           expiration: "20261120", quantity: 1, status: "executed", intent: "CLOSE", filled: 1)

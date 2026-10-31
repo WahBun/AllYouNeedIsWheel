@@ -97,6 +97,7 @@ class PortfolioService:
         return {
             'account_id': portfolio.get('account_id', ''),
             'cash_balance': portfolio.get('available_cash', 0),
+            'cash_balances': portfolio.get('cash_balances', []),
             'account_value': portfolio.get('account_value', 0),
             'excess_liquidity': portfolio.get('excess_liquidity', 0),
             'initial_margin': portfolio.get('initial_margin', 0),

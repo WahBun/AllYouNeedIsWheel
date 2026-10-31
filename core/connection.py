@@ -1048,6 +1048,7 @@ class IBConnection:
 
         account_info = {
             'account_id': account_id,
+            'cash_balances': self._cash_balances(account_values, account_id),
             'available_cash': 0,
             'account_value': 0,
             'excess_liquidity': 0,
@@ -1076,6 +1077,29 @@ class IBConnection:
             account_info['leverage_percentage'] = (account_info['initial_margin'] / account_info['account_value']) * 100
 
         return account_info
+
+    @staticmethod
+    def _cash_balances(account_values, account_id):
+        """Original-currency balances from the existing $LEDGER:ALL snapshot."""
+        import math
+        balances, invalid = {}, set()
+        for row in account_values:
+            currency = getattr(row, 'currency', '')
+            if (getattr(row, 'account', None) != account_id or row.tag != 'CashBalance'
+                    or not isinstance(currency, str) or len(currency) != 3
+                    or not currency.isascii() or not currency.isalpha() or currency != currency.upper()):
+                continue
+            try:
+                value = float(row.value)
+                if not math.isfinite(value) or abs(value) >= 1e100:
+                    raise ValueError('Invalid cash balance')
+                if currency in balances and balances[currency] != value:
+                    raise ValueError('Conflicting cash balance')
+                balances[currency] = value
+            except (ValueError, TypeError):
+                invalid.add(currency)
+        return [dict(currency=currency, balance=value) for currency, value in sorted(balances.items())
+                if currency not in invalid]
 
     def _select_account_info(self, account_fields):
         accounts = self.ib.managedAccounts()
@@ -1616,6 +1640,7 @@ class IBConnection:
             return {
                 'account_id': account_id,
                 'available_cash': account_info.get('available_cash', 0),
+                'cash_balances': account_info.get('cash_balances', []),
                 'account_value': account_info.get('account_value', 0),
                 'excess_liquidity': account_info.get('excess_liquidity', 0),
                 'initial_margin': account_info.get('initial_margin', 0),

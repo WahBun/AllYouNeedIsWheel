@@ -114,6 +114,20 @@ struct Summary: Decodable {
     var is_frozen: Bool?
     var initial_margin: Double?
     var leverage_percentage: Double?
+    var cash_balances: [CashBalance]? = nil
+}
+struct CashBalance: Decodable, Identifiable {
+    var currency: String
+    var balance: Double
+    var id: String { currency }
+    static func ordered(_ rows: [CashBalance]) -> [CashBalance] {
+        let priority = ["USD", "HKD", "CNH"]
+        return rows.filter { $0.balance.isFinite }.sorted {
+            let a = priority.firstIndex(of: $0.currency) ?? priority.count
+            let b = priority.firstIndex(of: $1.currency) ?? priority.count
+            return a == b ? $0.currency < $1.currency : a < b
+        }
+    }
 }
 struct AccountConnection: Decodable {
     var account_epoch: String? = nil
@@ -846,7 +860,7 @@ struct PortfolioView: View {
     @State private var titleRowVisible = true
     @Environment(WheelStore.self) private var store
     private enum SummaryDestination: String, Identifiable {
-        case performance, margin, allocation
+        case performance, margin, allocation, cash
         var id: String { rawValue }
     }
     @State private var summaryDestination: SummaryDestination?
@@ -895,7 +909,11 @@ struct PortfolioView: View {
                         HStack {
                             metric("Excess liquidity", money(store.portfolio?.summary.excess_liquidity))
                             Spacer()
-                            metric("Cash", money(store.portfolio?.summary.cash_balance))
+                            Button { summaryDestination = .cash } label: {
+                                metric("Cash", money(store.portfolio?.summary.cash_balance))
+                                    .contentShape(Rectangle())
+                            }.buttonStyle(.plain).accessibilityIdentifier("cashBalancesButton")
+                                .accessibilityHint("View cash balances by currency")
                         }.padding(.top, 12)
                     }
                     .fixedSize(horizontal: false, vertical: true)
@@ -1027,6 +1045,7 @@ struct PortfolioView: View {
                 case .performance: PerformanceView().navigationBarTitleDisplayMode(.large)
                 case .margin: MarginOverview().navigationBarTitleDisplayMode(.large)
                 case .allocation: AllocationView().navigationBarTitleDisplayMode(.large)
+                case .cash: CashBalancesView().navigationBarTitleDisplayMode(.large)
                 }
             }
     }
@@ -1038,6 +1057,38 @@ struct PortfolioView: View {
     }
     func metric(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) { Text(LocalizedStringKey(title)).font(.caption).foregroundStyle(.secondary); Text(value).font(.subheadline.weight(.medium)).monospacedDigit() }
+    }
+}
+
+struct CashBalancesView: View {
+    @Environment(WheelStore.self) private var store
+    var body: some View {
+        List {
+            Section {
+                LabeledContent("Total cash (USD)", value: money(store.portfolio?.summary.cash_balance))
+                    .monospacedDigit()
+            } footer: {
+                Text("Account cash total in USD. Individual balances below are in their original currencies.")
+            }
+            Section("Cash balances") {
+                let balances = CashBalance.ordered(store.portfolio?.summary.cash_balances ?? [])
+                if balances.isEmpty {
+                    Text("Currency balances are not available yet.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(balances) { row in
+                        LabeledContent(row.currency) {
+                            Text(row.balance.formatted(.number.precision(.fractionLength(2))))
+                                .monospacedDigit()
+                        }
+                    }
+                }
+            }
+            if let notice = store.portfolioNotice {
+                Section { NoticeText(notice).foregroundStyle(.orange) }
+            }
+        }
+        .navigationTitle("Cash balances")
+        .refreshable { await store.refreshPortfolio(includeWeekly: false) }
     }
 }
 
