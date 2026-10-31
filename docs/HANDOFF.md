@@ -1052,7 +1052,8 @@ and confirmation checks passed, as did isolated four-pane account recovery and
 responsive toolbar/fullscreen checks at 1920/1400/1280/1024/393px in both themes.
 Reviewed desktop busy-status and mobile diagnostics screenshots. The legacy
 account-layout-sync test needs an absent fixed-port fixture; used the standalone
-account-chart-recovery test instead. No physical device or real-broker acceptance
+account-chart-recovery test instead. The obsolete script was removed on 2026-10-31;
+this paragraph records the earlier validation. No physical device or real-broker acceptance
 was performed; no new live tick-performance claim is made.
 
 Only browser JavaScript, the focused browser test and this record changed.
@@ -3499,8 +3500,11 @@ Account identity/verification changes abort old reads, invalidate account state
 and clear holdings/executions while retaining dimmed candles until replacement.
 Auxiliary reads restart concurrently without empty snapshots. Desktop rendering
 retains time anchors and manual price bounds for same-chart generation changes.
-Mock account-layout-sync covers Paper/Live/unverified recovery, concurrent reads,
-retained viewports, independent defaults, on/off links and persisted settings.
+The historical mock account-layout-sync checked Paper/Live/unverified recovery,
+concurrent reads, retained viewports, independent defaults, on/off links and
+persisted settings. That obsolete fixed-port script was removed on 2026-10-31.
+Current account recovery and feed interaction tests remain; they do not reproduce
+every viewport/link assertion from this historical script.
 No broker account switching or trading writes were used for verification.
 
 ## 2026-10-09 immediate same-page drawing operations
