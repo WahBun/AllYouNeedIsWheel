@@ -101,6 +101,10 @@ def install_api_dispatcher(app):
         Thread(target=chart_loop, name='chart-event-pump', daemon=True).start()
 
     def dispatch():
+        # Flex validation uses HTTPS in its own short-lived worker. Only the
+        # final credential save shares the account-switch serialization.
+        if request.endpoint in ('maintenance.status', 'maintenance.validate', 'maintenance.validation_status'):
+            return original_dispatch()
         # Storage/stream endpoints do not occupy the IB owner. Account-scoped
         # notification reads enforce their epoch inside the endpoint itself.
         # Match the exact endpoint, not a broad URL prefix; trading guards stay intact.
