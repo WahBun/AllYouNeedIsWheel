@@ -72,7 +72,7 @@ struct PortfolioOptionRow: View {
             }
             guard let id = position.con_id, id > 0 else { return }
             var failures = 0
-            var initialReads = 0
+            let warmupStarted = ContinuousClock.now
             while !Task.isCancelled {
                 var missing = true
                 var failed = false
@@ -83,7 +83,6 @@ struct PortfolioOptionRow: View {
                     let result = try await store.trading.get("api/portfolio/option-position/\(id)/quote", base: store.address, query: [URLQueryItem(name: "wait", value: "0")])
                     try Task.checkCancellation()
                     guard result["con_id"] as? Int == id else { throw AppError.message("Contract mismatch") }
-                    initialReads += 1
                     quote = ContractQuote(strike: position.strike ?? 0, expiration: position.expiration ?? "", bid: result["bid"] as? Double, ask: result["ask"] as? Double, delta: result["delta"] as? Double, implied_volatility: result["implied_volatility"] as? Double)
                     frozen = result["is_frozen"] as? Bool ?? false
                     midMovement.update(quote?.mid, frozen: frozen)
@@ -98,12 +97,12 @@ struct PortfolioOptionRow: View {
                     frozen = false
                     midMovement = OptionMidMovement()
                 }
-                let retrying = failed || (missing && !(frozen && marketClosed))
+                // Give the new account's midpoint a bounded recovery window.
+                // Missing closed-session Greeks alone retain the quiet cadence.
+                let warming = quote?.mid == nil && warmupStarted.duration(to: .now) < .seconds(30)
+                let retrying = failed || warming || (missing && !(frozen && marketClosed))
                 failures = retrying ? min(5, failures + 1) : 0
-                // A new subscription may not have its first tick yet. Retry twice
-                // without making closed-market missing Greeks poll continuously.
-                let warming = !failed && initialReads < 3 && quote?.mid == nil
-                let delay = warming ? 1 : RefreshLoop.optionMetricsDelay(frozen: frozen, marketClosed: marketClosed, missing: missing, failed: failed, failures: failures)
+                let delay = RefreshLoop.optionMetricsDelay(frozen: frozen, marketClosed: marketClosed, missing: missing, failed: failed, failures: failures, warming: warming)
                 do { try await Task.sleep(for: .seconds(delay)) } catch { return }
             }
         }

@@ -47,6 +47,8 @@ class ApiDispatcherTests(unittest.TestCase):
         self.assertEqual(history_calls,[1])
 
     def test_background_sync_uses_same_serial_executor(self):
+        # Imports are not part of the scheduler's two-second execution deadline.
+        from api.services.paper_chart import PaperChart
         class OneTick:
             def __init__(self):
                 self.count = 0
@@ -128,6 +130,65 @@ class ApiDispatcherTests(unittest.TestCase):
                             self.assertEqual(response.status_code, 200 if expected == 'current' else 409)
                             self.assertEqual(response.json['epoch'], expected)
                         self.assertEqual(len(epochs), 1 if first_epoch == second_epoch else 2)
+
+    def test_queued_read_cannot_cross_account_switch_or_share_new_account_work(self):
+        executor = self.app.extensions['ib_api_executor']
+        owner_entered, owner_release = threading.Event(), threading.Event()
+        admitted = threading.Event()
+        token = ['live-before-switch']
+
+        def blocker():
+            owner_entered.set()
+            owner_release.wait(3)
+
+        executor.submit(blocker)
+        self.assertTrue(owner_entered.wait(1))
+        submit = executor.submit
+
+        def observed_submit(fn, **kwargs):
+            result = submit(fn, **kwargs)
+            admitted.set()
+            return result
+
+        self.release.set()
+        try:
+            with patch('api.routes.account.epoch', side_effect=lambda: token[0]), \
+                    patch.object(executor, 'submit', side_effect=observed_submit):
+                with ThreadPoolExecutor(2) as clients:
+                    # Older clients may omit the epoch header. Capture their
+                    # account at admission rather than silently reading the next one.
+                    old = clients.submit(self.get, '/api/slow?value=same')
+                    self.assertTrue(admitted.wait(1))
+                    admitted.clear()
+                    token[0] = 'paper-after-switch'
+                    new = clients.submit(self.get, '/api/slow?value=same')
+                    try:
+                        self.assertTrue(admitted.wait(1), 'New account must not coalesce with old read')
+                    finally:
+                        owner_release.set()
+                    self.assertEqual(old.result(timeout=2).status_code, 409)
+                    self.assertEqual(new.result(timeout=2).status_code, 200)
+            self.assertEqual(len(self.calls), 1)
+        finally:
+            owner_release.set()
+
+    def test_explicit_stale_read_is_rejected_before_owner_admission(self):
+        self.release.set()
+        with patch('api.routes.account.epoch', return_value='current'):
+            with patch.object(self.app.extensions['ib_api_executor'], 'submit') as submit:
+                response = self.get('/api/slow', headers={'X-Wheel-Account-Epoch': 'old'})
+                self.assertEqual(response.status_code, 409)
+                self.assertEqual(response.json['code'], 'ACCOUNT_EPOCH_CHANGED')
+                submit.assert_not_called()
+        self.assertEqual(self.calls, [])
+
+    def test_profile_discovery_can_recover_an_obsolete_client_epoch(self):
+        self.app.add_url_rule('/api/account/profiles', endpoint='account.get_profiles',
+                             view_func=lambda: {'epoch': 'current'})
+        with patch('api.routes.account.epoch', return_value='current'):
+            response = self.get('/api/account/profiles', headers={'X-Wheel-Account-Epoch': 'old'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['epoch'], 'current')
 
     def test_page_navigation_does_not_wait_for_ib(self):
         with ThreadPoolExecutor(2) as clients:

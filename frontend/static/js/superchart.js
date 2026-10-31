@@ -182,7 +182,7 @@ function readNotice(scope,message,detail=''){const note=$('trade-connection-feed
 function clearReadNotice(scope){const note=$('trade-connection-feedback');if(note.dataset.scope===scope){note.hidden=true;note.textContent='';note.title='';delete note.dataset.scope;}}
 function log(message){if(/IB requests are busy|Request expired before execution/i.test(String(message))){readNotice('IB request','IB request queue is busy. Check order status before trying again.',String(message));trace(message);return;}$('trade-feedback').textContent=String(message).replace(/;\s*| · /g,'\n').replace(/(^|\n)([ \t]*)([a-z])/g,(_,line,space,letter)=>line+space+letter.toUpperCase());trace(message);}
 function trace(message){activity.unshift(`${new Date().toLocaleTimeString()} ${message}`);activity.splice(100);$('activity').textContent=activity.join('\n');}
-async function api(path,body,signal){const response=await fetch('/api/'+path,{method:body?'POST':'GET',cache:'no-store',headers:body?{'Content-Type':'application/json','X-All-You-Need-Is-Wheel':'1','X-Wheel-Account-Epoch':epoch||''}:{},body:body?JSON.stringify(body):undefined,signal:signal||AbortSignal.timeout(body?35000:12000)}).catch(error=>{error.network=error instanceof TypeError;throw error;});const data=await response.json();if(!response.ok){const error=new Error(data.message||data.error||`HTTP ${response.status}`);error.status=response.status;error.retryableReadBusy=response.status===503&&['IB requests are busy; please retry shortly','Request expired before execution; no operation was started'].includes(data.error);error.confirmed=data.status==='rejected'||(response.status===503&&['IB requests are busy; please retry shortly','Request expired before execution; no operation was started'].includes(data.error))||(response.status===409&&data.error==='Account connection changed. Refresh and verify the account before continuing.');throw error;}return data;}
+async function api(path,body,signal){const response=await fetch('/api/'+path,{method:body?'POST':'GET',cache:'no-store',headers:body?{'Content-Type':'application/json','X-All-You-Need-Is-Wheel':'1','X-Wheel-Account-Epoch':epoch||''}:(epoch&&path!=='account/profiles'?{'X-Wheel-Account-Epoch':epoch}:{}),body:body?JSON.stringify(body):undefined,signal:signal||AbortSignal.timeout(body?35000:12000)}).catch(error=>{error.network=error instanceof TypeError;throw error;});const data=await response.json();if(!response.ok){const error=new Error(data.message||data.error||`HTTP ${response.status}`);error.status=response.status;error.retryableReadBusy=response.status===503&&['IB requests are busy; please retry shortly','Request expired before execution; no operation was started'].includes(data.error);error.confirmed=data.status==='rejected'||(response.status===503&&['IB requests are busy; please retry shortly','Request expired before execution; no operation was started'].includes(data.error))||(response.status===409&&data.error==='Account connection changed. Refresh and verify the account before continuing.');throw error;}return data;}
 let protectionType=null;
 function loadProtection(){const type=packet.security_type;if(!type||type===protectionType)return;protectionType=type;$('bracket-enabled').checked=stored('wheel.web.bracket:'+type).enabled??(type==='FUT');const saved=stored('wheel.web.protection:'+type),defaults=type==='FUT'?[2,1]:[.2,.1];for(const [i,id] of ['tp','sl'].entries())$(id).value=Number(saved[id])>0?saved[id]:defaults[i];for(const role of ['tp','sl'])$(role+'-enabled').checked=(saved[role+'Enabled']??(type==='FUT'));if($('bracket-enabled').checked&&!$('tp-enabled').checked&&!$('sl-enabled').checked){$('tp-enabled').checked=true;$('sl-enabled').checked=true;}$('tp-mode').value=saved.tpMode||'distance';$('sl-mode').value=saved.slMode||'distance';revision++;}
 function allowed(){return ['DAY','GTC',...(packet.security_type==='STK'&&packet.currency==='USD'&&$('type').value==='LMT'?['OVERNIGHT']:[])];}
@@ -510,7 +510,7 @@ function ensureMarket(){
  if((!supported||!marketStream.healthy())&&Date.now()-lastFallback>=(supported?(Date.now()<marketPriorityUntil?250:1000):2000))refreshMarket();
  refreshPnL();
 }
-let lastConnectionRead=0;
+let lastConnectionRead=0,accountRecoveryUntil=0;
 async function refresh(){
 // A hidden page must recover a backend/account epoch change after its stream
 // fails. Keep healthy push untouched and leave trading reads foreground-only.
@@ -523,10 +523,14 @@ if(profile.selected&&(p.selected!==profile.selected||p.epoch!==profile.epoch||p.
  frame.contentWindow.prepareAccountChart?.();switchingChart=true;historyCaches.clear();packet={};state={};received=0;entry=0;positions=[];chartExecutions=[];executionContext='';emaFrames={};volatilityData=null;
  renderRows('orders',[],true);renderRows('positions',[],false);log('Account connection changed; synchronizing current account.');accountNotice=$('trade-feedback').textContent;
 }
+// A short, bounded recovery window lets price snapshots reach the shared owner
+// before this page adds order/list reads. Order controls remain unverified until read.
+if(p.verified&&p.epoch!==epoch)accountRecoveryUntil=Date.now()+5000;
 window.WheelNotifications?.setContext(p);window.wheelTradeSounds?.connection(p.verified===true);profile=p;if(groupAccountChanged)groupID=savedGroup(selected);epoch=p.verified?p.epoch:null;window.WheelMoonshineRules?.setContext(p);if(!p.verified)pnlPhase='unavailable';$('connection').textContent=`${p.selected||'Disconnected'} · ${p.verified?'IB connected':'Not verified'}`;$('connection').className=p.selected||'';
 $('connection').title=p.verified?'IB account connection verified. Market data and order availability are reported separately.':'IB account connection is not verified.';clearReadNotice('Account connection');
 sync();chartLayout.tick();ensureMarket();
 if(document.hidden)return;
+if(Date.now()<accountRecoveryUntil&&(!packet.bars?.length||chartLayout.loading())&&!localStorage.getItem(pendingKey()))return;
 try{if(selected){
 readScope='Order status';
 if((profile.selected==='paper'||profile.chart_execution_enabled===true)&&profile.verified){const pending=localStorage.getItem(pendingKey());if(pending){const r=await api(orderPath(selected)+(groupID?'&':'?')+'request_id='+encodeURIComponent(pending));if(token!==generation||readVersion!==writeVersion)return;if(r.confirmed===true&&(terminal.has(r.status)||r.status==='reconciled')){localStorage.removeItem(pendingKey());log(r.message||`Reconciled: ${r.status}`);}}

@@ -14,7 +14,9 @@ class AccountProfileTests(unittest.TestCase):
         self.config = {'paper': dict(account_id='DU_TEST',port=4002,db_path=str(Path(self.temp.name)/'paper.db')),
                        'live': dict(account_id='U_TEST',port=4001,db_path=str(Path(self.temp.name)/'live.db'))}
         self.path.write_text(json.dumps(self.config))
-        self.env = patch.dict(os.environ, WHEEL_ACCOUNT_PROFILES=str(self.path))
+        initial = Path(self.temp.name) / 'connection.json'
+        initial.write_text(json.dumps(self.config['live']))
+        self.env = patch.dict(os.environ, WHEEL_ACCOUNT_PROFILES=str(self.path), CONNECTION_CONFIG=str(initial))
         self.env.start()
         self.app = Flask(__name__)
     def tearDown(self):
