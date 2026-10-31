@@ -134,6 +134,16 @@ extension Order {
         guard let value = net_pnl ?? realizedProfit, value.isFinite, abs(value) < 1e100 else { return nil }
         return value
     }
+    var historicalPriceLabel: String {
+        guard let price = fillPrice else { return "—" }
+        guard let currency, currency != "USD" else { return money(price) }
+        return price.formatted(.number.precision(.fractionLength(2...5))) + " " + currency
+    }
+    var historicalCommissionLabel: String {
+        guard let commission_currency, commission_currency != "USD" else { return commissionLabel }
+        guard let commission, commission.isFinite, abs(commission) < 1e100 else { return "—" }
+        return commission.formatted(.number.precision(.fractionLength(2))) + " " + commission_currency
+    }
 }
 
 struct CompactOrderRow: View {
@@ -149,7 +159,7 @@ struct CompactOrderRow: View {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
                     SymbolText(symbol: order.displaySymbol).font(.headline)
-                    if order.option_type != "STOCK" && order.option_type != "FUTURE" {
+                    if order.option_type != "STOCK" && order.option_type != "FUTURE" && order.option_type != "FOREX" {
                         Text(verbatim: order.contractDetails)
                             .font(.caption).foregroundStyle(.secondary)
                     }
@@ -159,9 +169,9 @@ struct CompactOrderRow: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text(money(history ? order.fillPrice : order.premium)).font(.headline)
+                    Text(history ? order.historicalPriceLabel : money(order.premium)).font(.headline)
                     if history {
-                        NoticeText(order.commissionLabel).font(.caption2).foregroundStyle(.secondary)
+                        NoticeText(order.historicalCommissionLabel).font(.caption2).foregroundStyle(.secondary)
                     }
                 }.monospacedDigit()
                 VStack(alignment: .trailing, spacing: 6) {
@@ -194,7 +204,7 @@ struct CompactOrderRow: View {
 struct OrderFillPrices: View {
     let order: Order
     var body: some View {
-        LabeledContent("Average fill price", value: money(order.fillPrice))
+        LabeledContent("Average fill price", value: order.historicalPriceLabel)
         LabeledContent("Net average price (incl. fees)", value: order.feeAdjustedFillPrice.map {
             $0.formatted(.currency(code: "USD").precision(.fractionLength(2...4)))
         } ?? "—")
