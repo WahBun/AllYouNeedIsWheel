@@ -35,6 +35,28 @@ with Breakout by Day. CSV must include section codes (CNAV). Account selection
 is explicit; aggregate date ranges, duplicates and missing TWR are not treated
 as daily return observations. Zero-value pre-funding dates are omitted.
 
+### Token maintenance from iPhone
+
+In **Settings > Access & Feedback**, expand **Performance data** to inspect
+retained history, the latest successful refresh in this backend session, and an
+optional recorded token expiry. Expiry is entered from IB; Wheel does not infer
+it from the save date. Refresh time is unavailable after a backend restart until
+the next successful refresh.
+
+For an existing Flex configuration matching the selected account, use
+**Replace Flex token > Validate token > Save validated token**. Validation
+fetches and checks the account report without importing it or changing history.
+Only the explicit Save action replaces the private configuration on Mini; the
+phone does not persist the token. A validation expires after ten minutes, and
+account switches or configuration changes require a new validation. An uncertain
+save response is reconciled by refreshing its status, without automatically
+repeating the write. Other applications sharing the token need the same update.
+
+The initial feature deployment requires a backend restart and a new iPhone
+build. Subsequent token replacements take effect on normal performance reads
+without restarting Backend or Gateway. Query IDs, accounts, database paths and
+local-report configurations remain managed on Mini.
+
 Each successful report upserts daily TWR/NAV in a separate SQLite archive.
 Older records outside the latest Flex window are retained. ALL means the stored
 history available, starting at its first close, not an invented account inception.

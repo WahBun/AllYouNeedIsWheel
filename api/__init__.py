@@ -70,6 +70,9 @@ def create_app(config=None):
     from api.routes import performance
     app.register_blueprint(performance.bp)
 
+    from api.routes.maintenance import bp as maintenance_bp
+    app.register_blueprint(maintenance_bp)
+
     # Register blueprints
     from api.routes import portfolio, options, recommendations
     app.register_blueprint(portfolio.bp)
