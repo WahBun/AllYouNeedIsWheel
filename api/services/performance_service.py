@@ -303,6 +303,11 @@ class PerformanceService:
                 archive_execution_details(text, config)
             except Exception:
                 pass  # Optional execution metadata cannot prevent performance refresh.
+            from api.services.execution_record_history import archive_mtd
+            try:
+                archive_mtd(text, config, daily)
+            except Exception:
+                pass  # Invalid execution coverage must not replace known history.
             from api.services.stock_cost_service import archive_costs
             try:
                 archive_costs(text, config)

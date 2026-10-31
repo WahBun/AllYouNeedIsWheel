@@ -76,6 +76,35 @@ class OptionsService:
             return None
 
     def get_executed_records(self):
+        from api.services.execution_record_history import read_mtd, NY
+        from api.services.futures_orders import CompletedHistoryUnavailable
+        report = read_mtd(self.config.get('account_id'))
+        if report is None:
+            return self._recent_executed_records()
+        if report['history_complete']:
+            return report
+        try:
+            recent = self._recent_executed_records()
+        except (CompletedHistoryUnavailable, ConnectionError):
+            recent = dict(orders=[], history_complete=False)
+        cutoff = datetime.fromisoformat(report['history_cutoff'])
+        # The report owns its entire covered date range. This avoids guessing
+        # equivalence between Flex IBOrderID, Gateway permId and local row IDs.
+        for row in recent['orders']:
+            try:
+                stamp = datetime.fromisoformat(str(row.get('fill_time', '')).replace('Z', '+00:00'))
+                if stamp.tzinfo is not None and stamp >= cutoff:
+                    report['orders'].append(row)
+            except ValueError:
+                continue
+        today = datetime.now(NY).date()
+        report['history_complete'] = (not report['issue'] and recent['history_complete']
+                                      and cutoff.astimezone(NY).date() >= today)
+        if not report['history_complete']:
+            report['warning'] = f"History through {report['history_through']}; newer executions are still updating."
+        return report
+
+    def _recent_executed_records(self):
         """Display known fills without weakening strict order reconciliation."""
         from api.services.futures_orders import CompletedHistoryUnavailable
         from api.services.chart_order_history import saved_chart_orders

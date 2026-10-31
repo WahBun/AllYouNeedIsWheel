@@ -900,6 +900,80 @@ final class TradingTests: XCTestCase {
         XCTAssertNil(store.filledUpdated)
     }
 
+    func testMTDReportReplacesCoveredLocalFillsWithoutDoubleCountingProfit() async throws {
+        defer { MockProtocol.payload = nil; MockProtocol.fail = false }
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        let store = WheelStore()
+        store.demo = false; store.address = "https://mock.invalid"
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        store.trading.uncertain = true
+        var old = Order(id: 1, ticker: "OLD", quantity: 1, status: "executed")
+        old.filled = 1; old.fill_time = "2026-10-30T15:00:00+00:00"
+        store.filledOrders = [old]; store.orders = [old]
+        let rows: [[String: Any]] = [
+            ["id": "flex:one", "ticker": "TEST", "quantity": 1, "filled": 1, "avg_fill_price": 1.5,
+             "fill_time": "2026-10-27T16:03:55+00:00", "status": "executed", "external_ib": true,
+             "executed": true, "intent": "CLOSE", "realized_pnl": 156.106055, "commission": 1.04, "commission_currency": "USD"],
+            ["id": "flex:two", "ticker": "TEST", "quantity": 1, "filled": 1, "avg_fill_price": 0.5,
+             "fill_time": "2026-10-20T16:00:00+00:00", "status": "executed", "external_ib": true,
+             "executed": true, "intent": "CLOSE", "realized_pnl": 188.398206, "commission": 0.77, "commission_currency": "USD"],
+            ["id": "flex:fx", "ticker": "USD.HKD", "option_type": "FOREX", "currency": "HKD", "quantity": 12748.53,
+             "filled": 12748.53, "avg_fill_price": 7.84404, "fill_time": "2026-10-30T01:06:17+00:00",
+             "status": "executed", "external_ib": true, "executed": true, "commission": 15.69, "commission_currency": "HKD"]]
+        MockProtocol.fail = false; MockProtocol.statusCode = 200
+        MockProtocol.payload = { _ in ["orders": rows, "history_complete": true,
+            "history_through": "2026-10-30", "history_cutoff": "2026-10-31T04:00:00+00:00"] }
+        await store.loadFilled()
+        XCTAssertEqual(store.filledOrders.count, 3)
+        XCTAssertNil(store.filledError)
+        XCTAssertEqual(store.filledHistoryThrough, "2026-10-30")
+        XCTAssertTrue(store.trading.uncertain)
+        XCTAssertEqual(store.orders.first?.name, "OLD")
+        XCTAssertTrue(store.filledOrders.allSatisfy { !TradeRules.editable($0) && !TradeRules.cancelable($0) })
+        let now = try Date.ISO8601FormatStyle().parse("2026-10-31T12:00:00Z")
+        let profit = DailyClosedProfit.calculate(store.filledOrders, days: 0, now: now)
+        XCTAssertEqual(profit.amount, 344.504261, accuracy: 0.000001)
+        XCTAssertEqual(profit.pending, 0)
+        let fx = try XCTUnwrap(store.filledOrders.first { $0.option_type == "FOREX" })
+        XCTAssertTrue(fx.historicalPriceLabel.contains("HKD"))
+        XCTAssertFalse(fx.historicalPriceLabel.contains("$"))
+        XCTAssertTrue(fx.historicalCommissionLabel.contains("HKD"))
+        XCTAssertTrue(fx.historicalCommissionLabel.contains("15.69"))
+        XCTAssertFalse(fx.historicalCommissionLabel.contains("$"))
+        XCTAssertEqual(fx.filledQuantity, 12748.53)
+        for scheme in [ColorScheme.light, .dark] {
+            let preview = VStack(alignment: .leading, spacing: 18) {
+                OrdersDailyProfit(days: 0)
+                Text("History through 2026-10-30").font(.caption).foregroundStyle(.secondary)
+                ForEach(store.filledOrders) { CompactOrderRow(order: $0, history: true) }
+                Spacer()
+            }.padding().environment(store).environment(\.locale, Locale(identifier: "en_US")).environment(\.colorScheme, scheme)
+                .background(scheme == .dark ? Color.black : Color.white)
+            let controller = UIHostingController(rootView: preview)
+            let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 650))
+            window.rootViewController = controller; window.isHidden = false
+            controller.view.frame = window.bounds; controller.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(100))
+            let image = UIGraphicsImageRenderer(bounds: controller.view.bounds).image { _ in
+                controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+            }
+            let path = NSTemporaryDirectory() + "wheel-mtd-\(scheme == .dark ? "dark" : "light").png"
+            try image.pngData()?.write(to: URL(fileURLWithPath: path))
+            print("MTD_PREVIEW=\(path)")
+            window.isHidden = true
+        }
+        // An incomplete live extension must not re-add covered local/cached rows.
+        MockProtocol.payload = { _ in ["orders": rows, "history_complete": false,
+            "history_through": "2026-10-30", "history_cutoff": "2026-10-31T04:00:00+00:00",
+            "warning": "History through 2026-10-30; newer executions are still updating."] }
+        await store.loadFilled()
+        XCTAssertEqual(store.filledOrders.count, 3)
+        XCTAssertTrue(store.filledError?.contains("2026-10-30") == true)
+        store.changeMode()
+        XCTAssertNil(store.filledHistoryThrough)
+        XCTAssertTrue(store.filledOrders.isEmpty)
+    }
+
     func testPricePickerFirstLayoutShowsReferenceAndDoesNotResetScrolling() {
         for height in [300.0, 600.0] {
             for price in [0.01, 0.72, 0.81, 90.0] {

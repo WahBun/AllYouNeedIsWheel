@@ -305,6 +305,7 @@ final class WheelStore {
     var filledOrders: [Order] = []
     var filledUpdated: Date?
     var filledError: String?
+    var filledHistoryThrough: String?
     private var filledBusy = false
     var weekly: WeeklyIncome?
     var orderError: String?
@@ -560,23 +561,31 @@ final class WheelStore {
         defer { filledBusy = false }
         let token = revision
         let version = trading.version
-        if demo { filledOrders = Order.latestFillsFirst(trading.demoOrders.filter { $0.hasFill }); filledError = nil; filledUpdated = .now; return }
+        if demo { filledOrders = Order.latestFillsFirst(trading.demoOrders.filter { $0.hasFill }); filledError = nil; filledHistoryThrough = nil; filledUpdated = .now; return }
         do {
             let result = try await trading.get("api/options/pending-orders", base: address, query: [URLQueryItem(name: "executed", value: "true"), URLQueryItem(name: "view", value: "records")])
             let decoded = try JSONDecoder().decode(Orders.self, from: JSONSerialization.data(withJSONObject: result))
             guard token == revision, version == trading.version, !Task.isCancelled else { return }
             let partial = result["history_complete"] as? Bool == false
+            let cutoff = (result["history_cutoff"] as? String).flatMap { try? Date.ISO8601FormatStyle().parse($0) }
+            func afterReport(_ order: Order) -> Bool {
+                guard let cutoff else { return true }
+                return order.fillDate.map { $0 >= cutoff } ?? false
+            }
+            let current = orders.filter(afterReport)
             let completedIDs = Set(decoded.orders.map(\.id))
-            let currentIDs = Set(orders.map(\.id))
-            let retained = partial ? filledOrders.filter { !completedIDs.contains($0.id) && !currentIDs.contains($0.id) } : []
-            filledOrders = Order.latestFillsFirst((decoded.orders + orders.filter { !completedIDs.contains($0.id) } + retained).filter { $0.hasFill })
-            filledError = partial ? "Showing recorded fills; broker history is still syncing. Recent fills may be missing." : nil
+            let currentIDs = Set(current.map(\.id))
+            let retained = partial ? filledOrders.filter { !completedIDs.contains($0.id) && !currentIDs.contains($0.id)
+                && afterReport($0) } : []
+            filledOrders = Order.latestFillsFirst((decoded.orders + current.filter { !completedIDs.contains($0.id) } + retained).filter { $0.hasFill })
+            filledHistoryThrough = result["history_through"] as? String
+            filledError = partial ? (result["warning"] as? String ?? "Showing recorded fills; broker history is still syncing. Recent fills may be missing.") : nil
             filledUpdated = .now
         } catch {
             if token == revision, version == trading.version, !Task.isCancelled { filledError = connectionMessage(error) }
         }
     }
-    func changeMode() { accountRecoveryStarted = .now; ChartTradeSounds.shared.reset(); connectingEpoch = nil; connectingMode = nil; completedOrders = [:]; performanceHistoryCache = [:]; transientPortfolioFailures = 0; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; fillHistoryRetryAt = nil; fillHistoryFailures = 0; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; filledUpdated = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
+    func changeMode() { accountRecoveryStarted = .now; ChartTradeSounds.shared.reset(); connectingEpoch = nil; connectingMode = nil; completedOrders = [:]; performanceHistoryCache = [:]; transientPortfolioFailures = 0; fillPreview.clear(); fillTracker = FillTracker(); fillSnapshot = []; fillSnapshotAt = nil; fillHistoryRetryAt = nil; fillHistoryFailures = 0; revision += 1; portfolio = nil; priceDirections = [:]; orders = []; filledOrders = []; filledError = nil; filledHistoryThrough = nil; filledUpdated = nil; weekly = nil; lastSummary = nil; updated = nil; ordersUpdated = nil; error = nil; orderError = nil; trading.resetContext(); opportunities.configure(context: demo ? "demo" : address) }
 }
 
 struct PortfolioRefreshBusy: LocalizedError {
@@ -1615,6 +1624,8 @@ struct OrdersView: View {
             }
             if history, let error = store.filledError {
                 NoticeText(error).font(.caption).foregroundStyle(.orange)
+            } else if history, let through = store.filledHistoryThrough {
+                Text("History through \(through)").font(.caption).foregroundStyle(.secondary)
             }
             if store.ordersRetrying {
                 Text("Connection interrupted. Retrying…").font(.caption).foregroundStyle(.orange)
@@ -1633,7 +1644,7 @@ struct OrdersView: View {
                 }
                 ArrowlessNavigationLink {
                     Group {
-                    if history { Form { SymbolText(symbol: order.displaySymbol); Text(order.option_type == "FUTURE" ? "\(order.expiration ?? "") · \(localizedLabel("FUTURE", locale: locale))" : order.contractDetails); LabeledContent("Status", value: localizedLabel(order.ib_status ?? order.status, locale: locale)); LabeledContent("Action", value: localizedLabel(order.fill_action ?? order.action ?? "—", locale: locale)); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: localizedNotice(order.commissionLabel, locale: locale)); if order.option_type == "FUTURE" { FuturesProfit(order: order) } else if order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: order) } }; OrderFillPrices(order: order); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
+                    if history { Form { SymbolText(symbol: order.displaySymbol); Text(order.option_type == "FUTURE" ? "\(order.expiration ?? "") · \(localizedLabel("FUTURE", locale: locale))" : order.contractDetails); LabeledContent("Status", value: localizedLabel(order.ib_status ?? order.status, locale: locale)); LabeledContent("Action", value: localizedLabel(order.fill_action ?? order.action ?? "—", locale: locale)); LabeledContent("Last fill time", value: order.fillTimeLabel); LabeledContent("Commission", value: localizedNotice(order.historicalCommissionLabel, locale: locale)); if order.option_type == "FUTURE" { FuturesProfit(order: order) } else if order.intent == "CLOSE" { LabeledContent("Realized P&L") { RealizedProfit(order: order) } }; OrderFillPrices(order: order); LabeledContent("Filled quantity", value: order.filledQuantity?.formatted() ?? "—"); LabeledContent("Limit", value: money(order.premium)) } }
                     else { OrderDetail(initial: order) }
                     }.toolbar(.visible, for: .navigationBar)
                 } label: {
