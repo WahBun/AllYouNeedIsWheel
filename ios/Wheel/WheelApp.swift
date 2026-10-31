@@ -1060,7 +1060,7 @@ struct PortfolioView: View {
                     }
                 }
             }
-            if let weekly = store.weekly {
+            if let weekly = store.weekly, weekly.positions_count > 0 {
                 Section("Expiring this Friday") {
                     LabeledContent("Entry premium · not realized profit") { PremiumValue(amount: weekly.total_income, perSymbol: true) }
                     LabeledContent("Positions", value: String(weekly.positions_count))
