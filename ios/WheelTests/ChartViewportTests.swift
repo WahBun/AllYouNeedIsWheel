@@ -58,6 +58,25 @@ final class ChartViewportTests: XCTestCase {
         add(webAttachment)
     }
 
+    @MainActor func testPortfolioShortcutRoutesEachHeldContract() {
+        let store = WheelStore(); store.demo = true
+        for (kind, id) in [("OPT", 55), ("OPT", 60), ("STK", 2), ("FUT", 3)] {
+            let position = Position(symbol: "TQQQ", position: kind == "STK" ? 10 : -1,
+                                    security_type: kind, strike: kind == "OPT" ? Double(id) : nil,
+                                    expiration: "20261120", option_type: "PUT", con_id: id)
+            XCTAssertTrue(position.hasChart)
+            store.selectedTab = "portfolio"
+            store.openTradeChart(position)
+            XCTAssertEqual(store.selectedTab, "trade")
+            XCTAssertEqual(store.requestedTradeChart?.position.con_id, id)
+            XCTAssertEqual(store.requestedTradeChart?.position.security_type, kind)
+            XCTAssertEqual(store.requestedTradeChart?.position.strike, position.strike)
+            XCTAssertEqual(store.requestedTradeChart?.resumeLast, false)
+        }
+        XCTAssertFalse(Position(symbol: "TQQQ", position: 0, security_type: "OPT", con_id: 55).hasChart)
+        XCTAssertFalse(Position(symbol: "TQQQ", position: -1, security_type: "OPT").hasChart)
+    }
+
     func testOptionHoldingsOpenExactContractChartsForBothSides() throws {
         for quantity in [-2, 2] {
             let data = Data("{\"symbol\":\"TSLA\",\"position\":\(quantity),\"security_type\":\"OPT\",\"strike\":250,\"expiration\":\"20261218\",\"option_type\":\"C\",\"con_id\":70}".utf8)
