@@ -1429,6 +1429,17 @@ final class TradingTests: XCTestCase {
         store.changeMode()
         XCTAssertFalse(store.isConnected(to: store.address))
     }
+    func testOpportunityTickerInputFeedback() {
+        for input in ["", "   ", "\n", "BAD SYMBOL", "A$", "ABCDEFGHIJKLMNOP", "sgov", " SGOV "] {
+            XCTAssertNotNil(OpportunityTickerInput.error(for: input), input)
+        }
+        for input in [" tqqq ", "BRK.B", "BRK-B", "TSLL", "TSLL1"] {
+            XCTAssertNil(OpportunityTickerInput.error(for: input), input)
+        }
+        XCTAssertEqual(OpportunityTickerInput.error(for: "   "), "Enter a ticker symbol.")
+        XCTAssertEqual(OpportunityTickerInput.error(for: "sgov"), "SGOV is not supported for cash-secured puts.")
+    }
+
     func testHiddenTickersAreScopedToStrategy() {
         let book = OpportunityBook()
         book.excluded = [book.key("TSLL", "PUT")]
