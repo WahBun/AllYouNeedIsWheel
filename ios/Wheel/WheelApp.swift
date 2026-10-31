@@ -685,6 +685,32 @@ struct NoticeText: View {
     var body: some View { Text(verbatim: localizedNotice(message, locale: locale)) }
 }
 
+// Keep list rows from changing the floating tab bar's dark selection material.
+private struct TabBarBackdrop: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.overlay {
+                GeometryReader { geometry in
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, Color(uiColor: .systemGroupedBackground)], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 32)
+                        Color(uiColor: .systemGroupedBackground)
+                            .frame(height: geometry.safeAreaInsets.bottom)
+                    }
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .offset(y: geometry.safeAreaInsets.bottom)
+                    .opacity(scheme == .dark && geometry.safeAreaInsets.bottom > 40 ? 1 : 0)
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        } else {
+            content
+        }
+    }
+}
+
 struct RootView: View {
     @AppStorage("allHighGildedV3") private var spreadWarningRedApplied = false
     @AppStorage("demoCustomColors") private var customColorsJSON = "{}"
@@ -704,15 +730,18 @@ struct RootView: View {
     var body: some View {
         @Bindable var store = store
         TabView(selection: $store.selectedTab) {
-            NavigationStack(path: $portfolioPath) { PortfolioView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Portfolio", locale: appLocale), systemImage: "chart.pie") }.tag("portfolio")
-            NavigationStack(path: $tradePath) {
-                OpportunitiesView().modifier(KeyboardDismissal())
-                    .navigationDestination(for: TradeChartDestination.self) { destination in
-                        StockChartView(position: destination.position, resumeLast: destination.resumeLast).id(destination.id)
-                    }
-            }.tabItem { Label(localizedLabel("Trade", locale: appLocale), systemImage: "arrow.left.arrow.right") }.tag("trade")
-            NavigationStack(path: $ordersPath) { OrdersView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Orders", locale: appLocale), systemImage: "list.bullet.rectangle") }.tag("orders")
-            NavigationStack { SettingsView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Settings", locale: appLocale), systemImage: "gearshape") }.tag("settings")
+            Group {
+                NavigationStack(path: $portfolioPath) { PortfolioView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Portfolio", locale: appLocale), systemImage: "chart.pie") }.tag("portfolio")
+                NavigationStack(path: $tradePath) {
+                    OpportunitiesView().modifier(KeyboardDismissal())
+                        .navigationDestination(for: TradeChartDestination.self) { destination in
+                            StockChartView(position: destination.position, resumeLast: destination.resumeLast).id(destination.id)
+                        }
+                }.tabItem { Label(localizedLabel("Trade", locale: appLocale), systemImage: "arrow.left.arrow.right") }.tag("trade")
+                NavigationStack(path: $ordersPath) { OrdersView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Orders", locale: appLocale), systemImage: "list.bullet.rectangle") }.tag("orders")
+                NavigationStack { SettingsView().modifier(KeyboardDismissal()) }.tabItem { Label(localizedLabel("Settings", locale: appLocale), systemImage: "gearshape") }.tag("settings")
+            }
+            .modifier(TabBarBackdrop())
         }
         .onChange(of: phase, initial: true) { _, phase in
             ChartTradeSounds.shared.reset()
