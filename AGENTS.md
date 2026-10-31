@@ -167,13 +167,24 @@ For related UI changes, run `tests/chart/stop-pending-display.cjs` and
 matching TP/SL styles, stable line identity through pending-to-confirmed updates,
 and exactly one intended quantity-change request with no automatic replay.
 
-## Active iteration and branch cleanup
+## Active iteration and post-release branch cleanup
 
 The active development branch is `Ben/wheel-1.8`. Verify the current GitHub and
 local branch state before working; this branch contains the full 1.7 history.
-After each iteration, the existing permission to clean up obsolete Wheel feature
-branches applies only after verifying ancestry into the active branch, closed or
-merged PRs, and no deployment, signing, automation or ongoing-work dependencies.
-Keep branches with unique commits or unresolved dependencies, historical tags,
-Releases and rollback points. Verify actual machine and workflow dependencies
-before removing a branch; cleanup is not deployment authorization.
+
+After every successfully published new Wheel GitHub Release, clean up completed
+PR source branches as part of the same authorized release task, without asking
+again for routine cleanup. This means deleting eligible remote feature branches
+and safe local counterparts, not deleting PR records, Releases or tags.
+
+Before deletion, verify the released target SHA, the PR's actual merged state,
+its latest merged head SHA, and the current branch tip. Confirm that the branch
+has no unmerged work (including after squash/rebase merges), no open PR, and no
+deployment, signing, automation, worktree or ongoing-work dependency. Inspect
+current Pro/Mini configuration and checkouts; do not infer safety from age or name.
+Use expected-SHA checks for remote deletion and preserve dirty local worktrees.
+
+Keep active/default/protected branches, branches with unique unmerged changes or
+unresolved dependencies, historical Releases/tags and rollback points. Report
+what was removed and why any candidate was retained. Cleanup does not authorize
+deployment, Backend/Gateway restarts or physical iPhone installation.
