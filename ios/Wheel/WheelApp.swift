@@ -645,6 +645,11 @@ func money(_ value: Double?) -> String {
     return value.formatted(.currency(code: "USD").locale(Locale(identifier: "en_US")))
 }
 
+func summaryNumber(_ value: Double?) -> String {
+    guard let value, value.isFinite else { return "—" }
+    return value.formatted(.number.locale(Locale(identifier: "en_US")).precision(.fractionLength(2)))
+}
+
 func localizedLabel(_ key: String, locale: Locale) -> String {
     let identifier = locale.identifier
     let language = identifier.hasPrefix("zh") ? (identifier.contains("Hant") || identifier.contains("TW") || identifier.contains("HK") ? "zh-Hant" : "zh-Hans") : "en"
@@ -928,35 +933,35 @@ struct PortfolioView: View {
                             .contentShape(Rectangle())
                         }.buttonStyle(.plain)
                     }.padding(.bottom, 8)
-                    HStack(alignment: .bottom, spacing: 8) {
+                    HStack(alignment: .center, spacing: 0) {
                         Button { summaryDestination = .allocation } label: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(money(store.portfolio?.summary.account_value)).font(.system(size: 32, weight: .semibold, design: .rounded)).monospacedDigit().minimumScaleFactor(0.6).lineLimit(1)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }.buttonStyle(.plain)
-                        Spacer(minLength: 0)
+                            Text(summaryNumber(store.portfolio?.summary.account_value))
+                                .font(.system(size: 32, weight: .semibold, design: .rounded))
+                                .monospacedDigit().minimumScaleFactor(0.5).lineLimit(1)
+                                .frame(minHeight: 52)
+                                .contentShape(Rectangle())
+                        }.buttonStyle(.plain).layoutPriority(1)
+                            .accessibilityIdentifier("allocationSummaryButton")
                         Button {
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                                 showCashMetrics.toggle()
                             }
                         } label: {
                             Color.clear
-                                .frame(width: 44, height: 44)
+                                .frame(minWidth: 64, maxWidth: .infinity, minHeight: 52, maxHeight: 52)
                                 .contentShape(Rectangle())
                         }.buttonStyle(.plain)
+                            .accessibilityIdentifier("cashMetricsToggle")
                             .accessibilityLabel(showCashMetrics ? Text("Hide liquidity and cash") : Text("Show liquidity and cash"))
                     }
                     .fixedSize(horizontal: false, vertical: true)
                     .layoutPriority(1)
                     VStack(spacing: 0) {
                         HStack {
-                            metric("Excess liquidity", money(store.portfolio?.summary.excess_liquidity))
+                            metric("Excess liquidity", summaryNumber(store.portfolio?.summary.excess_liquidity))
                             Spacer()
                             Button { summaryDestination = .cash } label: {
-                                metric("Cash", money(store.portfolio?.summary.cash_balance))
+                                metric("Cash", summaryNumber(store.portfolio?.summary.cash_balance))
                                     .contentShape(Rectangle())
                             }.buttonStyle(.plain).accessibilityIdentifier("cashBalancesButton")
                                 .accessibilityHint("View cash balances by currency")
@@ -969,22 +974,21 @@ struct PortfolioView: View {
                     .accessibilityHidden(!showCashMetrics)
                     .allowsHitTesting(showCashMetrics)
                 }.padding(.vertical, 6)
-                VStack(spacing: 8) {
+                VStack(spacing: 12) {
+                    Button { summaryDestination = .margin } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text("Initial margin").font(.caption).foregroundStyle(.secondary)
+                            Spacer(minLength: 8)
+                            MarginWarningAmount(amount: store.portfolio?.summary.initial_margin,
+                                netValue: store.portfolio?.summary.account_value,
+                                active: store.selectedTab == "portfolio" && summaryDestination == nil)
+                        }.contentShape(Rectangle())
+                    }.buttonStyle(.plain)
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Button { summaryDestination = .margin } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Initial margin").font(.caption).foregroundStyle(.secondary)
-                                MarginWarningAmount(amount: store.portfolio?.summary.initial_margin,
-                                    netValue: store.portfolio?.summary.account_value,
-                                    active: store.selectedTab == "portfolio" && summaryDestination == nil)
-                            }
-                        }.buttonStyle(.plain)
+                        Text("Leverage").font(.caption).foregroundStyle(.secondary)
                         Spacer(minLength: 8)
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Text("Leverage").font(.caption).foregroundStyle(.secondary)
-                            Text(store.portfolio?.summary.leverage_percentage.map { String(format: "%.1f%%", $0) } ?? "—")
-                                .monospacedDigit()
-                        }
+                        Text(store.portfolio?.summary.leverage_percentage.map { String(format: "%.1f%%", $0) } ?? "—")
+                            .monospacedDigit()
                     }
                     LeverageMeter(percentage: store.portfolio?.summary.leverage_percentage, showsLabel: false)
                 }.font(.subheadline).padding(.vertical, 4)
@@ -2134,7 +2138,7 @@ private struct MarginWarningAmount: View {
         return netValue <= 0 || amount / netValue >= 0.7
     }
     var body: some View {
-        let label = Text(money(amount)).monospacedDigit()
+        let label = Text(summaryNumber(amount)).monospacedDigit()
         Group {
             if warning {
                 TimelineView(.animation(minimumInterval: 1.0 / 30,
