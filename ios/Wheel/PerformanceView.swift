@@ -41,6 +41,7 @@ struct PerformanceHistory: Decodable {
     let points: [PerformancePoint]
     let start: String
     let end: String
+    var retained_mtd_month: String?
     let refreshing: Bool?
     let awaiting_report: Bool?
     let limited_history: Bool
@@ -77,7 +78,7 @@ extension PerformanceHistory {
 
     // Preserve the live account-P&L estimate independently of benchmark availability.
     func intradayEstimate(_ live: PerformanceLive?, now: Date = .now) -> Double? {
-        guard live?.fresh == true, let pnl = live?.daily_pnl, pnl.isFinite,
+        guard retained_mtd_month == nil, live?.fresh == true, let pnl = live?.daily_pnl, pnl.isFinite,
               let latest, latest.nav > 0,
               latest.date == end, let last = points.last else { return nil }
         var calendar = Calendar(identifier: .gregorian)
@@ -196,7 +197,13 @@ struct PerformanceView: View {
                     Text(String(format: "%+.2f%%", value))
                         .font(.system(size: 38, weight: .semibold, design: .rounded)).monospacedDigit()
                         .foregroundStyle(value >= 0 ? gain : loss)
-                    Text(LocalizedStringKey(estimate == nil ? "Reported return" : "Intraday estimate")).font(.caption).foregroundStyle(.secondary)
+                    Group {
+                        if let month = history.retained_mtd_month {
+                            Text(verbatim: "Reported return · \(month) MTD")
+                        } else {
+                            Text(LocalizedStringKey(estimate == nil ? "Reported return" : "Intraday estimate"))
+                        }
+                    }.font(.caption).foregroundStyle(.secondary)
                     Chart {
                         RuleMark(y: .value("Zero", 0)).foregroundStyle(.secondary.opacity(0.4)).lineStyle(StrokeStyle(lineWidth: 1))
                         if history.points.count == 1, let point = history.points.first {

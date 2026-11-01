@@ -518,6 +518,18 @@ final class PerformanceTests: XCTestCase {
         XCTAssertNil(history.intradayEstimate(nil, now: now))
     }
 
+    func testRetainedDecemberMTDStaysReportedOnNewYearsDay() throws {
+        let data = Data(#"{"points":[{"date":"2026-11-30","portfolio":0},{"date":"2026-12-31","portfolio":5}],"start":"2026-11-30","end":"2026-12-31","retained_mtd_month":"2026-12","limited_history":false,"stale":false,"latest":{"date":"2026-12-31","nav":1000}}"#.utf8)
+        let history = try JSONDecoder().decode(PerformanceHistory.self, from: data)
+        let stamp = "2027-01-01T15:30:00Z"
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: stamp))
+        let live = PerformanceLive(daily_pnl: 25, fresh: true, received_at: stamp)
+        XCTAssertEqual(history.retained_mtd_month, "2026-12")
+        XCTAssertEqual(history.points.last?.portfolio, 5)
+        XCTAssertNil(history.intradayEstimate(live, now: now))
+        XCTAssertEqual(history.dailyReturnEstimate(live, now: now), 2.5)
+    }
+
     func testDailyPercentageUsesReportedNAVIncludingAfterHours() throws {
         let history = try history()
         // Monday evening in New York, already Tuesday in UTC/Shanghai.
