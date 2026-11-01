@@ -1,5 +1,5 @@
 const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),assert=require('node:assert/strict');
-(async()=>{const browser=await chromium.launch({headless:true});try{const page=await browser.newPage({viewport:{width:1440,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));const root=path.resolve(__dirname,'../../ios/Wheel/ChartAssets');let html=fs.readFileSync(path.join(root,'stock-chart.html'),'utf8').replace('/*LIBRARY*/',fs.readFileSync(path.join(root,'lightweight-charts.standalone.production.js'),'utf8'));html=html.replace('</body>',()=>'<script>'+fs.readFileSync(path.join(root,'chart-drawings.js'),'utf8')+'</script><script>'+fs.readFileSync(path.resolve(root,'../../../frontend/static/js/chart-context-menu.js'),'utf8')+'</script></body>');await page.setContent(html);
+(async()=>{const browser=await chromium.launch({headless:true});try{const page=await browser.newPage({viewport:{width:1440,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));const root=path.resolve(__dirname,'../../ios/Wheel/ChartAssets');let html=fs.readFileSync(path.join(root,'stock-chart.html'),'utf8').replace('/*LIBRARY*/',fs.readFileSync(path.join(root,'lightweight-charts.standalone.production.js'),'utf8'));html=html.replace('</body>',()=>'<script>'+fs.readFileSync(path.join(root,'chart-drawings.js'),'utf8')+'</script><script>'+fs.readFileSync(path.join(root,'chart-add-orders.js'),'utf8')+'</script><script>'+fs.readFileSync(path.resolve(root,'../../../frontend/static/js/chart-context-menu.js'),'utf8')+'</script></body>');await page.route('**/*',r=>r.request().url()==='http://wheel.test/'?r.fulfill({contentType:'text/html',body:html}):r.abort());await page.goto('http://wheel.test/');
 await page.evaluate(()=>{window.saved=[];window.webkit={messageHandlers:{drawingsChanged:{postMessage:v=>saved.push(JSON.parse(JSON.stringify(v)))}}};configureDrawings({key:'TEST',value:{}});window.configure({entry:0,quantity:1,priceRules:[{low:0,increment:.01}]});window.receive({generation:'x',interval:5,session:'all',bars:Array.from({length:70},(_,i)=>({time:1000+i*300,open:10,high:11,low:9,close:10}))});});
 await page.locator('#tv-attr-logo').click();
 
@@ -15,6 +15,6 @@ await page.mouse.click(580,480,{button:'right'});await page.waitForTimeout(60);
 assert.equal(await page.locator('[data-drawing]').count(),0,'Canceled draft must not be saved');
 assert.equal(await page.locator('#draw-touch').isVisible(),false);
 await page.mouse.click(650,400,{button:'right'});
-assert.equal(await page.getByRole('menuitem',{name:'Reset chart view'}).isVisible(),true,'Normal context menu must work after cancellation');
+assert.equal(await page.getByRole('menuitem',{name:/^Add alert at /}).isVisible(),true,'Normal context menu must work after cancellation');
 assert.deepEqual(errors,[]);console.log('Right-click cancellation before/after first point, normal context menu, and bounded Fib passed');
 }finally{await browser.close();}})();
