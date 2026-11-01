@@ -226,6 +226,42 @@ class PerformanceTests(unittest.TestCase):
         self.assertTrue(result['awaiting_report'])
         self.assertEqual(result['points'], [dict(date='2026-09-30',portfolio=0,spx=0,nq100=0)])
 
+    def test_mtd_holds_october_over_sunday_then_rebases_on_first_november_session(self):
+        points = [dict(date=d, portfolio=a, spx=b, nq100=c) for d, a, b, c in (
+            ('2026-09-30', 100, 200, 300), ('2026-10-01', 102, 202, 306),
+            ('2026-10-30', 105, 208, None))]
+        october = period_view(points, 'MTD', date(2026, 10, 30))
+        sunday = period_view(points, 'MTD', date(2026, 11, 1))
+        self.assertEqual(sunday, dict(october, retained_mtd_month='2026-10'))
+        self.assertEqual(sunday['start'], '2026-09-30')
+        self.assertAlmostEqual(sunday['points'][-1]['portfolio'], 5)
+        self.assertAlmostEqual(sunday['points'][-1]['spx'], 4)
+        self.assertIsNone(sunday['points'][-1]['nq100'])
+
+        monday = date(2026, 11, 2)
+        pending = period_view(points, 'MTD', monday)
+        self.assertNotIn('retained_mtd_month', pending)
+        self.assertTrue(pending['awaiting_report'])
+        self.assertEqual(pending['start'], '2026-10-30')
+        points.append(dict(date='2026-11-02', portfolio=107.1, spx=210, nq100=312))
+        reported = period_view(points, 'MTD', monday)
+        self.assertFalse(reported['awaiting_report'])
+        self.assertAlmostEqual(reported['points'][-1]['portfolio'], 2)
+
+    def test_weekday_holiday_holds_only_previous_month_and_only_for_mtd(self):
+        points = [dict(date=d, portfolio=v, spx=v, nq100=v) for d, v in (
+            ('2026-11-30', 100), ('2026-12-31', 110), ('2027-01-01', 111))]
+        for today in (date(2027, 1, 1), date(2027, 1, 3)):
+            retained = period_view(points, 'MTD', today)
+            self.assertEqual(retained['retained_mtd_month'], '2026-12')
+            self.assertEqual(retained['end'], '2026-12-31')
+            self.assertAlmostEqual(retained['points'][-1]['portfolio'], 10)
+            self.assertNotIn('retained_mtd_month', period_view(points[:1], 'MTD', today))
+            for period in ('YTD', 'ALL'):
+                other = period_view(points, period, today)
+                self.assertEqual(other['end'], '2027-01-01')
+                self.assertNotIn('retained_mtd_month', other)
+
     def test_restart_restores_archive_without_network_and_is_account_scoped(self):
         import tempfile, sqlite3
         from api.services.performance_service import PerformanceService

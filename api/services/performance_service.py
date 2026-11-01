@@ -128,19 +128,33 @@ def period_view(points, period, today=None):
     if period not in starts:
         raise PerformanceError('Unsupported period.')
     start = starts[period]
+    end = today
+    retained_mtd_month = None
+    if period == 'MTD':
+        from api.services.chart_sessions import session_windows
+        if not session_windows(start.isoformat(), today.isoformat()):
+            previous_end = start - timedelta(days=1)
+            previous_start = previous_end.replace(day=1)
+            first, last = previous_start.isoformat(), previous_end.isoformat()
+            if any(first <= p['date'] <= last for p in points):
+                start, end = previous_start, previous_end
+                retained_mtd_month = start.strftime('%Y-%m')
     prior = [p for p in points if day(p['date']) < start]
-    selected = [p for p in points if start <= day(p['date']) <= today]
+    selected = [p for p in points if start <= day(p['date']) <= end]
     if prior:
         selected.insert(0, prior[-1])
     if not selected:
         raise PerformanceError('Not enough reported data for this period.')
     base = selected[0]
-    return {'points': [{'date': p['date'], **{k: (p[k] / base[k] - 1) * 100
+    result = {'points': [{'date': p['date'], **{k: (p[k] / base[k] - 1) * 100
                     if p[k] is not None and base[k] is not None else None
                     for k in ('portfolio', 'spx', 'nq100')}} for p in selected],
             'start': base['date'], 'end': selected[-1]['date'],
             'limited_history': period != 'ALL' and day(base['date']) >= start,
             'awaiting_report': len(selected) == 1}
+    if retained_mtd_month:
+        result['retained_mtd_month'] = retained_mtd_month
+    return result
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
