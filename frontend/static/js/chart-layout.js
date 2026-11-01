@@ -52,7 +52,14 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  function maximizeKeys(doc,pane){doc.addEventListener('keydown',e=>{if(!e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||e.repeat||e.target.closest('input,textarea,select,[contenteditable=true]')||doc.querySelector('dialog[open]')||document.querySelector('dialog[open]'))return;if(e.code==='Enter'){e.preventDefault();paneMaximize(pane);}else if(e.code==='KeyR'){e.preventDefault();(pane||panes.get(active))?.frame.contentWindow.resetChartView?.();}});}
  function paneControls(pane){
   const doc=pane.frame.contentDocument;if(doc.getElementById('pane-view-controls'))return;
-  const style=doc.createElement('style');style.textContent='#pane-view-controls{position:absolute;bottom:70px;left:50%;transform:translateX(-50%);display:flex;gap:4px;z-index:21;opacity:0;transition:opacity .12s}#pane-view-controls:hover,#pane-view-controls:has(button:focus-visible){opacity:1}#pane-view-controls button{width:26px;height:26px;padding:4px;border:0;border-radius:4px;background:#303336df;color:#fff;cursor:pointer;box-shadow:0 1px 4px #0003}#pane-view-controls button[hidden]{display:none}@media(hover:none){#pane-view-controls{opacity:1}}';doc.head.append(style);
+  const style=doc.createElement('style');style.textContent='#pane-view-controls{position:absolute;bottom:70px;left:50%;transform:translateX(-50%);display:flex;gap:4px;z-index:21;opacity:0;transition:opacity .12s}#pane-view-controls:hover,#pane-view-controls:has(button:focus-visible){opacity:1}#pane-view-controls button{width:26px;height:26px;padding:4px;border:0;border-radius:4px;background:#303336df;color:#fff;cursor:pointer;box-shadow:0 1px 4px #0003}#pane-view-controls button[hidden]{display:none}@media(hover:none){#pane-view-controls{opacity:1}}';
+  // Auxiliary desktop frames can be narrower than the native phone breakpoint.
+  // Fit the title and prices by content, wrapping only if the full text cannot fit.
+  style.textContent+=`body.auxiliary-chrome-hidden #chart-header{min-height:0}
+   body.auxiliary-chrome-hidden #chart-title{flex:0 1 auto}
+   body.auxiliary-chrome-hidden #readout{flex:1 1 max-content;flex-basis:calc-size(max-content,size * .82)}
+   @media(max-width:260px){body.auxiliary-chrome-hidden #readout{white-space:normal}}`;
+  doc.head.append(style);
   const bar=doc.createElement('div');bar.id='pane-view-controls';
   const zoom=doc.createElement('button'),reset=doc.createElement('button');zoom.dataset.paneMaximize='';reset.setAttribute('aria-label','Reset chart view');reset.title='Reset chart view · '+(/Mac/.test(navigator.platform)?'⌥ Option':'Alt')+' + R';reset.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 10a8 8 0 1 1 1 8M4 4v6h6"/></svg>';
   zoom.onclick=()=>paneMaximize(pane);reset.onclick=()=>pane.frame.contentWindow.resetChartView?.();bar.append(zoom,reset);doc.body.append(bar);
