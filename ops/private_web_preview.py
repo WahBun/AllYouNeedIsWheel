@@ -1,5 +1,7 @@
 """Serve the working Superchart UI on loopback with synthetic, read-only data."""
 import argparse
+import hashlib
+import re
 import importlib.util
 import json
 import math
@@ -49,9 +51,13 @@ def create_demo(source):
     app.config['TEMPLATES_AUTO_RELOAD'] = True
 
     token = secrets.token_urlsafe(32)
-    app.config['MAX_CONTENT_LENGTH'] = 32768
+    app.config['MAX_CONTENT_LENGTH'] = 256 * 1024
     app.config['PREVIEW_ORIGINS'] = set()
     editor = Path(__file__).with_name('preview_editor')
+
+    groups = json.loads((editor / 'properties.json').read_text())
+    controls = {key: spec for group in groups.values() for key, spec in group.items()}
+    draft_key = hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:20]
 
     @app.get('/preview-editor/<any("editor.js","editor.css"):asset>')
     def editor_asset(asset):
@@ -67,24 +73,39 @@ def create_demo(source):
         changes, viewport = data.get('changes'), data.get('viewport')
         if not isinstance(viewport, list) or len(viewport) != 2 or not all(type(v) is int and 0 < v <= 16384 for v in viewport):
             abort(400)
-        if not isinstance(changes, list) or not 1 <= len(changes) <= 80:
+        if not isinstance(changes, list) or not 1 <= len(changes) <= 256:
             abort(400)
-        properties = {'width', 'font-size', 'gap', 'margin-left'}
         for item in changes:
-            if not isinstance(item, dict) or set(item) != {'selector', 'properties'}:
+            if not isinstance(item, dict) or set(item) not in ({'selector', 'properties'}, {'scope', 'selector', 'properties'}):
+                abort(400)
+            if item.get('scope', 'page') not in ('page', 'chart'):
                 abort(400)
             sel, props = item['selector'], item['properties']
-            if not isinstance(sel, str) or not 1 <= len(sel) <= 512 or not isinstance(props, dict) or not props or set(props) - properties:
+            if not isinstance(sel, str) or not 1 <= len(sel) <= 512 or not isinstance(props, dict) or not props or set(props) - controls.keys():
                 abort(400)
-            for pair in props.values():
-                if not isinstance(pair, dict) or set(pair) != {'from', 'to'} or not all(type(v) in (float,int) and abs(v) <= 16384 for v in pair.values()):
+            for key, pair in props.items():
+                if not isinstance(pair, dict) or set(pair) != {'from', 'to'}:
+                    abort(400)
+                before, after = pair['from'], pair['to']
+                # Preserve original CSS keywords, transparency and mixed edge values in the handoff.
+                if not ((isinstance(before, str) and len(before) <= 160) or
+                        (type(before) in (int, float) and abs(before) <= 32768)):
+                    abort(400)
+                spec = controls[key]
+                if spec == 'color':
+                    valid = isinstance(after, str) and re.fullmatch(r'#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?', after)
+                elif isinstance(spec[0], int):
+                    valid = type(after) in (int, float) and spec[0] <= after <= spec[1]
+                else:
+                    valid = after in spec
+                if not valid:
                     abort(400)
         head = subprocess.run(['git','-C',str(root),'rev-parse','HEAD'], capture_output=True, text=True)
         directory = Path.home() / 'Library/Application Support/Wheel Web Preview/Layout Reviews'
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         name = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ-') + secrets.token_hex(4)
         report = dict(source=str(root.resolve()), head=head.stdout.strip() or None,
-                      viewport=viewport, changes=changes, units='CSS pixels')
+                      viewport=viewport, changes=changes, units='CSS pixels for dimensions; CSS values for other properties')
         with (directory / (name + '.json')).open('x') as out:
             json.dump(report, out, indent=2)
         return dict(review=name), 201
@@ -111,7 +132,7 @@ def create_demo(source):
         # Preserve the production element for its update handlers, but clearly label this preview.
         html = html.replace('<span id="connection">', controls + '<span hidden id="connection">', 1)
         # These sample prices use the chart's normal HTTP snapshot path.
-        html = html.replace('<head>', f'<head><meta name="wheel-preview-token" content="{token}"><script>window.EventSource=undefined;</script>', 1)
+        html = html.replace('<head>', f'<head><meta name="wheel-preview-token" content="{token}"><meta name="wheel-blueprint-key" content="{draft_key}"><script type="application/json" id="blueprint-properties">{json.dumps(groups)}</script><script>window.EventSource=undefined;</script>', 1)
         return html.replace('</body>', """<script>addEventListener('load',()=>{
           const detail=document.getElementById('chart-detail');
           if(detail?.hidden)document.getElementById('toggle-trade')?.click();
