@@ -521,7 +521,7 @@ const groupAccountChanged=groupStorageKey(selected,p)!==groupStorageKey(selected
 if(profile.selected&&(p.selected!==profile.selected||p.epoch!==profile.epoch||p.account_identity!==profile.account_identity||(profile.verified&&!p.verified))){
  pnlBusy?.abort();pnlBusy=null;pnlPhase='loading';pendingJoin=null;resetNewQuantity();token=++generation;marketStream.stop();cancelMarketReads();lastFallback=0;lastPnL=0;marketReadError='';quoteConfigKey='';
  frame.contentWindow.prepareAccountChart?.();switchingChart=true;historyCaches.clear();packet={};state={};received=0;entry=0;positions=[];chartExecutions=[];executionContext='';emaFrames={};volatilityData=null;
- renderRows('orders',[],true);renderRows('positions',[],false);log('Account connection changed; synchronizing current account.');accountNotice=$('trade-feedback').textContent;
+ renderLeverage();renderRows('orders',[],true);renderRows('positions',[],false);log('Account connection changed; synchronizing current account.');accountNotice=$('trade-feedback').textContent;
 }
 // A short, bounded recovery window lets price snapshots reach the shared owner
 // before this page adds order/list reads. Order controls remain unverified until read.
@@ -545,6 +545,12 @@ readScope='Orders / positions';
 const [orders,portfolio]=await Promise.allSettled([api('options/pending-orders'),api('portfolio/bootstrap')]);if(token!==generation||readVersion!==writeVersion)return;
 // Account lists remain readable when one contract's order reconciliation fails.
 if(orders.status==='fulfilled')renderRows('orders',orders.value.orders||[],true);
+const snapshot=portfolio.status==='fulfilled'?portfolio.value:null;
+const scope=snapshot?.connection;
+// Installations without switchable profiles report a null portfolio epoch.
+const matchesAccount=p.verified&&scope?.mode===p.selected&&
+ (scope.account_epoch===p.epoch||(scope.account_epoch===null&&p.available?.length===0));
+renderLeverage(matchesAccount?snapshot.summary:null);
 if(portfolio.status==='fulfilled'){positions=portfolio.value.positions||portfolio.value.portfolio?.positions||[];renderRows('positions',positions,false);}
 if(orders.status==='rejected')throw orders.reason;
 if(portfolio.status==='rejected')throw portfolio.reason;
@@ -553,7 +559,7 @@ clearReadNotice('Orders / positions');clearReadNotice('IB request');
  // Failed reads have the same context boundary as successful replies.
  if(token!==generation||readVersion!==writeVersion)return;
  if(error.network)window.wheelTradeSounds?.connection(false);if(!stateRead)received=0;
- if(readScope==='Account connection'){$('connection').textContent=`${profile.selected||'Account'} · Status unavailable`;$('connection').title='Account connection could not be checked. Retrying automatically.';}
+ if(readScope==='Account connection'){renderLeverage();$('connection').textContent=`${profile.selected||'Account'} · Status unavailable`;$('connection').title='Account connection could not be checked. Retrying automatically.';}
  readNotice(readScope,`${readScope} refresh ${error.retryableReadBusy?'delayed: IB request queue is busy':'unavailable'}. Retrying automatically.`,String(error.message));
  trace(`${readScope}: ${error.message}`);
 }finally{polling=false;sync();}}
@@ -586,6 +592,24 @@ function renderPositionSummary(button,row){
  button.classList.add('position-row');button.setAttribute('aria-label',`${contractLabel(row)} · ${row.position??row.quantity??''}; Unrealized P&L ${amount.textContent}${Number.isFinite(percentage)?'; Return '+summary.lastChild.textContent:''}`);
  summary.title='Unrealized P&L and return on absolute position cost; not daily price change.';
  button.replaceChildren(label,summary);
+}
+const positionsHeading=$('sort-positions').closest('h2');
+const positionsHeader=document.createElement('div');
+positionsHeader.className='positions-header';
+positionsHeading.before(positionsHeader);
+positionsHeader.append(positionsHeading);
+positionsHeader.insertAdjacentHTML('beforeend',`<div class="positions-leverage" title="Initial margin in account base currency, as a percentage of net liquidation">
+ <span>Leverage</span><span class="leverage-track" aria-hidden="true"><i></i></span>
+ <span class="leverage-value">Margin <span id="position-margin">—</span> (<span id="position-leverage">—</span>)</span></div>`);
+const leverageTrack=positionsHeader.querySelector('.leverage-track');
+const marginFormat=new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+function renderLeverage(summary){
+ const margin=summary?.initial_margin,rate=summary?.leverage_percentage;
+ const known=Number.isFinite(rate);
+ $('position-margin').textContent=Number.isFinite(margin)?marginFormat.format(margin):'—';
+ $('position-leverage').textContent=known?rate.toFixed(1)+'%':'—';
+ leverageTrack.firstElementChild.style.width=(known?Math.min(100,Math.max(0,rate)):0)+'%';
+ leverageTrack.dataset.level=!known?'unknown':rate<30?'low':rate<70?'medium':'high';
 }
 let positionSort='options',renderedPositions=[];
 $('sort-positions').onclick=()=>{
