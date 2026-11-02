@@ -64,8 +64,35 @@ const read = name => fs.readFileSync(path.join(assets, name), 'utf8');
 
     await tool('Price range').click();
     const ys = await page.evaluate(() => [99, 101].map(p => series.priceToCoordinate(p)));
+    async function assertRange(direction, edge=false) {
+      const drawing=await page.evaluate(()=>saved.drawings.at(-1));
+      const group=page.locator(`#draw-svg g[data-drawing="${drawing.id}"]`);
+      const delta=drawing.p[1].price-drawing.p[0].price;
+      assert.equal(Math.sign(delta), direction);
+      const expected=await page.evaluate(({delta,base})=>priceText(Math.abs(delta))+' ('+(100*delta/base).toFixed(2)+'%)',
+        {delta,base:drawing.p[0].price});
+      const label=group.locator('text');
+      await label.waitFor();
+      assert.equal(await label.textContent(),expected);
+      const strokes=await group.locator('line:not([stroke="transparent"])').evaluateAll(lines=>lines.map(line=>getComputedStyle(line).stroke));
+      assert.deepEqual(strokes,Array(3).fill(direction>0?'rgb(52, 149, 99)':'rgb(232, 131, 131)'));
+      assert.equal(await label.getAttribute('fill'),direction>0?'#19603d':'#222');
+      const geometry=await group.evaluate(g=>{
+        const box=g.querySelector('rect').getBBox(),text=g.querySelector('text').getBBox();
+        return {center:box.x+box.width/2, textX:text.x+text.width/2, textY:text.y+text.height/2,
+          middle:box.y+box.height/2, left:box.x, right:box.x+box.width,axisX:+g.querySelector('line:not([stroke=transparent])').getAttribute('x1'),
+          min:plotLeft(),max:plotRight()};
+      });
+      assert.ok(Math.abs(geometry.center-geometry.textX)<1 && Math.abs(geometry.middle-geometry.textY)<2, JSON.stringify(geometry));
+      if (!edge) assert.ok(Math.abs(geometry.center-geometry.axisX)<1,JSON.stringify(geometry));
+      assert.ok(geometry.left>=geometry.min-.1 && geometry.right<=geometry.max+.1);
+    }
     await page.mouse.click(400, ys[0]); await page.mouse.click(460, ys[1]);
-    await page.waitForFunction(() => document.querySelector('#draw-svg').textContent.includes('6 ticks'));
+    await assertRange(1);
+    await tool('Price range').click();
+    const right=await page.evaluate(()=>plotRight()-12);
+    await page.mouse.click(right,ys[1]);await page.mouse.click(right,ys[0]);
+    await assertRange(-1,true);
 
     await button('Drawing tools and favorites').click();
     await button('Stay in drawing mode').click();
@@ -96,6 +123,6 @@ const read = name => fs.readFileSync(path.join(assets, name), 'utf8');
     assert.equal(await count(), before + 4);
     assert.equal(await tool('Note').getAttribute('aria-pressed'), 'true');
     assert.deepEqual(errors, []);
-    console.log('PASS fixed 20-tool rail, scroll/focus, repeated selection, Shift constraint, effective styles, tiered ticks, hints and repeat placement');
+    console.log('PASS fixed 20-tool rail, scroll/focus, repeated selection, Shift constraint, effective styles, centered price-range labels, hints and repeat placement');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
