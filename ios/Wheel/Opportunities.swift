@@ -502,6 +502,11 @@ struct OpportunityRow: Identifiable {
         guard error == nil, let updated else { return false }
         return (0..<30).contains(now.timeIntervalSince(updated))
     }
+    var dayRange: PositionDayRange? {
+        guard error == nil, let quote, quote.day_low != nil, quote.day_high != nil else { return nil }
+        return PositionDayRange(identity: id + ":" + quote.id, low: quote.day_low, high: quote.day_high,
+                                price: quote.day_range_price, rangeStatus: quote.day_range_status)
+    }
     var canStage: Bool { !staged && error == nil && quote != nil && Date().timeIntervalSince(updated ?? .distantPast) < 30 && TradeRules.price(price) != nil && quantity > 0 && quantity <= 100 && (type != "CALL" || quantity <= capacity) }
     var total: Double? { TradeRules.price(price).map { $0 * 100 * Double(quantity) } }
     mutating func followMarketPrice() {
@@ -610,7 +615,9 @@ struct OpportunitiesView: View {
                 let displayQuantity = type == "CALL" && row?.quote == nil
                     ? book.defaultCallQuantity(symbol, store: store)
                     : (row?.quantity ?? 1)
-                ArrowlessNavigationLink { OpportunityDetail(ticker: symbol, type: type).navigationBarTitleDisplayMode(.large) } label: {
+                ExpandableRangeRow(range: row?.dayRange, detailsHint: "Open contract details") {
+                    OpportunityDetail(ticker: symbol, type: type).navigationBarTitleDisplayMode(.large)
+                } content: {
                     VStack(alignment: .leading, spacing: 8) {
                         Grid(horizontalSpacing: 10, verticalSpacing: 8) {
                             GridRow(alignment: .firstTextBaseline) {
@@ -638,12 +645,6 @@ struct OpportunitiesView: View {
                                         .font(.body.weight(.semibold)).monospacedDigit().fixedSize(horizontal: true, vertical: false)
                                 }
                             }
-                        }
-                        if let quote = row?.quote, row?.error == nil,
-                           quote.day_low != nil, quote.day_high != nil {
-                            PositionDayRange(identity: book.key(symbol, type) + ":" + quote.id,
-                                             low: quote.day_low, high: quote.day_high,
-                                             price: quote.day_range_price, rangeStatus: quote.day_range_status)
                         }
                         if row?.quote != nil {
                             if type == "CALL" && row?.capacity == 0 {
