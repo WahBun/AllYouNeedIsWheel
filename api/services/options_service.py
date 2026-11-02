@@ -1264,6 +1264,7 @@ class OptionsService:
                             'bid': bid,
                             'ask': ask,
                             'last': last,
+                            **{key: option.get(key) for key in ('day_low', 'day_high', 'day_range_price', 'day_range_status')},
                             'open_interest': int(open_interest),
                             'implied_volatility': round(iv * 100, 2) if iv is not None and iv < 1 and iv > 0 else (0 if iv is None else round(iv, 2)),  # Handle percentage vs decimal
                             'delta': round(delta, 5) if delta is not None else 0,

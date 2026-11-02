@@ -79,6 +79,10 @@ struct ContractQuote: Decodable, Identifiable {
     var ask: Double?
     var delta: Double?
     var implied_volatility: Double?
+    var day_low: Double?
+    var day_high: Double?
+    var day_range_price: Double?
+    var day_range_status: String?
     var id: String { "\(expiration)-\(strike)" }
     var mid: Double? { TradingMath.mid(bid, ask) }
     var spread: Double? { mid.map { ((ask ?? 0) - (bid ?? 0)) / $0 * 100 } }
@@ -288,7 +292,7 @@ final class OpportunityBook {
             if store.demo {
                 row.stockPrice = ticker == "TSLL" ? 10.25 : 92.5
                 row.previousClose = ticker == "TSLL" ? 10 : 94
-                row.quote = ContractQuote(strike: preference.strike ?? (row.stockPrice! * (1 + (type == "CALL" ? 1 : -1) * Double(preference.otm) / 100)).rounded(), expiration: preference.expiration, bid: 0.25, ask: 0.29, delta: type == "CALL" ? 0.23 : -0.19, implied_volatility: 45)
+                row.quote = ContractQuote(strike: preference.strike ?? (row.stockPrice! * (1 + (type == "CALL" ? 1 : -1) * Double(preference.otm) / 100)).rounded(), expiration: preference.expiration, bid: 0.25, ask: 0.29, delta: type == "CALL" ? 0.23 : -0.19, implied_volatility: 45, day_low: 0.21, day_high: 0.32, day_range_price: 0.27, day_range_status: "live")
                 row.capacity = TradingMath.capacity(shares: shares, available: Int(shares / 100))
             } else {
                 var query = [URLQueryItem(name: "tickers", value: ticker), URLQueryItem(name: "optionType", value: type), URLQueryItem(name: "otm", value: String(preference.otm)), URLQueryItem(name: "expiration", value: preference.expiration)]
@@ -634,6 +638,12 @@ struct OpportunitiesView: View {
                                         .font(.body.weight(.semibold)).monospacedDigit().fixedSize(horizontal: true, vertical: false)
                                 }
                             }
+                        }
+                        if let quote = row?.quote, row?.error == nil,
+                           quote.day_low != nil, quote.day_high != nil {
+                            PositionDayRange(identity: book.key(symbol, type) + ":" + quote.id,
+                                             low: quote.day_low, high: quote.day_high,
+                                             price: quote.day_range_price, rangeStatus: quote.day_range_status)
                         }
                         if row?.quote != nil {
                             if type == "CALL" && row?.capacity == 0 {
