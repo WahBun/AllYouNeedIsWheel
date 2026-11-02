@@ -102,6 +102,7 @@ class IBConnection:
         self._qualified_option_cache = {}
         self._option_definition_cache = {}
         self._market_ticker_cache = {}
+        self._portfolio_stock_ranges = {}
         self._market_data_type = None
         
         # Suppress ib_async logs when initializing
@@ -328,6 +329,8 @@ class IBConnection:
         # A newly requested stream has no current quote until its first callback.
         for field in ('bid', 'ask', 'last', 'close', 'impliedVolatility'):
             setattr(ticker, field, math.nan)
+        if getattr(contract, 'secType', '') == 'STK':
+            ticker.high = ticker.low = math.nan
         ticker.modelGreeks = None
         ticker.lastRTHTrade = None
         ticker.time = None
@@ -411,6 +414,7 @@ class IBConnection:
                 self._futures_completed_retry = None
                 self._completed_order_read = None
                 self._market_ticker_cache.clear()
+                self._portfolio_stock_ranges.clear()
                 self._market_data_type = None
                 logger.info(f"Successfully connected to IB with client ID {self.client_id}")
                 return True
@@ -442,6 +446,7 @@ class IBConnection:
             self.ib.disconnect()
             self._connected = False
             self._market_ticker_cache.clear()
+            self._portfolio_stock_ranges.clear()
             self._market_data_type = None
             logger.info("Disconnected from IB")
     
