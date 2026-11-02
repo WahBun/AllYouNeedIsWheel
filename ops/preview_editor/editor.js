@@ -1,6 +1,7 @@
 /* Loaded only by the private demo. Blueprint rules never write to source. */
 (() => {
   'use strict';
+  const orderTools = window.WheelBlueprintOrder;
   const groups = JSON.parse(document.querySelector('#blueprint-properties').textContent);
   const properties = Object.assign({}, ...Object.values(groups));
   const draftKey = 'wheel.layout-blueprint.v1.' + document.querySelector('[name="wheel-blueprint-key"]').content;
@@ -22,7 +23,7 @@
       <footer><button id="reset" disabled>Reset element</button><button id="save" disabled>Use this version</button></footer>
       <small id="status" role="status"></small>
     </section>
-    <div id="outline" hidden><button id="move" aria-label="Move selected element" title="Drag to move · Arrow keys: 1 px · Shift + arrow: 10 px">✥ Move</button><button data-edge="left" aria-label="Drag left edge"></button><button data-edge="right" aria-label="Drag right edge"></button><button data-edge="bottom" aria-label="Drag bottom edge"></button></div>`;
+    <div id="outline" hidden><button id="move" aria-label="Move selected element" title="Drag to move · Arrow keys: 1 px · Shift + arrow: 10 px">✥ Move</button><button id="reorder" aria-label="Reorder selected control" title="Drag onto a sibling to swap, or to its edge to insert">⇄ Reorder</button><button data-edge="left" aria-label="Drag left edge"></button><button data-edge="right" aria-label="Drag right edge"></button><button data-edge="bottom" aria-label="Drag bottom edge"></button></div><div id="order-drop" hidden></div>`;
   const $ = id => ui.getElementById(id);
   const schema = key => properties[key];
   const isNumber = spec => Array.isArray(spec) && typeof spec[0] === 'number';
@@ -48,7 +49,7 @@
            item.selector.length>512 || /[{};]/.test(item.selector) || !item.properties) continue;
         document.querySelector(item.selector); // Validate the stored selector before applying.
         const props=Object.entries(item.properties);
-        if(props.length && props.every(([k,p])=>Object.hasOwn(properties,k) && p && validValue(schema(k),p.to))) edits.set(keyOf(item),item);
+        if((props.length || item.layoutOrder) && (!item.layoutOrder || orderTools.valid(item.layoutOrder)) && props.every(([k,p])=>Object.hasOwn(properties,k) && p && validValue(schema(k),p.to))) edits.set(keyOf(item),item);
       }
     } catch { /* An unavailable browser store still permits editing and explicit handoff. */ }
   }
@@ -136,16 +137,37 @@
     const shifted=(original,delta)=>delta ? 'calc('+original+' + '+delta+'px)' : original;
     style.setProperty('translate',[shifted(left,x),shifted(top,y),depth].filter(Boolean).join(' '),'important');
   }
+  let projection=null;
+  const orderParents=new WeakMap();
+  function reflow(change){
+    const next=new Map(edits);
+    // An explicit reorder supersedes any free-position offsets on the two participants.
+    for(const el of [change.source,change.other]){
+      const key=keyOf(targetOf(el)),item=next.get(key);
+      if(!item || !(item.properties['offset-x'] || item.properties['offset-y']))continue;
+      const props={...item.properties};delete props['offset-x'];delete props['offset-y'];
+      if(Object.keys(props).length || item.layoutOrder)next.set(key,{...item,properties:props});else next.delete(key);
+    }
+    const parent=targetOf(change.parent), key=keyOf(parent), item={...(next.get(key)||{...parent,properties:{}})};
+    if(change.layout.to.some((k,i)=>k!==change.layout.from[i]))item.layoutOrder=change.layout;
+    else delete item.layoutOrder;
+    if(item.layoutOrder || Object.keys(item.properties).length)next.set(key,item);else next.delete(key);
+    return next;
+  }
   function writeSheet(doc,sheet) {
     // Use CSSOM properties. No saved value is parsed as a CSS declaration list.
     const css=sheet.sheet;
     if(!css)return;
-    const missing=[];awaitingSize.set(doc,missing);
+    const missing=[],parents=new Set();awaitingSize.set(doc,missing);orderParents.set(doc,parents);
     while(css.cssRules.length)css.deleteRule(0);
-    for(const item of edits.values()){
+    for(const item of (projection||edits).values()){
       if(item.scope!==scopeOf(doc))continue;
       const style=css.cssRules[css.insertRule(item.selector+'{}',css.cssRules.length)].style;
       const el=doc.querySelector(item.selector), props=item.properties;
+      if(item.layoutOrder){
+        if(el){parents.add(el);orderTools.write(css,el,item.selector,item.layoutOrder);}
+        else missing.push(item.selector);
+      }
       if(props.width || props.height){
         if(!el)missing.push(item.selector);
         style.setProperty('box-sizing','border-box','important');
@@ -175,7 +197,7 @@
       if(prop==='gap'){delete item.properties['column-gap'];delete item.properties['row-gap'];}
       if(from===to)delete item.properties[prop];else item.properties[prop]={from,to};
     }
-    if(Object.keys(item.properties).length)edits.set(key,item);else edits.delete(key);
+    if(item.layoutOrder || Object.keys(item.properties).length)edits.set(key,item);else edits.delete(key);
     apply();saveSoon();
   }
   function hex(color) {
@@ -209,7 +231,7 @@
         clear.type='button';clear.textContent='↶';clear.title='Restore original '+label(key).toLowerCase();
         clear.setAttribute('aria-label',clear.title);
         clear.onclick=e=>{e.preventDefault();const target=edits.get(keyOf(selection));if(!target)return;
-          remember();delete target.properties[key];if(!Object.keys(target.properties).length)edits.delete(keyOf(selection));apply();persist();};
+          remember();delete target.properties[key];if(!target.layoutOrder && !Object.keys(target.properties).length)edits.delete(keyOf(selection));apply();persist();};
         row.append(name,input,output,clear);details.append(row);
         let base;
         const begin=()=>{if(base===undefined&&current()){base=measure(current(),getComputedStyle(current()),key);remember();}};
@@ -231,7 +253,7 @@
     if(!$('draft').open)return;
     const buttons=table().map(item=>{
       const button=document.createElement('button');
-      button.textContent=(item.scope==='chart'?'Chart · ':'Page · ')+item.selector+' · '+Object.keys(item.properties).length;
+      button.textContent=(item.scope==='chart'?'Chart · ':'Page · ')+item.selector+' · '+(item.layoutOrder?'Reordered':Object.keys(item.properties).length);
       button.onclick=()=>{
         selection={scope:item.scope,selector:item.selector};anchor=null;armed=false;
         const el=current();
@@ -270,13 +292,16 @@
     scheduled=false;const el=current();
     $('outline').hidden=!el||!editing||comparing;if($('outline').hidden)return;
     $('move').hidden=!canMove(el);
+    $('reorder').hidden=!sortGrip.available(el);
     const r=el.getBoundingClientRect(),frame=el.ownerDocument.defaultView.frameElement;
     const f=frame?.getBoundingClientRect();
     const x=r.x+(f?.x||0)+(frame?.clientLeft||0),y=r.y+(f?.y||0)+(frame?.clientTop||0);
     // Keep the move grip reachable when the selected box starts outside the viewport.
     const gripX=Math.max(0,Math.min(Math.max(0,r.width-64),Math.max(0,4-x)));
     const gripY=y>=26 ? -24 : Math.max(0,4-y);
-    Object.assign($('move').style,{left:gripX+'px',top:gripY+'px'});
+    const left=Math.min(gripX,innerWidth-x-($('reorder').hidden?66:150));
+    Object.assign($('move').style,{left:left+'px',top:gripY+'px'});
+    Object.assign($('reorder').style,{left:(left+66)+'px',top:gripY+'px'});
     Object.assign($('outline').style,{left:x+'px',top:y+'px',width:r.width+'px',height:r.height+'px'});
     const panel=ui.querySelector('section');
     panel.classList.toggle('upper',x+r.width>innerWidth-panel.offsetWidth-24 && y+r.height>innerHeight-panel.offsetHeight-12 && y>panel.offsetHeight+12);
@@ -309,17 +334,23 @@
     if(e.composedPath().includes(host)||(!e.altKey&&!(editing&&armed))||comparing||e.button!==0)return;
     const el=normalized(e.target);if(!el)return;
     e.preventDefault();e.stopImmediatePropagation();
-    if(e.type==='click')choose(el.closest('.leverage-track')?.closest('.positions-leverage')||el);
+    // Disabled demo controls emit pointerdown but not click. They still own a layout slot.
+    if(e.type==='click' || (e.type==='pointerdown' && el.closest(':disabled')))
+      choose(el.closest('.leverage-track')?.closest('.positions-leverage')||el);
   }
   function bind(doc){
     if(documents.has(doc))return;
     const sheet=doc.head.appendChild(doc.createElement('style'));documents.set(doc,sheet);writeSheet(doc,sheet);
     for(const t of ['pointerdown','mousedown','mouseup','pointerup','click','dblclick'])doc.addEventListener(t,selectEvent,true);
+    doc.addEventListener('keydown',e=>{if(e.key==='Alt')$('outline').classList.add('pick-through');},true);
+    doc.addEventListener('keyup',e=>{if(!e.altKey)$('outline').classList.remove('pick-through');},true);
     doc.addEventListener('scroll',schedule,true);
     // Some controls first appear after portfolio data arrives or a dialog opens.
-    const watch=new MutationObserver(()=>{
+    const watch=new MutationObserver(records=>{
       if(!documents.has(doc)){watch.disconnect();return;}
-      if(awaitingSize.get(doc)?.some(sel=>doc.querySelector(sel)))writeSheet(doc,sheet);
+      const parents=orderParents.get(doc);
+      if(awaitingSize.get(doc)?.some(sel=>doc.querySelector(sel)) ||
+         (parents?.size && (records.some(r=>parents.has(r.target)) || [...parents].some(p=>!p.isConnected))))writeSheet(doc,sheet);
       if(editing && selection?.scope===scopeOf(doc) && anchor && !anchor.isConnected)schedule();
     });
     watch.observe(doc.body,{childList:true,subtree:true});
@@ -356,6 +387,20 @@
   $('parent').onclick=()=>{const el=current();if(el)choose(el===el.ownerDocument.body?el.ownerDocument.defaultView.frameElement:el.parentElement);};
   $('browse').onclick=()=>{const show=$('finder').hidden;$('finder').hidden=!show;$('browse').setAttribute('aria-expanded',String(show));if(show){browse();$('filter').focus();}};
   $('filter').oninput=browse;$('list').onchange=()=>{const opt=options[$('list').selectedIndex];if(opt){choose(opt.el);opt.el.scrollIntoView({block:'nearest'});}};
+  const sortGrip=orderTools.install({
+    grip:$('reorder'),marker:$('order-drop'),current,status,
+    saved:parent=>edits.get(keyOf(targetOf(parent)))?.layoutOrder,
+    preview:change=>{
+      projection=change?reflow(change):null;
+      for(const [doc,sheet] of documents)writeSheet(doc,sheet);
+      schedule();
+    },
+    commit:change=>{
+      const next=reflow(change);
+      if(next.size>256){status('Blueprint is full. Reset an entry before rearranging.');return;}
+      remember();edits=next;apply();persist();
+    }
+  });
   const move=$('move');
   const clampOffset=(key,n)=>Math.max(schema(key)[0],Math.min(schema(key)[1],Math.round(n)));
   function moveTo(x,y){
@@ -403,9 +448,12 @@
   $('compare').onpointerdown=e=>{e.currentTarget.setPointerCapture(e.pointerId);compare(true);};
   $('compare').onlostpointercapture=()=>compare(false);
   $('compare').onkeydown=e=>{if([' ','Enter'].includes(e.key)){e.preventDefault();compare(true);}};
-  $('compare').onkeyup=()=>compare(false);window.addEventListener('blur',()=>compare(false));
+  $('compare').onkeyup=()=>compare(false);window.addEventListener('blur',()=>{$('outline').classList.remove('pick-through');compare(false);});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&editing){open(false);}});
-  window.addEventListener('resize',schedule);
+  window.addEventListener('resize',()=>{
+    for(const [doc,sheet] of documents)if(orderParents.get(doc)?.size)writeSheet(doc,sheet);
+    schedule();
+  });
   // Persist the last pointer move even if the tab is closed immediately.
   window.addEventListener('pagehide',()=>{if(pendingSave)persist();});
   $('save').onclick=async()=>{

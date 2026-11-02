@@ -59,7 +59,7 @@ def create_demo(source):
     controls = {key: spec for group in groups.values() for key, spec in group.items()}
     draft_key = hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:20]
 
-    @app.get('/preview-editor/<any("editor.js","editor.css"):asset>')
+    @app.get('/preview-editor/<any("editor.js","editor.css","reorder.js"):asset>')
     def editor_asset(asset):
         return send_from_directory(editor, asset)
 
@@ -76,12 +76,27 @@ def create_demo(source):
         if not isinstance(changes, list) or not 1 <= len(changes) <= 256:
             abort(400)
         for item in changes:
-            if not isinstance(item, dict) or set(item) not in ({'selector', 'properties'}, {'scope', 'selector', 'properties'}):
+            if (not isinstance(item, dict) or not {'selector', 'properties'} <= item.keys()
+                    or item.keys() - {'scope', 'selector', 'properties', 'layoutOrder'}):
                 abort(400)
             if item.get('scope', 'page') not in ('page', 'chart'):
                 abort(400)
             sel, props = item['selector'], item['properties']
-            if not isinstance(sel, str) or not 1 <= len(sel) <= 512 or not isinstance(props, dict) or not props or set(props) - controls.keys():
+            if not isinstance(sel, str) or not 1 <= len(sel) <= 512 or not isinstance(props, dict) or set(props) - controls.keys():
+                abort(400)
+            if 'layoutOrder' in item:
+                layout = item['layoutOrder']
+                if not isinstance(layout, dict) or set(layout) != {'from', 'to'}:
+                    abort(400)
+                before, after = layout['from'], layout['to']
+                if (not isinstance(before, list) or not isinstance(after, list)
+                        or not 2 <= len(before) <= 128 or len(before) != len(after)):
+                    abort(400)
+                key_pattern = r'(?:[.#][A-Za-z_][\w-]*|[a-z][a-z0-9-]*(?::nth-of-type\([1-9]\d{0,4}\)|\[data-interval="\d{1,6}"\])?)'
+                if (not all(isinstance(k, str) and len(k) <= 160 and re.fullmatch(key_pattern, k, re.ASCII)
+                            for k in before + after) or len(set(before)) != len(before) or set(before) != set(after)):
+                    abort(400)
+            elif not props:
                 abort(400)
             for key, pair in props.items():
                 if not isinstance(pair, dict) or set(pair) != {'from', 'to'}:
@@ -136,7 +151,7 @@ def create_demo(source):
         return html.replace('</body>', """<script>addEventListener('load',()=>{
           const detail=document.getElementById('chart-detail');
           if(detail?.hidden)document.getElementById('toggle-trade')?.click();
-        });</script><script src="/preview-editor/editor.js"></script></body>""", 1)
+        });</script><script src="/preview-editor/reorder.js"></script><script src="/preview-editor/editor.js"></script></body>""", 1)
 
     @app.get('/superchart/frame')
     def frame():

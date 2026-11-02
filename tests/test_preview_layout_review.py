@@ -23,6 +23,9 @@ class LayoutReviewTests(unittest.TestCase):
                 {'scope': 'chart', 'selector': '#chart-title', 'properties': {
                     'color': {'from': 'rgb(20, 30, 50)', 'to': '#4cbbbd'},
                     'font-weight': {'from': 'normal', 'to': '600'}}}]}
+        order = dict(scope='page', selector='#intervals', properties={},
+                     layoutOrder={'from':['#one','#two','#three'],'to':['#three','#two','#one']})
+        body['changes'].append(order)
         url = '/preview-editor/reviews'
         with TemporaryDirectory() as temp, patch.object(Path, 'home', return_value=Path(temp)):
             self.assertEqual(client.post(url, json=body, headers={'Origin': origin}).status_code, 403)
@@ -32,6 +35,9 @@ class LayoutReviewTests(unittest.TestCase):
                                       ('page', 'offset-x', 9000), ('chart', 'padding-left', -10), ('page', 'text-align', 'inherit; display:none')]:
                 changes = [{'scope': scope, 'selector': 'p', 'properties': {key: {'from': 0, 'to': value}}}]
                 self.assertEqual(client.post(url, json=dict(body, changes=changes), headers=headers).status_code, 400)
+            for invalid in (['#one','#one','#three'], ['#one','#two','body *'], ['#two']):
+                bad = dict(order, layoutOrder=dict(order['layoutOrder'], to=invalid))
+                self.assertEqual(client.post(url, json=dict(body,changes=[bad]), headers=headers).status_code,400)
             self.assertFalse(list(Path(temp).rglob('*.json')))
             for _ in range(2):
                 self.assertEqual(client.post(url, json=body, headers=headers).status_code, 201)
