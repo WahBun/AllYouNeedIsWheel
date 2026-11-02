@@ -30,6 +30,8 @@ SwiftUI 构建，支持 iOS 18 及以上，以及浅色／深色模式。当前 
 
 截图于 **2026-10-25**，对应上述代码。iPhone 模拟器使用内置 **Demo 合成数据**；桌面截图在隔离、只读的本地预览中展示 **截至 2026-10-23 的 QQQ RTH 历史行情快照**，不含账户或持仓数据，不代表当前券商连接或交易验收。
 
+开发时可以双击 [Start Wheel Preview.command](ops/Start%20Wheel%20Preview.command)，在 Pro 上预览当前工作区的 Supercharts。Pro 需已安装 Python 3、Flask 和 Tailscale。手机连上同一 Tailscale 网络后，打开终端显示的私有 HTTPS 地址并收藏；无需启用出口节点。保存网页改动后刷新即可，Pro 锁屏可用，系统睡眠时暂停。关闭预览窗口即停止。预览只用示例持仓和行情，顶部可以切换示例保证金比例。如果正在另一份工作区开发，可以从终端把该目录作为启动脚本的第一个参数。
+
 ### 桌面网页 · Supercharts
 
 ![Wheel 桌面 Supercharts：QQQ 历史蜡烛图、四图布局与交易面板](docs/screenshots/web-desktop-trading-20261025.png)
