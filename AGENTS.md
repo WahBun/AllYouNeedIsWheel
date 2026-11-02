@@ -40,6 +40,8 @@ UI 语言 = 统一英文
 MacBook Pro = 主开发机
 日常开发、代码修改、UI 调整、Xcode、SwiftUI、Simulator、签名与 iOS 构建默认在 Pro。Wheel iOS 通过 GitHub 同步代码。
 本地构建与模拟器验证可在任务范围内直接完成。真实 iPhone 的 Run、安装和启动默认由我操作；只有我在当前任务明确要求代为执行时才操作，不能沿用以前的一次性授权。
+每次准备让我在 iPhone 上 Run 已合并的 Wheel 改动前，先从 GitHub 核实本次目标分支与合并 SHA，再读取 Pro 上 Xcode 实际打开的工程或工作区路径，核对该工作区的 HEAD 和本地改动。若版本不符，先保护未提交内容，再同步到已核实的 SHA；有冲突或本地改动会影响本次验证时，先说明并解决。
+从该工程按本次 Run 的 scheme 和配置重新构建 iPhone 设备版（iphoneos），核实产出的 .app 来源及版本／构建号，并验证本次改动已进入包内；图表脚本等原样打包的资源应与合并提交逐一比对本次涉及的文件。只有工程和构建包都核实后才提示我按 ⌘R。Mini 已部署、模拟器构建成功或版本号相同，都不能代替这两项核对。
 
 Mac mini = 长期运行与后端机
 IB Gateway、Wheel Backend、API 和常驻服务运行在 Mini。Pro 与 iPhone 通过 Tailscale 访问。优先从 Pro 经现有 SSH 做必要的只读排查，不为了操作 Mini 强制使用屏幕共享。
