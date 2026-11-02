@@ -1,9 +1,13 @@
 """Serve the working Superchart UI on loopback with synthetic, read-only data."""
 import argparse
+import hashlib
+import re
 import importlib.util
 import json
 import math
 import logging
+import secrets
+from datetime import datetime, timezone
 import shutil
 import subprocess
 import threading
@@ -11,7 +15,7 @@ import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from flask import Flask, Response, abort, redirect, render_template, request
+from flask import Flask, Response, abort, redirect, render_template, request, send_from_directory
 
 EPOCH = 'wheel-demo'
 RATES = ('18', '69.9', '70')
@@ -46,6 +50,81 @@ def create_demo(source):
                 template_folder=str(root / 'frontend/templates'))
     app.config['TEMPLATES_AUTO_RELOAD'] = True
 
+    token = secrets.token_urlsafe(32)
+    app.config['MAX_CONTENT_LENGTH'] = 256 * 1024
+    app.config['PREVIEW_ORIGINS'] = set()
+    editor = Path(__file__).with_name('preview_editor')
+
+    groups = json.loads((editor / 'properties.json').read_text())
+    controls = {key: spec for group in groups.values() for key, spec in group.items()}
+    draft_key = hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:20]
+
+    @app.get('/preview-editor/<any("editor.js","editor.css","reorder.js"):asset>')
+    def editor_asset(asset):
+        return send_from_directory(editor, asset)
+
+    @app.post('/preview-editor/reviews')
+    def save_review():
+        if request.headers.get('Origin') not in app.config['PREVIEW_ORIGINS'] or request.headers.get('X-Wheel-Preview') != token:
+            abort(403)
+        data = request.get_json()
+        if not isinstance(data, dict):
+            abort(400)
+        changes, viewport = data.get('changes'), data.get('viewport')
+        if not isinstance(viewport, list) or len(viewport) != 2 or not all(type(v) is int and 0 < v <= 16384 for v in viewport):
+            abort(400)
+        if not isinstance(changes, list) or not 1 <= len(changes) <= 256:
+            abort(400)
+        for item in changes:
+            if (not isinstance(item, dict) or not {'selector', 'properties'} <= item.keys()
+                    or item.keys() - {'scope', 'selector', 'properties', 'layoutOrder'}):
+                abort(400)
+            if item.get('scope', 'page') not in ('page', 'chart'):
+                abort(400)
+            sel, props = item['selector'], item['properties']
+            if not isinstance(sel, str) or not 1 <= len(sel) <= 512 or not isinstance(props, dict) or set(props) - controls.keys():
+                abort(400)
+            if 'layoutOrder' in item:
+                layout = item['layoutOrder']
+                if not isinstance(layout, dict) or set(layout) != {'from', 'to'}:
+                    abort(400)
+                before, after = layout['from'], layout['to']
+                if (not isinstance(before, list) or not isinstance(after, list)
+                        or not 2 <= len(before) <= 128 or len(before) != len(after)):
+                    abort(400)
+                key_pattern = r'(?:[.#][A-Za-z_][\w-]*|[a-z][a-z0-9-]*(?::nth-of-type\([1-9]\d{0,4}\)|\[data-interval="\d{1,6}"\])?)'
+                if (not all(isinstance(k, str) and len(k) <= 160 and re.fullmatch(key_pattern, k, re.ASCII)
+                            for k in before + after) or len(set(before)) != len(before) or set(before) != set(after)):
+                    abort(400)
+            elif not props:
+                abort(400)
+            for key, pair in props.items():
+                if not isinstance(pair, dict) or set(pair) != {'from', 'to'}:
+                    abort(400)
+                before, after = pair['from'], pair['to']
+                # Preserve original CSS keywords, transparency and mixed edge values in the handoff.
+                if not ((isinstance(before, str) and len(before) <= 160) or
+                        (type(before) in (int, float) and abs(before) <= 32768)):
+                    abort(400)
+                spec = controls[key]
+                if spec == 'color':
+                    valid = isinstance(after, str) and re.fullmatch(r'#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?', after)
+                elif isinstance(spec[0], int):
+                    valid = type(after) in (int, float) and spec[0] <= after <= spec[1]
+                else:
+                    valid = after in spec
+                if not valid:
+                    abort(400)
+        head = subprocess.run(['git','-C',str(root),'rev-parse','HEAD'], capture_output=True, text=True)
+        directory = Path.home() / 'Library/Application Support/Wheel Web Preview/Layout Reviews'
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        name = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ-') + secrets.token_hex(4)
+        report = dict(source=str(root.resolve()), head=head.stdout.strip() or None,
+                      viewport=viewport, changes=changes, units='CSS pixels for dimensions; CSS values for other properties')
+        with (directory / (name + '.json')).open('x') as out:
+            json.dump(report, out, indent=2)
+        return dict(review=name), 201
+
     @app.after_request
     def response_headers(response):
         response.headers['Cache-Control'] = 'no-store'
@@ -68,11 +147,11 @@ def create_demo(source):
         # Preserve the production element for its update handlers, but clearly label this preview.
         html = html.replace('<span id="connection">', controls + '<span hidden id="connection">', 1)
         # These sample prices use the chart's normal HTTP snapshot path.
-        html = html.replace('<head>', '<head><script>window.EventSource=undefined;</script>', 1)
+        html = html.replace('<head>', f'<head><meta name="wheel-preview-token" content="{token}"><meta name="wheel-blueprint-key" content="{draft_key}"><script type="application/json" id="blueprint-properties">{json.dumps(groups)}</script><script>window.EventSource=undefined;</script>', 1)
         return html.replace('</body>', """<script>addEventListener('load',()=>{
           const detail=document.getElementById('chart-detail');
           if(detail?.hidden)document.getElementById('toggle-trade')?.click();
-        });</script></body>""", 1)
+        });</script><script src="/preview-editor/reorder.js"></script><script src="/preview-editor/editor.js"></script></body>""", 1)
 
     @app.get('/superchart/frame')
     def frame():
@@ -143,6 +222,7 @@ if __name__ == '__main__':
     parser.add_argument('--share', action='store_true', help='Serve a private HTTPS URL until stopped')
     args = parser.parse_args()
     app = create_demo(args.source)
+    app.config['PREVIEW_ORIGINS'].update(f'http://{name}:{args.port}' for name in ('localhost','127.0.0.1'))
     if not args.share:
         app.run(host='127.0.0.1', port=args.port, threaded=True, use_reloader=False)
     else:
@@ -151,6 +231,8 @@ if __name__ == '__main__':
         config = json.loads(subprocess.check_output([cli, 'serve', 'status', '--json']))
         if port_in_use(config):
             parser.exit(1, 'Tailscale port 8443 is already in use. Close the previous preview first.\n')
+        device = json.loads(subprocess.check_output([cli, 'status', '--json']))['Self']['DNSName'].rstrip('.')
+        app.config['PREVIEW_ORIGINS'].add(f'https://{device}:8443')
         logging.getLogger('werkzeug').setLevel(logging.ERROR)
         with make_server('127.0.0.1', args.port, app, threaded=True) as server:
             print(f'Local preview: http://127.0.0.1:{server.server_port}/', flush=True)

@@ -1,0 +1,27 @@
+{
+  "Position": {
+    "offset-x": [-8192, 8192], "offset-y": [-8192, 8192]
+  },
+  "Size": {
+    "width": [1, 4096], "height": [1, 2048]
+  },
+  "Spacing": {
+    "gap": [0, 160], "row-gap": [0, 160], "column-gap": [0, 160],
+    "padding-top": [0, 160], "padding-right": [0, 160], "padding-bottom": [0, 160], "padding-left": [0, 160],
+    "margin-top": [-160, 160], "margin-right": [-160, 160], "margin-bottom": [-160, 160], "margin-left": [-160, 160]
+  },
+  "Type": {
+    "font-size": [6, 128], "font-weight": ["100","200","300","400","500","600","700","800","900"],
+    "line-height": [6, 180], "letter-spacing": [-4, 16],
+    "text-align": ["start","center","end","left","right","justify"]
+  },
+  "Appearance": {
+    "color": "color", "background-color": "color", "border-color": "color",
+    "border-radius": [0, 128], "border-width": [0, 24], "border-style": ["none","solid","dashed","dotted","double"]
+  },
+  "Alignment": {
+    "align-items": ["normal","start","center","end","stretch","baseline"],
+    "justify-content": ["normal","start","center","end","space-between","space-around","space-evenly"],
+    "align-self": ["auto","start","center","end","stretch","baseline"]
+  }
+}
