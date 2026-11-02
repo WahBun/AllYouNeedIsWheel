@@ -32,6 +32,8 @@ SwiftUI 构建，支持 iOS 18 及以上，以及浅色／深色模式。当前 
 
 开发时可以双击 [Start Wheel Preview.command](ops/Start%20Wheel%20Preview.command)，在 Pro 上预览当前工作区的 Supercharts。Pro 需已安装 Python 3、Flask 和 Tailscale。手机连上同一 Tailscale 网络后，打开终端显示的私有 HTTPS 地址并收藏；无需启用出口节点。保存网页改动后刷新即可，Pro 锁屏可用，系统睡眠时暂停。关闭预览窗口即停止。预览只用示例持仓和行情，顶部可以切换示例保证金比例。如果正在另一份工作区开发，可以从终端把该目录作为启动脚本的第一个参数。
 
+在 Pro 的示例预览中，按住 Option 点击页面元素，或点击 **Edit layout** 后选择元素。拖动选框边缘调整宽度，滑块调整间距和字号。按住 **Hold original** 对照原版，**Undo** 撤回一步。**Use this version** 将选中的尺寸、选择器、工作区及视口保存为 Pro 上的调整记录（`~/Library/Application Support/Wheel Web Preview/Layout Reviews/`），供落实到代码时核对。图表画布内部由图表渲染器管理。
+
 ### 桌面网页 · Supercharts
 
 ![Wheel 桌面 Supercharts：QQQ 历史蜡烛图、四图布局与交易面板](docs/screenshots/web-desktop-trading-20261025.png)
