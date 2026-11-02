@@ -548,15 +548,28 @@ final class TradingSession {
               let ref = order.chart_tif_ref, let oid = order.ib_order_id,
               let perm = order.perm_id, let client = order.client_id,
               let quantity = order.quantity, let price = order.premium, let currentTIF = order.tif,
-              let epoch = accountEpoch else { return false }
+              let epoch = accountEpoch, !uncertain, !busy, tif != currentTIF else {
+            message = "Order or connection changed. Refresh before editing."
+            return false
+        }
+        let base = store.address
+        let groupID = order.chart_tif_group_id ?? ""
+        if paperPending(base: base, conID: cid, groupID: groupID) {
+            let outcome = await reconcilePaper(base: base, conID: cid, groupID: groupID)
+            guard accountEpoch == epoch, store.address == base else { return false }
+            message = outcome ?? "Check the broker status before submitting another change."
+            await store.refreshOrders(afterWrite: true)
+            return false
+        }
         let body: [String: Any] = ["action": "amend_exit_tif", "expected_ref": ref,
             "order_id": oid, "perm_id": perm, "client_id": client, "tif": tif,
-            "group_id": order.chart_tif_group_id ?? "",
+            "group_id": groupID,
             "expected": ["quantity": quantity, "price": price, "tif": currentTIF]]
         do {
-            let result = try await paperChartWrite(base: store.address, conID: cid, body: body, expectedEpoch: epoch)
-            message = result["message"] as? String
-            await store.refreshOrders()
+            let result = try await paperChartWrite(base: base, conID: cid, body: body, expectedEpoch: epoch)
+            guard accountEpoch == epoch, store.address == base else { return false }
+            message = result["message"] as? String ?? "Check the broker status before submitting another change."
+            await store.refreshOrders(afterWrite: true)
             return result["success"] as? Bool == true
         } catch { message = error.localizedDescription; return false }
     }
@@ -844,6 +857,7 @@ struct OrderDetail: View {
     @State private var action: String?
     @State private var quantity = 1
     @State private var timing = "DAY"
+    @State private var savingExitTIF = false
     @State private var confirmChartOVT = false
     @State private var editingSnapshot: Order?
     @State private var pricePicker: PricePickerSnapshot?
@@ -906,8 +920,18 @@ struct OrderDetail: View {
                 if order.external_ib == true && order.chart_order_ref == nil && !TradeRules.exitTIFEditable(order) { Text("IB-managed order. Modify or cancel in IB.").foregroundStyle(.secondary) }
                 if TradeRules.exitTIFEditable(order) {
                     Section {
-                        Button("Save time in force") { action = "Save time in force" }
-                            .disabled(timing == order.tif)
+                        Button("Save time in force") {
+                            guard !savingExitTIF else { return }
+                            let requestedTIF = timing
+                            savingExitTIF = true
+                            Task { @MainActor in
+                                defer { savingExitTIF = false }
+                                guard sourceContext == context else { return }
+                                _ = await store.trading.amendExitTIF(order, tif: requestedTIF, store: store)
+                            }
+                        }
+                        .disabled(savingExitTIF || timing == order.tif)
+                        if savingExitTIF { ProgressView("Saving time in force…") }
                         Text("Applies to this order only. DAY expires at the end of its trading session.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -1009,17 +1033,12 @@ struct OrderDetail: View {
                 self.action = nil
             }
         } message: {
-            if action == "Save time in force" { Text("Time in force: \(timing). Applies to this order only.") }
             if action == "Cancel order" && TradeRules.protectionCancelable(current ?? initial) { Text("Both TP and SL will be canceled. The position remains open without protection.") }
-            Text("\((current ?? initial).contractLabel) · \(localizedLabel(current?.action ?? "", locale: locale)) \((action == "Save quantity" || action == "Save changes") ? String(quantity) : current?.quantity?.formatted() ?? "")\nLimit \(money((action == "Execute" || action == "Save changes" || action == "Save price") ? TradeRules.price(price) : current?.premium)) · \((action == "Save changes" || action == "Save time in force") ? (timing == "OVERNIGHT" ? "OVT" : timing) : (current ?? initial).timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
+            Text("\((current ?? initial).contractLabel) · \(localizedLabel(current?.action ?? "", locale: locale)) \((action == "Save quantity" || action == "Save changes") ? String(quantity) : current?.quantity?.formatted() ?? "")\nLimit \(money((action == "Execute" || action == "Save changes" || action == "Save price") ? TradeRules.price(price) : current?.premium)) · \(action == "Save changes" ? (timing == "OVERNIGHT" ? "OVT" : timing) : (current ?? initial).timingLabel)\n\(localizedLabel(store.demo ? "Simulation only" : "Connected backend · real orders may execute", locale: locale))")
         }
     }
     private func perform(_ action: String) {
         guard let order = current else { return }
-        if action == "Save time in force" {
-            Task { _ = await store.trading.amendExitTIF(order, tif: timing, store: store) }
-            return
-        }
         if action == "Cancel order" && TradeRules.protectionCancelable(order) {
             Task { _ = await store.trading.cancelFromOrders(order, store: store) }
             return

@@ -325,6 +325,7 @@ final class WheelStore {
     var orderError: String?
     var ordersRetrying = false
     var busy = false
+    private var ordersRefreshAfterWrite = false
     var ordersBusy = false
     var ordersUpdated: Date?
     var error: String?
@@ -489,12 +490,20 @@ final class WheelStore {
         }
     }
 
-    func refreshOrders() async {
+    func refreshOrders(afterWrite: Bool = false) async {
+        if afterWrite { ordersRefreshAfterWrite = true }
         guard !ordersBusy, !trading.busy else { return }
+        ordersRefreshAfterWrite = false
         ordersBusy = true
         let token = revision
         let tradeVersion = trading.version
-        defer { ordersBusy = false; ordersRetrying = false }
+        defer {
+            ordersBusy = false
+            ordersRetrying = false
+            if ordersRefreshAfterWrite {
+                Task { await refreshOrders() }
+            }
+        }
         if demo {
             orders = trading.demoOrders; ordersUpdated = Date(); orderError = nil
             opportunities.synchronizeEntries(orders: orders)

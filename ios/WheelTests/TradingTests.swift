@@ -263,10 +263,45 @@ final class TradingTests: XCTestCase {
         XCTAssertEqual(body["perm_id"] as? Int, 91)
         XCTAssertEqual((body["expected"] as? [String: Any])?["tif"] as? String, "GTC")
         XCTAssertNil(body["quantity"]); XCTAssertNil(body["price"])
+
+        MockProtocol.requests = []
+        MockProtocol.payload = { request in
+            if request.httpMethod == "GET" { return ["confirmed": true, "message": "Time in force updated"] }
+            return ["success": false, "status": "unknown", "orders": []]
+        }
+        let unconfirmed = await store.trading.amendExitTIF(order, tif: "DAY", store: store)
+        XCTAssertFalse(unconfirmed)
+        XCTAssertTrue(store.trading.paperPending(base: store.address, conID: 7, groupID: group))
+        let reconciledOnly = await store.trading.amendExitTIF(order, tif: "DAY", store: store)
+        XCTAssertFalse(reconciledOnly)
+        XCTAssertFalse(store.trading.paperPending(base: store.address, conID: 7, groupID: group))
+        XCTAssertEqual(MockProtocol.requests.filter { $0.httpMethod == "POST" && $0.url?.path == request.url?.path }.count, 1)
         order.status = "filled"
         XCTAssertFalse(TradeRules.exitTIFEditable(order))
         order.status = "submitted"; order.chart_tif_ref = nil
         XCTAssertFalse(TradeRules.exitTIFEditable(order))
+    }
+
+    func testPostWriteRefreshSurvivesOlderInFlightRead() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [AccountHistoryProtocol.self]
+        let session = URLSession(configuration: config)
+        let store = WheelStore(session: session)
+        store.demo = false; store.address = "https://mock.invalid"
+        store.trading = TradingSession(session: session)
+        let before = expectation(description: "Pre-write history read")
+        let after = expectation(description: "Fresh read after the write")
+        var held: AccountHistoryProtocol?
+        defer { AccountHistoryProtocol.hold = nil }
+        AccountHistoryProtocol.hold = { request in held = request; before.fulfill() }
+        let refresh = Task { await store.refreshOrders() }
+        await fulfillment(of: [before], timeout: 3)
+        store.trading.version += 1
+        await store.refreshOrders(afterWrite: true)
+        AccountHistoryProtocol.hold = { request in request.finish(["orders": []]); after.fulfill() }
+        try XCTUnwrap(held).finish(["orders": []])
+        await refresh.value
+        await fulfillment(of: [after], timeout: 3)
     }
     func testTransientBusyBannerDoesNotClaimLogoutOrWeakenFreshness() async throws {
         let savedMode = UserDefaults.standard.object(forKey: "selectedBrokerMode")

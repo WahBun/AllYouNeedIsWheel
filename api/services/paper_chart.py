@@ -2861,7 +2861,8 @@ class PaperChart:
                         target=quote.get('bid' if actual>0 else 'ask') if quote else None
                     if not target: raise ValueError('Fresh executable quote required for Live limit close')
                     target=price(target)
-                    order=LimitOrder('SELL' if actual>0 else 'BUY',abs(actual),target,account=account,tif='DAY',orderRef=group.get('ref','WheelPaper:'+request_id))
+                    tif = 'GTC' if contract.secType == 'OPT' and 'exit_price' in body else 'DAY'
+                    order=LimitOrder('SELL' if actual>0 else 'BUY',abs(actual),target,account=account,tif=tif,orderRef=group.get('ref','WheelPaper:'+request_id))
                 old_close=group['ids'].get('close')
                 if old_close:
                     retired='close_retired_'+str(old_close)

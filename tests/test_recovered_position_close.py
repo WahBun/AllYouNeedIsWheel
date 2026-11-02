@@ -53,6 +53,10 @@ class RecoveredPositionCloseTests(unittest.TestCase):
             self.completed = copy.deepcopy(f.trades)
             for trade in self.completed:
                 trade.order.orderId = 0
+            # Exercise broker recovery by permanent ID rather than the saved terminal row.
+            group = f.service.group(account, 7)
+            group['terminal'].pop('entry')
+            f.service.save_group(account, 7, group)
         f.trades.clear()
         f.service = PaperChart(f.service.path)
         state = f.service.state(f.conn, 7)
@@ -74,7 +78,8 @@ class RecoveredPositionCloseTests(unittest.TestCase):
         order = f.trades[-1].order
         self.assertEqual((order.action, order.orderType, order.lmtPrice,
                           order.totalQuantity, order.account, order.tif),
-                         (action, 'LMT', .45, quantity, f.pos.account, 'DAY'))
+                         (action, 'LMT', .45, quantity, f.pos.account, 'GTC'))
+        self.assertEqual(f.service.group(f.pos.account, 7)['close_request']['tif'], order.tif)
         self.assertEqual(f.conn.ib.placeOrder.call_count, 1)
         self.assertEqual(self.close(), result)
         self.assertEqual(f.conn.ib.placeOrder.call_count, 1)
@@ -88,6 +93,14 @@ class RecoveredPositionCloseTests(unittest.TestCase):
     def test_paper_long_option_terminal_history_closes(self):
         self.recover(side=1)
         self.assert_close('SELL')
+
+    def test_immediate_paper_market_close_remains_day(self):
+        self.recover()
+        del self.body['exit_price'], self.body['exit_type']
+        result = self.close()
+        self.assertTrue(result['success'], result)
+        order = self.f.trades[-1].order
+        self.assertEqual((order.orderType, order.tif), ('MKT', 'DAY'))
 
     def test_completed_orders_with_reset_temporary_ids_close(self):
         self.recover(live=True, reset_ids=True)
