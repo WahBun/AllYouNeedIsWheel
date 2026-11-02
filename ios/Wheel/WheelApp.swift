@@ -2229,16 +2229,20 @@ struct ExpandablePositionRow<Content: View>: View {
 }
 
 struct PositionDayRange: View {
-    let position: Position
+    let identity: String
+    let low: Double?
+    let high: Double?
+    let price: Double?
+    let rangeStatus: String?
     @State private var movementColor: Color = .secondary
     @Environment(\.locale) private var locale
     private var bounds: (Double, Double)? {
-        guard let low = position.day_low, let high = position.day_high,
+        guard let low, let high,
               low.isFinite, high.isFinite, low > 0, high >= low else { return nil }
         return (low, high)
     }
     private var status: String {
-        switch position.day_range_status {
+        switch rangeStatus {
         case "live": return localizedLabel("Today's range", locale: locale)
         case "delayed": return localizedLabel("Session range · Delayed", locale: locale)
         case "frozen": return localizedLabel("Session range · Frozen", locale: locale)
@@ -2250,7 +2254,6 @@ struct PositionDayRange: View {
             if let (low, high) = bounds {
                 GeometryReader { geometry in
                     let width = geometry.size.width
-                    let price = position.day_range_price
                     let valid = price.map { $0.isFinite && $0 > 0 } ?? false
                     let fraction = valid ? (high > low ? min(1, max(0, (price! - low) / (high - low))) : 0.5) : 0
                     ZStack(alignment: .leading) {
@@ -2269,7 +2272,7 @@ struct PositionDayRange: View {
                 }.font(.caption2).monospacedDigit().foregroundStyle(.secondary)
             }
         }.frame(maxWidth: 160, alignment: .leading)
-            .onChange(of: position.day_range_price) { oldPrice, newPrice in
+            .onChange(of: price) { oldPrice, newPrice in
                 guard let oldPrice, let newPrice,
                       oldPrice.isFinite, newPrice.isFinite, oldPrice > 0, newPrice > 0 else {
                     movementColor = .secondary
@@ -2278,8 +2281,15 @@ struct PositionDayRange: View {
                 if newPrice > oldPrice { movementColor = .green }
                 else if newPrice < oldPrice { movementColor = .red }
             }
-            .onChange(of: position.id) { _, _ in movementColor = .secondary }
+            .onChange(of: identity) { _, _ in movementColor = .secondary }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(Text(verbatim: status))
+    }
+}
+
+extension PositionDayRange {
+    init(position: Position) {
+        self.init(identity: position.id, low: position.day_low, high: position.day_high,
+                  price: position.day_range_price, rangeStatus: position.day_range_status)
     }
 }

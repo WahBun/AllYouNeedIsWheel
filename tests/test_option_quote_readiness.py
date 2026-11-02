@@ -40,7 +40,7 @@ class OptionQuoteReadinessTests(unittest.TestCase):
         self.assertEqual(result['options'][0]['bid'], 0.6)
 
     def test_ready_quote_does_not_wait_for_missing_greeks(self):
-        ticker = SimpleNamespace(bid=0.60, ask=0.62, last=0.61, close=0.59,
+        ticker = SimpleNamespace(bid=0.60, ask=0.62, last=0.61, close=0.59, low=0.55, high=0.74,
                                  modelGreeks=None, impliedVolatility=math.nan)
         contract = SimpleNamespace(symbol='TSLL', strike=12.0, right='C',
                                    lastTradeDateOrContractMonth='20261016')
@@ -55,9 +55,13 @@ class OptionQuoteReadinessTests(unittest.TestCase):
         self.assertEqual(connection.ib.sleep_count, 1)
         self.assertEqual(result['options'][0]['ask'], 0.62)
         self.assertIsNone(result['options'][0]['delta'])
+        row = result['options'][0]
+        self.assertEqual((row['day_low'], row['day_high'], row['day_range_price']), (0.55, 0.74, 0.61))
+        ticker.last = math.nan
         ticker.modelGreeks = SimpleNamespace(impliedVol=0.45)
         result = connection.get_option_chain('TSLL', '20261016', 'C', 12.0, stock_price=9.69)
         self.assertEqual(result['options'][0]['implied_volatility'], 0.45)
+        self.assertIsNone(result['options'][0]['day_range_price'])
 
     def test_last_price_does_not_end_wait_before_two_sided_quote_arrives(self):
         ticker = SimpleNamespace(

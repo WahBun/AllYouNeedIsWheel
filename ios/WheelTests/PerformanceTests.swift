@@ -296,7 +296,11 @@ final class PerformanceTests: XCTestCase {
                 store.address = "https://performance.invalid"; store.selectedTab = "trade"
                 store.portfolio = Bootstrap(summary: Summary(account_value: 25000, cash_balance: 1000), positions: [],
                     connection: AccountConnection(mode: mode, execution_enabled: false, chart_execution_enabled: false))
-                store.opportunities.custom = []; store.opportunities.excluded = []
+                store.opportunities.custom = ["TQQQ"]; store.opportunities.excluded = []; store.opportunities.removedPuts = []
+                let quote = ContractQuote(strike: 60, expiration: "20261120", bid: 3.4, ask: 3.6,
+                                          day_low: 2.90, day_high: 3.95, day_range_price: 3.41, day_range_status: "live")
+                store.opportunities.rows[store.opportunities.key("TQQQ", "PUT")] = OpportunityRow(
+                    ticker: "TQQQ", type: "PUT", quote: quote, stockPrice: 62.10, price: "3.50")
                 store.opportunities.marketOpen = marketOpen
                 let controller = UIHostingController(rootView: RootView().environment(store)
                     .environment(\.locale, Locale(identifier: "en"))

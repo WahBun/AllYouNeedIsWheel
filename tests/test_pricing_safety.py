@@ -20,8 +20,10 @@ class PricingSafetyTests(unittest.TestCase):
         return result['puts'][0]
 
     def test_missing_last_uses_only_a_valid_two_sided_mid(self):
-        option = self.process(bid=0.9, ask=1.1, last=0)
+        option = self.process(bid=0.9, ask=1.1, last=0, day_low=0.7, day_high=1.2, day_range_status='delayed')
         self.assertEqual(option['last'], 1.0)
+        self.assertIsNone(option['day_range_price'])
+        self.assertEqual((option['day_low'], option['day_high'], option['day_range_status']), (0.7, 1.2, 'delayed'))
 
     def test_single_sided_quote_never_creates_a_price(self):
         for option in (
