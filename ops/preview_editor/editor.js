@@ -22,7 +22,7 @@
       <footer><button id="reset" disabled>Reset element</button><button id="save" disabled>Use this version</button></footer>
       <small id="status" role="status"></small>
     </section>
-    <div id="outline" hidden><button data-edge="left" aria-label="Drag left edge"></button><button data-edge="right" aria-label="Drag right edge"></button><button data-edge="bottom" aria-label="Drag bottom edge"></button></div>`;
+    <div id="outline" hidden><button id="move" aria-label="Move selected element" title="Drag to move · Arrow keys: 1 px · Shift + arrow: 10 px">✥ Move</button><button data-edge="left" aria-label="Drag left edge"></button><button data-edge="right" aria-label="Drag right edge"></button><button data-edge="bottom" aria-label="Drag bottom edge"></button></div>`;
   const $ = id => ui.getElementById(id);
   const schema = key => properties[key];
   const isNumber = spec => Array.isArray(spec) && typeof spec[0] === 'number';
@@ -118,6 +118,24 @@
     }
     return null;
   }
+  const isOffset = key => key==='offset-x' || key==='offset-y';
+  const canMove = el => el && el!==el.ownerDocument.body;
+  const offset = key => selection ? (edits.get(keyOf(selection))?.properties[key]?.to ?? 0) : 0;
+  function place(style, el, props) {
+    const x=props['offset-x']?.to||0, y=props['offset-y']?.to||0;
+    const native=el && getComputedStyle(el);
+    if(native?.display==='inline' && native.position==='static' && el.namespaceURI==='http://www.w3.org/1999/xhtml'){
+      // Relative offsets also work on wrapping inline text without making it a block.
+      style.setProperty('position','relative','important');
+      style.setProperty('inset',y+'px auto auto '+x+'px','important');
+      return;
+    }
+    // Individual translate composes with the chart's transform (e.g. centering).
+    const base=native?.translate;
+    const [left='0px',top='0px',depth]=base && base!=='none' ? base.split(/\s+(?![^()]*\))/) : [];
+    const shifted=(original,delta)=>delta ? 'calc('+original+' + '+delta+'px)' : original;
+    style.setProperty('translate',[shifted(left,x),shifted(top,y),depth].filter(Boolean).join(' '),'important');
+  }
   function writeSheet(doc,sheet) {
     // Use CSSOM properties. No saved value is parsed as a CSS declaration list.
     const css=sheet.sheet;
@@ -136,18 +154,27 @@
         if(parent?.display.includes('flex') && (parent.flexDirection.startsWith('row') ? props.width : props.height))style.setProperty('flex','0 0 auto','important');
         for(const key of ['width','height'])if(props[key])style.setProperty('max-'+key,'none','important');
       }
-      for(const [key,pair] of Object.entries(props))style.setProperty(key,isNumber(schema(key))?pair.to+'px':pair.to,'important');
+      if(props['offset-x'] || props['offset-y']){
+        if(!el)missing.push(item.selector);
+        if(!el || canMove(el))place(style,el,props);
+      }
+      for(const [key,pair] of Object.entries(props)){
+        if(!isOffset(key))style.setProperty(key,isNumber(schema(key))?pair.to+'px':pair.to,'important');
+      }
     }
     css.disabled=comparing;
   }
   function apply() {for(const [doc,sheet] of documents)writeSheet(doc,sheet);display();}
-  function edit(prop,to,base) {
-    if(!selection || !validValue(schema(prop),to))return;
+  function edit(prop,to,base) { editBatch([[prop,to,base]]); }
+  function editBatch(updates) {
+    if(!selection || updates.some(([prop,to])=>!validValue(schema(prop),to)))return;
     const key=keyOf(selection), item=edits.get(key)||{...selection,properties:{}};
     if(!edits.has(key)&&edits.size>=256){status('Blueprint is full. Reset an element before adding another.');return;}
-    const from=item.properties[prop]?.from ?? base;
-    if(prop==='gap'){delete item.properties['column-gap'];delete item.properties['row-gap'];}
-    if(from===to)delete item.properties[prop];else item.properties[prop]={from,to};
+    for(const [prop,to,base] of updates){
+      const from=item.properties[prop]?.from ?? base;
+      if(prop==='gap'){delete item.properties['column-gap'];delete item.properties['row-gap'];}
+      if(from===to)delete item.properties[prop];else item.properties[prop]={from,to};
+    }
     if(Object.keys(item.properties).length)edits.set(key,item);else edits.delete(key);
     apply();saveSoon();
   }
@@ -159,6 +186,7 @@
     return '#'+nums.slice(0,3).map(byte).join('')+(nums.length===4 && +nums[3]<1?byte(+nums[3]*255):'');
   }
   function measure(el,cs,key) {
+    if(isOffset(key))return offset(key);
     if(key==='width'||key==='height')return Math.round(el.getBoundingClientRect()[key]);
     if(key==='gap' && cs.rowGap===cs.columnGap)return parseFloat(cs.columnGap)||0;
     const value=cs.getPropertyValue(key).trim();
@@ -174,7 +202,7 @@
         const row=document.createElement('label'),name=document.createElement('span'),output=document.createElement('output');
         name.textContent=label(key); const input=document.createElement(Array.isArray(spec)&&!isNumber(spec)?'select':'input');
         input.setAttribute('aria-label',name.textContent);
-        if(isNumber(spec)){input.type='range';input.min=spec[0];input.max=spec[1];}
+        if(isNumber(spec)){input.type=isOffset(key)?'number':'range';input.min=spec[0];input.max=spec[1];}
         else if(spec==='color')input.type='color';
         else for(const opt of spec)input.add(new Option(opt,opt));
         const clear=document.createElement('button');
@@ -187,7 +215,11 @@
         const begin=()=>{if(base===undefined&&current()){base=measure(current(),getComputedStyle(current()),key);remember();}};
         input.addEventListener('pointerdown',begin);
         input.addEventListener('keydown',e=>{if(!['Tab','Shift','Escape'].includes(e.key))begin();});
-        input.addEventListener('input',()=>{begin();edit(key,isNumber(spec)?Number(input.value):input.value,base);});
+        input.addEventListener(isOffset(key)?'change':'input',()=>{
+          const value=isNumber(spec)?input.valueAsNumber:input.value;
+          if(!validValue(spec,value)){display();return;}
+          begin();edit(key,value,base);
+        });
         for(const evt of ['change','blur','pointercancel'])input.addEventListener(evt,()=>{base=undefined;});
         controls.set(key,{row,input,output,clear});
       }
@@ -222,7 +254,7 @@
       const cs=getComputedStyle(el), flex=/flex|grid/.test(cs.display);
       for(const [key,{row,input,output,clear}] of controls){
         clear.disabled=!edits.get(keyOf(selection))?.properties[key];
-        row.hidden=(!flex && ['gap','row-gap','column-gap','justify-content','align-items'].includes(key));
+        row.hidden=(isOffset(key) && !canMove(el)) || (!flex && ['gap','row-gap','column-gap','justify-content','align-items'].includes(key));
         if(row.hidden)continue;
         const value=measure(el,cs,key), spec=schema(key);
         if(isNumber(spec)){
@@ -237,9 +269,14 @@
   function outline(){
     scheduled=false;const el=current();
     $('outline').hidden=!el||!editing||comparing;if($('outline').hidden)return;
+    $('move').hidden=!canMove(el);
     const r=el.getBoundingClientRect(),frame=el.ownerDocument.defaultView.frameElement;
     const f=frame?.getBoundingClientRect();
     const x=r.x+(f?.x||0)+(frame?.clientLeft||0),y=r.y+(f?.y||0)+(frame?.clientTop||0);
+    // Keep the move grip reachable when the selected box starts outside the viewport.
+    const gripX=Math.max(0,Math.min(Math.max(0,r.width-64),Math.max(0,4-x)));
+    const gripY=y>=26 ? -24 : Math.max(0,4-y);
+    Object.assign($('move').style,{left:gripX+'px',top:gripY+'px'});
     Object.assign($('outline').style,{left:x+'px',top:y+'px',width:r.width+'px',height:r.height+'px'});
     const panel=ui.querySelector('section');
     panel.classList.toggle('upper',x+r.width>innerWidth-panel.offsetWidth-24 && y+r.height>innerHeight-panel.offsetHeight-12 && y>panel.offsetHeight+12);
@@ -250,12 +287,17 @@
     el=normalized(el);if(!el)return;
     anchor=el;preferredDoc=el.ownerDocument;selection=targetOf(el);armed=false;
     observer.disconnect();observer.observe(el);if(el.ownerDocument.defaultView.frameElement)observer.observe(el.ownerDocument.defaultView.frameElement);
-    open(true);status();
+    open(true);outline();status();
   }
   function portal(){
     const modals=[...document.querySelectorAll('dialog:modal')];
     const parent=modals.at(-1)||document.fullscreenElement||document.body;
     if(parent!==host.parentNode)parent.append(host);
+    // A moved dialog can establish a containing block. Keep its handles in viewport coordinates.
+    if(parent.matches('dialog:modal') && host.showPopover){
+      host.setAttribute('popover','manual');
+      if(!host.matches(':popover-open'))host.showPopover();
+    }else if(host.hasAttribute('popover'))host.removeAttribute('popover');
   }
   function open(on) {
     editing=on; armed=on&&!selection; $('toggle').hidden=on;
@@ -314,6 +356,30 @@
   $('parent').onclick=()=>{const el=current();if(el)choose(el===el.ownerDocument.body?el.ownerDocument.defaultView.frameElement:el.parentElement);};
   $('browse').onclick=()=>{const show=$('finder').hidden;$('finder').hidden=!show;$('browse').setAttribute('aria-expanded',String(show));if(show){browse();$('filter').focus();}};
   $('filter').oninput=browse;$('list').onchange=()=>{const opt=options[$('list').selectedIndex];if(opt){choose(opt.el);opt.el.scrollIntoView({block:'nearest'});}};
+  const move=$('move');
+  const clampOffset=(key,n)=>Math.max(schema(key)[0],Math.min(schema(key)[1],Math.round(n)));
+  function moveTo(x,y){
+    editBatch([['offset-x',clampOffset('offset-x',x),0],['offset-y',clampOffset('offset-y',y),0]]);
+  }
+  move.onpointerdown=e=>{
+    if(e.button!==0 || !e.isPrimary || !canMove(current()))return;
+    e.preventDefault();move.focus({preventScroll:true});move.setPointerCapture(e.pointerId);
+    drag={pointer:e.pointerId,x:e.clientX,y:e.clientY,offsetX:offset('offset-x'),offsetY:offset('offset-y'),started:false};
+  };
+  move.onpointermove=e=>{
+    if(drag?.pointer!==e.pointerId)return;
+    const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+    if(!drag.started){if(!dx && !dy)return;remember();drag.started=true;}
+    moveTo(drag.offsetX+dx,drag.offsetY+dy);
+  };
+  move.onlostpointercapture=()=>{drag=null;};
+  move.onkeydown=e=>{
+    const step=e.shiftKey?10:1;
+    const delta={ArrowLeft:[-step,0],ArrowRight:[step,0],ArrowUp:[0,-step],ArrowDown:[0,step]}[e.key];
+    if(!delta || !canMove(current()))return;
+    e.preventDefault();e.stopPropagation();remember();
+    moveTo(offset('offset-x')+delta[0],offset('offset-y')+delta[1]);
+  };
   for(const handle of ui.querySelectorAll('[data-edge]')){
     handle.onpointerdown=e=>{
       const el=current();if(!el)return;

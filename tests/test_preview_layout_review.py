@@ -19,7 +19,7 @@ class LayoutReviewTests(unittest.TestCase):
         token = re.search(r'wheel-preview-token" content="([^"]+)', client.get('/superchart').text)[1]
         headers = {'Origin': origin, 'X-Wheel-Preview': token}
         body = {'viewport': [1400, 900], 'changes': [{'selector': '.positions-leverage',
-                'properties': {'width': {'from': 320, 'to': 290}}},
+                'properties': {'width': {'from': 320, 'to': 290}, 'offset-x': {'from': 0, 'to': -28}, 'offset-y': {'from': 0, 'to': 13}}},
                 {'scope': 'chart', 'selector': '#chart-title', 'properties': {
                     'color': {'from': 'rgb(20, 30, 50)', 'to': '#4cbbbd'},
                     'font-weight': {'from': 'normal', 'to': '600'}}}]}
@@ -29,7 +29,7 @@ class LayoutReviewTests(unittest.TestCase):
             self.assertEqual(client.post(url, json=body, headers=dict(headers, Origin='https://other.test')).status_code, 403)
             self.assertEqual(client.post(url, json=dict(body, changes=[{'selector':'p','properties':{'src':'file'}}]), headers=headers).status_code, 400)
             for scope, key, value in [('other', 'width', 80), ('page', 'color', 'url(test)'),
-                                      ('chart', 'padding-left', -10), ('page', 'text-align', 'inherit; display:none')]:
+                                      ('page', 'offset-x', 9000), ('chart', 'padding-left', -10), ('page', 'text-align', 'inherit; display:none')]:
                 changes = [{'scope': scope, 'selector': 'p', 'properties': {key: {'from': 0, 'to': value}}}]
                 self.assertEqual(client.post(url, json=dict(body, changes=changes), headers=headers).status_code, 400)
             self.assertFalse(list(Path(temp).rglob('*.json')))

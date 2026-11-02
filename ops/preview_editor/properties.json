@@ -1,4 +1,7 @@
 {
+  "Position": {
+    "offset-x": [-8192, 8192], "offset-y": [-8192, 8192]
+  },
   "Size": {
     "width": [1, 4096], "height": [1, 2048]
   },
