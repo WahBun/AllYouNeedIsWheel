@@ -7,6 +7,7 @@ import logging
 from config import Config
 from api.services.connection_manager import get_shared_connection
 import traceback
+from api.services.portfolio_stock_range import add_stock_ranges
 from api.services.entry_price import recorded_entry_price, broker_entry_price
 
 logger = logging.getLogger('api.services.portfolio')
@@ -239,6 +240,7 @@ class PortfolioService:
             if not portfolio:
                 return None
 
+            add_stock_ranges(conn, portfolio)
             return {
                 'summary': self._summary_from_portfolio(portfolio),
                 'connection': self.connection_status(conn),
@@ -256,6 +258,7 @@ class PortfolioService:
             return None
 
         portfolio = conn.get_live_portfolio()
+        add_stock_ranges(conn, portfolio)
         return {
             'positions': self._positions_from_portfolio(portfolio),
             'connection': self.connection_status(conn),
