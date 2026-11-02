@@ -1017,7 +1017,9 @@ struct PortfolioView: View {
                 Section(LocalizedStringKey(type == "STK" ? "Stocks" : type == "FUT" ? "Futures" : "Options")) {
                     let sectionPositions = heldPositions.filter { $0.security_type == type }
                     ForEach(type == "OPT" ? OptionPositionOrder.sorted(sectionPositions) : sectionPositions) { position in
-                        ExpandablePositionRow(position: position) { expanded in
+                        ExpandableRangeRow(range: PositionDayRange(position: position), detailsHint: "Open position details") {
+                            PositionDetail(position: position)
+                        } content: {
                             if position.security_type == "OPT" {
                                 PortfolioOptionRow(position: position, showsRange: false)
                             } else {
@@ -2189,31 +2191,32 @@ enum AccountConnectionRules {
 
 
 /// The header opens details after expansion; the separate range button collapses it.
-struct ExpandablePositionRow<Content: View>: View {
-    let position: Position
-    @ViewBuilder let content: (Bool) -> Content
+struct ExpandableRangeRow<Destination: View, Content: View>: View {
+    let range: PositionDayRange?
+    let detailsHint: LocalizedStringKey
+    @ViewBuilder let destination: () -> Destination
+    @ViewBuilder let content: () -> Content
     @State private var expanded = false
     @State private var showDetails = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.locale) private var locale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                if expanded { showDetails = true }
+                if expanded || range == nil { showDetails = true }
                 else { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { expanded = true } }
             } label: {
-                content(expanded)
+                content()
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityHint(Text(LocalizedStringKey(expanded ? "Open position details" : "Show daily price range")))
-            if expanded {
+            .accessibilityHint(Text(expanded || range == nil ? detailsHint : "Show daily price range"))
+            if expanded, let range {
                 Button {
                     withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { expanded = false }
                 } label: {
-                    PositionDayRange(position: position)
+                    range
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         .contentShape(Rectangle())
                 }
@@ -2221,7 +2224,8 @@ struct ExpandablePositionRow<Content: View>: View {
                 .accessibilityLabel(Text("Hide daily price range"))
             }
         }
-        .navigationDestination(isPresented: $showDetails) { PositionDetail(position: position) }
+        .navigationDestination(isPresented: $showDetails, destination: destination)
+        .onChange(of: range?.identity) { expanded = false }
         .onChange(of: showDetails) { wasPresented, isPresented in
             if wasPresented && !isPresented { expanded = false }
         }
