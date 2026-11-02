@@ -1534,7 +1534,7 @@ struct LeverageMeter: View {
     private var value: Double? { percentage.flatMap { $0.isFinite ? $0 : nil } }
     private var tint: Color {
         guard let value else { return .secondary }
-        return value < 30 ? .green : value < 60 ? .yellow : .red
+        return value < 30 ? .green : value < 70 ? .yellow : .red
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
