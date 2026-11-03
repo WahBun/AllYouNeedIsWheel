@@ -19,7 +19,8 @@ class Subscriber:
         self.con_id, self.minutes, self.session = con_id, minutes, session
         self.queue = Queue(maxsize=8)
         self.sequence = 0
-        self.previous = None
+        self.previous_bars = {}
+        self.generation = None
         self.sent = 0
         self.created = time.monotonic()
         self.closed = False
@@ -28,23 +29,33 @@ class Subscriber:
 
     def publish(self, packet):
         bars = packet['bars']
-        old = self.previous
-        reset = old is None or old['generation'] != packet['generation'] or self.queue.full()
+        reset = self.sequence == 0 or self.generation != packet['generation'] or self.queue.full()
+        previous = self.previous_bars
+        changed = []
+        if not reset:
+            added = 0
+            for bar in bars:
+                old = previous.get(bar['time'])
+                if old != bar:
+                    added += old is None
+                    changed.append(dict(bar))
+            # Aggregated candles have unique timestamps. A removed timestamp
+            # requires a snapshot, including replacement of an equal-length range.
+            reset = len(bars) != len(previous) + added
         if reset:
             while True:
                 try: self.queue.get_nowait()
                 except Empty: break
-        previous_bars = {b['time']: b for b in old['bars']} if old and not reset else {}
-        # A full snapshot also handles dropped/trimmed history.
-        if old and not reset and not set(previous_bars).issubset({b['time'] for b in bars}):
-            reset = True
-        changed = bars if reset else [b for b in bars if previous_bars.get(b['time']) != b]
+            changed = [dict(bar) for bar in bars]
+            previous.clear()
+        # Keep owned immutable comparisons. Quote-only updates never need to
+        # allocate a second full chart history on the serialized IB thread.
+        previous.update((bar['time'], bar) for bar in changed)
+        self.generation = packet['generation']
         self.sequence += 1
-        payload = dict(packet, bars=[dict(b) for b in changed], pushed_at=time.time(), mode='snapshot' if reset else 'delta',
+        payload = dict(packet, bars=changed, pushed_at=time.time(), mode='snapshot' if reset else 'delta',
                        sequence=self.sequence, transport='SSE push')
         self.queue.put_nowait(payload)
-        # OHLC dictionaries mutate in place on the owner thread.
-        self.previous = dict(packet, bars=[dict(b) for b in bars])
         self.sent = time.monotonic()
         if self.ready is not None: self.ready.set()
 
@@ -97,7 +108,6 @@ class ChartStreams:
         # Called on the IB owner directly from the ticker callback, including
         # while synchronous IB reads are yielding to that same event loop.
         from api.routes.account import epoch
-        latest_charts.publish(stock_chart,state,epoch())
         now = time.monotonic()
         marker = (state['ticks'], tuple(sorted(state['quotes'].items())),
                   tuple((r['low'], r['increment']) for r in state.get('price_rules', [])))
@@ -111,6 +121,9 @@ class ChartStreams:
                 if context not in packets:
                     packets[context] = stock_chart.packet(state, *context)
                 sub.publish(self.with_pnl(packets[context], state['conn'], sub))
+
+        # Queue live deltas before serializing the optional HTTP fallback snapshot.
+        latest_charts.publish(stock_chart, state, epoch())
 
     def pulse(self):
         contexts=latest_charts.contexts()

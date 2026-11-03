@@ -51,6 +51,18 @@ class ChartPushTests(unittest.TestCase):
         sub.publish(p)
         self.assertEqual(sub.queue.get_nowait()['bars'],[p['bars'][0]])
 
+    def test_removed_bar_with_same_length_requires_snapshot(self):
+        sub = Subscriber(1, 1, 'all')
+        packet = self.packet()
+        packet['bars'].append(dict(packet['bars'][0], time=120))
+        sub.publish(packet)
+        sub.queue.get_nowait()
+        packet['bars'] = [packet['bars'][1], dict(packet['bars'][1], time=180)]
+        sub.publish(packet)
+        update = sub.queue.get_nowait()
+        self.assertEqual(update['mode'], 'snapshot')
+        self.assertEqual(update['bars'], packet['bars'])
+
     def test_owner_pump_publishes_ticks_without_http_poll(self):
         import asyncio
         from datetime import datetime, timezone
