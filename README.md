@@ -16,7 +16,7 @@ The **desktop web workspace** brings 1/2/3/4 charts, drawings, indicators, price
 
 As of **2026-10-25**, Wheel is in everyday use and stability maintenance. Ordinary issues are collected and grouped for small, focused repairs; trading-safety problems and normal-use blockers take priority. Preserve the established layouts, tick-level market-data path and confirmed trading interactions. This direction does not imply acceptance of every scenario or Live trading workflow.
 
-Official code is identified by repository, branch and commit SHA. The release is [Wheel: v1.8.4](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.8.4), from **`Ben/wheel-1.8`**. The release tag identifies the exact source commit; do not assume `main` is newest. Web version metadata is 1.8.4 and native iOS Settings shows **1.8.4 (4)** after a fresh build/install. Publication does not deploy Mini or update the installed iPhone app.
+Official code is identified by repository, branch and commit SHA. The release is [Wheel: v1.8.5](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.8.5), from **`Ben/wheel-1.8`**. The release tag identifies the exact source commit; do not assume `main` is newest. Web version metadata is 1.8.5 and native iOS Settings shows **1.8.5 (5)** after a fresh build/install. Publication does not deploy Mini or update the installed iPhone app.
 
 Recommended roles: the **development Mac** handles development, Xcode and iPhone builds; the **backend host** runs Gateway, Backend and the API continuously. The development Mac and iPhone reach the backend host through Tailscale. The user chooses deployments and restarts from a computer or phone, and performs the iPhone Xcode Run.
 
