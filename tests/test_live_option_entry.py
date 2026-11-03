@@ -1,4 +1,5 @@
 """Exercise the real chart service using broker mocks and temporary journals."""
+import json
 import unittest
 from types import SimpleNamespace as S
 from uuid import uuid4
@@ -96,6 +97,82 @@ class LiveOptionEntryTests(unittest.TestCase):
         self.assertEqual(f.conn.ib.placeOrder.call_count,1)
         self.assertEqual(f.service.execute(f.conn,7,body),result)
         self.assertEqual(f.conn.ib.placeOrder.call_count,1)
+
+    def old_flat_group(self):
+        f = self.f
+        ref = 'WheelPaper:'+str(uuid4())
+        legs = [('entry','SELL',1), ('entry_1','SELL',1), ('close','BUY',1),
+                ('trim_15','BUY',1), ('close_retired_16','BUY',0)]
+        group = dict(ref=ref, side=-1, ids={}, perms={}, terminal={})
+        with f.service.database() as db:
+            db.execute('CREATE TABLE chart_broker_terms (account,con_id,perm_id,action)')
+            db.execute('CREATE TABLE chart_execution_marks (account,con_id,exec_id,group_id,quantity,side)')
+            for n,(role,action,filled) in enumerate(legs,1):
+                perm = n+500
+                group['ids'][role] = n
+                group['perms'][role] = perm
+                group['terminal'][role] = dict(role=role,order_id=n,filled=filled,quantity=1,
+                                               status='Filled' if filled else 'Cancelled')
+                db.execute('INSERT INTO chart_broker_terms VALUES(?,?,?,?)', ('U_TEST',7,perm,action))
+                if filled:
+                    db.execute('INSERT INTO chart_execution_marks VALUES(?,?,?,?,?,?)',
+                               ('U_TEST',7,f'broker.{n}.01.01',f'perm:{perm}',1,action))
+            db.execute('INSERT INTO chart_paper_group_history VALUES(?,?,?,?)',('U_TEST',7,ref,json.dumps(group)))
+        return group
+
+    def test_old_flat_option_group_does_not_lock_an_acknowledged_new_sell(self):
+        f = self.f
+        f.contract.right = 'P'
+        f.conn.ib.client.clientId = 71
+        self.old_flat_group()
+        body = self.body(side=-1,quantity=1,tp=None,sl=None)
+        place = f.conn.ib.placeOrder.side_effect
+        def pending(contract, order):
+            trade = place(contract, order)
+            trade.order.clientId = 71
+            trade.orderStatus.status = 'PendingSubmit'
+            return trade
+        f.conn.ib.placeOrder.side_effect = pending
+        result = f.service.execute(f.conn,7,body)
+        self.assertEqual(result['status'],'unknown',result)  # no permanent ID yet
+        f.trades[0].orderStatus.status = 'Submitted'
+        f.conn.ib.placeOrder.side_effect = place
+        order = f.trades[0].order
+        order.permId,order.clientId = 950,71
+        f.conn.ib.placeOrder.reset_mock()
+        with patch('core.archived_order_group.proven_flat', return_value=False):
+            self.assertFalse(f.service.request_status(f.conn,7,body['request_id'])['confirmed'])
+        self.assertTrue(f.service.request_status(f.conn,7,body['request_id'])['confirmed'])
+        state = f.service.state(f.conn,7)
+        self.assertTrue(state['entry_editable'], state.get('sync_error'))
+        f.conn.ib.placeOrder.assert_not_called()
+        result = f.service.execute(f.conn,7,dict(request_id=str(uuid4()), action='edit_entry', price=9.75,
+                                    expected_ref=state['order_ref'],expected_snapshot=state['edit_snapshot']))
+        self.assertTrue(result['success'], result)
+        self.assertEqual([(t.order.orderId,t.order.permId,t.order.lmtPrice) for t in f.trades], [(order.orderId,950,9.75)])
+        self.assertEqual(f.conn.ib.placeOrder.call_count,1)
+        f.conn.ib.cancelOrder.assert_not_called()
+
+    def test_archived_close_requires_complete_consistent_evidence(self):
+        from core.archived_order_group import proven_flat
+        from core.order_group_ledger import migrate
+        f = self.f
+        old = self.old_flat_group()
+        migrate(f.service.path)
+        with f.service.database() as db:
+            def proven(**kwargs):
+                return proven_flat(db,'U_TEST',7,71,old,kwargs.get('groups',[old]),kwargs.get('trades',[]),[])
+            self.assertTrue(proven())
+            self.assertFalse(proven(groups=[old,dict(ref='other',perms={'entry':501})]))
+            working = S(order=S(account='U_TEST',orderRef=old['ref'],permId=501),contract=f.contract)
+            self.assertFalse(proven(trades=[working]))
+            old['terminal']['close']['status']='Unknown'
+            self.assertFalse(proven())
+            old['terminal']['close']['status']='Filled'
+            db.execute("UPDATE chart_execution_marks SET side='SELL' WHERE group_id='perm:503'")
+            self.assertFalse(proven())
+            db.execute("DELETE FROM chart_execution_marks WHERE group_id='perm:503'")
+            self.assertFalse(proven())
 
     def test_margin_put_inactive_broker_response_is_not_success_or_replayed(self):
         from ib_async import TradeLogEntry
