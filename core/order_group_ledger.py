@@ -154,7 +154,7 @@ def durable_terminal_trades(path, account, cid, trades):
         return _durable_terminal_trades(db, account, cid, trades)
 
 
-def project(path, account, cid, client, groups, trades, fills, account_position, *, baseline_records=()):
+def project(path, account, cid, client, groups, trades, fills, account_position, *, baseline_records=(), archived_refs=()):
     """Return quantities only from exact, nonconflicting executions.
 
     Every observed payload is retained. Duplicate callbacks are harmless;
@@ -177,6 +177,10 @@ def project(path, account, cid, client, groups, trades, fills, account_position,
         if len(positions)!=len(groups):conflict('Duplicate group reference')
         for g in groups:
             ref=g['ref']
+            if ref in archived_refs:
+                from core.archived_order_group import proven_flat
+                if proven_flat(db, account, cid, client, g, groups, trades, fills):
+                    continue
             if len(set(g['ids'].values()))!=len(g['ids']):conflict('Duplicate order identity within group: '+ref)
             if g.get('origin_position'):conflict('Legacy opening balance lacks execution ownership: '+ref)
             for role,oid in g['ids'].items():

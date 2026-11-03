@@ -216,7 +216,8 @@ class PaperChart:
                 pass  # Missing evidence stays unknown in the projection below.
         total=sum(float(p.position) for p in conn.ib.positions() if p.account==account and p.contract.conId==cid)
         view = project(self.path,account,cid,conn.ib.client.clientId,groups,trades,conn.ib.fills(),total,
-                       baseline_records=checkpoint['baseline'] if checkpoint else (position_boundary or {}).get('baseline', ()))
+                       baseline_records=checkpoint['baseline'] if checkpoint else (position_boundary or {}).get('baseline', ()),
+                       archived_refs={g['ref'] for g in historical})
         view['recovery_refs'] = recovery_refs
         if checkpoint:
             view.update(flat_checkpoint=checkpoint['request_id'], historical_unresolved_refs=checkpoint['references'])
