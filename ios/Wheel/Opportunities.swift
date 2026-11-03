@@ -755,12 +755,28 @@ struct OpportunitiesView: View {
         .listRowBackground(focusedCandidate == id ? Color.accentColor.opacity(0.16) : nil)
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             if let pin {
-                Button("Change contract") { editor = CandidatePickerContext(symbol: symbol, pin: pin) }
-                Button("Remove contract", role: .destructive) { book.removePin(pin, group: group) }
+                Button {
+                    editor = CandidatePickerContext(symbol: symbol, pin: pin)
+                } label: {
+                    Image(systemName: "pencil")
+                }.tint(.blue).accessibilityLabel("Change contract")
+                Button(role: .destructive) {
+                    book.removePin(pin, group: group)
+                } label: {
+                    Image(systemName: "trash")
+                }.tint(.red).accessibilityLabel("Remove contract")
             } else {
-                Button("Hide", systemImage: "eye.slash") { book.excluded.append(group); book.save() }.tint(.gray)
+                Button {
+                    book.excluded.append(group); book.save()
+                } label: {
+                    Image(systemName: "eye.slash")
+                }.tint(.indigo).accessibilityLabel("Hide")
                 if type == "PUT" {
-                    Button(role: .destructive) { book.removePut(symbol) } label: { Label("Remove", systemImage: "trash") }
+                    Button(role: .destructive) {
+                        book.removePut(symbol)
+                    } label: {
+                        Image(systemName: "trash")
+                    }.tint(.red).accessibilityLabel("Remove")
                 }
             }
         }
