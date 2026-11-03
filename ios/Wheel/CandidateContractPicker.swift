@@ -33,11 +33,11 @@ struct CandidateContractPicker: View {
                         }
                     }
                     if loadedExpiration == expiration, !strikes.isEmpty {
-                        Picker("Strike", selection: $strike) {
-                            ForEach(strikes, id: \.self) { value in
-                                Text(money(value)).tag(Optional(value))
-                            }
-                        }.pickerStyle(.navigationLink)
+                        NavigationLink {
+                            CandidateStrikeList(strikes: strikes, selection: $strike, stockPrice: primary?.stockPrice)
+                        } label: {
+                            LabeledContent("Strike", value: money(strike))
+                        }
                     } else if error == nil { ProgressView("Loading contracts…") }
                     if let error {
                         NoticeText(error)
@@ -54,6 +54,10 @@ struct CandidateContractPicker: View {
                         .disabled(loadedExpiration != expiration || strike.map { !strikes.contains($0) } != false)
                 }
             }
+        }
+        .task {
+            guard !store.demo, primary?.stockQuoteIsFresh(at: .now, batchFailed: store.opportunities.priceError != nil) != true else { return }
+            _ = await store.opportunities.refreshPrices([symbol], type: type, store: store)
         }
         .task(id: retry) {
             do {
@@ -81,6 +85,43 @@ struct CandidateContractPicker: View {
                 strike = values.min { abs($0 - target) < abs($1 - target) }
                 loadedExpiration = date
             } catch { if !Task.isCancelled { self.error = connectionMessage(error) } }
+        }
+    }
+}
+
+struct CandidateStrikeList: View {
+    let strikes: [Double]
+    @Binding var selection: Double?
+    let stockPrice: Double?
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            List(strikes, id: \.self) { value in
+                Button {
+                    selection = value
+                    dismiss()
+                } label: {
+                    HStack {
+                        Text(money(value)).foregroundStyle(.primary)
+                        Spacer()
+                        if selection == value { Image(systemName: "checkmark").accessibilityHidden(true) }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .accessibilityAddTraits(selection == value ? .isSelected : [])
+                .id(value)
+            }
+            .navigationTitle("Strike")
+            .task {
+                // Position once per visit. Later quote ticks must not move a list being browsed.
+                let price = stockPrice.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+                guard let target = price ?? selection,
+                      let nearest = strikes.min(by: { abs($0 - target) < abs($1 - target) }) else { return }
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                proxy.scrollTo(nearest, anchor: .center)
+            }
         }
     }
 }

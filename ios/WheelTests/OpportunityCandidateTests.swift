@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import Wheel
 
 @MainActor
@@ -10,6 +11,33 @@ final class OpportunityCandidateTests: XCTestCase {
         store.opportunities.configure(context: context)
         addTeardownBlock { UserDefaults.standard.removeObject(forKey: "opportunities-v1-" + context) }
         return (store, context)
+    }
+
+    func testStrikeViewportCentersMarketPriceWithoutSelectingIt() async throws {
+        let strikes = (0..<150).map { 10.0 + Double($0) / 2 }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        func list(in view: UIView) -> UICollectionView? {
+            (view as? UICollectionView) ?? view.subviews.lazy.compactMap { list(in: $0) }.first
+        }
+        // $60.35 is closest to $60.50. Without a quote, keep the selected $40.00 in view.
+        for (price, expected) in [(60.35 as Double?, 60.50), (nil, 40.00)] {
+            var selection: Double? = 40
+            let host = UIHostingController(rootView: CandidateStrikeList(strikes: strikes,
+                selection: Binding(get: { selection }, set: { selection = $0 }), stockPrice: price))
+            let window = UIWindow(windowScene: scene)
+            window.frame = CGRect(x: 0, y: 0, width: 393, height: 800)
+            window.rootViewController = host; window.makeKeyAndVisible(); host.view.frame = window.bounds
+            defer { window.isHidden = true; window.rootViewController = nil }
+            let index = IndexPath(item: try XCTUnwrap(strikes.firstIndex(of: expected)), section: 0)
+            for _ in 0..<40 {
+                if list(in: host.view)?.cellForItem(at: index) != nil { break }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            let collection = try XCTUnwrap(list(in: host.view))
+            let cell = try XCTUnwrap(collection.cellForItem(at: index))
+            XCTAssertEqual(cell.frame.midY, collection.bounds.midY, accuracy: cell.bounds.height)
+            XCTAssertEqual(selection, 40)
+        }
     }
 
     func testPinnedContractsPersistAndOnlySelectedContractStages() async throws {
