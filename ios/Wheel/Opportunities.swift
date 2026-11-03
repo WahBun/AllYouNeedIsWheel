@@ -174,12 +174,20 @@ struct OpportunityPreference: Codable, Equatable {
     var strike: Double?
 }
 
+struct PinnedOpportunity: Codable, Identifiable, Equatable {
+    let id: String
+    var expiration: String
+    var strike: Double
+}
+
 @MainActor @Observable
 final class OpportunityBook {
     var preferences: [String: OpportunityPreference] = [:]
     var custom: [String] = []
     var excluded: [String] = []
     var removedPuts: [String] = []
+    var pins: [String: [PinnedOpportunity]] = [:]
+    var unselected: Set<String> = []
     var rows: [String: OpportunityRow] = [:]
     var strikeLists: [String: (values: [Double], date: Date)] = [:]
     var marketOpen: Bool?
@@ -217,7 +225,14 @@ final class OpportunityBook {
     private var retryFailures: [String: Int] = [:]
     private var stockRecoveryRetried: Set<String> = []
     private var preferenceKey = ""
-    struct Saved: Codable { var preferences: [String: OpportunityPreference]; var custom: [String]; var excluded: [String]; var removedPuts: [String]? }
+    struct Saved: Codable {
+        var preferences: [String: OpportunityPreference]
+        var custom: [String]
+        var excluded: [String]
+        var removedPuts: [String]?
+        var pins: [String: [PinnedOpportunity]]?
+        var unselected: Set<String>?
+    }
     func configure(context: String) {
         generation += 1; rows = [:]; strikeLists = [:]; loading = false
         retryAfter = [:]; retryFailures = [:]; stockRecoveryRetried = []
@@ -227,13 +242,58 @@ final class OpportunityBook {
         let saved = UserDefaults.standard.data(forKey: preferenceKey).flatMap { try? JSONDecoder().decode(Saved.self, from: $0) }
         preferences = saved?.preferences ?? [:]; custom = saved?.custom ?? []; excluded = saved?.excluded ?? []
         removedPuts = saved?.removedPuts ?? []
+        pins = saved?.pins ?? [:]; unselected = saved?.unselected ?? []
     }
     func save() {
-        guard !preferenceKey.isEmpty, let data = try? JSONEncoder().encode(Saved(preferences: preferences, custom: custom, excluded: excluded, removedPuts: removedPuts)) else { return }
+        guard !preferenceKey.isEmpty, let data = try? JSONEncoder().encode(Saved(preferences: preferences, custom: custom, excluded: excluded, removedPuts: removedPuts, pins: pins, unselected: unselected)) else { return }
         UserDefaults.standard.set(data, forKey: preferenceKey)
     }
     func key(_ ticker: String, _ type: String) -> String { ticker + ":" + type }
+    func showsPrimary(_ group: String) -> Bool {
+        guard let quote = rows[group]?.quote else { return true }
+        return !(pins[group] ?? []).contains { $0.expiration == quote.expiration && $0.strike == quote.strike }
+    }
+    func pin(_ symbol: String, _ type: String, expiration: String, strike: Double) -> String {
+        let group = key(symbol, type)
+        if let existing = pins[group]?.first(where: { $0.expiration == expiration && $0.strike == strike }) { return existing.id }
+        if let quote = rows[group]?.quote, quote.expiration == expiration, quote.strike == strike { return group }
+        let pin = PinnedOpportunity(id: UUID().uuidString, expiration: expiration, strike: strike)
+        pins[group, default: []].append(pin)
+        unselected.insert(pin.id)
+        save()
+        return pin.id
+    }
+    func removePin(_ pin: PinnedOpportunity, group: String) {
+        pins[group]?.removeAll { $0.id == pin.id }
+        rows[pin.id] = nil; preferences[pin.id] = nil; retryAfter[pin.id] = nil
+        retryFailures[pin.id] = nil; stockRecoveryRetried.remove(pin.id)
+        unselected.remove(pin.id)
+        save()
+    }
+    func toggleSelection(_ id: String) {
+        if !unselected.insert(id).inserted { unselected.remove(id) }
+        save()
+    }
+    func selectedRows(_ store: WheelStore, type: String) -> [OpportunityRow] {
+        symbols(store, type: type).flatMap { symbol in
+            let group = key(symbol, type)
+            let ids = (showsPrimary(group) ? [group] : []) + (pins[group] ?? []).map(\.id)
+            return ids.compactMap { id -> OpportunityRow? in
+                guard !unselected.contains(id), rows[id]?.staged != true else { return nil }
+                return rows[id] ?? OpportunityRow(ticker: symbol, type: type, candidateID: id == group ? nil : id)
+            }
+        }
+    }
+    func hasCoverage(_ candidates: [OpportunityRow], store: WheelStore) -> Bool {
+        Dictionary(grouping: candidates.filter { $0.type == "CALL" }, by: \.ticker).allSatisfy { symbol, calls in
+            let available = min(availableCallContracts(symbol, store: store), Double(calls.map(\.capacity).min() ?? 0))
+            return Double(calls.reduce(0) { $0 + $1.quantity }) <= available
+        }
+    }
     func removePut(_ ticker: String) {
+        let primary = key(ticker, "PUT")
+        for pin in pins[primary] ?? [] { removePin(pin, group: primary) }
+        unselected.remove(primary)
         custom.removeAll { $0 == ticker }
         if !removedPuts.contains(ticker) { removedPuts.append(ticker) }
         excluded.removeAll { $0 == key(ticker, "PUT") }
@@ -251,6 +311,9 @@ final class OpportunityBook {
         }.sorted()
     }
     func defaultCallQuantity(_ ticker: String, store: WheelStore) -> Int {
+        Int(min(100, availableCallContracts(ticker, store: store)))
+    }
+    private func availableCallContracts(_ ticker: String, store: WheelStore) -> Double {
         let positions = store.portfolio?.positions ?? []
         let shares = positions.filter { $0.symbol == ticker && $0.security_type == "STK" }.reduce(0) { $0 + $1.position }
         guard shares.isFinite, shares > 0 else { return 0 }
@@ -261,26 +324,66 @@ final class OpportunityBook {
             $0.name == ticker && ["CALL", "C"].contains($0.option_type ?? "") && $0.action == "SELL"
                 && !["filled", "executed", "cancelled", "canceled", "rejected", "inactive"].contains(($0.ib_status ?? $0.status).lowercased())
         }.reduce(0.0) { $0 + max(0, ($1.quantity ?? 0) - ($1.filled ?? 0)) }
-        return max(0, Int(min(100, max(0, floor(shares / 100) - heldCalls - reserved))))
+        return max(0, floor(shares / 100) - heldCalls - reserved)
     }
-    func load(_ ticker: String, type: String, store: WheelStore, background: Bool = false) async {
+    func expirationChoices(_ ticker: String, store: WheelStore) async throws -> [[String: Any]] {
+        if store.demo { return [["value": "20261016", "is_default": true], ["value": "20261120"]] }
+        return try await store.trading.get("api/options/expirations", base: store.address,
+            query: [URLQueryItem(name: "ticker", value: ticker)])["expirations"] as? [[String: Any]] ?? []
+    }
+    func availableStrikes(_ ticker: String, type: String, expiration: String, store: WheelStore) async throws -> [Double] {
+        let key = "\(ticker):\(type):\(expiration)"
+        if let saved = strikeLists[key], Date().timeIntervalSince(saved.date) < 1800 { return saved.values }
+        let token = generation
+        let values: [Double]
+        if store.demo {
+            values = ticker == "TSLL" ? Array(1...30).map(Double.init) : stride(from: 50.0, through: 150.0, by: 5).map { $0 }
+        } else {
+            let response = try await store.trading.get("api/options/strikes", base: store.address, query: [
+                URLQueryItem(name: "ticker", value: ticker), URLQueryItem(name: "optionType", value: type),
+                URLQueryItem(name: "expiration", value: expiration)])
+            values = response["strikes"] as? [Double] ?? []
+        }
+        try Task.checkCancellation()
+        guard token == generation else { throw CancellationError() }
+        let result = Set(values.filter { $0.isFinite && $0 > 0 }).sorted()
+        if !result.isEmpty {
+            if strikeLists.count >= 12 { strikeLists.removeAll() }
+            strikeLists[key] = (result, Date())
+        }
+        return result
+    }
+    func load(_ ticker: String, type: String, store: WheelStore, background: Bool = false, pin: PinnedOpportunity? = nil) async {
         let token = generation
         let tradeVersion = store.trading.version
-        let key = key(ticker, type)
+        let group = key(ticker, type)
+        let key = pin?.id ?? group
+        func stillListed() -> Bool {
+            guard let pin else { return true }
+            return pins[group]?.contains(pin) == true
+        }
+        guard stillListed() else { return }
         guard rows[key]?.loading != true, !store.trading.busy else { return }
         let previous = rows[key]
         let originalPreference = preferences[key]
         var preference = originalPreference ?? OpportunityPreference()
-        var row = previous ?? OpportunityRow(ticker: ticker, type: type)
+        if let pin {
+            preference.expiration = pin.expiration; preference.strike = pin.strike
+        }
+        var row = previous ?? OpportunityRow(ticker: ticker, type: type, candidateID: pin?.id)
         row.loading = true; rows[key] = row
         defer { if generation == token { rows[key]?.loading = false } }
         do {
             let dates: [[String: Any]]
             if background, !row.dates.isEmpty { dates = row.dates.map { ["value": $0] } }
-            else if store.demo { dates = [["value": "20261016", "is_default": true], ["value": "20261120"]] }
-            else { dates = try await store.trading.get("api/options/expirations", base: store.address, query: [URLQueryItem(name: "ticker", value: ticker)])["expirations"] as? [[String: Any]] ?? [] }
+            else if let pin, let known = rows[group]?.dates, known.contains(pin.expiration) {
+                dates = known.map { ["value": $0] }
+            } else { dates = try await expirationChoices(ticker, store: store) }
             guard generation == token, !Task.isCancelled else { return }
             row.dates = dates.compactMap { $0["value"] as? String }
+            if pin != nil && !row.dates.contains(preference.expiration) {
+                throw AppError.message("This contract expiration is unavailable.")
+            }
             if !row.dates.contains(preference.expiration) {
                 preference.expiration = (dates.first { $0["is_default"] as? Bool == true } ?? dates.first)?["value"] as? String ?? ""
                 preference.strike = nil
@@ -313,11 +416,15 @@ final class OpportunityBook {
                 }
             }
             guard generation == token, !Task.isCancelled, tradeVersion == store.trading.version,
-                  !store.trading.busy, preferences[key] == originalPreference else { return }
+                  !store.trading.busy, preferences[key] == originalPreference, stillListed() else { return }
             if previous?.quote?.id == row.quote?.id, previous?.manualPrice == true {
                 row.price = previous?.price ?? ""; row.manualPrice = true
             } else { row.price = row.quote?.mid.map { String(format: "%.2f", $0) } ?? ""; row.manualPrice = false }
-            row.quantity = type == "CALL" ? min(100, max(0, row.capacity)) : max(1, min(100, preference.quantity ?? (shares >= 100 ? Int(shares / 100) : 1)))
+            if type == "CALL" {
+                row.quantity = min(100, pin == nil ? row.capacity : min(row.capacity, preference.quantity ?? 1))
+            } else {
+                row.quantity = max(1, min(100, preference.quantity ?? (pin == nil && shares >= 100 ? Int(shares / 100) : 1)))
+            }
             row.priceDirection = TradingMath.priceDirection(previous: previous?.stockPrice, current: row.stockPrice)
             row.midDirection = previous?.quote?.id == row.quote?.id
                 ? TradingMath.priceDirection(previous: previous?.quote?.mid, current: row.quote?.mid) : 0
@@ -330,7 +437,7 @@ final class OpportunityBook {
                     row.quantity = min(max(0, latest.quantity), min(100, row.capacity))
                     row.manualQuantity = latest.manualQuantity
                 }
-                row.staged = latest.staged
+                row.staged = latest.quote?.id == row.quote?.id && latest.staged
                 if latest.manualPrice, latest.quote?.id == row.quote?.id {
                     row.price = latest.price; row.manualPrice = true
                 }
@@ -342,13 +449,13 @@ final class OpportunityBook {
             row.staged = row.staged || hasActiveEntry(row, orders: store.orders)
             if row.staged { row.followMarketPrice() }
             row.error = nil
-            preferences[key] = preference; save()
+            if preferences[key] != preference { preferences[key] = preference; save() }
         } catch {
             row = rows[key] ?? row
             row.error = connectionMessage(error)
         }
         guard generation == token, !Task.isCancelled, tradeVersion == store.trading.version,
-              !store.trading.busy else { return }
+              !store.trading.busy, stillListed() else { return }
         row.loading = false; rows[key] = row
     }
     func refreshPrices(_ symbols: [String], type: String, store: WheelStore) async -> Bool {
@@ -390,40 +497,45 @@ final class OpportunityBook {
             return true
         }
     }
-    func refreshAll(type: String, store: WheelStore, background: Bool = false) async {
+    func refreshAll(type: String, store: WheelStore, background: Bool = false, onlyMissing: Bool = false) async {
         guard !loading else { return }; loading = true
         let token = generation
         defer { if token == generation { loading = false } }
         for symbol in symbols(store, type: type) {
             guard token == generation, !Task.isCancelled else { return }
-            let rowKey = key(symbol, type)
-            if background, let retry = retryAfter[rowKey], retry > Date() { continue }
-            await load(symbol, type: type, store: store, background: background)
-            guard token == generation, !Task.isCancelled else { return }
-            if rows[rowKey]?.error == nil {
-                retryAfter[rowKey] = nil
-                retryFailures[rowKey] = nil
-                stockRecoveryRetried.remove(rowKey)
-            } else {
-                let failures = min(5, (retryFailures[rowKey] ?? 0) + 1)
-                retryFailures[rowKey] = failures
-                retryAfter[rowKey] = Date().addingTimeInterval(RefreshLoop.delay(elapsed: 0, failed: true, consecutiveFailures: failures))
+            for pin in [nil] + (pins[key(symbol, type)] ?? []).map(Optional.some) {
+                let rowKey = pin?.id ?? key(symbol, type)
+                if onlyMissing, rows[rowKey]?.quote != nil { continue }
+                if background, let retry = retryAfter[rowKey], retry > Date() { continue }
+                await load(symbol, type: type, store: store, background: background, pin: pin)
+                guard token == generation, !Task.isCancelled else { return }
+                if rows[rowKey]?.error == nil {
+                    retryAfter[rowKey] = nil
+                    retryFailures[rowKey] = nil
+                    stockRecoveryRetried.remove(rowKey)
+                } else {
+                    let failures = min(5, (retryFailures[rowKey] ?? 0) + 1)
+                    retryFailures[rowKey] = failures
+                    retryAfter[rowKey] = Date().addingTimeInterval(RefreshLoop.delay(elapsed: 0, failed: true, consecutiveFailures: failures))
+                }
             }
         }
     }
     func stage(_ row: OpportunityRow, store: WheelStore) async -> Bool {
+        guard !unselected.contains(row.id), row.candidateID != nil || showsPrimary(row.id), hasCoverage([row], store: store) else { return false }
         guard !hasActiveEntry(row, orders: store.orders) else {
-            rows[key(row.ticker, row.type)]?.staged = true
-            rows[key(row.ticker, row.type)]?.followMarketPrice()
+            rows[row.id]?.staged = true
+            rows[row.id]?.followMarketPrice()
             return false
         }
-        guard row.canStage, let current = rows[key(row.ticker, row.type)], current.canStage,
+        guard row.canStage, let current = rows[row.id], current.canStage,
               current.quote?.id == row.quote?.id, current.price == row.price, current.quantity == row.quantity,
               let quote = row.quote, let price = TradeRules.price(row.price) else { return false }
+        let token = generation
         let result = await store.trading.write("api/options/order", body: ["ticker": row.ticker, "action": "SELL", "option_type": row.type, "strike": quote.strike, "expiration": quote.expiration, "quantity": row.quantity, "premium": price], store: store)
-        if result {
-            rows[key(row.ticker, row.type)]?.staged = true
-            rows[key(row.ticker, row.type)]?.followMarketPrice()
+        if result && token == generation && rows[row.id]?.quote?.id == quote.id {
+            rows[row.id]?.staged = true
+            rows[row.id]?.followMarketPrice()
         }
         return result
     }
@@ -447,18 +559,25 @@ final class OpportunityBook {
     func confirmCancellation(_ order: Order, remaining: [Order]) {
         guard order.action == "SELL", order.intent != "CLOSE", order.isRollover != true,
               let type = order.option_type else { return }
-        let rowKey = key(order.name, type)
-        guard let row = rows[rowKey], row.quote?.strike == order.strike,
-              row.quote?.expiration == order.expiration else { return }
-        let duplicate = remaining.contains {
-            $0.id != order.id && $0.name == order.name && $0.action == "SELL" &&
-            $0.option_type == type && $0.strike == order.strike && $0.expiration == order.expiration &&
-            !["canceled", "cancelled", "rejected", "filled"].contains($0.status.lowercased())
+        let group = key(order.name, type)
+        for rowKey in [group] + (pins[group] ?? []).map(\.id) {
+            if let row = rows[rowKey], row.quote?.strike == order.strike, row.quote?.expiration == order.expiration {
+                rows[rowKey]?.staged = hasActiveEntry(row, orders: remaining.filter { $0.id != order.id })
+            }
         }
-        if !duplicate { rows[rowKey]?.staged = false }
     }
     func stageAndOpenOrders(_ snapshots: [OpportunityRow], store: WheelStore) async {
         guard !batchRunning, !store.trading.busy, !snapshots.isEmpty else { return }
+        guard snapshots.allSatisfy({ snapshot in
+            guard let current = rows[snapshot.id] else { return false }
+            return !unselected.contains(current.id) && current.canStage && current.quote?.id == snapshot.quote?.id
+                && current.price == snapshot.price && current.quantity == snapshot.quantity
+                && !hasActiveEntry(current, orders: store.orders)
+        }) else { return }
+        guard hasCoverage(snapshots, store: store) else {
+            store.trading.message = "Selected calls exceed the available share coverage."
+            return
+        }
         batchRunning = true
         defer { batchRunning = false }
         let token = generation
@@ -477,6 +596,7 @@ final class OpportunityBook {
 struct OpportunityRow: Identifiable {
     var ticker: String
     var type: String
+    var candidateID: String? = nil
     var dates: [String] = []
     var quote: ContractQuote?
     var stockPrice: Double?
@@ -494,7 +614,7 @@ struct OpportunityRow: Identifiable {
     var staged = false
     var updated: Date?
     var stockUpdated: Date?
-    var id: String { ticker + ":" + type }
+    var id: String { candidateID ?? (ticker + ":" + type) }
     func stockQuoteIsFresh(at now: Date, batchFailed: Bool) -> Bool {
         guard !batchFailed, let price = stockPrice, price.isFinite, price > 0 else { return false }
         // Stock batches and option requests have independent success timestamps.
@@ -538,7 +658,12 @@ struct OpportunitiesView: View {
     @State private var tickerError: String?
     private var book: OpportunityBook { store.opportunities }
     private var symbols: [String] { book.symbols(store, type: type) }
-    private var ready: [OpportunityRow] { symbols.compactMap { book.rows[book.key($0, type)] }.filter(\.canStage) }
+    @State private var editor: CandidatePickerContext?
+    @State private var focusedCandidate: String?
+    private var selected: [OpportunityRow] { book.selectedRows(store, type: type) }
+    private var ready: [OpportunityRow] { selected.filter(\.canStage) }
+    private var incompleteSelection: Bool { comparing && selected.count != ready.count }
+    private var comparing: Bool { symbols.contains { !(book.pins[book.key($0, type)] ?? []).isEmpty } }
     private var autoRefresh: Bool { visible && phase == .active && store.selectedTab == "trade" && !book.batchRunning && !store.trading.busy }
     private var titleActions: some View {
         HStack(spacing: 8) {
@@ -567,6 +692,137 @@ struct OpportunitiesView: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
+            candidateList
+                .sheet(item: $editor) { request in
+                    CandidateContractPicker(symbol: request.symbol, type: type, initial: request.pin) { expiration, strike in
+                        let id = book.pin(request.symbol, type, expiration: expiration, strike: strike)
+                        if let previous = request.pin, previous.id != id {
+                            book.removePin(previous, group: book.key(request.symbol, type))
+                        }
+                        editor = nil
+                        focusedCandidate = id
+                        withAnimation { proxy.scrollTo(id, anchor: .center) }
+                        if let pin = book.pins[book.key(request.symbol, type)]?.first(where: { $0.id == id }) {
+                            Task { await book.load(request.symbol, type: type, store: store, pin: pin) }
+                        }
+                    }
+                }
+                .onChange(of: "\(store.demo)-\(store.address)-\(store.trading.accountEpoch ?? "")") {
+                    editor = nil; focusedCandidate = nil
+                }
+                .task(id: focusedCandidate) {
+                    guard focusedCandidate != nil else { return }
+                    do { try await Task.sleep(for: .seconds(2)); focusedCandidate = nil } catch {}
+                }
+        }
+    }
+
+    private func addButton(_ symbol: String) -> some View {
+        Button { editor = CandidatePickerContext(symbol: symbol) } label: {
+            Image(systemName: "plus").frame(minWidth: 32, minHeight: 44)
+        }.buttonStyle(.borderless).accessibilityLabel("Add contract for \(symbol)")
+    }
+
+    private func candidate(_ symbol: String, pin: PinnedOpportunity?, grouped: Bool) -> some View {
+        let group = book.key(symbol, type)
+        let id = pin?.id ?? group
+        let row = book.rows[id]
+        let displayQuantity = row?.quantity ?? (type == "CALL" ? book.defaultCallQuantity(symbol, store: store) : 1)
+        return HStack(spacing: 6) {
+            if comparing || book.unselected.contains(id) {
+                Button { book.toggleSelection(id) } label: {
+                    Image(systemName: book.unselected.contains(id) ? "circle" : "checkmark.circle.fill")
+                        .frame(minWidth: 30, minHeight: 44)
+                }.buttonStyle(.borderless)
+                    .accessibilityIdentifier("include-" + id)
+                    .accessibilityLabel("Include contract in estimates")
+                    .accessibilityValue(book.unselected.contains(id) ? "Off" : "On")
+            }
+            candidateContent(symbol, pin: pin, grouped: grouped, row: row, displayQuantity: displayQuantity)
+            if !grouped { addButton(symbol) }
+        }
+        .id(id)
+        .listRowBackground(focusedCandidate == id ? Color.accentColor.opacity(0.16) : nil)
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            if let pin {
+                Button("Change contract") { editor = CandidatePickerContext(symbol: symbol, pin: pin) }
+                Button("Remove contract", role: .destructive) { book.removePin(pin, group: group) }
+            } else {
+                Button("Hide", systemImage: "eye.slash") { book.excluded.append(group); book.save() }.tint(.gray)
+                if type == "PUT" {
+                    Button(role: .destructive) { book.removePut(symbol) } label: { Label("Remove", systemImage: "trash") }
+                }
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if let row, row.canStage, !book.unselected.contains(id), !store.trading.busy, !book.batchRunning,
+               store.demo || !store.trading.uncertain {
+                Button("Stage entry", systemImage: "plus.circle") {
+                    Task { await book.stageAndOpenOrders([row], store: store) }
+                }.tint(.teal)
+            }
+        }
+    }
+
+    private func candidateContent(_ symbol: String, pin: PinnedOpportunity?, grouped: Bool,
+                                  row: OpportunityRow?, displayQuantity: Int) -> some View {
+        ExpandableRangeRow(range: row?.dayRange, detailsHint: "Open contract details") {
+            OpportunityDetail(ticker: symbol, type: type, pin: pin).navigationBarTitleDisplayMode(.large)
+        } content: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if grouped {
+                        Text(ContractLabel.expiry(row?.quote?.expiration ?? pin?.expiration ?? ""))
+                            .font(.caption.weight(.semibold))
+                    } else { SymbolText(symbol: symbol).font(.headline) }
+                    Text(verbatim: String(-abs(displayQuantity)))
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        .accessibilityLabel(Text("Quantity")).accessibilityValue(String(-abs(displayQuantity)))
+                    if let quote = row?.quote {
+                        OpportunityContractSummary(quote: quote, type: type, row: row)
+                            .font(.caption).monospacedDigit()
+                    } else if let pin {
+                        Text(verbatim: pin.strike.formatted() + (type == "CALL" ? "C" : "P")).font(.caption)
+                    }
+                    Spacer(minLength: 2)
+                    if grouped {
+                        PremiumValue(amount: row?.total, perSymbol: true).font(.body.weight(.semibold))
+                    } else {
+                        OpportunityPrice(row: row).font(.subheadline)
+                    }
+                }
+                .lineLimit(1).minimumScaleFactor(0.75)
+                if let quote = row?.quote {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        OpportunityMetrics(quote: quote)
+                        Spacer(minLength: 2)
+                        if !grouped {
+                            PremiumValue(amount: row?.total, perSymbol: true)
+                                .font(.body.weight(.semibold)).fixedSize(horizontal: true, vertical: false)
+                        }
+                    }
+                }
+                if row?.quote != nil {
+                    if type == "CALL" && row?.capacity == 0 {
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill").accessibilityHidden(true)
+                            Text("Coverage already reserved")
+                        }
+                            .font(.caption).foregroundStyle(.orange)
+                    } else if row?.staged == true {
+                        Text("Staged in Orders").font(.caption).foregroundStyle(.secondary)
+                    }
+                } else if row?.loading == true { ProgressView() }
+                else { NoticeText(row?.error ?? "Quote not loaded").font(.caption).foregroundStyle(.secondary) }
+                if row?.quote != nil, row?.error != nil {
+                    Label("STALE", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+                }
+            }.padding(.vertical, 4)
+        }
+    }
+
+    private var candidateList: some View {
         List {
             HStack(alignment: .center) {
                 Text("Trade").font(.largeTitle.bold()).foregroundStyle(Color(uiColor: .label))
@@ -611,71 +867,21 @@ struct OpportunitiesView: View {
                 if book.loading && symbols.allSatisfy({ book.rows[book.key($0, type)]?.quote == nil }) { ProgressView("Loading opportunities…") }
             }
             ForEach(symbols, id: \.self) { symbol in
-                let row = book.rows[book.key(symbol, type)]
-                let displayQuantity = type == "CALL" && row?.quote == nil
-                    ? book.defaultCallQuantity(symbol, store: store)
-                    : (row?.quantity ?? 1)
-                ExpandableRangeRow(range: row?.dayRange, detailsHint: "Open contract details") {
-                    OpportunityDetail(ticker: symbol, type: type).navigationBarTitleDisplayMode(.large)
-                } content: {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Grid(horizontalSpacing: 10, verticalSpacing: 8) {
-                            GridRow(alignment: .firstTextBaseline) {
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                let group = book.key(symbol, type)
+                let pins = book.pins[group] ?? []
+                let grouped = !pins.isEmpty
+                Section {
+                    if grouped {
+                        HStack {
                             SymbolText(symbol: symbol).font(.headline)
-                            Text(verbatim: String(-abs(displayQuantity)))
-                                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                .accessibilityLabel(Text("Quantity"))
-                                .accessibilityValue(String(-abs(displayQuantity)))
-                            if let quote = row?.quote {
-                                OpportunityContractSummary(quote: quote, type: type, row: row)
-                                    .font(.caption).monospacedDigit()
-                                    .lineLimit(1).minimumScaleFactor(0.8)
-                            }
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                                OpportunityPrice(row: row)
-                                    .fixedSize(horizontal: true, vertical: false)
-                                    .gridColumnAlignment(.center)
-                            }
-                            if let quote = row?.quote {
-                                GridRow(alignment: .firstTextBaseline) {
-                                    OpportunityMetrics(quote: quote)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    PremiumValue(amount: row?.total, perSymbol: true)
-                                        .font(.body.weight(.semibold)).monospacedDigit().fixedSize(horizontal: true, vertical: false)
-                                }
-                            }
+                            Spacer()
+                            OpportunityPrice(row: book.rows[book.key(symbol, type)])
+                            addButton(symbol)
                         }
-                        if row?.quote != nil {
-                            if type == "CALL" && row?.capacity == 0 {
-                                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                                    Image(systemName: "exclamationmark.triangle.fill").accessibilityHidden(true)
-                                    Text("Coverage already reserved")
-                                }
-                                    .font(.caption).foregroundStyle(.orange)
-                            } else if row?.staged == true {
-                                Text("Staged in Orders").font(.caption).foregroundStyle(.secondary)
-                            }
-                        } else if row?.loading == true { ProgressView() }
-                        else { NoticeText(row?.error ?? "Quote not loaded").font(.caption).foregroundStyle(.secondary) }
-                        if row?.quote != nil, row?.error != nil {
-                            Label("STALE", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
-                        }
-                    }.padding(.vertical, 4)
-                }
-                .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                    Button("Hide", systemImage: "eye.slash") { book.excluded.append(book.key(symbol, type)); book.save() }.tint(.gray)
-                    if type == "PUT" {
-                        Button(role: .destructive) { book.removePut(symbol) } label: {
-                            Label("Remove", systemImage: "trash")
-                        }.tint(.red)
                     }
-                }
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    if let row, row.canStage, !store.trading.busy, !book.batchRunning, store.demo || !store.trading.uncertain {
-                        Button("Stage entry", systemImage: "plus.circle") {
-                            Task { await book.stageAndOpenOrders([row], store: store) }
-                        }.tint(.teal)
+                    if book.showsPrimary(group) { candidate(symbol, pin: nil, grouped: grouped) }
+                    ForEach(pins) { pin in
+                        candidate(symbol, pin: pin, grouped: true)
                     }
                 }
             }
@@ -683,16 +889,21 @@ struct OpportunitiesView: View {
             Section("Selected-contract estimates") {
                 LabeledContent("Premium") { PremiumValue(amount: ready.reduce(0) { $0 + ($1.total ?? 0) }) }
                 if type == "PUT" { LabeledContent("Assignment notional", value: money(ready.reduce(0) { $0 + ($1.quote?.strike ?? 0) * 100 * Double($1.quantity) })) }
+                if incompleteSelection {
+                    Text("Refresh or uncheck unavailable contracts before staging.").font(.caption).foregroundStyle(.secondary)
+                } else if !book.hasCoverage(ready, store: store) {
+                    Text("Selected calls exceed the available share coverage.").font(.caption).foregroundStyle(.orange)
+                }
                 Button {
                     let snapshot = ready
                     Task { await book.stageAndOpenOrders(snapshot, store: store) }
                 } label: {
                     HStack {
-                        Text("Stage all (\(ready.count))")
+                        Text("Stage selected (\(ready.count))")
                         Spacer()
                         Image(systemName: "plus.circle").accessibilityHidden(true)
                     }.contentShape(Rectangle())
-                }.disabled(ready.isEmpty || store.trading.busy || book.batchRunning || (!store.demo && store.trading.uncertain))
+                }.disabled(ready.isEmpty || incompleteSelection || !book.hasCoverage(ready, store: store) || store.trading.busy || book.batchRunning || (!store.demo && store.trading.uncertain))
             }
             Section { TradingNotice() }
         }
@@ -726,9 +937,12 @@ struct OpportunitiesView: View {
                 return await book.refreshPrices(book.symbols(store, type: type), type: type, store: store)
             }
         }
-        .task(id: "\(autoRefresh)-\(store.demo)-\(store.address)-\(type)") {
+        .task(id: "\(autoRefresh)-\(store.demo)-\(store.address)-\(type)-\(symbols.joined(separator: ","))") {
             guard autoRefresh else { return }
             book.invalidateMarketSession()
+            if !(await book.allowsAutomaticRefresh(store)), book.marketOpen == false, !Task.isCancelled {
+                await book.refreshAll(type: type, store: store, background: true, onlyMissing: true)
+            }
             await RefreshLoop.run {
                 guard await book.allowsAutomaticRefresh(store) else { return false }
                 await book.refreshAll(type: type, store: store, background: true)
@@ -772,13 +986,13 @@ struct OpportunityMetrics: View {
 struct OpportunityDetail: View {
     let ticker: String
     let type: String
+    var pin: PinnedOpportunity? = nil
     @Environment(\.scenePhase) private var phase
     @State private var visible = false
     @State private var strikes: [Double] = []
     @State private var strikeError: String?
     @State private var showStrikes = false
     @State private var strikesLoading = false
-    @State private var strikeLists: [String: (at: Date, values: [Double])] = [:]
     @State private var strikeLoadID = UUID()
     @State private var strikeRetry = 0
     @State private var strikeInput = ""
@@ -787,7 +1001,7 @@ struct OpportunityDetail: View {
     @State private var chartRequest: UUID?
     @Environment(WheelStore.self) private var store
     private var book: OpportunityBook { store.opportunities }
-    private var key: String { book.key(ticker, type) }
+    private var key: String { pin?.id ?? book.key(ticker, type) }
     private var row: OpportunityRow { book.rows[key] ?? OpportunityRow(ticker: ticker, type: type) }
     private var preference: OpportunityPreference { book.preferences[key] ?? OpportunityPreference() }
     private var chartContract: OpportunityChartContract? { OpportunityChartContract(row: row, preference: preference) }
@@ -803,22 +1017,30 @@ struct OpportunityDetail: View {
             MarketSessionNotice()
             if let error = book.priceError { NoticeText(error).font(.caption).foregroundStyle(.orange) }
             Section(LocalizedStringKey(type == "CALL" ? "Covered call" : "Cash-secured put")) {
-                LabeledContent("Stock price") { OpportunityPrice(row: row) }
-                Picker("Expiration", selection: Binding(get: { preference.expiration }, set: { value in updatePreference { $0.expiration = value; $0.strike = nil } })) {
-                    ForEach(row.dates, id: \.self) { Text($0).tag($0) }
+                LabeledContent("Stock price") { OpportunityPrice(row: book.rows[book.key(ticker, type)] ?? row) }
+                if let pin {
+                    LabeledContent("Expiration", value: ContractLabel.expiry(pin.expiration))
+                    LabeledContent("Strike", value: money(pin.strike))
+                } else {
+                    Picker("Expiration", selection: Binding(get: { preference.expiration }, set: { value in updatePreference { $0.expiration = value; $0.strike = nil } })) {
+                        ForEach(row.dates, id: \.self) { Text($0).tag($0) }
+                    }
+                    LabeledContent("Strike") {
+                        Button {
+                            strikeInput = (preference.strike ?? row.quote?.strike).map { String(format: "%.2f", $0) } ?? ""
+                            showStrikes = true
+                        } label: {
+                            HStack(spacing: 5) {
+                                Text(money(preference.strike ?? row.quote?.strike))
+                                Image(systemName: "chevron.up.chevron.down").font(.caption)
+                            }
+                        }.disabled(preference.expiration.isEmpty)
+                    }
                 }
-                LabeledContent("Strike") {
-                    Button {
-                        strikeInput = (preference.strike ?? row.quote?.strike).map { String(format: "%.2f", $0) } ?? ""
-                        showStrikes = true
-                    } label: {
-                        HStack(spacing: 5) {
-                            Text(money(preference.strike ?? row.quote?.strike))
-                            Image(systemName: "chevron.up.chevron.down").font(.caption)
-                        }
-                    }.disabled(preference.expiration.isEmpty)
-                }
-                Button("Refresh quote", systemImage: "arrow.clockwise") { Task { await book.load(ticker, type: type, store: store) } }.disabled(row.loading)
+                Toggle("Include in estimates", isOn: Binding(get: { !book.unselected.contains(key) }, set: { include in
+                    if include == book.unselected.contains(key) { book.toggleSelection(key) }
+                }))
+                Button("Refresh quote", systemImage: "arrow.clockwise") { Task { await book.load(ticker, type: type, store: store, pin: pin) } }.disabled(row.loading)
                 if row.loading && row.quote == nil { ProgressView() }
                 if let error = row.error { NoticeText(error).foregroundStyle(.orange) }
             }
@@ -844,7 +1066,7 @@ struct OpportunityDetail: View {
                             Picker("Contracts", selection: Binding(get: { row.quantity }, set: { value in
                                 book.rows[key]?.quantity = value
                                 book.rows[key]?.manualQuantity = true
-                                var pref = preference; pref.quantity = type == "CALL" ? nil : value
+                                var pref = preference; pref.quantity = type == "CALL" && pin == nil ? nil : value
                                 book.preferences[key] = pref; book.save()
                             })) {
                                 ForEach(1...max(1, min(100, type == "CALL" ? row.capacity : 100)), id: \.self) { count in
@@ -880,7 +1102,7 @@ struct OpportunityDetail: View {
                             Spacer()
                             Image(systemName: "plus.circle").accessibilityHidden(true)
                         }.contentShape(Rectangle())
-                    }.disabled(!row.canStage || store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))
+                    }.disabled(!row.canStage || book.unselected.contains(key) || store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain))
                 }
             }
             Section { TradingNotice() }
@@ -923,7 +1145,7 @@ struct OpportunityDetail: View {
             book.invalidateMarketSession()
             await RefreshLoop.run(interval: 1) {
                 guard await book.allowsAutomaticRefresh(store) else { return false }
-                await book.load(ticker, type: type, store: store, background: true)
+                await book.load(ticker, type: type, store: store, background: true, pin: pin)
                 return row.error != nil
             }
         }
@@ -967,29 +1189,15 @@ struct OpportunityDetail: View {
         .task(id: "strikes-\(showStrikes)-\(strikeRetry)-\(store.demo)-\(store.address)-\(key)-\(preference.expiration)") {
             let requestID = UUID()
             strikeLoadID = requestID
-            let cacheKey = "\(store.demo)-\(store.address)-\(key)-\(preference.expiration)"
-            let saved = strikeLists[cacheKey]
-            strikes = saved?.values ?? []; strikeError = nil
-            strikesLoading = false
+            strikes = []; strikeError = nil; strikesLoading = false
             guard showStrikes, !preference.expiration.isEmpty else { return }
-            if let saved, Date().timeIntervalSince(saved.at) < 1800 { return }
             strikesLoading = true
             defer { if strikeLoadID == requestID { strikesLoading = false } }
             do {
-                try Task.checkCancellation()
-                let next: [Double]
-                if store.demo { next = ticker == "TSLL" ? Array(1...30).map(Double.init) : stride(from: 50.0, through: 150.0, by: 5).map { $0 } }
-                else {
-                    let payload = try await store.trading.get("api/options/strikes", base: store.address, query: [URLQueryItem(name: "ticker", value: ticker), URLQueryItem(name: "optionType", value: type), URLQueryItem(name: "expiration", value: preference.expiration)])
-                    next = payload["strikes"] as? [Double] ?? []
-                }
+                let next = try await book.availableStrikes(ticker, type: type, expiration: preference.expiration, store: store)
                 guard !Task.isCancelled, strikeLoadID == requestID else { return }
-                strikes = Array(Set(next.filter { $0.isFinite && $0 > 0 })).sorted()
+                strikes = next
                 if strikes.isEmpty { strikeError = "No matching option quote." }
-                else {
-                    if strikeLists.count >= 12 { strikeLists.removeAll() }
-                    strikeLists[cacheKey] = (Date(), strikes)
-                }
             } catch {
                 guard !Task.isCancelled, strikeLoadID == requestID else { return }
                 strikeError = connectionMessage(error)

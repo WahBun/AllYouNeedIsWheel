@@ -22,6 +22,10 @@ enum ContractLabel {
             .replacingOccurrences(of: #"\.?0+$"#, with: "", options: .regularExpression)
         return "\(symbol) · \(digits.dropFirst(4).prefix(2))/\(digits.suffix(2))/\(digits.dropFirst(2).prefix(2)) · \(number)\(code)"
     }
+    static func expiry(_ value: String) -> String {
+        guard value.count == 8, value.allSatisfy(\.isNumber) else { return value }
+        return "\(value.dropFirst(4).prefix(2))/\(value.suffix(2))/\(value.dropFirst(2).prefix(2))"
+    }
     static func compact(_ raw: String) -> String {
         if let v = groups(occ, raw), let value = Double(v[3]) {
             return option(v[0], "20" + v[1], value / 1000, v[2]) ?? raw
