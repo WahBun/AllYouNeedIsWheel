@@ -9,13 +9,15 @@ const iconPaths={trend:'M4 20L20 4',info:'M4 20L20 4M14 4h6v6M14 17h7v5h-7z',hra
 function toolButton(t,fn){const b=button('',t[1],fn);const icon=element('svg',{viewBox:'0 0 24 24',width:22,height:22,fill:'none',stroke:'currentColor','stroke-width':1.2,'stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true'},b);element('path',{d:iconPaths[t[0]]},icon);if(t[0]==='long'||t[0]==='short'){for(const cy of [3,21])element('circle',{cx:4,cy,r:1.7},icon);}return b;}
 const orderedTools=()=>order.map(id=>tools.find(t=>t[0]===id)).filter(Boolean);
 const ns='http://www.w3.org/2000/svg';let revision=0;let drawings=[],favorites=tools.map(t=>t[0]),selected=null,active=null,draft=null,loadedKey=null,drag=null,undo=[],redo=[],historyBefore=null,collapsed=true,locked=false,hidden=false,toolsVisible=false,toolbarMoved=false;
-const style=document.createElement('style');style.textContent=`#tv-attr-logo{z-index:20!important;touch-action:manipulation}body.draw-tools-hidden #draw-menu,body.draw-tools-hidden #draw-properties,body.draw-tools-hidden #draw-magnet,body.draw-tools-hidden #draw-editor,body.draw-tools-hidden #draw-hint{display:none!important}#draw-svg{position:absolute;inset:0;z-index:2;pointer-events:none;overflow:hidden;touch-action:none;transform:translateZ(0);isolation:isolate}#draw-touch{position:absolute;inset:0 50px 30px 0;z-index:7;touch-action:none;display:none}#draw-toolbar{position:absolute;top:80px;bottom:66px;left:0;z-index:10;display:flex;flex-direction:column;max-height:calc(100% - 42px);max-width:calc(100% - 60px);background:#242625ed;color:#eee;border:1px solid #555;border-radius:0 6px 6px 0;box-shadow:none;padding:3px;align-items:center}#draw-toolbar button,#draw-menu button,#draw-editor button,#draw-properties button,#draw-magnet button{color:inherit;background:transparent;border:0;min-width:36px;height:38px;font:16px -apple-system;border-radius:4px}#draw-toolbar button.on{background:#52675f}#draw-toolbar>button{flex-shrink:0}#draw-favorites{display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;flex:1;min-height:0;width:36px;overscroll-behavior:contain}#draw-favorites,#draw-properties{scrollbar-width:none}#draw-favorites::-webkit-scrollbar,#draw-properties::-webkit-scrollbar{display:none;width:0;height:0}#draw-favorites button{flex-shrink:0;width:36px}#draw-menu{position:absolute;top:86px;left:5px;max-height:55%;width:246px;box-sizing:border-box;max-width:calc(100% - 60px);overflow:auto;z-index:11;background:#252726;color:#eee;border:1px solid #555;border-radius:8px;padding:6px;display:none}#draw-properties{position:static;display:none;flex-direction:column;align-items:center;gap:0;flex:0 1 auto;min-height:0;overflow-y:auto;max-height:45%;width:36px;padding:4px 0;margin:3px 0;border:0;border-top:1px solid #777;border-bottom:1px solid #777;background:#35413d;color:#a9d5df}#draw-properties button{flex-shrink:0;font-size:13px;height:32px;-webkit-tap-highlight-color:transparent}#draw-properties input{width:28px;height:28px;padding:0;border:0;background:none}#draw-toolbar button svg{display:block;margin:auto}#draw-magnet{position:absolute;left:8px;bottom:72px;z-index:13;display:none;align-items:center;background:#252726ee;color:#eee;border:1px solid #555;border-radius:7px;padding:2px;box-shadow:0 2px 6px #0003}#draw-magnet button.on{background:#eef1ed;color:#202423}#draw-menu button{height:34px;min-width:30px;font-size:13px}#draw-menu .magnet-modes{display:flex;gap:2px;padding-bottom:4px}#draw-menu .magnet-modes button{flex:1;min-width:0;font-size:11px;padding:0 3px}#draw-menu .row{display:flex;align-items:center}#draw-menu .name{font-size:13px;flex:1;text-align:left}#draw-menu .star{color:#ead89a}#draw-editor{position:absolute;left:12px;right:60px;top:100px;z-index:12;padding:10px;background:#252726;color:#fff;border-radius:7px;display:none}#draw-editor input{width:100%;font-size:16px;padding:8px}#draw-hint{position:absolute;left:8px;bottom:35px;background:#252726dc;color:#fff;font-size:11px;padding:4px;z-index:8;pointer-events:none;display:none}`;document.head.append(style);
+const style=document.createElement('style');style.textContent=`#tv-attr-logo{z-index:20!important;touch-action:manipulation}body.draw-tools-hidden #draw-menu,body.draw-tools-hidden #draw-magnet,body.draw-tools-hidden #draw-hint{display:none!important}#draw-svg{position:absolute;inset:0;z-index:2;pointer-events:none;overflow:hidden;touch-action:none;transform:translateZ(0);isolation:isolate}#draw-touch{position:absolute;inset:0 50px 30px 0;z-index:7;touch-action:none;display:none}#draw-toolbar{position:absolute;top:80px;bottom:66px;left:0;z-index:10;display:flex;flex-direction:column;max-height:calc(100% - 42px);max-width:calc(100% - 60px);background:#242625ed;color:#eee;border:1px solid #555;border-radius:0 6px 6px 0;box-shadow:none;padding:3px;align-items:center}#draw-toolbar button,#draw-menu button,#draw-editor button,#draw-properties button,#draw-magnet button{color:inherit;background:transparent;border:0;min-width:36px;height:38px;font:16px -apple-system;border-radius:4px}#draw-toolbar button.on{background:#52675f}#draw-toolbar>button{flex-shrink:0}#draw-favorites{display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;flex:1;min-height:0;width:36px;overscroll-behavior:contain}#draw-favorites,#draw-properties{scrollbar-width:none}#draw-favorites::-webkit-scrollbar,#draw-properties::-webkit-scrollbar{display:none;width:0;height:0}#draw-favorites button{flex-shrink:0;width:36px}#draw-menu{position:absolute;top:86px;left:5px;max-height:55%;width:246px;box-sizing:border-box;max-width:calc(100% - 60px);overflow:auto;z-index:11;background:#252726;color:#eee;border:1px solid #555;border-radius:8px;padding:6px;display:none}#draw-properties{position:static;display:none;flex-direction:column;align-items:center;gap:0;flex:0 1 auto;min-height:0;overflow-y:auto;max-height:45%;width:36px;padding:4px 0;margin:3px 0;border:0;border-top:1px solid #777;border-bottom:1px solid #777;background:#35413d;color:#a9d5df}#draw-properties button{flex-shrink:0;font-size:13px;height:32px;-webkit-tap-highlight-color:transparent}#draw-properties input{width:28px;height:28px;padding:0;border:0;background:none}#draw-toolbar button svg{display:block;margin:auto}#draw-magnet{position:absolute;left:8px;bottom:72px;z-index:13;display:none;align-items:center;background:#252726ee;color:#eee;border:1px solid #555;border-radius:7px;padding:2px;box-shadow:0 2px 6px #0003}#draw-magnet button.on{background:#eef1ed;color:#202423}#draw-menu button{height:34px;min-width:30px;font-size:13px}#draw-menu .magnet-modes{display:flex;gap:2px;padding-bottom:4px}#draw-menu .magnet-modes button{flex:1;min-width:0;font-size:11px;padding:0 3px}#draw-menu .row{display:flex;align-items:center}#draw-menu .name{font-size:13px;flex:1;text-align:left}#draw-menu .star{color:#ead89a}#draw-editor{position:absolute;left:12px;right:60px;top:100px;z-index:12;padding:10px;background:#252726;color:#fff;border-radius:7px;display:none}#draw-editor input{width:100%;font-size:16px;padding:8px}#draw-hint{position:absolute;left:8px;bottom:35px;background:#252726dc;color:#fff;font-size:11px;padding:4px;z-index:8;pointer-events:none;display:none}`;document.head.append(style);
 const revealStyle=document.createElement('style');revealStyle.textContent=`
 #draw-cursor-price{position:absolute;right:0;top:0;width:var(--axis-width,50px);box-sizing:border-box;transform:translateY(-50%);padding:2px 1px;border-radius:2px;background:#2878dc;color:#fff;text-align:center;white-space:nowrap;font:500 11px/16px -apple-system,BlinkMacSystemFont,sans-serif;font-variant-numeric:tabular-nums;pointer-events:none;z-index:8}
 body.axis-left #draw-cursor-price{left:0;right:auto}
 body.draw-price-active #price-order-add,body.draw-price-active #crosshair-price-label{visibility:hidden}
 #draw-toolbar{clip-path:inset(0);opacity:1;visibility:visible;transition:clip-path .16s ease-out,opacity .16s ease-out,visibility 0s}
 #draw-hint[data-tool="path"]{left:54px;bottom:62px;max-width:calc(100% - 114px);line-height:1.25}
+body>#draw-properties{position:absolute;top:clamp(4px,10%,60px);left:4px;z-index:11;flex-direction:row;align-items:center;max-width:calc(100% - 12px);width:max-content;max-height:40px;box-sizing:border-box;overflow-x:auto;overflow-y:hidden;gap:2px;padding:3px;margin:0;border:1px solid #555;border-radius:6px;background:#242625f5;color:#eee}
+body>#draw-properties button{min-width:30px;width:30px}
 #draw-properties button[data-path-end][aria-pressed="true"]{background:#52675f}
 body.draw-tools-hidden #draw-toolbar{clip-path:inset(100% 0 0);opacity:0;visibility:hidden;pointer-events:none;transition:clip-path .16s ease-out,opacity .16s ease-out,visibility 0s .16s}
 @media(hover:hover){#draw-favorites button:not(.on):hover{background:#373b3a}}
@@ -45,7 +47,7 @@ const textStyle=document.createElement('style');textStyle.textContent=`
 #draw-text-properties{position:absolute;display:none;align-items:center;gap:2px;max-width:calc(100% - 8px);padding:3px;z-index:14;border:1px solid #555;border-radius:6px;background:#242625f5;color:#eee;box-shadow:0 2px 6px #0003}
 #draw-text-properties button,#draw-text-properties select{min-width:28px;height:32px;padding:0 5px;border:0;border-radius:3px;background:transparent;color:inherit;font:14px -apple-system}
 #draw-text-properties button[aria-pressed=true]{background:#52675f}#draw-text-properties button:disabled{opacity:.4}#draw-text-properties input[type=color]{width:28px;height:28px;padding:2px;border:0;background:transparent}#draw-text-properties select{width:48px;background:#303332}
-body.draw-tools-hidden #draw-text-input,body.draw-tools-hidden #draw-text-properties,body.auxiliary-chrome-hidden #draw-text-input,body.auxiliary-chrome-hidden #draw-text-properties,body.draw-tools-hidden #draw-text-resize,body.auxiliary-chrome-hidden #draw-text-resize{display:none!important}`;document.head.append(textStyle);
+`;document.head.append(textStyle);
 const textSize=d=>Number.isFinite(d.fontSize)&&d.fontSize>=8&&d.fontSize<=72?d.fontSize:14;
 const textColor=d=>/^#[0-9a-f]{6}$/i.test(d.color||'')?d.color:'#f3efdc';
 const textFont=d=>`${d.italic===false?'normal':'italic'} ${d.bold===false?400:600} ${textSize(d)}px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif`;
@@ -125,7 +127,7 @@ function positionTextControls(){
  const w=Math.min(layout.width,Math.max(50,right-left)),h=Math.min(layout.height,Math.max(lineHeight+6,viewBottom-viewTop-56));
  textInput.style.width=w+'px';textInput.style.height=h+'px';textInput.style.left=Math.max(left,Math.min(a.x-3,right-w))+'px';textInput.style.top=Math.max(viewTop+42,Math.min(a.y-size-3,viewBottom-h-4))+'px';}
  const box=textEdit?textInput.getBoundingClientRect():{right:a.x-3+layout.width,bottom:a.y-size-3+layout.height};
- textResizeHandle.style.display=!locked&&!d.locked&&!active&&!hidden&&toolsVisible?'block':'none';
+ textResizeHandle.style.display=!locked&&!d.locked&&!active&&!hidden?'block':'none';
  textResizeHandle.style.left=Math.max(left,Math.min(box.right-8,right-16))+'px';textResizeHandle.style.top=Math.max(viewTop+4,Math.min(box.bottom-8,viewBottom-16))+'px';
  if(textProperties.style.display!=='none'){const r=textEdit?textInput.getBoundingClientRect():{left:a.x,top:a.y-size,bottom:a.y+lineHeight};const w=textProperties.offsetWidth,h=textProperties.offsetHeight;let top=textPanelPosition?.top??r.top-h-8;if(!textPanelPosition&&top<viewTop+4)top=r.bottom+8;textProperties.style.left=Math.max(viewLeft+4,Math.min(textPanelPosition?.left??r.left,viewRight-w-4))+'px';textProperties.style.top=Math.max(viewTop+4,Math.min(top,viewBottom-h-4))+'px';if(!textPanelPosition)textPanelPosition={left:textProperties.offsetLeft,top:textProperties.offsetTop};}
 }
@@ -279,7 +281,11 @@ function pathOptions(value){
 }
 function rememberStyle(d){toolStyles[d.type]=JSON.parse(JSON.stringify({color:d.color,width:d.width,dash:d.dash,...(d.type==='path'?pathOptions(d):{}),...(d.type==='text'?{fontSize:textSize(d),bold:d.bold!==false,italic:d.italic!==false}:{})}));save();}
 function syncToolVisibility(){
- document.body.classList.toggle('draw-tools-hidden',!toolsShown());
+ const shown=toolsShown();
+ document.body.classList.toggle('draw-tools-hidden',!shown);
+ // Keep one set of object controls, docked in the open rail or floating by itself.
+ if(shown && properties.parentNode!==toolbar)toolbar.insertBefore(properties,toolRail);
+ else if(!shown && properties.parentNode!==document.body)document.body.append(properties);
  const logo=document.getElementById('tv-attr-logo');
  if(logo){logo.setAttribute('role','button');logo.setAttribute('aria-label',toolsVisible?'Hide drawing tools':'Show drawing tools');logo.setAttribute('aria-pressed',String(toolsVisible));logo.setAttribute('aria-expanded',String(toolsShown()));logo.title=toolsVisible?'Hide drawing tools':'Show drawing tools';}
 }
@@ -288,7 +294,7 @@ window.setPaneChrome=visible=>{
  chart.applyOptions({layout:{attributionLogo:visible}});
  if(!visible){clearToolsPreview();if(toolsVisible)toggleToolVisibility();}
 };
-const paneStyle=document.createElement('style');paneStyle.textContent='body.auxiliary-chrome-hidden #option-quote,body.auxiliary-chrome-hidden #draw-toolbar,body.auxiliary-chrome-hidden #draw-menu,body.auxiliary-chrome-hidden #draw-properties,body.auxiliary-chrome-hidden #draw-magnet,body.auxiliary-chrome-hidden #draw-editor,body.auxiliary-chrome-hidden #draw-hint,body.auxiliary-chrome-hidden #draw-touch{display:none!important}';document.head.append(paneStyle);
+const paneStyle=document.createElement('style');paneStyle.textContent='body.auxiliary-chrome-hidden #option-quote,body.auxiliary-chrome-hidden #draw-toolbar,body.auxiliary-chrome-hidden #draw-menu,body.auxiliary-chrome-hidden #draw-magnet,body.auxiliary-chrome-hidden #draw-hint{display:none!important}';document.head.append(paneStyle);
 window.resetChartView=()=>{
  if(!previous.length)return;
  activePriceScale().applyOptions({autoScale:true});
@@ -297,7 +303,10 @@ window.resetChartView=()=>{
 };
 function toggleToolVisibility(){
  clearTimeout(toolsLeaveTimer);toolsPreview=false;suppressLogoHover=toolsVisible;
- if(toolsVisible){touch.onpointercancel?.();drag=null;selected=null;editor.style.display='none';choose(null);}
+ if(toolsVisible){
+  if(active||gesture||draft||drag)touch.onpointercancel?.();
+  menu.style.display='none';closeLineWidthMenu();closeDrawingSyncMenu();
+ }
  toolsVisible=!toolsVisible;
  if(toolsVisible){toolbarMoved=false;toolbar.style.left='0px';toolbar.style.top='80px';}
  syncToolVisibility();
@@ -422,10 +431,10 @@ function renderToolbar(){
 }
 // Floating controls belong to the chart viewport, not its old full-screen size.
 function clampPanels(){
- // Do not reposition a collapsed rail while its reveal transition is inactive.
- if(!toolsShown())return;
  const width=document.documentElement.clientWidth,height=document.documentElement.clientHeight;
  if(!width||!height)return;
+ editor.style.top=Math.max(5,Math.min(100,height-editor.offsetHeight-32))+'px';
+ if(!toolsShown())return;
  // Dock the complete tool rail to the left, leaving the header and TV logo clear.
  toolbar.style.left='0px';
  toolbar.style.top=Math.min(80,Math.max(5,height-180))+'px';
@@ -436,7 +445,6 @@ function clampPanels(){
   menu.style.left=Math.max(5,Math.min(left,width-b.width-5))+'px';
   menu.style.top=Math.max(5,Math.min(bar.top,height-b.height-32))+'px';
  }
- editor.style.top=Math.max(5,Math.min(100,height-editor.offsetHeight-32))+'px';
 }
 window.addEventListener('chart-viewport-resized',()=>{if(drag||gesture){touch.onpointercancel?.();}ghost=null;revision++;clampPanels();});
 window.addEventListener('resize',()=>requestAnimationFrame(clampPanels));
@@ -485,14 +493,17 @@ function renderProperties(){
    control.disabled=locked||d.locked;properties.append(control);
   }
  }else properties.append(button(dashed?'┄':'—','Drawing line style',()=>{if(locked||d.locked)return;remember();d.dash=!dashed;rememberStyle(d);renderProperties();}));
- if(['text','note'].includes(d.type))properties.append(button('T','Edit drawing text',()=>{editor.dataset.drawing=d.id;editor.querySelector('input').value=d.text||'';editor.style.display='block';editor.querySelector('input').focus();}));
+ if(d.type==='note'){
+  const edit=button('T','Edit drawing text',()=>{editor.dataset.drawing=d.id;editor.querySelector('input').value=d.text||'';editor.style.display='block';clampPanels();editor.querySelector('input').focus();});
+  edit.disabled=locked||d.locked;properties.append(edit);
+ }
  properties.append(lockButton(!!d.locked,'Lock selected drawing',()=>{if(locked)return;remember();d.locked=!d.locked;save();renderProperties();}));
  if(d.type==='hray')properties.append(button('◷','Add alert on horizontal ray',()=>window.chartAlerts?.open({price:d.p[0].price,drawing:d.id})));
  properties.append(drawingSyncButton(d));
  const remove=button('⌫','Delete drawing',deleteSelected);remove.disabled=locked||d.locked;remove.style.color=remove.disabled?'#888':'#ff9393';properties.append(remove);
 }
 function renderMenu(){menu.replaceChildren();menu.append(button('Reset tool order','Reset tool order',()=>{order=[...referenceOrder];save();renderMenu();renderToolbar();}));for(const t of orderedTools()){ const row=document.createElement('div');row.className='row';const name=button(t[2]+'  '+t[1],t[1],()=>selectTool(t[0]));name.className='name';const star=button(favorites.includes(t[0])?'★':'☆','Favorite '+t[1],()=>{favorites=favorites.includes(t[0])?favorites.filter(f=>f!==t[0]):[...favorites,t[0]];save();renderMenu();renderToolbar();});star.className='star';row.append(name,star);const grip=button('⠿','Reorder '+t[1],()=>{});grip.style.touchAction='none';row.dataset.tool=t[0];let sorting=false;grip.onpointerdown=e=>{e.preventDefault();e.stopPropagation();sorting=true;grip.setPointerCapture(e.pointerId);row.style.background='#52675f';};grip.onpointermove=e=>{if(!sorting)return;e.preventDefault();const bounds=menu.getBoundingClientRect();if(e.clientY<bounds.top+35)menu.scrollTop-=12;if(e.clientY>bounds.bottom-35)menu.scrollTop+=12;const rows=[...menu.querySelectorAll('.row')].filter(r=>r!==row);const target=rows.find(r=>{const b=r.getBoundingClientRect();return e.clientY>=b.top&&e.clientY<=b.bottom;});if(!target)return;const middle=target.getBoundingClientRect().top+target.offsetHeight/2;menu.insertBefore(row,e.clientY<middle?target:target.nextSibling);grip.setPointerCapture(e.pointerId);order=[...menu.querySelectorAll('.row')].map(r=>r.dataset.tool);renderToolbar();};grip.onpointerup=grip.onpointercancel=()=>{if(!sorting)return;sorting=false;row.style.background='';save();};row.append(grip);menu.append(row);}
- const actions=document.createElement('div');actions.style.cssText='display:flex;align-items:center;justify-content:center;gap:6px;padding:2px 0 6px';actions.append(actionIconButton('undo','Undo drawing edit',()=>applyHistory()),actionIconButton('delete','Delete selected drawing',deleteSelected),lockButton(locked,'Lock drawings',()=>{locked=!locked;save();renderMenu();renderToolbar();}),actionIconButton(hidden?'eyeOff':'eye','Hide drawings',()=>{hidden=!hidden;save();renderMenu();}));const repeat=button('Stay in drawing mode','Stay in drawing mode',()=>{
+ const actions=document.createElement('div');actions.style.cssText='display:flex;align-items:center;justify-content:center;gap:6px;padding:2px 0 6px';actions.append(actionIconButton('undo','Undo drawing edit',()=>applyHistory()),actionIconButton('delete','Delete selected drawing',deleteSelected),lockButton(locked,'Lock drawings',()=>{locked=!locked;save();renderMenu();renderToolbar();}),actionIconButton(hidden?'eyeOff':'eye','Hide drawings',()=>{hidden=!hidden;if(hidden){selected=null;choose(null);closeDrawingSyncMenu();}save();renderMenu();}));const repeat=button('Stay in drawing mode','Stay in drawing mode',()=>{
   stayInDrawingMode=!stayInDrawingMode;renderMenu();
  });
  repeat.textContent=(stayInDrawingMode?'✓ ':'')+'Stay in drawing mode';
@@ -574,7 +585,15 @@ function paint(d,isDraft=false){const p=d.p.map(xy);if(p.some(v=>!v))return;cons
  else if(d.type==='curve'){g.setAttribute('stroke','#72c285');element('path',{d:`M ${a.x} ${a.y} Q ${b.x} ${b.y} ${c.x} ${c.y}`},g);}
  else if(d.type==='price'){const end=d.p.length>1?b:{x:a.x+45,y:a.y-60};g.setAttribute('stroke','#f3efdc');g.setAttribute('stroke-width','1');line(a,end);element('circle',{cx:a.x,cy:a.y,r:2,fill:'#f3efdc',stroke:'none'},g);const t=label(end.x,end.y-5,priceText(snapPrice(d.p[0].price)??d.p[0].price));t.setAttribute('fill','#f3efdc');t.setAttribute('stroke','none');}
  else if(d.type==='up'||d.type==='down'){const sign=d.type==='up'?1:-1;const pts=[[0,-8],[7,-1],[3,-1],[3,5],[-3,5],[-3,-1],[-7,-1]].map(([x,y])=>(a.x+x)+','+(a.y+y*sign)).join(' ');element('polygon',{points:pts,fill:d.type==='up'?'#269b87':'#bd5666',stroke:'none'},g);}
- else if(d.type==='text'){if(textEdit?.id===d.id)return;const size=textSize(d),layout=textLayout(d);for(const [i,value] of layout.rows.entries()){const t=label(a.x,a.y+i*size*1.25,value||' ');t.setAttribute('fill',textColor(d));t.setAttribute('stroke','none');t.style.font=textFont(d);}if(d.id===selected){element('rect',{x:a.x-3,y:a.y-size-3,width:layout.width,height:layout.height,'data-text-selection':'true',fill:'none',stroke:'#2962ff','stroke-width':1,'pointer-events':'none'},g);}}
+ else if(d.type==='text'){
+  if(textEdit?.id===d.id)return;
+  const size=textSize(d),layout=textLayout(d);
+  if(d.id===selected)element('rect',{x:a.x-3,y:a.y-size-3,width:layout.width,height:layout.height,'data-text-selection':'true',fill:'transparent',stroke:'#2962ff','stroke-width':1,'pointer-events':'all'},g);
+  for(const [i,value] of layout.rows.entries()){
+   const t=label(a.x,a.y+i*size*1.25,value||' ');
+   t.setAttribute('fill',textColor(d));t.setAttribute('stroke','none');t.style.font=textFont(d);
+  }
+ }
  else if(d.type==='note')label(a.x,a.y,'▣ '+(d.text||'Text'));
  if(isDraft&&d.type==='path'){
   for(const point of p.slice(0,draft.p.length)){
