@@ -14,8 +14,14 @@ enum ChartDailyChange {
                         received: Date?, reference: Reference?, now: Date = .now) -> Double? {
         guard let conID, conID > 0, let epoch, !epoch.isEmpty,
               packet["con_id"] as? Int == conID, packet["account_epoch"] as? String == epoch,
-              let received, fresh(received, now),
-              let price = positive(packet["last_price"]) else { return nil }
+              let received, fresh(received, now) else { return nil }
+        var last = positive(packet["last_price"])
+        if let display = packet["display_last"] as? [String: Any],
+           let serverTime = packet["server_time"] as? Double, let expiry = display["expires_at"] as? Double,
+           serverTime + now.timeIntervalSince(received) < expiry, let price = positive(display["price"]) {
+            last = price
+        }
+        guard let price = last else { return nil }
         var close = positive(packet["previous_close"])
         if close == nil, let reference, reference.conID == conID, reference.epoch == epoch,
            reference.backend == backend, fresh(reference.received, now) {

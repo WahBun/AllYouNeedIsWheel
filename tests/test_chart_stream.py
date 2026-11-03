@@ -127,6 +127,23 @@ class ChartPushTests(unittest.TestCase):
             hub.publish_pnl(S(conId=7,account='other'))
             self.assertTrue(sub.queue.empty())
 
+    def test_level1_last_wakes_stream_without_new_bid_ask_or_trade_count(self):
+        from unittest.mock import Mock, patch
+        from api.services.chart_stream import ChartStreams
+        hub = ChartStreams()
+        sub = Subscriber(7, 5, 'all')
+        hub.clients['chart'] = sub
+        state = dict(con_id=7, ticks=9, quotes={}, conn=Mock())
+        with patch('api.services.chart_stream.stock_chart') as feed, patch('api.services.chart_stream.latest_charts'):
+            feed.packet.return_value = self.packet()
+            hub.publish_changed(state)
+            sub.queue.get_nowait()
+            state['level1_last'] = (100., 11.)
+            feed.packet.return_value = dict(self.packet(), display_last=dict(price=11.))
+            hub.publish_changed(state)
+            delta = sub.queue.get_nowait()
+            self.assertEqual((delta['display_last']['price'], delta['bars']), (11., []))
+
     def test_different_contract_subscribers_keep_independent_heartbeats(self):
         from unittest.mock import Mock, patch
         from api.services.chart_stream import ChartStreams

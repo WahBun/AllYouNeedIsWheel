@@ -110,7 +110,7 @@ class ChartStreams:
         from api.routes.account import epoch
         now = time.monotonic()
         marker = (state['ticks'], tuple(sorted(state['quotes'].items())),
-                  tuple((r['low'], r['increment']) for r in state.get('price_rules', [])))
+                  tuple((r['low'], r['increment']) for r in state.get('price_rules', [])), state.get('level1_last'))
         packets = {}
         for sub in tuple(self.clients.values()):
             if sub.closed or sub.con_id != state['con_id']:
