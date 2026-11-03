@@ -11,6 +11,7 @@ from datetime import date, datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from functools import lru_cache
 import pandas_market_calendars as calendars
+from api.services.chart_last_gap import LastTradeGap
 from api.services.chart_sessions import cme_regular, session_windows, rth_source_size
 from api.services.chart_initial_history import InitialChartHistory, ChartHistoryPending
 
@@ -418,6 +419,7 @@ class StockChart:
                 con_id=con_id, bars=bars[-12000:], used=now, last_tick=None, received=None,
                 generation=time.time_ns(), ticks=0, live_bars={}, quotes={},option_bars=option_bars,
                 quote_requested_at=time.monotonic(),model_greeks=getattr(ticker,'modelGreeks',None))
+            gap = None if option_bars else LastTradeGap(con_id)
             def on_tick(updated):
                 if self.states.get(state['con_id']) is not state or updated is not state['ticker']:
                     return
@@ -431,7 +433,12 @@ class StockChart:
                         state['delta_quote']=(state['iv_quote'][0],delta if isinstance(delta,(int,float)) and math.isfinite(delta) and -1<=delta<=1 and getattr(updated,'marketDataType',None)==1 else None)
                 # Actual side-specific price or size events establish quote freshness.
                 # ib_async carries the matching price on a size-only update.
+                ticks_before = state['ticks']
                 for quote in getattr(updated, 'ticks', []):
+                    if gap is not None and quote.tickType == 4 and getattr(updated, 'marketDataType', None) == 1 and positive(quote.price):
+                        gap.level1_last += 1
+                        if state['bars'] and quote.price != state['bars'][-1]['close']:
+                            gap.level1_different += 1
                     side = {0: 'bid', 1: 'bid', 2: 'ask', 3: 'ask',
                             66: 'bid', 67: 'ask', 69: 'bid', 70: 'ask'}.get(quote.tickType)
                     if side:
@@ -440,13 +447,18 @@ class StockChart:
                                 (quote.tickType in (0, 3) and positive(getattr(quote, 'size', None)))) else None)
                 for tick in ([] if option_bars else updated.tickByTicks):
                     if hasattr(tick, 'bidPrice'):
+                        gap.bid_ask += 1
                         for side, value in [('bid', tick.bidPrice), ('ask', tick.askPrice)]:
                             state['quotes'][side] = (tick.time.timestamp(), positive(value))
                         continue
                     if not hasattr(tick, 'price'):
                         continue
                     timestamp = tick.time.timestamp()
-                    if timestamp > time.time() + 5 or (state['last_tick'] is not None and timestamp < state['last_tick']):
+                    if timestamp > time.time() + 5:
+                        gap.future += 1
+                        continue
+                    if state['last_tick'] is not None and timestamp < state['last_tick']:
+                        gap.out_of_order += 1
                         continue
                     if apply_tick(state['bars'], timestamp, tick.price):
                         unknown_volume(state['bars'][-1])
@@ -461,6 +473,12 @@ class StockChart:
                             del state['live_bars'][min(state['live_bars'])]
                         live.update(high=max(live['high'], tick.price),
                                     low=min(live['low'], tick.price), close=tick.price)
+                    elif positive(tick.price) is None or not math.isfinite(timestamp):
+                        gap.invalid += 1
+                    else:
+                        gap.before_tail += 1
+                if gap is not None:
+                    gap.observe(state['ticks'] - ticks_before)
                 for listener in tuple(self.listeners):
                     listener(state)
             state['handler'] = on_tick
