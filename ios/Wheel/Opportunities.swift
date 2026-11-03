@@ -550,10 +550,13 @@ final class OpportunityBook {
     }
     func synchronizeEntries(orders: [Order]) {
         for rowKey in Array(rows.keys) {
-            guard var row = rows[rowKey], row.quote != nil else { continue }
+            guard let current = rows[rowKey], current.quote != nil else { continue }
+            var row = current
             row.staged = hasActiveEntry(row, orders: orders)
             if row.staged { row.followMarketPrice() }
-            rows[rowKey] = row
+            if row.staged != current.staged || row.manualPrice != current.manualPrice || row.price != current.price {
+                rows[rowKey] = row
+            }
         }
     }
     func confirmCancellation(_ order: Order, remaining: [Order]) {
@@ -659,6 +662,11 @@ enum OpportunityTickerInput {
     }
 }
 
+private struct CandidateListRow: Identifiable {
+    let id: String
+    let pin: PinnedOpportunity?
+}
+
 struct OpportunitiesView: View {
     @Environment(\.scenePhase) private var phase
     @State private var visible = false
@@ -701,30 +709,27 @@ struct OpportunitiesView: View {
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            candidateList
-                .sheet(item: $editor) { request in
-                    CandidateContractPicker(symbol: request.symbol, type: type, initial: request.pin) { expiration, strike in
-                        let id = book.pin(request.symbol, type, expiration: expiration, strike: strike)
-                        if let previous = request.pin, previous.id != id {
-                            book.removePin(previous, group: book.key(request.symbol, type))
-                        }
-                        editor = nil
-                        focusedCandidate = id
-                        withAnimation { proxy.scrollTo(id, anchor: .center) }
-                        if let pin = book.pins[book.key(request.symbol, type)]?.first(where: { $0.id == id }) {
-                            Task { await book.load(request.symbol, type: type, store: store, pin: pin) }
-                        }
+        candidateList
+            .sheet(item: $editor) { request in
+                CandidateContractPicker(symbol: request.symbol, type: type, initial: request.pin) { expiration, strike in
+                    let id = book.pin(request.symbol, type, expiration: expiration, strike: strike)
+                    if let previous = request.pin, previous.id != id {
+                        book.removePin(previous, group: book.key(request.symbol, type))
+                    }
+                    editor = nil
+                    focusedCandidate = id
+                    if let pin = book.pins[book.key(request.symbol, type)]?.first(where: { $0.id == id }) {
+                        Task { await book.load(request.symbol, type: type, store: store, pin: pin) }
                     }
                 }
-                .onChange(of: "\(store.demo)-\(store.address)-\(store.trading.accountEpoch ?? "")") {
-                    editor = nil; focusedCandidate = nil
-                }
-                .task(id: focusedCandidate) {
-                    guard focusedCandidate != nil else { return }
-                    do { try await Task.sleep(for: .seconds(2)); focusedCandidate = nil } catch {}
-                }
-        }
+            }
+            .onChange(of: "\(store.demo)-\(store.address)-\(store.trading.accountEpoch ?? "")") {
+                editor = nil; focusedCandidate = nil
+            }
+            .task(id: focusedCandidate) {
+                guard focusedCandidate != nil else { return }
+                do { try await Task.sleep(for: .seconds(2)); focusedCandidate = nil } catch {}
+            }
     }
 
     private func addButton(_ symbol: String) -> some View {
@@ -733,7 +738,7 @@ struct OpportunitiesView: View {
         }.buttonStyle(.borderless).accessibilityLabel("Add contract for \(symbol)")
     }
 
-    private func candidate(_ symbol: String, pin: PinnedOpportunity?, grouped: Bool) -> some View {
+    private func candidate(_ symbol: String, pin: PinnedOpportunity?, grouped: Bool, comparing: Bool) -> some View {
         let group = book.key(symbol, type)
         let id = pin?.id ?? group
         let row = book.rows[id]
@@ -751,7 +756,6 @@ struct OpportunitiesView: View {
             candidateContent(symbol, pin: pin, grouped: grouped, row: row, displayQuantity: displayQuantity)
             if !grouped { addButton(symbol) }
         }
-        .id(id)
         .listRowBackground(focusedCandidate == id ? Color.accentColor.opacity(0.16) : nil)
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             if let pin {
@@ -848,7 +852,9 @@ struct OpportunitiesView: View {
     }
 
     private var candidateList: some View {
-        List {
+        let symbols = self.symbols
+        let comparing = self.comparing
+        return List {
             HStack(alignment: .center) {
                 Text("Trade").font(.largeTitle.bold()).foregroundStyle(Color(uiColor: .label))
                 Spacer(minLength: 12)
@@ -904,9 +910,10 @@ struct OpportunitiesView: View {
                             addButton(symbol)
                         }
                     }
-                    if book.showsPrimary(group) { candidate(symbol, pin: nil, grouped: grouped) }
-                    ForEach(pins) { pin in
-                        candidate(symbol, pin: pin, grouped: true)
+                    let primary = book.showsPrimary(group) ? [CandidateListRow(id: group, pin: nil)] : []
+                    let candidates = primary + pins.map { CandidateListRow(id: $0.id, pin: $0) }
+                    ForEach(candidates) { item in
+                        candidate(symbol, pin: item.pin, grouped: grouped, comparing: comparing)
                     }
                 }
             }
