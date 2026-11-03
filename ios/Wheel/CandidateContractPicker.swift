@@ -116,8 +116,11 @@ struct CandidateStrikeList: View {
             .task {
                 // Position once per visit. Later quote ticks must not move a list being browsed.
                 let price = stockPrice.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
-                guard let target = price ?? selection,
-                      let nearest = strikes.min(by: { abs($0 - target) < abs($1 - target) }) else { return }
+                guard let target = price ?? selection else { return }
+                // Prefer the rounded dollar when listed. On a sparse chain, stay closest to the quote.
+                let rounded = price?.rounded()
+                guard let nearest = rounded.flatMap({ strikes.contains($0) ? $0 : nil })
+                    ?? strikes.min(by: { abs($0 - target) < abs($1 - target) }) else { return }
                 await Task.yield()
                 guard !Task.isCancelled else { return }
                 proxy.scrollTo(nearest, anchor: .center)

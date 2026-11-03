@@ -19,24 +19,29 @@ final class OpportunityCandidateTests: XCTestCase {
         func list(in view: UIView) -> UICollectionView? {
             (view as? UICollectionView) ?? view.subviews.lazy.compactMap { list(in: $0) }.first
         }
-        // $60.35 is closest to $60.50. Without a quote, keep the selected $40.00 in view.
-        for (price, expected) in [(60.35 as Double?, 60.50), (nil, 40.00)] {
-            var selection: Double? = 40
-            let host = UIHostingController(rootView: CandidateStrikeList(strikes: strikes,
+        let cases: [(Double?, [Double], Double)] = [
+            (60.35, strikes, 60), (60.50, strikes, 61),
+            (60.40, strikes.filter { $0 != 60 }, 60.50),
+            (nil, strikes, 40.50)
+        ]
+        for (price, listed, expected) in cases {
+            var selection: Double? = 40.50
+            let host = UIHostingController(rootView: CandidateStrikeList(strikes: listed,
                 selection: Binding(get: { selection }, set: { selection = $0 }), stockPrice: price))
             let window = UIWindow(windowScene: scene)
             window.frame = CGRect(x: 0, y: 0, width: 393, height: 800)
             window.rootViewController = host; window.makeKeyAndVisible(); host.view.frame = window.bounds
             defer { window.isHidden = true; window.rootViewController = nil }
-            let index = IndexPath(item: try XCTUnwrap(strikes.firstIndex(of: expected)), section: 0)
+            let index = IndexPath(item: try XCTUnwrap(listed.firstIndex(of: expected)), section: 0)
             for _ in 0..<40 {
                 if list(in: host.view)?.cellForItem(at: index) != nil { break }
                 try await Task.sleep(for: .milliseconds(50))
             }
             let collection = try XCTUnwrap(list(in: host.view))
             let cell = try XCTUnwrap(collection.cellForItem(at: index))
-            XCTAssertEqual(cell.frame.midY, collection.bounds.midY, accuracy: cell.bounds.height)
-            XCTAssertEqual(selection, 40)
+            let viewport = collection.bounds.inset(by: collection.adjustedContentInset)
+            XCTAssertEqual(cell.frame.midY, viewport.midY, accuracy: cell.bounds.height / 2)
+            XCTAssertEqual(selection, 40.50)
         }
     }
 
