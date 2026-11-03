@@ -122,6 +122,44 @@ final class OpportunityCandidateTests: XCTestCase {
         XCTAssertEqual(store.trading.demoOrders.count, before)
     }
 
+    func testCheckedEstimatesUseDisplayedAmountsIndependentlyOfStaging() {
+        let store = WheelStore()
+        let book = store.opportunities
+        let group = book.key("TQQQ", "PUT")
+        let context = UUID().uuidString
+        book.configure(context: context)
+        defer { UserDefaults.standard.removeObject(forKey: "opportunities-v1-" + context) }
+        book.custom = ["TQQQ"]
+        let second = book.pin("TQQQ", "PUT", expiration: "20261120", strike: 55)
+        let third = book.pin("TQQQ", "PUT", expiration: "20261120", strike: 50)
+        for (id, strike, price) in [(group, 60.0, "4.92"), (second, 55.0, "2.99"), (third, 50.0, "1.60")] {
+            var row = OpportunityRow(ticker: "TQQQ", type: "PUT", candidateID: id == group ? nil : id)
+            row.quote = ContractQuote(strike: strike, expiration: "20261120")
+            row.price = price
+            row.updated = .now.addingTimeInterval(-90)
+            book.rows[id] = row
+        }
+        book.toggleSelection(second)
+        book.toggleSelection(third)
+        func selected() -> [OpportunityRow] { book.selectedRows(store, type: "PUT") }
+        XCTAssertEqual(selected().estimate(\.total), 951)
+        XCTAssertEqual(selected().estimate(\.assignmentNotional), 16500)
+        XCTAssertFalse(selected().contains(where: \.canStage))
+        book.toggleSelection(group)
+        book.rows[second]?.staged = true
+        XCTAssertEqual(selected().estimate(\.total), 459)
+        XCTAssertEqual(selected().estimate(\.assignmentNotional), 10500)
+        book.rows[third]?.price = ""
+        XCTAssertNil(selected().estimate(\.total))
+        XCTAssertEqual(selected().estimate(\.assignmentNotional), 10500)
+        book.rows[third] = nil
+        XCTAssertNil(selected().estimate(\.assignmentNotional))
+        book.toggleSelection(second)
+        book.toggleSelection(third)
+        XCTAssertEqual(selected().estimate(\.total), 0)
+        XCTAssertEqual(selected().estimate(\.assignmentNotional), 0)
+    }
+
     func testUnavailablePinnedExpiryNeverRollsAndAutoCollisionKeepsPin() async throws {
         let (store, _) = await setUpBook()
         let book = store.opportunities
