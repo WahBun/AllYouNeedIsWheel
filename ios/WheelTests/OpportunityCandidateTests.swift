@@ -1,3 +1,4 @@
+import Observation
 import XCTest
 @testable import Wheel
 
@@ -102,5 +103,20 @@ final class OpportunityCandidateTests: XCTestCase {
         XCTAssertFalse(book.showsPrimary(group))
         book.toggleSelection(pin)
         XCTAssertEqual(book.selectedRows(store, type: "PUT").filter { $0.ticker == "TSLL" }.map(\.id), [pin])
+    }
+
+    func testUnchangedOrdersDoNotInvalidateCandidateRows() async throws {
+        let (store, _) = await setUpBook()
+        let book = store.opportunities
+        await book.load("TSLL", type: "PUT", store: store)
+        let row = try XCTUnwrap(book.rows[book.key("TSLL", "PUT")])
+        XCTAssertNotNil(row.quote)
+        XCTAssertFalse(row.staged)
+        withObservationTracking {
+            _ = book.rows[row.id]
+        } onChange: {
+            XCTFail("The same order state should not invalidate the candidate list")
+        }
+        book.synchronizeEntries(orders: [])
     }
 }
