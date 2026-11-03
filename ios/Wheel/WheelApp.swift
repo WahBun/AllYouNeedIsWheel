@@ -802,6 +802,7 @@ struct RootView: View {
         .task(id: "\(phase)-\(store.demo)-\(store.address)") {
             guard phase == .active else { return }
             await RefreshLoop.run {
+                if store.demo, store.portfolio != nil { return false }
                 if store.chartVisible || RefreshLoop.shouldRefreshPortfolio(tab: store.selectedTab, hasPortfolio: store.portfolio != nil,
                     age: Date().timeIntervalSince(store.updated ?? .distantPast),
                     quotesLoading: store.opportunities.loading || store.opportunities.rows.values.contains { $0.loading }) {
@@ -1369,11 +1370,9 @@ private struct PerformanceShimmerLabel: View {
     @Environment(WheelStore.self) private var store
     @State private var visible = false
 
-    private var lettering: Text {
-        let title = localizedLabel("Performance", locale: locale)
-        return Text(verbatim: title == "Performance" ? "𝒫ℯ𝓇𝒻ℴ𝓇𝓂𝒶𝓃𝒸ℯ" : title)
-    }
     var body: some View {
+        let title = localizedLabel("Performance", locale: locale)
+        let lettering = Text(verbatim: title == "Performance" ? "𝒫ℯ𝓇𝒻ℴ𝓇𝓂𝒶𝓃𝒸ℯ" : title)
         let gain = palette.color("gain", scheme: scheme, fallback: FinancialColors.gain)
         let loss = palette.color("loss", scheme: scheme, fallback: FinancialColors.loss)
         TimelineView(.animation(minimumInterval: 1.0 / 30,
@@ -2064,26 +2063,26 @@ private struct GildedSignature: View {
         Text(verbatim: "𝓑𝓮𝓷").font(.system(size: 26, weight: .regular))
     }
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30,
-                                paused: !visible || phase != .active || store.selectedTab != "settings" || reduceMotion)) { context in
-            let progress = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
-            lettering.foregroundStyle(scheme == .dark
-                ? Color(red: 0.68, green: 0.39, blue: 0.09)
-                : Color(red: 0.52, green: 0.29, blue: 0.06))
-                .overlay {
-                    if !reduceMotion {
-                        GeometryReader { geometry in
+        lettering.foregroundStyle(scheme == .dark
+            ? Color(red: 0.68, green: 0.39, blue: 0.09)
+            : Color(red: 0.52, green: 0.29, blue: 0.06))
+            .overlay {
+                if !reduceMotion {
+                    GeometryReader { geometry in
+                        TimelineView(.animation(minimumInterval: 1.0 / 30,
+                                                paused: !visible || phase != .active || store.selectedTab != "settings")) { context in
+                            let progress = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
                             LinearGradient(colors: CoreAssetStyle.signatureFlow,
-                                startPoint: .leading, endPoint: .trailing)
+                                           startPoint: .leading, endPoint: .trailing)
                                 .frame(width: geometry.size.width * 0.8)
                                 .offset(x: geometry.size.width * (progress * 1.8 - 0.8))
-                        }.mask(lettering).allowsHitTesting(false)
-                    }
+                        }
+                    }.mask(lettering).allowsHitTesting(false)
                 }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: "Ben"))
-        .onAppear { visible = true }.onDisappear { visible = false }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: "Ben"))
+            .onAppear { visible = true }.onDisappear { visible = false }
     }
 }
 
