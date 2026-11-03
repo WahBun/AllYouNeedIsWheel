@@ -279,7 +279,7 @@ final class OpportunityBook {
             let group = key(symbol, type)
             let ids = (showsPrimary(group) ? [group] : []) + (pins[group] ?? []).map(\.id)
             return ids.compactMap { id -> OpportunityRow? in
-                guard !unselected.contains(id), rows[id]?.staged != true else { return nil }
+                guard !unselected.contains(id) else { return nil }
                 return rows[id] ?? OpportunityRow(ticker: symbol, type: type, candidateID: id == group ? nil : id)
             }
         }
@@ -629,9 +629,21 @@ struct OpportunityRow: Identifiable {
     }
     var canStage: Bool { !staged && error == nil && quote != nil && Date().timeIntervalSince(updated ?? .distantPast) < 30 && TradeRules.price(price) != nil && quantity > 0 && quantity <= 100 && (type != "CALL" || quantity <= capacity) }
     var total: Double? { TradeRules.price(price).map { $0 * 100 * Double(quantity) } }
+    var assignmentNotional: Double? { quote.map { $0.strike * 100 * Double(quantity) } }
     mutating func followMarketPrice() {
         manualPrice = false
         price = quote?.mid.map { String(format: "%.2f", $0) } ?? ""
+    }
+}
+
+extension Array where Element == OpportunityRow {
+    func estimate(_ amount: KeyPath<OpportunityRow, Double?>) -> Double? {
+        var sum = 0.0
+        for row in self {
+            guard let value = row[keyPath: amount] else { return nil }
+            sum += value
+        }
+        return sum
     }
 }
 
@@ -660,9 +672,6 @@ struct OpportunitiesView: View {
     private var symbols: [String] { book.symbols(store, type: type) }
     @State private var editor: CandidatePickerContext?
     @State private var focusedCandidate: String?
-    private var selected: [OpportunityRow] { book.selectedRows(store, type: type) }
-    private var ready: [OpportunityRow] { selected.filter(\.canStage) }
-    private var incompleteSelection: Bool { comparing && selected.count != ready.count }
     private var comparing: Bool { symbols.contains { !(book.pins[book.key($0, type)] ?? []).isEmpty } }
     private var autoRefresh: Bool { visible && phase == .active && store.selectedTab == "trade" && !book.batchRunning && !store.trading.busy }
     private var titleActions: some View {
@@ -887,8 +896,14 @@ struct OpportunitiesView: View {
             }
             if symbols.isEmpty { ContentUnavailableView("No opportunities", systemImage: "list.bullet.rectangle") }
             Section("Selected-contract estimates") {
-                LabeledContent("Premium") { PremiumValue(amount: ready.reduce(0) { $0 + ($1.total ?? 0) }) }
-                if type == "PUT" { LabeledContent("Assignment notional", value: money(ready.reduce(0) { $0 + ($1.quote?.strike ?? 0) * 100 * Double($1.quantity) })) }
+                let selected = book.selectedRows(store, type: type)
+                let unstaged = selected.filter { !$0.staged }
+                let ready = unstaged.filter(\.canStage)
+                let incompleteSelection = comparing && ready.count != unstaged.count
+                LabeledContent("Premium") { PremiumValue(amount: selected.estimate(\.total)) }
+                if type == "PUT" {
+                    LabeledContent("Assignment notional", value: money(selected.estimate(\.assignmentNotional)))
+                }
                 if incompleteSelection {
                     Text("Refresh or uncheck unavailable contracts before staging.").font(.caption).foregroundStyle(.secondary)
                 } else if !book.hasCoverage(ready, store: store) {
@@ -899,7 +914,7 @@ struct OpportunitiesView: View {
                     Task { await book.stageAndOpenOrders(snapshot, store: store) }
                 } label: {
                     HStack {
-                        Text("Stage selected (\(ready.count))")
+                        Text("Stage selected (\(incompleteSelection ? unstaged.count : ready.count))")
                         Spacer()
                         Image(systemName: "plus.circle").accessibilityHidden(true)
                     }.contentShape(Rectangle())
