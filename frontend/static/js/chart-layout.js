@@ -144,11 +144,35 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   }
   return null;
  }
+ // Intraday panes share one IB minute-history seed per contract and account.
+ // Its owner polls while loading; peers still read their own interval/session.
+ const coldOwners=new Map();
  async function readInitial(c,signal){
   signal=signal?AbortSignal.any([signal,AbortSignal.timeout(20000)]):AbortSignal.timeout(20000);
+  const key=[1,3,5,10,15,60,480].includes(c.interval)&&!(c.interval===480&&c.session==='rth')?JSON.stringify([c.epoch,c.cid]):null;
+  while(true){
+   signal.throwIfAborted();
+   if(c.epoch!==current().epoch)throw Error('Account changed; refresh connection state');
+   const latest=await readLatest(c,signal);if(latest)return latest;
+   const owner=coldOwners.get(key);
+   if(owner){
+    await new Promise((resolve,reject)=>{
+     signal.throwIfAborted();
+     const aborted=()=>reject(signal.reason);
+     signal.addEventListener('abort',aborted,{once:true});
+     owner.then(()=>{signal.removeEventListener('abort',aborted);resolve();});
+    });
+    continue;
+   }
+   let release;
+   if(key)coldOwners.set(key,new Promise(resolve=>{release=resolve;}));
+   try{return await pollInitial(c,signal);}
+   finally{if(key){coldOwners.delete(key);release();}}
+  }
+ }
+ async function pollInitial(c,signal){
   while(true){
   signal.throwIfAborted();
-  const latest=await readLatest(c,signal);if(latest)return latest;
   historyQuietUntil=Date.now()+2000;
   const previous=initialReadTail,waited=initialReadPending>0;let release,packet;
   initialReadPending++;initialReadTail=new Promise(resolve=>{release=resolve;});
@@ -168,6 +192,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
    const timer=setTimeout(()=>{signal.removeEventListener('abort',aborted);resolve();},500);
    signal.addEventListener('abort',aborted,{once:true});
   });
+  const latest=await readLatest(c,signal);if(latest)return latest;
   }
  }
  async function readHistory(c,before,signal,recent=false){
