@@ -85,6 +85,12 @@ try:
      metadata['pending_order_checks']=order_checks
     ticker.tickByTicks=[S(time=stamp,price=p,size=1) for p in cmd['prices']];ticker.updateEvent.emit(ticker)
     answer={'ticks':state['ticks'],'last':state['bars'][-1]}
+   elif op=='level1_last':
+    conn,ticker,state=ensure(cmd['cid'])
+    ticker.tickByTicks=[]
+    ticker.ticks=[S(time=datetime.now(timezone.utc),tickType=4,price=cmd['price'],size=1)]
+    ticker.updateEvent.emit(ticker)
+    ticker.ticks=[]
    elif op=='reference':
     conn,ticker,state=ensure(cmd['cid']);ticker.close=cmd.get('close');publish(state)
    elif op=='stats':answer={str(cid):dict(ticks=s[2]['ticks'],last=s[2]['bars'][-1]) for cid,s in sources.items()}

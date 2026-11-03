@@ -24,7 +24,7 @@ class LastGapTests(TestCase):
         conn.ib.reqTickByTickData.return_value = ticker
         conn.ib.ticker.return_value = ticker
         conn.ib.wrapper = wrapper
-        base = int(datetime.now(timezone.utc).timestamp())
+        base = int(datetime.now(timezone.utc).timestamp()) - 2
         conn.ib.reqHistoricalData.return_value[0].date = datetime.fromtimestamp(base // 60 * 60, timezone.utc)
         self.addCleanup(feed.stop)
 
@@ -53,6 +53,16 @@ class LastGapTests(TestCase):
                 wrapper.tcpDataArrived()
                 wrapper.priceSizeTick(43, 4, 12, 1)
                 wrapper.tcpDataProcessed()
+                packet = feed.packet(state, 5, 'all')
+                self.assertEqual(packet['display_last']['price'], 12)
+                self.assertEqual((packet['last_price'], packet['bars'][-1]['close'], packet['tick_count']), (10, 10, 1))
+                self.assertEqual((packet['bid'], packet['ask']), (10, 11))
+                self.assertIsNone(feed.packet(state, 5, 'rth', rth_windows=())['display_last'])
+                ticker.marketDataType = 3
+                self.assertIsNone(feed.packet(state, 5, 'all')['display_last'])
+                ticker.marketDataType = 1
+                with patch('api.services.stock_chart.time.time', return_value=packet['display_last']['expires_at']):
+                    self.assertIsNone(feed.packet(state, 5, 'all')['display_last'])
                 trade(12, base - 1)
                 trade(0, base)
                 state['bars'].append(dict(state['bars'][-1], time=base // 60 * 60 + 60))
@@ -62,6 +72,7 @@ class LastGapTests(TestCase):
                 self.assertEqual(state['ticks'], 1)
                 clock.monotonic.return_value = 18.4
                 trade(11, base)
+                self.assertIsNone(feed.packet(state, 5, 'all')['display_last'])
             self.assertEqual(len(logs.output), 2)
             self.assertIn('phase=waiting', logs.output[0])
             self.assertIn('phase=resumed gap_ms=8400 accepted_batch=1', logs.output[1])

@@ -59,7 +59,8 @@ const titleFormats=new Map();
 function updateTabTitle(){
  const valid=packet.con_id===cid&&packet.account_epoch===epoch&&!switchingChart;
  const symbol=valid?contractLabel(packet):'';
- const price=valid?packet.last_price:null;
+ const live=packet.display_last,now=packet.server_time+Math.max(0,Date.now()-packetReceived)/1000;
+ const price=valid?(live&&now<live.expires_at?live.price:packet.last_price):null;
  let title=symbol||'Wheel · Superchart';
  if(symbol&&Number.isFinite(price)&&price>0&&Date.now()-packetReceived<30000){
   const rule=(packet.price_rules||[]).filter(r=>r.low<=price&&r.increment>0).sort((a,b)=>b.low-a.low)[0];
@@ -154,7 +155,7 @@ const chartLayout=window.installChartLayout({frame,api,onReady:()=>sync(),onPlus
  activate:(target,nextFrame,seed)=>{
   if(busy||switchingChart||document.querySelector('dialog[open]'))return false;
   cancelMarketReads();frame.contentWindow.removeEventListener('focus',resumeMarket);marketStream.stop();generation++;marketReadError='';quoteConfigKey='';
-  frame=nextFrame;cid=target.cid;interval=target.interval;session=target.session;packet=seed.packet;display=structuredClone(target.display);
+  frame=nextFrame;cid=target.cid;interval=target.interval;session=target.session;packet={...seed.packet,display_last:null};display=structuredClone(target.display);
   groupID=savedGroup(cid);state={};received=0;entry=0;resetNewQuantity();
   emaFrames=seed.ema||{};emaContext=emaKey();volatilityData=seed.volatility;volatilityKey=volatilityContext();
   executionContext='';chartExecutions=[];packetReceived=Date.now();lastFallback=Date.now();
