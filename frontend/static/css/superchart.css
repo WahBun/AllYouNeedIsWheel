@@ -304,6 +304,22 @@ body.unified-chart-toolbar .toolbar-views{gap:2px}
 body.unified-chart-toolbar>header :is(.toolbar-instrument button,#favorite-contracts,#session-button,#layout-button,#maximize-chart,#fullscreen,#theme,#trade-sounds,#settings):hover{background:var(--toolbar-hover)}
 body.unified-chart-toolbar>header button:focus-visible,body.unified-chart-toolbar #favorite-contracts:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
+/* Footer controls share a baseline when the clock and session live beside Details. */
+.chart-footer:has(> #market-clock):has(> #session-picker){
+ align-items:center;
+ & > #market-clock{font-size:13px;line-height:32px;color:var(--muted)}
+ & #session-button,& > #toggle-trade{
+  display:inline-grid;place-items:center;height:32px;padding:0 8px;border:1px solid var(--border);
+  border-radius:6px;background:transparent;color:var(--fg);line-height:1;
+ }
+ & #session-button{min-width:44px;font-size:12px;font-weight:600}
+ & :is(#session-button,#toggle-trade):hover{background:var(--panel)}
+ & :is(#session-button,#toggle-trade):focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+}
+@media(max-width:360px){
+ .chart-footer:has(> #market-clock):has(> #session-picker){column-gap:6px}
+ .chart-footer:has(> #market-clock) > #mobile-open-trading{padding-inline:4px;font-size:12px}
+}
 /* A detached bookmark leaves a single, fully rounded instrument button. */
 .toolbar-instrument:has(> #option-search:only-child){width:fit-content;max-width:100%;justify-self:start}
 .toolbar-instrument:has(> #option-search:only-child) #option-search{width:auto;flex:0 1 auto;border-radius:inherit}

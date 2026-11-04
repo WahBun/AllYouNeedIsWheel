@@ -25,6 +25,8 @@ $('clear-symbol').onclick=()=>{$('symbol').value='';updateSymbolClear();$('symbo
 window.addEventListener('pageshow',updateSymbolClear);updateSymbolClear();
 // Start each page in analysis mode; unlocking is deliberate and is not restored.
 const lockedFeedback='Trading locked.\nChart analysis remains available.';
+const unlockedFeedback='Trading unlocked.';
+let displayedUnlockNotice=unlockedFeedback;
 let tradingLocked=true;
 const tradingLock=document.createElement('button');tradingLock.id='trading-lock';tradingLock.type='button';
 document.querySelector('.trade-heading h2').after(tradingLock);
@@ -35,8 +37,8 @@ function renderTradingLock(){
 tradingLock.onclick=()=>{
  tradingLocked=!tradingLocked;
  if(tradingLocked){queuedEntry=null;pendingJoin=null;editContext=null;$('editor').close();$('protection-editor').close();}
- renderTradingLock();sync();chartLayout.refreshTradingLock();
- log(tradingLocked?lockedFeedback:'Trading unlocked.');
+ renderTradingLock();log(tradingLocked?lockedFeedback:unlockedFeedback);
+ sync();chartLayout.refreshTradingLock();
 };
 renderTradingLock();
 let groupID='',switchingChart=false,marketReadError='',accountNotice='',pendingJoin=null,pnlPhase='loading';
@@ -229,7 +231,14 @@ function syncJoinControls(){
  const reasons=(option?['mid']:['bid','ask']).map(id=>{const reason=id==='mid'?midReason:joinBlockReason(id);$(id).disabled=!!reason;$(id).title=reason||(id==='mid'?`Submit ${previewSide===1?'Buy':'Sell'} LMT at midpoint`:`Submit ${id==='bid'?'Buy':'Sell'} LMT at ${id}`);return reason;});
  const feedback=$('trade-feedback');
  if(tradingLocked&&!feedback.textContent)feedback.textContent=lockedFeedback;
- const note=$('join-reason');if(note){note.hidden=tradingLocked||!reasons.some(Boolean);const text=[...new Set(reasons.filter(Boolean))].join(' · ');if(note.textContent!==text)note.textContent=text;}
+ const reasonText=[...new Set(reasons.filter(Boolean))].join(' · ');
+ const showWithUnlock=!tradingLocked && (feedback.textContent===unlockedFeedback || feedback.textContent===displayedUnlockNotice);
+ if(showWithUnlock){
+  const reason=profile.selected==='demo' && reasonText==='Chart execution is not enabled for this account'?'Demo mode is view-only.':reasonText;
+  displayedUnlockNotice=reason?unlockedFeedback+'\n'+reason:unlockedFeedback;
+  if(feedback.textContent!==displayedUnlockNotice)feedback.textContent=displayedUnlockNotice;
+ }
+ const note=$('join-reason');if(note){note.hidden=tradingLocked||showWithUnlock||!reasonText;if(note.textContent!==reasonText)note.textContent=reasonText;}
 }
 function beginJoin(id,side){
  const reason=id==='mid'?midBlockReason():joinBlockReason(id);if(reason)return log(reason);
