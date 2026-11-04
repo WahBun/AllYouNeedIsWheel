@@ -8,7 +8,8 @@ const state={"paper": false, "account_mode": "live", "enabled": true, "position"
  await p.route('**/*',async route=>{const r=route.request(),u=new URL(r.url());assert.equal(u.origin,h.url);assert.equal(r.method(),'GET');
  if(u.pathname.endsWith('/profiles'))return route.fulfill({json:{selected:'live',verified:true,epoch:'mock-epoch',chart_execution_enabled:true,readonly:false}});
  if(u.pathname.includes('/paper-chart/'))return route.fulfill({json:state});
- if(u.pathname.includes('/stock-chart/')||u.pathname.includes('/stock-chart-latest/')){const response=await route.fetch();const packet=await response.json();return route.fulfill({json:{...packet,security_type:'OPT',symbol:'TSLL',local_symbol:'TSLL  261218C00013000',multiplier:100}});}
+ if(u.pathname.includes('/stock-chart-stream/'))return route.abort();
+ if(u.pathname.includes('/stock-chart/')||u.pathname.includes('/stock-chart-latest/')){const response=await route.fetch();const packet=await response.json();return route.fulfill({json:{...packet,security_type:'OPT',symbol:'TSLL',display_symbol:'TSLL 20261218 13 CALL',local_symbol:'TSLL  261218C00013000',multiplier:100}});}
  return route.continue();});
  await p.goto(h.url+'/superchart?con_id=7');
  const frame=await (await p.locator('#chart').elementHandle()).contentFrame();

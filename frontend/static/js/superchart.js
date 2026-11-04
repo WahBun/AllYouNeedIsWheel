@@ -24,6 +24,9 @@ $('symbol').addEventListener('input',updateSymbolClear);
 $('clear-symbol').onclick=()=>{$('symbol').value='';updateSymbolClear();$('symbol').focus();};
 window.addEventListener('pageshow',updateSymbolClear);updateSymbolClear();
 // Start each page in analysis mode; unlocking is deliberate and is not restored.
+const lockedFeedback='Trading locked.\nChart analysis remains available.';
+const unlockedFeedback='Trading unlocked.';
+let displayedUnlockNotice=unlockedFeedback;
 let tradingLocked=true;
 const tradingLock=document.createElement('button');tradingLock.id='trading-lock';tradingLock.type='button';
 document.querySelector('.trade-heading h2').after(tradingLock);
@@ -34,8 +37,8 @@ function renderTradingLock(){
 tradingLock.onclick=()=>{
  tradingLocked=!tradingLocked;
  if(tradingLocked){queuedEntry=null;pendingJoin=null;editContext=null;$('editor').close();$('protection-editor').close();}
- renderTradingLock();sync();chartLayout.refreshTradingLock();
- log(tradingLocked?'Trading locked. Chart analysis remains available.':'Trading unlocked.');
+ renderTradingLock();log(tradingLocked?lockedFeedback:unlockedFeedback);
+ sync();chartLayout.refreshTradingLock();
 };
 renderTradingLock();
 let groupID='',switchingChart=false,marketReadError='',accountNotice='',pendingJoin=null,pnlPhase='loading';
@@ -226,7 +229,16 @@ function syncJoinControls(){
  for(const [id,side] of [['preview-buy',1],['preview-sell',-1]]){const selected=option&&midDirectionContext===JSON.stringify(marketContext())&&previewSide===side;$(id).classList.toggle('mid-selected',selected);$(id).setAttribute('aria-pressed',String(selected));}
  const midReason=midBlockReason();$('mid').disabled=!!midReason;$('mid').title=midReason||`Submit ${previewSide===1?'Buy':'Sell'} LMT at midpoint`;
  const reasons=(option?['mid']:['bid','ask']).map(id=>{const reason=id==='mid'?midReason:joinBlockReason(id);$(id).disabled=!!reason;$(id).title=reason||(id==='mid'?`Submit ${previewSide===1?'Buy':'Sell'} LMT at midpoint`:`Submit ${id==='bid'?'Buy':'Sell'} LMT at ${id}`);return reason;});
- const note=$('join-reason');if(note){note.hidden=!reasons.some(Boolean);const text=[...new Set(reasons.filter(Boolean))].join(' · ');if(note.textContent!==text)note.textContent=text;}
+ const feedback=$('trade-feedback');
+ if(tradingLocked&&!feedback.textContent)feedback.textContent=lockedFeedback;
+ const reasonText=[...new Set(reasons.filter(Boolean))].join(' · ');
+ const showWithUnlock=!tradingLocked && (feedback.textContent===unlockedFeedback || feedback.textContent===displayedUnlockNotice);
+ if(showWithUnlock){
+  const reason=profile.selected==='demo' && reasonText==='Chart execution is not enabled for this account'?'Demo mode is view-only.':reasonText;
+  displayedUnlockNotice=reason?unlockedFeedback+'\n'+reason:unlockedFeedback;
+  if(feedback.textContent!==displayedUnlockNotice)feedback.textContent=displayedUnlockNotice;
+ }
+ const note=$('join-reason');if(note){note.hidden=tradingLocked||showWithUnlock||!reasonText;if(note.textContent!==reasonText)note.textContent=reasonText;}
 }
 function beginJoin(id,side){
  const reason=id==='mid'?midBlockReason():joinBlockReason(id);if(reason)return log(reason);
@@ -355,7 +367,7 @@ for(const id of ['close','be'])$(id).disabled=!can||(id==='close'?(!(state.activ
 for(const id of ['preview-buy','preview-sell'])$(id).disabled=tradingLocked||!!newQuantityReason(Number($('quantity').value))||!cid||busy||switchingChart||state.active;for(const id of ['quantity-minus','quantity-plus'])$(id).disabled=tradingLocked||busy||state.active===true;const size=Math.abs(state.position||0),adjustment=Number($('adjustment-quantity').value),valid=Number.isInteger(adjustment)&&adjustment>0;$('adjustment-control').hidden=!size;$('adjustment-quantity').disabled=!can||!(state.add_allowed??state.scalable)&&!(state.trim_allowed??state.scalable)||!size;const adjustmentMax=Math.max(1,(state.add_allowed??state.scalable)?(state.add_available??1):0,(state.trim_allowed??state.scalable)?Math.floor(Math.min(Math.ceil(size)-1,state.trim_available??size)):0);$('adjustment-quantity').max=adjustmentMax;$('adjustment-minus').disabled=$('adjustment-quantity').disabled||adjustment<=1;$('adjustment-plus').disabled=$('adjustment-quantity').disabled||adjustment>=adjustmentMax;for(const id of ['add','trim']){$(id).disabled=!can||!(id==='add'?(state.add_allowed??state.scalable):(state.trim_allowed??state.scalable))||!size||!valid||(id==='trim'&&(adjustment>=size||adjustment>(state.trim_available??size)))||(id==='add'&&adjustment>(state.add_available??Infinity));$(id).title=id==='trim'&&adjustment>=size?'Trim must leave a position; use Close position':'';}$('bracket-control').hidden=state.active===true;for(const id of ['quantity','type','tif','bracket-enabled','tp-enabled','sl-enabled'])$(id).disabled=tradingLocked||busy||state.active===true||(!!state.live_initial_scope&&['quantity','type','bracket-enabled','tp-enabled','sl-enabled'].includes(id));if(!state.position)for(const role of ['tp','sl']){$(role).disabled=tradingLocked||busy||state.active===true||!$('bracket-enabled').checked||!$(role+'-enabled').checked;$(role+'-mode').disabled=tradingLocked||busy||state.active===true||!$('bracket-enabled').checked;}$('manage-protection').hidden=!state.position;$('manage-protection').disabled=!can||!state.protection_manageable;$('manage-protection').title=state.protection_block_reason||'';syncPositionProtection();renderTradingContext();}
 const cancelAddButtons=new Map();
 function renderPendingAdds(can){
- let list=$('pending-adds');if(!list){list=document.createElement('div');list.id='pending-adds';list.style.cssText='display:grid;gap:6px;max-height:160px;overflow:auto';$('adjustment-control').after(list);}
+ let list=$('pending-adds');if(!list){list=document.createElement('div');list.id='pending-adds';$('adjustment-control').after(list);}
  const rows=(state.orders||[]).filter(o=>o.role.split('_')[0]==='entry'&&(o.entry_kind==='add'||state.position)&&!o.filled&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status));
  const keys=new Set(rows.map(o=>`${epoch}:${cid}:${state.order_ref}:${o.order_id}`));
  for(const [key,b] of cancelAddButtons)if(!keys.has(key)){b.remove();cancelAddButtons.delete(key);}
@@ -784,7 +796,11 @@ document.addEventListener('pointerdown',e=>{if(!$('session-picker').contains(e.t
 document.addEventListener('focusin',e=>{if(!$('session-picker').contains(e.target))closeSessionMenu();});
 window.addEventListener('blur',()=>closeSessionMenu());
 $('session').onchange=()=>{if(busy){$('session').value=session;return;}session=$('session').value;resetSessionBarCount();rememberSession();chartLayout.follow('session');generation++;marketStream.stop();lastFallback=0;lastPnL=0;chartTransition();refresh();};
-$('toggle-trade').onclick=()=>{const detail=$('chart-detail');detail.hidden=!detail.hidden;$('toggle-trade').textContent='Detail '+(detail.hidden?'▾':'▴');$('toggle-trade').setAttribute('aria-expanded',String(!detail.hidden));};
+const detailToggle=$('toggle-trade');
+detailToggle.textContent='';
+detailToggle.title='Chart details';
+detailToggle.setAttribute('aria-label','Chart details');
+detailToggle.onclick=()=>{const detail=$('chart-detail');detail.hidden=!detail.hidden;detailToggle.setAttribute('aria-expanded',String(!detail.hidden));};
 for(const [id,delta] of [['quantity-minus',-1],['quantity-plus',1]])$(id).onclick=()=>{if($('quantity').disabled)return;quantityEdited=true;$('quantity').value=Math.min(Number($('quantity').max),Math.max(1,(Number($('quantity').value)||1)+delta));sync();};
 $('bracket-enabled').onchange=()=>{if(state.active||busy)return;if($('bracket-enabled').checked&&!$('tp-enabled').checked&&!$('sl-enabled').checked){$('tp-enabled').checked=true;$('sl-enabled').checked=true;}if(protectionType)localStorage.setItem('wheel.web.bracket:'+protectionType,JSON.stringify({enabled:$('bracket-enabled').checked}));revision++;sync();};
 for(const id of ['quantity','type','tif','tp','sl','tp-enabled','sl-enabled','tp-mode','sl-mode'])$(id).onchange=()=>{if(id==='quantity')quantityEdited=true;if(state.position&&(id.startsWith('tp')||id.startsWith('sl'))){const r=id.slice(0,2);if(id.endsWith('-mode')){ticketDraft[r]=false;sync();}return;}if(id.startsWith('tp')||id.startsWith('sl')){if(id==='tp-mode')$('tp').value=$('tp-mode').value==='profit'?300:$('tp-mode').value==='percent'?75:$('tp-mode').value==='price'?(entry||packet.bid||1):.2;if(id==='sl-mode')$('sl').value=$('sl-mode').value==='profit'?300:$('sl-mode').value==='percent'?10:$('sl-mode').value==='price'?'':protectionType==='FUT'?1:.1;if(!$('tp-enabled').checked&&!$('sl-enabled').checked){$('bracket-enabled').checked=false;if(protectionType)localStorage.setItem('wheel.web.bracket:'+protectionType,JSON.stringify({enabled:false}));}if(protectionType)localStorage.setItem('wheel.web.protection:'+protectionType,JSON.stringify({tp:Number($('tp').value),sl:Number($('sl').value),tpEnabled:$('tp-enabled').checked,slEnabled:$('sl-enabled').checked,tpMode:$('tp-mode').value,slMode:$('sl-mode').value}));}revision++;sync();};

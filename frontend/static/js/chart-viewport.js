@@ -25,7 +25,8 @@
  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&pageFull()&&!document.querySelector('dialog[open]'))pageMode(false);});
  const jump=document.createElement('button');jump.type='button';jump.className='mobile-chart-control';jump.id='mobile-open-trading';jump.textContent='Trading ↓';
  jump.onclick=()=>{const panel=document.getElementById('trade');if(panel.hidden)document.getElementById('toggle-trading-panel').click();panel.scrollIntoView({block:'start'});};
- document.querySelector('.chart-footer').insertBefore(jump,document.getElementById('toggle-trade'));
+ const footer=document.querySelector('.chart-footer');
+ footer.insertBefore(jump,footer.querySelector('#session-picker')||document.getElementById('toggle-trade'));
  const back=document.createElement('button');back.type='button';back.className='mobile-chart-control';back.id='mobile-back-chart';back.textContent='Chart ↑';back.onclick=()=>document.querySelector('body>header').scrollIntoView({block:'start'});
  document.querySelector('.trade-heading').append(back);update();
 })();
