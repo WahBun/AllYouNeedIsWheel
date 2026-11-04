@@ -57,5 +57,7 @@ def recover_add(db, account, cid, group, row, position, rows):
         total += qty
         cost += qty * price
     other_owned = sum((-1 if r['role'].split('_')[0] == 'entry' else 1) * r['filled'] for r in rows if r is not row)
-    if total > 0 and total in quantities and other_owned - total == position and position < 0:
+    if position == 0 and any(r is not row and r['status'] not in ('Filled', 'Cancelled', 'ApiCancelled') for r in rows):
+        return
+    if total > 0 and total in quantities and other_owned - total == position and position <= 0:
         row.update(status='Filled', quantity=total, filled=total, price=cost / total, execution_recovered=True)

@@ -68,6 +68,29 @@ class CoveredCallAddRecoveryTests(unittest.TestCase):
         f.conn.ib.placeOrder.assert_called_once()
         f.conn.ib.cancelOrder.assert_not_called()
 
+    def test_flat_after_close_reconciles_even_when_ib_drops_position(self):
+        f = self.fx
+        self.group['ids']['close'] = 3
+        self.group['perms']['close'] = 303
+        f.service.save_group('DU_TEST', 7, self.group)
+        order = LimitOrder('BUY', 3, .4, orderId=3, account='DU_TEST', orderRef=self.ref, permId=303)
+        close = Trade(f.contract, order, OrderStatus(status='Filled', filled=3))
+        f.trades.append(close)
+        f.conn.ib.positions.return_value = []
+        state = self.state()
+        self.assertTrue(state['known'])
+        self.assertFalse(state['active'])
+        self.assertEqual(state['status'], 'done')
+        self.assertEqual(state['close_progress']['status'], 'completed')
+        f.trades.clear()
+        with patch.dict('api.services.paper_chart.contracts.contracts', {7: f.contract}):
+            self.assertEqual(self.state()['status'], 'done')
+            with f.service.database() as db:
+                db.execute("UPDATE chart_execution_marks SET quantity=.5")
+            self.assertFalse(self.state()['known'])
+        f.conn.ib.placeOrder.assert_not_called()
+        f.conn.ib.cancelOrder.assert_not_called()
+
     def test_correction_partial_fill_and_position_mismatch_stay_unconfirmed(self):
         self.assertTrue(self.state()['known'])
         for clause in ("quantity=.5", "exec_id='a.b.c.02',quantity=1", "side='BUY',exec_id='a.b.c.01'"):

@@ -4,5 +4,15 @@ const zh=process.env.WHEEL_TEST_ZH==='1',mobile=process.env.WHEEL_TEST_MOBILE===
 await p.evaluate(()=>{window.sent=[];window.webkit={messageHandlers:{paperAction:{postMessage:v=>sent.push(v)}}};for(const [revision,direction] of [[1,1],[2,-1]])configure({con_id:7,entry:100,quantity:1,entryType:'LMT',previewRevision:revision,previewSide:direction,paper:{enabled:true,active:false}});});assert.equal(await p.evaluate(()=>side),-1);assert.deepEqual(await p.evaluate(()=>sent),[]);
 await p.evaluate(()=>{configure({con_id:7,entry:100,quantity:1,paper:{enabled:true,known:true,web_account_epoch:'one',broker_pending_orders:[{order_id:17,perm_id:71,client_id:8,local_order_id:52,price:100,quantity:3,action:'SELL',status:'Submitted',editable:true,cancelable:true,quantity_editable:true,terms:{quantity:3,premium:100,tif:'DAY'}}]}});receive({con_id:7,generation:'test',interval:5,session:'rth',symbol:'QQQ',bars:Array.from({length:70},(_,i)=>({time:1000+i*300,open:100,high:105,low:95,close:100}))});});
 await p.evaluate(()=>configure({con_id:7,entry:100,quantity:1,paper:{enabled:true,known:true,active:true,position:-1,entry:100,side:-1,orders:[]}}));await p.locator('#entry').waitFor({state:'visible'});
+// Flat while another row is unresolved: never paint the completed parent as an open order.
+const flatPending={enabled:true,active:true,known:false,position:0,entry:100,side:-1,orders:[
+ {role:'entry',status:'Filled',quantity:2,filled:2},{role:'entry_2',entry_kind:'add',status:'Unknown',quantity:0,filled:0},
+ {role:'close',status:'Filled',quantity:3,filled:3}]};
+await p.evaluate(paper=>configure({con_id:7,entry:100,quantity:3,paper}),flatPending);
+assert.equal(await p.locator('#entry').isVisible(),false);
+assert.equal(await p.locator('#cancel').isVisible(),false);
+assert.equal(await p.evaluate(()=>entryLine===null),true);
+await p.evaluate(paper=>{paper.orders[0]={role:'entry',order_id:9,status:'Submitted',quantity:2,filled:0};configure({con_id:7,entry:100,quantity:2,paper});},flatPending);
+assert.equal(await p.locator('#entry').isVisible(),true);
 await p.evaluate(()=>configure({con_id:7,entry:0,quantity:1,paper:{enabled:true,known:true,active:false,position:0,status:'done',entry:100,orders:[{role:'close',order_id:21,status:'Filled',filled:1}],broker_pending_orders:[]}}));assert.equal(await p.locator('#entry').isVisible(),false);assert.equal(await p.locator('#cancel').isVisible(),false);assert.equal(await p.evaluate(()=>entryLine===null),true);assert.equal(await p.locator('.broker-order-label').count(),0);
 await p.evaluate(()=>configure({con_id:7,entry:101,quantity:1,previewRevision:3,previewSide:1,paper:{enabled:true,known:true,active:false,position:0,status:'done',orders:[]}}));await p.locator('#entry').waitFor({state:'visible'});assert.deepEqual(errors,[]);console.log('Confirmed flat removes old price line and controls; a new preview remains possible');}finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1)});
