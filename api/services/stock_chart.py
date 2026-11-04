@@ -160,8 +160,28 @@ class StockChart:
         self.next_request = {}
         self.request_errors = {}
         self.listeners = set()
+        self.option_trade_listeners = set()
         self.initial_history = InitialChartHistory()
         self.has_subscribers = lambda con_id: False
+
+    def observe_option_trade(self, state, bar):
+        # Seed snapshots and backfilled bars never enter the alert crossing path.
+        prior = state.pop('alert_bar', None)
+        stamp, now = bar['time'], time.time()
+        if not self.option_trade_listeners or state['ticker'].marketDataType != 1 or not 0 <= now - stamp < 60:
+            return
+        state['alert_bar'] = bar, now
+        if not prior or not bar['volume']:
+            return
+        previous, seen = prior
+        if previous['close'] == bar['close'] or not 0 <= now - seen <= 60:
+            return
+        new_minute = stamp == previous['time'] + 60
+        more_trades = (stamp == previous['time'] and previous['volume'] is not None
+                       and bar['volume'] > previous['volume'])
+        if new_minute or more_trades:
+            for listener in tuple(self.option_trade_listeners):
+                listener(state, previous['close'], bar['close'], max(seen, stamp), now)
 
     def stop(self, reset_cooldown=False):
         try:
@@ -533,6 +553,7 @@ class StockChart:
                     # Do not turn a cached last price into a fabricated current candle.
                     if 0<=time.time()-stamp<60 and ticker.marketDataType==1: state['last_tick']=time.time()
                     for listener in tuple(self.listeners): listener(state)
+                    self.observe_option_trade(state, point)
                 state['minute_history']=historical;state['history_handler']=on_history
                 historical.updateEvent += on_history
             asyncio.get_event_loop().call_later(30, self.expire, state)

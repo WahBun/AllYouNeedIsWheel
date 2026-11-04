@@ -855,6 +855,54 @@ class StockChartTests(unittest.TestCase):
             self.assertEqual(feed.packet(state,5,'all')['bars'],aggregate(state['bars'],5))
         finally:feed.stop();close_test_loop()
 
+    def test_option_chart_reports_only_new_trades_on_continuous_live_bars(self):
+        from unittest.mock import patch
+        from ib_async import Option
+
+        class History(list):
+            pass
+
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn, ticker = self.connection()
+        feed = StockChart()
+        observed = Mock()
+        feed.option_trade_listeners.add(observed)
+        history = History(conn.ib.reqHistoricalData.return_value)
+        history.updateEvent = Event()
+        conn.ib.reqHistoricalData.return_value = history
+        conn.get_market_ticker.return_value = ticker
+        ticker.marketDataType = 1
+        option = Option('TQQQ', '20261120', 60, 'P', 'SMART', conId=7)
+        minute = int(history[-1].date.timestamp())
+
+        def update(offset, price, volume, lag):
+            stamp = minute + offset
+            history.append(S(date=datetime.fromtimestamp(stamp, timezone.utc), open=price,
+                             high=price, low=price, close=price, volume=volume))
+            with patch('api.services.stock_chart.time.time', return_value=stamp+lag):
+                history.updateEvent.emit(history, True)
+
+        try:
+            with patch('api.services.chart_contracts.contracts.resolve', return_value=option):
+                feed.snapshot(conn, 7, 1, 'all')
+            update(0, 2.75, 0, 55)
+            update(60, 2.75, 0, 1)
+            observed.assert_not_called()
+            update(60, 2.50, 1, 6)
+            observed.assert_called_once_with(feed.active, 2.75, 2.50, minute+61, minute+66)
+            observed.reset_mock()
+            update(60, 2.50, 1, 10)
+            update(60, 2.75, 1, 15)  # Correction without a new trade.
+            ticker.marketDataType = 3
+            update(60, 2.50, 2, 20)
+            ticker.marketDataType = 1
+            update(120, 2.75, 1, 2)
+            update(180, 2.50, 1, 75)  # Backfill after a gap.
+            observed.assert_not_called()
+        finally:
+            feed.stop()
+            close_test_loop()
+
     def test_option_updates_use_history_and_never_cached_last_or_tick_by_tick(self):
         from unittest.mock import patch
         from ib_async import Option
