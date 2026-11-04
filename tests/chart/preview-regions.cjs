@@ -1,0 +1,67 @@
+const assert=require('node:assert/strict');
+const {chromium}=require('playwright');
+(async()=>{
+  const url=new URL(process.argv[2]||'http://127.0.0.1:8765/');
+  assert.equal(url.hostname,'127.0.0.1');
+  const browser=await chromium.launch();
+  try{
+    const p=await browser.newPage({viewport:{width:1800,height:1100}});
+    p.setDefaultTimeout(4500);
+    const errors=[],writes=[];
+    p.on('pageerror',e=>errors.push(e.message));
+    p.on('request',r=>{if(r.url().includes('/api/') && r.method()!=='GET')writes.push(r.url());});
+    await p.goto(url.href);
+    const button=name=>p.getByRole('button',{name,exact:true});
+    const pick=async sel=>p.locator(sel).click({modifiers:['Alt']});
+    const more=async()=>{if(!await p.locator('#more').evaluate(e=>e.open))await p.locator('#more > summary').click();};
+    async function cross(source,mode,dest,cancel=false){
+      await pick(source);await more();await p.getByLabel('Drag mode').selectOption(mode);
+      const target=await p.locator(dest).boundingBox();
+      await p.keyboard.down('Control');await p.keyboard.down('Meta');
+      const grip=await button('Move across areas').boundingBox();assert.ok(grip);
+      await p.mouse.move(grip.x+grip.width/2,grip.y+grip.height/2);
+      await p.mouse.down();await p.mouse.move(target.x+10,target.y+target.height/2,{steps:5});
+      assert.equal(await p.locator('#order-drop').isVisible(),true);
+      if(cancel)await p.keyboard.press('Escape');
+      await p.mouse.up();await p.keyboard.up('Meta');await p.keyboard.up('Control');
+    }
+    const period='#intervals > button[data-interval="5"]', moved='.chart-footer > [data-blueprint-period="5"]';
+    await cross(period,'control','.chart-footer',true);assert.equal(await p.locator(moved).count(),0);
+    await cross(period,'control','.chart-footer');await p.locator(moved).waitFor();
+    await button('Hide layout editor').click();await p.locator(moved).click();
+    await p.locator(moved).waitFor();assert.equal(await p.locator('[data-blueprint-period="5"]').count(),1);
+    await p.reload();await p.locator(moved).waitFor();
+    await cross('#favorite-contracts','group','#chart-detail > details');
+    await p.locator('#chart-detail > details > .favorite-contract-picker > #favorite-contracts').waitFor();
+    await button('Undo').click();await p.locator('.toolbar-center .favorite-contract-picker').waitFor();
+    await button('Redo').click();
+    await pick('button#copy');await button('Hide element').click();
+    assert.equal(await p.locator('button#copy').isVisible(),false);
+    await button('Hold original').hover();await p.mouse.down();
+    assert.equal(await p.locator('button#copy').isVisible(),true);assert.equal(await p.locator(period).count(),1);
+    await p.mouse.up();await p.reload();await button('Edit layout').click();
+    await p.locator('#hidden-items > summary').click();await button('Show #copy').click();
+    await p.locator('button#copy').waitFor();
+    await button('Undo').click();assert.equal(await p.locator('button#copy').isVisible(),false);
+    await button('Redo').click();
+    await p.locator('#preview-buy').click({modifiers:['Alt'],force:true});await more();assert.equal(await button('Hide element').isVisible(),false);
+    assert.equal(await p.getByLabel('Drag mode').isVisible(),false);
+    await pick('button#copy');
+    const selected=p.locator('button#target');
+    assert.equal(await selected.evaluate(e=>e===e.getRootNode().activeElement),true);
+    const x=(await p.locator('button#copy').boundingBox()).x;
+    await p.keyboard.press('ArrowRight');await p.keyboard.press('Shift+ArrowRight');
+    assert.equal((await p.locator('button#copy').boundingBox()).x,x+11);
+    const text=p.getByLabel('Text content');await text.focus();await p.keyboard.press('ArrowLeft');
+    assert.equal((await p.locator('button#copy').boundingBox()).x,x+11);
+    const menu=p.locator('#more > summary');await menu.focus();await p.keyboard.press('ArrowLeft');
+    assert.equal(await p.locator('#more').evaluate(e=>e.open),false);
+    await p.keyboard.press('ArrowRight');await p.keyboard.press('ArrowDown');
+    assert.equal(await p.locator('#hide-item').evaluate(e=>e===e.getRootNode().activeElement),true);
+    await p.getByLabel('Drag mode').selectOption('control');
+    await p.getByLabel('Destination area').selectOption('Chart footer');
+    await button('Move here').press('Enter');await p.locator('.chart-footer > #copy').waitFor();
+    assert.deepEqual(errors,[]);assert.deepEqual(writes,[]);
+    console.log('PASS cross-area controls and groups, rebuilt intervals, cancel, hide and restore, compare, reload and protected controls');
+  }finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

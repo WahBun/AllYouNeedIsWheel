@@ -34,6 +34,8 @@ SwiftUI 构建，支持 iOS 18 及以上，以及浅色／深色模式。当前 
 
 把示例预览当作布局蓝图：按住 Option 点击，或从 **Edit layout → Browse** 搜索可见元素；**Parent** 选外层容器。按住 **Control** 拖动选中元素可自由移动，拖边缘则调整尺寸。按住 Control 且选框获得焦点时用方向键微调 1 px，按住 Shift 则是 10 px；**Position** 里也可以填横纵偏移。按住 **Control + Command** 拖动，可在行、列或网格中拖放相邻组件。选中内层文字、图标或下拉框也可以拖动；跨到旁边一组时，移动整个组件组：拖到目标中央交换两个位置，拖到目标前后边缘插入，中间控件实时让位。松开确认，Esc 取消，Undo 可整步撤销。此顺序会保存在蓝图中。自由移动的偏移则以原布局为基准，其他元素保留原位，弹窗、滚动容器和内嵌图表仍按原有边界显示。在 **Text** 中可修改选中标签的文字（包括 Favorites），按 Enter 或移开焦点保存到草稿。还可调整内外边距、字号、对齐、颜色和边框，按住 **Hold original** 对照原版。弹窗需先打开；图表标题等 HTML 浮层可以调整，所有图窗共用同一浮层样式。K 线画布仍由渲染器管理。持仓行按同类元素调整，排序不改变样式归属。
 
+选中组件后，方向键微调 1 px，Shift + 方向键移动 10 px。点击面板里的选区名称可以重新用方向键移动它。焦点在面板按钮或折叠标题时，上下键切换，左右键展开或收起；Tab 进入输入框。在 **More options → Drag mode** 中选择移动单个控件或整组，然后按住 Control + Command 拖到高亮区域，也可以选 **Destination area → Move here**。**Hide element** 隐藏当前支持的控件，面板里的 **Hidden items → Show** 可逐项恢复。草稿保存区域和隐藏状态，Undo 或 Hold original 可随时对照。
+
 草稿自动保存在当前浏览器、网址和工作区，下次打开即可继续。**Draft changes** 列出改过的目标，**Reset element** 或属性旁的复原按钮可局部撤回。只有 **Use this version** 才会在 Pro 上生成定稿记录（`~/Library/Application Support/Wheel Web Preview/Layout Reviews/`），正式页面等选定后再改。
 
 ### 桌面网页 · Supercharts

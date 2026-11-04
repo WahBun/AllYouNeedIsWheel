@@ -159,7 +159,7 @@ window.WheelBlueprintOrder = (() => {
     window.addEventListener('resize',clear);
     document.addEventListener('scroll',clear,true);
     // The host owns pointer capture even when a chart frame is the editing surface.
-    grip.addEventListener('keydown',e=>{
+    function nudge(e){
       if(!['ArrowLeft','ArrowUp','ArrowRight','ArrowDown'].includes(e.key))return;
       const g=groups(current()).next().value;if(!g)return;
       const forward=e.key==='ArrowRight'||e.key==='ArrowDown';
@@ -169,8 +169,9 @@ window.WheelBlueprintOrder = (() => {
       if(base.length!==keys.length || keys.some(k=>!base.includes(k)))return;
       e.preventDefault();e.stopPropagation();
       commit({parent:g.parent,source:g.origin.child,other:target.child,layout:{from:base,to:plan(keys,g.origin.key,target.key,'swap')}});
-    });
-    return {available:el=>!groups(el).next().done,cancel:clear};
+    }
+    grip.addEventListener('keydown',nudge);
+    return {nudge,available:el=>!groups(el).next().done,cancel:clear};
   }
   return {valid,write,install};
 })();

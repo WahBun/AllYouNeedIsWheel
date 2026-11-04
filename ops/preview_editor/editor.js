@@ -2,6 +2,7 @@
 (() => {
   'use strict';
   const orderTools = window.WheelBlueprintOrder;
+  const regions=window.WheelBlueprintRegions(JSON.parse(document.querySelector('#blueprint-regions').textContent));
   const groups = JSON.parse(document.querySelector('#blueprint-properties').textContent);
   const properties = Object.assign({}, ...Object.values(groups));
   const draftKey = 'wheel.layout-blueprint.v1.' + document.querySelector('[name="wheel-blueprint-key"]').content;
@@ -13,21 +14,25 @@
     <section hidden aria-label="Layout editor">
       <header><button id="panel-grip" title="Drag to move the panel, or use the arrow keys" aria-label="Move layout panel">Layout blueprint</button><button id="close" aria-label="Hide layout editor">×</button></header>
       <div id="main">
-        <p id="target">Option-click an element, or browse the page.</p>
+        <button id="target" title="Arrow keys move the selection by 1 px. Hold Shift for 10 px.">Option-click an element, or browse the page.</button>
         <nav><button id="pick">Pick element</button><button id="parent" disabled>Parent</button><button id="browse" aria-expanded="false">Browse</button></nav>
         <div id="finder" hidden><input id="filter" type="search" aria-label="Filter elements" placeholder="Find an element…"><select id="list" aria-label="Visible elements" size="6"></select></div>
         <label id="copy-row" hidden>Text<input id="copy" type="text" maxlength="512" aria-label="Text content"></label>
+        <details id="hidden-items" hidden><summary>Hidden items</summary><div id="restore-items"></div></details>
         <details id="more"><summary>More options</summary>
+          <label id="drag-mode-row">Drag mode<select id="drag-mode" aria-label="Drag mode"><option value="nearby">Reorder neighbors</option><option value="control">Move control across areas</option><option value="group">Move group across areas</option></select></label>
+          <div id="destination-row" hidden><select aria-label="Destination area" id="destination"></select><button id="place-in-area">Move here</button></div>
+          <button id="hide-item" hidden>Hide element</button>
           <div id="controls" hidden></div>
           <details id="draft" hidden><summary>Draft changes</summary><div id="changed"></div></details>
           <div class="secondary"><button id="compare" disabled>Hold original</button><button id="reset" disabled>Reset element</button></div>
-          <small id="gestures" hidden>Hold Control and drag to move. Add Command to reorder siblings.</small>
+          <small id="gestures" hidden>Selection: arrows move 1 px, Shift moves 10 px. Hold Control + Command with arrows to reorder neighbors. In the panel: ↑ ↓ navigate, ← → fold or expand. Tab enters fields.</small>
         </details>
       </div>
       <footer><button id="undo" disabled>Undo</button><button id="redo" disabled>Redo</button><button id="save" disabled>Use this version</button></footer>
       <small id="status" role="status"></small>
     </section>
-    <div id="outline" hidden><button id="move" aria-label="Move selected element" tabindex="-1"></button><button id="reorder" aria-label="Reorder selected control" tabindex="-1"></button><button data-edge="left" aria-label="Drag left edge"></button><button data-edge="right" aria-label="Drag right edge"></button><button data-edge="bottom" aria-label="Drag bottom edge"></button></div><div id="order-drop" hidden></div>`;
+    <div id="outline" hidden><button id="move" aria-label="Move selected element" tabindex="-1"></button><button id="reorder" aria-label="Reorder selected control" tabindex="-1"></button><button id="transfer" aria-label="Move across areas" tabindex="-1"></button><button data-edge="left" aria-label="Drag left edge"></button><button data-edge="right" aria-label="Drag right edge"></button><button data-edge="bottom" aria-label="Drag bottom edge"></button></div><div id="order-drop" hidden></div>`;
   const $ = id => ui.getElementById(id);
   const schema = key => properties[key];
   const isNumber = spec => Array.isArray(spec) && typeof spec[0] === 'number';
@@ -45,7 +50,7 @@
     return isNumber(spec) ? Number.isFinite(v) && v>=spec[0] && v<=spec[1] : spec.includes(v);
   }
   const validText = pair => pair && [pair.from,pair.to].every(v=>typeof v==='string' && v.length<=512);
-  const hasChanges = item => item.text || item.layoutOrder || Object.keys(item.properties).length;
+  const hasChanges = item => item.hidden || item.area || item.text || item.layoutOrder || Object.keys(item.properties).length;
   // Keep icons, listeners and select values intact. Only substitute a matching text node.
   const originals=new Map();
   function textNode(el){
@@ -85,7 +90,7 @@
            item.selector.length>512 || /[{};]/.test(item.selector) || !item.properties) continue;
         document.querySelector(item.selector); // Validate the stored selector before applying.
         const props=Object.entries(item.properties);
-        if(hasChanges(item) && (!item.text || validText(item.text)) && (!item.layoutOrder || orderTools.valid(item.layoutOrder)) && props.every(([k,p])=>Object.hasOwn(properties,k) && p && validValue(schema(k),p.to))) edits.set(keyOf(item),item);
+        if(hasChanges(item) && regions.valid(item) && (!item.text || validText(item.text)) && (!item.layoutOrder || orderTools.valid(item.layoutOrder)) && props.every(([k,p])=>Object.hasOwn(properties,k) && p && validValue(schema(k),p.to))) edits.set(keyOf(item),item);
       }
     } catch { /* An unavailable browser store still permits editing and explicit handoff. */ }
   }
@@ -131,6 +136,7 @@
       }
       return '#positions .position-row';
     }
+    if(el.dataset.blueprintPeriod)return regions.key(el);
     const path=[];
     while(el && el!==doc.documentElement){
       if(el.id){path.unshift('#'+CSS.escape(el.id));break;}
@@ -182,7 +188,7 @@
       const key=keyOf(targetOf(el)),item=next.get(key);
       if(!item || !(item.properties['offset-x'] || item.properties['offset-y']))continue;
       const props={...item.properties};delete props['offset-x'];delete props['offset-y'];
-      if(Object.keys(props).length || item.layoutOrder || item.text)next.set(key,{...item,properties:props});else next.delete(key);
+      if(hasChanges({...item,properties:props}))next.set(key,{...item,properties:props});else next.delete(key);
     }
     const parent=targetOf(change.parent), key=keyOf(parent), item={...(next.get(key)||{...parent,properties:{}})};
     if(change.layout.to.some((k,i)=>k!==change.layout.from[i]))item.layoutOrder=change.layout;
@@ -219,11 +225,18 @@
       for(const [key,pair] of Object.entries(props)){
         if(!isOffset(key))style.setProperty(key,isNumber(schema(key))?pair.to+'px':pair.to,'important');
       }
+      if(item.hidden && regions.valid(item))style.setProperty('display','none','important');
+    }
+    // The native favorites arrow belongs to the wrapper, not the select.
+    const favorites=(projection||edits).get(idFor('page','#favorite-contracts'));
+    if(doc===document && (favorites?.area || favorites?.hidden)){
+      const wrapper=favorites.hidden?'.favorite-contract-picker:is(:empty,:has(> #favorite-contracts))':'.favorite-contract-picker:empty';
+      css.insertRule(wrapper+'{display:none!important}',css.cssRules.length);
     }
     css.disabled=comparing;
     syncText(doc);
   }
-  function apply() {for(const [doc,sheet] of documents)writeSheet(doc,sheet);display();}
+  function apply() {regions.sync(comparing?new Map():edits);for(const [doc,sheet] of documents)writeSheet(doc,sheet);display();}
   function edit(prop,to,base) { editBatch([[prop,to,base]]); }
   function editBatch(updates) {
     if(!selection || updates.some(([prop,to])=>!validValue(schema(prop),to)))return;
@@ -290,7 +303,7 @@
     if(!$('draft').open)return;
     const buttons=table().map(item=>{
       const button=document.createElement('button');
-      button.textContent=(item.scope==='chart'?'Chart · ':'Page · ')+item.selector+' · '+(item.layoutOrder?'Reordered':item.text?'Text':Object.keys(item.properties).length);
+      button.textContent=(item.scope==='chart'?'Chart · ':'Page · ')+item.selector+' · '+(item.hidden?'Hidden':item.area?'Moved to '+item.area:item.layoutOrder?'Reordered':item.text?'Text':Object.keys(item.properties).length);
       button.onclick=()=>{
         selection={scope:item.scope,selector:item.selector};anchor=null;armed=false;
         const el=current();
@@ -312,6 +325,22 @@
     const node=textNode(el);
     $('copy-row').hidden=!node;
     if(node && ui.activeElement!==$('copy'))$('copy').value=node.data;
+    const hideKey=regions.key(el,false,true);
+    $('hide-item').hidden=!hideKey || edits.get(idFor('page',hideKey))?.hidden===true;
+    $('hide-item').title=hideKey?'Hide '+hideKey:'';
+    const mode=$('drag-mode');
+    const control=regions.key(el), group=regions.key(el,true);
+    $('drag-mode-row').hidden=!control && !group;
+    mode.options[1].disabled=!control;mode.options[2].disabled=!group;
+    if(mode.selectedOptions[0]?.disabled)mode.value='nearby';
+    const hidden=table().filter(it=>it.hidden);
+    $('hidden-items').hidden=!hidden.length;
+    $('restore-items').replaceChildren(...hidden.map(it=>{
+      const button=document.createElement('button');button.textContent='Show '+it.selector;
+      button.onclick=()=>changeRegion(it.selector,'hidden',null);return button;
+    }));
+    $('target').disabled=!el;
+    showDestinations();
     listChanges();
     if(el){
       const cs=getComputedStyle(el), flex=/flex|grid/.test(cs.display);
@@ -333,7 +362,10 @@
     scheduled=false;const el=current();
     $('outline').hidden=!el||!editing||comparing;if($('outline').hidden)return;
     $('move').hidden=!canMove(el);
-    $('reorder').hidden=!sortGrip.available(el);
+    const cross=$('drag-mode').value!=='nearby';
+    $('reorder').hidden=cross || !sortGrip.available(el);
+    $('transfer').hidden=!cross;
+
     const r=el.getBoundingClientRect(),frame=el.ownerDocument.defaultView.frameElement;
     const f=frame?.getBoundingClientRect();
     const x=r.x+(f?.x||0)+(frame?.clientLeft||0),y=r.y+(f?.y||0)+(frame?.clientTop||0);
@@ -387,7 +419,7 @@
     el=normalized(el);if(!el)return;
     anchor=el;preferredDoc=el.ownerDocument;selection=targetOf(el);armed=false;
     observer.disconnect();observer.observe(el);if(el.ownerDocument.defaultView.frameElement)observer.observe(el.ownerDocument.defaultView.frameElement);
-    open(true);outline();status();
+    open(true);outline();status('Arrow keys move the selection. Hold Shift for 10 px.');$('target').focus({preventScroll:true});
   }
   function portal(){
     const modals=[...document.querySelectorAll('dialog:modal')];
@@ -429,6 +461,10 @@
     // Some controls first appear after portfolio data arrives or a dialog opens.
     const watch=new MutationObserver(records=>{
       if(!documents.has(doc)){watch.disconnect();return;}
+      if(doc===document && records.some(r=>r.target===document.getElementById('intervals') ||
+         r.type==='childList' && [...r.addedNodes].some(n=>n.nodeType===1 && n.matches('#intervals,.positions-header,.toolbar-center')))){
+        regions.sync(comparing?new Map():edits);
+      }
       if([...edits.values()].some(item=>item.text && item.scope===scopeOf(doc)))syncText(doc);
       const parents=orderParents.get(doc);
       if(awaitingSize.get(doc)?.some(sel=>doc.querySelector(sel)) ||
@@ -495,6 +531,73 @@
     apply();persist();
   };
   $('copy').onkeydown=e=>{if(e.key==='Enter' && !e.isComposing)$('copy').blur();};
+  function changeRegion(sel,field,value){
+    const key=idFor('page',sel);
+    const item={...(edits.get(key)||{scope:'page',selector:sel,properties:{}})};
+    if(value==null || (field==='area' && regions.isHome(sel,value)))delete item[field];else item[field]=value;
+    if(!regions.valid(item))return;
+    if(!edits.has(key)&&edits.size>=256){status('Blueprint is full. Reset an element first.');return;}
+    remember();
+    if(hasChanges(item))edits.set(key,item);else edits.delete(key);
+    apply();persist();
+  }
+  $('hide-item').onclick=()=>{
+    const sel=regions.key(current(),false,true);
+    if(sel)changeRegion(sel,'hidden',true);
+  };
+  function crossTarget(){
+    return regions.key(current(),$('drag-mode').value==='group');
+  }
+  function showDestinations(){
+    const sel=crossTarget(),node=sel && document.querySelector(sel);
+    const names=node && $('drag-mode').value!=='nearby'?regions.destinations(node):[];
+    $('destination-row').hidden=!names.length;
+    const menu=$('destination'),previous=menu.value;
+    if(names.join('|')!==[...menu.options].map(o=>o.value).join('|')){
+      menu.replaceChildren(...names.map(name=>new Option(name,name)));
+      if(names.includes(previous))menu.value=previous;
+    }
+  }
+  $('place-in-area').onclick=()=>{
+    const sel=crossTarget(),node=sel && document.querySelector(sel),area=$('destination').value;
+    if(node && regions.destinations(node).includes(area))changeRegion(sel,'area',area);
+  };
+  $('drag-mode').onchange=()=>{showDestinations();outline();status('Hold Control and Command, then drag the selected element to another area.');};
+  const transfer=$('transfer'),marker=$('order-drop');
+  let crossing=null;
+  function stopCrossing(){
+    if(!crossing)return;
+    const {pointer}=crossing;crossing=null;marker.hidden=true;
+    if(transfer.hasPointerCapture(pointer))transfer.releasePointerCapture(pointer);
+  }
+  transfer.onpointerdown=e=>{
+    if(!e.isPrimary || e.button!==0)return;
+    const sel=regions.key(current(),$('drag-mode').value==='group');
+    if(!sel)return;
+    crossing={sel,node:document.querySelector(sel),pointer:e.pointerId};
+    e.preventDefault();transfer.setPointerCapture(e.pointerId);
+    status('Drop in the toolbar, chart footer, chart details or positions heading.');
+  };
+  transfer.onpointermove=e=>{
+    if(crossing?.pointer!==e.pointerId)return;
+    const dest=regions.destination(e.clientX,e.clientY,crossing.node);
+    marker.hidden=!dest;if(!dest)return;
+    marker.dataset.side='swap';marker.textContent='Move to '+dest.name;
+    const r=dest.rect;Object.assign(marker.style,{left:r.left+'px',top:r.top+'px',width:r.width+'px',height:r.height+'px'});
+  };
+  transfer.onpointerup=e=>{
+    if(crossing?.pointer!==e.pointerId)return;
+    const {sel,node}=crossing,dest=regions.destination(e.clientX,e.clientY,node);
+    stopCrossing();
+    if(dest && node.isConnected)changeRegion(sel,'area',dest.name);
+    else status('No area selected. Layout unchanged.');
+  };
+  transfer.onpointercancel=transfer.onlostpointercapture=stopCrossing;
+  transfer.oncontextmenu=e=>e.preventDefault();
+  document.addEventListener('keydown',e=>{
+    if(crossing && e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();stopCrossing();status('Move canceled.');}
+  },true);
+  window.addEventListener('blur',stopCrossing);
   const move=$('move');
   for(const grip of [move,$('reorder')])grip.oncontextmenu=e=>e.preventDefault();
   const clampOffset=(key,n)=>Math.max(schema(key)[0],Math.min(schema(key)[1],Math.round(n)));
@@ -513,13 +616,37 @@
     moveTo(drag.offsetX+dx,drag.offsetY+dy);
   };
   move.onlostpointercapture=()=>{drag=null;};
-  move.onkeydown=e=>{
+  function nudge(e){
     const step=e.shiftKey?10:1;
     const delta={ArrowLeft:[-step,0],ArrowRight:[step,0],ArrowUp:[0,-step],ArrowDown:[0,step]}[e.key];
     if(!delta || !canMove(current()))return;
-    e.preventDefault();e.stopPropagation();remember();
+    e.preventDefault();e.stopPropagation();if(!e.repeat)remember();
     moveTo(offset('offset-x')+delta[0],offset('offset-y')+delta[1]);
+  }
+  move.onkeydown=nudge;
+  $('target').onkeydown=e=>{
+    if(e.ctrlKey && e.metaKey && !e.altKey)sortGrip.nudge(e);
+    else if(!e.altKey && !e.ctrlKey && !e.metaKey)nudge(e);
   };
+  panel.addEventListener('keydown',e=>{
+    if(e.defaultPrevented || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || !e.key.startsWith('Arrow'))return;
+    const el=e.target;
+    if(el.matches('input,select,textarea') || el===panelGrip || el===$('target'))return;
+    if(e.key==='ArrowRight' || e.key==='ArrowLeft'){
+      const details=el.closest('details');
+      if(!details)return;
+      if(e.key==='ArrowRight' && !el.matches('summary'))return;
+      const fold=el.matches('summary') && !details.open && e.key==='ArrowLeft'?details.parentElement.closest('details'):details;
+      if(!fold)return;
+      fold.open=e.key==='ArrowRight';fold.querySelector(':scope > summary').focus();
+    }else{
+      const stops=[...panel.querySelectorAll('summary,button:not(:disabled)')].filter(node=>
+        node!==panelGrip && node!==$('target') && node.getClientRects().length && node.checkVisibility());
+      const index=stops.indexOf(el);if(index<0)return;
+      stops[Math.max(0,Math.min(stops.length-1,index+(e.key==='ArrowDown'?1:-1)))].focus();
+    }
+    e.preventDefault();e.stopPropagation();
+  });
   for(const handle of ui.querySelectorAll('[data-edge]')){
     handle.onpointerdown=e=>{
       const el=current();if(!el)return;
@@ -537,6 +664,7 @@
   $('undo').onclick=()=>moveHistory(undo,redo);$('redo').onclick=()=>moveHistory(redo,undo);
   function compare(on){
     comparing=Boolean(on&&edits.size);
+    regions.sync(comparing?new Map():edits);
     for(const [doc,sheet] of documents){if(sheet.sheet)sheet.sheet.disabled=comparing;syncText(doc);}
     schedule();
   }
@@ -561,7 +689,7 @@
       status('Review saved on Pro · '+(await r.json()).review);
     }catch(error){status(error.message);}finally{$('save').disabled=!edits.size;}
   };
-  makeControls();restore();bind(document);frames();status();
+  makeControls();restore();regions.sync(edits);bind(document);frames();status();
   new MutationObserver(records=>{
     if(records.some(r=>r.type==='attributes'||[...r.addedNodes,...r.removedNodes].some(n=>n.nodeType===1&&(n.matches('dialog,iframe,.chart-pane')||n.querySelector('iframe,dialog'))))){
       frames();portal();schedule();

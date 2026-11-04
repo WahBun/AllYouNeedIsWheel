@@ -56,10 +56,11 @@ def create_demo(source):
     editor = Path(__file__).with_name('preview_editor')
 
     groups = json.loads((editor / 'properties.json').read_text())
+    regions = json.loads((editor / 'regions.json').read_text())
     controls = {key: spec for group in groups.values() for key, spec in group.items()}
     draft_key = hashlib.sha256(str(root.resolve()).encode()).hexdigest()[:20]
 
-    @app.get('/preview-editor/<any("editor.js","editor.css","reorder.js"):asset>')
+    @app.get('/preview-editor/<any("editor.js","editor.css","reorder.js","regions.js"):asset>')
     def editor_asset(asset):
         return send_from_directory(editor, asset)
 
@@ -77,13 +78,23 @@ def create_demo(source):
             abort(400)
         for item in changes:
             if (not isinstance(item, dict) or not {'selector', 'properties'} <= item.keys()
-                    or item.keys() - {'scope', 'selector', 'properties', 'layoutOrder', 'text'}):
+                    or item.keys() - {'scope', 'selector', 'properties', 'layoutOrder', 'text', 'area', 'hidden'}):
                 abort(400)
             if item.get('scope', 'page') not in ('page', 'chart'):
                 abort(400)
             sel, props = item['selector'], item['properties']
             if not isinstance(sel, str) or not 1 <= len(sel) <= 512 or not isinstance(props, dict) or set(props) - controls.keys():
                 abort(400)
+            if 'area' in item or 'hidden' in item:
+                targets = regions['controls'] + regions['groups']
+                period = re.fullmatch(r'\[data-blueprint-period="[0-9]{1,6}"\]', sel)
+                if item.get('scope') != 'page':
+                    abort(400)
+                if 'area' in item and (not isinstance(item['area'], str) or item['area'] not in regions['areas']
+                                       or not (sel in targets or period)):
+                    abort(400)
+                if 'hidden' in item and (item['hidden'] is not True or not (sel in targets + regions['hideOnly'] or period)):
+                    abort(400)
             if 'text' in item:
                 pair = item['text']
                 if (not isinstance(pair, dict) or set(pair) != {'from', 'to'}
@@ -101,7 +112,7 @@ def create_demo(source):
                 if (not all(isinstance(k, str) and len(k) <= 160 and re.fullmatch(key_pattern, k, re.ASCII)
                             for k in before + after) or len(set(before)) != len(before) or set(before) != set(after)):
                     abort(400)
-            elif not props and 'text' not in item:
+            elif not props and not {'text', 'area', 'hidden'}.intersection(item):
                 abort(400)
             for key, pair in props.items():
                 if not isinstance(pair, dict) or set(pair) != {'from', 'to'}:
@@ -152,11 +163,11 @@ def create_demo(source):
         # Preserve the production element for its update handlers, but clearly label this preview.
         html = html.replace('<span id="connection">', controls + '<span hidden id="connection">', 1)
         # These sample prices use the chart's normal HTTP snapshot path.
-        html = html.replace('<head>', f'<head><meta name="wheel-preview-token" content="{token}"><meta name="wheel-blueprint-key" content="{draft_key}"><script type="application/json" id="blueprint-properties">{json.dumps(groups)}</script><script>window.EventSource=undefined;</script>', 1)
+        html = html.replace('<head>', f'<head><meta name="wheel-preview-token" content="{token}"><meta name="wheel-blueprint-key" content="{draft_key}"><script type="application/json" id="blueprint-regions">{json.dumps(regions)}</script><script type="application/json" id="blueprint-properties">{json.dumps(groups)}</script><script>window.EventSource=undefined;</script>', 1)
         return html.replace('</body>', """<script>addEventListener('load',()=>{
           const detail=document.getElementById('chart-detail');
           if(detail?.hidden)document.getElementById('toggle-trade')?.click();
-        });</script><script src="/preview-editor/reorder.js"></script><script src="/preview-editor/editor.js"></script></body>""", 1)
+        });</script><script src="/preview-editor/regions.js"></script><script src="/preview-editor/reorder.js"></script><script src="/preview-editor/editor.js"></script></body>""", 1)
 
     @app.get('/superchart/frame')
     def frame():
