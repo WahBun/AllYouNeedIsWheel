@@ -58,7 +58,9 @@ def alert_price(ident):
     runtime, scope, _ = context()
     body = request.get_json(silent=True)
     if not isinstance(body, dict): raise ValueError('Invalid alert price')
-    return jsonify(alert=runtime.store.amend_alert(scope, ident, body))
+    alert = runtime.store.amend_alert(scope, ident, body)
+    runtime.enqueue(('refresh_alerts',))
+    return jsonify(alert=alert)
 
 
 @bp.post('/alerts/<ident>/stop')

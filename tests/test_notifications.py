@@ -216,6 +216,41 @@ class NotificationsTests(unittest.TestCase):
         self.assertEqual(len(self.events()), 1)
         self.assertIn('Last 2.16', self.events()[0]['body'])
 
+    def test_first_trade_crosses_amended_option_threshold(self):
+        for reset in (False, True):
+            with self.subTest(reset=reset):
+                alert = self.store.create_alert(self.scope, 7, 'TQQQ 60P', dict(id=str(uuid.uuid4()), price=2.24))
+                self.runtime.active = [alert]
+                self.runtime.process(('reset', 7))
+                count = len(self.events())
+                begin = self.start + 1
+                self.runtime.process(('price', self.scope, 7, 2.75, 'IB Paper', begin, begin))
+                with patch('api.services.notifications.time.time', return_value=begin+420):
+                    edited = self.store.amend_alert(self.scope, alert['id'], dict(price=2.68, version=1, cid=7))
+                self.runtime.active = [edited]
+                if reset:
+                    self.runtime.process(('reset', 7))
+                self.assertEqual(len(self.events()), count)
+                self.runtime.process(('price', self.scope, 7, 2.50, 'IB Paper', begin+600, begin))
+                self.assertEqual(len(self.events()), count + (0 if reset else 1))
+
+    def test_only_chart_crossings_observed_after_edit_can_alert(self):
+        alert = self.store.create_alert(self.scope, 7, 'TQQQ 60P', dict(id=str(uuid.uuid4()), price=2.24))
+        changed = self.start + 420
+        with patch('api.services.notifications.time.time', return_value=changed):
+            edited = self.store.amend_alert(self.scope, alert['id'], dict(price=2.68, version=1, cid=7))
+        self.runtime.active = [edited]
+        def crossing(scope, cid, basis):
+            self.runtime.process(('chart_cross', scope, cid, 2.75, 2.50, basis, 'IB Paper', changed+180))
+        crossing(self.scope, 7, changed-1)
+        crossing(self.other, 7, changed+120)
+        crossing(self.scope, 8, changed+120)
+        self.assertFalse(self.events())
+        crossing(self.scope, 7, changed+120)
+        crossing(self.scope, 7, changed+120)
+        self.assertEqual(len(self.events()), 1)
+        self.assertIn('crossed 2.68', self.events()[0]['body'])
+
     def test_only_live_last_tick(self):
         self.alert(); self.runtime.conn=SimpleNamespace(is_connected=lambda:True); self.runtime.scope=self.scope;self.runtime.mode='IB Paper'
         ticker=SimpleNamespace(marketDataType=3,ticks=[SimpleNamespace(tickType=4,price=99)])
@@ -476,7 +511,15 @@ class NotificationsTests(unittest.TestCase):
                 self.assertEqual(client.get('/api/notifications/bark',headers=headers).json['enabled'],True)
                 self.assertEqual(client.get('/api/notifications/bark').status_code,409)
                 self.assertEqual(client.get('/api/notifications/bark',headers={**headers,'X-Wheel-Account-Epoch':'old'}).status_code,409)
-                with patch('api.routes.account.epoch',side_effect=['current','current','changed']):
+                # Change the account while the settings are read, regardless of how
+                # many epoch checks the dispatcher performs before reaching the route.
+                current_epoch = ['current']
+                read_settings = self.store.bark_status
+                def change_account(scope):
+                    current_epoch[0] = 'changed'
+                    return read_settings(scope)
+                with patch('api.routes.account.epoch', side_effect=lambda: current_epoch[0]), patch.object(
+                        app.extensions['notifications'].store, 'bark_status', side_effect=change_account):
                     self.assertEqual(client.get('/api/notifications/bark',headers=headers).status_code,409)
                 self.assertEqual(client.post('/api/notifications/bark/test',json={'id':str(uuid.uuid4())},headers=headers).status_code,200)
                 self.assertEqual(client.get('/api/notifications/events',headers=headers).status_code,200)
