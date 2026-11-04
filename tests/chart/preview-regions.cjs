@@ -61,6 +61,25 @@ const {chromium}=require('playwright');
     await p.getByLabel('Drag mode').selectOption('control');
     await p.getByLabel('Destination area').selectOption('Chart footer');
     await button('Move here').press('Enter');await p.locator('.chart-footer > #copy').waitFor();
+    await button('Hide layout editor').click();
+    await cross('#session-button','control','.chart-footer');
+    await button('Hide layout editor').click();
+    const footerSession=p.locator('.chart-footer > #session-picker > #session-button');
+    await footerSession.waitFor();
+    for(const detailOpen of [false,true]){
+      if(await p.locator('#chart-detail').isVisible()!==detailOpen)await p.locator('#toggle-trade').click();
+      await footerSession.click();
+      const menu=p.locator('#session-menu');
+      const box=await menu.boundingBox(),trigger=await footerSession.boundingBox();
+      assert.ok(box.y>=0 && box.y+box.height<=trigger.y);
+      const next=await footerSession.textContent()==='ETH'?'RTH':'ETH';
+      await menu.getByRole('menuitemradio',{name:next,exact:true}).click();
+      assert.equal(await footerSession.textContent(),next);
+      assert.equal(await p.locator('#session').inputValue(),next==='ETH'?'all':'rth');
+    }
+    await footerSession.press('ArrowDown');await p.keyboard.press('Escape');
+    assert.equal(await p.locator('#session-menu').isVisible(),false);
+    await p.reload();await footerSession.waitFor();
     assert.deepEqual(errors,[]);assert.deepEqual(writes,[]);
     console.log('PASS cross-area controls and groups, rebuilt intervals, cancel, hide and restore, compare, reload and protected controls');
   }finally{await browser.close();}

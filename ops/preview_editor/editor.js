@@ -227,6 +227,8 @@
       }
       if(item.hidden && regions.valid(item))style.setProperty('display','none','important');
     }
+    // The footer can sit at the bottom of the viewport. Open its session menu toward the chart.
+    if(doc===document)css.insertRule('.chart-footer > #session-picker > #session-menu{top:auto;bottom:calc(100% + 6px)}',0);
     // The native favorites arrow belongs to the wrapper, not the select.
     const favorites=(projection||edits).get(idFor('page','#favorite-contracts'));
     if(doc===document && (favorites?.area || favorites?.hidden)){
