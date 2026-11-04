@@ -121,6 +121,7 @@
     if(doc!==document && (el.closest('#chart') || el.localName==='canvas')) return doc.defaultView.frameElement?.closest('.chart-pane');
     if(el.localName==='iframe')return el.closest('.chart-pane')||el;
     if(el.localName==='option')return el.closest('select');
+    if(el.closest('#trading-lock'))return el.closest('#trading-lock');
     if(el.closest('svg'))return el.closest('svg');
     if(el.matches('.leverage-track i'))return el.parentElement;
     return el===doc.documentElement?doc.body:el;
@@ -241,6 +242,11 @@
       css.insertRule('.chart-footer > #market-clock{display:inline-block}',0);
       if((projection||edits).get(idFor('page','#order-status'))?.properties['flex-grow']?.to==='1')
         css.insertRule('.chart-footer > #order-status{flex-basis:4ch!important}',css.cssRules.length);
+    }
+    if(doc===document && document.querySelector('.toolbar-views > #trading-lock')){
+      css.insertRule('.toolbar-views > #trading-lock{box-sizing:border-box;display:grid;place-items:center;flex:none;width:34px;height:34px;padding:5px;border:0;border-radius:5px;background:transparent;color:var(--muted)}',0);
+      css.insertRule('.toolbar-views > #trading-lock[aria-pressed=true]{color:#d99a39;background:#d99a391a}',0);
+      css.insertRule('.toolbar-views > #trading-lock:focus-visible{outline:2px solid var(--accent);outline-offset:2px}',0);
     }
     // The footer can sit at the bottom of the viewport. Open its session menu toward the chart.
     if(doc===document)css.insertRule('.chart-footer > #session-picker > #session-menu{top:auto;bottom:calc(100% + 6px)}',0);

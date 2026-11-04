@@ -30,6 +30,7 @@ class LayoutReviewTests(unittest.TestCase):
                        text={'from': 'Favorites', 'to': 'Watch <list>'})
         body['changes'].append(caption)
         body['changes'].append(dict(scope='page', selector='#copy', properties={}, area='Chart footer', hidden=True))
+        body['changes'].append(dict(scope='page', selector='#trading-lock', properties={}, area='View controls'))
         url = '/preview-editor/reviews'
         with TemporaryDirectory() as temp, patch.object(Path, 'home', return_value=Path(temp)):
             self.assertEqual(client.post(url, json=body, headers={'Origin': origin}).status_code, 403)
@@ -45,6 +46,7 @@ class LayoutReviewTests(unittest.TestCase):
             for invalid in ({'from': 'x'}, {'from': 1, 'to': 'ok'}, {'from': 'x', 'to': 'a' * 513}):
                 self.assertEqual(client.post(url, json=dict(body, changes=[dict(caption, text=invalid)]), headers=headers).status_code, 400)
             for target, extra in [('#trade', {'hidden': True}), ('#copy', {'hidden': False}),
+                                  ('#trading-lock', {'hidden': True}), ('#trading-lock', {'area': 'Chart details'}),
                                   ('#copy', {'area': 'Unknown'}), ('#trade', {'area': 'Toolbar'})]:
                 bad = dict(scope='page', selector=target, properties={}, **extra)
                 self.assertEqual(client.post(url, json=dict(body, changes=[bad]), headers=headers).status_code, 400)

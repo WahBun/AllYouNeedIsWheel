@@ -1,11 +1,13 @@
 {
   "areas": {
     "Toolbar": ".toolbar-center",
+    "View controls": ".toolbar-views",
     "Toolbar end": ".toolbar-end",
     "Chart footer": ".chart-footer",
     "Chart details": "#chart-detail > details",
     "Positions heading": ".positions-header"
   },
+  "moveOnly": {"#trading-lock": "View controls"},
   "controls": ["#copy", "#market-clock", "#session-picker", "#favorite-contract", "#option-search", "#favorite-contracts", "#theme", "#trade-sounds", "#sort-positions"],
   "groups": [".toolbar-instrument", ".favorite-contract-picker", "#intervals", ".positions-leverage"],
   "hideOnly": ["#quote-status", "#activity", ".leverage-value", ".leverage-track"]

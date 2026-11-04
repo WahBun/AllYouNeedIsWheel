@@ -91,7 +91,7 @@ def create_demo(source):
                 if item.get('scope') != 'page':
                     abort(400)
                 if 'area' in item and (not isinstance(item['area'], str) or item['area'] not in regions['areas']
-                                       or not (sel in targets or period)):
+                                       or not (sel in targets or period or regions['moveOnly'].get(sel) == item['area'])):
                     abort(400)
                 if 'hidden' in item and (item['hidden'] is not True or not (sel in targets + regions['hideOnly'] or period)):
                     abort(400)

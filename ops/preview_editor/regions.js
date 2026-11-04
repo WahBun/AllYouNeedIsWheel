@@ -14,6 +14,9 @@ window.WheelBlueprintRegions = function(config){
       if(period)return periodKey(period.dataset.blueprintPeriod);
     }
     const choices=group?config.groups:hide?[...config.controls,...config.hideOnly,...config.groups]:config.controls;
+    if(!group && !hide){
+      for(const sel of Object.keys(config.moveOnly))if(el.closest(sel))return sel;
+    }
     for(const sel of choices)if(el.closest(sel))return sel;
     return null;
   }
@@ -22,8 +25,11 @@ window.WheelBlueprintRegions = function(config){
     return periodPattern.test(sel) || config.controls.includes(sel) || config.groups.includes(sel) ||
       (hide && config.hideOnly.includes(sel));
   }
+  function permitsArea(sel,name){
+    return Object.hasOwn(config.moveOnly,sel) ? config.moveOnly[sel]===name : allowed(sel,false);
+  }
   function valid(item){
-    if(item.area!==undefined && (item.scope!=='page' || !Object.hasOwn(config.areas,item.area) || !allowed(item.selector,false)))return false;
+    if(item.area!==undefined && (item.scope!=='page' || !Object.hasOwn(config.areas,item.area) || !permitsArea(item.selector,item.area)))return false;
     return item.hidden===undefined || (item.hidden===true && item.scope==='page' && allowed(item.selector,true));
   }
   function sync(items){
@@ -54,14 +60,14 @@ window.WheelBlueprintRegions = function(config){
     const el=document.elementFromPoint(x,y);
     for(const [name,sel] of Object.entries(config.areas)){
       const area=el?.closest(sel);
-      if(area && !source.contains(area) && area!==source.parentElement)return {name,area,rect:area.getBoundingClientRect()};
+      if(area && permitsArea(key(source) || key(source,true),name) && !source.contains(area) && area!==source.parentElement)return {name,area,rect:area.getBoundingClientRect()};
     }
     return null;
   }
   function destinations(source){
-    return Object.entries(config.areas).filter(([,sel])=>{
+    return Object.entries(config.areas).filter(([name,sel])=>{
       const area=document.querySelector(sel);
-      return area && area.getClientRects().length && !source.contains(area) && area!==source.parentElement;
+      return area && permitsArea(key(source) || key(source,true),name) && area.getClientRects().length && !source.contains(area) && area!==source.parentElement;
     }).map(([name])=>name);
   }
   function isHome(sel,area){
