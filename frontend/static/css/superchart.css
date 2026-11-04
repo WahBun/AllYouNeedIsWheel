@@ -12,6 +12,7 @@
 #bid{color:#66c5a3}#ask{color:#ef9090}#close{width:100%;color:#edb979}.protection{padding:15px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
 #chart-detail:not([hidden]){display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:20px;padding:12px 16px;max-height:240px;overflow:auto;border-top:1px solid var(--border)}
 #chart-detail h2{margin:0 0 8px}#chart-detail button{display:block;width:100%;text-align:left;margin:5px 0;white-space:pre-wrap}#chart-detail details{min-width:0}#chart-detail #activity{max-height:160px}
+#chart-detail #copy{width:131px;max-width:100%;color:#d96899}
 #chart-detail>div{min-width:0}
 #positions .position-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .position-label{min-width:0;overflow-wrap:anywhere}
@@ -27,6 +28,7 @@ body.light .position-return [data-direction=positive]{color:rgb(28% 46% 2%)}
 #resolve-request[hidden]{display:none}
 /* Order acknowledgements must not resize the chart or reset a manual price scale. */
 .chart-footer{height:52px;min-height:52px;flex:none;gap:8px}
+#order-status,#toggle-trade{font-weight:500}
 #order-status{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chart-footer>button{flex:none}
 
@@ -303,7 +305,7 @@ body.unified-chart-toolbar>header button:focus-visible,body.unified-chart-toolba
 
 /* Match the interval chevron while retaining the native favorites picker. */
 .favorite-contract-picker{position:relative;display:flex;flex-shrink:0;align-items:center}
-#favorite-contracts,body.unified-chart-toolbar #favorite-contracts{width:96px;min-width:96px;max-width:96px;height:34px;padding:0 24px 0 6px;appearance:none;-webkit-appearance:none}
+#favorite-contracts,body.unified-chart-toolbar #favorite-contracts{width:95px;min-width:95px;max-width:95px;font-weight:800;height:34px;padding:0 24px 0 6px;appearance:none;-webkit-appearance:none}
 .favorite-contract-picker::after{position:absolute;right:9px;pointer-events:none}
 
 /* iOS Settings GildedSignature: the same lettering, gold base and 5s sweep. */
@@ -351,7 +353,7 @@ body>header #settings{display:none!important}
 
 .positions-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:3px 10px;margin-bottom:8px}
 #chart-detail .positions-header h2{margin:0}
-.positions-leverage{display:flex;align-items:center;gap:6px;flex:1 1 190px;max-width:320px;min-width:0;margin-left:auto;color:var(--muted);font-size:11px;line-height:1.4}
+.positions-leverage{display:flex;align-items:center;gap:6px;flex:1 1 190px;max-width:320px;min-width:0;margin-left:auto;color:var(--muted);font-size:13px;line-height:1.4}
 .leverage-track{flex:1;min-width:12px;height:4px;overflow:hidden;border-radius:8px;background:var(--border)}
 .leverage-track i{display:block;width:0;height:100%;border-radius:inherit}
 .leverage-track[data-level=low] i{background:#34c759}
