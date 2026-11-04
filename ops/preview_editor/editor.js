@@ -36,7 +36,7 @@
   const $ = id => ui.getElementById(id);
   const schema = key => properties[key];
   const isNumber = spec => Array.isArray(spec) && typeof spec[0] === 'number';
-  const label = key => key[0].toUpperCase() + key.slice(1).replaceAll('-', ' ');
+  const label = key => key==='flex-grow'?'Fill space':key[0].toUpperCase() + key.slice(1).replaceAll('-', ' ');
   const documents = new Map(), boundFrames = new WeakSet(), awaitingSize = new WeakMap();
   const undo = [], redo = [];
   let edits = new Map(), selection = null, preferredDoc = document, editing = false, armed = false;
@@ -276,7 +276,7 @@
         input.setAttribute('aria-label',name.textContent);
         if(isNumber(spec)){input.type=isOffset(key)?'number':'range';input.min=spec[0];input.max=spec[1];}
         else if(spec==='color')input.type='color';
-        else for(const opt of spec)input.add(new Option(opt,opt));
+        else for(const opt of spec)input.add(new Option(key==='flex-grow'?(opt==='1'?'On':'Off'):opt,opt));
         const clear=document.createElement('button');
         clear.type='button';clear.textContent='↶';clear.title='Restore original '+label(key).toLowerCase();
         clear.setAttribute('aria-label',clear.title);
@@ -346,7 +346,7 @@
       const cs=getComputedStyle(el), flex=/flex|grid/.test(cs.display);
       for(const [key,{row,input,output,clear}] of controls){
         clear.disabled=!edits.get(keyOf(selection))?.properties[key];
-        row.hidden=(isOffset(key) && !canMove(el)) || (!flex && ['gap','row-gap','column-gap','justify-content','align-items'].includes(key));
+        row.hidden=(key==='flex-grow' && (!el.parentElement || !getComputedStyle(el.parentElement).display.includes('flex'))) || (isOffset(key) && !canMove(el)) || (!flex && ['gap','row-gap','column-gap','justify-content','align-items'].includes(key));
         if(row.hidden)continue;
         const value=measure(el,cs,key), spec=schema(key);
         if(isNumber(spec)){

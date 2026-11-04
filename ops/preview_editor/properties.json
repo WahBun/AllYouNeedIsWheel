@@ -20,6 +20,7 @@
     "border-radius": [0, 128], "border-width": [0, 24], "border-style": ["none","solid","dashed","dotted","double"]
   },
   "Alignment": {
+    "flex-grow": ["0","1"],
     "align-items": ["normal","start","center","end","stretch","baseline"],
     "justify-content": ["normal","start","center","end","space-between","space-around","space-evenly"],
     "align-self": ["auto","start","center","end","stretch","baseline"]
