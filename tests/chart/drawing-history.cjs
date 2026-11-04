@@ -23,5 +23,24 @@ const {start}=require('./market-feed/harness.cjs');
  await f.evaluate(()=>{const d=historySaved.at(-1).drawings.find(d=>d.id!=='peer');receivePeerDrawings({key:'history-test',syncState:{pending:[{op:'peer-conflict',id:d.id,kind:'put',value:{...d,text:'Newer remote text'}}]}});});
  assert.equal(await f.evaluate(()=>chartDrawingActions.undo()),false);
  await f.evaluate(()=>configureDrawings({key:'different-contract',value:{drawings:historySaved.at(-1).drawings}}));assert.equal(await f.evaluate(()=>chartDrawingActions.undo()),false);assert.equal(await f.evaluate(()=>chartDrawingActions.redo()),false);
+ // The production JSON response can reorder object fields, including coordinates.
+ const saved=new Map();let revision=0;
+ function wire(value){if(Array.isArray(value))return value.map(wire);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(k=>[k,wire(value[k])]));return value;}
+ await p.route('**/api/chart-drawings/7',route=>{
+  for(const op of route.request().postDataJSON()?.operations||[]){
+   if(op.kind==='delete')saved.delete(op.id);else saved.set(op.id,wire(op.value));
+   revision++;
+  }
+  return route.fulfill({json:{con_id:7,revision,drawings:[...saved.values()]}});
+ });
+ await f.evaluate(()=>configureDrawings({key:'history-sync:7',value:{toolsVisible:true,magnet:'off'}}));
+ await f.getByRole('button',{name:'Show drawing tools',exact:true}).click();
+ await f.getByRole('button',{name:'Text',exact:true}).click();
+ await f.locator('body').click({position:{x:450,y:300}});await input.fill('Synced');await input.press('Escape');
+ await f.waitForFunction(()=>historySaved.at(-1)?.syncState.revision>0&&!historySaved.at(-1).syncState.pending.length);
+ await f.getByRole('button',{name:'Hide drawing tools',exact:true}).click();
+ await f.locator('body').click({position:{x:600,y:500}});
+ await p.keyboard.press('Meta+z');assert.equal(await f.evaluate(()=>chartDrawingActions.count()),0,'Undo a synced drawing with the toolbar hidden');
+ await p.keyboard.press('Meta+Shift+z');assert.equal(await f.evaluate(()=>chartDrawingActions.count()),1);
  assert.deepEqual(errors,[]);assert.equal(h.metrics.posts,0);console.log('PASS host/frame shortcuts, create/delete undo/redo, input focus, peer isolation/conflicts, contract reset; zero trading writes');
 }finally{await browser.close();await h.close();}})().catch(e=>{console.error(e);process.exitCode=1});
