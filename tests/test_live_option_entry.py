@@ -153,6 +153,72 @@ class LiveOptionEntryTests(unittest.TestCase):
         self.assertEqual(f.conn.ib.placeOrder.call_count,1)
         f.conn.ib.cancelOrder.assert_not_called()
 
+    def test_confirmed_close_with_missing_add_and_returned_execution_allows_quantity_and_tif(self):
+        from core.order_group_ledger import migrate
+        f = self.f
+        f.conn.ib.client.clientId = 71
+        self.positions.append(S(account='U_TEST',contract=Stock('TEST','SMART','USD'),position=300,avgCost=10))
+        old = self.old_flat_group()
+        ref, rid = old['ref'], str(uuid4())
+        old['close_request'] = dict(request_id=rid, order_id=3, quantity=1)
+        snapshot = dict(known=True, active=False, status='done', position=0, order_ref=ref,
+                        close_progress=dict(status='completed',filled=1,requested=1,remaining=0),
+                        orders=list(old['terminal'].values()))
+        old['terminal'].pop('entry_1')['execution_recovered'] = True
+        migrate(f.service.path)
+        with f.service.database() as db:
+            db.execute('UPDATE chart_paper_group_history SET orders=?',(json.dumps(old),))
+            db.execute('ALTER TABLE chart_execution_marks ADD price REAL DEFAULT 10')
+            db.execute('ALTER TABLE chart_execution_marks ADD stamp REAL DEFAULT 100')
+            db.execute("INSERT INTO chart_paper_requests VALUES(?,?,?,?)",
+                       (rid,'U_TEST',json.dumps(dict(action='close',con_id=7,expected_ref=ref)),
+                        json.dumps(dict(success=True,status='reconciled',state=snapshot))))
+            for prefix in ('Group over-exit: ', 'Execution sequence over-exits group: '):
+                db.execute('INSERT INTO group_ledger_conflicts VALUES(?,?,?)', ('U_TEST',7,prefix+ref))
+            fill = dict(execId='broker.3.01.01', acctNumber='U_TEST', permId=503,
+                        orderId=3, clientId=71, orderRef=ref, side='BOT', shares=1, price=10, time='100')
+            db.execute('INSERT INTO group_execution_evidence VALUES(?,?,?,?)',('fill','U_TEST',7,json.dumps(fill)))
+            from ib_async import LimitOrder, OrderStatus
+            row = dict(order=vars(LimitOrder('BUY',1,10,orderRef=ref,permId=503,account='U_TEST')),
+                       status=vars(OrderStatus(status='Filled',filled=1)))
+            db.execute('INSERT INTO group_order_evidence VALUES(?,?,?,?)',('close','U_TEST',7,json.dumps(row,default=str)))
+        place = f.conn.ib.placeOrder.side_effect
+        def broker(contract, order):
+            order.clientId = 71
+            order.permId = order.orderId + 1000
+            return place(contract, order)
+        f.conn.ib.placeOrder.side_effect = broker
+        body = self.body(side=-1,quantity=2,tp=None,sl=None)
+        result = f.service.execute(f.conn,7,body)
+        state = result['state']
+        self.assertTrue(state['entry_editable'], state.get('sync_error'))
+        # Simulate transport loss. Reconcile only the existing live ticket.
+        with f.service.database() as db:
+            db.execute('UPDATE chart_paper_requests SET result=NULL WHERE id=?',(body['request_id'],))
+        f.conn.ib.placeOrder.reset_mock()
+        self.assertTrue(f.service.request_status(f.conn,7,body['request_id'])['confirmed'])
+        f.conn.ib.placeOrder.assert_not_called()
+        f.conn.ib.cancelOrder.assert_not_called()
+        from core.archived_order_group import proven_flat
+        with f.service.database() as db:
+            def proven(trades=(), fills=()):
+                return proven_flat(db,'U_TEST',7,71,old,[old],trades,fills)
+            self.assertTrue(proven())
+            from ib_async import Trade
+            echo = Trade(f.contract,LimitOrder('BUY',1,10,orderId=3,clientId=71,permId=503,orderRef=ref,account='U_TEST'),
+                         OrderStatus(status='PendingCancel',filled=0))
+            self.assertFalse(proven(trades=[echo]))
+            corrected = S(contract=f.contract,execution=S(**{**fill,'execId':'broker.3.01.02'}))
+            self.assertFalse(proven(fills=[corrected]))
+        amended = f.service.execute(f.conn,7,dict(request_id=str(uuid4()),action='edit_entry',
+            expected_ref=state['order_ref'],expected_snapshot=state['edit_snapshot'],quantity=1,tif='GTC'))
+        self.assertTrue(amended['success'], amended)
+        self.assertEqual([(t.order.totalQuantity,t.order.tif) for t in f.trades if not t.isDone()], [(1,'GTC')])
+        with f.service.database() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM group_ledger_conflicts').fetchone()[0],2)
+            db.execute("UPDATE chart_execution_marks SET quantity=.5 WHERE group_id='perm:502'")
+        self.assertFalse(f.service.state(f.conn,7)['entry_editable'])
+
     def test_archived_close_requires_complete_consistent_evidence(self):
         from core.archived_order_group import proven_flat
         from core.order_group_ledger import migrate

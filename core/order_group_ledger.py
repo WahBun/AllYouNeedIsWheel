@@ -175,11 +175,15 @@ def project(path, account, cid, client, groups, trades, fills, account_position,
         recovered=_durable_terminal_trades(db,account,cid,trades)
         trades=list(trades)+recovered
         if len(positions)!=len(groups):conflict('Duplicate group reference')
+        flat_perms = set()
+        resolved_balance_errors = set()
         for g in groups:
             ref=g['ref']
             if ref in archived_refs:
                 from core.archived_order_group import proven_flat
                 if proven_flat(db, account, cid, client, g, groups, trades, fills):
+                    flat_perms.update(g['perms'].values())
+                    resolved_balance_errors.update(('Execution sequence over-exits group: '+ref, 'Group over-exit: '+ref))
                     continue
             if len(set(g['ids'].values()))!=len(g['ids']):conflict('Duplicate order identity within group: '+ref)
             if g.get('origin_position'):conflict('Legacy opening balance lacks execution ownership: '+ref)
@@ -239,6 +243,7 @@ def project(path, account, cid, client, groups, trades, fills, account_position,
         totals={}
         for batch in dedup:
             e=batch[0];owner=owners.get(e.permId)
+            if not owner and e.permId in flat_perms:continue  # Individually verified against archived fills above.
             if not owner and all({k:getattr(x,k,None) for k in ('execId','acctNumber','clientId','orderId','permId','orderRef','side','shares','price')} in baseline for x in batch):continue
             if not owner and e.permId in closed_external:continue
             if not owner:
@@ -272,7 +277,7 @@ def project(path, account, cid, client, groups, trades, fills, account_position,
             if positions[g['ref']]*g['side'] < -1e-8:conflict('Group over-exit: '+g['ref'])
         if not math.isfinite(account_position) or abs(sum(positions.values())-account_position)>1e-8:
             errors.append('Account total does not reconcile with attributed groups')
-        errors += [r[0] for r in db.execute('SELECT detail FROM group_ledger_conflicts WHERE account=? AND con_id=?',(account,cid))]
+        errors += [r[0] for r in db.execute('SELECT detail FROM group_ledger_conflicts WHERE account=? AND con_id=?',(account,cid)) if r[0] not in resolved_balance_errors]
     return dict(known=not errors,positions=positions,account_position=account_position,errors=sorted(set(errors)),owned_perms=sorted(owners),entry_basis=basis,
                 recovered_terminal_perms=sorted(t.order.permId or t.orderStatus.permId for t in recovered),
                 observed_order_count=observed_order_count,observed_execution_count=observed_execution_count)
