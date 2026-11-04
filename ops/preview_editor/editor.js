@@ -244,8 +244,8 @@
       const caption=(projection||edits).get(idFor('page','#toggle-trade'))?.text?.to;
       if(caption==='▾' || caption==='▴'){
         css.insertRule('.chart-footer > #toggle-trade{display:inline-grid;place-items:center;width:32px;height:32px;padding:0;font-size:0}',0);
-        css.insertRule('#toggle-trade::after{content:"";width:6px;height:6px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:translateY(-1px) rotate(45deg)}',0);
-        css.insertRule('#toggle-trade[aria-expanded=true]::after{transform:translateY(1px) rotate(225deg)}',0);
+        css.insertRule('#toggle-trade::after{content:"▾";font-size:14px;line-height:1}',0);
+        css.insertRule('#toggle-trade[aria-expanded=true]::after{content:"▴"}',0);
       }
       if((projection||edits).get(idFor('page','#order-status'))?.properties['flex-grow']?.to==='1')
         css.insertRule('.chart-footer > #order-status{flex-basis:4ch!important}',css.cssRules.length);

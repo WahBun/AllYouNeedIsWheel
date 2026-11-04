@@ -307,14 +307,20 @@ body.unified-chart-toolbar>header button:focus-visible,body.unified-chart-toolba
 /* Footer controls share a baseline when the clock and session live beside Details. */
 .chart-footer:has(> #market-clock):has(> #session-picker){
  align-items:center;
- & > #market-clock{font-size:13px;line-height:32px;color:var(--muted)}
- & #session-button,& > #toggle-trade{
-  display:inline-grid;place-items:center;height:32px;padding:0 8px;border:1px solid var(--border);
-  border-radius:6px;background:transparent;color:var(--fg);line-height:1;
+ --footer-label:light-dark(#525252,#b8b8b8);
+ & > #market-clock,& #session-button{
+  display:inline-flex;align-items:center;justify-content:center;height:38px;padding:0 6px;
+  color:var(--footer-label);font:400 14px/18px -apple-system,system-ui,"Trebuchet MS",Roboto,Ubuntu,sans-serif;
+  font-feature-settings:"lnum","tnum";
  }
- & #session-button{min-width:44px;font-size:12px;font-weight:600}
+ & #session-button,& > #toggle-trade{border:0;border-radius:4px;background:transparent}
+ & #session-button{min-width:0}
+ & > #toggle-trade{color:var(--footer-label)}
  & :is(#session-button,#toggle-trade):hover{background:var(--panel)}
  & :is(#session-button,#toggle-trade):focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+}
+@media(min-width:851px){
+ .chart-footer:has(> #market-clock):has(> #session-picker){column-gap:0}
 }
 @media(max-width:360px){
  .chart-footer:has(> #market-clock):has(> #session-picker){column-gap:6px}
