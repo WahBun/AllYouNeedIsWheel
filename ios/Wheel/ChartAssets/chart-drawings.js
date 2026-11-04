@@ -340,12 +340,19 @@ function commitHistory(){
  historyBefore=null;if(!changes.length)return;
  undo.push(changes);if(undo.length>50)undo.shift();redo=[];
 }
+// JSON sync can reorder object fields. Anchor arrays still compare in drawing order.
+function drawingHistoryValue(drawing){
+ return JSON.stringify(drawing,(_,value)=>{
+  if(!value||typeof value!=='object'||Array.isArray(value))return value;
+  return Object.fromEntries(Object.keys(value).sort().map(key=>[key,value[key]]));
+ });
+}
 function applyHistory(forward=false){
  if(locked||drag||draft||gesture||textEdit||editor.style.display!=='none')return false;
  const source=forward?redo:undo,target=forward?undo:redo,changes=source.at(-1);if(!changes)return false;
  const expected=forward?'before':'after',desired=forward?'after':'before';
  // Refuse stale edits; never overwrite another pane's newer change.
- if(changes.some(c=>JSON.stringify(drawings.find(d=>d.id===c.id)??null)!==JSON.stringify(c[expected]??null)))return false;
+ if(changes.some(c=>drawingHistoryValue(drawings.find(d=>d.id===c.id)??null)!==drawingHistoryValue(c[expected]??null)))return false;
  source.pop();historyBefore=null;
  for(const c of changes){const i=drawings.findIndex(d=>d.id===c.id),value=c[desired];if(value){if(i<0)drawings.push(clone(value));else drawings[i]=clone(value);}else if(i>=0)drawings.splice(i,1);}
  target.push(changes);selected=null;save();renderToolbar();return true;
