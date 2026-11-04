@@ -24,7 +24,7 @@ $('symbol').addEventListener('input',updateSymbolClear);
 $('clear-symbol').onclick=()=>{$('symbol').value='';updateSymbolClear();$('symbol').focus();};
 window.addEventListener('pageshow',updateSymbolClear);updateSymbolClear();
 // Start each page in analysis mode; unlocking is deliberate and is not restored.
-const lockedFeedback='Trading locked. Chart analysis remains available.';
+const lockedFeedback='Trading locked.\nChart analysis remains available.';
 let tradingLocked=true;
 const tradingLock=document.createElement('button');tradingLock.id='trading-lock';tradingLock.type='button';
 document.querySelector('.trade-heading h2').after(tradingLock);

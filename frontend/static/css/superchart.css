@@ -304,6 +304,25 @@ body.unified-chart-toolbar .toolbar-views{gap:2px}
 body.unified-chart-toolbar>header :is(.toolbar-instrument button,#favorite-contracts,#session-button,#layout-button,#maximize-chart,#fullscreen,#theme,#trade-sounds,#settings):hover{background:var(--toolbar-hover)}
 body.unified-chart-toolbar>header button:focus-visible,body.unified-chart-toolbar #favorite-contracts:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
+/* A detached bookmark leaves a single, fully rounded instrument button. */
+.toolbar-instrument:has(> #option-search:only-child){width:fit-content;max-width:100%;justify-self:start}
+.toolbar-instrument:has(> #option-search:only-child) #option-search{width:auto;flex:0 1 auto;border-radius:inherit}
+.toolbar-views > #favorite-contract{display:grid;place-items:center;flex:none;width:34px;height:34px;padding:0;border:0;border-radius:5px;background:transparent}
+.toolbar-views > #favorite-contract:hover{background:var(--toolbar-hover,#8882)}
+
+/* Fit the five view buttons and two header buttons across the ticket column. */
+body.unified-chart-toolbar > header:has(.toolbar-views > #favorite-contract):has(.toolbar-views > #trading-lock){
+ --view-button-gap:6px;
+ padding-inline-end:11px;
+ &:has(#maximize-chart[hidden]){--view-button-gap:14px}
+ & .toolbar-views{gap:var(--view-button-gap)}
+ & > :is(#trade-sounds,#theme){margin-inline-start:calc(var(--view-button-gap) - 12px)}
+}
+@media(max-width:360px){
+ body:has(.toolbar-views > #favorite-contract) > header{column-gap:3px;padding-inline:4px}
+ .workspace > nav:has(.toolbar-views > #favorite-contract){grid-template-columns:minmax(0,1fr) 26px 56px auto}
+}
+
 /* Match the interval chevron while retaining the native favorites picker. */
 .favorite-contract-picker{position:relative;display:flex;flex-shrink:0;align-items:center}
 #favorite-contracts,body.unified-chart-toolbar #favorite-contracts{width:95px;min-width:95px;max-width:95px;font-weight:800;height:34px;padding:0 24px 0 6px;appearance:none;-webkit-appearance:none}

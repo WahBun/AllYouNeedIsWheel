@@ -177,6 +177,30 @@ def create_demo(source):
         spec.loader.exec_module(module)
         return Response(module.chart_document(), mimetype='text/html')
 
+    # Bookmarks are the demo's own preferences. Use the same revision handling as
+    # the shared chart, with a separate file and no production API initialization.
+    spec = importlib.util.spec_from_file_location('preview_favorites', root / 'api/services/chart_favorites.py')
+    bookmarks = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bookmarks)
+
+    @app.route('/api/chart-favorites', methods=['GET', 'POST'])
+    def demo_favorites():
+        operations = []
+        if request.method == 'POST':
+            if (request.headers.get('Origin') not in app.config['PREVIEW_ORIGINS']
+                    or request.headers.get('X-All-You-Need-Is-Wheel') != '1'):
+                abort(403)
+            body = request.get_json(silent=True)
+            if not isinstance(body, dict) or 'operations' not in body:
+                abort(400)
+            operations = body['operations']
+        directory = Path.home() / 'Library/Application Support/Wheel Web Preview'
+        directory.mkdir(parents=True, exist_ok=True)
+        try:
+            return bookmarks.exchange(operations, path=directory / 'demo-favorites.sqlite3')
+        except ValueError as error:
+            return dict(error=str(error)), 400
+
     @app.get('/api/<path:path>')
     def fixtures(path):
         if path == 'account/profiles':
@@ -214,8 +238,6 @@ def create_demo(source):
             return dict(frames={})
         if kind == 'chart-drawings':
             return dict(revision=0, drawings=[])
-        if path == 'chart-favorites':
-            return dict(revision=0, favorites=[])
         if path.startswith('notifications/alerts/'):
             return dict(epoch=EPOCH, alerts=[])
         abort(404)
