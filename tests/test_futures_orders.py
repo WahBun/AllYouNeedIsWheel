@@ -37,6 +37,45 @@ class FuturesOrdersTests(unittest.TestCase):
                 self.assertTrue(all('chart_order_ref' not in row for row in futures_orders(self.conn, db_path=path)))
                 self.conn.readonly = False
 
+    def test_live_phone_option_entry_requires_confirmed_owner_and_saved_permanent_id(self):
+        from ib_async import Option
+        with TemporaryDirectory() as tmp, patch('api.routes.account.profiles', return_value={
+                'live': {'account_id': 'U_TEST', 'chart_options_live_enabled': True}}):
+            path = str(Path(tmp) / 'orders.db')
+            account = 'U_TEST'
+            self.conn.account_id, self.conn.port, self.conn.client_id = account, 4001, 71
+            self.conn._order_account.return_value = account
+            self.conn.ib.managedAccounts.return_value = [account]
+            self.contract = Option('TSLL','20261218',13,'C','SMART',currency='USD',multiplier='100',tradingClass='TSLL',conId=7)
+            ref = 'WheelPaper:phone-option'
+            PaperChart(path).save_group(account,7,dict(ref=ref,side=-1,ids={'entry':50},perms={'entry':123}))
+            trade = self.trade(account=account)
+            trade.order.orderRef,trade.order.clientId,trade.order.action = ref,71,'SELL'
+            trade.order.totalQuantity,trade.order.lmtPrice,trade.order.tif = 2,.69,'DAY'
+
+            def row(opened):
+                rows = futures_orders(self.conn, db_path=path, status_snapshot={
+                    'authoritative_open_trades':opened, 'display_trades':[trade]})
+                return rows[0]
+            working = row([trade])
+            self.assertEqual((working['chart_con_id'],working['chart_order_ref'],working['chart_group_id']), (7,ref,''))
+            self.assertEqual((working['quantity'],working['premium'],working['tif']), (2,.69,'DAY'))
+            from copy import deepcopy
+            partial = deepcopy(trade)
+            partial.orderStatus.filled = 1
+            for opened in ([], None, [trade, partial], [partial, trade]):
+                self.assertNotIn('chart_order_ref',row(opened))
+            for obj, field, changed in [(trade.order,'clientId',17),(trade.order,'permId',456),
+                    (trade.order,'orderId',51),(trade.order,'action','BUY'),(trade.order,'parentId',5),
+                    (trade.orderStatus,'filled',1),(trade.orderStatus,'status','PendingCancel'),
+                    (self.conn,'readonly',True),(self.conn,'port',4002)]:
+                original = getattr(obj,field)
+                setattr(obj,field,changed)
+                self.assertNotIn('chart_order_ref',row([trade]),field)
+                setattr(obj,field,original)
+            self.conn.ib.placeOrder.assert_not_called()
+            self.conn.ib.cancelOrder.assert_not_called()
+
     def test_standalone_tp_has_protection_identity_without_parent(self):
         with TemporaryDirectory() as tmp:
             path = str(Path(tmp) / 'orders.db')

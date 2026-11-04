@@ -539,6 +539,52 @@ final class TradingTests: XCTestCase {
         XCTAssertFalse(TradeRules.chartManageable(order))
     }
 
+    func testLiveOptionDetailAmendsOnlyTheSelectedBrokerEntry() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        let session = URLSession(configuration: config)
+        let store = WheelStore(session: session)
+        store.trading = TradingSession(session: session)
+        store.demo = false; store.address = "https://mock.invalid"; store.updated = .now
+        store.portfolio = Bootstrap(summary: Summary(account_value: 1000, cash_balance: 500), positions: [],
+            connection: AccountConnection(mode: "live", execution_enabled: false, chart_execution_enabled: true))
+        store.trading.accountEpoch = "fixture-live"
+        let ref = "WheelPaper:" + UUID().uuidString
+        let row: [String: Any] = ["id": "ib-opt-91", "ticker": "TSLL", "option_type": "CALL", "action": "SELL",
+            "quantity": 2, "premium": 0.69, "tif": "DAY", "status": "submitted", "external_ib": true, "filled": 0,
+            "ib_order_id": 72, "perm_id": 91, "con_id": 77, "chart_con_id": 77, "chart_order_ref": ref]
+        let order = try JSONDecoder().decode(Order.self, from: JSONSerialization.data(withJSONObject: row))
+        XCTAssertTrue(TradeRules.chartManageable(order))
+        var snapshotID = 73
+        MockProtocol.requests = []; MockProtocol.statusCode = 200; MockProtocol.fail = false
+        defer { MockProtocol.payload = nil }
+        MockProtocol.payload = { request in
+            if request.httpMethod == "POST" { return ["success": true, "status": "acknowledged"] }
+            return ["order_ref": ref, "entry_editable": true, "entry": 0.69, "quantity": 2.0,
+                    "tif": "DAY", "edit_snapshot": [["order_id": snapshotID, "filled": 0]]]
+        }
+        func amend() async -> Bool {
+            await store.trading.manageChartEntry(order, operation: "amend", price: 0.69, quantity: 1, tif: "GTC", store: store)
+        }
+        let stale = await amend()
+        XCTAssertFalse(stale)
+        XCTAssertFalse(MockProtocol.requests.contains { $0.httpMethod == "POST" })
+        snapshotID = 72
+        let saved = await amend()
+        XCTAssertTrue(saved)
+        let writes = MockProtocol.requests.filter { $0.httpMethod == "POST" }
+        XCTAssertEqual(writes.count, 1)
+        let request = try XCTUnwrap(writes.first)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Wheel-Account-Epoch"), "fixture-live")
+        let stream = try XCTUnwrap(request.httpBodyStream)
+        stream.open(); defer { stream.close() }
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: stream) as? [String: Any])
+        XCTAssertEqual(body["action"] as? String, "edit_entry")
+        XCTAssertEqual(body["expected_ref"] as? String, ref)
+        XCTAssertEqual(body["quantity"] as? Int, 1)
+        XCTAssertEqual(body["tif"] as? String, "GTC")
+    }
+
     func testChartEntryManagementKeepsIndependentGroupIdentity() async throws {
         let saved = UserDefaults.standard.object(forKey: "pendingPaperChartRequests")
         UserDefaults.standard.removeObject(forKey: "pendingPaperChartRequests")
