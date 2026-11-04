@@ -23,6 +23,7 @@ class NotificationRuntime:
         self.scope = None
         self.mode = None
         self.bindings = {}
+        self.option_activity = {}
         self.previous = {}
         self.next_refresh = 0
         self.next_orders = 0
@@ -49,6 +50,7 @@ class NotificationRuntime:
         self.moonshine.reset()
         for ticker, callback in self.bindings.values(): ticker.updateEvent -= callback
         self.bindings.clear()
+        self.option_activity.clear()
         if self.conn:
             self.conn.ib.orderStatusEvent -= self.order
             self.conn.ib.execDetailsEvent -= self.fill
@@ -94,12 +96,27 @@ class NotificationRuntime:
 
     def tick(self, cid, ticker):
         if not self.conn or not self.conn.is_connected() or getattr(ticker, 'marketDataType', None) != 1:
+            self.option_activity.pop(cid, None)
             self.enqueue(('reset', cid)); return
-        # Last-price ticks only; no bid, ask, close, frozen or delayed substitutes.
-        for tick in list(getattr(ticker, 'ticks', ())):
+        ticks = getattr(ticker, 'ticks', ())
+        now = time.time()
+        option = getattr(getattr(ticker, 'contract', None), 'secType', None) == 'OPT'
+        for tick in ticks:
             price = getattr(tick, 'price', None)
-            if tick.tickType == 4 and isinstance(price, (int, float)) and math.isfinite(price) and price > 0:
-                self.enqueue(('price', self.scope, cid, price, self.mode, time.time()))
+            if not isinstance(price, (int, float)) or not math.isfinite(price) or price <= 0:
+                continue
+            if option and tick.tickType in (1, 2, 4):
+                # Live bid/ask changes prove the subscription stayed active
+                # between sparse trades. Only a Last tick can cross an alert.
+                since, latest = self.option_activity.get(cid, (now, now))
+                if not 0 <= now - latest <= 60:
+                    since = now
+                self.option_activity[cid] = since, now
+            if tick.tickType == 4:
+                event = ('price', self.scope, cid, price, self.mode, now)
+                if option:
+                    event += (self.option_activity[cid][0],)
+                self.enqueue(event)
 
     def pulse(self, portfolio_service, chart_pumping=False):
         """Called only by ib-api. No filesystem or HTTP in the fast callback path."""
@@ -130,6 +147,7 @@ class NotificationRuntime:
             moonshine = self.moonshine.pulse(conn, scope, rules=self.moonshine_rules.get(scope))
             wanted = {a['cid'] for a in self.active if a['scope'] == scope} | set(moonshine)
             for cid in set(self.bindings) - wanted:
+                self.option_activity.pop(cid, None)
                 ticker, callback = self.bindings.pop(cid); ticker.updateEvent -= callback
             from api.services.chart_contracts import contracts
             for cid in wanted:
@@ -140,6 +158,7 @@ class NotificationRuntime:
                     previous = self.bindings.get(cid)
                     if previous and previous[0] is ticker and retained: continue
                     if previous: previous[0].updateEvent -= previous[1]
+                    self.option_activity.pop(cid, None)
                     self.enqueue(('reset', cid))
                     callback = lambda value, cid=cid: self.tick(cid, value)
                     ticker.updateEvent += callback
@@ -203,7 +222,7 @@ class NotificationRuntime:
         elif kind == 'order': self.store.observe_order(*args)
         elif kind == 'fill': self.store.observe_fill(*args)
         elif kind == 'price':
-            scope, cid, price, mode, now = args
+            scope, cid, price, mode, now, *activity = args
             self.health = 'Monitoring live last price'
             plan = self.moonshine_plans.get((scope, cid))
             if plan and plan['start'] <= now < plan['end']:
@@ -215,7 +234,8 @@ class NotificationRuntime:
                 if alert['scope'] != scope or alert['cid'] != cid or now < (alert.get('monitor_since') or alert['created']): continue
                 key = alert['id'], alert['version']
                 previous = self.previous.get(key)
-                if not previous or now - previous[1] > 60:
+                if not previous or (now - previous[1] > 60
+                                    and (not activity or activity[0] > previous[1])):
                     self.previous[key] = price, now
                     continue
                 old, _ = previous
