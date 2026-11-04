@@ -18,7 +18,7 @@ window.installOptionSearch=({api,select,symbol,canSelect,onError=()=>{}})=>{
  center.className='toolbar-center';end.className='toolbar-end';nav.append(center,end);
  const instrument=document.createElement('div');instrument.className='toolbar-instrument';instrument.append(launcher,$('favorite-contract'));
  const favorites=document.createElement('div');favorites.className='favorite-contract-picker';favorites.append($('favorite-contracts'));
- center.append(instrument,favorites,$('intervals'),nav.querySelector('.interval-picker'));
+ center.append(favorites,instrument,$('intervals'),nav.querySelector('.interval-picker'));
  const views=document.createElement('div');views.className='toolbar-views';
  for(const id of ['layout-picker','maximize-chart','fullscreen'])if($(id))views.append($(id));
  const clock=document.createElement('time');clock.id='market-clock';clock.title='New York time · automatic daylight saving';
