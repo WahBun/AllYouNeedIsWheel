@@ -243,8 +243,8 @@
       // Keep an arrow-only draft compact even when the page rewrites the expanded caption.
       const caption=(projection||edits).get(idFor('page','#toggle-trade'))?.text?.to;
       if(caption==='▾' || caption==='▴'){
-        css.insertRule('.chart-footer > #toggle-trade{display:inline-grid;place-items:center;width:32px;height:32px;padding:0;font-size:0}',0);
-        css.insertRule('#toggle-trade::after{content:"▾";font-size:14px;line-height:1}',0);
+        css.insertRule('.chart-footer > #toggle-trade{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;font-size:0}',0);
+        css.insertRule('#toggle-trade::after{content:"▾";font-size:14px;line-height:1;transform:translateY(-1.5px)}',0);
         css.insertRule('#toggle-trade[aria-expanded=true]::after{content:"▴"}',0);
       }
       if((projection||edits).get(idFor('page','#order-status'))?.properties['flex-grow']?.to==='1')
