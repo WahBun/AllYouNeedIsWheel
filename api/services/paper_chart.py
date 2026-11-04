@@ -327,9 +327,11 @@ class PaperChart:
                 quantity=remaining, action=order.action, order_type=kind, status=status.status,
                 chart_role=display_roles.get((order.orderRef, order.orderId, order.permId)) if order.clientId == conn.ib.client.clientId else None,
                 **(dict(client_id=order.clientId, perm_id=order.permId) | (describe(self.path, conn, trade) if order.clientId == conn.ib.client.clientId else {}))))
+        recovery_contract = position.contract if position else contracts.contracts.get(cid)
         if not account.startswith('DU'):
             from api.services.live_options import contract_allowed
             live_contract = contracts.resolve(conn,cid)
+            recovery_contract = live_contract
             result['enabled'] = contract_allowed(conn, live_contract)
             result['live_chart_scope'] = True
             result['live_options_scope'] = live_contract.secType == 'OPT'
@@ -485,8 +487,12 @@ class PaperChart:
         # Re-evaluate persisted executions on every recovery. Never journal the
         # derived row as a terminal callback that could mask a later correction.
         unknown = [r for r in rows if r['status'] == 'Unknown']
-        if (len(unknown) == 1 and attribution_view is None and position and position.contract.secType == 'OPT'
-                and position.contract.right == 'C' and unknown[0].get('entry_kind') == 'add'
+        # IB removes the position row after the final fill. The confirmed
+        # contract remains available from Live validation or a group trade.
+        if unknown and recovery_contract is None:
+            recovery_contract = next((t.contract for t in trades.values()), None)
+        if (len(unknown) == 1 and attribution_view is None and recovery_contract and recovery_contract.secType == 'OPT'
+                and recovery_contract.right == 'C' and unknown[0].get('entry_kind') == 'add'
                 and unknown[0]['role'] in missing):
             candidate = unknown[0]
             oid = candidate['order_id']
