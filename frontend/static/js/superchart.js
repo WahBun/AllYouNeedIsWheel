@@ -751,7 +751,17 @@ function initializeChart(){
 }
 window.addEventListener('message',event=>{if(event.origin!==location.origin||event.source!==frame.contentWindow||!event.data?.wheelChart)return;const {name,body}=event.data;if(name==='chartReady'){initializeChart();}else if(name==='chartSettings')settings();else if(name==='noOverlappingLabelsChanged'&&typeof body?.enabled==='boolean')saveDisplay({...display,noOverlappingLabels:body.enabled});else if(name==='priceAxisChanged')chartLayout.tick();else if(name==='historyRequest')loadHistory(body);else if(name==='paperAction')action({...body,clientReleasedAt:event.data.sentAt});else if(name==='chartDiagnostic'){const message=`${body.role?.toUpperCase()||'Order'} drag: ${body.message}`;(body.interrupted?log:trace)(message);}else if(name==='entryChanged'){entry=body;}else if(name==='drawingsChanged'&&cid){const expected=`web:${location.origin}:${cid}`;if(body.key===expected)localStorage.setItem(`wheel.drawings:${cid}`,JSON.stringify(body));}});
 window.installOptionSearch({api,select,symbol:()=>packet.symbol||$('symbol').value,canSelect:()=>!busy,onError:trace});
-function renderGroups(value){const choices=value.group_choices||[],picker=$('order-group');picker.replaceChildren(new Option(value.position_history_retained?'Current position':'Original order',''),...choices.filter(g=>g.id).map((g,i)=>new Option('Order '+(i+2)+' · '+(g.ref||g.id).slice(-6),g.id)));if(groupID&&!choices.some(g=>g.id===groupID))picker.append(new Option('New order draft',groupID));picker.value=groupID;picker.disabled=busy;}
+function renderGroups(value){
+ const choices=value.group_choices||[],picker=$('order-group');
+ let label='Original order';
+ if(!groupID&&value.known){
+  if(value.position===0&&value.close_progress?.status==='completed'&&value.close_progress.remaining===0&&value.close_progress.filled>0)label='Closed position';
+  else if((value.position_history_retained||value.position_only)&&Number.isFinite(value.position)&&value.position!==0)label='Current position';
+ }
+ picker.replaceChildren(new Option(label,''),...choices.filter(g=>g.id).map((g,i)=>new Option('Order '+(i+2)+' · '+(g.ref||g.id).slice(-6),g.id)));
+ if(groupID&&!choices.some(g=>g.id===groupID))picker.append(new Option('New order draft',groupID));
+ picker.value=groupID;picker.disabled=busy;
+}
 function selectGroup(id){if(busy)return;resetNewQuantity();groupID=id;saveSelectedGroup(cid,id);generation++;marketStream.stop();lastFallback=0;lastPnL=0;entry=0;state={};received=0;revision++;$('editor').close();renderGroups({});sync();refresh();}
 $('new-order').onclick=async()=>{
  if($('new-order').disabled)return;

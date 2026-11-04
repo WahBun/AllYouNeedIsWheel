@@ -17,7 +17,7 @@ const {start}=require('./market-feed/harness.cjs');
   await p.route('**/*',async route=>{
    const r=route.request(),u=new URL(r.url());assert.equal(u.origin,h.url);assert.equal(r.method(),'GET');
    if(u.pathname.endsWith('/profiles'))return route.fulfill({json:{selected:mode,account_identity:identity,verified:true,epoch,chart_execution_enabled:true}});
-   if(u.pathname.includes('/paper-chart/')){requests.push({identity,group:u.searchParams.get('group_id')||''});return route.fulfill({json:{enabled:true,known:true,active:false,status:'idle',orders:[],group_choices:[{id:''},{id:mode==='paper'?paperGroup:liveGroup}],...(recovered?{active:true,status:'filled',position:-1,entry:3.07,side:-1,order_ref:'WheelPaper:position:fixture',position_history_retained:true,close_allowed:true,be_allowed:true,protection_manageable:true,add_allowed:true,add_available:9,trim_allowed:false,trim_available:1,manual_stop_quantity:true,requested_protection:[],protection:{status:'not_requested'}}:{})}});}
+   if(u.pathname.includes('/paper-chart/')){requests.push({identity,group:u.searchParams.get('group_id')||''});return route.fulfill({json:{enabled:true,known:true,active:false,status:'idle',orders:[],group_choices:[{id:''},{id:mode==='paper'?paperGroup:liveGroup}],...(recovered==='closed'?{status:'done',position:0,position_history_retained:true,close_progress:{status:'completed',requested:1,filled:1,remaining:0}}:recovered?{active:true,status:'filled',position:-1,entry:3.07,side:-1,order_ref:'WheelPaper:position:fixture',position_history_retained:true,close_allowed:true,be_allowed:true,protection_manageable:true,add_allowed:true,add_available:9,trim_allowed:false,trim_available:1,manual_stop_quantity:true,requested_protection:[],protection:{status:'not_requested'}}:{})}});}
    return route.continue();
   });
   await p.goto(h.url+'/superchart?con_id=7&session=all');
@@ -47,6 +47,16 @@ const {start}=require('./market-feed/harness.cjs');
    if(await p.evaluate(()=>document.body.classList.contains('light'))!==(theme==='light'))await p.locator('#theme').click();
    await p.screenshot({path:`/tmp/wheel-position-recovery-${width}-${theme}.png`,fullPage:true});
   }
+  recovered='closed';
+  await p.waitForFunction(()=>document.querySelector('#order-group').selectedOptions[0]?.text==='Closed position');
+  const fits=await p.locator('#order-group').evaluate(picker=>{
+   const ctx=document.createElement('canvas').getContext('2d'),style=getComputedStyle(picker);
+   ctx.font=style.fontSize+' '+style.fontFamily;
+   const available=picker.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight)-22;
+   const labels=[...picker.options].map(option=>option.text).concat(['Current position','New order draft']);
+   return labels.every(label=>ctx.measureText(label).width<=available);
+  });
+  assert.equal(fits,true,'All order group names fit alongside the select arrow');
   assert.deepEqual(errors,[]);await p.close();
  }
  assert.equal(h.metrics.posts,0);console.log('PASS desktop/mobile: Paper/Live and two Live accounts isolate selection, restore after switching/reload and pane activation, recovered Close/BE/TP-SL available, light/dark renders, ignore legacy key, no writes');
