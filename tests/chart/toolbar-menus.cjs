@@ -10,6 +10,20 @@ const {start}=require('./market-feed/harness.cjs');
   const favoriteGeometry=await page.evaluate(()=>{const e=document.querySelector('#favorite-contracts'),s=getComputedStyle(e),a=getComputedStyle(e.parentElement,'::after'),b=getComputedStyle(document.querySelector('#interval'),'::after');const signature=x=>[x.width,x.height,x.borderRightWidth,x.borderBottomWidth,x.transform];const c=document.createElement('canvas').getContext('2d');c.font=s.font;return {font:s.font,textWidth:c.measureText(e.options[0].text).width,innerWidth:e.clientWidth-parseFloat(s.paddingLeft)-parseFloat(s.paddingRight),width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height,appearance:s.appearance,arrow:signature(a),intervalArrow:signature(b),labelFits:c.measureText(e.options[0].text).width<=e.clientWidth-parseFloat(s.paddingLeft)-parseFloat(s.paddingRight)};});
   assert.equal(favoriteGeometry.width,width===393?78:95);assert.equal(favoriteGeometry.height,width===393?40:34);assert.equal(favoriteGeometry.appearance,'none');assert.deepEqual(favoriteGeometry.arrow,favoriteGeometry.intervalArrow);assert.equal(favoriteGeometry.labelFits,true,JSON.stringify(favoriteGeometry));
 
+  assert.equal(await page.locator('.toolbar-views > #trading-lock + #favorite-contract').count(),1);
+  assert.equal(await page.locator('#market-clock + #mobile-open-trading + #session-picker + #toggle-trade').count(),1);
+  if(width===1400){
+   const boxes=await Promise.all(['layout-button','maximize-chart','fullscreen','trading-lock','favorite-contract','trade-sounds','theme'].map(id=>page.locator('#'+id).boundingBox()));
+   for(const [i,box] of boxes.slice(1).entries())assert.equal(box.x-boxes[i].x-boxes[i].width,6);
+   assert.equal((await page.locator('.toolbar-views').boundingBox()).x,(await page.locator('#trade').boundingBox()).x);
+  }
+  const details=page.getByRole('button',{name:'Chart details',exact:true});
+  for(const expanded of [false,true]){
+   assert.equal(await details.getAttribute('aria-expanded'),String(expanded));
+   assert.equal(await details.evaluate(el=>getComputedStyle(el,'::after').content),JSON.stringify(expanded?'▴':'▾'));
+   await details.click();
+  }
+
   for(const [button,menu] of [['#interval','#interval-menu'],['#layout-button','#layout-menu'],['#session-button','#session-menu']]){
    await page.locator(button).click();assert.equal(await page.locator(menu).isVisible(),true);
    const rect=await page.locator('#chart').boundingBox();await page.mouse.click(rect.x+rect.width/2,rect.y+rect.height-45);

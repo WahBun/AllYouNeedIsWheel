@@ -53,6 +53,7 @@ body.light #daily-pnl-value[data-direction=negative]{color:#b73544}
 
 #display.indicator-settings .settings-body{max-height:calc(88dvh - 190px)}
 
+#pending-adds:not([hidden]){display:grid;gap:6px;max-height:160px;overflow:auto}
 #trade-feedback{width:100%;white-space:pre-line;overflow-wrap:anywhere;line-height:1.6;margin:12px 0 0}
 .workspace>nav>#session-picker{margin-left:auto}
 
@@ -126,7 +127,7 @@ header #theme,header #trade-sounds,header #settings{width:42px;height:40px;paddi
 
 #favorite-contract{font-size:21px;line-height:1;padding:5px 9px}#favorite-contract[aria-pressed=true]{color:#e7aa32}#favorite-contracts{max-width:210px;min-width:95px}@media(max-width:600px){#favorite-contracts{max-width:150px}}
 
-#trade #bracket-control[hidden]{display:none}
+#trade #bracket-control[hidden],#bracket-control small{display:none}
 
 #trade .position-actions[hidden],#trade .protection-settings[hidden],#trade #close[hidden],#trade #manage-protection[hidden],#trade #trade-connection-feedback[hidden]{display:none}
 #trade-connection-feedback{font-size:12px;color:var(--muted);margin:0}
@@ -303,9 +304,60 @@ body.unified-chart-toolbar .toolbar-views{gap:2px}
 body.unified-chart-toolbar>header :is(.toolbar-instrument button,#favorite-contracts,#session-button,#layout-button,#maximize-chart,#fullscreen,#theme,#trade-sounds,#settings):hover{background:var(--toolbar-hover)}
 body.unified-chart-toolbar>header button:focus-visible,body.unified-chart-toolbar #favorite-contracts:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
+/* Keep the disclosure and session menu anchored as chart details open. */
+.chart-footer{flex-wrap:wrap;height:auto;align-content:center}
+.chart-footer > #order-status{flex:1 1 4ch}
+.chart-footer > #session-picker > #session-menu{top:auto;bottom:calc(100% + 6px)}
+.chart-footer > #toggle-trade{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0}
+#toggle-trade::after{content:"▾";font-size:14px;line-height:1;transform:translateY(-1.5px)}
+#toggle-trade[aria-expanded=true]::after{content:"▴"}
+.chart-footer:has(> #market-clock):has(> #session-picker){
+ align-items:center;
+ --footer-label:light-dark(#525252,#b8b8b8);
+ & > #market-clock,& #session-button{
+  display:inline-flex;align-items:center;justify-content:center;height:38px;padding:0 6px;
+  color:var(--footer-label);font:400 14px/18px -apple-system,system-ui,"Trebuchet MS",Roboto,Ubuntu,sans-serif;
+  font-feature-settings:"lnum","tnum";
+ }
+ & #session-button,& > #toggle-trade{border:0;border-radius:4px;background:transparent}
+ & #session-button{min-width:0}
+ & > #toggle-trade{color:var(--footer-label)}
+ & :is(#session-button,#toggle-trade):hover{background:var(--panel)}
+ & :is(#session-button,#toggle-trade):focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+}
+@media(min-width:851px){
+ .chart-footer:has(> #market-clock):has(> #session-picker){column-gap:0}
+}
+@media(max-width:360px){
+ .chart-footer:has(> #market-clock):has(> #session-picker){column-gap:6px}
+ .chart-footer:has(> #market-clock) > #mobile-open-trading{padding-inline:4px;font-size:12px}
+}
+.toolbar-views > #trading-lock{display:grid;place-items:center;flex:none;width:34px;height:34px;padding:5px;border:0;border-radius:5px;background:transparent;color:var(--muted)}
+.toolbar-views > #trading-lock[aria-pressed=true]{color:#d99a39;background:#d99a391a}
+.toolbar-views > #trading-lock:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+body.unified-chart-toolbar > header > #theme{order:1}
+/* A detached bookmark leaves a single, fully rounded instrument button. */
+.toolbar-instrument:has(> #option-search:only-child){width:fit-content;max-width:100%;justify-self:start}
+.toolbar-instrument:has(> #option-search:only-child) #option-search{width:auto;flex:0 1 auto;border-radius:inherit}
+.toolbar-views > #favorite-contract{display:grid;place-items:center;flex:none;width:34px;height:34px;padding:0;border:0;border-radius:5px;background:transparent}
+.toolbar-views > #favorite-contract:hover{background:var(--toolbar-hover,#8882)}
+
+/* Fit the five view buttons and two header buttons across the ticket column. */
+body.unified-chart-toolbar > header:has(.toolbar-views > #favorite-contract):has(.toolbar-views > #trading-lock){
+ --view-button-gap:6px;
+ padding-inline-end:11px;
+ &:has(#maximize-chart[hidden]){--view-button-gap:14px}
+ & .toolbar-views{gap:var(--view-button-gap)}
+ & > :is(#trade-sounds,#theme){margin-inline-start:calc(var(--view-button-gap) - 12px)}
+}
+@media(max-width:360px){
+ body:has(.toolbar-views > #favorite-contract) > header{column-gap:3px;padding-inline:4px}
+ .workspace > nav:has(.toolbar-views > #favorite-contract){grid-template-columns:minmax(0,1fr) 26px 56px auto}
+}
+
 /* Match the interval chevron while retaining the native favorites picker. */
 .favorite-contract-picker{position:relative;display:flex;flex-shrink:0;align-items:center}
-#favorite-contracts,body.unified-chart-toolbar #favorite-contracts{width:95px;min-width:95px;max-width:95px;font-weight:800;height:34px;padding:0 24px 0 6px;appearance:none;-webkit-appearance:none}
+#favorite-contracts,body.unified-chart-toolbar #favorite-contracts{width:95px;min-width:95px;max-width:95px;font-weight:800;height:34px;padding:0 23px 0 6px;appearance:none;-webkit-appearance:none}
 .favorite-contract-picker::after{position:absolute;right:9px;pointer-events:none}
 
 /* iOS Settings GildedSignature: the same lettering, gold base and 5s sweep. */

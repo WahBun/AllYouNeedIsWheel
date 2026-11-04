@@ -16,16 +16,18 @@ window.installOptionSearch=({api,select,symbol,canSelect,onError=()=>{}})=>{
  function stockFeedback(message='',busy=false){stockStatus.textContent=message;stockStatus.hidden=!message;$('search').setAttribute('aria-busy',String(busy));stockSubmit.disabled=busy;stockSubmit.textContent=busy?'Searching…':'Search';$('contracts').hidden=!!message;}
  const nav=launcher.closest('nav'),center=document.createElement('div'),end=document.createElement('div');
  center.className='toolbar-center';end.className='toolbar-end';nav.append(center,end);
- const instrument=document.createElement('div');instrument.className='toolbar-instrument';instrument.append(launcher,$('favorite-contract'));
+ const instrument=document.createElement('div');instrument.className='toolbar-instrument';instrument.append(launcher);
  const favorites=document.createElement('div');favorites.className='favorite-contract-picker';favorites.append($('favorite-contracts'));
  center.append(favorites,instrument,$('intervals'),nav.querySelector('.interval-picker'));
  const views=document.createElement('div');views.className='toolbar-views';
- for(const id of ['layout-picker','maximize-chart','fullscreen'])if($(id))views.append($(id));
+ for(const id of ['layout-picker','maximize-chart','fullscreen','trading-lock','favorite-contract'])if($(id))views.append($(id));
  const clock=document.createElement('time');clock.id='market-clock';clock.title='New York time · automatic daylight saving';
  const clockFormat=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23',timeZoneName:'shortOffset'});
  function updateClock(){const now=new Date(),parts=Object.fromEntries(clockFormat.formatToParts(now).map(p=>[p.type,p.value]));clock.dateTime=now.toISOString();clock.textContent=`${parts.hour}:${parts.minute}:${parts.second} ${parts.timeZoneName.replace('GMT','UTC')}`;}
  updateClock();setInterval(updateClock,1000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)updateClock();});
- end.append(clock,$('session-picker'),views);
+ end.append(views);
+ $('order-status').after(clock);
+ $('toggle-trade').before($('session-picker'));
  $('fullscreen').title='Fullscreen workspace';$('fullscreen').setAttribute('aria-label',$('fullscreen').title);
  // Reuse the same controls in one desktop row; fullscreen keeps them in its workspace.
  const header=document.querySelector('body>header'),workspace=nav.parentElement,desktopToolbar=matchMedia('(min-width:1280px)');
