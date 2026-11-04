@@ -44,6 +44,7 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
     account = conn._order_account()
     if not account:
         return []
+    confirmed_entries = {}
     if completed:
         trades = completed_trades(conn, account) + list(conn.ib.trades())
     else:
@@ -51,6 +52,20 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
         if not snapshot:
             return []
         trades = snapshot.get('authoritative_open_trades')
+        if not account.startswith('DU'):
+            for opened in trades or ():
+                order, status = opened.order, opened.orderStatus
+                if order.account != account:
+                    continue
+                perm = status.permId or order.permId
+                key = (opened.contract.conId, perm)
+                # A second snapshot can show a partial fill or pending cancel.
+                # A cached display row must not override that observation.
+                working = (not order.parentId and status.status in ('Submitted','PreSubmitted')
+                           and status.filled == 0 and not opened.fills
+                           and order.permId in (0, perm))
+                terms = (order.orderRef, order.clientId, order.orderId, order.action, order.totalQuantity)
+                confirmed_entries.setdefault(key, set()).add(terms if working else None)
         if trades is None:
             trades = snapshot.get('trades', [])
         trades = snapshot.get('display_trades', trades)
@@ -79,6 +94,7 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
                         ref = group.get('ref', '')
                         if ref.startswith('WheelPaper:'):
                             journal[ref] = dict(con_id=cid, group_id=group_id, side=group.get('side'), mode=group.get('mode'), order_ids=list(group.get('ids', {}).values()), entry_ids=[oid for role, oid in group.get('ids', {}).items() if role.split('_')[0] == 'entry'], protection_ids=[oid for role, oid in group.get('ids', {}).items() if role.split('_')[0] in ('tp','sl')])
+                            journal[ref]['entry_perm'] = group.get('perms', {}).get('entry')
                             journal[ref]['tif_ids'] = [oid for role, oid in group.get('ids', {}).items()
                                 if role.split('_')[0] in ('tp', 'sl', 'close') and '_retired_' not in role]
                             journal[ref]['tif_pending'] = bool(group.get('pending_tif'))
@@ -141,10 +157,19 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
                 result[identity]['chart_protection_ref'] = ref
                 result[identity]['chart_protection_group_id'] = request.get('group_id') or ''
 
-        if (request and chart_owned and not o.parentId
-                and account.startswith('DU') and conn.port == 4002 and conn.readonly is False
-                and (o.orderId in (request.get('entry_ids') or []) or
-                     (request.get('entry_ids') is None and request.get('mode') == 'overnight_entry'))):
+        paper_entry = (account.startswith('DU') and conn.port == 4002 and conn.readonly is False and request
+                       and (o.orderId in (request.get('entry_ids') or []) or
+                            (request.get('entry_ids') is None and request.get('mode') == 'overnight_entry')))
+        live_entry = False
+        if (chart_owned and not account.startswith('DU') and not completed
+                and request.get('entry_ids') == [o.orderId] and request.get('entry_perm') == perm and perm > 0
+                and o.clientId == conn.client_id and o.permId in (0, perm)
+                and confirmed_entries.get((c.conId, perm)) == {(ref, o.clientId, o.orderId, o.action, o.totalQuantity)}
+                and filled == 0 and s.status in ('Submitted', 'PreSubmitted')
+                and request.get('side') == {'BUY': 1, 'SELL': -1}.get(o.action) and o.action in ('BUY', 'SELL')):
+            from api.services.live_options import contract_allowed
+            live_entry = contract_allowed(conn, c)
+        if chart_owned and not o.parentId and (paper_entry or live_entry):
             result[identity]['chart_con_id'] = c.conId
             result[identity]['chart_order_ref'] = ref
             result[identity]['chart_group_id'] = request.get('group_id') or ''

@@ -342,8 +342,12 @@ enum TradeRules {
     static func amendmentQuantityLocked(_ order: Order) -> Bool {
         order.isRollover == true || (order.option_type == "CALL" && order.action == "SELL" && order.intent != "CLOSE")
     }
+    static func chartSnapshotMatches(_ order: Order, _ state: [String: Any]) -> Bool {
+        guard let id = order.ib_order_id else { return true }
+        return (state["edit_snapshot"] as? [[String: Any]])?.contains { $0["order_id"] as? Int == id } == true
+    }
     static func chartEditRequest(_ order: Order, state: [String: Any], price: Double?, quantity: Int, tif: String, confirmRemoveProtection: Bool) -> [String: Any]? {
-        guard chartManageable(order), (order.filled ?? 0) == 0,
+        guard chartManageable(order), chartSnapshotMatches(order, state), (order.filled ?? 0) == 0,
               let ref = order.chart_order_ref, state["order_ref"] as? String == ref,
               state["entry_editable"] as? Bool == true,
               let snapshot = state["edit_snapshot"] as? [[String: Any]], !snapshot.isEmpty,
@@ -514,8 +518,8 @@ final class TradingSession {
 
     func manageChartEntry(_ order: Order, operation: String, price: Double? = nil, quantity: Int? = nil, tif: String? = nil, confirmRemoveProtection: Bool = false, store: WheelStore) async -> Bool {
         guard !store.demo, store.chartTradingAvailable, TradeRules.chartManageable(order),
-              let cid = order.chart_con_id, let ref = order.chart_order_ref else { return false }
-        let base = store.address, groupID = order.chart_group_id ?? "", epoch = accountEpoch
+              let cid = order.chart_con_id, let ref = order.chart_order_ref, let epoch = accountEpoch else { return false }
+        let base = store.address, groupID = order.chart_group_id ?? ""
         let query = groupID.isEmpty ? [] : [URLQueryItem(name: "group_id", value: groupID)]
         var body: [String: Any] = ["action": "manage_entry", "operation": operation, "expected_ref": ref]
         if let price { body["price"] = price; body["expected_price"] = order.premium }
@@ -524,6 +528,7 @@ final class TradingSession {
                 let state = try await get("api/portfolio/paper-chart/\(cid)", base: base, query: query)
                 guard state["order_ref"] as? String == ref else { message = "Order changed; refresh before canceling"; return false }
                 if state["entry_editable"] as? Bool == true, let snapshot = state["edit_snapshot"] as? [[String: Any]] {
+                    guard TradeRules.chartSnapshotMatches(order, state) else { message = "Order changed; refresh before canceling"; return false }
                     body = ["action": "edit_entry", "cancel": true, "expected_ref": ref, "expected_snapshot": snapshot]
                 } else if state["mode"] as? String != "overnight_entry" { message = "Order changed; refresh before canceling"; return false }
             } else if operation == "amend", let quantity, let tif {
@@ -533,7 +538,7 @@ final class TradingSession {
             }
             guard store.address == base, accountEpoch == epoch, store.chartTradingAvailable, !store.demo else { return false }
             if !groupID.isEmpty { body["group_id"] = groupID }
-            let result = try await paperChartWrite(base: base, conID: cid, body: body)
+            let result = try await paperChartWrite(base: base, conID: cid, body: body, expectedEpoch: epoch)
             message = result["message"] as? String
             if result["success"] as? Bool == true,
                let state = result["state"] as? [String: Any], let replacement = state["order_ref"] as? String, replacement != ref {
