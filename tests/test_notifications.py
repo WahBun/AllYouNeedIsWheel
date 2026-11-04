@@ -72,6 +72,7 @@ class NotificationsTests(unittest.TestCase):
         self.runtime.active = self.store.alerts(active=True)
         self.prices(99, 101)
         self.assertEqual(self.events()[0]['body'], 'TQQQ · 11/20/26 · 60P crossed 100 · Last 101\nNote: Support')
+        self.assertEqual((self.events()[0]['con_id'], self.events()[0]['contract_label']), (7, 'TQQQ · 11/20/26 · 60P'))
         self.assertEqual(self.store.alerts()[0]['label'], raw)
 
     def test_note_only_edit_preserves_crossing_and_notification_snapshot(self):

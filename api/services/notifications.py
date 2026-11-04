@@ -57,6 +57,7 @@ class NotificationStore:
                 CREATE TABLE IF NOT EXISTS cleared_alert_history(id TEXT PRIMARY KEY);
                 CREATE TABLE IF NOT EXISTS alert_sounds(id TEXT PRIMARY KEY,sound TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS alert_notes(id TEXT PRIMARY KEY,note TEXT NOT NULL,version INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS event_contracts(id TEXT PRIMARY KEY,cid INTEGER NOT NULL,label TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS event_sounds(id TEXT PRIMARY KEY,sound TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS moonshine_rules(scope TEXT PRIMARY KEY,value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS moonshine_revisions(scope TEXT,cid INTEGER,day TEXT,version INTEGER,
@@ -202,10 +203,12 @@ class NotificationStore:
                         db.execute('INSERT OR REPLACE INTO alert_monitoring VALUES (?,?)', (row['id'], time.time()))
 
     @staticmethod
-    def _event(db, ident, scope, kind, title, body, now, sound='none'):
+    def _event(db, ident, scope, kind, title, body, now, sound='none', *, target=None):
         added = db.execute('INSERT OR IGNORE INTO events(id,scope,kind,title,body,created) VALUES (?,?,?,?,?,?)',
                            (ident, scope, kind, title, body, now)).rowcount
         if added:
+            if target is not None:
+                db.execute('INSERT INTO event_contracts VALUES (?,?,?)', (ident, *target))
             if sound != 'none':
                 db.execute('INSERT INTO event_sounds VALUES (?,?)', (ident, sound))
             db.execute('INSERT OR IGNORE INTO deliveries(event,device,scope) SELECT ?,id,scope FROM devices WHERE scope=? AND enabled=1', (ident, scope))
@@ -221,7 +224,7 @@ class NotificationStore:
             body = f"{compact_label(row['label'])} crossed {row['price']:g} · Last {price:g}"
             if saved['note']: body += '\nNote: ' + saved['note']
             self._event(db, str(uuid.uuid4()), row['scope'], 'price', f"{mode} · Price alert",
-                        body, now, saved['sound'])
+                        body, now, saved['sound'], target=(row['cid'], compact_label(row['label'])))
             db.execute('UPDATE alerts SET state=?,last_fire=? WHERE id=?', ('triggered' if row['repeat'] == 'once' else 'active', now, row['id']))
             return True
 
@@ -307,7 +310,8 @@ class NotificationStore:
             if not (price <= row['price'] if target % 2 else price >= row['price']): return False
             ident = f"moonshine:{scope}:{plan['cid']}:{plan['day']}:{target}"
             self._event(db, ident, scope, 'price', f'{mode} · MoonShine · {NAMES[target]}',
-                        f"{plan['label']} hit {row['price']:g} · Last {price:g}", now, SOUNDS[target])
+                        f"{plan['label']} hit {row['price']:g} · Last {price:g}", now, SOUNDS[target],
+                        target=(plan['cid'], plan['label']))
             db.execute('UPDATE moonshine_targets SET hit=1 WHERE scope=? AND cid=? AND day=? AND target=?', key)
         return True
 
@@ -353,7 +357,7 @@ class NotificationStore:
         self.begin_orders(scope)
         with self.connect() as db:
             latest = db.execute('SELECT COALESCE(MAX(seq),0) FROM events WHERE scope=?', (scope,)).fetchone()[0]
-            rows = [] if after is None else [dict(r) for r in db.execute("SELECT e.*,COALESCE(s.sound,'none') AS sound FROM events e LEFT JOIN event_sounds s ON s.id=e.id WHERE e.scope=? AND e.seq>? ORDER BY e.seq LIMIT 100", (scope, max(0, after)))]
+            rows = [] if after is None else [dict(r) for r in db.execute("SELECT e.*,COALESCE(s.sound,'none') AS sound,c.cid AS con_id,c.label AS contract_label FROM events e LEFT JOIN event_sounds s ON s.id=e.id LEFT JOIN event_contracts c ON c.id=e.id WHERE e.scope=? AND e.seq>? ORDER BY e.seq LIMIT 100", (scope, max(0, after)))]
             return dict(events=rows, cursor=rows[-1]['seq'] if rows else latest, scope=scope, server_time=time.time())
 
     @staticmethod
