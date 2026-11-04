@@ -80,6 +80,34 @@ const {chromium}=require('playwright');
     await footerSession.press('ArrowDown');await p.keyboard.press('Escape');
     assert.equal(await p.locator('#session-menu').isVisible(),false);
     await p.reload();await footerSession.waitFor();
+    // Restore a footer saved before the session picker was added to the same area.
+    await p.evaluate(()=>{
+      const base=['#order-status','#mobile-open-trading','#toggle-trade','#market-clock'];
+      const item=(selector,fields)=>({scope:'page',selector,properties:{},...fields});
+      const draft=[
+        item('#order-status',{properties:{width:{from:1408,to:1370},'flex-grow':{from:'0',to:'1'}}}),
+        item('#market-clock',{area:'Chart footer'}),
+        item('.chart-footer',{layoutOrder:{from:base,to:[base[0],base[1],base[3],base[2]]}}),
+        item('#session-picker',{area:'Chart footer'})
+      ];
+      const key='wheel.layout-blueprint.v1.'+document.querySelector('[name="wheel-blueprint-key"]').content;
+      localStorage.setItem(key,JSON.stringify(draft));
+    });
+    await p.reload();
+    const clock=p.locator('#market-clock'), detail=p.locator('#toggle-trade'), session=p.locator('#session-picker');
+    assert.ok((await clock.boundingBox()).x<(await detail.boundingBox()).x,'keep reviewed clock placement');
+    await pick('#market-clock');
+    await p.keyboard.down('Control');await p.keyboard.down('Meta');
+    await p.keyboard.press('ArrowRight');
+    assert.ok((await detail.boundingBox()).x<(await clock.boundingBox()).x,'reorder by keyboard after adding a neighbor');
+    const grip=await button('Reorder selected control').boundingBox(), into=await session.boundingBox();
+    await p.mouse.move(grip.x+grip.width/2,grip.y+grip.height/2);await p.mouse.down();
+    await p.mouse.move(into.x+into.width/2,into.y+into.height/2,{steps:6});await p.mouse.up();
+    await p.keyboard.up('Meta');await p.keyboard.up('Control');
+    assert.ok((await session.boundingBox()).x<(await clock.boundingBox()).x,'swap with the new session picker');
+    await p.reload();await p.setViewportSize({width:1400,height:900});
+    const footer=await p.locator('.chart-footer').boundingBox(),last=await clock.boundingBox();
+    assert.ok((await session.boundingBox()).x<last.x && last.x+last.width<=footer.x+footer.width,'persisted and inside footer');
     assert.deepEqual(errors,[]);assert.deepEqual(writes,[]);
     console.log('PASS cross-area controls and groups, rebuilt intervals, cancel, hide and restore, compare, reload and protected controls');
   }finally{await browser.close();}

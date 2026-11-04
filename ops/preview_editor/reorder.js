@@ -9,9 +9,22 @@ window.WheelBlueprintOrder = (() => {
       from.every(k=>typeof k==='string' && k.length<=160 && safeKey.test(k)) &&
       new Set(from).size===from.length && new Set(to).size===to.length && to.every(k=>from.includes(k));
   }
-  function write(css, parent, parentSelector, layout) {
+  function currentLayout(layout, keys, transferred, parent){
+    if(!layout)return null;
+    const added=keys.filter(key=>!layout.from.includes(key));
+    const missing=layout.from.filter(key=>!keys.includes(key));
+    if(!added.length && !missing.length)return layout;
+    // Keep named controls in their reviewed order when a blueprint transfer changes membership.
+    // Unrelated data or application changes still invalidate the positional draft.
+    if(![...added,...missing].every(key=>transferred(parent,key)))return null;
+    const keep=order=>order.filter(key=>keys.includes(key)).concat(added);
+    return {from:keep(layout.from),to:keep(layout.to)};
+  }
+  function write(css, parent, parentSelector, layout, transferred) {
     const set=members(parent),items=set?.items;
-    if(!items || items.length!==layout.from.length || items.some(it=>!layout.from.includes(it.key)))return;
+    if(!items)return;
+    layout=currentLayout(layout,items.map(it=>it.key),transferred,parent);
+    if(!layout)return;
     if(set.flow){
       const style=css.cssRules[css.insertRule(parentSelector+'{}',css.cssRules.length)].style;
       style.setProperty('display','flex','important');
@@ -92,7 +105,7 @@ window.WheelBlueprintOrder = (() => {
     result.splice(result.indexOf(target)+(side==='after'?1:0),0,source);
     return result;
   }
-  function install({grip,marker,current,saved,preview,commit,status}) {
+  function install({grip,marker,current,saved,transferred,preview,commit,status}) {
     let gesture=null;
     function clear() {
       const g=gesture;
@@ -133,8 +146,8 @@ window.WheelBlueprintOrder = (() => {
       if(e.button!==0 || !e.isPrimary)return;
       const candidates=[];
       for(const g of groups(current())){
-        const keys=g.items.map(i=>i.key), previous=saved(g.parent);
-        if(previous && (previous.from.length!==keys.length || keys.some(k=>!previous.from.includes(k))))continue;
+        const keys=g.items.map(i=>i.key),original=saved(g.parent),previous=currentLayout(original,keys,transferred,g.parent);
+        if(original && !previous)continue;
         candidates.push({...g,keys,base:previous?.from||keys});
       }
       if(!candidates.length){status('No adjacent component is available to reorder.');return;}
@@ -165,8 +178,9 @@ window.WheelBlueprintOrder = (() => {
       const forward=e.key==='ArrowRight'||e.key==='ArrowDown';
       const index=g.visible.indexOf(g.origin)+(forward!==g.reverse?1:-1),target=g.visible[index];
       if(!target)return;
-      const keys=g.items.map(i=>i.key),base=saved(g.parent)?.from||keys;
-      if(base.length!==keys.length || keys.some(k=>!base.includes(k)))return;
+      const keys=g.items.map(i=>i.key),original=saved(g.parent),previous=currentLayout(original,keys,transferred,g.parent);
+      if(original && !previous)return;
+      const base=previous?.from||keys;
       e.preventDefault();e.stopPropagation();
       commit({parent:g.parent,source:g.origin.child,other:target.child,layout:{from:base,to:plan(keys,g.origin.key,target.key,'swap')}});
     }

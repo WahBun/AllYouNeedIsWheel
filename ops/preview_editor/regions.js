@@ -67,5 +67,11 @@ window.WheelBlueprintRegions = function(config){
   function isHome(sel,area){
     return homes.get(sel)?.slot.parentElement===document.querySelector(config.areas[area]);
   }
-  return {key,valid,sync,destination,destinations,isHome};
+  function transferred(parent,key){
+    for(const {node,slot} of homes.values()){
+      if((node.parentElement===parent || slot.parentElement===parent) && node.matches(key))return true;
+    }
+    return false;
+  }
+  return {key,valid,sync,destination,destinations,isHome,transferred};
 };

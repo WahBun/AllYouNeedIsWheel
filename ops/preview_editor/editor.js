@@ -207,7 +207,7 @@
       const style=css.cssRules[css.insertRule(item.selector+'{}',css.cssRules.length)].style;
       const el=doc.querySelector(item.selector), props=item.properties;
       if(item.layoutOrder){
-        if(el){parents.add(el);orderTools.write(css,el,item.selector,item.layoutOrder);}
+        if(el){parents.add(el);orderTools.write(css,el,item.selector,item.layoutOrder,regions.transferred);}
         else missing.push(item.selector);
       }
       if(props.width || props.height){
@@ -215,7 +215,7 @@
         style.setProperty('box-sizing','border-box','important');
         if(el && getComputedStyle(el).display==='inline')style.setProperty('display','inline-block','important');
         const parent=el?.parentElement && getComputedStyle(el.parentElement);
-        if(parent?.display.includes('flex') && (parent.flexDirection.startsWith('row') ? props.width : props.height))style.setProperty('flex','0 0 auto','important');
+        if(parent?.display.includes('flex') && (parent.flexDirection.startsWith('row') ? props.width : props.height))style.setProperty('flex',props['flex-grow']?.to==='1'?'1 1 auto':'0 0 auto','important');
         for(const key of ['width','height'])if(props[key])style.setProperty('max-'+key,'none','important');
       }
       if(props['offset-x'] || props['offset-y']){
@@ -508,7 +508,7 @@
   $('browse').onclick=()=>{const show=$('finder').hidden;$('finder').hidden=!show;$('browse').setAttribute('aria-expanded',String(show));if(show){browse();$('filter').focus();}};
   $('filter').oninput=browse;$('list').onchange=()=>{const opt=options[$('list').selectedIndex];if(opt){choose(opt.el);opt.el.scrollIntoView({block:'nearest'});}};
   const sortGrip=orderTools.install({
-    grip:$('reorder'),marker:$('order-drop'),current,status,
+    grip:$('reorder'),marker:$('order-drop'),current,status,transferred:regions.transferred,
     saved:parent=>edits.get(keyOf(targetOf(parent)))?.layoutOrder,
     preview:change=>{
       projection=change?reflow(change):null;
