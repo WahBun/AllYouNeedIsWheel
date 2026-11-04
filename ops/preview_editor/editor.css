@@ -36,3 +36,12 @@ input[type=number]{box-sizing:border-box;background:#303742;border:1px solid #65
 #outline[data-gesture=move] #move,#outline[data-gesture=reorder] #reorder{visibility:visible;pointer-events:auto;cursor:grab;z-index:1}
 #outline[data-gesture] :is(#move,#reorder):active{cursor:grabbing}
 #copy-row{grid-template-columns:auto 1fr}
+
+#panel-grip{flex:1;display:flex;align-items:center;gap:7px;padding:3px 0;border:0;background:transparent;font-weight:650;cursor:grab;touch-action:none;user-select:none}
+#panel-grip::before{content:"";width:8px;height:12px;background:radial-gradient(circle,#98a5b7 1px,transparent 1.5px) 0 0/4px 4px}
+#panel-grip:active{cursor:grabbing}
+#more>summary{color:#cbd6e3}
+#more[open]>summary{margin-bottom:6px}
+.secondary{display:flex;gap:5px;margin:6px 0}
+footer{justify-content:flex-start}
+#save{margin-left:auto}

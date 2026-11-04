@@ -11,18 +11,20 @@
   ui.innerHTML = `<link rel="stylesheet" href="/preview-editor/editor.css">
     <button id="toggle" aria-expanded="false">Edit layout</button>
     <section hidden aria-label="Layout editor">
-      <header><strong>Layout blueprint</strong><button id="close" aria-label="Hide layout editor">×</button></header>
+      <header><button id="panel-grip" title="Drag to move the panel, or use the arrow keys" aria-label="Move layout panel">Layout blueprint</button><button id="close" aria-label="Hide layout editor">×</button></header>
       <div id="main">
         <p id="target">Option-click an element, or browse the page.</p>
         <nav><button id="pick">Pick element</button><button id="parent" disabled>Parent</button><button id="browse" aria-expanded="false">Browse</button></nav>
         <div id="finder" hidden><input id="filter" type="search" aria-label="Filter elements" placeholder="Find an element…"><select id="list" aria-label="Visible elements" size="6"></select></div>
-        <details id="draft" hidden><summary>Draft changes</summary><div id="changed"></div></details>
-        <small id="gestures" hidden>Hold Control and drag to move. Add Command to reorder siblings.</small>
         <label id="copy-row" hidden>Text<input id="copy" type="text" maxlength="512" aria-label="Text content"></label>
-        <div id="controls" hidden></div>
+        <details id="more"><summary>More options</summary>
+          <div id="controls" hidden></div>
+          <details id="draft" hidden><summary>Draft changes</summary><div id="changed"></div></details>
+          <div class="secondary"><button id="compare" disabled>Hold original</button><button id="reset" disabled>Reset element</button></div>
+          <small id="gestures" hidden>Hold Control and drag to move. Add Command to reorder siblings.</small>
+        </details>
       </div>
-      <footer><button id="undo" disabled>Undo</button><button id="redo" disabled>Redo</button><button id="compare" disabled>Hold original</button></footer>
-      <footer><button id="reset" disabled>Reset element</button><button id="save" disabled>Use this version</button></footer>
+      <footer><button id="undo" disabled>Undo</button><button id="redo" disabled>Redo</button><button id="save" disabled>Use this version</button></footer>
       <small id="status" role="status"></small>
     </section>
     <div id="outline" hidden><button id="move" aria-label="Move selected element" tabindex="-1"></button><button id="reorder" aria-label="Reorder selected control" tabindex="-1"></button><button data-edge="left" aria-label="Drag left edge"></button><button data-edge="right" aria-label="Drag right edge"></button><button data-edge="bottom" aria-label="Drag bottom edge"></button></div><div id="order-drop" hidden></div>`;
@@ -254,7 +256,7 @@
   function makeControls(){
     for(const [group,props] of Object.entries(groups)){
       const details=document.createElement('details');
-      details.open=group==='Size'; const title=document.createElement('summary');title.textContent=group;details.append(title);
+      const title=document.createElement('summary');title.textContent=group;details.append(title);
       for(const [key,spec] of Object.entries(props)){
         const row=document.createElement('label'),name=document.createElement('span'),output=document.createElement('output');
         name.textContent=label(key); const input=document.createElement(Array.isArray(spec)&&!isNumber(spec)?'select':'input');
@@ -336,9 +338,49 @@
     const f=frame?.getBoundingClientRect();
     const x=r.x+(f?.x||0)+(frame?.clientLeft||0),y=r.y+(f?.y||0)+(frame?.clientTop||0);
     Object.assign($('outline').style,{left:x+'px',top:y+'px',width:r.width+'px',height:r.height+'px'});
-    const panel=ui.querySelector('section');
-    panel.classList.toggle('upper',x+r.width>innerWidth-panel.offsetWidth-24 && y+r.height>innerHeight-panel.offsetHeight-12 && y>panel.offsetHeight+12);
+    if(!panelPosition)panel.classList.toggle('upper',x+r.width>innerWidth-panel.offsetWidth-24 && y+r.height>innerHeight-panel.offsetHeight-12 && y>panel.offsetHeight+12);
   }
+  const panel=ui.querySelector('section'), panelGrip=$('panel-grip');
+  const panelKey=draftKey+'.panel';
+  let panelPosition=null, panelDrag=null;
+  try{
+    const point=JSON.parse(localStorage.getItem(panelKey));
+    if(Number.isFinite(point?.x) && Number.isFinite(point?.y))panelPosition=point;
+  }catch{ /* A panel can still move without browser storage. */ }
+  function placePanel(){
+    if(!panelPosition || !editing)return;
+    const x=Math.max(0,Math.min(panelPosition.x,innerWidth-panel.offsetWidth));
+    const y=Math.max(0,Math.min(panelPosition.y,innerHeight-panel.offsetHeight));
+    Object.assign(panel.style,{left:x+'px',top:y+'px',right:'auto',bottom:'auto'});
+  }
+  function keepPanelPosition(){
+    try{localStorage.setItem(panelKey,JSON.stringify(panelPosition));}catch{}
+  }
+  panelGrip.onpointerdown=e=>{
+    if(!e.isPrimary || e.button!==0)return;
+    const r=panel.getBoundingClientRect();
+    panelDrag={id:e.pointerId,dx:e.clientX-r.left,dy:e.clientY-r.top};
+    panelGrip.setPointerCapture(e.pointerId);
+  };
+  panelGrip.onpointermove=e=>{
+    if(panelDrag?.id!==e.pointerId)return;
+    panelPosition={x:e.clientX-panelDrag.dx,y:e.clientY-panelDrag.dy};
+    placePanel();
+  };
+  panelGrip.onlostpointercapture=()=>{
+    panelDrag=null;
+    if(panelPosition)keepPanelPosition();
+  };
+  panelGrip.onkeydown=e=>{
+    const step=e.shiftKey?10:1;
+    const delta={ArrowLeft:[-step,0],ArrowRight:[step,0],ArrowUp:[0,-step],ArrowDown:[0,step]}[e.key];
+    if(!delta)return;
+    e.preventDefault();
+    const r=panel.getBoundingClientRect();
+    panelPosition={x:r.left+delta[0],y:r.top+delta[1]};
+    placePanel();keepPanelPosition();
+  };
+  new ResizeObserver(placePanel).observe(panel);
   function schedule(){if(!scheduled){scheduled=true;requestAnimationFrame(outline);}}
   const observer=new ResizeObserver(schedule);
   function choose(el) {
@@ -361,7 +403,7 @@
     editing=on; armed=on&&!selection; $('toggle').hidden=on;
     $('toggle').setAttribute('aria-expanded',String(on));ui.querySelector('section').hidden=!on;
     if(!on)$('finder').hidden=true;
-    portal();compare(false);display();
+    portal();placePanel();compare(false);display();
   }
   function selectEvent(e) {
     if(e.composedPath().includes(host)||(!e.altKey&&!(editing&&armed))||comparing||e.button!==0)return;
@@ -504,6 +546,7 @@
   $('compare').onkeyup=()=>compare(false);window.addEventListener('blur',()=>{delete $('outline').dataset.gesture;$('outline').classList.remove('pick-through');compare(false);});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&editing){open(false);}});
   window.addEventListener('resize',()=>{
+    placePanel();
     for(const [doc,sheet] of documents)if(orderParents.get(doc)?.size)writeSheet(doc,sheet);
     schedule();
   });
