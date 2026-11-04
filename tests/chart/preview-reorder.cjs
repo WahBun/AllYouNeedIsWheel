@@ -53,7 +53,7 @@ const {chromium}=require('playwright');
     const inserted=[a,c,b,...original.slice(3)];
     await dragTo(item(a),item(c),.1);assert.deepEqual(await sequence(),inserted,'edge opens a slot');
     await drop();
-    await btn('Hold original').hover();await page.mouse.down();assert.deepEqual(await sequence(),original);await page.mouse.up();
+    await page.locator('#more > summary').click();await btn('Hold original').hover();await page.mouse.down();assert.deepEqual(await sequence(),original);await page.mouse.up();
     await page.close();await load();assert.deepEqual(await sequence(),inserted);
     await dragTo(item(a),item(b));await page.keyboard.press('Escape');await drop();assert.deepEqual(await sequence(),inserted,'Escape rolls back a tentative drop');
     const req=page.waitForResponse(r=>r.url().endsWith('/reviews'));
