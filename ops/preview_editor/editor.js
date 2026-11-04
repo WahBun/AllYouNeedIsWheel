@@ -11,19 +11,23 @@
   ui.innerHTML = `<link rel="stylesheet" href="/preview-editor/editor.css">
     <button id="toggle" aria-expanded="false">Edit layout</button>
     <section hidden aria-label="Layout editor">
-      <header><strong>Layout blueprint</strong><button id="close" aria-label="Hide layout editor">×</button></header>
+      <header><button id="panel-grip" title="Drag to move the panel, or use the arrow keys" aria-label="Move layout panel">Layout blueprint</button><button id="close" aria-label="Hide layout editor">×</button></header>
       <div id="main">
         <p id="target">Option-click an element, or browse the page.</p>
         <nav><button id="pick">Pick element</button><button id="parent" disabled>Parent</button><button id="browse" aria-expanded="false">Browse</button></nav>
         <div id="finder" hidden><input id="filter" type="search" aria-label="Filter elements" placeholder="Find an element…"><select id="list" aria-label="Visible elements" size="6"></select></div>
-        <details id="draft" hidden><summary>Draft changes</summary><div id="changed"></div></details>
-        <div id="controls" hidden></div>
+        <label id="copy-row" hidden>Text<input id="copy" type="text" maxlength="512" aria-label="Text content"></label>
+        <details id="more"><summary>More options</summary>
+          <div id="controls" hidden></div>
+          <details id="draft" hidden><summary>Draft changes</summary><div id="changed"></div></details>
+          <div class="secondary"><button id="compare" disabled>Hold original</button><button id="reset" disabled>Reset element</button></div>
+          <small id="gestures" hidden>Hold Control and drag to move. Add Command to reorder siblings.</small>
+        </details>
       </div>
-      <footer><button id="undo" disabled>Undo</button><button id="redo" disabled>Redo</button><button id="compare" disabled>Hold original</button></footer>
-      <footer><button id="reset" disabled>Reset element</button><button id="save" disabled>Use this version</button></footer>
+      <footer><button id="undo" disabled>Undo</button><button id="redo" disabled>Redo</button><button id="save" disabled>Use this version</button></footer>
       <small id="status" role="status"></small>
     </section>
-    <div id="outline" hidden><button id="move" aria-label="Move selected element" title="Drag to move · Arrow keys: 1 px · Shift + arrow: 10 px">✥ Move</button><button id="reorder" aria-label="Reorder selected control" title="Drag onto a sibling to swap, or to its edge to insert">⇄ Reorder</button><button data-edge="left" aria-label="Drag left edge"></button><button data-edge="right" aria-label="Drag right edge"></button><button data-edge="bottom" aria-label="Drag bottom edge"></button></div><div id="order-drop" hidden></div>`;
+    <div id="outline" hidden><button id="move" aria-label="Move selected element" tabindex="-1"></button><button id="reorder" aria-label="Reorder selected control" tabindex="-1"></button><button data-edge="left" aria-label="Drag left edge"></button><button data-edge="right" aria-label="Drag right edge"></button><button data-edge="bottom" aria-label="Drag bottom edge"></button></div><div id="order-drop" hidden></div>`;
   const $ = id => ui.getElementById(id);
   const schema = key => properties[key];
   const isNumber = spec => Array.isArray(spec) && typeof spec[0] === 'number';
@@ -40,6 +44,38 @@
     if (spec === 'color') return typeof v === 'string' && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(v);
     return isNumber(spec) ? Number.isFinite(v) && v>=spec[0] && v<=spec[1] : spec.includes(v);
   }
+  const validText = pair => pair && [pair.from,pair.to].every(v=>typeof v==='string' && v.length<=512);
+  const hasChanges = item => item.text || item.layoutOrder || Object.keys(item.properties).length;
+  // Keep icons, listeners and select values intact. Only substitute a matching text node.
+  const originals=new Map();
+  function textNode(el){
+    if(!el || !el.matches('button,label,span,strong,small,p,h1,h2,h3,h4,summary,legend,div,select,a,b,em') ||
+       el.closest('#positions,#orders,[contenteditable=true]'))return null;
+    if(el.matches('select'))el=el.querySelector('option[value=""]');
+    if(!el)return null;
+    const nodes=[...el.childNodes].filter(n=>n.nodeType===3 && (n.data.trim() || originals.has(n)));
+    return nodes.length===1 && nodes[0].data.length<=512 ? nodes[0] : null;
+  }
+  function syncText(doc){
+    const wanted=new Map();
+    if(!comparing)for(const item of edits.values()){
+      if(!item.text || scopeOf(doc)!==item.scope)continue;
+      for(const el of doc.querySelectorAll(item.selector)){
+        const n=textNode(el), pair=item.text;
+        if(n && (n.data===pair.from || originals.get(n)?.from===pair.from && n.data===originals.get(n).to))
+          wanted.set(n,pair);
+      }
+    }
+    for(const [n,pair] of originals){
+      if(n.ownerDocument!==doc || wanted.has(n))continue;
+      if(n.data===pair.to)n.data=pair.from;
+      originals.delete(n);
+    }
+    for(const [n,pair] of wanted){
+      originals.set(n,pair);
+      if(n.data!==pair.to)n.data=pair.to;
+    }
+  }
   function restore() {
     try {
       const items=JSON.parse(localStorage.getItem(draftKey)||'[]');
@@ -49,7 +85,7 @@
            item.selector.length>512 || /[{};]/.test(item.selector) || !item.properties) continue;
         document.querySelector(item.selector); // Validate the stored selector before applying.
         const props=Object.entries(item.properties);
-        if((props.length || item.layoutOrder) && (!item.layoutOrder || orderTools.valid(item.layoutOrder)) && props.every(([k,p])=>Object.hasOwn(properties,k) && p && validValue(schema(k),p.to))) edits.set(keyOf(item),item);
+        if(hasChanges(item) && (!item.text || validText(item.text)) && (!item.layoutOrder || orderTools.valid(item.layoutOrder)) && props.every(([k,p])=>Object.hasOwn(properties,k) && p && validValue(schema(k),p.to))) edits.set(keyOf(item),item);
       }
     } catch { /* An unavailable browser store still permits editing and explicit handoff. */ }
   }
@@ -146,12 +182,12 @@
       const key=keyOf(targetOf(el)),item=next.get(key);
       if(!item || !(item.properties['offset-x'] || item.properties['offset-y']))continue;
       const props={...item.properties};delete props['offset-x'];delete props['offset-y'];
-      if(Object.keys(props).length || item.layoutOrder)next.set(key,{...item,properties:props});else next.delete(key);
+      if(Object.keys(props).length || item.layoutOrder || item.text)next.set(key,{...item,properties:props});else next.delete(key);
     }
     const parent=targetOf(change.parent), key=keyOf(parent), item={...(next.get(key)||{...parent,properties:{}})};
     if(change.layout.to.some((k,i)=>k!==change.layout.from[i]))item.layoutOrder=change.layout;
     else delete item.layoutOrder;
-    if(item.layoutOrder || Object.keys(item.properties).length)next.set(key,item);else next.delete(key);
+    if(hasChanges(item))next.set(key,item);else next.delete(key);
     return next;
   }
   function writeSheet(doc,sheet) {
@@ -185,6 +221,7 @@
       }
     }
     css.disabled=comparing;
+    syncText(doc);
   }
   function apply() {for(const [doc,sheet] of documents)writeSheet(doc,sheet);display();}
   function edit(prop,to,base) { editBatch([[prop,to,base]]); }
@@ -197,7 +234,7 @@
       if(prop==='gap'){delete item.properties['column-gap'];delete item.properties['row-gap'];}
       if(from===to)delete item.properties[prop];else item.properties[prop]={from,to};
     }
-    if(item.layoutOrder || Object.keys(item.properties).length)edits.set(key,item);else edits.delete(key);
+    if(hasChanges(item))edits.set(key,item);else edits.delete(key);
     apply();saveSoon();
   }
   function hex(color) {
@@ -219,7 +256,7 @@
   function makeControls(){
     for(const [group,props] of Object.entries(groups)){
       const details=document.createElement('details');
-      details.open=group==='Size'; const title=document.createElement('summary');title.textContent=group;details.append(title);
+      const title=document.createElement('summary');title.textContent=group;details.append(title);
       for(const [key,spec] of Object.entries(props)){
         const row=document.createElement('label'),name=document.createElement('span'),output=document.createElement('output');
         name.textContent=label(key); const input=document.createElement(Array.isArray(spec)&&!isNumber(spec)?'select':'input');
@@ -231,7 +268,7 @@
         clear.type='button';clear.textContent='↶';clear.title='Restore original '+label(key).toLowerCase();
         clear.setAttribute('aria-label',clear.title);
         clear.onclick=e=>{e.preventDefault();const target=edits.get(keyOf(selection));if(!target)return;
-          remember();delete target.properties[key];if(!target.layoutOrder && !Object.keys(target.properties).length)edits.delete(keyOf(selection));apply();persist();};
+          remember();delete target.properties[key];if(!hasChanges(target))edits.delete(keyOf(selection));apply();persist();};
         row.append(name,input,output,clear);details.append(row);
         let base;
         const begin=()=>{if(base===undefined&&current()){base=measure(current(),getComputedStyle(current()),key);remember();}};
@@ -253,7 +290,7 @@
     if(!$('draft').open)return;
     const buttons=table().map(item=>{
       const button=document.createElement('button');
-      button.textContent=(item.scope==='chart'?'Chart · ':'Page · ')+item.selector+' · '+(item.layoutOrder?'Reordered':Object.keys(item.properties).length);
+      button.textContent=(item.scope==='chart'?'Chart · ':'Page · ')+item.selector+' · '+(item.layoutOrder?'Reordered':item.text?'Text':Object.keys(item.properties).length);
       button.onclick=()=>{
         selection={scope:item.scope,selector:item.selector};anchor=null;armed=false;
         const el=current();
@@ -271,6 +308,10 @@
     $('reset').disabled=!selection||!edits.has(keyOf(selection)); $('undo').disabled=!undo.length; $('redo').disabled=!redo.length;
     $('compare').disabled=$('save').disabled=!edits.size;
     $('target').textContent=selection?((selection.scope==='chart'?'Chart panes · ':'Page · ')+selection.selector):'Option-click an element, or browse the page.';
+    $('gestures').hidden=!canMove(el);
+    const node=textNode(el);
+    $('copy-row').hidden=!node;
+    if(node && ui.activeElement!==$('copy'))$('copy').value=node.data;
     listChanges();
     if(el){
       const cs=getComputedStyle(el), flex=/flex|grid/.test(cs.display);
@@ -296,16 +337,50 @@
     const r=el.getBoundingClientRect(),frame=el.ownerDocument.defaultView.frameElement;
     const f=frame?.getBoundingClientRect();
     const x=r.x+(f?.x||0)+(frame?.clientLeft||0),y=r.y+(f?.y||0)+(frame?.clientTop||0);
-    // Keep the move grip reachable when the selected box starts outside the viewport.
-    const gripX=Math.max(0,Math.min(Math.max(0,r.width-64),Math.max(0,4-x)));
-    const gripY=y>=26 ? -24 : Math.max(0,4-y);
-    const left=Math.min(gripX,innerWidth-x-($('reorder').hidden?66:150));
-    Object.assign($('move').style,{left:left+'px',top:gripY+'px'});
-    Object.assign($('reorder').style,{left:(left+66)+'px',top:gripY+'px'});
     Object.assign($('outline').style,{left:x+'px',top:y+'px',width:r.width+'px',height:r.height+'px'});
-    const panel=ui.querySelector('section');
-    panel.classList.toggle('upper',x+r.width>innerWidth-panel.offsetWidth-24 && y+r.height>innerHeight-panel.offsetHeight-12 && y>panel.offsetHeight+12);
+    if(!panelPosition)panel.classList.toggle('upper',x+r.width>innerWidth-panel.offsetWidth-24 && y+r.height>innerHeight-panel.offsetHeight-12 && y>panel.offsetHeight+12);
   }
+  const panel=ui.querySelector('section'), panelGrip=$('panel-grip');
+  const panelKey=draftKey+'.panel';
+  let panelPosition=null, panelDrag=null;
+  try{
+    const point=JSON.parse(localStorage.getItem(panelKey));
+    if(Number.isFinite(point?.x) && Number.isFinite(point?.y))panelPosition=point;
+  }catch{ /* A panel can still move without browser storage. */ }
+  function placePanel(){
+    if(!panelPosition || !editing)return;
+    const x=Math.max(0,Math.min(panelPosition.x,innerWidth-panel.offsetWidth));
+    const y=Math.max(0,Math.min(panelPosition.y,innerHeight-panel.offsetHeight));
+    Object.assign(panel.style,{left:x+'px',top:y+'px',right:'auto',bottom:'auto'});
+  }
+  function keepPanelPosition(){
+    try{localStorage.setItem(panelKey,JSON.stringify(panelPosition));}catch{}
+  }
+  panelGrip.onpointerdown=e=>{
+    if(!e.isPrimary || e.button!==0)return;
+    const r=panel.getBoundingClientRect();
+    panelDrag={id:e.pointerId,dx:e.clientX-r.left,dy:e.clientY-r.top};
+    panelGrip.setPointerCapture(e.pointerId);
+  };
+  panelGrip.onpointermove=e=>{
+    if(panelDrag?.id!==e.pointerId)return;
+    panelPosition={x:e.clientX-panelDrag.dx,y:e.clientY-panelDrag.dy};
+    placePanel();
+  };
+  panelGrip.onlostpointercapture=()=>{
+    panelDrag=null;
+    if(panelPosition)keepPanelPosition();
+  };
+  panelGrip.onkeydown=e=>{
+    const step=e.shiftKey?10:1;
+    const delta={ArrowLeft:[-step,0],ArrowRight:[step,0],ArrowUp:[0,-step],ArrowDown:[0,step]}[e.key];
+    if(!delta)return;
+    e.preventDefault();
+    const r=panel.getBoundingClientRect();
+    panelPosition={x:r.left+delta[0],y:r.top+delta[1]};
+    placePanel();keepPanelPosition();
+  };
+  new ResizeObserver(placePanel).observe(panel);
   function schedule(){if(!scheduled){scheduled=true;requestAnimationFrame(outline);}}
   const observer=new ResizeObserver(schedule);
   function choose(el) {
@@ -328,7 +403,7 @@
     editing=on; armed=on&&!selection; $('toggle').hidden=on;
     $('toggle').setAttribute('aria-expanded',String(on));ui.querySelector('section').hidden=!on;
     if(!on)$('finder').hidden=true;
-    portal();compare(false);display();
+    portal();placePanel();compare(false);display();
   }
   function selectEvent(e) {
     if(e.composedPath().includes(host)||(!e.altKey&&!(editing&&armed))||comparing||e.button!==0)return;
@@ -344,20 +419,27 @@
     for(const t of ['pointerdown','mousedown','mouseup','pointerup','click','dblclick'])doc.addEventListener(t,selectEvent,true);
     doc.addEventListener('keydown',e=>{if(e.key==='Alt')$('outline').classList.add('pick-through');},true);
     doc.addEventListener('keyup',e=>{if(!e.altKey)$('outline').classList.remove('pick-through');},true);
+    const modifiers=e=>{
+      const mode=e.ctrlKey && !e.altKey ? (e.metaKey?'reorder':'move') : '';
+      $('outline').dataset.gesture=mode;
+    };
+    doc.addEventListener('keydown',modifiers,true);
+    doc.addEventListener('keyup',modifiers,true);
     doc.addEventListener('scroll',schedule,true);
     // Some controls first appear after portfolio data arrives or a dialog opens.
     const watch=new MutationObserver(records=>{
       if(!documents.has(doc)){watch.disconnect();return;}
+      if([...edits.values()].some(item=>item.text && item.scope===scopeOf(doc)))syncText(doc);
       const parents=orderParents.get(doc);
       if(awaitingSize.get(doc)?.some(sel=>doc.querySelector(sel)) ||
          (parents?.size && (records.some(r=>parents.has(r.target)) || [...parents].some(p=>!p.isConnected))))writeSheet(doc,sheet);
       if(editing && selection?.scope===scopeOf(doc) && anchor && !anchor.isConnected)schedule();
     });
-    watch.observe(doc.body,{childList:true,subtree:true});
+    watch.observe(doc.body,{childList:true,characterData:true,subtree:true});
   }
   function frames(){
     for(const doc of documents.keys()){
-      if(doc!==document && ![...document.querySelectorAll('.chart-pane iframe')].some(f=>f.contentDocument===doc))documents.delete(doc);
+      if(doc!==document && ![...document.querySelectorAll('.chart-pane iframe')].some(f=>f.contentDocument===doc)){documents.delete(doc);for(const n of originals.keys())if(n.ownerDocument===doc)originals.delete(n);}
     }
     for(const f of document.querySelectorAll('.chart-pane iframe')){
       if(!boundFrames.has(f)){boundFrames.add(f);f.addEventListener('load',frames);}
@@ -401,7 +483,20 @@
       remember();edits=next;apply();persist();
     }
   });
+  $('copy').onchange=()=>{
+    const node=textNode(current());if(!node || !selection)return;
+    const key=keyOf(selection),item=edits.get(key)||{...selection,properties:{}};
+    if(!edits.has(key)&&edits.size>=256){$('copy').value=node.data;status('Blueprint is full. Reset an element first.');return;}
+    const from=originals.get(node)?.from ?? node.data,to=$('copy').value;
+    if(node.data===to)return;
+    remember();
+    if(from===to)delete item.text;else item.text={from,to};
+    if(hasChanges(item))edits.set(key,item);else edits.delete(key);
+    apply();persist();
+  };
+  $('copy').onkeydown=e=>{if(e.key==='Enter' && !e.isComposing)$('copy').blur();};
   const move=$('move');
+  for(const grip of [move,$('reorder')])grip.oncontextmenu=e=>e.preventDefault();
   const clampOffset=(key,n)=>Math.max(schema(key)[0],Math.min(schema(key)[1],Math.round(n)));
   function moveTo(x,y){
     editBatch([['offset-x',clampOffset('offset-x',x),0],['offset-y',clampOffset('offset-y',y),0]]);
@@ -442,15 +537,16 @@
   $('undo').onclick=()=>moveHistory(undo,redo);$('redo').onclick=()=>moveHistory(redo,undo);
   function compare(on){
     comparing=Boolean(on&&edits.size);
-    for(const sheet of documents.values())if(sheet.sheet)sheet.sheet.disabled=comparing;
+    for(const [doc,sheet] of documents){if(sheet.sheet)sheet.sheet.disabled=comparing;syncText(doc);}
     schedule();
   }
   $('compare').onpointerdown=e=>{e.currentTarget.setPointerCapture(e.pointerId);compare(true);};
   $('compare').onlostpointercapture=()=>compare(false);
   $('compare').onkeydown=e=>{if([' ','Enter'].includes(e.key)){e.preventDefault();compare(true);}};
-  $('compare').onkeyup=()=>compare(false);window.addEventListener('blur',()=>{$('outline').classList.remove('pick-through');compare(false);});
+  $('compare').onkeyup=()=>compare(false);window.addEventListener('blur',()=>{delete $('outline').dataset.gesture;$('outline').classList.remove('pick-through');compare(false);});
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&editing){open(false);}});
   window.addEventListener('resize',()=>{
+    placePanel();
     for(const [doc,sheet] of documents)if(orderParents.get(doc)?.size)writeSheet(doc,sheet);
     schedule();
   });
