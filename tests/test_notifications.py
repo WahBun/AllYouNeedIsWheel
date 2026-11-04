@@ -191,6 +191,30 @@ class NotificationsTests(unittest.TestCase):
         self.assertEqual(len(self.events()), 1)
         self.prices(99,101,start=self.start+65)
         self.assertEqual(len(self.events()),2)
+    def test_sparse_option_trades_cross_only_with_continuous_live_data(self):
+        self.store.create_alert(self.scope, 7, 'TEST', dict(id=str(uuid.uuid4()), price=2.24, condition='crossing', repeat='once'))
+        self.runtime.active = self.store.alerts(active=True)
+        self.runtime.conn = SimpleNamespace(is_connected=lambda: True)
+        self.runtime.scope = self.scope
+        self.runtime.mode = 'IB Paper'
+        ticker = SimpleNamespace(contract=SimpleNamespace(secType='OPT'), marketDataType=1)
+        def update(seconds, kind, price):
+            ticker.ticks = [SimpleNamespace(tickType=kind, price=price)]
+            with patch('api.services.notification_runtime.time.time', return_value=self.start + seconds):
+                self.runtime.tick(7, ticker)
+            while not self.runtime.queue.empty():
+                self.runtime.process(self.runtime.queue.get_nowait())
+        update(1, 4, 2.16)
+        update(361, 4, 2.29)
+        self.assertFalse(self.events(), 'A gap in all market data must reset the baseline')
+        for second in range(391, 721, 30):
+            update(second, 1, 2.10)
+            update(second, 2, 2.30)
+        self.assertFalse(self.events(), 'Quotes alone must never fire')
+        update(721, 4, 2.16)
+        self.assertEqual(len(self.events()), 1)
+        self.assertIn('Last 2.16', self.events()[0]['body'])
+
     def test_only_live_last_tick(self):
         self.alert(); self.runtime.conn=SimpleNamespace(is_connected=lambda:True); self.runtime.scope=self.scope;self.runtime.mode='IB Paper'
         ticker=SimpleNamespace(marketDataType=3,ticks=[SimpleNamespace(tickType=4,price=99)])
