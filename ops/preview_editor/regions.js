@@ -54,7 +54,7 @@ window.WheelBlueprintRegions = function(config){
     const el=document.elementFromPoint(x,y);
     for(const [name,sel] of Object.entries(config.areas)){
       const area=el?.closest(sel);
-      if(area && !source.contains(area) && area!==source.parentElement)return {name,rect:area.getBoundingClientRect()};
+      if(area && !source.contains(area) && area!==source.parentElement)return {name,area,rect:area.getBoundingClientRect()};
     }
     return null;
   }

@@ -105,7 +105,7 @@ window.WheelBlueprintOrder = (() => {
     result.splice(result.indexOf(target)+(side==='after'?1:0),0,source);
     return result;
   }
-  function install({grip,marker,current,saved,transferred,preview,commit,status}) {
+  function install({grip,marker,current,saved,transferred,autoSource,areaAt,preview,commit,status}) {
     let gesture=null;
     function clear() {
       const g=gesture;
@@ -116,7 +116,37 @@ window.WheelBlueprintOrder = (() => {
     function hover(e) {
       const active=gesture;
       if(!active || active.pointer!==e.pointerId)return;
-      const frame=active.candidates[0].parent.ownerDocument.defaultView.frameElement;
+      if(active.auto){
+        if(!active.started && Math.hypot(e.clientX-active.x,e.clientY-active.y)<4)return;
+        active.started=true;
+        const source=active.source;
+        const dest=source && areaAt(e.clientX,e.clientY,source);
+        if(dest && !dest.area.contains(source)){
+          if(active.destination && !active.destination.area)preview(null);
+          const set=members(dest.area),visible=set?.items.filter(i=>i.visible)||[];
+          const row=set && (set.flow||set.css.flexDirection).startsWith('row') && !set.grid;
+          const distance=i=>Math.hypot(Math.max(i.rect.left-e.clientX,0,e.clientX-i.rect.right),
+            Math.max(i.rect.top-e.clientY,0,e.clientY-i.rect.bottom));
+          const hit=visible.sort((a,b)=>distance(a)-distance(b))[0];
+          const r=hit?.rect||dest.rect,after=row?e.clientX>r.left+r.width/2:e.clientY>r.top+r.height/2;
+          const keys=set?.items.map(i=>i.key)||[],sourceKey=childKey(source,[...dest.area.children,source]);
+          let layout=null;
+          if(hit && !keys.includes(sourceKey)){
+            const base=currentLayout(saved(dest.area),keys,transferred,dest.area)?.from||keys;
+            layout={from:[...base,sourceKey],to:plan([...keys,sourceKey],sourceKey,hit.key,after?'after':'before')};
+            if(!valid(layout))layout=null;
+          }
+          active.destination={area:dest.name,parent:dest.area,source,other:hit?.child,layout};
+          marker.hidden=false;marker.dataset.side=layout?'insert':'swap';
+          marker.textContent=layout?(after?'Insert after':'Insert before'):'Move to '+dest.name;
+          const box=layout?r:dest.rect;
+          Object.assign(marker.style,{left:(box.left+(layout && row && after?box.width:0))+'px',
+            top:(box.top+(layout && !row && after?box.height:0))+'px',
+            width:(layout && row?2:box.width)+'px',height:(layout && !row?2:box.height)+'px'});
+          return;
+        }
+      }
+      const frame=active.doc.defaultView.frameElement;
       const frameRect=frame?.getBoundingClientRect();
       const x=e.clientX-(frameRect?.x||0)-(frame?.clientLeft||0), y=e.clientY-(frameRect?.y||0)-(frame?.clientTop||0);
       let hit, g;
@@ -142,7 +172,7 @@ window.WheelBlueprintOrder = (() => {
       Object.assign(marker.style,{left:(e.clientX-x+left)+'px',top:(e.clientY-y+top)+'px',
         width:(g.horizontal && edge!==null?2:r.width)+'px',height:(!g.horizontal && edge!==null?2:r.height)+'px'});
     }
-    grip.onpointerdown=e=>{
+    function start(e){
       if(e.button!==0 || !e.isPrimary)return;
       const candidates=[];
       for(const g of groups(current())){
@@ -150,20 +180,28 @@ window.WheelBlueprintOrder = (() => {
         if(original && !previous)continue;
         candidates.push({...g,keys,base:previous?.from||keys});
       }
-      if(!candidates.length){status('No adjacent component is available to reorder.');return;}
+      const auto=!e.ctrlKey && grip.dataset.auto==='true',source=auto && autoSource();
+      if(!candidates.length && !source){status('No adjacent component is available to reorder.');return;}
       e.preventDefault();grip.setPointerCapture(e.pointerId);
-      gesture={candidates,pointer:e.pointerId};
+      gesture={candidates,pointer:e.pointerId,doc:current().ownerDocument,auto,source,x:e.clientX,y:e.clientY};
       status('Drop on the middle to swap, or on an edge to insert.');
-    };
+    }
+    grip.onpointerdown=start;
     grip.onpointermove=hover;
     grip.onpointerup=e=>{
       if(!gesture || e.pointerId!==gesture.pointer)return;
-      hover(e);const {group:g,next,child:other}=gesture.destination||{};
+      hover(e);const {destination,auto}=gesture;
       clear();
+      if(destination?.area){
+        if(destination.source.isConnected && destination.parent.isConnected && (!destination.other || destination.other.parentElement===destination.parent))
+          commit({...destination,auto:true});
+        return;
+      }
+      const {group:g,next,child:other}=destination||{};
       const latest=next && members(g.parent)?.items;
       if(latest?.length===g.keys.length && latest.every(i=>g.keys.includes(i.key)) &&
          other.parentElement===g.parent && g.origin.child.parentElement===g.parent && next.some((k,i)=>k!==g.keys[i]))
-        commit({parent:g.parent,source:g.origin.child,other,layout:{from:g.base,to:next}});
+        commit({auto,parent:g.parent,source:g.origin.child,other,layout:{from:g.base,to:next}});
       else status('Order unchanged.');
     };
     grip.onlostpointercapture=clear;grip.onpointercancel=clear;
@@ -185,7 +223,7 @@ window.WheelBlueprintOrder = (() => {
       commit({parent:g.parent,source:g.origin.child,other:target.child,layout:{from:base,to:plan(keys,g.origin.key,target.key,'swap')}});
     }
     grip.addEventListener('keydown',nudge);
-    return {nudge,available:el=>!groups(el).next().done,cancel:clear};
+    return {start,nudge,available:el=>!groups(el).next().done,cancel:clear};
   }
   return {valid,write,install};
 })();

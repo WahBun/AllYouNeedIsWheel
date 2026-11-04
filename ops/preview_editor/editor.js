@@ -20,13 +20,13 @@
         <label id="copy-row" hidden>Text<input id="copy" type="text" maxlength="512" aria-label="Text content"></label>
         <details id="hidden-items" hidden><summary>Hidden items</summary><div id="restore-items"></div></details>
         <details id="more"><summary>More options</summary>
-          <label id="drag-mode-row">Drag mode<select id="drag-mode" aria-label="Drag mode"><option value="nearby">Reorder neighbors</option><option value="control">Move control across areas</option><option value="group">Move group across areas</option></select></label>
+          <label id="drag-mode-row">Drag mode<select id="drag-mode" aria-label="Drag mode"><option value="auto">Automatic</option><option value="nearby">Reorder neighbors</option><option value="control">Move control across areas</option><option value="group">Move group across areas</option></select></label>
           <div id="destination-row" hidden><select aria-label="Destination area" id="destination"></select><button id="place-in-area">Move here</button></div>
           <button id="hide-item" hidden>Hide element</button>
           <div id="controls" hidden></div>
           <details id="draft" hidden><summary>Draft changes</summary><div id="changed"></div></details>
           <div class="secondary"><button id="compare" disabled>Hold original</button><button id="reset" disabled>Reset element</button></div>
-          <small id="gestures" hidden>Selection: arrows move 1 px, Shift moves 10 px. Hold Control + Command with arrows to reorder neighbors. In the panel: ↑ ↓ navigate, ← → fold or expand. Tab enters fields.</small>
+          <small id="gestures" hidden>Drag the selection to a highlighted slot. Arrows move 1 px, Shift moves 10 px. Hold Control + Command with arrows to reorder neighbors. In the panel: ↑ ↓ navigate, ← → fold or expand. Tab enters fields.</small>
         </details>
       </div>
       <footer><button id="undo" disabled>Undo</button><button id="redo" disabled>Redo</button><button id="save" disabled>Use this version</button></footer>
@@ -107,8 +107,8 @@
       edits.size ? 'Draft kept in this browser · '+edits.size+' edited '+(edits.size===1?'target':'targets') : 'No draft changes.');
   }
   const saveSoon = () => {clearTimeout(pendingSave); pendingSave=setTimeout(persist,180);};
-  function remember() {
-    undo.push(structuredClone(table())); if(undo.length>80)undo.shift(); redo.length=0;
+  function remember(items=table()) {
+    undo.push(structuredClone(items)); if(undo.length>80)undo.shift(); redo.length=0;
   }
   function moveHistory(from,to) {
     if(!from.length)return;
@@ -184,12 +184,19 @@
   function reflow(change){
     const next=new Map(edits);
     // An explicit reorder supersedes any free-position offsets on the two participants.
-    for(const el of [change.source,change.other]){
+    for(const el of (change.area?[change.source]:[change.source,change.other])){
       const key=keyOf(targetOf(el)),item=next.get(key);
       if(!item || !(item.properties['offset-x'] || item.properties['offset-y']))continue;
       const props={...item.properties};delete props['offset-x'];delete props['offset-y'];
       if(hasChanges({...item,properties:props}))next.set(key,{...item,properties:props});else next.delete(key);
     }
+    if(change.area){
+      const target=targetOf(change.source),key=keyOf(target);
+      const item={...(next.get(key)||{...target,properties:{}}),area:change.area};
+      if(regions.isHome(target.selector,change.area))delete item.area;
+      if(hasChanges(item))next.set(key,item);else next.delete(key);
+    }
+    if(!change.layout)return next;
     const parent=targetOf(change.parent), key=keyOf(parent), item={...(next.get(key)||{...parent,properties:{}})};
     if(change.layout.to.some((k,i)=>k!==change.layout.from[i]))item.layoutOrder=change.layout;
     else delete item.layoutOrder;
@@ -226,6 +233,14 @@
         if(!isOffset(key))style.setProperty(key,isNumber(schema(key))?pair.to+'px':pair.to,'important');
       }
       if(item.hidden && regions.valid(item))style.setProperty('display','none','important');
+    }
+    if(doc===document && [...(projection||edits).values()].some(it=>it.area==='Chart footer')){
+      css.insertRule('.chart-footer{flex-wrap:wrap;height:auto;max-width:100%;align-content:center}',0);
+      css.insertRule('.chart-footer > *{max-inline-size:100% !important}',0);
+      css.insertRule('.chart-footer > #intervals{flex-wrap:wrap}',0);
+      css.insertRule('.chart-footer > #market-clock{display:inline-block}',0);
+      if((projection||edits).get(idFor('page','#order-status'))?.properties['flex-grow']?.to==='1')
+        css.insertRule('.chart-footer > #order-status{flex-basis:4ch!important}',css.cssRules.length);
     }
     // The footer can sit at the bottom of the viewport. Open its session menu toward the chart.
     if(doc===document)css.insertRule('.chart-footer > #session-picker > #session-menu{top:auto;bottom:calc(100% + 6px)}',0);
@@ -333,8 +348,8 @@
     const mode=$('drag-mode');
     const control=regions.key(el), group=regions.key(el,true);
     $('drag-mode-row').hidden=!control && !group;
-    mode.options[1].disabled=!control;mode.options[2].disabled=!group;
-    if(mode.selectedOptions[0]?.disabled)mode.value='nearby';
+    mode.querySelector('[value=control]').disabled=!control;mode.querySelector('[value=group]').disabled=!group;
+    if(mode.selectedOptions[0]?.disabled)mode.value='auto';
     const hidden=table().filter(it=>it.hidden);
     $('hidden-items').hidden=!hidden.length;
     $('restore-items').replaceChildren(...hidden.map(it=>{
@@ -364,8 +379,9 @@
     scheduled=false;const el=current();
     $('outline').hidden=!el||!editing||comparing;if($('outline').hidden)return;
     $('move').hidden=!canMove(el);
-    const cross=$('drag-mode').value!=='nearby';
-    $('reorder').hidden=cross || !sortGrip.available(el);
+    const mode=$('drag-mode').value,cross=mode==='control' || mode==='group';
+    $('reorder').dataset.auto=String(mode==='auto');
+    $('reorder').hidden=cross || (!sortGrip.available(el) && !(mode==='auto' && autoSource()));
     $('transfer').hidden=!cross;
 
     const r=el.getBoundingClientRect(),frame=el.ownerDocument.defaultView.frameElement;
@@ -421,7 +437,7 @@
     el=normalized(el);if(!el)return;
     anchor=el;preferredDoc=el.ownerDocument;selection=targetOf(el);armed=false;
     observer.disconnect();observer.observe(el);if(el.ownerDocument.defaultView.frameElement)observer.observe(el.ownerDocument.defaultView.frameElement);
-    open(true);outline();status('Arrow keys move the selection. Hold Shift for 10 px.');$('target').focus({preventScroll:true});
+    open(true);outline();status('Drag the selection to place it. Arrow keys adjust its position.');$('target').focus({preventScroll:true});
   }
   function portal(){
     const modals=[...document.querySelectorAll('dialog:modal')];
@@ -440,7 +456,16 @@
     portal();placePanel();compare(false);display();
   }
   function selectEvent(e) {
-    if(e.composedPath().includes(host)||(!e.altKey&&!(editing&&armed))||comparing||e.button!==0)return;
+    if(e.composedPath().includes(host)||comparing||e.button!==0)return;
+    if(editing && e.type==='pointerdown' && e.isPrimary && !e.altKey && !e.ctrlKey && !e.metaKey &&
+       $('drag-mode').value==='auto' && e.target.ownerDocument===document){
+      const sel=regions.key(e.target)||regions.key(e.target,true);
+      if(sel){
+        e.preventDefault();e.stopImmediatePropagation();
+        choose(document.querySelector(sel));sortGrip.start(e);return;
+      }
+    }
+    if(!e.altKey && !(editing && armed))return;
     const el=normalized(e.target);if(!el)return;
     e.preventDefault();e.stopImmediatePropagation();
     // Disabled demo controls emit pointerdown but not click. They still own a layout slot.
@@ -507,8 +532,45 @@
   $('parent').onclick=()=>{const el=current();if(el)choose(el===el.ownerDocument.body?el.ownerDocument.defaultView.frameElement:el.parentElement);};
   $('browse').onclick=()=>{const show=$('finder').hidden;$('finder').hidden=!show;$('browse').setAttribute('aria-expanded',String(show));if(show){browse();$('filter').focus();}};
   $('filter').oninput=browse;$('list').onchange=()=>{const opt=options[$('list').selectedIndex];if(opt){choose(opt.el);opt.el.scrollIntoView({block:'nearest'});}};
+  function autoSource(){
+    const el=current(),sel=regions.key(el)||regions.key(el,true);
+    return sel && document.querySelector(sel);
+  }
+  function fitButton(next,{source,other,parent}){
+    const face=node=>node?.matches('button,select')?node:node?.querySelector(':scope > button,:scope > select');
+    const button=face(source);
+    if(!button || !regions.key(button))return;
+    let peer=face(other);
+    if(!peer && other){
+      const at=other.getBoundingClientRect();
+      const distance=el=>{
+        const r=el.getBoundingClientRect();
+        return Math.hypot(r.left+r.width/2-at.left-at.width/2,r.top+r.height/2-at.top-at.height/2);
+      };
+      peer=[...parent.children].map(face).filter(el=>el && el!==button && el.getClientRects().length)
+        .sort((a,b)=>distance(a)-distance(b))[0];
+    }
+    if(!peer || !peer.getClientRects().length)return;
+    const target=targetOf(button),key=keyOf(target),item=next.get(key)||{...target,properties:{}};
+    const props={...item.properties},base=getComputedStyle(button),sample=getComputedStyle(peer);
+    for(const prop of ['height','border-radius','padding-top','padding-bottom']){
+      const from=props[prop]?.from ?? measure(button,base,prop),to=measure(peer,sample,prop);
+      if(!validValue(schema(prop),to))continue;
+      if(from!==to)props[prop]={from,to};else delete props[prop];
+    }
+    if(hasChanges({...item,properties:props}))next.set(key,{...item,properties:props});else next.delete(key);
+  }
+  function fitsArea(area){
+    const bounds=getComputedStyle(area).display==='contents'?area.parentElement:area;
+    const box=bounds.getBoundingClientRect();
+    const left=Math.max(0,box.left)-1,right=Math.min(innerWidth,box.right)+1;
+    return [...area.children].every(el=>{
+      const r=el.getBoundingClientRect();
+      return !r.width || (r.left>=left && r.right<=right && r.top>=box.top-1 && r.bottom<=box.bottom+1);
+    });
+  }
   const sortGrip=orderTools.install({
-    grip:$('reorder'),marker:$('order-drop'),current,status,transferred:regions.transferred,
+    grip:$('reorder'),marker:$('order-drop'),current,status,transferred:regions.transferred,autoSource,areaAt:regions.destination,
     saved:parent=>edits.get(keyOf(targetOf(parent)))?.layoutOrder,
     preview:change=>{
       projection=change?reflow(change):null;
@@ -517,8 +579,14 @@
     },
     commit:change=>{
       const next=reflow(change);
+      if(change.auto)fitButton(next,change);
       if(next.size>256){status('Blueprint is full. Reset an entry before rearranging.');return;}
-      remember();edits=next;apply();persist();
+      const previous=edits;
+      edits=next;apply();
+      if(change.auto && !fitsArea(change.parent)){
+        edits=previous;apply();status('No room in this area. Try another slot.');return;
+      }
+      remember([...previous.values()]);display();persist();
     }
   });
   $('copy').onchange=()=>{
@@ -552,7 +620,7 @@
   }
   function showDestinations(){
     const sel=crossTarget(),node=sel && document.querySelector(sel);
-    const names=node && $('drag-mode').value!=='nearby'?regions.destinations(node):[];
+    const names=node && ['control','group'].includes($('drag-mode').value)?regions.destinations(node):[];
     $('destination-row').hidden=!names.length;
     const menu=$('destination'),previous=menu.value;
     if(names.join('|')!==[...menu.options].map(o=>o.value).join('|')){
@@ -564,7 +632,7 @@
     const sel=crossTarget(),node=sel && document.querySelector(sel),area=$('destination').value;
     if(node && regions.destinations(node).includes(area))changeRegion(sel,'area',area);
   };
-  $('drag-mode').onchange=()=>{showDestinations();outline();status('Hold Control and Command, then drag the selected element to another area.');};
+  $('drag-mode').onchange=()=>{showDestinations();outline();status($('drag-mode').value==='auto'?'Drag the selection to a highlighted slot.':'Hold Control and Command, then drag the selection.');};
   const transfer=$('transfer'),marker=$('order-drop');
   let crossing=null;
   function stopCrossing(){
