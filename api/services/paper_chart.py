@@ -391,6 +391,7 @@ class PaperChart:
         # Completed IB orders can lose their temporary orderId after reconnect.
         # Recover only by exact recorded permId or a unique bracket reference/role.
         missing = [role for role, oid in group['ids'].items() if oid not in trades]
+        completed_observations = []
         if missing:
             ref = group.get('ref')
             if not ref:
@@ -414,6 +415,7 @@ class PaperChart:
                         completed = completed_trades(conn, account)
                     except TimeoutError:
                         completed = []  # Preserve Unknown rows without failing the entire status read.
+                    completed_observations = completed
                     for t in completed:
                         if t.order.account != account or t.contract.conId != cid: continue
                         if perm:
@@ -455,7 +457,8 @@ class PaperChart:
                 snapshot = json.loads(encoded).get('state', {}).get('orders', [])
                 if {r['order_id'] for r in snapshot} != set(group['ids'].values()): continue
                 for row in snapshot:
-                    if row['status'] in ('Filled','Cancelled','ApiCancelled'): terminal[row['role']] = row
+                    if row['status'] in ('Filled','Cancelled','ApiCancelled') and not row.get('execution_recovered'):
+                        terminal[row['role']] = row
         rows=[]
         for role, oid in group['ids'].items():
             t=trades.get(oid)
@@ -479,6 +482,23 @@ class PaperChart:
         if confirmed != group.get('terminal'):
             group['terminal'] = confirmed
             self.save_group(account,cid,group)
+        # Re-evaluate persisted executions on every recovery. Never journal the
+        # derived row as a terminal callback that could mask a later correction.
+        unknown = [r for r in rows if r['status'] == 'Unknown']
+        if (len(unknown) == 1 and attribution_view is None and position and position.contract.secType == 'OPT'
+                and position.contract.right == 'C' and unknown[0].get('entry_kind') == 'add'
+                and unknown[0]['role'] in missing):
+            candidate = unknown[0]
+            oid = candidate['order_id']
+            perm = group.get('perms', {}).get(candidate['role'])
+            observed = list(raw_trades) + list(conn.ib.openTrades()) + list(completed_observations)
+            if (oid not in trades and not any(t.order.account == account and t.contract.conId == cid
+                    and (t.order.orderId == oid or (t.order.permId or t.orderStatus.permId) == perm) for t in observed)
+                    and not any(f.execution.acctNumber == account and f.contract.conId == cid
+                                and f.execution.permId == perm for f in conn.ib.fills())):
+                from api.services.chart_add_fill_recovery import recover_add
+                with self.database() as db:
+                    recover_add(db, account, cid, group, candidate, result['position'], rows)
         result.update(orders=rows, side=group['side'], known=result['known'] and all(r['status']!='Unknown' for r in rows))
         reappeared=any(r['order_id'] in trades for release in group.get('operator_releases',[]) for r in release['orders'])
         if reappeared:result.update(known=False,sync_error='Operator-released order reappeared; reconcile before trading')
