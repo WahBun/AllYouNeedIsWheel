@@ -77,13 +77,18 @@ def create_demo(source):
             abort(400)
         for item in changes:
             if (not isinstance(item, dict) or not {'selector', 'properties'} <= item.keys()
-                    or item.keys() - {'scope', 'selector', 'properties', 'layoutOrder'}):
+                    or item.keys() - {'scope', 'selector', 'properties', 'layoutOrder', 'text'}):
                 abort(400)
             if item.get('scope', 'page') not in ('page', 'chart'):
                 abort(400)
             sel, props = item['selector'], item['properties']
             if not isinstance(sel, str) or not 1 <= len(sel) <= 512 or not isinstance(props, dict) or set(props) - controls.keys():
                 abort(400)
+            if 'text' in item:
+                pair = item['text']
+                if (not isinstance(pair, dict) or set(pair) != {'from', 'to'}
+                        or not all(isinstance(v, str) and len(v) <= 512 for v in pair.values())):
+                    abort(400)
             if 'layoutOrder' in item:
                 layout = item['layoutOrder']
                 if not isinstance(layout, dict) or set(layout) != {'from', 'to'}:
@@ -96,7 +101,7 @@ def create_demo(source):
                 if (not all(isinstance(k, str) and len(k) <= 160 and re.fullmatch(key_pattern, k, re.ASCII)
                             for k in before + after) or len(set(before)) != len(before) or set(before) != set(after)):
                     abort(400)
-            elif not props:
+            elif not props and 'text' not in item:
                 abort(400)
             for key, pair in props.items():
                 if not isinstance(pair, dict) or set(pair) != {'from', 'to'}:

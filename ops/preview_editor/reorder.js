@@ -10,10 +10,19 @@ window.WheelBlueprintOrder = (() => {
       new Set(from).size===from.length && new Set(to).size===to.length && to.every(k=>from.includes(k));
   }
   function write(css, parent, parentSelector, layout) {
-    const items=members(parent)?.items;
+    const set=members(parent),items=set?.items;
     if(!items || items.length!==layout.from.length || items.some(it=>!layout.from.includes(it.key)))return;
+    if(set.flow){
+      const style=css.cssRules[css.insertRule(parentSelector+'{}',css.cssRules.length)].style;
+      style.setProperty('display','flex','important');
+      style.setProperty('flex-flow',set.flow,'important');
+    }
     layout.to.forEach((key,index)=>{
       const rule=css.cssRules[css.insertRule(':is('+parentSelector+') > '+key+'{}',css.cssRules.length)];
+      if(set.grid){
+        const slot=items.find(i=>i.key===layout.from[index]);
+        rule.style.setProperty('grid-area',slot.area,'important');
+      }
       rule.style.setProperty('order',String(index),'important');
     });
   }
@@ -30,7 +39,8 @@ window.WheelBlueprintOrder = (() => {
   function members(parent) {
     if(!parent)return null;
     const css=getComputedStyle(parent),grid=css.display.includes('grid');
-    if(!grid && !css.display.includes('flex'))return null;
+    const plain=['block','flow-root'].includes(css.display);
+    if(!plain && !grid && !css.display.includes('flex'))return null;
     // Bare text is an anonymous flex/grid item and has no stable address.
     if([...parent.childNodes].some(n=>n.nodeType===3 && n.textContent.trim()))return null;
     const children=[...parent.children];
@@ -40,28 +50,40 @@ window.WheelBlueprintOrder = (() => {
       if(child.matches('script,style,link,dialog,template,[popover]'))continue;
       const cs=getComputedStyle(child);
       if(['absolute','fixed'].includes(cs.position))continue;
-      // A nested display:contents or an explicitly positioned grid item does not own a normal slot.
-      if(cs.display==='contents' || (grid && [cs.gridRowStart,cs.gridRowEnd,cs.gridColumnStart,cs.gridColumnEnd].some(v=>v!=='auto')))return null;
+      if(cs.display==='contents')return null;
       const key=childKey(child,children);
       const rect=child.getBoundingClientRect();
-      items.push({child,key,order:Number(cs.order),rect,visible:rect.width>0 && rect.height>0 && cs.visibility==='visible'});
+      items.push({child,key,display:cs.display,area:cs.gridArea,order:Number(cs.order),rect,visible:rect.width>0 && rect.height>0 && cs.visibility==='visible'});
     }
     items.sort((a,b)=>a.order-b.order);
     if(new Set(items.map(i=>i.key)).size!==items.length || items.some(i=>!safeKey.test(i.key)))return null;
-    return {css,grid,items};
+    let flow;
+    if(plain){
+      const visible=items.filter(i=>i.visible);
+      if(visible.every(i=>i.display.startsWith('inline')))flow='row wrap';
+      else if(visible.every(i=>!i.display.startsWith('inline')))flow='column nowrap';
+      else return null;
+    }
+    return {css,grid,items,flow};
   }
   function group(el) {
-    if(!el || el.closest('#positions,#orders,.chart-pane,#chart-grid') ||
-       (el.ownerDocument!==document && el.closest('#chart')))return null;
-    const source=el.closest('button')||el, parent=source.parentElement;
-    if(!parent || parent===source.ownerDocument.body || source.matches('dialog,iframe,canvas'))return null;
+    const source=el, parent=source.parentElement;
+    if(!parent || parent.matches('html,body,#positions,#orders,#chart-grid') || source.matches('dialog,iframe,canvas,.chart-pane,.position-row'))return null;
     const set=members(parent);
     if(!set)return null;
     const {css,grid,items}=set,origin=items.find(i=>i.child===source),visible=items.filter(i=>i.visible);
     if(!origin?.visible || visible.length<2)return null;
-    const horizontal=grid ? visible.some(i=>Math.abs(i.rect.left-visible[0].rect.left)>2) : css.flexDirection.startsWith('row');
+    const horizontal=grid ? visible.some(i=>Math.abs(i.rect.left-visible[0].rect.left)>2) : (set.flow||css.flexDirection).startsWith('row');
     const reverse=(horizontal && css.direction==='rtl') !== (!grid && css.flexDirection.endsWith('reverse'));
     return {parent,origin,items,visible,horizontal,reverse};
+  }
+  function* groups(el){
+    if(!el || el.closest('canvas') || el.ownerDocument!==document && el.closest('#chart'))return;
+    for(let source=el.closest('button')||el;source;source=source.parentElement){
+      if(source.matches('body,dialog,.chart-pane,#positions,#orders,#chart-grid'))break;
+      const candidate=group(source);
+      if(candidate)yield candidate;
+    }
   }
   function plan(order, source, target, side) {
     const result=order.slice(), from=result.indexOf(source), to=result.indexOf(target);
@@ -79,22 +101,26 @@ window.WheelBlueprintOrder = (() => {
       if(grip.hasPointerCapture(g.pointer))grip.releasePointerCapture(g.pointer);
     }
     function hover(e) {
-      const g=gesture;
-      if(!g || g.pointer!==e.pointerId)return;
-      const frame=g.parent.ownerDocument.defaultView.frameElement;
+      const active=gesture;
+      if(!active || active.pointer!==e.pointerId)return;
+      const frame=active.candidates[0].parent.ownerDocument.defaultView.frameElement;
       const frameRect=frame?.getBoundingClientRect();
       const x=e.clientX-(frameRect?.x||0)-(frame?.clientLeft||0), y=e.clientY-(frameRect?.y||0)-(frame?.clientTop||0);
-      const hit=g.visible.find(i=>i!==g.origin && x>=i.rect.left && x<=i.rect.right && y>=i.rect.top && y<=i.rect.bottom);
+      let hit, g;
+      for(const candidate of active.candidates){
+        hit=candidate.visible.find(i=>i!==candidate.origin && x>=i.rect.left && x<=i.rect.right && y>=i.rect.top && y<=i.rect.bottom);
+        if(hit){g=candidate;break;}
+      }
       if(!hit){
-        if(g.destination){preview(null);g.destination=null;marker.hidden=true;}
+        if(active.destination){preview(null);active.destination=null;marker.hidden=true;}
         return;
       }
       const r=hit.rect, fraction=g.horizontal?(x-r.left)/r.width:(y-r.top)/r.height;
       const leading=g.reverse?1-fraction:fraction;
       const side=leading<0.25?'before':leading>0.75?'after':'swap';
-      if(g.destination?.key===hit.key && g.destination.side===side)return;
+      if(active.destination?.child===hit.child && active.destination.side===side)return;
       const next=plan(g.keys,g.origin.key,hit.key,side);
-      g.destination={key:hit.key,side,next,child:hit.child};
+      active.destination={side,next,child:hit.child,group:g};
       preview({parent:g.parent,source:g.origin.child,other:hit.child,layout:{from:g.base,to:next}});
       marker.hidden=false;marker.dataset.side=side;
       marker.textContent=side==='swap'?'Swap':side==='before'?'Insert before':'Insert after';
@@ -105,20 +131,21 @@ window.WheelBlueprintOrder = (() => {
     }
     grip.onpointerdown=e=>{
       if(e.button!==0 || !e.isPrimary)return;
-      const g=group(current());if(!g)return;
-      const keys=g.items.map(i=>i.key), previous=saved(g.parent);
-      // Keep drafts tied to the exact set of siblings that was reviewed.
-      if(previous && (previous.from.length!==keys.length || keys.some(k=>!previous.from.includes(k)))){
-        status('This group has changed. Reset its previous order before rearranging.');return;
+      const candidates=[];
+      for(const g of groups(current())){
+        const keys=g.items.map(i=>i.key), previous=saved(g.parent);
+        if(previous && (previous.from.length!==keys.length || keys.some(k=>!previous.from.includes(k))))continue;
+        candidates.push({...g,keys,base:previous?.from||keys});
       }
+      if(!candidates.length){status('No adjacent component is available to reorder.');return;}
       e.preventDefault();grip.setPointerCapture(e.pointerId);
-      gesture={...g,keys,base:previous?.from||keys,pointer:e.pointerId};
+      gesture={candidates,pointer:e.pointerId};
       status('Drop on the middle to swap, or on an edge to insert.');
     };
     grip.onpointermove=hover;
     grip.onpointerup=e=>{
-      const g=gesture;if(!g || e.pointerId!==g.pointer)return;
-      hover(e);const next=g.destination?.next,other=g.destination?.child;
+      if(!gesture || e.pointerId!==gesture.pointer)return;
+      hover(e);const {group:g,next,child:other}=gesture.destination||{};
       clear();
       const latest=next && members(g.parent)?.items;
       if(latest?.length===g.keys.length && latest.every(i=>g.keys.includes(i.key)) &&
@@ -134,7 +161,7 @@ window.WheelBlueprintOrder = (() => {
     // The host owns pointer capture even when a chart frame is the editing surface.
     grip.addEventListener('keydown',e=>{
       if(!['ArrowLeft','ArrowUp','ArrowRight','ArrowDown'].includes(e.key))return;
-      const g=group(current());if(!g)return;
+      const g=groups(current()).next().value;if(!g)return;
       const forward=e.key==='ArrowRight'||e.key==='ArrowDown';
       const index=g.visible.indexOf(g.origin)+(forward!==g.reverse?1:-1),target=g.visible[index];
       if(!target)return;
@@ -143,7 +170,7 @@ window.WheelBlueprintOrder = (() => {
       e.preventDefault();e.stopPropagation();
       commit({parent:g.parent,source:g.origin.child,other:target.child,layout:{from:base,to:plan(keys,g.origin.key,target.key,'swap')}});
     });
-    return {available:el=>Boolean(group(el)),cancel:clear};
+    return {available:el=>!groups(el).next().done,cancel:clear};
   }
   return {valid,write,install};
 })();
