@@ -6,7 +6,7 @@ An unofficial, self-hosted iPhone and web trading workspace for Interactive Brok
 
 **Wheel 策略的 iPhone 与桌面工作台。** 查看 IBKR 持仓、比较收益、筛选现金担保看跌期权（CSP）和备兑看涨期权（CC）、管理订单，并通过多图 Supercharts 分析行情。
 
-SwiftUI 构建，支持 iOS 18 及以上，以及浅色／深色模式。当前 UI 开发统一使用英文；已有本地化资源保留，完整中文本地化待功能与交互成熟后统一整理。App 连接你自己运行的后端；IB 登录、行情连接和数据库留在后端主机，iPhone 不保存 IB 密码。
+SwiftUI 构建，支持 iOS 18 及以上、浅色／深色模式。原生页面支持英文、简体中文与繁体中文，覆盖交易复盘、手续费、指标和维护页面；交易缩写及标的代码保留原样。 App 连接你自己运行的后端；IB 登录、行情连接和数据库留在后端主机，iPhone 不保存 IB 密码。
 
 **桌面网页工作台**将 1／2／3／4 图、画线、指标、价格提醒和交易面板放在同一屏幕；**原生 iPhone App** 提供 Portfolio、Trade、Orders 与图表，两端共用后端。网页布局也适配较小屏幕。
 
@@ -14,9 +14,9 @@ SwiftUI 构建，支持 iOS 18 及以上，以及浅色／深色模式。当前 
 
 ## 当前阶段与版本
 
-截至 **2026-10-25**，项目以日常使用和稳定性维护为主：普通问题先收集归类，攒一批做最小修复；交易安全或影响正常使用的问题及时处理。保留现有布局、tick 级行情刷新和已确认的交易交互。这一维护方向不代表所有场景或 Live 交易均已验收。
+截至 **2026-11-05**，项目以日常使用和稳定性维护为主：普通问题先收集归类，攒一批做最小修复；交易安全或影响正常使用的问题及时处理。保留现有布局、tick 级行情刷新和已确认的交易交互。这一维护方向不代表所有场景或 Live 交易均已验收。
 
-正式代码以仓库、目标分支和 commit SHA 为准。本次版本为 [Wheel: v1.8.5](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.8.5)，目标分支为 **`Ben/wheel-1.8`**；Release tag 标识准确源码提交，不默认 `main` 最新。网页版本标记为 1.8.5，原生 iOS 重新构建安装后 Settings 显示 **1.8.5 (5)**。GitHub 发版不等于 Mini 已部署或 iPhone 已更新。
+正式代码以仓库、目标分支和 commit SHA 为准。最新已发布版本为 [Wheel: v1.8.5](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.8.5)。**1.9.0 (6) 正在准备，等待用户检查**，目标分支仍为 **`Ben/wheel-1.8`**，详见 [1.9.0 发布说明](docs/RELEASE_1.9.0.md)。本源码构建的 iOS 版本为 1.9.0 (6)，网页版本标记为 1.9.0。开发版本不等于已发布 Release；发版也不代表 Mini 已部署或 iPhone 已更新。
 
 推荐分工：**开发 Mac** 负责开发、Xcode 与手机构建；**后端主机** 长期运行 Gateway、Backend 和 API；开发 Mac 与 iPhone 通过 Tailscale 访问后端主机。部署与重启由用户在电脑或手机上选择执行，手机 App 的 Xcode Run 也由用户操作。
 
@@ -59,6 +59,7 @@ SwiftUI 构建，支持 iOS 18 及以上，以及浅色／深色模式。当前 
 | --- | --- |
 | **Portfolio** | 净资产、可折叠现金与流动性、初始保证金及杠杆占比；股票与期权持仓、成交入场价、剩余天数和盈亏；资产分配、持仓分享、平仓与移仓入口。 |
 | **Performance** | MTD／YTD／ALL 收益曲线（默认 YTD），可选 Portfolio only、SPX、NDX 或 SPX + NDX（默认两项对比），拖动查看日期与收益，日内盈亏及临时收益估算。 |
+| **交易复盘** | Performance 右上角日历图标进入；查看月度已实现盈亏、每日盈亏日历、标的贡献、成交及指派／行权／到期记账记录，以及按手续费币种分别统计的每日／每月手续费。Performance 支持下拉刷新，Today 旁一个提示按钮汇总当日盈亏与历史收益说明。 |
 | **Trade** | CSP → CC 工作流，选择到期日与行权价、查看 bid／mid／ask、价差及 Greeks；合约数量和限价编辑、权利金估算、CSP 初始保证金变化预估、单笔或批量暂存订单。 |
 | **Orders** | 待处理订单、部分及全部成交记录；Today／7 Days／MTD 日期筛选、标的搜索、Stock／Future／Option 分类；手续费保留两位小数；订单详情、编辑、执行、撤单与成交通知。 |
 | **Supercharts** | 股票、期货和期权图表入口；持仓均价、关联期权行权价、成交标记、多周期 EMA、ATR、Bar Count、FVG、Previous values、波动通道／极值仪表与绘图工具；标的搜索和跨端收藏。 |

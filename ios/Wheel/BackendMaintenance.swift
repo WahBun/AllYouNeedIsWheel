@@ -191,26 +191,26 @@ struct BackendMaintenanceSections: View {
                             row("Last refresh", displayDate(performance.last_success))
                             row("Token expiry", performance.token_expires_on ?? "Not recorded")
                             if let remaining = performance.days_remaining, remaining <= 30 {
-                                Text(verbatim: remaining < 0 ? "Recorded expiry has passed." : "Recorded expiry is in \(remaining) days.")
+                                Group { if remaining < 0 { Text("Recorded expiry has passed.") } else { Text("Recorded expiry is in \(remaining) days.") } }
                                     .foregroundStyle(.orange)
                             }
-                            if performance.refreshing == true { Text(verbatim: "Performance refresh is running.").foregroundStyle(.secondary) }
-                            if let error = performance.error { Text(verbatim: error).foregroundStyle(.orange) }
+                            if performance.refreshing == true { Text("Performance refresh is running.").foregroundStyle(.secondary) }
+                            if let error = performance.error { NoticeText(error).foregroundStyle(.orange) }
                             if performance.last_success == nil {
-                                Text(verbatim: "Refresh time is available after the first successful refresh following a backend restart.")
+                                Text("Refresh time is available after the first successful refresh following a backend restart.")
                                     .font(.footnote).foregroundStyle(.secondary)
                             }
                         } else {
-                            Text(verbatim: "Performance data is not configured for this account.").foregroundStyle(.secondary)
+                            Text("Performance data is not configured for this account.").foregroundStyle(.secondary)
                         }
                         if performance.can_replace && !editing {
-                            Button { editing = true } label: { Text(verbatim: "Replace Flex token") }
+                            Button { editing = true } label: { Text("Replace Flex token") }
                         }
                     } label: {
                         HStack {
-                            Text(verbatim: "Performance data")
+                            Text("Performance data")
                             Spacer(minLength: 8)
-                            Text(verbatim: performance.days_remaining.map { $0 <= 30 ? "Check expiry" : "Ready" } ?? (performance.configured ? "Configured" : "Not configured"))
+                            NoticeText(performance.days_remaining.map { $0 <= 30 ? "Check expiry" : "Ready" } ?? (performance.configured ? "Configured" : "Not configured"))
                                 .foregroundStyle(performance.days_remaining.map { $0 <= 30 } == true ? Color.orange : .secondary)
                         }
                     }
@@ -222,42 +222,42 @@ struct BackendMaintenanceSections: View {
                         SecureField("Flex token", text: $model.token)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
                             .privacySensitive()
-                        Toggle(isOn: $model.recordsExpiry) { Text(verbatim: "Record expiry date") }
+                        Toggle(isOn: $model.recordsExpiry) { Text("Record expiry date") }
                         if model.recordsExpiry {
-                            DatePicker(selection: $model.expiry, in: Date.now..., displayedComponents: .date) { Text(verbatim: "Expires on") }
+                            DatePicker(selection: $model.expiry, in: Date.now..., displayedComponents: .date) { Text("Expires on") }
                         }
-                        Button { Task { await model.validate() } } label: { Text(verbatim: "Validate token") }
+                        Button { Task { await model.validate() } } label: { Text("Validate token") }
                             .disabled(model.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     } else if model.validationState == "ready" {
-                        Label { Text(verbatim: "Report and account verified") } icon: { Image(systemName: "checkmark.circle") }.foregroundStyle(.green)
+                        Label { Text("Report and account verified") } icon: { Image(systemName: "checkmark.circle") }.foregroundStyle(.green)
                         row("Report through", model.reportThrough ?? "—")
-                        Button { Task { await model.save(); if model.validationID == nil { editing = false } } } label: { Text(verbatim: "Save validated token") }
+                        Button { Task { await model.save(); if model.validationID == nil { editing = false } } } label: { Text("Save validated token") }
                     } else {
-                        Text(verbatim: model.validationState == "validating" ? "Waiting for IB to generate the report…" : "Refresh to check validation, or cancel to start again.")
+                        NoticeText(model.validationState == "validating" ? "Waiting for IB to generate the report…" : "Refresh to check validation, or cancel to start again.")
                     }
-                    Button(role: .cancel) { model.clearDraft(); editing = false } label: { Text(verbatim: "Cancel") }
-                } header: { Text(verbatim: "Replace token") } footer: {
-                    Text(verbatim: "Paste a new token from IB. Validate first, then save privately on Mini. Record the expiry shown by IB. Update other apps that share this token too.")
+                    Button(role: .cancel) { model.clearDraft(); editing = false } label: { Text("Cancel") }
+                } header: { Text("Replace token") } footer: {
+                    Text("Paste a new token from IB. Validate first, then save privately on Mini. Record the expiry shown by IB. Update other apps that share this token too.")
                 }
                 .id("tokenEditor")
                 .disabled(model.busy)
             }
             if model.account == nil {
-                Section { Text(verbatim: "Connect to Paper or Live in Settings to view backend status.").foregroundStyle(.secondary) }
+                Section { Text("Connect to Paper or Live in Settings to view backend status.").foregroundStyle(.secondary) }
             }
             if model.busy || model.error != nil || model.message != nil {
                 Section {
-                    if model.busy { ProgressView { Text(verbatim: "Checking…") } }
-                    if let error = model.error { Text(verbatim: error).foregroundStyle(.orange) }
-                    if let message = model.message { Text(verbatim: message).foregroundStyle(.secondary) }
+                    if model.busy { ProgressView { Text("Checking…") } }
+                    if let error = model.error { NoticeText(error).foregroundStyle(.orange) }
+                    if let message = model.message { NoticeText(message).foregroundStyle(.secondary) }
                 }
             }
         }
-        .environment(\.locale, Locale(identifier: "en"))
+
     }
 
     private func row(_ label: String, _ value: String) -> some View {
-        LabeledContent { Text(verbatim: value).multilineTextAlignment(.trailing) } label: { Text(verbatim: label) }
+        LabeledContent { NoticeText(value).multilineTextAlignment(.trailing) } label: { Text(LocalizedStringKey(label)) }
     }
 
     private func displayDate(_ raw: String?) -> String {

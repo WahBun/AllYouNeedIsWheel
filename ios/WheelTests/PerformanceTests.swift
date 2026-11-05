@@ -9,22 +9,62 @@ final class PerformanceTests: XCTestCase {
         URLProtocol.registerClass(PerformancePageProtocol.self)
         defer { URLProtocol.unregisterClass(PerformancePageProtocol.self) }
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
-        for width in [320.0, 393.0] {
+        for (width, language) in [(320.0, "en"), (393.0, "zh-Hans"), (320.0, "zh-Hant")] {
             let store = WheelStore(); store.demo = false; store.selectedTab = "portfolio"; store.address = "https://performance.invalid"
             let host = UIHostingController(rootView: NavigationStack { PerformanceView() }
-                .environment(store).environment(\.scenePhase, .active).environment(\.locale, Locale(identifier: "en_US")))
+                .environment(store).environment(\.scenePhase, .active).environment(\.locale, Locale(identifier: language)))
             let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: width, height: 852)
             window.overrideUserInterfaceStyle = .dark
             window.rootViewController = host; window.makeKeyAndVisible(); host.view.frame = window.bounds
             try await Task.sleep(for: .milliseconds(500))
-            capture(host, "Performance-trade-review-toolbar-\(Int(width))")
+            capture(host, "Performance-trade-review-toolbar-\(language)-\(Int(width))")
             func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
             let scroll = try XCTUnwrap(descendants(host.view).compactMap { $0 as? UICollectionView }.first)
             scroll.setContentOffset(CGPoint(x: 0, y: max(0, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)), animated: false)
             try await Task.sleep(for: .milliseconds(100))
-            capture(host, "Performance-information-icons-\(Int(width))")
+            capture(host, "Performance-information-icons-\(language)-\(Int(width))")
             window.rootViewController = nil; window.isHidden = true
         }
+    }
+
+    @MainActor
+    func testPullRefreshWaitsForHistoryAndPreservesCacheOnFailure() async throws {
+        PerformancePageProtocol.reset()
+        URLProtocol.registerClass(PerformancePageProtocol.self)
+        defer { PerformancePageProtocol.releaseHistory(); URLProtocol.unregisterClass(PerformancePageProtocol.self) }
+        let store = WheelStore(); store.demo = false; store.selectedTab = "portfolio"; store.address = "https://performance.invalid"
+        let host = UIHostingController(rootView: NavigationStack { PerformanceView() }
+            .environment(store).environment(\.scenePhase, .active))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let window = UIWindow(windowScene: scene); window.rootViewController = host; window.makeKeyAndVisible()
+        defer { window.rootViewController = nil; window.isHidden = true }
+        try await Task.sleep(for: .milliseconds(600))
+        func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
+        let list = try XCTUnwrap(descendants(host.view).compactMap { $0 as? UICollectionView }.first)
+        let refresh = try XCTUnwrap(list.refreshControl, "Performance must expose native pull-to-refresh")
+        let key = store.performanceCacheKey("YTD")
+        let previous = try XCTUnwrap(store.performanceHistoryCache[key]?.end)
+        for fail in [false, true] {
+            let before = PerformancePageProtocol.historyCount
+            PerformancePageProtocol.holdHistory = true
+            PerformancePageProtocol.failHistory = fail
+            refresh.beginRefreshing(); refresh.sendActions(for: .valueChanged)
+            for _ in 0..<40 {
+                if PerformancePageProtocol.historyCount > before { break }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            XCTAssertEqual(PerformancePageProtocol.historyCount, before + 1)
+            XCTAssertTrue(refresh.isRefreshing, "Spinner must remain until the refresh completes")
+            XCTAssertEqual(store.performanceHistoryCache[key]?.end, previous)
+            PerformancePageProtocol.releaseHistory()
+            for _ in 0..<40 {
+                if !refresh.isRefreshing { break }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            XCTAssertFalse(refresh.isRefreshing, "Success and failure must both end the refresh")
+            XCTAssertEqual(store.performanceHistoryCache[key]?.end, previous, "A failed refresh must retain the same-account chart")
+        }
+        XCTAssertEqual(PerformancePageProtocol.forcedHistoryCount, 2, "Each gesture must request exactly one forced refresh")
     }
 
     @MainActor
@@ -644,6 +684,8 @@ private final class PerformancePageProtocol: URLProtocol {
     private static var staleFirst = false
     private static var readTimes: [Date] = []
     private static var firstFreshAt: Date?
+    static var failHistory = false
+    static var forcedHistoryCount = 0
     private static var historyReads = 0
     private static var held: [PerformancePageProtocol] = []
     private static var holding = false
@@ -659,7 +701,7 @@ private final class PerformancePageProtocol: URLProtocol {
     static var firstFreshDelay: TimeInterval { lock.withLock { guard let first = readTimes.first, let fresh = firstFreshAt else { return .infinity }; return fresh.timeIntervalSince(first) } }
     static var liveCount: Int { lock.withLock { reads } }
     static var independentHistoryRequested: Bool { lock.withLock { independent } }
-    static func reset(staleFirst: Bool = false) { lock.withLock { reads = 0; independent = false; pnl = 25; Self.staleFirst = staleFirst; readTimes = []; firstFreshAt = nil; historyReads = 0; holding = false; held = [] } }
+    static func reset(staleFirst: Bool = false) { lock.withLock { reads = 0; independent = false; pnl = 25; Self.staleFirst = staleFirst; readTimes = []; firstFreshAt = nil; historyReads = 0; forcedHistoryCount = 0; failHistory = false; holding = false; held = [] } }
     static func setPnl(_ value: Int) { lock.withLock { pnl = value } }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "performance.invalid" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -667,6 +709,7 @@ private final class PerformancePageProtocol: URLProtocol {
         if request.url?.lastPathComponent == "history" {
             let held = Self.lock.withLock {
                 Self.historyReads += 1
+                if request.url?.query?.contains("refresh=1") == true { Self.forcedHistoryCount += 1 }
                 if Self.holding { Self.held.append(self); return true }
                 return false
             }
@@ -675,6 +718,9 @@ private final class PerformancePageProtocol: URLProtocol {
         respond()
     }
     private func respond() {
+        if Self.failHistory, request.url?.lastPathComponent == "history" {
+            client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet)); return
+        }
         let data: Data
         if request.url?.path.contains("/performance/") != true {
             data = Data("""

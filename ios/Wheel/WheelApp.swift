@@ -670,6 +670,12 @@ func localizedLabel(_ key: String, locale: Locale) -> String {
 func localizedNotice(_ message: String, locale: Locale) -> String {
     let translated = localizedLabel(message, locale: locale)
     if translated != message { return translated }
+    let underlyingPrefix = "Underlying "
+    let underlyingSuffix = " · Nearest strike selected."
+    if message.hasPrefix(underlyingPrefix), message.hasSuffix(underlyingSuffix) {
+        let price = String(message.dropFirst(underlyingPrefix.count).dropLast(underlyingSuffix.count))
+        return String(format: localizedLabel("Underlying %@ · Nearest strike selected.", locale: locale), price)
+    }
     let refreshPrefix = "Order refresh failed; displayed data may be outdated. "
     let lockSuffix = " Do not resubmit. Verify in IB and the web app; trading is locked pending review."
     if message.hasPrefix(refreshPrefix) {

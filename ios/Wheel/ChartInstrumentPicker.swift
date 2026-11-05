@@ -166,7 +166,7 @@ struct ChartInstrumentPicker: View {
             Button { Task { await favorites.toggle(item) } } label: {
                 Image(systemName: favorites.items.contains { $0.id == item.id } ? "star.fill" : "star")
                     .foregroundStyle(.yellow).frame(width: 44, height: 44)
-            }.buttonStyle(.plain).disabled(!favorites.ready || favorites.busy).accessibilityLabel((favorites.items.contains { $0.id == item.id } ? "Remove favorite " : "Favorite ") + item.displayLabel)
+            }.buttonStyle(.plain).disabled(!favorites.ready || favorites.busy).accessibilityLabel(favorites.items.contains { $0.id == item.id } ? Text("Remove favorite \(item.displayLabel)") : Text("Favorite \(item.displayLabel)"))
         }
     }
     var body: some View {
@@ -190,7 +190,7 @@ struct ChartInstrumentPicker: View {
                     }
                     if search.options { optionFields }
                     if search.busy { ProgressView("Loading…") }
-                    if let message = search.message { Text(message).font(.caption).foregroundStyle(.secondary) }
+                    if let message = search.message { NoticeText(message).font(.caption).foregroundStyle(.secondary) }
                     if !canSelect { Text("Wait for the current order request to finish.").font(.caption).foregroundStyle(.orange) }
                 }
                 if !search.results.isEmpty { Section("Search results") { ForEach(search.results) { row($0) } } }
@@ -203,14 +203,14 @@ struct ChartInstrumentPicker: View {
                     }.onMove { favorites.move(from: $0, to: $1) }
                     if favorites.items.count > 1 { Text("Touch and hold a favorite to reorder.").font(.caption).foregroundStyle(.secondary) }
                     if favorites.busy { ProgressView("Syncing favorites…") }
-                    if let message = favorites.message { Text(message).font(.caption).foregroundStyle(.orange) }
+                    if let message = favorites.message { NoticeText(message).font(.caption).foregroundStyle(.orange) }
                     Button("Refresh favorites") { Task { await favorites.refresh() } }.disabled(favorites.busy)
                 }
             }
             .navigationTitle("Select instrument").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
-        .environment(\.locale, Locale(identifier: "en"))
+
         .onAppear {
             if let current { search.query = current.symbol.isEmpty ? "QQQ" : current.symbol; search.options = current.type == "OPT" }
             if search.options && search.expirations.isEmpty { load() }

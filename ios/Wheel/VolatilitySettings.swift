@@ -82,20 +82,20 @@ struct VolatilitySettingsSections: View {
         }
         if tab == "Inputs" {
         Section("Volatility Symbols") {
-            Picker("ES / SPY", selection: $settings.spx) { ForEach(indices, id: \.self) { Text($0).tag($0) } }.disabled(!sharedRulesEditable)
-            Picker("NQ / QQQ / TQQQ", selection: $settings.ndx) { ForEach(indices, id: \.self) { Text($0).tag($0) } }.disabled(!sharedRulesEditable)
-            Picker("YM / DIA", selection: $settings.dow) { ForEach(indices, id: \.self) { Text($0).tag($0) } }
-            Picker("RTY / IWM", selection: $settings.r2k) { ForEach(indices, id: \.self) { Text($0).tag($0) } }
-            Picker("GC / GLD", selection: $settings.gold) { ForEach(indices, id: \.self) { Text($0).tag($0) } }
-            Picker("CL / USO", selection: $settings.oil) { ForEach(indices, id: \.self) { Text($0).tag($0) } }
+            Picker("ES / SPY", selection: $settings.spx) { ForEach(indices, id: \.self) { Text(LocalizedStringKey($0)).tag($0) } }.disabled(!sharedRulesEditable)
+            Picker("NQ / QQQ / TQQQ", selection: $settings.ndx) { ForEach(indices, id: \.self) { Text(LocalizedStringKey($0)).tag($0) } }.disabled(!sharedRulesEditable)
+            Picker("YM / DIA", selection: $settings.dow) { ForEach(indices, id: \.self) { Text(LocalizedStringKey($0)).tag($0) } }
+            Picker("RTY / IWM", selection: $settings.r2k) { ForEach(indices, id: \.self) { Text(LocalizedStringKey($0)).tag($0) } }
+            Picker("GC / GLD", selection: $settings.gold) { ForEach(indices, id: \.self) { Text(LocalizedStringKey($0)).tag($0) } }
+            Picker("CL / USO", selection: $settings.oil) { ForEach(indices, id: \.self) { Text(LocalizedStringKey($0)).tag($0) } }
         }
         }
         Section("Intraday Extreme Gauge") {
             if tab == "Inputs" {
-                Picker("Curve", selection: $settings.curve) { ForEach(["Auto", "ES", "NQ"], id: \.self) { Text($0).tag($0) } }
+                Picker("Curve", selection: $settings.curve) { ForEach(["Auto", "ES", "NQ"], id: \.self) { Text(LocalizedStringKey($0)).tag($0) } }
             } else {
                 Toggle("Enable gauge", isOn: $settings.gauge)
-                Picker("Position", selection: $settings.position) { ForEach(["Top Left", "Top Right", "Bottom Left", "Bottom Center", "Bottom Right"], id: \.self) { Text($0).tag($0) } }
+                Picker("Position", selection: $settings.position) { ForEach(["Top Left", "Top Right", "Bottom Left", "Bottom Center", "Bottom Right"], id: \.self) { Text(LocalizedStringKey($0)).tag($0) } }
             }
         }
         if tab == "Style" {

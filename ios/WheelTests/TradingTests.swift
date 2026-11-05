@@ -2052,7 +2052,9 @@ final class TradingTests: XCTestCase {
         XCTAssertEqual(localizedLabel("Portfolio", locale: Locale(identifier: "zh-Hans")), "投资组合")
         XCTAssertEqual(localizedLabel("Portfolio", locale: Locale(identifier: "zh-Hant")), "投資組合")
         XCTAssertEqual(localizedLabel("Portfolio", locale: Locale(identifier: "en")), "Portfolio")
-        for value in ["Wheel", "Call", "Put", "OTM", "Delta", "IV", "GTC", "DAY", "TSLL"] {
+        XCTAssertEqual(localizedLabel("Call", locale: Locale(identifier: "zh-Hans")), "看涨期权")
+        XCTAssertEqual(localizedLabel("Put", locale: Locale(identifier: "zh-Hant")), "看跌期權")
+        for value in ["Wheel", "OTM", "Delta", "IV", "GTC", "DAY", "TSLL"] {
             XCTAssertEqual(localizedLabel(value, locale: Locale(identifier: "zh-Hans")), value)
         }
     }

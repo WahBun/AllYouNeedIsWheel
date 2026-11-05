@@ -155,6 +155,7 @@ struct PerformanceView: View {
     @State private var loading = false
     @State private var visible = false
     @State private var revision = 0
+    @State private var completedRevision = 0
     private var active: Bool { visible && phase == .active && store.selectedTab == "portfolio" }
     private var context: String { "\(active)-\(store.demo)-\(store.performanceCacheKey(period))-\(revision)" }
     private var performanceLegend: some View {
@@ -199,7 +200,7 @@ struct PerformanceView: View {
                         .foregroundStyle(value >= 0 ? gain : loss)
                     Group {
                         if let month = history.retained_mtd_month {
-                            Text(verbatim: "Reported return · \(month) MTD")
+                            Text("Reported return · \(month) MTD")
                         } else {
                             Text(LocalizedStringKey(estimate == nil ? "Reported return" : "Intraday estimate"))
                         }
@@ -277,24 +278,28 @@ struct PerformanceView: View {
                 }
                 if let error { NoticeText(error).font(.footnote).foregroundStyle(.orange) }
             }
-            Section("Today") {
+            Section {
                 LabeledContent {
                     let pnl = live?.fresh == true ? live?.daily_pnl : nil
                     PerformanceDailyPnlValue(pnl: pnl, percent: history?.dailyReturnEstimate(live))
                         .foregroundStyle(pnl.map { $0 > 0 ? gain : ($0 < 0 ? loss : Color.secondary) } ?? Color.secondary)
                 } label: {
-                    HStack(spacing: 4) { Text("Daily P&L"); PerformanceInfoButton(topic: .dailyPnl) }
+                    Text("Daily P&L")
                 }
                 if let liveError { NoticeText(liveError).font(.caption).foregroundStyle(.orange) }
-            }
-            Section {
-                HStack {
-                    Button("Refresh") { revision += 1 }.buttonStyle(.borderless)
-                    Spacer()
-                    PerformanceInfoButton(topic: .history)
-                }
+            } header: {
+                HStack(spacing: 4) { Text("Today"); PerformanceInfoButton(topic: .performance) }.textCase(nil)
             }
         }.navigationTitle("Performance")
+            .refreshable {
+                guard active, !store.demo else { return }
+                revision += 1
+                let requested = revision
+                let refreshContext = context
+                while active && context == refreshContext && completedRevision < requested {
+                    do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink { PerformanceAnalyticsView() } label: {
@@ -308,6 +313,7 @@ struct PerformanceView: View {
             .task(id: context) {
                 guard active else { return }
                 let requestedContext = context
+                let requestedRevision = revision
                 let cacheKey = store.performanceCacheKey(period)
                 error = nil
                 guard !store.demo else { error = "Performance requires a live backend with Flex history."; return }
@@ -333,6 +339,7 @@ struct PerformanceView: View {
                 }
                 guard context == requestedContext else { return }
                 loading = false
+                completedRevision = requestedRevision
                 if history == nil, error == nil { error = "History is still generating. Retrying shortly." }
                 // History availability can change while this page stays open.
                 // Live account P&L continues on its independent fast loop.

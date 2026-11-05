@@ -24,6 +24,25 @@ final class PerformanceAnalyticsTests: XCTestCase {
             "report_through": "2026-10-30", "report_version": version, "refreshing": false]
         return try! JSONSerialization.data(withJSONObject: body)
     }
+    func testLocalizedReviewHelpAndWeekdays() {
+        for language in ["zh-Hans", "zh-Hant"] {
+            let locale = Locale(identifier: language)
+            for topic in [PerformanceHelpTopic.commissions, .pnl, .calendar, .contributions, .dailyPnl, .history] {
+                XCTAssertNotEqual(localizedNotice(topic.explanation, locale: locale), topic.explanation)
+            }
+            for label in ["Trade review", "Monthly commissions", "Daily commissions", "Book entries", "Replace Flex token", "No commissions reported"] {
+                XCTAssertNotEqual(localizedLabel(label, locale: locale), label)
+            }
+            XCTAssertEqual(AnalyticsCalendar.weekdays(locale: locale).count, 7)
+            XCTAssertNotEqual(AnalyticsCalendar.weekdays(locale: locale), AnalyticsCalendar.weekdays(locale: Locale(identifier: "en")))
+            XCTAssertFalse(PerformanceAnalytics.activityLabel(51, 1, locale: locale).contains("execution"))
+            XCTAssertEqual(localizedNotice("Underlying $61.87 · Nearest strike selected.", locale: locale),
+                           String(format: localizedLabel("Underlying %@ · Nearest strike selected.", locale: locale), "$61.87"))
+        }
+        XCTAssertEqual(PerformanceAnalytics.activityLabel(1, 1), "1 execution · 1 book entry")
+        XCTAssertEqual(localizedLabel("Monthly commissions", locale: Locale(identifier: "zh-Hant")), "月度手續費")
+    }
+
     private func session() -> URLSession {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [AnalyticsProtocol.self]
@@ -99,8 +118,8 @@ final class PerformanceAnalyticsTests: XCTestCase {
         URLProtocol.registerClass(AnalyticsProtocol.self)
         defer { URLProtocol.unregisterClass(AnalyticsProtocol.self) }
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
-        for dark in [false, true] {
-            for width in [320.0, 393.0, 834.0] {
+        for (dark, language) in [(false, "en"), (true, "zh-Hans"), (true, "zh-Hant")] {
+            for width in [320.0, 393.0] {
                 for detail in [false, true] {
                     let root = Group {
                         if detail {
@@ -110,7 +129,7 @@ final class PerformanceAnalyticsTests: XCTestCase {
                         }
                     }
                     let host = UIHostingController(rootView: NavigationStack { root }
-                        .environment(\.scenePhase, .active).environment(\.locale, Locale(identifier: "en_US")))
+                        .environment(\.scenePhase, .active).environment(\.locale, Locale(identifier: language)))
                     let window = UIWindow(windowScene: scene)
                     window.frame = CGRect(x: 0, y: 0, width: width, height: 1000)
                     window.overrideUserInterfaceStyle = dark ? .dark : .light
@@ -118,7 +137,7 @@ final class PerformanceAnalyticsTests: XCTestCase {
                     try await Task.sleep(for: .milliseconds(400))
                     host.view.layoutIfNeeded()
                     let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true) }
-                    let attachment = XCTAttachment(image: image); attachment.name = "Analytics-\(detail ? "executions" : "calendar")-\(Int(width))-\(dark ? "dark" : "light")"; attachment.lifetime = .keepAlways
+                    let attachment = XCTAttachment(image: image); attachment.name = "Analytics-\(language)-\(detail ? "executions" : "calendar")-\(Int(width))-\(dark ? "dark" : "light")"; attachment.lifetime = .keepAlways
                     add(attachment)
                     window.rootViewController = nil; window.isHidden = true
                 }
