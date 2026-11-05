@@ -68,7 +68,7 @@ final class PerformanceTests: XCTestCase {
     }
 
     @MainActor
-    func testSlowPullRefreshStopsAtSevenSecondsAndAcceptsLateHistory() async throws {
+    func testSlowPullRefreshStopsAtFourSecondsAndAcceptsLateHistory() async throws {
         PerformancePageProtocol.reset()
         URLProtocol.registerClass(PerformancePageProtocol.self)
         defer {
@@ -93,11 +93,11 @@ final class PerformanceTests: XCTestCase {
         refresh.beginRefreshing(); refresh.sendActions(for: .valueChanged)
         try await Task.sleep(for: .milliseconds(300))
         XCTAssertTrue(refresh.isRefreshing, "A pending refresh should initially show its spinner")
-        while refresh.isRefreshing && started.duration(to: .now) < .seconds(8) {
+        while refresh.isRefreshing && started.duration(to: .now) < .seconds(5) {
             try await Task.sleep(for: .milliseconds(50))
         }
         print("SLOW_REFRESH spinner=\(refresh.isRefreshing) elapsed=\(started.duration(to: .now))")
-        XCTAssertFalse(refresh.isRefreshing, "Stop the pull indicator after seven seconds even while history is pending")
+        XCTAssertFalse(refresh.isRefreshing, "Stop the pull indicator after four seconds even while history is pending")
         XCTAssertEqual(store.performanceHistoryCache[key]?.end, cached, "Retain the displayed same-account chart")
         XCTAssertGreaterThan(PerformancePageProtocol.liveCount, liveBefore, "Live P&L must remain independent")
         XCTAssertEqual(PerformancePageProtocol.forcedHistoryCount, 1)
