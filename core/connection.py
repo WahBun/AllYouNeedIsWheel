@@ -344,10 +344,10 @@ class IBConnection:
         return ticker
 
     def _recover_frozen_position_quote(self, contract, ticker):
-        """Retry only an incomplete held-option metrics subscription, on its owner.
+        """Retry only an incomplete option metrics subscription, on its owner.
 
         Frozen last/valuation/Greeks do not establish a bid/ask midpoint. Repeated
-        portfolio reads keep a partial subscription alive, so cache expiry alone
+        portfolio and Trade reads keep a partial subscription alive, so cache expiry alone
         cannot recover it. Leave the chart's separate subscription untouched.
         """
         key = self._market_ticker_key(contract, '106')
@@ -928,7 +928,9 @@ class IBConnection:
                     # Request market data with model computation
                     subscribed = self.has_market_subscription(contract, '106')
                     ticker = self.get_market_ticker(contract, '106')
-                   
+                    if not is_market_open:
+                        ticker = self._recover_frozen_position_quote(contract, ticker)
+
                     # Last/close and Greeks can arrive before bid/ask, especially
                     # for frozen quotes. Wait for the two-sided market required by
                     # midpoint pricing so initial load matches a manual refresh.
