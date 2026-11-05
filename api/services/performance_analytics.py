@@ -35,7 +35,7 @@ def archive_analytics(text, config, daily):
             first, through = min(dates), max(dates)
             if (through - first).days > 3700:
                 raise ValueError('Report range is too large')
-            rows = parse_mtd(text, account, first, through, native_pnl=True)
+            rows = parse_mtd(text, account, first, through, native_pnl=True, include_book_trades=True)
             grouped_orders(rows)
             # An identity migrating outside the replacement window is ambiguous.
             for eid in rows:
@@ -60,7 +60,9 @@ def archive_analytics(text, config, daily):
 
 def totals(rows):
     values = [r['realized_pnl'] for r in rows]
-    return dict(executions=len(rows), realized_pnl=sum(values) if all(v is not None for v in values) else None,
+    book_entries = sum(r.get('transaction_type') == 'BookTrade' for r in rows)
+    return dict(executions=len(rows) - book_entries, book_entries=book_entries,
+                realized_pnl=sum(values) if all(v is not None for v in values) else None,
                 missing_pnl=sum(v is None for v in values))
 
 

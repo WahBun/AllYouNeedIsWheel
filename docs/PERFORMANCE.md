@@ -173,3 +173,47 @@ Validation for the first Trade review increment (2026-11-05):
   confirms existing source availability, not deployment of the new endpoint.
 - No production write, real order, backend/Gateway restart or physical-device
   installation was performed. Screenshots use deterministic fixtures.
+
+### Historical book entries (2026-11-05 follow-up)
+
+The first complete production report revealed nine `BookTrade` records among
+400 exchange executions: option expirations and assignment-related stock/option
+entries. The MTD order-history parser intentionally requires `ExchTrade`, a
+positive trade price and an execution ID. Reusing that strict default for a full
+year incorrectly rejected the entire analytics import.
+
+Analytics now opts into a separate report-only parser mode. Recognized
+Assignment (`A`), Expiration (`Ep`) and Exercise (`Ex`) codes use namespaced report
+TradeID/TransactionID identities; no Gateway execution/order ID is synthesized.
+Zero-priced closed options are accepted for these events. Unknown types,
+correction/cancellation codes, conflicting identities, negative prices and
+invalid lifecycle terms still reject the new snapshot. The ordinary Orders
+parser keeps its original defaults and checks.
+
+Reported FIFO P&L from these records participates in the same date/currency/
+symbol totals. `executions` counts exchange executions; `book_entries` counts
+lifecycle records. Daily pagination includes both, and native detail identifies
+Assignment/Expiration/Exercise as a Book entry. The information sheet explains
+the distinction. Older responses without these optional fields remain readable.
+
+IBKR references:
+- [Trades - Flex Statement](https://www.ibkrguides.com/reportingreference/reportguide/tradesfq.htm)
+- [Statement codes](https://www.ibkrguides.com/reportingreference/reportguide/codes_default.htm)
+
+REA controlled replay captured the original rejection at
+`ev_5086a790d7b467d51aed76fcbca7f0c6468eded7693f792990762e9ebb43b80f`.
+The patched parser/archive was then replayed against the complete real Flex
+report in a separate diagnostic process and temporary database: all 400
+executions and nine book entries were retained across 13 calendar months
+(2025-11-04 through 2026-11-03), with no archive warning. Production code,
+production database and broker orders were not changed by that replay.
+
+Validation: 50 focused Python cases passed across analytics, execution history
+and Performance, plus four native simulator tests covering pagination, snapshot
+isolation and light/dark layouts at 320, 393 and 834 points. Narrow-screen
+calendar and lifecycle detail screenshots were visually inspected.
+
+Rollout requires `Deploy & Restart Backend`, followed by the normal Flex report
+refresh, and an updated iPhone build for separate activity counts and labels.
+No Gateway restart or Superchart/blueprint resource update is needed. This
+follow-up has not been deployed or installed on a physical device during validation.

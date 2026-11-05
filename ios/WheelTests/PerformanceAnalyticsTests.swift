@@ -6,17 +6,18 @@ final class PerformanceAnalyticsTests: XCTestCase {
     override func setUp() { AnalyticsProtocol.fail = false }
     static func payload(offset: Int = 0, version: String = "verified-1") -> Data {
         let days: [[String: Any]] = (1...30).map { day in
-            ["date": String(format: "2026-10-%02d", day), "executions": day == 30 ? 52 : 0,
+            ["date": String(format: "2026-10-%02d", day), "executions": day == 30 ? 51 : 0, "book_entries": day == 30 ? 1 : 0,
              "realized_pnl": day == 30 ? 156.11 : 0, "missing_pnl": 0]
         }
         let trades: [[String: Any]] = (offset..<min(offset + 50, 52)).map { index in
-            ["id": "fill-\(index)", "ticker": "TQQQ", "option_type": "PUT", "expiration": "20261120", "strike": 60,
-             "action": "BUY", "quantity": 1, "avg_fill_price": 2.25, "fill_time": "2026-10-30T15:38:29+00:00",
-             "currency": "USD", "commission": 1.04, "commission_currency": "USD", "realized_pnl": 3.0021, "intent": "CLOSE"]
+            ["id": "fill-\(index)", "ticker": "TQQQ", "option_type": "PUT", "expiration": "20261030", "strike": 60,
+             "action": "BUY", "quantity": 1, "avg_fill_price": index == 0 ? 0 : 2.25, "fill_time": "2026-10-30T15:38:29+00:00",
+             "currency": "USD", "commission": index == 0 ? 0 : 1.04, "commission_currency": "USD", "realized_pnl": 3.0021, "intent": "CLOSE",
+             "record_type": index == 0 ? "Expiration" : "Execution"]
         }
         let body: [String: Any] = ["month": "2026-10", "months": ["2026-10", "2026-09"], "currency": "USD", "currencies": ["USD", "HKD"],
-            "days": days, "summary": ["executions": 52, "realized_pnl": 156.11, "missing_pnl": 0],
-            "contributions": [["ticker": "TQQQ", "executions": 40, "realized_pnl": 206.11], ["ticker": "TSLL", "executions": 12, "realized_pnl": -50]],
+            "days": days, "summary": ["executions": 51, "book_entries": 1, "realized_pnl": 156.11, "missing_pnl": 0],
+            "contributions": [["ticker": "TQQQ", "executions": 39, "book_entries": 1, "realized_pnl": 206.11], ["ticker": "TSLL", "executions": 12, "book_entries": 0, "realized_pnl": -50]],
             "trades": trades, "trade_count": 52, "next_offset": offset == 0 ? 50 : NSNull(),
             "report_through": "2026-10-30", "report_version": version, "refreshing": false]
         return try! JSONSerialization.data(withJSONObject: body)
@@ -67,8 +68,12 @@ final class PerformanceAnalyticsTests: XCTestCase {
         XCTAssertEqual(slots.first!, nil)
         XCTAssertEqual(AnalyticsCalendar.amount(nil, currency: "USD"), "—")
         let report = try JSONDecoder().decode(PerformanceAnalytics.self, from: Self.payload())
-        XCTAssertEqual(report.trades[0].contract, "TQQQ · 2026-11-20 · 60P")
+        XCTAssertEqual(report.trades[0].contract, "TQQQ · 2026-10-30 · 60P")
         XCTAssertEqual(report.trades[0].time, "11:38:29")
+        XCTAssertEqual(report.trades[0].record_type, "Expiration")
+        XCTAssertEqual(report.trades[0].avg_fill_price, 0)
+        XCTAssertEqual(report.days.last?.activityCount, 52)
+        XCTAssertEqual(PerformanceAnalytics.activityLabel(51, report.summary.book_entries), "51 executions · 1 book entry")
     }
 
     @MainActor func testNativeCalendarAndExecutionLayouts() async throws {

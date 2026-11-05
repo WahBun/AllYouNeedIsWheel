@@ -46,7 +46,7 @@ def report_day(value):
     return datetime.strptime(value, '%Y%m%d').date() if len(value) == 8 else datetime.fromisoformat(value).date()
 
 
-def parse_mtd(text, account, first, through, *, native_pnl=False):
+def parse_mtd(text, account, first, through, *, native_pnl=False, include_book_trades=False):
     """Validate every MTD execution before replacing the published snapshot.
 
     This configured report's naive times were matched against exact broker fills
@@ -54,6 +54,8 @@ def parse_mtd(text, account, first, through, *, native_pnl=False):
     IBOrderID groups report executions only. It is not a Gateway permId.
     native_pnl is for currency-separated report analytics only. Existing Orders
     callers keep the USD-only display contract by default.
+    include_book_trades is also report-only: recognized lifecycle records use
+    their report TradeID/TransactionID, never a fabricated Gateway execution ID.
     """
     rows = report_rows(text, account)
     if rows and not any(r.get('levelofdetail', '').upper() == 'EXECUTION' for r in rows):
@@ -65,15 +67,32 @@ def parse_mtd(text, account, first, through, *, native_pnl=False):
         day = report_day(r.get('tradedate', ''))
         if not first <= day <= through:
             continue
-        if r.get('transactiontype', 'ExchTrade') != 'ExchTrade':
+        transaction = r.get('transactiontype', 'ExchTrade')
+        book = include_book_trades and transaction == 'BookTrade'
+        codes = set(r.get('notes/codes', r.get('notes', r.get('codes', ''))).split(';'))
+        lifecycle = codes & {'A', 'Ep', 'Ex'}
+        if transaction != 'ExchTrade' and not book:
             raise ValueError('Execution correction requires verification')
         eid, oid = r.get('ibexecid', ''), r.get('iborderid', '')
+        if book:
+            if len(lifecycle) != 1 or codes & {'Ca', 'Co'}:
+                raise ValueError('Book transaction requires verification')
+            identity = (r.get('tradeid') or r.get('transactionid') or '').strip()
+            if not identity or identity == '0':
+                raise ValueError('Book transaction identity unavailable')
+            eid = 'book:' + ('trade:' if r.get('tradeid') else 'transaction:') + identity
+            oid = ''  # A lifecycle record is not a working broker order.
         cid = int(r.get('conid', 0))
         asset = r.get('assetclass', r.get('assetcategory', '')).upper()
         currency = r.get('currencyprimary', r.get('currency', ''))
         side = r.get('buy/sell', r.get('buysell', '')).upper()
         signed = number(r.get('quantity'), positive=False)
-        quantity, price = abs(signed), number(r.get('tradeprice'), positive=True)
+        quantity, price = abs(signed), number(r.get('tradeprice'), positive=not book)
+        intent = {'O': 'OPEN', 'C': 'CLOSE'}.get(r.get('open/closeindicator', r.get('opencloseindicator', '')))
+        if book and (asset not in ('OPT', 'STK') or not intent or price < 0
+                     or (price == 0 and not (asset == 'OPT' and intent == 'CLOSE'))
+                     or ('Ep' in lifecycle and not (asset == 'OPT' and intent == 'CLOSE' and price == 0))):
+            raise ValueError('Invalid book transaction terms')
         if (not eid or cid <= 0 or not currency or quantity <= 0 or side not in ('BUY', 'SELL')
                 or (side == 'BUY') != (signed > 0) or asset not in ('OPT', 'STK', 'FUT', 'CASH')):
             raise ValueError('Execution identity unavailable')
@@ -105,7 +124,6 @@ def parse_mtd(text, account, first, through, *, native_pnl=False):
             raise ValueError('Execution symbol unavailable')
         fee = -number(r['ibcommission']) if r.get('ibcommission') else None
         pnl = number(r['fifopnlrealized']) if r.get('fifopnlrealized') else None
-        intent = {'O': 'OPEN', 'C': 'CLOSE'}.get(r.get('open/closeindicator', r.get('opencloseindicator', '')))
         row = dict(con_id=cid, ticker=symbol, option_type=kind, strike=strike, expiration=expiration,
                    action=side, fill_action=side, quantity=quantity, filled=quantity, avg_fill_price=price,
                    fill_time=when.astimezone(timezone.utc).isoformat(), currency=currency,
@@ -115,6 +133,9 @@ def parse_mtd(text, account, first, through, *, native_pnl=False):
                    order_type=r.get('ordertype') or '—', tif=r.get('timeinforce') or r.get('tif') or '—',
                    status='executed', ib_status='Execution recorded', executed=True, external_ib=True,
                    history_source='flex_mtd', report_order_id=oid, report_trade_day=day.isoformat())
+        if include_book_trades:
+            row.update(transaction_type=transaction,
+                       record_type={'A': 'Assignment', 'Ep': 'Expiration', 'Ex': 'Exercise'}[next(iter(lifecycle))] if book else 'Execution')
         if eid in executions and executions[eid] != row:
             raise ValueError('Conflicting execution identity')
         parts = eid.split('.')
