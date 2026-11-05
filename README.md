@@ -6,7 +6,7 @@ An unofficial, self-hosted iPhone and web trading workspace for Interactive Brok
 
 **An iPhone and desktop workspace for the Wheel strategy.** View IBKR holdings, compare returns, screen cash-secured puts (CSP) and covered calls (CC), manage orders, and work across synchronized Supercharts.
 
-Built with SwiftUI for iOS 18 and later, with light and dark themes. Current UI development uses English; existing localization resources remain, with a coordinated Chinese localization pass deferred until the features and interactions mature. The app connects to your own backend. IB authentication, market-data connections and databases stay on the backend host; the iPhone does not store your IB password.
+Built with SwiftUI for iOS 18 and later, with light and dark themes. Native screens support English, Simplified Chinese and Traditional Chinese, including Trade review, commissions, indicators and maintenance. Trading abbreviations and instrument codes retain their original notation. The app connects to your own backend. IB authentication, market-data connections and databases stay on the backend host; the iPhone does not store your IB password.
 
 The **desktop web workspace** brings 1/2/3/4 charts, drawings, indicators, price alerts and a trading panel into one screen. The **native iPhone app** provides Portfolio, Trade, Orders and charts on the same backend. The web layout also adapts to smaller screens.
 
@@ -14,9 +14,9 @@ The **desktop web workspace** brings 1/2/3/4 charts, drawings, indicators, price
 
 ## Project status and versions
 
-As of **2026-10-25**, Wheel is in everyday use and stability maintenance. Ordinary issues are collected and grouped for small, focused repairs; trading-safety problems and normal-use blockers take priority. Preserve the established layouts, tick-level market-data path and confirmed trading interactions. This direction does not imply acceptance of every scenario or Live trading workflow.
+As of **2026-11-05**, Wheel is in everyday use and stability maintenance. Ordinary issues are collected and grouped for small, focused repairs; trading-safety problems and normal-use blockers take priority. Preserve the established layouts, tick-level market-data path and confirmed trading interactions. This direction does not imply acceptance of every scenario or Live trading workflow.
 
-Official code is identified by repository, branch and commit SHA. The release is [Wheel: v1.8.5](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.8.5), from **`Ben/wheel-1.8`**. The release tag identifies the exact source commit; do not assume `main` is newest. Web version metadata is 1.8.5 and native iOS Settings shows **1.8.5 (5)** after a fresh build/install. Publication does not deploy Mini or update the installed iPhone app.
+Official code is identified by repository, branch and commit SHA. The latest published release is [Wheel: v1.8.5](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.8.5). **1.9.0 (6) is being prepared for user review**, targeting **`Ben/wheel-1.8`**; see the [1.9.0 release notes](docs/RELEASE_1.9.0.md). This source builds iOS version 1.9.0 (6) and web version metadata 1.9.0. A development version is not a published Release. Publication does not deploy Mini or update the installed iPhone app.
 
 Recommended roles: the **development Mac** handles development, Xcode and iPhone builds; the **backend host** runs Gateway, Backend and the API continuously. The development Mac and iPhone reach the backend host through Tailscale. The user chooses deployments and restarts from a computer or phone, and performs the iPhone Xcode Run.
 
@@ -53,6 +53,7 @@ Captured on **2026-10-25** from the code reviewed above. iPhone Simulator views 
 | --- | --- |
 | **Portfolio** | Net liquidation value, expandable cash and liquidity, initial margin and leverage; stock and option holdings, entry fill prices, days remaining and P&L; allocation, position sharing, closing and rolling workflows. |
 | **Performance** | MTD/YTD/ALL return curves, initially YTD; Portfolio only, SPX, NDX or SPX + NDX comparisons, initially both benchmarks; drag to inspect dates and returns; daily P&L and provisional intraday estimates. |
+| **Trade review** | Calendar icon at the top right of Performance; monthly realized P&L, daily calendar, symbol contributions, execution and lifecycle book entries, and daily/monthly commissions by fee currency. Pull down on Performance to refresh; Today has one information button for daily P&L and history methodology. |
 | **Trade** | CSP → CC workflow; expiration and strike selection, bid/mid/ask, spreads and Greeks; contract quantity and limit editing, premium estimates, CSP initial-margin-change estimates, individual or batch order drafts. |
 | **Orders** | Pending orders and partial/full execution records; Today/7 Days/MTD, symbol search and Stock/Future/Option filters; commissions displayed to two decimals; order details, edits, execution, cancellation and fill notifications. |
 | **Supercharts** | Stock, futures and option charts; position average prices, related option strikes, execution markers, multi-timeframe EMA, ATR, Bar Count, FVG, Previous values, volatility channels/extreme gauge and drawing tools; instrument search and shared favorites. |

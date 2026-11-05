@@ -75,10 +75,10 @@ struct PerformanceAnalytics: Decodable {
     let warning: String?
     let refreshing: Bool
 
-    static func activityLabel(_ executions: Int, _ books: Int?) -> String {
+    static func activityLabel(_ executions: Int, _ books: Int?, locale: Locale = Locale(identifier: "en")) -> String {
         let count = books ?? 0
-        let fills = "\(executions) \(executions == 1 ? "execution" : "executions")"
-        return count == 0 ? fills : "\(fills) · \(count) \(count == 1 ? "book entry" : "book entries")"
+        let fills = String(format: localizedLabel(executions == 1 ? "%lld execution" : "%lld executions", locale: locale), executions)
+        return count == 0 ? fills : fills + " · " + String(format: localizedLabel(count == 1 ? "%lld book entry" : "%lld book entries", locale: locale), count)
     }
 }
 
@@ -146,6 +146,10 @@ enum AnalyticsCalendar {
         let blank = calendar.component(.weekday, from: first) - 1
         return Array(repeating: nil, count: blank) + days.map { String(format: "%@-%02d", month, $0) }
     }
+    static func weekdays(locale: Locale) -> [String] {
+        let formatter = DateFormatter(); formatter.locale = locale
+        return formatter.veryShortStandaloneWeekdaySymbols
+    }
     static func amount(_ number: Double?, currency: String) -> String {
         guard let number else { return "—" }
         return number.formatted(.currency(code: currency))
@@ -170,6 +174,7 @@ struct PerformanceAnalyticsScreen: View {
     let base: String
     let epoch: String?
     @Environment(\.scenePhase) private var phase
+    @Environment(\.locale) private var locale
     @State private var model = PerformanceAnalyticsModel()
     @State private var month = ""
     @State private var currency = ""
@@ -197,7 +202,7 @@ struct PerformanceAnalyticsScreen: View {
                         }.font(.subheadline).foregroundStyle(.secondary)
                         AnalyticsAmount(value: report.summary.realized_pnl, currency: report.currency)
                             .font(.largeTitle.bold()).minimumScaleFactor(0.6).lineLimit(1)
-                        Text(verbatim: "\(PerformanceAnalytics.activityLabel(report.summary.executions, report.summary.book_entries)) · \(report.currency)")
+                        Text(verbatim: "\(PerformanceAnalytics.activityLabel(report.summary.executions, report.summary.book_entries, locale: locale)) · \(report.currency)")
                             .font(.caption).foregroundStyle(.secondary)
                     }.padding(.vertical, 4)
                     AnalyticsReportNote(report: report)
@@ -215,7 +220,7 @@ struct PerformanceAnalyticsScreen: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(verbatim: row.ticker).fontWeight(.semibold)
-                                Text(verbatim: PerformanceAnalytics.activityLabel(row.executions, row.book_entries)).font(.caption).foregroundStyle(.secondary)
+                                Text(verbatim: PerformanceAnalytics.activityLabel(row.executions, row.book_entries, locale: locale)).font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 8)
                             AnalyticsAmount(value: row.realized_pnl, currency: report.currency).lineLimit(1).minimumScaleFactor(0.7)
@@ -226,7 +231,7 @@ struct PerformanceAnalyticsScreen: View {
                 }
             }
             if model.loading { Section { ProgressView("Loading report…") } }
-            if let error = model.error { Section { Text(verbatim: error).foregroundStyle(.orange) } }
+            if let error = model.error { Section { NoticeText(error).foregroundStyle(.orange) } }
             Section { Button("Refresh") { revision += 1 }.disabled(model.loading) }
         }
         .navigationDestination(item: $selectedDate) { date in
@@ -246,15 +251,17 @@ struct AnalyticsReportNote: View {
     let report: PerformanceAnalytics
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(verbatim: report.report_through.map { "Flex report through \($0)" } ?? "No report coverage for this month")
+            if let through = report.report_through { Text("Flex report through \(through)") }
+            else { Text("No report coverage for this month") }
             if report.summary.missing_pnl > 0 { Text("Some executions have no reported realized P&L. Totals remain unavailable until the report is complete.").foregroundStyle(.orange) }
             if report.refreshing { Text("Report refresh pending").foregroundStyle(.orange) }
-            if let warning = report.warning { Text(verbatim: warning).foregroundStyle(.orange) }
+            if let warning = report.warning { NoticeText(warning).foregroundStyle(.orange) }
         }.font(.caption).foregroundStyle(.secondary)
     }
 }
 
 enum PerformanceHelpTopic: String {
+    case performance = "Performance"
     case commissions = "Commissions"
     case pnl = "Realized P&L"
     case calendar = "P&L calendar"
@@ -263,6 +270,8 @@ enum PerformanceHelpTopic: String {
     case history = "Performance history"
     var explanation: String {
         switch self {
+        case .performance:
+            PerformanceHelpTopic.dailyPnl.explanation + "\n\n" + PerformanceHelpTopic.history.explanation
         case .commissions:
             "Total trading commissions reported by IBKR for this account and the selected month or day, across all instruments and trade currencies. The P&L currency filter does not change these totals.\n\nAmounts use the commission currency; currencies are not converted or combined. Positive values are costs; credits reduce the total. Missing amounts appear as a dash, not zero. Dates follow the report's trade date.\n\nRealized P&L already includes commissions; these totals are not deducted again. Market data subscriptions and other account charges are separate and are not included. These totals do not establish eligibility for a subscription fee waiver."
         case .dailyPnl:
@@ -291,13 +300,13 @@ struct AnalyticsCommissionsSection: View {
                         Text(verbatim: AnalyticsCalendar.amount(row.total, currency: row.currency))
                             .monospacedDigit().foregroundStyle(.secondary)
                     } label: {
-                        Text(verbatim: row.currency.isEmpty ? "Unspecified currency" : row.currency)
+                        if row.currency.isEmpty { Text("Unspecified currency") } else { Text(verbatim: row.currency) }
                     }
                     if row.missing > 0 { Text("Some commission amounts are missing.").font(.caption).foregroundStyle(.secondary) }
                 }
             } else { Text("—").foregroundStyle(.secondary) }
         } header: {
-            HStack(spacing: 4) { Text(verbatim: title); PerformanceInfoButton(topic: .commissions) }.textCase(nil)
+            HStack(spacing: 4) { Text(LocalizedStringKey(title)); PerformanceInfoButton(topic: .commissions) }.textCase(nil)
         }
     }
 }
@@ -305,15 +314,21 @@ struct AnalyticsCommissionsSection: View {
 struct PerformanceInfoButton: View {
     let topic: PerformanceHelpTopic
     @State private var presented = false
+    @Environment(\.locale) private var locale
     var body: some View {
         Button { presented = true } label: {
             Image(systemName: "info.circle").frame(width: 32, height: 32).contentShape(Rectangle())
         }.buttonStyle(.plain).foregroundStyle(.secondary)
-            .accessibilityLabel("About \(topic.rawValue)")
+            .accessibilityLabel(Text("About \(localizedLabel(topic.rawValue, locale: locale))"))
             .sheet(isPresented: $presented) {
                 NavigationStack {
-                    Form { Text(verbatim: topic.explanation) }
-                        .navigationTitle(topic.rawValue).navigationBarTitleDisplayMode(.inline)
+                    Form {
+                        if topic == .performance {
+                            Section { NoticeText(PerformanceHelpTopic.dailyPnl.explanation) } header: { Text("Daily P&L") }
+                            Section { NoticeText(PerformanceHelpTopic.history.explanation) } header: { Text("Performance history") }
+                        } else { NoticeText(topic.explanation) }
+                    }
+                        .navigationTitle(LocalizedStringKey(topic.rawValue)).navigationBarTitleDisplayMode(.inline)
                         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { presented = false } } }
                 }.presentationDetents([.medium, .large])
             }
@@ -335,6 +350,7 @@ struct AnalyticsAmount: View {
 }
 
 struct AnalyticsCalendarGrid: View {
+    @Environment(\.locale) private var locale
     let report: PerformanceAnalytics
     let onSelect: (String) -> Void
     @Environment(\.customPalette) private var palette
@@ -344,7 +360,7 @@ struct AnalyticsCalendarGrid: View {
         let byDate = Dictionary(uniqueKeysWithValues: report.days.map { ($0.date, $0) })
         VStack(spacing: 6) {
             HStack(spacing: 2) {
-                ForEach(Array(["S", "M", "T", "W", "T", "F", "S"].enumerated()), id: \.offset) { _, title in
+                ForEach(Array(AnalyticsCalendar.weekdays(locale: locale).enumerated()), id: \.offset) { _, title in
                     Text(verbatim: title).font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity)
                 }
             }
@@ -364,7 +380,7 @@ struct AnalyticsCalendarGrid: View {
                             .contentShape(Rectangle())
                         }.buttonStyle(.plain).disabled(day == nil)
                         .accessibilityIdentifier("analytics-day-\(date)")
-                        .accessibilityLabel("\(date), \(AnalyticsCalendar.amount(day?.realized_pnl, currency: report.currency)), \(PerformanceAnalytics.activityLabel(day?.executions ?? 0, day?.book_entries))")
+                        .accessibilityLabel("\(date), \(AnalyticsCalendar.amount(day?.realized_pnl, currency: report.currency)), \(PerformanceAnalytics.activityLabel(day?.executions ?? 0, day?.book_entries, locale: locale))")
                     } else { Color.clear.frame(height: 47) }
                 }
             }
@@ -383,6 +399,7 @@ struct PerformanceExecutionView: View {
     let currency: String
     let day: String
     @Environment(\.scenePhase) private var phase
+    @Environment(\.locale) private var locale
     @State private var model = PerformanceAnalyticsModel()
     @State private var offset = 0
     @State private var revision = 0
@@ -396,7 +413,7 @@ struct PerformanceExecutionView: View {
                         if let books = total.book_entries, books > 0 { LabeledContent("Book entries", value: String(books)) }
                     }
                     Text("IBKR Flex · trade date · times in New York").font(.caption).foregroundStyle(.secondary)
-                    if let warning = report.warning { Text(verbatim: warning).foregroundStyle(.orange) }
+                    if let warning = report.warning { NoticeText(warning).foregroundStyle(.orange) }
                 }
                 AnalyticsCommissionsSection(title: "Daily commissions", totals: report.daily_commissions)
                 if report.trade_count == 0 { Text("No activity for this date and currency.").foregroundStyle(.secondary) }
@@ -405,10 +422,10 @@ struct PerformanceExecutionView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(verbatim: trade.contract).fontWeight(.semibold).fixedSize(horizontal: false, vertical: true)
                             if let kind = trade.record_type, kind != "Execution" {
-                                Text(verbatim: "\(kind) · Book entry").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                Text("\(localizedLabel(kind, locale: locale)) · Book entry").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                             }
-                            Text(verbatim: "\(trade.action) \(trade.quantity.formatted()) @ \(trade.avg_fill_price.formatted(.number.precision(.fractionLength(0...6)))) \(trade.currency)")
-                            Text(verbatim: "\(trade.time) ET · \(trade.intent ?? "Execution")").font(.caption).foregroundStyle(.secondary)
+                            Text(verbatim: "\(localizedLabel(trade.action, locale: locale)) \(trade.quantity.formatted()) @ \(trade.avg_fill_price.formatted(.number.precision(.fractionLength(0...6)))) \(trade.currency)")
+                            Text(verbatim: "\(trade.time) ET · \(localizedLabel(trade.intent ?? "Execution", locale: locale))").font(.caption).foregroundStyle(.secondary)
                         }
                         LabeledContent("Realized P&L") { AnalyticsAmount(value: trade.realized_pnl, currency: trade.currency) }
                         LabeledContent("Commission", value: AnalyticsCalendar.amount(trade.commission, currency: trade.commission_currency))
@@ -419,7 +436,7 @@ struct PerformanceExecutionView: View {
                 }
             }
             if model.loading { ProgressView("Loading activity…") }
-            if let error = model.error { Text(verbatim: error).foregroundStyle(.orange) }
+            if let error = model.error { NoticeText(error).foregroundStyle(.orange) }
             Button("Refresh") { offset = 0; revision += 1 }.disabled(model.loading)
         }.navigationTitle(day).navigationBarTitleDisplayMode(.inline)
             .task(id: "\(phase == .active)-\(offset)-\(revision)") {

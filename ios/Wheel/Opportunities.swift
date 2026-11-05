@@ -892,7 +892,7 @@ struct OpportunitiesView: View {
                     }
                     .onChange(of: ticker) { _, _ in tickerError = nil }
                     if let tickerError {
-                        Text(verbatim: tickerError).font(.caption).foregroundStyle(.orange)
+                        NoticeText(tickerError).font(.caption).foregroundStyle(.orange)
                     }
                 }
                 if book.loading && symbols.allSatisfy({ book.rows[book.key($0, type)]?.quote == nil }) { ProgressView("Loading opportunities…") }

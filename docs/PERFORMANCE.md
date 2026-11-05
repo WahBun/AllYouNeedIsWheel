@@ -259,3 +259,18 @@ After merge: Deploy & Restart Backend and rebuild/install the iPhone app. The
 existing archive is sufficient; no report migration or Gateway restart is needed.
 No Superchart/blueprint resources changed. Device installation and production
 deployment are not part of this validation.
+
+
+## 1.9.0 native presentation
+
+Performance now uses the native pull-to-refresh gesture instead of a Refresh row.
+The gesture waits for the existing history refresh to complete or fail; a failed
+refresh retains the same-account cached chart. The independent live P&L loop and
+account/period isolation stay unchanged. Today has one information button with
+both Daily P&L and Performance history explanations.
+
+Trade review remains in the top-right calendar button. English, Simplified Chinese
+and Traditional Chinese cover the review, help, fee totals and weekday labels.
+Date grouping remains the report trade date and the calendar remains Sunday-first.
+Commissions remain separate by fee currency and are not deducted from realized
+P&L again. This UI update does not change accounting or order behavior.

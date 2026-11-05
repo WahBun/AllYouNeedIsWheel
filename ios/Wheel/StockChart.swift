@@ -140,7 +140,7 @@ struct ChartStatusControl: View {
             }.font(.caption).foregroundStyle(highlighted ? .orange : .secondary)
                 .frame(maxWidth: .infinity).frame(height: 32).contentShape(Rectangle())
         }.buttonStyle(.plain)
-            .accessibilityLabel("Chart status: " + text)
+            .accessibilityLabel(Text("Chart status: \(text)"))
             .accessibilityHint("Open market data status and trading notices")
     }
 }
@@ -159,7 +159,7 @@ struct ChartOrderProgressView: View {
             }
             if let protection = state["protection"] as? [String: Any], state["active"] as? Bool == true {
                 if protection["status"] as? String == "not_requested" {
-                    Text(locale.language.languageCode?.identifier == "zh" ? "未设止盈止损" : "No TP / SL set")
+                    Text("No TP / SL set")
                 } else {
                     Text(verbatim: "TP \(number(protection, "tp")) · SL \(number(protection, "sl"))")
                     if state["sync_error"] as? Bool == true {
@@ -588,7 +588,7 @@ struct StockChartView: View {
             if paperState["live_initial_scope"] as? Bool == true || !bracketEnabled(chartType) {
                 body.removeValue(forKey: "tp"); body.removeValue(forKey: "sl")
             } else if body["tp"] == nil && body["sl"] == nil {
-                paperMessage = locale.language.languageCode?.identifier == "zh" ? "Bracket 至少开启 TP 或 SL" : "Enable TP or SL for Bracket"
+                paperMessage = "Enable TP or SL for Bracket"
                 return
             }
             if body["source"] as? String == "join" {
@@ -1044,7 +1044,7 @@ struct StockChartView: View {
     private var pvSection: some View {
         Section("Previous Values") {
             if indicatorTab == "Inputs" {
-                Picker("Display", selection: pvBinding(\.display)) { ForEach(["Today","TimeFrame","All"], id: \.self) { Text($0).tag($0) } }
+                Picker("Display", selection: pvBinding(\.display)) { ForEach(["Today","TimeFrame","All"], id: \.self) { Text(LocalizedStringKey($0)).tag($0) } }
                 Toggle("Base On Chart", isOn: pvBinding(\.baseChart))
             } else if indicatorTab == "Style" {
                 Toggle("Previous Values", isOn: pvBinding(\.enabled))
@@ -1056,13 +1056,13 @@ struct StockChartView: View {
                         ForEach(emaIntervals.filter { $0 > 0 }, id: \.self) { Text(intervalLabel($0)).tag($0) }
                     }
                     Picker("Source \(i+1)", selection: pvRowBinding(i, \.source)) {
-                        ForEach(["close","high","low","open","hl/2","hlc3","ohlc/4","hlcc/4","CurrentOpen"], id: \.self) { Text($0).tag($0) }
+                        ForEach(["close","high","low","open","hl/2","hlc3","ohlc/4","hlcc/4","CurrentOpen"], id: \.self) { Text(LocalizedStringKey(["close":"Close price", "open":"Open price", "high":"High price", "low":"Low price"][$0] ?? $0)).tag($0) }
                     }
                 } else if indicatorTab == "Style" {
                     Toggle("Level \(i+1)", isOn: pvRowBinding(i, \.enabled))
                     ColorPicker("Color \(i+1)", selection: pvColor(i), supportsOpacity: false)
                     Picker("Line style \(i+1)", selection: pvRowBinding(i, \.style)) {
-                        ForEach(["solid","dotted","dashed","arrow_left","arrow_right","arrow_both"], id: \.self) { Text($0).tag($0) }
+                        ForEach(["solid","dotted","dashed","arrow_left","arrow_right","arrow_both"], id: \.self) { Text(LocalizedStringKey($0)).tag($0) }
                     }
                     Stepper("Width \(i+1): \(pvSettings.rows[i].width)", value: pvRowBinding(i, \.width), in: 1...4)
                 }
@@ -1084,7 +1084,7 @@ struct StockChartView: View {
                 VolatilitySettingsSections(settings: volatilityBinding, tab: indicatorTab, sharedRulesEditable: store.demo || (moonshineRules.rules != nil && !moonshineRules.busy))
                 if indicatorTab == "Inputs" && !store.demo {
                     Section("Shared MoonShine rules") {
-                        Text(moonshineRules.message).font(.footnote)
+                        NoticeText(moonshineRules.message).font(.footnote)
                         Button("Refresh rules") { Task { await moonshineRules.refresh() } }.disabled(moonshineRules.busy)
                     }
                 }
@@ -1119,7 +1119,7 @@ struct StockChartView: View {
                     } else if indicatorTab == "Style" {
                         Toggle("Bar Count", isOn: Binding(get: { showBarCount }, set: { showBarCount = $0 }))
                         Picker("Label size", selection: $barCountSize) {
-                            ForEach(["auto", "tiny", "small", "normal", "large", "huge"], id: \.self) { Text($0.capitalized).tag($0) }
+                            ForEach(["auto", "tiny", "small", "normal", "large", "huge"], id: \.self) { Text(LocalizedStringKey($0.capitalized)).tag($0) }
                         }
                         ColorPicker("Label color", selection: barCountColorBinding, supportsOpacity: false)
                         HStack { Text("Opacity"); Spacer(); Text((barCountOpacity / 100).formatted(.percent.precision(.fractionLength(0)))).monospacedDigit() }
@@ -1146,7 +1146,7 @@ struct StockChartView: View {
                 .toolbar { Button("Done") { showIndicatorSettings = false } }
                 .sheet(isPresented: $namingTemplate) { saveIndicatorTemplateSheet }
 
-        }.environment(\.locale, Locale(identifier: "en"))
+        }
     }
     private func makePreview(side: Int) {
         guard !paperActive, !paperBusy else { return }
@@ -1191,22 +1191,12 @@ struct StockChartView: View {
          "positionUnit": positionProfitUnit, "bracketUnit": bracketProfitUnit]
     }
     private var chartStatusText: String {
-        if viewingInactiveDayOrder {
-            let name = chartType == "OPT" ? "Option chart" : chartType == "FUT" ? "Futures chart" : "Stock chart"
-            return "\(store.accountModeLabel) · \(name) · View"
-        }
-        let chinese = locale.language.languageCode?.identifier == "zh"
-        let chartName: String
-        switch chartType {
-        case "OPT": chartName = chinese ? "期权图表" : "Option chart"
-        case "FUT": chartName = chinese ? "期货图表" : "Futures chart"
-        default: chartName = chinese ? "股票图表" : "Stock chart"
-        }
-        if !paperStatusText.isEmpty {
+        let chartName = chartType == "OPT" ? "Option chart" : chartType == "FUT" ? "Futures chart" : "Stock chart"
+        if !viewingInactiveDayOrder, !paperStatusText.isEmpty {
             return localizedNotice(paperStatusText, locale: locale)
         }
-        let state = paperEnabled ? (chinese ? "交易" : "Trading") : (chinese ? "查看" : "View")
-        return localizedLabel(store.accountModeLabel, locale: locale) + " · " + chartName + " · " + state
+        let state = !viewingInactiveDayOrder && paperEnabled ? "Trading" : "View"
+        return [store.accountModeLabel, chartName, state].map { localizedLabel($0, locale: locale) }.joined(separator: " · ")
     }
     private var viewingInactiveDayOrder: Bool {
         Date().timeIntervalSince(paperReceived ?? .distantPast) < 3 &&
@@ -1521,12 +1511,12 @@ struct StockChartView: View {
                 HStack {
                     Menu {
                         Picker("Orders", selection: Binding(get: { selectedOrderGroup }, set: selectOrderGroup)) {
-                            Text(locale.language.languageCode?.identifier == "zh" ? "原始订单" : "Original order").tag("")
+                            Text("Original order").tag("")
                             ForEach((paperState["group_choices"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }.filter { !$0.isEmpty }, id: \.self) { id in
                                 Text("Order · " + String(id.suffix(6))).tag(id)
                             }
                             if !selectedOrderGroup.isEmpty && !(paperState["group_choices"] as? [[String: Any]] ?? []).contains(where: { $0["id"] as? String == selectedOrderGroup }) {
-                                Text(locale.language.languageCode?.identifier == "zh" ? "新订单草稿" : "New order draft").tag(selectedOrderGroup)
+                                Text("New order draft").tag(selectedOrderGroup)
                             }
                         }.labelsHidden()
                         if positionSize > 0 {
@@ -1537,7 +1527,7 @@ struct StockChartView: View {
                         }
                     } label: {
                         HStack(spacing: 6) {
-                            Text(selectedOrderGroup.isEmpty ? (locale.language.languageCode?.identifier == "zh" ? "原始订单" : "Original order") : "Order · " + String(selectedOrderGroup.suffix(6)))
+                            Group { if selectedOrderGroup.isEmpty { Text("Original order") } else { Text("Order · \(String(selectedOrderGroup.suffix(6)))") } }
                             Image(systemName: "chevron.down").font(.caption)
                         }
                     }
@@ -1715,7 +1705,7 @@ struct StockChartView: View {
                     }
                     if chartType == "FUT" { Text("Futures use one protected bracket per contract. Add creates new brackets. Trim exits selected contracts at bid/ask while keeping every other bracket unchanged.").font(.caption) }
                     else if ["OPT", "STK"].contains(chartType) { Text("Quick Add, Trim and Close use fresh midpoint limits. Prices selected on the chart are preserved. Orders do not automatically follow quotes; immediate fill is not guaranteed.").font(.caption) }
-                    else { Text(locale.language.languageCode?.identifier == "zh" ? "加仓使用市价单；减仓使用买卖报价限价单。不会自动添加止盈止损。" : "Add uses a market order; Trim uses a quote-limit order. TP/SL is not added automatically.").font(.caption) }
+                    else { Text("Add uses a market order; Trim uses a quote-limit order. TP/SL is not added automatically.").font(.caption) }
                     Button(adjustmentAction == "trim" ? "Trim position" : "Add to position") {
                         guard adjustmentAllowed, adjustmentCID == chartID, adjustmentRef == paperState["order_ref"] as? String else { return }
                         showAdjustment = false
@@ -1732,17 +1722,17 @@ struct StockChartView: View {
                     ChartTradingStatusSections(text: chartStatusText, state: paperState,
                         hasPreview: hasOrderPreview, viewingHistory: viewingInactiveDayOrder)
                     Section("Market data") {
-                        if quoteStatusCID == chartID, !quoteStatusMessage.isEmpty { Text(verbatim: quoteStatusMessage) }
+                        if quoteStatusCID == chartID, !quoteStatusMessage.isEmpty { NoticeText(quoteStatusMessage) }
                         TimelineView(.periodic(from: .now, by: 1)) { time in
-                            Text(verbatim: received.map { time.date.timeIntervalSince($0) > 3 } == true ? "Chart updates paused · verify connection" : notice)
+                            NoticeText(received.map { time.date.timeIntervalSince($0) > 3 } == true ? "Chart updates paused · verify connection" : notice)
                         }
-                        if !historyNotice.isEmpty { Text(verbatim: historyNotice) }
-                        if let emaHistoryNotice { Text(verbatim: emaHistoryNotice) }
+                        if !historyNotice.isEmpty { NoticeText(historyNotice) }
+                        if let emaHistoryNotice { NoticeText(emaHistoryNotice) }
                     }
                     if !chartNotices.isEmpty {
                         Section("Trading notices") {
                             ForEach(Array(chartNotices.enumerated()), id: \.offset) { _, message in
-                                Text(verbatim: message)
+                                NoticeText(message)
                             }
                         }
                     }
@@ -1797,7 +1787,7 @@ struct StockChartView: View {
                         Text("Futures").tag("FUT")
                     }.pickerStyle(.segmented)
                     Section("Optional TP / SL · GTC") {
-                        Text(verbatim: locale.language.languageCode?.identifier == "zh" ? "新订单默认设置，不会修改当前持仓。当前保护请用管理 TP / SL。" : "Defaults for new orders. Existing positions are unchanged; use Manage TP / SL for current protection.").font(.caption).foregroundStyle(.secondary)
+                        Text("Defaults for new orders. Existing positions are unchanged; use Manage TP / SL for current protection.").font(.caption).foregroundStyle(.secondary)
                         Toggle("Bracket", isOn: bracketToggle(templateType))
                         if bracketEnabled(templateType) {
                         Toggle("Enable TP", isOn: protectionToggle(templateType, "tp"))
@@ -1815,7 +1805,7 @@ struct StockChartView: View {
                             distanceRow("SL", value: distanceBinding(templateType, tp: false))
                         }
                         }
-                        Text(verbatim: locale.language.languageCode?.identifier == "zh" ? "Profit 按合约计价币种的持仓总金额计算（TP 盈利 / SL 亏损），不含手续费，并按合约最小跳动取整。Profit % 按入场价格计算。" : "Profit is the total position amount in contract currency before fees (TP gain / SL loss), rounded to the contract tick. Profit % uses the entry premium before fees.").font(.caption)
+                        Text("Profit is the total position amount in contract currency before fees (TP gain / SL loss), rounded to the contract tick. Profit % uses the entry premium before fees.").font(.caption)
                     }
                     if validEntry > 0 && templateType == chartType && !paperActive {
                         Text("Apply updates the current preview and saves these distances for new orders.")
@@ -2373,7 +2363,7 @@ private struct PositionProtectionEditor: View {
                         TextField("SL", text: $sl).keyboardType(.decimalPad)
                         if let targetSL { Text("SL target: " + String(format: "%.4f", targetSL)).font(.caption) }
                     }
-                    Text(verbatim: locale.language.languageCode?.identifier == "zh" ? "Profit 按合约计价币种的持仓总金额计算：TP 盈利 / SL 亏损，不含手续费，目标价按合约最小跳动取整。" : "Profit is the total position amount in contract currency before fees: TP gain / SL loss. Targets are rounded to the contract tick.").font(.caption)
+                    Text("Profit is the total position amount in contract currency before fees: TP gain / SL loss. Targets are rounded to the contract tick.").font(.caption)
                 }
                 Section {
                     if state["position_only"] as? Bool == true {
