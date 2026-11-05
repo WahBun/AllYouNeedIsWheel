@@ -2,6 +2,12 @@ import SwiftUI
 import Observation
 
 struct PerformanceAnalytics: Decodable {
+    struct CommissionTotal: Decodable, Identifiable {
+        let currency: String
+        let total: Double?
+        let missing: Int
+        var id: String { currency }
+    }
     struct Total: Decodable {
         let executions: Int
         let book_entries: Int?
@@ -58,6 +64,8 @@ struct PerformanceAnalytics: Decodable {
     let currencies: [String]
     let days: [Day]
     let summary: Total
+    let monthly_commissions: [CommissionTotal]?
+    let daily_commissions: [CommissionTotal]?
     let contributions: [Contribution]
     let trades: [Execution]
     let trade_count: Int
@@ -194,6 +202,7 @@ struct PerformanceAnalyticsScreen: View {
                     }.padding(.vertical, 4)
                     AnalyticsReportNote(report: report)
                 }
+                AnalyticsCommissionsSection(title: "Monthly commissions", totals: report.monthly_commissions)
                 Section {
                     AnalyticsCalendarGrid(report: report) { selectedDate = $0 }
                         .listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 8))
@@ -246,6 +255,7 @@ struct AnalyticsReportNote: View {
 }
 
 enum PerformanceHelpTopic: String {
+    case commissions = "Commissions"
     case pnl = "Realized P&L"
     case calendar = "P&L calendar"
     case contributions = "Symbol contributions"
@@ -253,6 +263,8 @@ enum PerformanceHelpTopic: String {
     case history = "Performance history"
     var explanation: String {
         switch self {
+        case .commissions:
+            "Total trading commissions reported by IBKR for this account and the selected month or day, across all instruments and trade currencies. The P&L currency filter does not change these totals.\n\nAmounts use the commission currency; currencies are not converted or combined. Positive values are costs; credits reduce the total. Missing amounts appear as a dash, not zero. Dates follow the report's trade date.\n\nRealized P&L already includes commissions; these totals are not deducted again. Market data subscriptions and other account charges are separate and are not included. These totals do not establish eligibility for a subscription fee waiver."
         case .dailyPnl:
             "Account base currency · IBKR daily P&L.\n\nDaily %: estimate using last reported NAV."
         case .history:
@@ -263,6 +275,29 @@ enum PerformanceHelpTopic: String {
             "Tap a reported day to review executions and book entries.\n\nDashes indicate unreported dates or unavailable P&L. Reported dates with no activity show zero.\n\nDates follow the IBKR trade date. Overnight futures and FX executions may occur on the previous evening."
         case .contributions:
             "Ranked by absolute realized P&L for the selected month and currency.\n\nStock and option executions share their underlying symbol. This is not total portfolio return."
+        }
+    }
+}
+
+struct AnalyticsCommissionsSection: View {
+    let title: String
+    let totals: [PerformanceAnalytics.CommissionTotal]?
+    var body: some View {
+        Section {
+            if let totals {
+                if totals.isEmpty { Text("No commissions reported").foregroundStyle(.secondary) }
+                ForEach(totals) { row in
+                    LabeledContent {
+                        Text(verbatim: AnalyticsCalendar.amount(row.total, currency: row.currency))
+                            .monospacedDigit().foregroundStyle(.secondary)
+                    } label: {
+                        Text(verbatim: row.currency.isEmpty ? "Unspecified currency" : row.currency)
+                    }
+                    if row.missing > 0 { Text("Some commission amounts are missing.").font(.caption).foregroundStyle(.secondary) }
+                }
+            } else { Text("—").foregroundStyle(.secondary) }
+        } header: {
+            HStack(spacing: 4) { Text(verbatim: title); PerformanceInfoButton(topic: .commissions) }.textCase(nil)
         }
     }
 }
@@ -363,6 +398,7 @@ struct PerformanceExecutionView: View {
                     Text("IBKR Flex · trade date · times in New York").font(.caption).foregroundStyle(.secondary)
                     if let warning = report.warning { Text(verbatim: warning).foregroundStyle(.orange) }
                 }
+                AnalyticsCommissionsSection(title: "Daily commissions", totals: report.daily_commissions)
                 if report.trade_count == 0 { Text("No activity for this date and currency.").foregroundStyle(.secondary) }
                 ForEach(model.trades) { trade in
                     Section {

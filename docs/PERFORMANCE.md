@@ -217,3 +217,45 @@ Rollout requires `Deploy & Restart Backend`, followed by the normal Flex report
 refresh, and an updated iPhone build for separate activity counts and labels.
 No Gateway restart or Superchart/blueprint resource update is needed. This
 follow-up has not been deployed or installed on a physical device during validation.
+
+### Daily/monthly commissions and toolbar entry (2026-11-05)
+
+Performance now opens Trade review through a calendar icon in its trailing
+navigation toolbar, with an accessible label and a 44-point minimum target.
+The previous list-row entry is removed. Trade review displays Monthly commissions;
+opening a reported calendar day displays Daily commissions. Explanations remain
+behind the information icon.
+
+Studio reference: source revision `dbf073f8507fc9eb1b8ebcf6b2e8cee062b9fecc`,
+`analyzeDailyTrades`, `analyzeMonthlySummary` and `summarizeDailyTradeRows`.
+REA examined `src/parser.js` and `src/app.js` and replayed the exported parser:
+two daily charges of 1.25 and 2.50 total 3.75 for the month while reported net P&L
+stays 7.50. Replay evidence:
+`ev_f7cc534aae526a89504e5342d6156683b4dd5acd38c8e6e69a25bd02d6bc5ca5`.
+
+Wheel adapts the existing daily/monthly aggregation to its verified Flex archive:
+- Totals cover all instruments and trade currencies for the selected account and
+  report month/day, independently of the P&L currency filter and detail pagination.
+- Fees stay in their reported commission currency. Unlike Studio's base-currency
+  conversion, Wheel keeps currencies separate. Existing signed fee values retain
+  rebates as credits rather than converting them into positive costs.
+- Missing amounts make that currency total unavailable. Covered no-activity days
+  return an empty list; unreported days return null. A missing optional field from
+  an older backend also displays unavailable. Replacement reports replace totals.
+- Realized P&L is not reduced again. Market-data subscriptions and other account
+  charges are excluded; fee-waiver eligibility is not inferred from these totals.
+
+Validation: 13 analytics Python tests and six focused native simulator tests
+passed, covering mixed trade/fee currencies, credits, duplicates, pagination,
+missing/zero amounts, corrected reports, account isolation and older responses.
+Dark/light calendar/detail layouts were rendered at 320/393/834 points; narrow
+dark calendar, light detail and Performance toolbar screenshots were inspected.
+A read-only comparison against the deployed
+archive matched all 409 records across 13 months and 365 covered dates, with no
+missing commission amounts. These reads did not fetch another Flex report or
+write the production database.
+
+After merge: Deploy & Restart Backend and rebuild/install the iPhone app. The
+existing archive is sufficient; no report migration or Gateway restart is needed.
+No Superchart/blueprint resources changed. Device installation and production
+deployment are not part of this validation.

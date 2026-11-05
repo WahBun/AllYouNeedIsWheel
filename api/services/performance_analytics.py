@@ -5,6 +5,7 @@ Realized FIFO P&L is already net: commission is displayed, never subtracted agai
 Currencies remain separate; no guessed FX rates or premiums counted as profit.
 """
 import json
+import math
 import os
 import re
 import sqlite3
@@ -66,6 +67,16 @@ def totals(rows):
                 missing_pnl=sum(v is None for v in values))
 
 
+def commission_totals(rows):
+    """All trade currencies, grouped by fee currency; credits reduce charges."""
+    buckets = defaultdict(list)
+    for row in rows:
+        buckets[row.get('commission_currency') or ''].append(row.get('commission'))
+    return [dict(currency=currency, total=math.fsum(values) if currency and all(v is not None for v in values) else None,
+                 missing=sum(v is None for v in values))
+            for currency, values in sorted(buckets.items())]
+
+
 def read_analytics(config, *, month=None, currency=None, day=None, offset=0, limit=50):
     if month and not re.fullmatch(r'\d{4}-(0[1-9]|1[0-2])', month):
         raise ValueError('Invalid month.')
@@ -97,6 +108,10 @@ def read_analytics(config, *, month=None, currency=None, day=None, offset=0, lim
     currency = currency or ('USD' if 'USD' in currencies or not currencies else currencies[0])
     if currencies and currency not in currencies:
         raise ValueError('Currency unavailable for this month.')
+    # Fee totals cover the account's full activity, not just the selected P&L
+    # currency or current detail page. Never infer missing report days as zero.
+    monthly_commissions = commission_totals(rows) if covered else None
+    daily_commissions = commission_totals([r for r in rows if r['report_trade_day'] == day]) if day in {d for d, _ in covered} else None
     rows = [r for r in rows if r['currency'] == currency]
     by_day, by_symbol = defaultdict(list), defaultdict(list)
     for row in rows:
@@ -108,6 +123,7 @@ def read_analytics(config, *, month=None, currency=None, day=None, offset=0, lim
     selected = sorted([r for r in rows if r['report_trade_day'] == day], key=lambda r: (r['fill_time'], r['id']), reverse=True)
     return dict(month=month, months=months, currency=currency, currencies=currencies or [currency],
                 days=daily, summary=totals(rows), contributions=contributors,
+                monthly_commissions=monthly_commissions, daily_commissions=daily_commissions,
                 selected_day=day, trades=selected[offset:offset + limit], trade_count=len(selected),
                 next_offset=offset + limit if offset + limit < len(selected) else None,
                 report_through=covered[-1][0] if covered else None,
