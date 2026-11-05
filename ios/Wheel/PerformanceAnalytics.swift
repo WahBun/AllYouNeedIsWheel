@@ -4,19 +4,23 @@ import Observation
 struct PerformanceAnalytics: Decodable {
     struct Total: Decodable {
         let executions: Int
+        let book_entries: Int?
         let realized_pnl: Double?
         let missing_pnl: Int
     }
     struct Day: Decodable, Identifiable {
         let date: String
         let executions: Int
+        let book_entries: Int?
         let realized_pnl: Double?
         let missing_pnl: Int
         var id: String { date }
+        var activityCount: Int { executions + (book_entries ?? 0) }
     }
     struct Contribution: Decodable, Identifiable {
         let ticker: String
         let executions: Int
+        let book_entries: Int?
         let realized_pnl: Double?
         var id: String { ticker }
     }
@@ -35,6 +39,7 @@ struct PerformanceAnalytics: Decodable {
         let commission_currency: String
         let realized_pnl: Double?
         let intent: String?
+        let record_type: String?
         var contract: String {
             guard let expiration, let strike, option_type == "PUT" || option_type == "CALL" else { return ticker }
             return "\(ticker) · \(expiration.prefix(4))-\(expiration.dropFirst(4).prefix(2))-\(expiration.suffix(2)) · \(strike.formatted())\(option_type == "PUT" ? "P" : "C")"
@@ -61,6 +66,12 @@ struct PerformanceAnalytics: Decodable {
     let report_version: String?
     let warning: String?
     let refreshing: Bool
+
+    static func activityLabel(_ executions: Int, _ books: Int?) -> String {
+        let count = books ?? 0
+        let fills = "\(executions) \(executions == 1 ? "execution" : "executions")"
+        return count == 0 ? fills : "\(fills) · \(count) \(count == 1 ? "book entry" : "book entries")"
+    }
 }
 
 // Owns only report reads. No connection to TradingSession mutation or quote loops.
@@ -178,7 +189,7 @@ struct PerformanceAnalyticsScreen: View {
                         }.font(.subheadline).foregroundStyle(.secondary)
                         AnalyticsAmount(value: report.summary.realized_pnl, currency: report.currency)
                             .font(.largeTitle.bold()).minimumScaleFactor(0.6).lineLimit(1)
-                        Text(verbatim: "\(report.summary.executions) executions · \(report.currency)")
+                        Text(verbatim: "\(PerformanceAnalytics.activityLabel(report.summary.executions, report.summary.book_entries)) · \(report.currency)")
                             .font(.caption).foregroundStyle(.secondary)
                     }.padding(.vertical, 4)
                     AnalyticsReportNote(report: report)
@@ -195,7 +206,7 @@ struct PerformanceAnalyticsScreen: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(verbatim: row.ticker).fontWeight(.semibold)
-                                Text(verbatim: "\(row.executions) executions").font(.caption).foregroundStyle(.secondary)
+                                Text(verbatim: PerformanceAnalytics.activityLabel(row.executions, row.book_entries)).font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 8)
                             AnalyticsAmount(value: row.realized_pnl, currency: report.currency).lineLimit(1).minimumScaleFactor(0.7)
@@ -247,9 +258,9 @@ enum PerformanceHelpTopic: String {
         case .history:
             "History: compounded daily IBKR TWR. SPX and NDX: IBKR daily closes with retained FRED history as fallback, excluding reinvested dividends.\n\nIntraday estimate uses daily P&L / last reported NAV; deposits, withdrawals and IB reset times may affect comparability. Final returns follow the next Flex report."
         case .pnl:
-            "Reported realized P&L, not live account P&L. Commissions are already included; opening premium is not realized profit.\n\nTotals cover reported dates only. Earlier history appears when available in a Flex report.\n\nCurrencies are shown separately; no FX conversion is applied."
+            "Reported realized P&L, not live account P&L. Commissions are already included; opening premium is not realized profit.\n\nTotals include reported executions and recognized assignment, exercise and expiration book entries. These entries are counted separately from exchange executions.\n\nTotals cover reported dates only. Earlier history appears when available in a Flex report.\n\nCurrencies are shown separately; no FX conversion is applied."
         case .calendar:
-            "Tap a reported day to review executions.\n\nDashes indicate unreported dates or unavailable P&L. Reported dates with no executions show zero.\n\nDates follow the IBKR trade date. Overnight futures and FX executions may occur on the previous evening."
+            "Tap a reported day to review executions and book entries.\n\nDashes indicate unreported dates or unavailable P&L. Reported dates with no activity show zero.\n\nDates follow the IBKR trade date. Overnight futures and FX executions may occur on the previous evening."
         case .contributions:
             "Ranked by absolute realized P&L for the selected month and currency.\n\nStock and option executions share their underlying symbol. This is not total portfolio return."
         }
@@ -313,12 +324,12 @@ struct AnalyticsCalendarGrid: View {
                                     .font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.6)
                             }
                             .frame(maxWidth: .infinity, minHeight: 47)
-                            .background(tone(day).opacity(day?.executions == 0 ? 0.04 : 0.13), in: RoundedRectangle(cornerRadius: 6))
+                            .background(tone(day).opacity(day?.activityCount == 0 ? 0.04 : 0.13), in: RoundedRectangle(cornerRadius: 6))
                             .foregroundStyle(tone(day))
                             .contentShape(Rectangle())
                         }.buttonStyle(.plain).disabled(day == nil)
                         .accessibilityIdentifier("analytics-day-\(date)")
-                        .accessibilityLabel("\(date), \(AnalyticsCalendar.amount(day?.realized_pnl, currency: report.currency)), \(day?.executions ?? 0) executions")
+                        .accessibilityLabel("\(date), \(AnalyticsCalendar.amount(day?.realized_pnl, currency: report.currency)), \(PerformanceAnalytics.activityLabel(day?.executions ?? 0, day?.book_entries))")
                     } else { Color.clear.frame(height: 47) }
                 }
             }
@@ -347,15 +358,19 @@ struct PerformanceExecutionView: View {
                     if let total = report.days.first(where: { $0.date == day }) {
                         LabeledContent("Realized P&L") { AnalyticsAmount(value: total.realized_pnl, currency: currency) }
                         LabeledContent("Executions", value: String(total.executions))
+                        if let books = total.book_entries, books > 0 { LabeledContent("Book entries", value: String(books)) }
                     }
-                    Text("IBKR Flex · trade date · execution times in New York").font(.caption).foregroundStyle(.secondary)
+                    Text("IBKR Flex · trade date · times in New York").font(.caption).foregroundStyle(.secondary)
                     if let warning = report.warning { Text(verbatim: warning).foregroundStyle(.orange) }
                 }
-                if report.trade_count == 0 { Text("No executions for this date and currency.").foregroundStyle(.secondary) }
+                if report.trade_count == 0 { Text("No activity for this date and currency.").foregroundStyle(.secondary) }
                 ForEach(model.trades) { trade in
                     Section {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(verbatim: trade.contract).fontWeight(.semibold).fixedSize(horizontal: false, vertical: true)
+                            if let kind = trade.record_type, kind != "Execution" {
+                                Text(verbatim: "\(kind) · Book entry").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            }
                             Text(verbatim: "\(trade.action) \(trade.quantity.formatted()) @ \(trade.avg_fill_price.formatted(.number.precision(.fractionLength(0...6)))) \(trade.currency)")
                             Text(verbatim: "\(trade.time) ET · \(trade.intent ?? "Execution")").font(.caption).foregroundStyle(.secondary)
                         }
@@ -364,10 +379,10 @@ struct PerformanceExecutionView: View {
                     }
                 }
                 if let next = report.next_offset {
-                    Button("Load more executions") { offset = next }.disabled(model.loading || model.error != nil)
+                    Button("Load more activity") { offset = next }.disabled(model.loading || model.error != nil)
                 }
             }
-            if model.loading { ProgressView("Loading executions…") }
+            if model.loading { ProgressView("Loading activity…") }
             if let error = model.error { Text(verbatim: error).foregroundStyle(.orange) }
             Button("Refresh") { offset = 0; revision += 1 }.disabled(model.loading)
         }.navigationTitle(day).navigationBarTitleDisplayMode(.inline)

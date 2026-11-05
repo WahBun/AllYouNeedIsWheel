@@ -8,8 +8,11 @@ import test_execution_record_history as fixtures
 
 class AnalyticsTests(unittest.TestCase):
     setUp = fixtures.MTDHistoryTests.setUp
-    row = fixtures.MTDHistoryTests.row
     report = fixtures.MTDHistoryTests.report
+
+    def row(self, **changes):
+        return fixtures.MTDHistoryTests.row(self, **{'TradeID': 'report-trade', 'TransactionID': 'report-transaction',
+                                                    'Notes/Codes': '', **changes})
     # Reuse report fixtures, not a second parser or brokerage fixture.
     def publish(self, *rows, days=None):
         archive_analytics(self.report(*rows), self.config, days or self.daily)
@@ -110,6 +113,57 @@ class AnalyticsTests(unittest.TestCase):
                 self.assertNotIn('private', result.json['error'])
             with patch('api.routes.account.epoch', side_effect=['first', 'first', 'next']):
                 self.assertEqual(app.test_client().get('/api/performance/analytics').status_code, 409)
+
+    def test_lifecycle_book_records_keep_pnl_and_never_become_broker_executions(self):
+        from api.services.execution_record_history import parse_mtd
+        expiry = self.row(TransactionType='BookTrade', IBExecID='', TradePrice='0',
+                          FifoPnlRealized='150', **{'Notes/Codes': 'Ep'})
+        assigned_option = self.row(TransactionType='BookTrade', IBExecID='', TradeID='assigned-option',
+                                  TradePrice='0', FifoPnlRealized='0', **{'Notes/Codes': 'A'})
+        assigned_stock = self.row(TransactionType='BookTrade', IBExecID='', TradeID='assigned-stock',
+                                 AssetClass='STK', Conid='8', Quantity='100', TradePrice='10', Multiplier='1',
+                                 FifoPnlRealized='0', **{'Notes/Codes': 'A;LI', 'Open/CloseIndicator': 'O'})
+        self.publish(self.row(FifoPnlRealized='-10'), expiry, expiry, assigned_option, assigned_stock)
+        result = self.analytics(day='2026-10-30')
+        self.assertEqual(result['summary']['realized_pnl'], 140)
+        self.assertEqual(result['summary']['executions'], 1)
+        self.assertEqual(result['summary']['book_entries'], 3)
+        self.assertEqual(result['trade_count'], 4)
+        books = [r for r in result['trades'] if r['transaction_type'] == 'BookTrade']
+        self.assertEqual({r['record_type'] for r in books}, {'Assignment', 'Expiration'})
+        self.assertTrue(all(r['id'].startswith('book:trade:') and not r['report_order_id'] for r in books))
+        with self.assertRaisesRegex(ValueError, 'correction requires verification'):
+            parse_mtd(self.report(expiry), 'LIVE_TEST', self.first, self.through)
+
+    def test_book_identity_conflicts_unknown_types_and_invalid_zero_prices_still_reject(self):
+        base = self.row(TransactionType='BookTrade', IBExecID='', TradePrice='0', **{'Notes/Codes': 'Ep'})
+        self.publish(base)
+        for changes in ({'TradeID': '', 'TransactionID': ''}, {'Notes/Codes': 'Unknown'},
+                        {'Notes/Codes': 'A;Ca'}, {'TradePrice': '-1'}, {'AssetClass': 'STK'},
+                        {'Open/CloseIndicator': 'O'}, {'TransactionType': 'TradeCancel'}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.publish(dict(base, **changes))
+            self.assertEqual(self.analytics()['summary']['book_entries'], 1)
+            self.assertTrue(self.analytics()['warning'])
+        with self.assertRaisesRegex(ValueError, 'Conflicting execution identity'):
+            self.publish(base, dict(base, FifoPnlRealized='200'))
+        self.publish(dict(base, TradeID='', TransactionID='fallback'))
+        self.assertEqual(self.analytics(day='2026-10-30')['trades'][0]['id'], 'book:transaction:fallback')
+
+    def test_xml_book_fields_and_exercise_are_report_only(self):
+        from api.services.execution_record_history import parse_mtd
+        text = '''<FlexStatement accountId="LIVE_TEST"><Trades>
+        <Trade levelOfDetail="EXECUTION" transactionType="BookTrade" tradeID="exercise"
+          conid="7" assetCategory="OPT" currency="USD" symbol="TEST" underlyingSymbol="TEST"
+          tradeDate="20261030" dateTime="20261030;162000" buySell="SELL" quantity="-1"
+          tradePrice="0" multiplier="100" putCall="C" strike="10" expiry="20261030"
+          openCloseIndicator="C" notes="Ex" fifoPnlRealized="0" ibCommission="0"/>
+        </Trades></FlexStatement>'''
+        rows = parse_mtd(text, 'LIVE_TEST', self.first, self.through, native_pnl=True, include_book_trades=True)
+        self.assertEqual(rows['book:trade:exercise']['record_type'], 'Exercise')
+        self.assertEqual(rows['book:trade:exercise']['realized_pnl'], 0)
+        with self.assertRaises(ValueError):
+            parse_mtd(text, 'LIVE_TEST', self.first, self.through)
 
 
 if __name__ == '__main__':
