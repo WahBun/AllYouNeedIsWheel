@@ -298,7 +298,7 @@ struct PerformanceView: View {
                 let refreshContext = context
                 // End the pull indicator independently of a slow Flex report.
                 // The existing history task can still deliver its result later.
-                let deadline = ContinuousClock.now.advanced(by: .seconds(7))
+                let deadline = ContinuousClock.now.advanced(by: .seconds(4))
                 while active && context == refreshContext && completedRevision < requested && ContinuousClock.now < deadline {
                     do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
                 }
