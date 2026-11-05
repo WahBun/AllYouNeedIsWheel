@@ -4,6 +4,29 @@ import SwiftUI
 
 final class PerformanceTests: XCTestCase {
     @MainActor
+    func testPerformanceInfoLayout() async throws {
+        PerformancePageProtocol.reset()
+        URLProtocol.registerClass(PerformancePageProtocol.self)
+        defer { URLProtocol.unregisterClass(PerformancePageProtocol.self) }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        for width in [320.0, 393.0] {
+            let store = WheelStore(); store.demo = false; store.selectedTab = "portfolio"; store.address = "https://performance.invalid"
+            let host = UIHostingController(rootView: NavigationStack { PerformanceView() }
+                .environment(store).environment(\.scenePhase, .active).environment(\.locale, Locale(identifier: "en_US")))
+            let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: width, height: 852)
+            window.overrideUserInterfaceStyle = .dark
+            window.rootViewController = host; window.makeKeyAndVisible(); host.view.frame = window.bounds
+            try await Task.sleep(for: .milliseconds(500))
+            func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
+            let scroll = try XCTUnwrap(descendants(host.view).compactMap { $0 as? UICollectionView }.first)
+            scroll.setContentOffset(CGPoint(x: 0, y: max(0, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)), animated: false)
+            try await Task.sleep(for: .milliseconds(100))
+            capture(host, "Performance-information-icons-\(Int(width))")
+            window.rootViewController = nil; window.isHidden = true
+        }
+    }
+
+    @MainActor
     func testColdBootstrapHasFullYearBeforeNavigationWithoutHistoryNetwork() async throws {
         PerformancePageProtocol.reset()
         PerformancePageProtocol.bootstrapHistory = true

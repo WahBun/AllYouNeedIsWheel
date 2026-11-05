@@ -46,6 +46,19 @@ class ApiDispatcherTests(unittest.TestCase):
         self.assertEqual(self.get('/api/portfolio/stock-chart/7?expand_history=1').status_code,200)
         self.assertEqual(history_calls,[1])
 
+    def test_report_analytics_remain_available_while_broker_is_busy(self):
+        self.app.add_url_rule('/api/performance/analytics', view_func=lambda: {'source': 'report'})
+        with ThreadPoolExecutor(2) as clients:
+            trading = clients.submit(self.get, '/api/slow', 'POST')
+            self.assertTrue(self.entered.wait(2))
+            try:
+                report = clients.submit(self.get, '/api/performance/analytics').result(timeout=1)
+                self.assertEqual(report.status_code, 200)
+                self.assertFalse(trading.done())
+            finally:
+                self.release.set()
+            self.assertEqual(trading.result().status_code, 200)
+
     def test_background_sync_uses_same_serial_executor(self):
         # Imports are not part of the scheduler's two-second execution deadline.
         from api.services.paper_chart import PaperChart

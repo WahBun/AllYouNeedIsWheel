@@ -113,7 +113,7 @@ def install_api_dispatcher(app):
         # Saved alert lines are storage-only; their explicit read epoch guard prevents profile mixing.
         if request.endpoint == 'notifications.alerts' and request.method == 'GET':
             return original_dispatch()
-        if not request.path.startswith('/api/') or (request.method == 'GET' and request.path in {'/api/options/market-session', '/api/performance/history'}):
+        if not request.path.startswith('/api/') or (request.method == 'GET' and request.path in {'/api/options/market-session', '/api/performance/history', '/api/performance/analytics'}):
             return original_dispatch()
         key = None
         # The HTTP context owns the diagnostic ID; copied worker contexts have their own g.
