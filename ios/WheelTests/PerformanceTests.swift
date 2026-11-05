@@ -68,6 +68,51 @@ final class PerformanceTests: XCTestCase {
     }
 
     @MainActor
+    func testSlowPullRefreshStopsAtSevenSecondsAndAcceptsLateHistory() async throws {
+        PerformancePageProtocol.reset()
+        URLProtocol.registerClass(PerformancePageProtocol.self)
+        defer {
+            PerformancePageProtocol.releaseHistory(); PerformancePageProtocol.fullYear = false
+            URLProtocol.unregisterClass(PerformancePageProtocol.self)
+        }
+        let store = WheelStore(); store.demo = false; store.selectedTab = "portfolio"; store.address = "https://performance.invalid"
+        let host = UIHostingController(rootView: NavigationStack { PerformanceView() }
+            .environment(store).environment(\.scenePhase, .active))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let window = UIWindow(windowScene: scene); window.rootViewController = host; window.makeKeyAndVisible()
+        defer { window.rootViewController = nil; window.isHidden = true }
+        try await Task.sleep(for: .milliseconds(600))
+        func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
+        let list = try XCTUnwrap(descendants(host.view).compactMap { $0 as? UICollectionView }.first)
+        let refresh = try XCTUnwrap(list.refreshControl)
+        let key = store.performanceCacheKey("YTD")
+        let cached = try XCTUnwrap(store.performanceHistoryCache[key]?.end)
+        let liveBefore = PerformancePageProtocol.liveCount
+        PerformancePageProtocol.holdHistory = true
+        let started = ContinuousClock.now
+        refresh.beginRefreshing(); refresh.sendActions(for: .valueChanged)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(refresh.isRefreshing, "A pending refresh should initially show its spinner")
+        while refresh.isRefreshing && started.duration(to: .now) < .seconds(8) {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        print("SLOW_REFRESH spinner=\(refresh.isRefreshing) elapsed=\(started.duration(to: .now))")
+        XCTAssertFalse(refresh.isRefreshing, "Stop the pull indicator after seven seconds even while history is pending")
+        XCTAssertEqual(store.performanceHistoryCache[key]?.end, cached, "Retain the displayed same-account chart")
+        XCTAssertGreaterThan(PerformancePageProtocol.liveCount, liveBefore, "Live P&L must remain independent")
+        XCTAssertEqual(PerformancePageProtocol.forcedHistoryCount, 1)
+        PerformancePageProtocol.fullYear = true
+        PerformancePageProtocol.releaseHistory()
+        for _ in 0..<40 {
+            if store.performanceHistoryCache[key]?.points.count == 210 { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(store.performanceHistoryCache[key]?.points.count, 210, "Late history still replaces the cached chart")
+        XCTAssertEqual(PerformancePageProtocol.forcedHistoryCount, 1, "Ending the spinner must not replay the refresh")
+        XCTAssertFalse(refresh.isRefreshing)
+    }
+
+    @MainActor
     func testColdBootstrapHasFullYearBeforeNavigationWithoutHistoryNetwork() async throws {
         PerformancePageProtocol.reset()
         PerformancePageProtocol.bootstrapHistory = true

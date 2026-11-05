@@ -264,8 +264,10 @@ deployment are not part of this validation.
 ## 1.9.0 native presentation
 
 Performance now uses the native pull-to-refresh gesture instead of a Refresh row.
-The gesture waits for the existing history refresh to complete or fail; a failed
-refresh retains the same-account cached chart. The independent live P&L loop and
+The gesture waits up to seven seconds for the existing history refresh. It ends
+earlier on completion or failure; a pending/failed refresh retains the same-account
+cached chart. Ending the pull indicator does not cancel the history task, and a
+late result can still update the chart. The independent live P&L loop and
 account/period isolation stay unchanged. Today has one information button with
 both Daily P&L and Performance history explanations.
 
