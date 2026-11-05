@@ -14,6 +14,46 @@ bp = Blueprint('performance', __name__, url_prefix='/api/performance')
 from api.services.performance_service import configuration, service
 
 
+@bp.get('/analytics')
+def analytics():
+    from api.routes.account import epoch
+    from api.services.performance_analytics import read_analytics
+    admitted = epoch()
+    try:
+        config = configuration()
+    except Exception:
+        return jsonify(error='Performance configuration unavailable.'), 503
+
+    def matching_account():
+        return (bool(config.get('account_id')) and Config().get('account_id') == config['account_id']
+                and epoch() == admitted
+                and request.headers.get('X-Wheel-Account-Epoch') in (None, admitted))
+
+    if not matching_account():
+        return jsonify(error='Performance and selected account must match.'), 409
+    try:
+        data = read_analytics(config, month=request.args.get('month'), currency=request.args.get('currency'),
+                              day=request.args.get('day'), offset=int(request.args.get('offset', '0')))
+        # Reuse the existing Flex worker and its retry bound; never queue IB work.
+        history, status = service.read(config, 'MTD', include_unmatched=True,
+                                       force=request.args.get('refresh') == '1' or data is None)
+        if not matching_account():
+            return jsonify(error='Account changed. Refresh analytics.'), 409
+        if data is None:
+            pending = status == 202 or history.get('refreshing', False)
+            data, code = ({'status': 'loading'}, 202) if pending else ({'error': 'Execution analytics are unavailable. Refresh after a complete Flex report arrives.'}, 503)
+        else:
+            data.update(refreshing=status == 202 or history.get('refreshing', False))
+            code = 200
+    except ValueError as error:
+        data, code = {'error': str(error)}, 400
+    except Exception:
+        data, code = {'error': 'Execution analytics are temporarily unavailable.'}, 503
+    response = jsonify(data)
+    response.headers['Cache-Control'] = 'no-store'
+    return response, code
+
+
 @bp.get('/history')
 def history():
     try:

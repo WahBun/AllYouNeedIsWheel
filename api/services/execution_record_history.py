@@ -46,12 +46,14 @@ def report_day(value):
     return datetime.strptime(value, '%Y%m%d').date() if len(value) == 8 else datetime.fromisoformat(value).date()
 
 
-def parse_mtd(text, account, first, through):
+def parse_mtd(text, account, first, through, *, native_pnl=False):
     """Validate every MTD execution before replacing the published snapshot.
 
     This configured report's naive times were matched against exact broker fills
     and the phone's reference trades as New York time; do not use host timezone.
     IBOrderID groups report executions only. It is not a Gateway permId.
+    native_pnl is for currency-separated report analytics only. Existing Orders
+    callers keep the USD-only display contract by default.
     """
     rows = report_rows(text, account)
     if rows and not any(r.get('levelofdetail', '').upper() == 'EXECUTION' for r in rows):
@@ -109,7 +111,7 @@ def parse_mtd(text, account, first, through):
                    fill_time=when.astimezone(timezone.utc).isoformat(), currency=currency,
                    contract_multiplier=multiplier, commission=fee,
                    commission_currency=r.get('ibcommissioncurrency') or currency,
-                   realized_pnl=pnl if currency == 'USD' else None, intent=intent,
+                   realized_pnl=pnl if native_pnl or currency == 'USD' else None, intent=intent,
                    order_type=r.get('ordertype') or '—', tif=r.get('timeinforce') or r.get('tif') or '—',
                    status='executed', ib_status='Execution recorded', executed=True, external_ib=True,
                    history_source='flex_mtd', report_order_id=oid, report_trade_day=day.isoformat())

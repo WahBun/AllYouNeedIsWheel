@@ -110,3 +110,66 @@ were SPX 7690.73 and NDX 29529.34. Evidence:
 The probe connection was disconnected after the check; production uses only the
 existing shared connection. This establishes Gateway historical-data availability,
 not deployment of this change or final acceptance on the user's phone.
+
+## Trade review (iOS)
+
+Portfolio > Performance > Trade review adds a realized P&L calendar, daily
+execution detail and monthly symbol contributions. Existing TWR/benchmarks and
+intraday account P&L keep their own definitions. The new view reads
+`GET /api/performance/analytics` only while visible, with a bounded retry while
+an existing Flex refresh is pending. It does not poll quotes or create a broker
+connection. GET bypasses the IB queue and checks the selected account and epoch
+both before and after reading the archive.
+
+Optional query fields: `month=YYYY-MM`, `currency=USD`, `day=YYYY-MM-DD`,
+`offset=0`, `refresh=1`. Daily detail returns 50 executions per page. A report
+version change invalidates further pagination until Refresh, avoiding mixed
+snapshots. The month response includes covered days, per-currency totals and
+symbol contributions sorted by absolute realized P&L. Options use their reported
+underlying symbol for ranking and retain exact contract fields in execution detail.
+
+The same Performance worker imports execution-level TRNT/Trades from the report
+already fetched for TWR. It reuses Wheel's validated execution parser and stores
+account-scoped `analytics_executions`, `analytics_days`, and `analytics_status`
+in the private Performance database. The report-covered window is replaced in
+one transaction, removing corrected/deleted rows while retaining older months.
+No order ledger is read or changed. A malformed execution report preserves the
+last verified snapshot with a warning; it does not prevent TWR refresh.
+
+- Realized FIFO P&L is reported net; commissions are shown separately, never
+  subtracted twice. Received option premium is not realized profit.
+- Original currencies stay separate. There is no implicit FX conversion or
+  cross-currency total. Missing P&L remains unavailable, never zero-filled.
+- Dates are report trade dates. New York execution time may be the previous
+  evening for overnight futures/FX. No local-phone-timezone regrouping occurs.
+- Covered dates with no executions show zero. Dates outside report coverage show
+  a dash. Totals represent reported dates, not a promise of complete history.
+- Initial history is limited to the execution detail in available Flex reports;
+  TWR-only older history cannot reconstruct executions. Further reports extend
+  the retained archive. There is no separate daily daemon or new Flex credential.
+- Demo shows a connection prompt; no synthetic analytics are labeled as real.
+
+Source comparison: REA static analysis of Studio `src/app.js` and `src/parser.js`
+confirmed its clickable calendar, daily order recap and absolute-P&L contribution
+ranking. Wheel adapts this to native SwiftUI and its existing execution identity
+and fee rules, with explicit missing-data and currency handling. REA evidence:
+`ev_eaab93ab88d4703ec97acf51b66679c60af1a09f998190db6d15ccdf17f50f56`.
+This is static source evidence, not a Studio runtime interaction recording.
+
+Rollout requires **Deploy & Restart Backend**, then a fresh iPhone build after
+merging. Gateway restart is unnecessary. No Superchart/blueprint resources change.
+Removing the Trade review entry and optional archive hook rolls back the feature;
+the new private archive tables can safely remain. No release version is changed.
+
+Validation for the first Trade review increment (2026-11-05):
+- 48 focused Python cases across analytics, existing MTD execution history/TWR,
+  and the analytics read while broker dispatch is busy passed.
+- Six iOS Simulator cases passed: calendar/model/pagination/context isolation,
+  320/393/834-point light/dark snapshots, compact help layout, and the existing
+  live P&L loop with a delayed benchmark. Explanations now open from information
+  icons beside Realized P&L, calendar, contributions, Daily P&L and Refresh.
+- Mini archive was inspected read-only: report through 2026-11-03, nine retained
+  executions across USD/HKD/CNH, no existing archive verification issue. This
+  confirms existing source availability, not deployment of the new endpoint.
+- No production write, real order, backend/Gateway restart or physical-device
+  installation was performed. Screenshots use deterministic fixtures.

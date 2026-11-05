@@ -322,6 +322,11 @@ class PerformanceService:
                 archive_mtd(text, config, daily)
             except Exception:
                 pass  # Invalid execution coverage must not replace known history.
+            from api.services.performance_analytics import archive_analytics
+            try:
+                archive_analytics(text, config, daily)
+            except Exception:
+                pass  # Report analytics never interrupt TWR or order history.
             from api.services.stock_cost_service import archive_costs
             try:
                 archive_costs(text, config)

@@ -278,19 +278,28 @@ struct PerformanceView: View {
                 if let error { NoticeText(error).font(.footnote).foregroundStyle(.orange) }
             }
             Section("Today") {
-                LabeledContent("Daily P&L") {
+                LabeledContent {
                     let pnl = live?.fresh == true ? live?.daily_pnl : nil
                     PerformanceDailyPnlValue(pnl: pnl, percent: history?.dailyReturnEstimate(live))
                         .foregroundStyle(pnl.map { $0 > 0 ? gain : ($0 < 0 ? loss : Color.secondary) } ?? Color.secondary)
+                } label: {
+                    HStack(spacing: 4) { Text("Daily P&L"); PerformanceInfoButton(topic: .dailyPnl) }
                 }
-                Text("Account base currency · IBKR daily P&L").font(.caption).foregroundStyle(.secondary)
-                Text("Daily %: estimate using last reported NAV.").font(.caption).foregroundStyle(.secondary)
                 if let liveError { NoticeText(liveError).font(.caption).foregroundStyle(.orange) }
             }
             Section {
-                Button("Refresh") { revision += 1 }
-                Text("History: compounded daily IBKR TWR. SPX and NDX: IBKR daily closes with retained FRED history as fallback, excluding reinvested dividends. Intraday estimate uses daily P&L / last reported NAV; deposits, withdrawals and IB reset times may affect comparability. Final returns follow the next Flex report.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                NavigationLink {
+                    PerformanceAnalyticsView()
+                } label: {
+                    Label("Trade review", systemImage: "calendar")
+                }
+            }
+            Section {
+                HStack {
+                    Button("Refresh") { revision += 1 }.buttonStyle(.borderless)
+                    Spacer()
+                    PerformanceInfoButton(topic: .history)
+                }
             }
         }.navigationTitle("Performance")
             .onAppear { visible = true }.onDisappear { visible = false }
@@ -359,13 +368,15 @@ struct PerformanceView: View {
 }
 
 enum PerformanceRequest {
-    static func read(base: String, path: String, query: [URLQueryItem] = [], session: URLSession = .shared) async throws -> (Data, Int) {
+    static func read(base: String, path: String, query: [URLQueryItem] = [], session: URLSession = .shared, epoch: String? = nil) async throws -> (Data, Int) {
         guard var url = URLComponents(string: base.trimmingCharacters(in: .whitespacesAndNewlines)), url.scheme == "https", url.host != nil,
               url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else { throw AppError.message("Invalid backend address.") }
         url.path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/performance/" + path
         if !url.path.hasPrefix("/") { url.path = "/" + url.path }
         url.queryItems = query.isEmpty ? nil : query
-        let (data, response) = try await session.data(for: URLRequest(url: url.url!, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15))
+        var request = URLRequest(url: url.url!, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        if let epoch { request.setValue(epoch, forHTTPHeaderField: "X-Wheel-Account-Epoch") }
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw AppError.message("Invalid response.") }
         guard (200...202).contains(http.statusCode) else {
             let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
