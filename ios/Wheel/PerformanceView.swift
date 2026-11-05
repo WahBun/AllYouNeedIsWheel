@@ -288,13 +288,6 @@ struct PerformanceView: View {
                 if let liveError { NoticeText(liveError).font(.caption).foregroundStyle(.orange) }
             }
             Section {
-                NavigationLink {
-                    PerformanceAnalyticsView()
-                } label: {
-                    Label("Trade review", systemImage: "calendar")
-                }
-            }
-            Section {
                 HStack {
                     Button("Refresh") { revision += 1 }.buttonStyle(.borderless)
                     Spacer()
@@ -302,6 +295,15 @@ struct PerformanceView: View {
                 }
             }
         }.navigationTitle("Performance")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink { PerformanceAnalyticsView() } label: {
+                        Image(systemName: "calendar").frame(minWidth: 44, minHeight: 44)
+                    }
+                    .accessibilityLabel("Trade review")
+                    .accessibilityIdentifier("performance-trade-review")
+                }
+            }
             .onAppear { visible = true }.onDisappear { visible = false }
             .task(id: context) {
                 guard active else { return }

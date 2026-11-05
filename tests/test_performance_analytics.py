@@ -72,8 +72,36 @@ class AnalyticsTests(unittest.TestCase):
         self.assertEqual([len(p['trades']) for p in [first, second, last]], [50, 50, 5])
         self.assertEqual(len({r['id'] for p in [first, second, last] for r in p['trades']}), 105)
         self.assertIsNone(last['next_offset'])
+        self.assertAlmostEqual(first['daily_commissions'][0]['total'], 109.2)
+        self.assertEqual(first['daily_commissions'], last['daily_commissions'])
         for query in ({'month': '2026-13'}, {'day': '2026-02-30'}, {'month': '2026-11', 'day': '2026-10-30'}, {'offset': -1}):
             with self.assertRaises(ValueError): self.analytics(**query)
+
+    def test_commissions_cover_all_instruments_currencies_and_report_trade_days(self):
+        first = self.row(TradeDate='20261029', DateTime='20261029,113829', IBCommission='-1.25')
+        self.publish(first, first,
+                     self.row(IBExecID='second', IBOrderID='second', AssetClass='FUT', IBCommission='-2.50', DateTime='20261029,180000'),
+                     self.row(IBExecID='credit', IBCommission='0.25'),
+                     self.row(IBExecID='hk', IBOrderID='hk', Conid='8', CurrencyPrimary='HKD', IBCommissionCurrency='HKD', IBCommission='-12'),
+                     self.row(IBExecID='fx', IBOrderID='fx', Conid='9', AssetClass='CASH', CurrencyPrimary='EUR', IBCommissionCurrency='USD', IBCommission='-2'))
+        result = self.analytics(month='2026-10', currency='USD', day='2026-10-30')
+        self.assertEqual(result['monthly_commissions'], [dict(currency='HKD', total=12, missing=0), dict(currency='USD', total=5.5, missing=0)])
+        self.assertEqual(result['daily_commissions'], [dict(currency='HKD', total=12, missing=0), dict(currency='USD', total=4.25, missing=0)])
+        self.assertEqual(self.analytics(month='2026-10', currency='HKD')['monthly_commissions'], result['monthly_commissions'])
+        self.assertEqual(self.analytics(month='2026-10', day='2026-10-29')['daily_commissions'][0]['total'], 1.25)
+        self.assertAlmostEqual(result['summary']['realized_pnl'], 3 * 156.106055)  # Never subtract fees again.
+
+    def test_missing_zero_and_unreported_commissions_remain_distinct(self):
+        self.publish(self.row(IBCommission=''), self.row(IBExecID='known', IBCommission='-2'))
+        total = self.analytics(month='2026-10')['monthly_commissions'][0]
+        self.assertIsNone(total['total'])
+        self.assertEqual(total['missing'], 1)
+        self.assertEqual(self.analytics(month='2026-10', day='2026-10-29')['daily_commissions'], [])
+        self.assertIsNone(self.analytics(month='2026-10', day='2026-10-31')['daily_commissions'])
+        self.publish(self.row(IBCommission='0'))
+        self.assertEqual(self.analytics(month='2026-10')['monthly_commissions'][0]['total'], 0)
+        self.publish()  # A replacement report removes fees together with executions.
+        self.assertEqual(self.analytics(month='2026-10')['monthly_commissions'], [])
 
     def test_overnight_uses_report_trade_date_not_local_execution_day(self):
         self.publish(self.row(AssetClass='FUT', Symbol='ESZ6', TradeDate='20261030', DateTime='20261029,180000'))

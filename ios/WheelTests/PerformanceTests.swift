@@ -17,6 +17,7 @@ final class PerformanceTests: XCTestCase {
             window.overrideUserInterfaceStyle = .dark
             window.rootViewController = host; window.makeKeyAndVisible(); host.view.frame = window.bounds
             try await Task.sleep(for: .milliseconds(500))
+            capture(host, "Performance-trade-review-toolbar-\(Int(width))")
             func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
             let scroll = try XCTUnwrap(descendants(host.view).compactMap { $0 as? UICollectionView }.first)
             scroll.setContentOffset(CGPoint(x: 0, y: max(0, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)), animated: false)

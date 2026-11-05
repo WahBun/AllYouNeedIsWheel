@@ -19,6 +19,8 @@ final class PerformanceAnalyticsTests: XCTestCase {
             "days": days, "summary": ["executions": 51, "book_entries": 1, "realized_pnl": 156.11, "missing_pnl": 0],
             "contributions": [["ticker": "TQQQ", "executions": 39, "book_entries": 1, "realized_pnl": 206.11], ["ticker": "TSLL", "executions": 12, "book_entries": 0, "realized_pnl": -50]],
             "trades": trades, "trade_count": 52, "next_offset": offset == 0 ? 50 : NSNull(),
+            "monthly_commissions": [["currency": "USD", "total": 68.04, "missing": 0], ["currency": "HKD", "total": 12, "missing": 0]],
+            "daily_commissions": [["currency": "USD", "total": 53.04, "missing": 0]],
             "report_through": "2026-10-30", "report_version": version, "refreshing": false]
         return try! JSONSerialization.data(withJSONObject: body)
     }
@@ -37,6 +39,7 @@ final class PerformanceAnalyticsTests: XCTestCase {
         XCTAssertEqual(AnalyticsProtocol.lastRequest?.value(forHTTPHeaderField: "X-Wheel-Account-Epoch"), "live-epoch")
         await model.load(base: "https://analytics.invalid", epoch: "live-epoch", month: "2026-10", currency: "USD", day: "2026-10-30", offset: 50, session: session)
         XCTAssertEqual(model.trades.count, 52)
+        XCTAssertEqual(model.report?.daily_commissions?.first?.total, 53.04)
         XCTAssertNil(model.report?.next_offset)
         AnalyticsProtocol.version = "corrected-2"
         await model.load(base: "https://analytics.invalid", epoch: "live-epoch", month: "2026-10", currency: "USD", day: "2026-10-30", offset: 50, session: session)
@@ -74,6 +77,21 @@ final class PerformanceAnalyticsTests: XCTestCase {
         XCTAssertEqual(report.trades[0].avg_fill_price, 0)
         XCTAssertEqual(report.days.last?.activityCount, 52)
         XCTAssertEqual(PerformanceAnalytics.activityLabel(51, report.summary.book_entries), "51 executions · 1 book entry")
+        XCTAssertEqual(report.monthly_commissions?.map(\.currency), ["USD", "HKD"])
+    }
+
+    func testCommissionMissingValuesAndOlderBackend() throws {
+        var body = try XCTUnwrap(JSONSerialization.jsonObject(with: Self.payload()) as? [String: Any])
+        body["monthly_commissions"] = [["currency": "USD", "total": NSNull(), "missing": 1]]
+        body["daily_commissions"] = []
+        let report = try JSONDecoder().decode(PerformanceAnalytics.self, from: JSONSerialization.data(withJSONObject: body))
+        XCTAssertNil(report.monthly_commissions?.first?.total)
+        XCTAssertEqual(report.monthly_commissions?.first?.missing, 1)
+        XCTAssertEqual(report.daily_commissions?.count, 0)
+        body.removeValue(forKey: "monthly_commissions"); body.removeValue(forKey: "daily_commissions")
+        let old = try JSONDecoder().decode(PerformanceAnalytics.self, from: JSONSerialization.data(withJSONObject: body))
+        XCTAssertNil(old.monthly_commissions)
+        XCTAssertNil(old.daily_commissions)
     }
 
     @MainActor func testNativeCalendarAndExecutionLayouts() async throws {
