@@ -89,6 +89,40 @@ class FrozenPositionQuoteRecoveryTests(unittest.TestCase):
         self.now += 1; self.read()
         self.assertEqual(self.conn.ib.reqMktData.call_count, calls + 1)
 
+    def test_trade_chain_recovers_the_same_partial_subscription_with_shared_backoff(self):
+        self.conn.is_connected = Mock(return_value=True)
+        self.conn.get_option_definition = Mock(return_value=(
+            S(symbol='TEST'), S(strikes=[55], expirations=['20261120'])))
+        self.conn.get_qualified_option_contract = Mock(return_value=self.contract)
+        self.conn._ticker_day_range = Mock(return_value={})
+
+        def trade_quote():
+            return self.conn.get_option_chain('TEST', '20261120', 'P', 55,
+                                              stock_price=60, exact_strike=True)['options'][0]
+
+        self.read()
+        self.ticker.last = 2.25
+        self.ticker.modelGreeks = S(delta=-.25, impliedVol=.9)
+        self.assertEqual(trade_quote()['bid'], 0)
+        self.now += 30
+        self.assertEqual(trade_quote()['ask'], 0)
+        self.conn.ib.cancelMktData.assert_called_once()
+        for _ in range(4):
+            trade_quote()
+            self.read()
+        self.assertEqual(self.conn.ib.reqMktData.call_count, 2)
+        self.ticker.bid, self.ticker.ask = 2.2, 2.3
+        self.assertEqual((trade_quote()['bid'], trade_quote()['ask']), (2.2, 2.3))
+        self.now += 60
+        trade_quote()
+        self.assertEqual(self.conn.ib.reqMktData.call_count, 2)
+        with patch('core.connection.is_market_hours', return_value=True), \
+                patch.object(self.conn, '_recover_frozen_position_quote') as recover:
+            trade_quote()
+            recover.assert_not_called()
+        self.conn.ib.placeOrder.assert_not_called()
+        self.conn.ib.cancelOrder.assert_not_called()
+
     def test_subscription_failure_does_not_return_a_successful_old_quote(self):
         self.read(); self.now += 30
         self.conn.ib.reqMktData.side_effect = RuntimeError('Subscription unavailable')

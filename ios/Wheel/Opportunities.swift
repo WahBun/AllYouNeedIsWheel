@@ -505,7 +505,7 @@ final class OpportunityBook {
             guard token == generation, !Task.isCancelled else { return }
             for pin in [nil] + (pins[key(symbol, type)] ?? []).map(Optional.some) {
                 let rowKey = pin?.id ?? key(symbol, type)
-                if onlyMissing, rows[rowKey]?.quote != nil { continue }
+                if onlyMissing, rows[rowKey]?.quote?.mid != nil, rows[rowKey]?.error == nil { continue }
                 if background, let retry = retryAfter[rowKey], retry > Date() { continue }
                 await load(symbol, type: type, store: store, background: background, pin: pin)
                 guard token == generation, !Task.isCancelled else { return }
@@ -965,7 +965,7 @@ struct OpportunitiesView: View {
         }
         .onAppear { visible = true }
         .onDisappear { visible = false }
-        .task(id: "prices-\(autoRefresh)-\(store.demo)-\(store.address)-\(type)") {
+        .task(id: "prices-\(autoRefresh)-\(store.demo)-\(store.address)-\(store.trading.accountEpoch ?? "")-\(type)") {
             guard autoRefresh, !store.demo else { return }
             var lastSample = Date.distantPast
             await RefreshLoop.run {
@@ -975,15 +975,17 @@ struct OpportunitiesView: View {
                 return await book.refreshPrices(book.symbols(store, type: type), type: type, store: store)
             }
         }
-        .task(id: "\(autoRefresh)-\(store.demo)-\(store.address)-\(type)-\(symbols.joined(separator: ","))") {
+        .task(id: "\(autoRefresh)-\(store.demo)-\(store.address)-\(store.trading.accountEpoch ?? "")-\(type)-\(symbols.joined(separator: ","))") {
             guard autoRefresh else { return }
             book.invalidateMarketSession()
-            if !(await book.allowsAutomaticRefresh(store)), book.marketOpen == false, !Task.isCancelled {
-                await book.refreshAll(type: type, store: store, background: true, onlyMissing: true)
-            }
+            var lastRecovery = Date.distantPast
             await RefreshLoop.run {
-                guard await book.allowsAutomaticRefresh(store) else { return false }
-                await book.refreshAll(type: type, store: store, background: true)
+                let marketOpen = await book.allowsAutomaticRefresh(store)
+                if !marketOpen {
+                    guard book.marketOpen == false, Date().timeIntervalSince(lastRecovery) >= 30 else { return false }
+                    lastRecovery = Date()
+                }
+                await book.refreshAll(type: type, store: store, background: true, onlyMissing: !marketOpen)
                 return false
             }
         }
@@ -1171,18 +1173,23 @@ struct OpportunityDetail: View {
         }
         .onAppear { visible = true }
         .onDisappear { visible = false }
-        .task(id: "prices-\(autoRefresh)-\(store.demo)-\(store.address)-\(key)") {
+        .task(id: "prices-\(autoRefresh)-\(store.demo)-\(store.address)-\(store.trading.accountEpoch ?? "")-\(key)") {
             guard autoRefresh, !store.demo else { return }
             await RefreshLoop.run(interval: 1) {
                 guard await book.allowsAutomaticRefresh(store) else { return false }
                 return await book.refreshPrices([ticker], type: type, store: store)
             }
         }
-        .task(id: "\(autoRefresh)-\(store.demo)-\(store.address)-\(key)-\(preference.otm)-\(preference.expiration)-\(preference.strike ?? 0)") {
+        .task(id: "\(autoRefresh)-\(store.demo)-\(store.address)-\(store.trading.accountEpoch ?? "")-\(key)-\(preference.otm)-\(preference.expiration)-\(preference.strike ?? 0)") {
             guard autoRefresh else { return }
             book.invalidateMarketSession()
+            var lastRecovery = Date.distantPast
             await RefreshLoop.run(interval: 1) {
-                guard await book.allowsAutomaticRefresh(store) else { return false }
+                if !(await book.allowsAutomaticRefresh(store)) {
+                    guard book.marketOpen == false, row.quote?.mid == nil || row.error != nil,
+                          Date().timeIntervalSince(lastRecovery) >= 30 else { return false }
+                    lastRecovery = Date()
+                }
                 await book.load(ticker, type: type, store: store, background: true, pin: pin)
                 return row.error != nil
             }
@@ -1224,7 +1231,7 @@ struct OpportunityDetail: View {
                 }
             }.presentationDetents([.medium, .large])
         }
-        .task(id: "strikes-\(showStrikes)-\(strikeRetry)-\(store.demo)-\(store.address)-\(key)-\(preference.expiration)") {
+        .task(id: "strikes-\(showStrikes)-\(strikeRetry)-\(store.demo)-\(store.address)-\(store.trading.accountEpoch ?? "")-\(key)-\(preference.expiration)") {
             let requestID = UUID()
             strikeLoadID = requestID
             strikes = []; strikeError = nil; strikesLoading = false

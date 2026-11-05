@@ -1527,6 +1527,51 @@ final class TradingTests: XCTestCase {
         XCTAssertEqual(book.rows["CRCL:PUT"]?.stockPrice, 102)
     }
 
+    func testClosedTradeRefreshRecoversMissingMidAfterAccountSwitch() async throws {
+        let store = WheelStore()
+        store.demo = false; store.address = "https://mock.invalid"
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        let book = store.opportunities
+        let context = UUID().uuidString
+        book.configure(context: context)
+        defer { UserDefaults.standard.removeObject(forKey: "opportunities-v1-" + context); MockProtocol.payload = nil }
+        book.custom = ["TQQQ"]
+        book.preferences["TQQQ:PUT"] = OpportunityPreference(expiration: "20261120", strike: 60)
+        let pin = book.pin("TQQQ", "PUT", expiration: "20261120", strike: 65)
+        book.save()
+        var recovered = false
+        MockProtocol.fail = false; MockProtocol.statusCode = 200; MockProtocol.requests = []
+        MockProtocol.payload = { request in
+            if request.url!.path.hasSuffix("expirations") {
+                return ["expirations": [["value": "20261120", "is_default": true]]]
+            }
+            let strike = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!
+                .first { $0.name == "strike" }!.value!
+            let priceAvailable = strike == "65.0" || recovered
+            var quote: [String: Any] = ["strike": Double(strike)!, "expiration": "20261120", "delta": -0.37]
+            if priceAvailable { quote["bid"] = 2.7; quote["ask"] = 2.9 }
+            return ["data": ["TQQQ": ["stock_price": 61.87, "puts": [quote]]]]
+        }
+        // Account changes clear the displayed quotes, then restore the saved candidates.
+        book.configure(context: context + "-paper")
+        book.configure(context: context)
+        await book.refreshAll(type: "PUT", store: store, background: true, onlyMissing: true)
+        XCTAssertNotNil(book.rows["TQQQ:PUT"]?.quote)
+        XCTAssertNil(book.rows["TQQQ:PUT"]?.quote?.mid)
+        XCTAssertNotNil(book.rows[pin]?.quote?.mid)
+        XCTAssertFalse(book.rows["TQQQ:PUT"]!.canStage)
+        MockProtocol.requests = []
+        recovered = true
+        await book.refreshAll(type: "PUT", store: store, background: true, onlyMissing: true)
+        XCTAssertEqual(book.rows["TQQQ:PUT"]?.quote?.mid, 2.8)
+        XCTAssertEqual(MockProtocol.requests.filter { $0.url!.path.hasSuffix("otm") }.count, 1)
+        MockProtocol.requests = []
+        await book.refreshAll(type: "PUT", store: store, background: true, onlyMissing: true)
+        XCTAssertTrue(MockProtocol.requests.isEmpty)
+    }
+
     func testMarketSessionGateCachesClosedAndRecoversOnRecheck() async {
         let store = WheelStore()
         store.demo = false; store.address = "https://mock.invalid"
