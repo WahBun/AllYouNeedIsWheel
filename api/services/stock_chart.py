@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from functools import lru_cache
 import pandas_market_calendars as calendars
 from api.services.chart_last_gap import LastTradeGap
+from api.services.chart_tick_time import install_chart_tick_times
 from api.services.chart_sessions import cme_regular, session_windows, rth_source_size
 from api.services.chart_initial_history import InitialChartHistory, ChartHistoryPending
 
@@ -429,6 +430,7 @@ class StockChart:
                     conn.ib.cancelHistoricalData(historical)
                     raise
             else:
+                install_chart_tick_times(conn.ib.wrapper)
                 ticker = conn.ib.reqTickByTickData(contract, 'Last', 0, False)
                 try:
                     conn.ib.reqTickByTickData(contract, 'BidAsk', 0, False)
@@ -440,7 +442,10 @@ class StockChart:
                 generation=time.time_ns(), ticks=0, live_bars={}, quotes={},option_bars=option_bars,
                 quote_requested_at=time.monotonic(),model_greeks=getattr(ticker,'modelGreeks',None))
             gap = None if option_bars else LastTradeGap(con_id)
+            level1_prices = {}
+            tick_book = None
             def on_tick(updated):
+                nonlocal tick_book
                 if self.states.get(state['con_id']) is not state or updated is not state['ticker']:
                     return
                 if option_bars:
@@ -453,6 +458,9 @@ class StockChart:
                         state['delta_quote']=(state['iv_quote'][0],delta if isinstance(delta,(int,float)) and math.isfinite(delta) and -1<=delta<=1 and getattr(updated,'marketDataType',None)==1 else None)
                 # Actual side-specific price or size events establish quote freshness.
                 # ib_async carries the matching price on a size-only update.
+                book_in_batch = None
+                if not option_bars and any(q.tickType in (0, 3) for q in getattr(updated, 'ticks', [])):
+                    book_in_batch = next((t for t in reversed(updated.tickByTicks) if hasattr(t, 'bidPrice')), None)
                 ticks_before = state['ticks']
                 for quote in getattr(updated, 'ticks', []):
                     if gap is not None and quote.tickType in (4, 68):
@@ -462,24 +470,41 @@ class StockChart:
                             if state['bars'] and price != state['bars'][-1]['close']:
                                 gap.level1_different += 1
                             stamp = quote.time.timestamp()
-                            if positive(getattr(quote, 'size', None)) and (
-                                    state['last_tick'] is None or stamp - state['last_tick'] >= 1):
-                                state['level1_last'] = (stamp, price)
-                            else:
+                            if not positive(getattr(quote, 'size', None)):
                                 state.pop('level1_last', None)
+                            elif state['last_tick'] is None or stamp - state['last_tick'] >= 1:
+                                state['level1_last'] = (stamp, price)
                         else:
                             state.pop('level1_last', None)
                     side = {0: 'bid', 1: 'bid', 2: 'ask', 3: 'ask',
                             66: 'bid', 67: 'ask', 69: 'bid', 70: 'ask'}.get(quote.tickType)
                     if side:
-                        state['quotes'][side] = (quote.time.timestamp(),
-                            positive(quote.price) if (quote.tickType in (1, 2) or
-                                (quote.tickType in (0, 3) and positive(getattr(quote, 'size', None)))) else None)
+                        price = positive(quote.price)
+                        if quote.tickType in (1, 2):
+                            level1_prices[side] = price
+                        elif quote.tickType in (0, 3) and positive(getattr(quote, 'size', None)):
+                            # For stocks/futures ib_async shares Ticker.bid/ask
+                            # with BidAsk ticks, even a late one. A size-only
+                            # update must not renew that unrelated cached price.
+                            book = book_in_batch or tick_book
+                            if book and price != level1_prices.get(side) and price == getattr(book, side + 'Price'):
+                                book_time = book.time.timestamp()
+                                stamp, prior = state['quotes'].get(side, (0, None))
+                                if quote.time.timestamp() - book_time >= 30 or (book_time < stamp and price != prior):
+                                    continue
+                        else:
+                            price = None
+                            level1_prices.pop(side, None)
+                        state['quotes'][side] = (quote.time.timestamp(), price)
                 for tick in ([] if option_bars else updated.tickByTicks):
                     if hasattr(tick, 'bidPrice'):
                         gap.bid_ask += 1
-                        for side, value in [('bid', tick.bidPrice), ('ask', tick.askPrice)]:
-                            state['quotes'][side] = (tick.time.timestamp(), positive(value))
+                        tick_book = tick
+                        stamp = tick.time.timestamp()
+                        if stamp <= time.time():
+                            for side, value in [('bid', tick.bidPrice), ('ask', tick.askPrice)]:
+                                if stamp >= state['quotes'].get(side, (0, None))[0]:
+                                    state['quotes'][side] = (stamp, positive(value))
                         continue
                     if not hasattr(tick, 'price'):
                         continue
@@ -492,7 +517,8 @@ class StockChart:
                         continue
                     if apply_tick(state['bars'], timestamp, tick.price):
                         unknown_volume(state['bars'][-1])
-                        state.pop('level1_last', None)
+                        if timestamp >= state.get('level1_last', (0, None))[0]:
+                            state.pop('level1_last', None)
                         state['last_tick'] = timestamp
                         state['received'] = time.time()
                         state['ticks'] += 1
@@ -755,11 +781,15 @@ class StockChart:
         # tick freshness, bid/ask and all trading inputs on their original paths.
         level1 = state.get('level1_last')
         display_last = None
+        display_ahead = False
         if level1 and getattr(ticker, 'marketDataType', None) == 1:
             stamp, price = level1
-            if 0 <= server_time - stamp < 3 and (sessions is None or any(
-                    start <= stamp <= server_time < end for start, end in sessions)):
+            display_ahead = stamp <= server_time and (sessions is None or any(
+                start <= stamp <= server_time < end for start, end in sessions))
+            if display_ahead and server_time - stamp < 3:
                 display_last = dict(price=price, time=stamp, expires_at=stamp + 3)
+                if not message and (age is None or age >= 10):
+                    message = 'Waiting for current IB trade bars · latest price shown separately'
         # A known current bar has a scheduled close before the first Last tick.
         # Countdown eligibility is independent of quote freshness/trading eligibility.
         closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time, contract)
@@ -789,7 +819,7 @@ class StockChart:
         return dict(delta=delta if delta_valid else None,delta_expires_at=delta_time+30 if delta_valid else None,option_display_quote=display_quote,covered_call_capacity=cc_capacity,option_right=getattr(contract, 'right', ''),iv_percent=iv if iv_valid else None,iv_expires_at=iv_time+30 if iv_valid else None,data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
             con_id=con_id, symbol=contract.symbol, message=message,
             # Display-only quote metadata; independent of chart interval/session.
-            display_last=display_last, last_price=positive(state['bars'][-1]['close']) if state['bars'] else None,
+            display_last=display_last, display_last_ahead=display_ahead, last_price=positive(state['bars'][-1]['close']) if state['bars'] else None,
             previous_close=positive(getattr(ticker, 'close', None)) if getattr(ticker, 'marketDataType', None) in (1, 2) else None,
             display_symbol=(f"{contract.symbol} {contract.lastTradeDateOrContractMonth} {contract.strike:g} {'CALL' if contract.right == 'C' else 'PUT'}" if contract.secType == 'OPT' else getattr(contract, 'localSymbol', '') or contract.symbol),
             security_type=contract.secType, local_symbol=getattr(contract, "localSymbol", "") or contract.symbol,

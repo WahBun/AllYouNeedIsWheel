@@ -63,7 +63,7 @@ function updateTabTitle(){
  const valid=packet.con_id===cid&&packet.account_epoch===epoch&&!switchingChart;
  const symbol=valid?contractLabel(packet):'';
  const live=packet.display_last,now=packet.server_time+Math.max(0,Date.now()-packetReceived)/1000;
- const price=valid?(live&&now<live.expires_at?live.price:packet.last_price):null;
+ const price=valid?(live&&now<live.expires_at?live.price:packet.display_last_ahead?null:packet.last_price):null;
  let title=symbol||'Wheel · Superchart';
  if(symbol&&Number.isFinite(price)&&price>0&&Date.now()-packetReceived<30000){
   const rule=(packet.price_rules||[]).filter(r=>r.low<=price&&r.increment>0).sort((a,b)=>b.low-a.low)[0];
