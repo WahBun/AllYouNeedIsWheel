@@ -1,14 +1,13 @@
 # Wheel: v1.9.0
 
-Release candidate · iOS **1.9.0 (6)** · target branch **Ben/wheel-1.8**.
-Prepared for user review; not yet merged, published or deployed as this release.
+iOS **1.9.0 (6)** · Web **1.9.0** · Branch **`Ben/wheel-1.8`**.
 
 ## Performance and Trade review
 
 - Open Trade review from the calendar icon at the top right of Performance.
 - Review monthly realized P&L, a daily P&L calendar, symbol contributions and paginated execution details. Assignment, exercise and expiration book entries are shown separately from exchange executions.
 - See daily and monthly commissions for the whole account, separately by fee currency. Missing values stay unavailable; commissions already included in realized P&L are not deducted again. Subscription charges are not included.
-- Pull down on Performance to refresh. One information button beside Today holds daily P&L and history explanations.
+- Pull down on Performance to refresh. The spinner closes after at most four seconds and keeps the current chart visible. If history arrives later, it still updates the chart. The information button beside Today explains daily P&L and history.
 - Complete Simplified and Traditional Chinese for recent native screens, including review, help, commissions, contract search, indicator settings, notifications and maintenance. Instrument codes and standard trading abbreviations remain unchanged.
 
 ## Included fixes since v1.8.5
@@ -20,22 +19,19 @@ Prepared for user review; not yet merged, published or deployed as this release.
 - Apply the reviewed toolbar/footer layout and blueprint editing improvements.
 - Recover incomplete frozen Trade quotes after account changes, recognize Flex lifecycle book entries, and recheck Gateway window geometry after automatic restarts.
 
+## Optional cloud backup
+
+A separate Mini job can encrypt completed database snapshots and upload them to Tianyi. It verifies each new archive by downloading it and comparing its SHA-256 digest. See [setup and recovery](ENCRYPTED_CLOUD_BACKUP.md).
+
 ## Upgrade
 
-Merge the reviewed PR before publishing this Release. A new iPhone build/install
-is required. Updating GitHub or Mini alone cannot update the installed app.
+- **Mini running v1.8.5** — use **Deploy & Restart Backend** to load the intervening backend changes, then refresh the web page.
+- **Mini already on #151** — the web and backend application files match this release. If you want the Mini checkout to match the tag, use **Deploy only**. The optional backup job has its own installation and schedule.
+- **iPhone** — install the 1.9.0 (6) build from this release if upgrading from an older version. A device already running the #151 build has the same app code and resources.
 
-For a Mini already running the Trade review/commission changes through #147,
-this release-preparation PR needs **Deploy only**, with a page refresh for web
-version metadata. A Mini upgrading directly from v1.8.5 needs **Deploy & Restart
-Backend** for the intervening backend changes. No Gateway restart is required.
-Existing Releases and tags remain available as rollback references.
+## Validation
 
-Live orders were not placed, modified or canceled for release verification.
-
-## Candidate validation
-
-- Native pull-to-refresh: one forced history refresh per gesture; spinner waits for completion; success and failure end refreshing; failed requests retain the same-account chart.
+- The four-second refresh check retained the current chart and applied late history with one forced request. Success and failure paths were also tested.
 - Six Trade review tests: report pagination/context isolation, missing values, commission decoding, localized help/weekdays and English/Simplified/Traditional layouts at 320/393 points.
 - Native localization checks preserve broker contract identities, unknown diagnostics and trading abbreviations. The older Call/Put invariant was corrected to match the translations already present in the baseline.
 - Catalog audit: 1,118 entries checked for both Chinese variants and interpolation consistency, with compiler-extracted UI-key coverage.
