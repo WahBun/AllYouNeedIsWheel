@@ -16,7 +16,7 @@ SwiftUI 构建，支持 iOS 18 及以上、浅色／深色模式。原生页面�
 
 截至 **2026-11-05**，项目以日常使用和稳定性维护为主：普通问题先收集归类，攒一批做最小修复；交易安全或影响正常使用的问题及时处理。保留现有布局、tick 级行情刷新和已确认的交易交互。这一维护方向不代表所有场景或 Live 交易均已验收。
 
-正式代码以仓库、目标分支和 commit SHA 为准。最新已发布版本为 [Wheel: v1.8.5](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.8.5)。**1.9.0 (6) 正在准备，等待用户检查**，目标分支仍为 **`Ben/wheel-1.8`**，详见 [1.9.0 发布说明](docs/RELEASE_1.9.0.md)。本源码构建的 iOS 版本为 1.9.0 (6)，网页版本标记为 1.9.0。开发版本不等于已发布 Release；发版也不代表 Mini 已部署或 iPhone 已更新。
+当前正式版本是 [Wheel: v1.9.0](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.9.0)，正式分支为 **`Ben/wheel-1.8`**。iOS 版本为 **1.9.0 (6)**，网页版本为 **1.9.0**。本次变更和升级方式见[发布说明](docs/RELEASE_1.9.0.md)。
 
 推荐分工：**开发 Mac** 负责开发、Xcode 与手机构建；**后端主机** 长期运行 Gateway、Backend 和 API；开发 Mac 与 iPhone 通过 Tailscale 访问后端主机。部署与重启由用户在电脑或手机上选择执行，手机 App 的 Xcode Run 也由用户操作。
 
