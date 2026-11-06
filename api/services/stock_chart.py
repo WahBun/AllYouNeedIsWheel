@@ -162,6 +162,7 @@ class StockChart:
         self.request_errors = {}
         self.listeners = set()
         self.option_trade_listeners = set()
+        self.last_trade_observers = {}
         self.initial_history = InitialChartHistory()
         self.has_subscribers = lambda con_id: False
 
@@ -496,6 +497,7 @@ class StockChart:
                             price = None
                             level1_prices.pop(side, None)
                         state['quotes'][side] = (quote.time.timestamp(), price)
+                observer = self.last_trade_observers.get(con_id)
                 for tick in ([] if option_bars else updated.tickByTicks):
                     if hasattr(tick, 'bidPrice'):
                         gap.bid_ask += 1
@@ -524,6 +526,13 @@ class StockChart:
                         state['ticks'] += 1
                         # Keep tick-only extrema separately from the historical baseline.
                         minute = int(timestamp) // 60 * 60
+                        if observer:
+                            if getattr(updated, 'marketDataType', None) == 1:
+                                old, prior_stamp = state.get('alert_last_trade', (None, None))
+                                state['alert_last_trade'] = tick.price, timestamp
+                                observer(state, old, prior_stamp, tick.price, timestamp)
+                            else:
+                                state.pop('alert_last_trade', None)
                         live = state['live_bars'].setdefault(minute, dict(
                             time=minute, open=tick.price, high=tick.price, low=tick.price, close=tick.price))
                         if len(state['live_bars']) > 12000:
