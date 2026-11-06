@@ -168,7 +168,7 @@ def _native_opening_events(group, account, cid, client, trades, batches):
             (t.order.permId or t.orderStatus.permId) != perm or t.order.orderRef != ref
             or t.order.orderId not in (0, oid) or t.order.clientId not in (0, client)
             or t.order.action != action or t.order.orderType != 'LMT' or t.order.parentId or t.order.ocaGroup
-            or t.orderStatus.status != 'Filled' or t.orderStatus.filled != size
+            or t.orderStatus.status != 'Filled' or t.orderStatus.filled != size or t.orderStatus.remaining != 0
             or not _complete_fill_evidence(t, size) for t in matching):
         return []
     events = []

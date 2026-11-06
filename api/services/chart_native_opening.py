@@ -11,16 +11,20 @@ from core.order_amendments import matches_contract
 def flat_group(group):
     ids = group.get('ids', {})
     rows = group.get('terminal', {})
-    if (not ids or set(ids) != set(rows) or set(ids) != set(group.get('perms', {}))
+    if (not ids or group.get('side') not in (-1, 1) or set(ids) != set(rows)
+            or set(ids) != set(group.get('perms', {}))
             or group.get('close_cancellation') or group.get('operator_releases')
             or any(v for k, v in group.items() if k.startswith('pending_'))):
         return False
     net = group.get('origin_position', 0)
     for role, oid in ids.items():
         row = rows[role]
-        if row.get('order_id') != oid or row.get('status') not in TERMINAL:
+        filled, quantity = row.get('filled'), row.get('quantity')
+        if (row.get('order_id') != oid or row.get('status') not in TERMINAL
+                or not all(type(q) in (int, float) and math.isfinite(q) for q in (filled, quantity))
+                or not 0 <= filled <= quantity or row['status'] == 'Filled' and filled != quantity):
             return False
-        net += row['filled'] * group['side'] * (1 if role.split('_')[0] == 'entry' else -1)
+        net += filled * group['side'] * (1 if role.split('_')[0] == 'entry' else -1)
     return net == 0
 
 
