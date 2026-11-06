@@ -10,7 +10,7 @@ import math
 import time
 from datetime import datetime
 from ib_async import Stock, Future, Index
-from api.services.chart_history_budget import read_history
+from api.services.chart_indicator_history import indicator_history
 from api.services.notifications import MOONSHINE_DEFAULTS
 from api.services.chart_sessions import NY, session_windows
 from api.services.chart_volatility import group, session_anchors
@@ -75,28 +75,16 @@ class MoonshineMonitor:
         self.contracts = {}
         self.plans = {}
         self.cache_versions = {}
-        self.index_reads = {}
 
     def reset(self):
         for task in self.tasks.values(): task.cancel()
-        for _, task in self.index_reads.values(): task.cancel()
-        self.index_reads.clear()
         self.tasks.clear(); self.ready.clear(); self.retry.clear(); self.contracts.clear()
         self.plans.clear(); self.cache_versions.clear()
         self.identity = None
 
-    async def index_rows(self, conn, index, size):
-        # Paired watches use the same index bars. Share in-flight and recent
-        # reads within this account/day/rule identity and its setup retry window.
-        key = (index.symbol, size)
-        now = time.time()
-        started, task = self.index_reads.get(key, (0, None))
-        if task is None or (task.done() and now >= started + 60):
-            duration = '2 D' if size == '1 min' else '10 D'
-            task = asyncio.create_task(read_history(conn, index, '', duration, size, 'TRADES',
-                                                    useRTH=False, formatDate=2, timeout=6, optional=True))
-            self.index_reads[key] = (now, task)
-        return rows(await task)
+    async def index_rows(self, conn, index, size, version):
+        duration = '2 D' if size == '1 min' else '10 D'
+        return rows(await indicator_history(conn, index, duration, size, version))
 
     def publish(self, symbol, scope, value):
         prior = self.plans.get(symbol)
@@ -166,8 +154,7 @@ class MoonshineMonitor:
                     state = stock_chart.states.get(contract.conId, {})
                     bars = list(state.get('bars', [])) if state.get('conn') is conn and state.get('client') is conn.ib.client else []
                     if not bars or bars[-1]['time'] < time.time() - 120 or not any(a['day'] == day for a in session_anchors(bars, time.time(), contract)):
-                        bars, _ = rows(await read_history(conn, contract, '', '2 D', '1 min', 'TRADES',
-                                                        useRTH=False, formatDate=2, timeout=6, optional=True))
+                        bars, _ = rows(await indicator_history(conn, contract, '2 D', '1 min', rules['version']))
                     if not current(): return
                     if not any(a['day'] == day for a in session_anchors(bars, time.time(), contract)): return
                     source = rules[group(contract)]
@@ -185,12 +172,12 @@ class MoonshineMonitor:
                         indices = await asyncio.wait_for(conn.ib.qualifyContractsAsync(Index(source, 'CBOE', 'USD')), 6)
                         if len(indices) != 1 or not current(): return
                         try:
-                            intraday, _ = await self.index_rows(conn, indices[0], '1 min')
+                            intraday, _ = await self.index_rows(conn, indices[0], '1 min', rules['version'])
                         except Exception:
                             intraday = []  # Match the chart's independent daily fallback.
                         if not current(): return
                         if not any(v['time'] + 60 <= cutoff and datetime.fromtimestamp(v['time'], NY).date().isoformat() == day for v in intraday) and not any(v['day'] < day for v in daily):
-                            _, daily = await self.index_rows(conn, indices[0], '1 day')
+                            _, daily = await self.index_rows(conn, indices[0], '1 day', rules['version'])
                         result = plan(contract, bars, intraday, daily, time.time(), rules)
                     if result and current():
                         self.publish(symbol, scope, result)

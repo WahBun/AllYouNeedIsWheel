@@ -35,8 +35,12 @@ async def read_history(conn, *args, optional=False, **kwargs):
         budget = conn._chart_history_budget = HistoryBudget()
     ib, client, account = conn.ib, conn.ib.client, getattr(conn, 'account_id', None)
 
+    socket = getattr(client, 'conn', None)
+    transport = getattr(socket, 'transport', None)
+
     def current():
         return (conn.ib is ib and ib.client is client
+                and getattr(socket, 'transport', None) is transport
                 and getattr(conn, 'account_id', None) == account and conn.is_connected())
 
     await budget.acquire(optional)
@@ -63,7 +67,7 @@ async def read_history(conn, *args, optional=False, **kwargs):
             cleaned = True
             # The old socket is already gone after a client replacement. Do not
             # cancel a possibly reused request ID on the replacement client.
-            if conn.ib is ib and ib.client is client:
+            if conn.ib is ib and ib.client is client and getattr(socket, 'transport', None) is transport:
                 try:
                     ib.cancelHistoricalData(history)
                 except Exception:

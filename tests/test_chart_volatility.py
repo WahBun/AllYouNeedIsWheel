@@ -12,7 +12,7 @@ class VolatilityTests(unittest.TestCase):
     def test_async_cache_and_no_primary_chart_no_request(self):
         loop=asyncio.new_event_loop();asyncio.set_event_loop(loop)
         conn=Mock();conn.is_connected.return_value=True
-        conn.ib.qualifyContractsAsync=AsyncMock(return_value=[S(conId=99)])
+        conn.ib.qualifyContractsAsync=AsyncMock(return_value=[S(conId=99, symbol='VXN', secType='IND', exchange='CBOE')])
         conn.ib.reqHistoricalDataAsync=AsyncMock(return_value=[S(date=datetime.now(timezone.utc),close=20)])
         state={'conn':conn,'contract':S(symbol='QQQ',secType='STK')}
         try:
@@ -30,7 +30,7 @@ class VolatilityTests(unittest.TestCase):
     def test_shared_source_overrides_stale_client_selection(self):
         loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
         conn = Mock(); conn.is_connected.return_value = True
-        conn.ib.qualifyContractsAsync = AsyncMock(return_value=[S(conId=99)])
+        conn.ib.qualifyContractsAsync = AsyncMock(return_value=[S(conId=99, symbol='VXN', secType='IND', exchange='CBOE')])
         conn.ib.reqHistoricalDataAsync = AsyncMock(return_value=[S(date=datetime.now(timezone.utc), close=20)])
         rules = dict(version=2, inner=.6, outer=.9, spx='RVX', ndx='VIX')
         state = {'conn': conn, 'contract': S(symbol='QQQ', secType='STK')}
@@ -46,7 +46,7 @@ class VolatilityTests(unittest.TestCase):
     def test_parallel_progress_and_connection_scoped_reuse(self):
         loop=asyncio.new_event_loop();asyncio.set_event_loop(loop)
         conn=Mock();conn.is_connected.return_value=True
-        conn.ib.qualifyContractsAsync=AsyncMock(return_value=[S(conId=99)])
+        conn.ib.qualifyContractsAsync=AsyncMock(return_value=[S(conId=99, symbol='VXN', secType='IND', exchange='CBOE')])
         daily=loop.create_future()
         async def history(contract,end,duration,*args,**kwargs):
             if duration=='10 D': await daily

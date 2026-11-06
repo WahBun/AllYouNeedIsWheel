@@ -63,6 +63,22 @@ class HeldStockRangeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.sample().get('day_high'))
         await asyncio.sleep(0)
 
+    async def test_opening_refresh_reuses_recent_range_and_still_finalizes_at_close(self):
+        self.session.return_value = (self.day, False)
+        self.read.return_value = [S(date=self.day, low=10, high=12, close=11)]
+        with patch('api.services.portfolio_stock_range.time') as clock:
+            for second in (30, 90, 152, 214, 276):
+                clock.monotonic.return_value = second
+                self.sample()
+                await asyncio.sleep(0)
+            self.assertEqual(self.read.await_count, 3)
+            self.session.return_value = (self.day, True)
+            clock.monotonic.return_value = 350
+            self.sample()
+            await asyncio.sleep(0)
+            self.assertEqual(self.sample()['day_range_status'], 'frozen')
+            self.assertEqual(self.read.await_count, 4)
+
     async def test_late_history_cannot_follow_account_change(self):
         gate = asyncio.Event()
         async def wait_for_bar(*args, **kwargs):

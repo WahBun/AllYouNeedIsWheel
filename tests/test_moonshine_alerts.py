@@ -9,6 +9,7 @@ from types import SimpleNamespace as S
 from unittest.mock import AsyncMock, Mock, patch
 from ib_async import Stock, Future
 from api.services import moonshine_alerts as m
+from api.services import chart_indicator_history as indicators
 from api.services.notifications import NotificationStore, account_scope
 from api.services.notification_runtime import NotificationRuntime
 from api.services.push_delivery import deliver_once
@@ -218,7 +219,7 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
     async def test_paired_watches_share_daily_fallback_without_future_seed(self):
         conn=Mock();conn.account_id='DU_TEST';conn.is_connected.return_value=True
         conn.ib.reqContractDetailsAsync=AsyncMock(return_value=[S(contract=contract('NQ',9))])
-        async def qualify(c): return [contract()] if isinstance(c,Stock) else [S(symbol=c.symbol)]
+        async def qualify(c): return [contract()] if isinstance(c,Stock) else [S(symbol=c.symbol, conId=99, exchange='CBOE', secType='IND')]
         conn.ib.qualifyContractsAsync=AsyncMock(side_effect=qualify)
         async def history(owner,c,end,duration,size,*args,**kwargs):
             if c.symbol in ('QQQ','NQ'):
@@ -226,7 +227,7 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
             if size=='1 min': raise TimeoutError('Fixture intraday unavailable')
             return [S(date='20261022',close=20),S(date='20261023',close=80)]
         queued=[];monitor=m.MoonshineMonitor(queued.append)
-        with patch.object(m.time,'time',return_value=START+360),patch.object(m,'read_history',new=AsyncMock(side_effect=history)) as read:
+        with patch.object(m.time,'time',return_value=START+360),patch.object(indicators,'read_history',new=AsyncMock(side_effect=history)) as read:
             monitor.pulse(conn,'paper',START+360)
             await asyncio.gather(*monitor.tasks.values())
             self.assertEqual({event[2]['symbol'] for event in queued}, {'QQQ','NQ'})
@@ -242,7 +243,7 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
         from api.services.stock_chart import stock_chart
         conn=Mock();conn.account_id='DU_TEST';conn.is_connected.return_value=True
         conn.ib.reqContractDetailsAsync=AsyncMock(return_value=[])
-        async def qualify(c): return [contract()] if isinstance(c,Stock) else [S(symbol=c.symbol)]
+        async def qualify(c): return [contract()] if isinstance(c,Stock) else [S(symbol=c.symbol, conId=99, exchange='CBOE', secType='IND')]
         conn.ib.qualifyContractsAsync=AsyncMock(side_effect=qualify)
         available=False
         async def history(owner,c,end,duration,size,*args,**kwargs):
@@ -253,7 +254,7 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
                 return [S(date=datetime.fromtimestamp(START+240,timezone.utc),close=27.46,high=27.46,low=27.46)]
             return [S(date='20261022',close=25.18)]
         queued=[];monitor=m.MoonshineMonitor(queued.append)
-        with patch.dict(stock_chart.states,{},clear=True),patch.object(m,'read_history',new=AsyncMock(side_effect=history)) as read:
+        with patch.dict(stock_chart.states,{},clear=True),patch.object(indicators,'read_history',new=AsyncMock(side_effect=history)) as read, patch.object(indicators, 'monotonic', side_effect=lambda: m.time.time()):
             with patch.object(m.time,'time',return_value=START+360):
                 monitor.pulse(conn,'paper',START+360);await asyncio.gather(*monitor.tasks.values())
             self.assertEqual(monitor.plans['QQQ']['basis']['kind'],'daily')
@@ -284,7 +285,7 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
         cached=dict(identity=(conn.ib,conn.ib.client,conn.account_id),intraday=[],daily=[dict(day='2026-10-22',close=25.18)])
         state=dict(conn=conn,client=conn.ib.client,bars=bars(),volatility_cache={'VXN':cached})
         queued=[];monitor=m.MoonshineMonitor(queued.append)
-        with patch.dict(stock_chart.states,{7:state},clear=True),patch.object(m.time,'time',return_value=START+360),patch.object(m,'read_history',new=AsyncMock()) as read:
+        with patch.dict(stock_chart.states,{7:state},clear=True),patch.object(m.time,'time',return_value=START+360),patch.object(indicators,'read_history',new=AsyncMock()) as read:
             monitor.pulse(conn,'paper',START+360);await asyncio.gather(*monitor.tasks.values())
             self.assertIn('QQQ',monitor.ready)
             self.assertEqual(monitor.plans['QQQ']['basis']['kind'],'daily')
@@ -301,7 +302,7 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
             if isinstance(c, Stock):
                 self.assertEqual((c.exchange, c.currency), ('SMART','USD'))
                 return [watches[c.symbol]]
-            return [S(symbol=c.symbol, conId=99)]
+            return [S(symbol=c.symbol, conId=99, exchange='CBOE', secType='IND')]
         conn.ib.qualifyContractsAsync = AsyncMock(side_effect=qualify)
         expired = contract('NQ', 20); expired.lastTradeDateOrContractMonth = '20260918'
         next_month = contract('NQ', 21); next_month.lastTradeDateOrContractMonth = '20270319'
@@ -315,7 +316,7 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
             anchor = c.conId * 100
             return [S(date=datetime.fromtimestamp(b['time'],timezone.utc), close=anchor, high=anchor, low=anchor) for b in bars()]
         queued = []; monitor = m.MoonshineMonitor(queued.append)
-        with patch.object(m, 'read_history', new=AsyncMock(side_effect=history)) as read, patch.object(m.time,'time', return_value=START+360):
+        with patch.object(indicators, 'read_history', new=AsyncMock(side_effect=history)) as read, patch.object(m.time,'time', return_value=START+360):
             from api.services.stock_chart import stock_chart
             with patch.dict(stock_chart.states, {}, clear=True):
                 self.assertEqual(monitor.pulse(conn, 'paper', START+360), {})
@@ -372,14 +373,14 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
             watches = {symbol: contract(symbol, cid) for cid, symbol in enumerate(('QQQ','ES','NQ','SPY'), 7)}
             tickers={cid:S(updateEvent=Event(),ticks=[],marketDataType=1) for cid in (7,8,9,10)}
             conn.get_market_ticker.side_effect=lambda c:tickers[c.conId]
-            async def qualify(c): return [watches[c.symbol]] if isinstance(c, Stock) else [S(symbol=c.symbol)]
+            async def qualify(c): return [watches[c.symbol]] if isinstance(c, Stock) else [S(symbol=c.symbol, conId=99, exchange='CBOE', secType='IND')]
             conn.ib.qualifyContractsAsync=AsyncMock(side_effect=qualify)
             conn.ib.reqContractDetailsAsync=AsyncMock(side_effect=lambda c: [S(contract=watches[c.symbol])])
             async def history(owner,c,*args,**kwargs):
                 values=bars() if c.symbol in m.SYMBOLS else [dict(time=START+240,close=20,high=20,low=20)]
                 return [S(date=datetime.fromtimestamp(v['time'],timezone.utc),close=v['close'],high=v['high'],low=v['low']) for v in values]
             service=S(_ensure_connection=lambda:conn,config={'account_id':'DU_TEST'},connection_status=lambda c:{'mode':'paper'})
-            with patch.object(m.time,'time',return_value=START+360), patch.object(m,'read_history',new=AsyncMock(side_effect=history)):
+            with patch.object(m.time,'time',return_value=START+360), patch.object(indicators,'read_history',new=AsyncMock(side_effect=history)):
                 runtime.pulse(service)
                 self.assertEqual(set(runtime.moonshine.tasks), set(watches))
                 await asyncio.gather(*runtime.moonshine.tasks.values())
