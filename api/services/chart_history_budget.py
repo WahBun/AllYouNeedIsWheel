@@ -27,7 +27,7 @@ class HistoryBudget:
             self.optional.release()
 
 
-async def read_history(conn, *args, optional=False, **kwargs):
+async def read_history(conn, *args, optional=False, on_start=None, **kwargs):
     """Reserve primary-chart capacity; canceled callers do not free live IB reads."""
     loop = asyncio.get_running_loop()
     budget = getattr(conn, '_chart_history_budget', None)
@@ -50,6 +50,8 @@ async def read_history(conn, *args, optional=False, **kwargs):
     abandoned = False
     cleaned = False
     try:
+        if on_start is not None:
+            on_start()
         task = asyncio.ensure_future(ib.reqHistoricalDataAsync(*args, **kwargs))
     except BaseException:
         budget.release(optional)
