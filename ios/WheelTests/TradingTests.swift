@@ -1012,7 +1012,8 @@ final class TradingTests: XCTestCase {
         MockProtocol.payload = { _ in ["orders": [second], "history_complete": false] }
         await store.loadFilled()
         XCTAssertEqual(store.filledOrders.count, 2)
-        XCTAssertNotNil(store.filledError)
+        XCTAssertNil(store.filledError)
+        XCTAssertNotNil(store.filledHistoryWarning)
         XCTAssertNotNil(store.filledUpdated)
         XCTAssertTrue(store.trading.uncertain)
         XCTAssertTrue(store.completedOrders.isEmpty)
@@ -1022,6 +1023,7 @@ final class TradingTests: XCTestCase {
         await store.loadFilled()
         XCTAssertEqual(store.filledOrders.count, 1)
         XCTAssertNil(store.filledError)
+        XCTAssertNil(store.filledHistoryWarning)
         XCTAssertTrue(store.trading.uncertain)
     }
 
@@ -1112,8 +1114,12 @@ final class TradingTests: XCTestCase {
             "warning": "History through 2026-10-30; newer executions are still updating."] }
         await store.loadFilled()
         XCTAssertEqual(store.filledOrders.count, 3)
-        XCTAssertTrue(store.filledError?.contains("2026-10-30") == true)
+        XCTAssertNil(store.filledError)
+        XCTAssertTrue(store.filledHistoryWarning?.contains("2026-10-30") == true)
+        let partial = DailyClosedProfit.calculate(store.filledOrders, days: 0, now: now)
+        XCTAssertEqual(try XCTUnwrap(partial.displayAmount(historyComplete: false)), 344.504261, accuracy: 0.000001)
         store.changeMode()
+        XCTAssertNil(store.filledHistoryWarning)
         XCTAssertNil(store.filledHistoryThrough)
         XCTAssertTrue(store.filledOrders.isEmpty)
     }

@@ -4725,6 +4725,23 @@
         }
       }
     },
+    "Confirmed subtotal" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已确认小计"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已確認小計"
+          }
+        }
+      }
+    },
     "Connect" : {
       "extractionState" : "manual",
       "localizations" : {
