@@ -46,11 +46,13 @@ class EightHourHistory:
         self.timers.add(timer)
 
     def request(self, state, preload=False):
-        if state.get('rth_eight_task') is not None or time.monotonic() < state.get('rth_eight_retry', 0):
+        if state.get('rth_eight_task') is not None:
             return
         conn, client = state['conn'], state['client']
         account = getattr(conn, 'account_id', None)
         identity = self.cache.key(state)
+        if state.get('rth_eight_cache_identity') == identity and time.monotonic() < state.get('rth_eight_retry', 0):
+            return
         if preload:
             self.preload_running = True
         else:
@@ -144,7 +146,11 @@ class EightHourHistory:
                 state['rth_eight_expanded'] = not missing(coverage, start, end)
                 state['rth_eight_refresh_failed'] = any(result is None for result in results)
                 state['rth_eight_cached'] = bool(state.get('rth_eight_cached')) and state['rth_eight_refresh_failed']
-                state['rth_eight_retry'] = time.monotonic() + (30 if state['rth_eight_refresh_failed'] else 60)
+                # Until the next source bar closes, this overlap has the exact
+                # same end. Still check for late corrections every five minutes.
+                until_next = end + seconds - time.time()
+                refresh_in = max(1, min(300, until_next))
+                state['rth_eight_retry'] = time.monotonic() + (30 if state['rth_eight_refresh_failed'] else refresh_in)
                 state['rth_eight_expand_retry'] = state['rth_eight_retry']
                 # Save successful pages even when another page failed. Coverage
                 # tracks requested intervals, never guesses gaps from sparse trades.

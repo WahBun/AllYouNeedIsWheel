@@ -73,7 +73,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  const icon=n=>`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="${paths[n]}"/></svg>`;
  const menu=document.createElement('div');menu.id='layout-menu';menu.hidden=true;menu.setAttribute('role','menu');
  for(const n of [1,2,3,4]){const b=document.createElement('button');b.innerHTML=icon(n);b.title=names[n];b.setAttribute('aria-label',names[n]);b.setAttribute('role','menuitemradio');b.dataset.layout=n;b.onclick=()=>{if(current().busy)return;captureActive();const selected=panes.get(active),config=configs[active],others=[...panes.values()].sort((a,b)=>a.index-b.index).filter(p=>p!==selected),remaining=configs.filter((_,i)=>i!==active);active=n-1;remaining.splice(active,0,config);configs.splice(0,4,...remaining);others.splice(Math.min(active,others.length),0,selected);panes.clear();for(const pane of others){const index=pane===selected?active:[...Array(4).keys()].find(i=>i!==active&&!panes.has(i));pane.index=index;panes.set(index,pane);}count=n;maximized=false;close();button.focus();arrange();if(links.symbol)beginSwitch();tick();persist();};menu.append(b);}
- for(const [name,label] of [['symbol','Sync symbol'],['session','Sync RTH / ETH']]){const b=document.createElement('button');b.className='layout-sync';b.dataset.sync=name;b.setAttribute('role','menuitemcheckbox');b.setAttribute('aria-checked',String(links[name]));b.textContent=label;b.onclick=()=>{if(current().busy)return;links[name]=!links[name];b.setAttribute('aria-checked',String(links[name]));if(links[name])follow(name);persist();};menu.append(b);}
+ for(const [name,label] of [['symbol','Sync symbol'],['session','Sync RTH / ETH']]){const b=document.createElement('button');b.className='layout-sync';b.dataset.sync=name;b.setAttribute('role','menuitemcheckbox');b.setAttribute('aria-checked',String(links[name]));b.textContent=label;b.onclick=()=>{if(current().busy)return;links[name]=!links[name];b.setAttribute('aria-checked',String(links[name]));if(links[name])follow(name);else if(name==='symbol'&&loading()){beginSwitch();onReady();}persist();};menu.append(b);}
  picker.append(button,menu);document.getElementById('session-picker').before(picker);
  function close(){menu.hidden=true;button.setAttribute('aria-expanded','false');}
  button.onclick=()=>{menu.hidden=!menu.hidden;button.setAttribute('aria-expanded',String(!menu.hidden));if(!menu.hidden)menu.querySelector('[data-layout][aria-checked="true"]')?.focus();};
@@ -108,15 +108,55 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  function showEmpty(){transition=null;cover.hidden=false;grid.removeAttribute('aria-busy');const zh=document.documentElement.lang.startsWith('zh');loadingMessage.textContent=zh?'选择一个标的，开始查看图表。':'Choose an instrument to open your charts.';chooseInstrument.textContent=zh?'选择标的':'Select instrument';chooseInstrument.hidden=false;}
  let transition=null;
  function loading(){return transition!==null;}
- function beginSwitch(){expansionController?.abort();historyQuietUntil=Date.now()+2000;transition={started:Date.now(),revealing:false};cover.hidden=false;grid.setAttribute('aria-busy','true');checkSwitch();}
+ // Save only the visible history window when leaving a chart. Nothing from
+ // this cache is assigned to the host's quote, stream, order or position state.
+ const recentCharts=new Map();
+ const chartKey=(epoch,cid,interval,session)=>JSON.stringify([epoch,cid,interval,session]);
+ function rememberChart(p){
+  if(!p?.bars?.length||!p.account_epoch||p.account_epoch!==current().epoch||!Number.isFinite(p.server_time))return;
+  const key=chartKey(p.account_epoch,p.con_id,p.interval,p.session);
+  recentCharts.delete(key);
+  const {con_id,interval,session,symbol,local_symbol,display_symbol,security_type,exchange,server_time}=p;
+  recentCharts.set(key,{con_id,interval,session,symbol,local_symbol,display_symbol,security_type,exchange,server_time,
+   generation:'recent-history',bars:p.bars.slice(-240)});
+  // Four independent interval/session views for each of twenty symbols.
+  if(recentCharts.size>80)recentCharts.delete(recentCharts.keys().next().value);
+ }
+ function resetView(frame,c){
+  const key=chartKey(c.epoch,c.cid,c.interval,c.session),saved=recentCharts.get(key);
+  const pane=frame.parentElement;
+  delete pane.dataset.historyNotice;
+  delete pane.dataset.historyContext;
+  if(saved&&Date.now()/1000-saved.server_time<1800){
+   frame.contentWindow.receive(saved);
+   pane.dataset.historyContext=key;
+   pane.dataset.historyNotice='Saved bars · '+new Date(saved.server_time*1000).toLocaleTimeString('en-GB')+' · Updating';
+   checkSwitch();
+  }else frame.contentWindow.receive({bars:[],generation:'clear',con_id:c.cid,interval:c.interval,session:c.session});
+ }
+ function beginSwitch(){expansionController?.abort();
+  if(!links.symbol){transition=null;cover.hidden=true;grid.removeAttribute('aria-busy');return;}
+ historyQuietUntil=Date.now()+2000;transition={started:Date.now(),revealing:false};cover.hidden=false;grid.setAttribute('aria-busy','true');checkSwitch();}
+ function matching(p,c){
+  return !!p?.bars?.length&&p.con_id===c.cid&&p.interval===c.interval&&p.session===c.session&&p.account_epoch===c.epoch;
+ }
  function checkSwitch(){
   const t=transition;if(!t)return;const root=current();
-  const matching=(p,c)=>p?.bars?.length&&p.con_id===c.cid&&p.interval===c.interval&&p.session===c.session&&p.account_epoch===current().epoch;
   // Historical indicator seeds are optional; matching price panes reveal together.
   const complete=[...panes.values()].filter(p=>p.index<count).filter(p=>p.loaded&&matching(p.index===active?root.packet:p.data,p.index===active?root:p.context())).length;
   chooseInstrument.hidden=Date.now()-t.started<=8000;chooseInstrument.textContent='Choose another instrument';
   loadingMessage.textContent=`Loading charts together · ${complete}/${count}`+(Date.now()-t.started>8000?' · Waiting for data, retrying automatically':'');
-  if(complete!==count||!root.epoch){t.revealing=false;return;}
+  if(complete!==count||!root.epoch){
+   t.revealing=false;
+   // The shared transition still verifies all fresh packets; a matching saved
+   // window can be viewed while it waits. Each pane labels its own history.
+   cover.hidden=!!root.epoch&&[...panes.values()].filter(p=>p.index<count).every(p=>{
+    const c=p.index===active?root:p.context();
+    return p.loaded&&(matching(p.index===active?root.packet:p.data,c)||
+     p.el.dataset.historyContext===chartKey(c.epoch,c.cid,c.interval,c.session));
+   });
+   return;
+  }
   if(t.revealing)return;t.revealing=true;
   // Let the chart library paint its initial snapshot behind the shared cover.
   requestAnimationFrame(()=>requestAnimationFrame(()=>{if(transition!==t||!t.revealing)return;if([...panes.values()].filter(p=>p.index<count).some(p=>!p.loaded||!matching(p.index===active?current().packet:p.data,p.index===active?current():p.context()))){t.revealing=false;checkSwitch();return;}transition=null;cover.hidden=true;grid.removeAttribute('aria-busy');onReady();}));
@@ -171,6 +211,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   }
  }
  async function pollInitial(c,signal){
+  let firstPoll=true;
   while(true){
   signal.throwIfAborted();
   historyQuietUntil=Date.now()+2000;
@@ -189,7 +230,8 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   await new Promise((resolve,reject)=>{
    signal.throwIfAborted();
    const aborted=()=>{clearTimeout(timer);reject(signal.reason);};
-   const timer=setTimeout(()=>{signal.removeEventListener('abort',aborted);resolve();},500);
+   const timer=setTimeout(()=>{signal.removeEventListener('abort',aborted);resolve();},firstPoll?100:500);
+   firstPoll=false;
    signal.addEventListener('abort',aborted,{once:true});
   });
   const latest=await readLatest(c,signal);if(latest)return latest;
@@ -221,7 +263,8 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  }
  function position(el,index){if(count<=2){el.style.gridColumn=String(index+1);el.style.gridRow='1';}else if(index===count-1){el.style.gridColumn='2';el.style.gridRow='1 / -1';}else{el.style.gridColumn='1';el.style.gridRow=String(index+1);}}
  function defaultAxis(index){return count>1&&index<count-1?'left':'right';}
- function captureActive(){const c=current(),pane=panes.get(active);if(!pane)return;for(const config of configs)config.display.plusButton=c.display.plusButton!==false;configs[active]={...configs[active],cid:c.cid,interval:c.interval,session:c.session,label:c.label,axis:c.axis,display:structuredClone(c.display)};pane.drawingKey=`web:${location.origin}:${c.cid}`;pane.lastRead=Date.now();pane.data=c.packet;pane.ema=c.emaFrames;pane.volatility=c.volatility;pane.key=JSON.stringify(pane.context());pane.loaded=c.ready;}
+ function captureActive(){const c=current(),pane=panes.get(active);if(!pane)return;for(const config of configs)config.display.plusButton=c.display.plusButton!==false;configs[active]={...configs[active],cid:c.cid,interval:c.interval,session:c.session,label:c.label,axis:c.axis,display:structuredClone(c.display)};pane.drawingKey=`web:${location.origin}:${c.cid}`;const matched=matching(c.packet,c);
+  pane.lastRead=matched?Date.now():0;pane.data=matched?c.packet:{};pane.ema=c.emaFrames;pane.volatility=c.volatility;pane.key=matched?JSON.stringify(pane.context()):null;pane.loaded=c.ready;}
  function follow(kind){if(!links[kind])return;const c=current();for(let i=0;i<configs.length;i++)if(i!==active){if(kind==='symbol'){configs[i].cid=c.cid;configs[i].label=c.label;}else configs[i].session=c.session;}if(kind==='symbol')beginSwitch();tick();}
  function choose(index){if(loading())return;const target=configs[index],next=panes.get(index);if(!target?.cid||index===active||!next?.loaded||!next.data.bars?.length)return;captureActive();const old=panes.get(active);if(!activate(target,next.frame,{packet:next.data,ema:next.ema,volatility:next.volatility}))return;next.stream.stop();next.buffer.clear();next.controller?.abort();next.historyController?.abort();next.expansionAbort?.abort();next.seq++;next.inflight=false;next.historyBusy=false;next.historyRetry=0;next.detailHistoryRequested=false;next.expanding=false;old.frame.removeAttribute('id');next.frame.id='chart';active=index;old.render();arrange();tick();old.frame.contentWindow.resumeChartHistory?.();next.frame.contentWindow.resumeChartHistory?.();persist();}
  function arrange(){paintMaximize();grid.dataset.layout=count;button.innerHTML=icon(count);for(const b of menu.querySelectorAll('[data-layout]'))b.setAttribute('aria-checked',String(Number(b.dataset.layout)===count));
@@ -245,6 +288,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   dispose(){this.dead=true;this.buffer.clear();this.stream.stop();this.controller?.abort();this.historyController?.abort();this.expansionAbort?.abort();window.removeEventListener('message',this.listener);this.el.remove();}
   context(){const c=configs[this.index];return {cid:c.cid,interval:c.interval,session:c.session,epoch:current().epoch};}
   receive(p){if(this.index===active)return;const c=this.context();if(p.con_id!==c.cid||p.interval!==c.interval||p.session!==c.session||(p.account_epoch!==undefined&&p.account_epoch!==c.epoch))return;
+   delete this.el.dataset.historyContext;delete this.el.dataset.historyNotice;
    if(!this.buffer.packet&&this.data.bars?.length)this.buffer.accept({...this.data,mode:'snapshot'});this.data=this.buffer.accept(p);const bars=this.data.bars;this.frame.contentWindow.receive(p.mode==='delta'&&!this.buffer.snapshot?p:{...p,bars:bars.slice(),mode:'snapshot'});checkSwitch();if(c.interval===15&&!(this.data.security_type==='FUT'&&c.session==='rth')&&bars.length&&bars.at(-1).time-bars[0].time<7*86400){queueMicrotask(()=>this.loadHistory(bars[0].time));}
   }
   async loadHistory(before,recent=false){
@@ -272,7 +316,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   render(){if(!this.loaded||this.index===active)return;const c=configs[this.index],root=current(),display=WheelChartSettings.effective(WheelChartSettings.paneDisplay({...c.display,atr:this.data.security_type==='OPT'?c.display.optionATR===true:c.display.atr},this.data.security_type,this.index===(count>=3?count-1:0)),c.session,this.ema||{},c.interval);
    this.frame.contentWindow.configurePriceAxis?.(c.axis);this.frame.contentWindow.configure({con_id:c.cid,entry:0,quantity:0,paper:{enabled:false,web_account_epoch:root.epoch},holdings:holdings(c.cid,this.data),executions:c.cid===root.cid?executions():[],dark:root.dark,display:{...display,tradingLocked:root.tradingLocked===true},priceRules:this.data.price_rules||[]});const o={...display.volatility};if(!display.indicatorVisible){o.channels=false;o.gauge=false;}this.frame.contentWindow.configureVolatility?.(this.data,this.volatility,o);
   }
-  async tick(){if(!started||this.dead||!this.loaded||this.index===active)return;const c=this.context();if(!c.cid)return;const key=JSON.stringify(c);if(key!==this.key){const old=this.key?JSON.parse(this.key):null;const accountOnly=old&&old.cid===c.cid&&old.interval===c.interval&&old.session===c.session;this.key=key;this.seq++;this.controller?.abort();this.historyController?.abort();this.expansionAbort?.abort();this.expanding=false;this.inflight=false;this.buffer.clear();this.data={};this.ema={};this.volatility=null;this.lastRead=0;this.lastExtras=0;this.historyBusy=false;this.historyRetry=0;this.detailHistoryRequested=false;this.stream.stop();if(accountOnly)this.frame.contentWindow.prepareAccountChart?.();else this.frame.contentWindow.receive({bars:[],generation:'clear',con_id:c.cid,interval:c.interval,session:c.session});this.drawingKey=`web:${location.origin}:${c.cid}`;let value={};try{value=JSON.parse(localStorage.getItem('wheel.drawings:'+c.cid)||'{}')}catch{}this.frame.contentWindow.configureDrawings({key:this.drawingKey,value});}
+  async tick(){if(!started||this.dead||!this.loaded||this.index===active)return;const c=this.context();if(!c.cid)return;const key=JSON.stringify(c);if(key!==this.key){const old=this.key?JSON.parse(this.key):null;const accountOnly=old&&old.cid===c.cid&&old.interval===c.interval&&old.session===c.session;this.key=key;this.seq++;this.controller?.abort();this.historyController?.abort();this.expansionAbort?.abort();this.expanding=false;this.inflight=false;rememberChart(this.data);this.buffer.clear();this.data={};this.ema={};this.volatility=null;this.lastRead=0;this.lastExtras=0;this.historyBusy=false;this.historyRetry=0;this.detailHistoryRequested=false;this.stream.stop();if(accountOnly)this.frame.contentWindow.prepareAccountChart?.();resetView(this.frame,c);this.drawingKey=`web:${location.origin}:${c.cid}`;let value={};try{value=JSON.parse(localStorage.getItem('wheel.drawings:'+c.cid)||'{}')}catch{}this.frame.contentWindow.configureDrawings({key:this.drawingKey,value});}
    this.render();if(!c.epoch)return;if((c.interval>=1440||(c.interval===480&&c.session==='rth'))&&this.data.bars?.length&&(!this.data.history_expanded||this.data.history_refresh_due)&&!this.expanding){this.expanding=true;const seq=this.seq;this.expansionAbort=new AbortController();void expandHistory(c,this.expansionAbort.signal).then(p=>{if(p&&!this.dead&&seq===this.seq&&(!Number.isFinite(this.data.server_time)||p.server_time>=this.data.server_time))this.receive(p);}).catch(()=>{}).finally(()=>{if(seq===this.seq)this.expanding=false;});}if(c.interval===15&&!(this.data.security_type==='FUT'&&c.session==='rth')&&this.data.bars?.length&&this.data.bars.at(-1).time-this.data.bars[0].time<7*86400)void this.loadHistory(this.data.bars[0].time);if(this.data.bars?.length)this.stream.ensure(c);
    if(!this.inflight&&!this.stream.healthy()&&Date.now()-this.lastRead>5000){this.inflight=true;this.lastRead=Date.now();const seq=this.seq;this.controller=new AbortController();try{const p=await readInitial(c,this.controller.signal);if(!this.dead&&seq===this.seq)this.receive(p);}catch{}finally{if(seq===this.seq)this.inflight=false;}}
    if(!document.hidden&&!loading()&&this.data.bars?.length&&!this.extraBusy&&Date.now()-this.lastExtras>10000){this.extraBusy=true;this.lastExtras=Date.now();const seq=this.seq,display=configs[this.index].display;try{const frames=WheelChartSettings.requested(display,c.interval,c.session),family=WheelVolatility.family(this.data);
@@ -303,5 +347,5 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  };
  function showTable(target){return panes.get(count>=3?count-1:0)?.frame===target;}
  function rulesChanged(){for(const p of panes.values()){p.lastExtras=0;p.render();}}
- return {rulesChanged,tick,readInitial,readHistory,expandHistory,follow,showTable,loading,checkSwitch,showEmpty,axisFor:target=>configs[[...panes.values()].find(pane=>pane.frame===target)?.index]?.axis,refreshTradingLock:()=>{for(const pane of panes.values())pane.render();}};
+ return {rememberChart,resetView,clearRecent:()=>{recentCharts.clear();for(const p of panes.values()){delete p.el.dataset.historyContext;delete p.el.dataset.historyNotice;}},rulesChanged,tick,readInitial,readHistory,expandHistory,follow,showTable,loading,checkSwitch,showEmpty,axisFor:target=>configs[[...panes.values()].find(pane=>pane.frame===target)?.index]?.axis,refreshTradingLock:()=>{for(const pane of panes.values())pane.render();}};
 };

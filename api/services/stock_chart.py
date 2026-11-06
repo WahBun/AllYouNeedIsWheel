@@ -159,6 +159,8 @@ class StockChart:
         self.active = None
         self.states = {}
         self.next_request = {}
+        self.next_early_history_retry = 0
+        self.early_retry_contract = None
         self.request_errors = {}
         self.listeners = set()
         self.option_trade_listeners = set()
@@ -197,6 +199,8 @@ class StockChart:
                 # Account handover must not inherit the previous account's pacing or errors.
                 # Normal idle/reconnect cleanup retains pacing within the same account.
                 self.next_request.clear()
+                self.next_early_history_retry = 0
+                self.early_retry_contract = None
                 self.request_errors.clear()
 
     def stop_state(self, state):
@@ -360,10 +364,14 @@ class StockChart:
         if state is None:
             now = time.monotonic()
             if now < self.next_request.get(con_id, 0) and not (background and self.initial_history.contains(conn, contract)):
+                if background and self.early_retry_contract == con_id:
+                    raise ChartHistoryPending('Retrying chart history')
                 raise ValueError(self.request_errors.get(con_id, 'Chart subscription cooling down; retry shortly'))
             self.next_request = {key: value for key, value in self.next_request.items() if value > now}
             self.request_errors = {key:value for key,value in self.request_errors.items() if key in self.next_request}
             self.request_errors.pop(con_id, None)
+            if self.early_retry_contract == con_id:
+                self.early_retry_contract = None
             option_bars=contract.secType=='OPT'
             permission_errors = []
             other_history_errors = []
@@ -419,9 +427,19 @@ class StockChart:
                 # of blank chart. Keep the existing 15-second pacing floor,
                 # and the longer backoff for denied or genuinely empty history.
                 retry_soon = (option_bars or history_timed_out) and not permission_errors
-                self.next_request[con_id] = time.monotonic() + (15 if retry_soon else 60)
+                finished = time.monotonic()
+                pause = 15 if retry_soon else 60
+                if background and retry_soon and history_timed_out and finished >= self.next_early_history_retry:
+                    # One isolated timeout may retry after the pacing window from
+                    # dispatch. During a wider outage keep the normal backoff.
+                    pause = max(1, 15 - history_elapsed)
+                    self.next_early_history_retry = finished + 60
+                    self.early_retry_contract = con_id
+                self.next_request[con_id] = finished + pause
                 if option_bars: conn.ib.cancelHistoricalData(historical)
                 self.request_errors[con_id] = 'Option market data permission unavailable; verify this contract entitlement in Gateway' if permission_errors else 'No historical trades returned for this contract; check history range and market data permissions'
+                if self.early_retry_contract == con_id:
+                    raise ChartHistoryPending('Retrying chart history')
                 raise ValueError(self.request_errors[con_id])
             self.next_request[con_id] = time.monotonic() + 15
             if option_bars:

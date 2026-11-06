@@ -76,17 +76,20 @@ class InitialChartHistory:
                 event = getattr(conn.ib, 'errorEvent', None)
                 if event is not None:
                     event += history_error
-                started = time.monotonic()
+                started = None
+                def admitted():
+                    nonlocal started
+                    started = time.monotonic()
                 try:
                     history = await read_history(conn, contract, '', '2 D', '1 min', 'TRADES',
-                        useRTH=False, formatDate=2, keepUpToDate=option, timeout=6 if option else 15)
+                        useRTH=False, formatDate=2, keepUpToDate=option, timeout=6 if option else 15, on_start=admitted)
                     record['history'] = history
                 except Exception:
                     record['history'] = []
                     record['failed'] = True
                     record['errors'].append('request_failed')
                 finally:
-                    record['elapsed'] = time.monotonic() - started
+                    record['elapsed'] = time.monotonic() - started if started is not None else 0
                     if event is not None:
                         event -= history_error
                 if not record['owned'] or self.key(conn, contract) != key or not conn.is_connected():

@@ -227,6 +227,21 @@ class PersistentHistoryTests(unittest.TestCase):
         self.assertEqual(conn.ib.reqHistoricalDataAsync.call_args.args[2], '2 D')
         self.assertEqual(after[min(after)], before[min(before)])
 
+    def test_same_eight_hour_window_waits_for_correction_or_next_source_bar(self):
+        conn, _, calls = self.source('OPT')
+        feed, state = self.open(conn)
+        self.finish(state)
+        start = self.now
+        with patch('api.services.chart_eight_history.time', S(time=lambda: self.now, monotonic=lambda: self.now)):
+            state['rth_eight_retry'] = 0
+            for offset in (62, 128, 194, 260, 367, 1790, 1801):
+                self.now = start + offset
+                feed.eight_hour_snapshot(state)
+                self.finish(state)
+            ends = [int(end.timestamp() - start) for end, duration, *_ in calls if duration == '2 D']
+            self.assertEqual(ends, [0, 0, 0, 1800])
+            self.assertTrue(state['rth_eight_expanded'])
+
     def test_warm_snapshot_admission_restores_history_without_a_market_tick(self):
         conn, ticker, calls = self.source()
         feed, state = self.open(conn)
@@ -280,7 +295,7 @@ class PersistentHistoryTests(unittest.TestCase):
                 stamp = self.now - DAY + 1
                 ticker.tickByTicks = [S(time=datetime.fromtimestamp(stamp, timezone.utc), price=112)]
                 ticker.updateEvent.emit(ticker)
-                packet = feed.packet(state, 480, 'rth')
+                packet = feed.eight_hour_packet(state)  # Use the fixture's trading dates.
                 self.assertEqual(packet['bars'][-1]['close'], 112)
                 self.assertEqual(state['ticks'], 1)
                 self.assertFalse(calls)

@@ -185,7 +185,7 @@ class InitialHistoryTests(unittest.TestCase):
 
     def test_stock_and_future_timeout_retry_avoids_full_minute_penalty(self):
         for kind, permissions, errors, elapsed, delay in (
-                ('STK', [], [], 15, 15), ('FUT', [], [], 15, 15),
+                ('STK', [], [], 15, 1), ('FUT', [], [], 15, 1),
                 ('STK', [], [], .1, 60), ('FUT', [], [162], 15, 60),
                 ('STK', ['Not subscribed'], [354], 15, 60)):
             with self.subTest(kind=kind, errors=errors, elapsed=elapsed):
@@ -199,6 +199,12 @@ class InitialHistoryTests(unittest.TestCase):
                     self.assertEqual(feed.next_request[7], 100 + delay)
                     with self.assertRaises(ValueError): feed.snapshot(conn, 7, 5, background=True)
                     read.assert_called_once()
+                    if delay == 1:
+                        with patch('api.services.stock_chart.time.monotonic', return_value=102):
+                            with self.assertRaises(ValueError) as failure:
+                                feed.snapshot(conn, 7, 5, background=True)
+                            self.assertNotIsInstance(failure.exception, ChartHistoryPending)
+                            self.assertEqual(feed.next_request[7], 117)
                 conn.ib.placeOrder.assert_not_called()
 
     def test_late_option_history_is_released_after_account_handover(self):
