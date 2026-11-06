@@ -15902,18 +15902,18 @@
       },
       "extractionState" : "manual"
     },
-    "Shared across charts and QQQ / ES alerts for this account." : {
+    "Shared across charts and QQQ, ES, NQ and SPY alerts for this account." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "此账户的图表与 QQQ / ES 提醒共用这些规则。"
+            "value" : "此账户的图表与 QQQ、ES、NQ、SPY 提醒共用这些规则。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "此帳戶的圖表與 QQQ / ES 提醒共用這些規則。"
+            "value" : "此帳戶的圖表與 QQQ、ES、NQ、SPY 提醒共用這些規則。"
           }
         }
       },

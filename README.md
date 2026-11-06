@@ -50,7 +50,7 @@ Layout drafts are saved in the current browser for each preview address and work
 
 - **A shared chart workspace:** a compact desktop toolbar, preserved 1/2/3/4 layouts, synchronized drawings and contract favorites; responsive web controls and a phone fullscreen fallback. Web positions default to options first.
 - **Price alerts and phone notifications:** standalone thresholds and horizontal-ray alerts, draggable alert lines, in-chart notifications and optional Bark delivery. Monitoring runs on the backend for the selected account; a closed browser receives no browser push. See [alerts and notification setup](docs/PRICE_ALERTS_AND_PUSH.md).
-- **MoonShine:** permanent QQQ and ES watches share pricing rules with chart levels. Levels depend on the session and eligible source data; monitoring pauses when required data or the account connection is unavailable. These are alerts, not automatic orders.
+- **MoonShine:** The backend monitors QQQ, ES, NQ and SPY during their regular sessions. NQ and QQQ share the Nasdaq volatility source (VXN by default). SPY and ES share the S&P 500 source (VIX by default). Each contract uses its own chart levels. Missing market data or a lost account connection pauses the affected alerts. Alerts never place orders.
 - **Recovery and stability:** focused repairs to order-state recovery and management of existing positions, alongside the preserved confirmation, quote-freshness and P&L rules. Merged code is not proof of installation or broker acceptance.
 
 ## Features
