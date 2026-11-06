@@ -24,9 +24,9 @@ const {start}=require('./harness.cjs');
   for(const f of frames){
    const info=await f.evaluate(()=>({
     trade:previous.at(-1).close,visible:series.data().at(-1).close,
-    open:countdownPacket.bar_closes_at>countdownPacket.server_time,count:countdownPacket.tick_count
+    count:countdownPacket.tick_count
    }));
-   assert.equal(info.trade,100);assert.equal(info.visible,info.open?100.25:100);assert.equal(info.count,1);
+   assert.equal(info.trade,100);assert.equal(info.visible,100);assert.equal(info.count,1);
   }
   // Same update count and gap duration as the deployed MES observation.
   const start=Date.now();
@@ -37,7 +37,8 @@ const {start}=require('./harness.cjs');
    await h.rpc('level1_last',{cid:7,price});
    await prices(price);
   }
-  await prices(100); // The display must expire even without another trade.
+  await Promise.all(frames.map(f=>f.waitForFunction(()=>document.getElementById('countdown').hidden)));
+  for(const f of frames)assert.equal(await f.evaluate(()=>series.data().at(-1).close),100);
   await h.rpc('level1_last',{cid:7,price:100.5});await prices(100.5);
   await tick(100.75);await prices(100.75);
   for(const f of frames)assert.equal(await f.evaluate(()=>series.data().at(-1).close),100.75);
@@ -55,6 +56,20 @@ const {start}=require('./harness.cjs');
    return [marker,prior,series.data().at(-2).close,series.data().at(-1).close];
   });
   assert.deepEqual(rolled,[101,100.75,100.75,102]);
+  // A Level 1 print near 663 must never extend the 660.99 candle or erase
+  // a wick when the next broker trade arrives (QQQ opening-session replay).
+  const visible=await frames[0].evaluate(()=>{
+   const p=countdownPacket,now=p.server_time,prior=previous.at(-1);
+   const bar={...prior,open:660.79,high:661.73,low:659.34,close:660.99};
+   receive({...p,mode:'delta',bars:[bar],display_last:{price:663.03,time:now,expires_at:now+3},bar_closes_at:now+60});
+   updateCountdown();
+   const first=series.data().at(-1);
+   receive({...p,mode:'delta',bars:[{...bar,close:661.02}],display_last:{price:662.85,time:now,expires_at:now+3}});
+   updateCountdown();
+   const second=series.data().at(-1);
+   return [first.high,first.close,second.high,second.close,Number(document.getElementById('countdown-price').textContent)];
+  });
+  assert.deepEqual(visible,[661.73,660.99,661.73,661.02,662.85]);
   assert.deepEqual(errors,[]);assert.equal(h.metrics.posts,0);
   console.log('PASS: four chart markers, open candle, tab title, expiry, and tick-by-tick recovery; no trading requests');
  }finally{await h.close();await browser.close();}
