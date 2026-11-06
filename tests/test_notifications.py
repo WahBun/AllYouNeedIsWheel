@@ -151,6 +151,55 @@ class NotificationsTests(unittest.TestCase):
         restored = NotificationStore(self.path)
         self.assertEqual(restored.alerts(self.scope)[0]['state'], 'triggered')
         self.assertFalse(restored.fire(a, 101, 'IB Paper'))
+    def test_exact_chart_last_touch_without_level_one_trade(self):
+        import asyncio
+        from datetime import datetime, timezone
+        from test_stock_chart import StockChartTests, close_test_loop
+        from api.services.stock_chart import StockChart
+
+        alert = self.alert()
+        conn, ticker = StockChartTests().connection()
+        self.runtime.conn, self.runtime.scope, self.runtime.mode = conn, self.scope, 'IB Paper'
+        self.runtime.touch_prices = {(self.scope, 7): {100: alert['created']}}
+        feed = StockChart()
+        feed.last_trade_observers[7] = self.runtime.chart_touch
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        try:
+            feed.snapshot(conn, 7, 1, 'all', fast=True)
+            self.assertFalse(self.events())
+            ticker.marketDataType = 1
+            for price in (101, 100, 101):
+                ticker.tickByTicks = [SimpleNamespace(time=datetime.now(timezone.utc), price=price)]
+                ticker.updateEvent.emit(ticker)
+            while not self.runtime.queue.empty():
+                self.runtime.process(self.runtime.queue.get_nowait())
+            self.assertEqual(len(self.events()), 1)
+            self.assertIn('Last 100', self.events()[0]['body'])
+            self.assertEqual(self.store.alerts(self.scope)[0]['id'], alert['id'])
+            self.assertEqual(conn.ib.reqTickByTickData.call_count, 2)
+        finally:
+            feed.stop()
+            close_test_loop()
+
+    def test_touch_requires_current_side_for_direction_and_matching_scope(self):
+        for condition in ('up', 'down', 'crossing'):
+            self.store.create_alert(self.scope, 7, 'TEST', dict(id=str(uuid.uuid4()), price=100,
+                                    condition=condition, repeat='once'))
+        self.runtime.active = self.store.alerts(active=True)
+        now = time.time() + 2
+        def touch(old, prior, stamp, scope=self.scope):
+            self.runtime.process(('touch', scope, 7, old, prior, 100, stamp, 'IB Paper', now))
+        touch(None, None, now, self.other)
+        touch(99, now-4, now-3)
+        self.assertFalse(self.events())
+        touch(None, None, now)
+        touch(100, now, now)
+        self.assertEqual(len(self.events()), 1)
+        touch(99, now-1, now)
+        self.assertEqual(len(self.events()), 2)
+        touch(101, now-1, now)
+        self.assertEqual(len(self.events()), 3)
+
     def test_no_initial_or_stale_crossing(self):
         self.alert(); self.prices(101)
         self.assertFalse(self.events())

@@ -23,6 +23,7 @@ class NotificationRuntime:
         self.scope = None
         self.mode = None
         self.bindings = {}
+        self.touch_prices = {}
         self.option_activity = {}
         self.option_last = {}
         self.previous = {}
@@ -55,6 +56,9 @@ class NotificationRuntime:
         if self.conn:
             from api.services.stock_chart import stock_chart
             stock_chart.option_trade_listeners.discard(self.chart_trade)
+            for cid, observer in list(stock_chart.last_trade_observers.items()):
+                if observer == self.chart_touch:
+                    del stock_chart.last_trade_observers[cid]
             self.conn.ib.orderStatusEvent -= self.order
             self.conn.ib.execDetailsEvent -= self.fill
         self.conn = None
@@ -125,6 +129,16 @@ class NotificationRuntime:
         if state['conn'] is self.conn and state['con_id'] in self.bindings and self.conn.is_connected():
             self.enqueue(('chart_cross', self.scope, state['con_id'], old, new, basis, self.mode, now))
 
+    def chart_touch(self, state, old, prior_stamp, price, stamp):
+        cid = state['con_id']
+        now = state['received']
+        armed = self.touch_prices.get((self.scope, cid), {}).get(price)
+        if (armed is None or (old == price and prior_stamp is not None and prior_stamp >= armed)
+                or state['conn'] is not self.conn or state['client'] is not self.conn.ib.client
+                or not self.conn.is_connected() or not 0 <= now - stamp < 60):
+            return
+        self.enqueue(('touch', self.scope, cid, old, prior_stamp, price, stamp, self.mode, now))
+
     def pulse(self, portfolio_service, chart_pumping=False):
         """Called only by ib-api. No filesystem or HTTP in the fast callback path."""
         now = time.monotonic()
@@ -155,7 +169,9 @@ class NotificationRuntime:
                 self.next_completed = 0
             moonshine = self.moonshine.pulse(conn, scope, rules=self.moonshine_rules.get(scope))
             wanted = {a['cid'] for a in self.active if a['scope'] == scope} | set(moonshine)
+            from api.services.stock_chart import stock_chart
             for cid in set(self.bindings) - wanted:
+                stock_chart.last_trade_observers.pop(cid, None)
                 self.option_activity.pop(cid, None)
                 self.enqueue(('reset', cid))
                 ticker, callback = self.bindings.pop(cid); ticker.updateEvent -= callback
@@ -166,6 +182,10 @@ class NotificationRuntime:
                     retained = conn.has_market_subscription(contract)
                     ticker = conn.get_market_ticker(contract)
                     previous = self.bindings.get(cid)
+                    if (scope, cid) in self.touch_prices:
+                        stock_chart.last_trade_observers[cid] = self.chart_touch
+                    else:
+                        stock_chart.last_trade_observers.pop(cid, None)
                     if previous and previous[0] is ticker and retained: continue
                     if previous: previous[0].updateEvent -= previous[1]
                     self.option_activity.pop(cid, None)
@@ -200,6 +220,12 @@ class NotificationRuntime:
         from api.services.chart_drawings import DB
         self.store.sync_rays(DB)
         self.active = self.store.alerts(active=True)
+        targets = {}
+        for alert in self.active:
+            prices = targets.setdefault((alert['scope'], alert['cid']), {})
+            armed = alert.get('monitor_since') or alert['created']
+            prices[alert['price']] = max(armed, prices.get(alert['price'], 0))
+        self.touch_prices = targets
         with self.store.connect() as db:
             self.enabled = bool(self.active or db.execute('SELECT 1 FROM order_scopes LIMIT 1').fetchone())
             self.moonshine_rules = {r['scope']: json.loads(r['value']) for r in db.execute('SELECT scope,value FROM moonshine_rules')}
@@ -236,6 +262,19 @@ class NotificationRuntime:
                 self.moonshine_plans[scope, plan['cid']] = saved
         elif kind == 'order': self.store.observe_order(*args)
         elif kind == 'fill': self.store.observe_fill(*args)
+        elif kind == 'touch':
+            scope, cid, old, prior_stamp, price, stamp, mode, now = args
+            for alert in self.active:
+                since = alert.get('monitor_since') or alert['created']
+                if (alert['scope'] != scope or alert['cid'] != cid
+                        or price != alert['price'] or stamp < since):
+                    continue
+                continuous = (prior_stamp is not None and since <= prior_stamp <= stamp
+                              and stamp - prior_stamp <= 60)
+                if continuous and old is not None:
+                    self.check_crossing(alert, old, price, mode, now)
+                elif alert['condition'] == 'crossing' and (old != price or prior_stamp is None or prior_stamp < since):
+                    self.store.fire(alert, price, mode, now)
         elif kind == 'chart_cross':
             scope, cid, old, price, basis, mode, now = args
             for alert in self.active:
@@ -263,6 +302,8 @@ class NotificationRuntime:
                         previous = prior
                 if not previous or (now - previous[1] > 60
                                     and (not activity or activity[0] > previous[1])):
+                    if alert['condition'] == 'crossing' and price == alert['price'] and (not previous or previous[0] != price):
+                        self.store.fire(alert, price, mode, now)
                     self.previous[key] = price, now
                     continue
                 self.check_crossing(alert, previous[0], price, mode, now)
