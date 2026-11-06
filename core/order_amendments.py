@@ -47,14 +47,20 @@ def matches(conn, record, local):
         and order.account == local.get('account_id') == conn._order_account()
         and order.orderRef == f"AYNIW-{local['id']}"
         and (not local.get('perm_id') or str(order.permId) == str(local['perm_id']))
-        and contract.secType == ('STK' if local['option_type'] == 'STOCK' else 'OPT')
+        and matches_contract(contract, local)
+        and order.action == local['action'] and order.orderType == 'LMT'
+    )
+
+
+def matches_contract(contract, local):
+    return (
+        contract.secType == ('STK' if local['option_type'] == 'STOCK' else 'OPT')
         and contract.symbol == local['ticker']
         and (not local.get('con_id') or contract.conId == local['con_id'])
         and (local['option_type'] == 'STOCK' or (
             contract.right == ('C' if local['option_type'] == 'CALL' else 'P')
             and contract.lastTradeDateOrContractMonth == local['expiration']
             and abs(contract.strike - local['strike']) < 0.000001))
-        and order.action == local['action'] and order.orderType == 'LMT'
     )
 
 
