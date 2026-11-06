@@ -30,11 +30,11 @@ SwiftUI 构建，支持 iOS 18 及以上、浅色／深色模式。原生页面�
 
 截图于 **2026-10-25**，对应上述代码。iPhone 模拟器使用内置 **Demo 合成数据**；桌面截图在隔离、只读的本地预览中展示 **截至 2026-10-23 的 QQQ RTH 历史行情快照**，不含账户或持仓数据，不代表当前券商连接或交易验收。
 
-开发时可以双击 [Start Wheel Preview.command](ops/Start%20Wheel%20Preview.command)，在 Pro 上预览当前工作区的 Supercharts。Pro 需已安装 Python 3、Flask 和 Tailscale。手机连上同一 Tailscale 网络后，打开终端显示的私有 HTTPS 地址并收藏；无需启用出口节点。保存网页改动后刷新即可，Pro 锁屏可用，系统睡眠时暂停。关闭预览窗口即停止。预览只用示例持仓和行情，顶部可以切换示例保证金比例。如果正在另一份工作区开发，可以从终端把该目录作为启动脚本的第一个参数。
+在装有 Python 3、Flask 和 Tailscale 的 Mac 上，双击 [Start Wheel Preview.command](ops/Start%20Wheel%20Preview.command) 即可预览当前工作区的 Supercharts。手机连上同一 Tailscale 网络后，打开终端显示的私有 HTTPS 地址并收藏；无需启用出口节点。保存网页改动后刷新即可，Mac 锁屏后仍可访问预览，进入睡眠后预览暂停。关闭预览窗口即停止。预览只用示例持仓和行情，顶部可以切换示例保证金比例。如果正在另一份工作区开发，可以从终端把该目录作为启动脚本的第一个参数。
 
 把示例预览当作布局蓝图：按住 Option 点击，或从 **Edit layout → Browse** 搜索可见元素；**Parent** 选外层容器。按住 **Control** 拖动选中元素可自由移动，拖边缘则调整尺寸。按住 Control 且选框获得焦点时用方向键微调 1 px，按住 Shift 则是 10 px；**Position** 里也可以填横纵偏移。按住 **Control + Command** 拖动，可在行、列或网格中拖放相邻组件。选中内层文字、图标或下拉框也可以拖动；跨到旁边一组时，移动整个组件组：拖到目标中央交换两个位置，拖到目标前后边缘插入，中间控件实时让位。松开确认，Esc 取消，Undo 可整步撤销。此顺序会保存在蓝图中。自由移动的偏移则以原布局为基准，其他元素保留原位，弹窗、滚动容器和内嵌图表仍按原有边界显示。在 **Text** 中可修改选中标签的文字（包括 Favorites），按 Enter 或移开焦点保存到草稿。还可调整内外边距、字号、对齐、颜色和边框，按住 **Hold original** 对照原版。弹窗需先打开；图表标题等 HTML 浮层可以调整，所有图窗共用同一浮层样式。K 线画布仍由渲染器管理。持仓行按同类元素调整，排序不改变样式归属。
 
-草稿自动保存在当前浏览器、网址和工作区，下次打开即可继续。**Draft changes** 列出改过的目标，**Reset element** 或属性旁的复原按钮可局部撤回。只有 **Use this version** 才会在 Pro 上生成定稿记录（`~/Library/Application Support/Wheel Web Preview/Layout Reviews/`），正式页面等选定后再改。
+草稿自动保存在当前浏览器、网址和工作区，下次打开即可继续。**Draft changes** 列出改过的目标，**Reset element** 或属性旁的复原按钮可局部撤回。只有点击 **Use this version** 才会在运行预览的 Mac 上生成定稿记录（`~/Library/Application Support/Wheel Web Preview/Layout Reviews/`），正式页面等选定后再改。
 
 ### 桌面网页 · Supercharts
 

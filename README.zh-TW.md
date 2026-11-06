@@ -30,6 +30,12 @@ SwiftUI 構建，支援 iOS 18 及以上、淺色／深色模式。原生頁面�
 
 截圖於 **2026-10-25**，對應上述程式碼。iPhone 模擬器使用內置 **Demo 合成資料**；桌面截圖在隔離、唯讀的本地預覽中展示 **截至 2026-10-23 的 QQQ RTH 歷史行情快照**，不含賬戶或持倉資料，不代表當前券商連線或交易驗收。
 
+在已安裝 Python 3、Flask 和 Tailscale 的 Mac 上，按兩下 [Start Wheel Preview.command](ops/Start%20Wheel%20Preview.command)，即可預覽目前工作區的 Supercharts。手機連上同一個 Tailscale 網路後，開啟終端機顯示的私人 HTTPS 網址即可，無須啟用出口節點。儲存網頁變更後，重新整理頁面即可查看。Mac 鎖定螢幕後仍可存取預覽，進入睡眠後預覽會暫停，關閉終端機視窗即會停止。預覽使用範例持倉和行情，可在頁面頂端切換範例保證金比例。若要預覽其他工作區，可從終端機執行腳本，將該工作區的路徑作為第一個參數。
+
+按住 Option 點選元素即可編輯版面，也可以從 **Edit layout → Browse** 搜尋元素，再用 **Parent** 選取外層容器。按住 Control 拖曳可移動選取的元素，拖曳邊緣可調整大小。選取框取得焦點時，按住 Control 搭配方向鍵可移動 1 px，加按 Shift 則移動 10 px，也可在 **Position** 中輸入位移量。按住 Control 和 Command 拖曳，可調整同一列、欄或格線中元件的順序。拖到目標中央可交換位置，拖到前後邊緣則插入該處。按 Esc 可取消，**Undo** 可逐步復原。在 **Text** 中修改標籤文字後，按 Enter 或點選其他位置即可儲存草稿。按住 **Hold original** 可比對原始版面。
+
+版面草稿會依預覽網址和工作區儲存在目前的瀏覽器。**Draft changes** 列出已修改的元素，**Reset element** 可還原單一元素，屬性旁的還原按鈕則只還原該項設定。點選 **Use this version** 後，定稿記錄會儲存在執行預覽的 Mac 上，路徑為 `~/Library/Application Support/Wheel Web Preview/Layout Reviews/`。選定版面後，再將變更套用到正式頁面。
+
 ### 桌面網頁 · Supercharts
 
 ![Wheel 桌面 Supercharts：QQQ 歷史蠟燭圖、四圖佈局與交易面板](docs/screenshots/web-desktop-trading-20261025.png)
