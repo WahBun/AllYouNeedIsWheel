@@ -7,14 +7,20 @@ async function run() {
   const browser = await chromium.launch();
   let entry = 100;
   let slow = true;
+  let freshQuote = true;
   let known = true;
+  let active = true;
+  let quantity = 1;
+  let tif = 'DAY';
+  let side = 1;
   const writes = [];
   const errors = [];
   function orderState() {
-    return {enabled:true, known, active:true, position:0, side:1, quantity:1,
-      entry, entry_type:'LMT', tif:'DAY', entry_editable:true, order_ref:'working-group',
-      edit_snapshot:[{order_id:101, quantity:1, filled:0, tif:'DAY'}],
-      orders:[{role:'entry', order_id:101, quantity:1, filled:0, price:entry, status:'Submitted'}],
+    if (!active) return {enabled:true, known, active:false, position:0, status:'idle', orders:[]};
+    return {enabled:true, known, active:true, position:0, side, quantity,
+      entry, entry_type:'LMT', tif, entry_editable:true, order_ref:'working-group',
+      edit_snapshot:[{order_id:101, quantity, filled:0, tif}],
+      orders:[{role:'entry', order_id:101, quantity, filled:0, price:entry, status:'Submitted'}],
       status:'working'};
   }
   try {
@@ -32,12 +38,19 @@ async function run() {
         if (request.method() === 'POST') {
           const body = request.postDataJSON();
           writes.push(body);
-          entry = body.price;
+          active = !body.cancel;
+          entry = body.price ?? body.entry ?? entry;
+          quantity = body.quantity ?? quantity;
+          tif = body.tif ?? tif;
+          side = body.side ?? side;
           return route.fulfill({json:{success:true,status:'acknowledged',state:orderState()}});
         }
         return route.fulfill({json:orderState()});
       }
       if (request.method() !== 'GET') return route.abort();
+      if (path.endsWith('/profiles')) return route.fulfill({json:{
+        selected:'live', verified:true, chart_execution_enabled:true, epoch:'mock-epoch'
+      }});
       if (path.includes('stock-chart-stream')) return route.abort();
       if (path.includes('stock-chart/') || path.includes('stock-chart-latest/')) {
         const interval = Number(url.searchParams.get('interval'));
@@ -48,6 +61,7 @@ async function run() {
         }
         return route.fulfill({json:{con_id:7, generation:'fixture', account_epoch:'mock-epoch',
           security_type:'FUT', symbol:'TEST', interval, session:'all', server_time:Date.now()/1000,
+          bid:100, ask:100.25, quote_expires_at:Date.now()/1000+(freshQuote?15:-1),
           price_rules:[{low:0,increment:.25}],
           bars:Array.from({length:150},(_,i)=>({time:1790947800+i*interval*60,open:100,close:100,high:110,low:90}))}});
       }
@@ -109,8 +123,56 @@ async function run() {
     await page.waitForFunction(()=>document.querySelector('#chart-group-loading').hidden,null,{timeout:10000});
     assert.equal(await frame.evaluate(()=>nativeTradingLocked() && !paperConfig.enabled),true);
     assert.equal(writes.length,1);
+    // Cancel from the panel, then test the first order in an empty group.
+    await page.getByRole('button',{name:'Unlock trading',exact:true}).click();
+    await page.locator('#close').click();
+    await frame.waitForFunction(()=>paperConfig.known && !paperConfig.active && !paperConfig.busy);
+    assert.equal(writes.length,2);
+    assert.equal(writes[1].cancel,true);
+    assert.equal(writes[1].expected_ref,'working-group');
+    await page.locator('#layout-button').click();
+    await page.locator('[data-layout="4"]').click();
+    await page.waitForFunction(()=>!document.querySelector('#bid').disabled &&
+      !document.querySelector('#ask').disabled && document.querySelector('#chart-group-loading').hidden,
+      null,{timeout:5500});
+    await page.locator('#quantity').fill('2');
+    await page.locator('#tif').selectOption('GTC');
+    await page.locator('#preview-sell').click();
+    await page.locator('#preview-buy').click();
+    assert.equal(writes.length,2);
+    await page.locator('#bid').click();
+    await frame.waitForFunction(()=>paperConfig.active && !paperConfig.busy);
+    assert.equal(writes.length,3);
+    assert.deepEqual([writes[2].action,writes[2].source,writes[2].entry,writes[2].quantity,writes[2].tif],
+      ['submit','join',100,2,'GTC']);
+    await frame.locator('#order-type').click();
+    await page.locator('#edit-qty').fill('3');
+    await page.locator('#edit-tif').selectOption('DAY');
+    await page.locator('#edit-form button[type=submit]').click();
+    await frame.waitForFunction(()=>paperConfig.quantity===3 && !paperConfig.busy);
+    assert.deepEqual([writes[3].action,writes[3].quantity,writes[3].tif,writes[3].expected_ref],
+      ['edit_entry',3,'DAY','working-group']);
+    await page.locator('#close').click();
+    await frame.waitForFunction(()=>!paperConfig.active && !paperConfig.busy);
+    assert.equal(writes[4].cancel,true);
+
+    freshQuote=false;
+    await page.waitForFunction(()=>document.querySelector('#ask').disabled &&
+      document.querySelector('#ask').title.includes('stale'));
+    assert.equal(await page.locator('#quantity').isDisabled(),false);
+    known=false;
+    await frame.waitForFunction(()=>paperConfig.known===false && !paperConfig.enabled);
+    freshQuote=true;
+    await frame.waitForFunction(()=>countdownPacket.quote_expires_at>countdownPacket.server_time);
+    assert.equal(await page.locator('#ask').isDisabled(),true);
+    known=true;
+    await page.waitForFunction(()=>!document.querySelector('#ask').disabled);
+    await page.locator('#ask').click();
+    await frame.waitForFunction(()=>paperConfig.active && paperConfig.side===-1 && !paperConfig.busy);
+    assert.deepEqual([writes[5].action,writes[5].entry,writes[5].side],['submit',100.25,-1]);
+    assert.equal(writes.length,6);
     assert.deepEqual(errors,[]);
-    console.log('PASS: one amendment to the original while its peer loads; manual lock blocks further writes');
+    console.log('PASS: unlocked first entry, both quote sides, quantity/TIF, one confirmed line edit and original cancellation during peer loading; stale quote and unknown-order recovery');
   } finally {
     await browser.close();
     await harness.close();

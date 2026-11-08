@@ -185,8 +185,9 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,hasWo
  }
  function readyToReveal(root){
   if(!root.epoch||!panes.get(active)?.loaded||!matching(root.packet,root))return false;
-  // Keep the active chart accessible for a confirmed working order while peers load.
-  if(hasWorkingOrder())return true;
+  // The trading host checks the active contract's orders and executable quote.
+  // A peer's history can finish after the user starts trading on a ready pane.
+  if(root.tradingLocked===false||hasWorkingOrder())return true;
   for(let i=0;i<count;i++){
    if(i===active)continue;
    const pane=panes.get(i);
@@ -401,5 +402,5 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,hasWo
  };
  function showTable(target){return panes.get(count>=3?count-1:0)?.frame===target;}
  function rulesChanged(){for(const p of panes.values()){p.lastExtras=0;p.render();}}
- return {rememberChart,resetView,clearRecent,rulesChanged,tick,readInitial,readHistory,expandHistory,follow,showTable,loading,checkSwitch,showEmpty,axisFor:target=>configs[[...panes.values()].find(pane=>pane.frame===target)?.index]?.axis,refreshTradingLock:()=>{for(const pane of panes.values())pane.render();}};
+ return {rememberChart,resetView,clearRecent,rulesChanged,tick,readInitial,readHistory,expandHistory,follow,showTable,loading,checkSwitch,showEmpty,axisFor:target=>configs[[...panes.values()].find(pane=>pane.frame===target)?.index]?.axis,refreshTradingLock:()=>{for(const pane of panes.values())pane.render();checkSwitch();}};
 };
