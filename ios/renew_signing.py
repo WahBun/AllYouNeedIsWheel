@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import signal
 import subprocess
 import sys
@@ -55,7 +56,7 @@ def command(args, timeout=60, cwd=ROOT, log=None):
     return output.strip()
 
 
-def github_branch_head(branch):
+def github_command(arguments, timeout):
     # SSH Git does not inherit macOS system proxies. Apply the existing settings
     # only to this read; preserve explicit environment choices and host config.
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
@@ -63,12 +64,11 @@ def github_branch_head(branch):
         key = scheme + "_proxy"
         if scheme in ("http", "https", "no") and key not in env and key.upper() not in env:
             env[key] = proxy
-    args = ["/usr/bin/git", "-c", "credential.interactive=false", "ls-remote",
-            "--exit-code", "origin", "refs/heads/" + branch]
+    args = ["/usr/bin/git", "-c", "credential.interactive=false", *arguments]
     with subprocess.Popen(args, cwd=ROOT, env=env, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, text=True, start_new_session=True) as process:
         try:
-            output, error = process.communicate(timeout=20)
+            output, error = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             # Git's HTTPS helper can outlive its parent and keep the SSH channel
             # open. Stop this dedicated process group, including that helper.
@@ -77,29 +77,38 @@ def github_branch_head(branch):
             except ProcessLookupError:
                 pass
             process.communicate()
-            raise RenewalError("GitHub check timed out after 20 seconds. No signing or build was started. Check the Pro's GitHub connectivity.") from exc
+            raise RenewalError(f"GitHub check timed out after {timeout} seconds. No signing or build was started. Check the Pro's GitHub connectivity.") from exc
         if process.returncode:
             raise RenewalError(f"GitHub check failed (exit {process.returncode}). {error.strip()[-1200:]}")
-    rows = output.split()
-    if not rows:
-        raise RenewalError("GitHub returned no commit for the configured branch.")
-    return rows[0]
+    return output.strip()
+
+
+def github_branch_head(branch):
+    ref = "refs/heads/" + branch
+    output = github_command(["ls-remote", "--exit-code", "origin", ref], timeout=20)
+    fields = output.split()
+    if len(fields) != 2 or fields[1] != ref or not re.fullmatch(r"[0-9a-f]{40}", fields[0]):
+        raise RenewalError("GitHub did not return one exact commit for the configured branch.")
+    return fields[0]
 
 
 def github_revision(config):
-    git = lambda *args: command(["/usr/bin/git", *args])
-    if git("status", "--porcelain"):
-        raise RenewalError("The checkout has uncommitted changes. Commit and push them first.")
-    branch = git("branch", "--show-current")
-    if branch != config["branch"]:
-        raise RenewalError("The checkout is on a different branch. Select the configured branch first.")
-    remote = git("remote", "get-url", "origin")
+    remote = command(["/usr/bin/git", "remote", "get-url", "origin"], cwd=ROOT)
     if remote.rstrip("/").removesuffix(".git") != config["repository"].rstrip("/").removesuffix(".git"):
         raise RenewalError("The GitHub repository does not match the local renewal settings.")
-    sha = git("rev-parse", "HEAD")
-    if github_branch_head(branch) != sha:
-        raise RenewalError("Local HEAD differs from GitHub. Review and synchronize this branch first.")
-    return sha
+    return github_branch_head(config["branch"])
+
+
+def archive_revision(sha, archive):
+    # A GitHub revision can be newer than every local branch. Fetch the pinned
+    # object without updating the checkout, tracking refs, tags or FETCH_HEAD.
+    git = ["/usr/bin/git", "--no-replace-objects"]
+    exists = subprocess.run([*git, "cat-file", "-e", sha + "^{commit}"], cwd=ROOT,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if exists.returncode:
+        github_command(["fetch", "--no-tags", "--no-write-fetch-head", "--refmap=",
+                        "--no-recurse-submodules", "--no-auto-maintenance", "origin", sha], timeout=120)
+    command([*git, "archive", "--format=tar", "--output", str(archive), sha], cwd=ROOT)
 
 
 def profile_matches(profile, config):
@@ -233,7 +242,7 @@ class Renewal:
         source = self.run / "source"
         source.mkdir()
         archive = self.run / "source.tar"
-        command(["/usr/bin/git", "archive", "--format=tar", "--output", str(archive), sha])
+        archive_revision(sha, archive)
         command(["/usr/bin/tar", "-xf", str(archive), "-C", str(source)])
         signing = ROOT / "ios/Signing.local.xcconfig"
         if not signing.is_file():

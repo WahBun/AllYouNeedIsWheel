@@ -30,10 +30,11 @@ macOS desktop account with Xcode signing already configured.
 The script does not require Wheel to be closed because it never installs,
 launches, terminates or uninstalls the phone app.
 
-The helper requires a clean checkout equal to its configured GitHub branch and
-builds an isolated archive of that exact commit. The GitHub read uses the Pro's
-already-configured system proxy for that subprocess only, preserves explicit
-proxy environment settings, and stops after 20 seconds if the read times out.
+Each invocation resolves the current tip of the branch in `ios/Renew.local.json`
+on its configured GitHub repository. Build mode archives that exact commit,
+fetching it when needed. The Pro can have local edits or another branch open.
+The branch lookup and optional fetch use the Pro's existing proxy settings.
+The lookup has a 20-second timeout and the fetch has a 120-second timeout.
 No system or Git proxy configuration is changed. The copy uses a unique project
 name to keep Xcode scripting results separate from open developer projects. It backs up only cached profiles
 matching the existing team, bundle ID and iPhone, removes those copies, waits for Xcode to finish preparing a freshly issued profile, and calls
