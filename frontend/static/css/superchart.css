@@ -205,7 +205,6 @@ header #theme,header #trade-sounds,header #settings{width:42px;height:40px;paddi
 
 #chart-group-loading{flex-direction:column;gap:12px;text-align:center;padding:20px;position:absolute;inset:0;z-index:25;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--fg);font-size:14px;pointer-events:auto}
 #chart-group-loading[hidden]{display:none}
-.chart-pane[data-history-notice]::after{content:attr(data-history-notice);position:absolute;top:38px;left:8px;z-index:3;pointer-events:none;background:var(--bg);color:var(--fg);padding:2px 5px;font-size:11px}
 
 /* Collapse only the ticket; existing chart frames resize without being recreated. */
 body.trading-panel-collapsed main{grid-template-columns:minmax(0,1fr)}

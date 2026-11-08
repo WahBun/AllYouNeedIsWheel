@@ -125,12 +125,10 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  function resetView(frame,c){
   const key=chartKey(c.epoch,c.cid,c.interval,c.session),saved=recentCharts.get(key);
   const pane=frame.parentElement;
-  delete pane.dataset.historyNotice;
   delete pane.dataset.historyContext;
   if(saved&&Date.now()/1000-saved.server_time<1800){
    frame.contentWindow.receive(saved);
    pane.dataset.historyContext=key;
-   pane.dataset.historyNotice='Saved bars · '+new Date(saved.server_time*1000).toLocaleTimeString('en-GB')+' · Updating';
    checkSwitch();
   }else frame.contentWindow.receive({bars:[],generation:'clear',con_id:c.cid,interval:c.interval,session:c.session});
  }
@@ -149,7 +147,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   if(complete!==count||!root.epoch){
    t.revealing=false;
    // The shared transition still verifies all fresh packets; a matching saved
-   // window can be viewed while it waits. Each pane labels its own history.
+   // window can be viewed while it waits.
    cover.hidden=!!root.epoch&&[...panes.values()].filter(p=>p.index<count).every(p=>{
     const c=p.index===active?root:p.context();
     return p.loaded&&(matching(p.index===active?root.packet:p.data,c)||
@@ -288,7 +286,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   dispose(){this.dead=true;this.buffer.clear();this.stream.stop();this.controller?.abort();this.historyController?.abort();this.expansionAbort?.abort();window.removeEventListener('message',this.listener);this.el.remove();}
   context(){const c=configs[this.index];return {cid:c.cid,interval:c.interval,session:c.session,epoch:current().epoch};}
   receive(p){if(this.index===active)return;const c=this.context();if(p.con_id!==c.cid||p.interval!==c.interval||p.session!==c.session||(p.account_epoch!==undefined&&p.account_epoch!==c.epoch))return;
-   delete this.el.dataset.historyContext;delete this.el.dataset.historyNotice;
+   delete this.el.dataset.historyContext;
    if(!this.buffer.packet&&this.data.bars?.length)this.buffer.accept({...this.data,mode:'snapshot'});this.data=this.buffer.accept(p);const bars=this.data.bars;this.frame.contentWindow.receive(p.mode==='delta'&&!this.buffer.snapshot?p:{...p,bars:bars.slice(),mode:'snapshot'});checkSwitch();if(c.interval===15&&!(this.data.security_type==='FUT'&&c.session==='rth')&&bars.length&&bars.at(-1).time-bars[0].time<7*86400){queueMicrotask(()=>this.loadHistory(bars[0].time));}
   }
   async loadHistory(before,recent=false){
@@ -347,5 +345,5 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  };
  function showTable(target){return panes.get(count>=3?count-1:0)?.frame===target;}
  function rulesChanged(){for(const p of panes.values()){p.lastExtras=0;p.render();}}
- return {rememberChart,resetView,clearRecent:()=>{recentCharts.clear();for(const p of panes.values()){delete p.el.dataset.historyContext;delete p.el.dataset.historyNotice;}},rulesChanged,tick,readInitial,readHistory,expandHistory,follow,showTable,loading,checkSwitch,showEmpty,axisFor:target=>configs[[...panes.values()].find(pane=>pane.frame===target)?.index]?.axis,refreshTradingLock:()=>{for(const pane of panes.values())pane.render();}};
+ return {rememberChart,resetView,clearRecent:()=>{recentCharts.clear();for(const p of panes.values())delete p.el.dataset.historyContext;},rulesChanged,tick,readInitial,readHistory,expandHistory,follow,showTable,loading,checkSwitch,showEmpty,axisFor:target=>configs[[...panes.values()].find(pane=>pane.frame===target)?.index]?.axis,refreshTradingLock:()=>{for(const pane of panes.values())pane.render();}};
 };
