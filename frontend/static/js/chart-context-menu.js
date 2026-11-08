@@ -7,7 +7,7 @@
  let weekSeedKey='',weekSeedDone=false,weekSeedRetry=0,historyGestureUntil=0;
  function requestWeekSeed(){
   const p=countdownPacket;
-  if(!needsWeekSeed(p)||!previous.length)return;
+  if(!needsWeekSeed(p)||p.generation==='recent-history'||!previous.length)return;
   const identity=JSON.stringify([key,p.account_epoch]);
   if(identity!==weekSeedKey){weekSeedKey=identity;weekSeedDone=false;weekSeedRetry=0;}
   if(weekSeedDone||Date.now()<weekSeedRetry)return;
@@ -28,14 +28,30 @@
  window.prepareAccountChart=()=>{accountTransition=true;document.body.style.opacity='.65';};
  const receiveChart=window.receive;
  window.receive=packet=>{
-  const preserve=(accountTransition||countdownPacket?.generation!==packet.generation)&&packet.bars?.length&&previous.length&&countdownPacket?.con_id===packet.con_id&&countdownPacket?.interval===packet.interval&&countdownPacket?.session===packet.session;
+  const sameView=countdownPacket?.con_id===packet.con_id&&countdownPacket?.interval===packet.interval&&countdownPacket?.session===packet.session;
+  const firstBars=packet.bars?.length&&(!previous.length||!sameView);
+  const preserve=(accountTransition||countdownPacket?.generation!==packet.generation)&&packet.bars?.length&&previous.length&&sameView;
   const range=preserve?chart.timeScale().getVisibleLogicalRange():null;
   const auto=activePriceScale().options().autoScale,prices=preserve&&!auto?activePriceScale().getVisibleRange():null;
   let offset=null;
   if(range){const next=new Map(packet.bars.map((b,i)=>[b.time,i]));const index=previous.findIndex(b=>next.has(b.time));if(index>=0)offset=next.get(previous[index].time)-index;}
+  // A cached and a fresh snapshot can contain exactly the same times. The
+  // bundled renderer must release the cached series indices before replacement,
+  // or prepending the hourly history can leave two candles at the same index.
+  if(preserve&&countdownPacket.generation==='recent-history'&&packet.generation!==countdownPacket.generation)series.setData([]);
   receiveChart(packet);
   requestWeekSeed();
   if(range&&offset!==null)chart.timeScale().setVisibleLogicalRange({from:range.from+offset,to:range.to+offset});
+  if(firstBars&&document.body.classList.contains('auxiliary-chrome-hidden')){
+   requestAnimationFrame(()=>{
+    if(!previous.length||countdownPacket?.con_id!==packet.con_id||countdownPacket?.session!==packet.session||countdownPacket?.interval!==packet.interval||!document.body.classList.contains('auxiliary-chrome-hidden'))return;
+    const scale=chart.timeScale(),view=scale.getVisibleLogicalRange(),x=timeToScreenCoordinate(previous.at(-1).time);
+    if(!view||x===null)return;
+    const wanted=Math.min(49,chart.paneSize().width/4);
+    const shift=(wanted-(plotRight()-x))/scale.options().barSpacing;
+    scale.setVisibleLogicalRange({from:view.from+shift,to:view.to+shift});
+   });
+  }
   if(prices)activePriceScale().setVisibleRange(prices);
   if(packet.bars?.length||packet.generation==='clear'){accountTransition=false;document.body.style.opacity='';}
  };
