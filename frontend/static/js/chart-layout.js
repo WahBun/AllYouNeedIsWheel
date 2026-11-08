@@ -34,7 +34,7 @@ class WheelPaneBuffer {
 }
 globalThis.WheelPaneBuffer=WheelPaneBuffer;
 /* Auxiliary panes are read-only chart renderers. Only the existing main host trades. */
-window.installChartLayout=({frame,api,current,activate,holdings,executions,onReady=()=>{},onPlusButtonChange=()=>{},onHoldingChart=()=>{}})=>{
+window.installChartLayout=({frame,api,current,activate,holdings,executions,hasWorkingOrder=()=>false,onReady=()=>{},onPlusButtonChange=()=>{},onHoldingChart=()=>{}})=>{
  const saved=(()=>{try{return JSON.parse(localStorage.getItem('wheel.chart-layout')||'{}')||{}}catch{return {}}})();
  let count=[1,2,3,4].includes(saved.count)?saved.count:1,active=0,started=false;
  if(Number.isInteger(saved.active)&&saved.active>=0&&saved.active<count)active=saved.active;
@@ -183,13 +183,23 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  function matching(p,c){
   return !!p?.bars?.length&&p.con_id===c.cid&&p.interval===c.interval&&p.session===c.session&&p.account_epoch===c.epoch;
  }
+ function readyToReveal(root){
+  if(!root.epoch||!panes.get(active)?.loaded||!matching(root.packet,root))return false;
+  // The trading host checks the active contract's orders and executable quote.
+  // A peer's history can finish after the user starts trading on a ready pane.
+  if(root.tradingLocked===false||hasWorkingOrder())return true;
+  for(let i=0;i<count;i++){
+   if(i===active)continue;
+   const pane=panes.get(i);
+   if(!pane?.loaded||!matching(pane.data,pane.context()))return false;
+  }
+  return true;
+ }
  function checkSwitch(){
   const t=transition;if(!t)return;const root=current();
-  // Historical indicator seeds are optional; matching price panes reveal together.
-  const complete=[...panes.values()].filter(p=>p.index<count).filter(p=>p.loaded&&matching(p.index===active?root.packet:p.data,p.index===active?root:p.context())).length;
   chooseInstrument.hidden=Date.now()-t.started<=8000;chooseInstrument.textContent='Choose another instrument';
   loadingMessage.textContent='';
-  if(complete!==count||!root.epoch){
+  if(!readyToReveal(root)){
    t.revealing=false;
    // The shared transition still verifies all fresh packets; a matching saved
    // window can be viewed while it waits.
@@ -202,7 +212,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   }
   if(t.revealing)return;t.revealing=true;
   // Let the chart library paint its initial snapshot behind the shared cover.
-  requestAnimationFrame(()=>requestAnimationFrame(()=>{if(transition!==t||!t.revealing)return;if([...panes.values()].filter(p=>p.index<count).some(p=>!p.loaded||!matching(p.index===active?current().packet:p.data,p.index===active?current():p.context()))){t.revealing=false;checkSwitch();return;}transition=null;cover.hidden=true;grid.removeAttribute('aria-busy');onReady();}));
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{if(transition!==t||!t.revealing)return;if(!readyToReveal(current())){t.revealing=false;checkSwitch();return;}transition=null;cover.hidden=true;grid.removeAttribute('aria-busy');onReady();}));
  }
  let persisted='';function persist(){const value=JSON.stringify({count,active,panes:configs,links,syncVersion:1,drawingLayoutID});if(value===persisted)return;try{localStorage.setItem('wheel.chart-layout',value);persisted=value;}catch{}}
  // Only cold owner reads share this queue; immutable latest reads and SSE stay parallel.
@@ -392,5 +402,5 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  };
  function showTable(target){return panes.get(count>=3?count-1:0)?.frame===target;}
  function rulesChanged(){for(const p of panes.values()){p.lastExtras=0;p.render();}}
- return {rememberChart,resetView,clearRecent,rulesChanged,tick,readInitial,readHistory,expandHistory,follow,showTable,loading,checkSwitch,showEmpty,axisFor:target=>configs[[...panes.values()].find(pane=>pane.frame===target)?.index]?.axis,refreshTradingLock:()=>{for(const pane of panes.values())pane.render();}};
+ return {rememberChart,resetView,clearRecent,rulesChanged,tick,readInitial,readHistory,expandHistory,follow,showTable,loading,checkSwitch,showEmpty,axisFor:target=>configs[[...panes.values()].find(pane=>pane.frame===target)?.index]?.axis,refreshTradingLock:()=>{for(const pane of panes.values())pane.render();checkSwitch();}};
 };
