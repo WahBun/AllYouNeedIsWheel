@@ -150,8 +150,26 @@ def bar_close_time(bar, minutes, session, now, contract=None):
     return end if end is not None and start <= now < end else None
 
 
+def historical_minutes(historical):
+    bars = []
+    for bar in historical:
+        if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
+            continue
+        prices = [positive(getattr(bar, field)) for field in ('open', 'high', 'low', 'close')]
+        if any(value is None for value in prices):
+            continue
+        o, h, l, c = prices
+        if not l <= min(o, c) <= max(o, c) <= h:
+            continue
+        bars.append(dict(time=int(bar.date.timestamp()), open=o, high=h, low=l, close=c, **historical_volume(bar)))
+    bars = list({b['time']: b for b in bars}.values())
+    bars.sort(key=lambda b: b['time'])
+    return bars
+
+
 class StockChart:
     MAX_CONTRACTS = 8  # Two independent four-chart pages; never unbounded.
+    OPENING_PREFIX_DELAYS = (2, 60)  # Let the requested view appear first; retry one transient failure.
     IDLE_SECONDS = 300  # Keep a bounded subscription warm across short app switches.
     def __init__(self, history_cache=None):
         from api.services.chart_eight_history import EightHourHistory
@@ -212,6 +230,8 @@ class StockChart:
                 # Evicting one chart must not cancel another chart's shared index read.
                 if not any(task in other.get('volatility_pending', {}).values() for other in self.states.values()):
                     task.cancel()
+            task = state.pop('opening_prefix_task', None)
+            if task is not None: task.cancel()
             task = state.pop('rules_task', None)
             if task is not None: task.cancel()
             if state.get('minute_history') is not None:
@@ -238,6 +258,55 @@ class StockChart:
             self.stop_state(state)
         else:
             asyncio.get_event_loop().call_later(30, self.expire, state)
+
+    def complete_opening_window(self, state):
+        before = state.get('opening_before')
+        if not before or state.get('opening_prefix_task'):
+            return
+        from api.services.chart_history_budget import read_history
+        conn, contract = state['conn'], state['contract']
+        account = conn.account_id
+        socket = getattr(state['client'], 'conn', None)
+        transport = getattr(socket, 'transport', None)
+
+        def same_state():
+            return (self.states.get(contract.conId) is state and conn.ib.client is state['client']
+                    and getattr(socket, 'transport', None) is transport and conn.account_id == account
+                    and conn.is_connected() and conn.ib.ticker(contract) is state['ticker'])
+
+        def viewed():
+            recent_read = self.active is state and time.monotonic() - state['opening_viewed_at'] < 4
+            return same_state() and (self.has_subscribers(contract.conId) or recent_read)
+
+        def check_admission():
+            if not viewed():
+                raise ValueError('Chart changed before earlier history was requested')
+
+        async def prepend():
+            try:
+                for delay in self.OPENING_PREFIX_DELAYS:
+                    await asyncio.sleep(delay)
+                    if not viewed():
+                        return
+                    try:
+                        history = await read_history(conn, contract, datetime.fromtimestamp(before, timezone.utc),
+                            '1 D', '1 min', 'TRADES', useRTH=False, formatDate=2, keepUpToDate=False,
+                            timeout=15, optional=True, on_start=check_admission)
+                    except Exception:
+                        continue
+                    if not same_state():
+                        return
+                    prefix = [b for b in historical_minutes(history) if b['time'] < state['bars'][0]['time']]
+                    if prefix:
+                        state['bars'] = (prefix + state['bars'])[-12000:]
+                        state.pop('opening_before', None)
+                        for listener in tuple(self.listeners):
+                            listener(state)
+                        return
+                state.pop('opening_before', None)
+            finally:
+                state.pop('opening_prefix_task', None)
+        state['opening_prefix_task'] = asyncio.get_event_loop().create_task(prepend())
 
     def refresh_option_quotes(self, state):
         """Renew a silent option stream on the IB owner, never cached prices."""
@@ -344,6 +413,9 @@ class StockChart:
             state = None
         if state is not None:
             self.refresh_option_quotes(state)
+            if state.get('opening_before'):
+                state['opening_viewed_at'] = time.monotonic()
+                self.complete_opening_window(state)
         if state is None and len(self.states) >= self.MAX_CONTRACTS:
             idle = [item for item in self.states.values() if not self.has_subscribers(item['con_id'])]
             if not idle:
@@ -383,9 +455,11 @@ class StockChart:
                     other_history_errors.append(code)
                 if any(term in lowered for term in ('no market data permission', 'not subscribed', 'subscription required')):
                     permission_errors.append(str(message))
+            short_seed = False
             if background:
                 try:
-                    historical, permission_errors, other_history_errors, history_elapsed = self.initial_history.read(conn, contract)
+                    historical, permission_errors, other_history_errors, history_elapsed, short_seed = self.initial_history.read(
+                        conn, contract, quick_open=fast and defer_history and minutes <= 60)
                 except ChartHistoryPending:
                     raise
                 except ValueError as error:
@@ -403,19 +477,7 @@ class StockChart:
                 finally:
                     if event is not None: event -= history_error
                 history_elapsed = time.monotonic() - history_started
-            bars = []
-            for bar in historical:
-                if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
-                    continue
-                prices = [positive(getattr(bar, field)) for field in ('open', 'high', 'low', 'close')]
-                if any(value is None for value in prices):
-                    continue
-                o, h, l, c = prices
-                if not l <= min(o, c) <= max(o, c) <= h:
-                    continue
-                bars.append(dict(time=int(bar.date.timestamp()), open=o, high=h, low=l, close=c, **historical_volume(bar)))
-            bars = list({b['time']: b for b in bars}.values())
-            bars.sort(key=lambda b: b['time'])
+            bars = historical if short_seed else historical_minutes(historical)
             from api.services.history_health import record as record_history_health
             history_timed_out = not other_history_errors and history_elapsed >= (6 if option_bars else 15)*0.95
             if bars:
@@ -460,6 +522,9 @@ class StockChart:
                 con_id=con_id, bars=bars[-12000:], used=now, last_tick=None, received=None,
                 generation=time.time_ns(), ticks=0, live_bars={}, quotes={},option_bars=option_bars,
                 quote_requested_at=time.monotonic(),model_greeks=getattr(ticker,'modelGreeks',None))
+            if short_seed:
+                state['opening_before'] = bars[0]['time']
+                state['opening_viewed_at'] = time.monotonic()
             gap = None if option_bars else LastTradeGap(con_id)
             level1_prices = {}
             tick_book = None
@@ -609,6 +674,8 @@ class StockChart:
                     self.observe_option_trade(state, point)
                 state['minute_history']=historical;state['history_handler']=on_history
                 historical.updateEvent += on_history
+            if short_seed:
+                self.complete_opening_window(state)
             asyncio.get_event_loop().call_later(30, self.expire, state)
         if not (defer_history and (minutes >= 1440 or (minutes == 480 and session == 'rth'))) and not initial and not state.get('backfilled') and time.monotonic() >= state.get('backfill_retry', 0):
             state['backfill_retry'] = time.monotonic() + 30
@@ -843,7 +910,7 @@ class StockChart:
             cached_bid, cached_ask = positive(getattr(ticker, 'bid', None)), positive(getattr(ticker, 'ask', None))
             if cached_bid is not None and cached_ask is not None and cached_bid <= cached_ask:
                 display_quote = dict(bid=cached_bid, ask=cached_ask)
-        return dict(delta=delta if delta_valid else None,delta_expires_at=delta_time+30 if delta_valid else None,option_display_quote=display_quote,covered_call_capacity=cc_capacity,option_right=getattr(contract, 'right', ''),iv_percent=iv if iv_valid else None,iv_expires_at=iv_time+30 if iv_valid else None,data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
+        return dict(opening_history_pending=bool(state.get('opening_before')),delta=delta if delta_valid else None,delta_expires_at=delta_time+30 if delta_valid else None,option_display_quote=display_quote,covered_call_capacity=cc_capacity,option_right=getattr(contract, 'right', ''),iv_percent=iv if iv_valid else None,iv_expires_at=iv_time+30 if iv_valid else None,data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
             con_id=con_id, symbol=contract.symbol, message=message,
             # Display-only quote metadata; independent of chart interval/session.
             display_last=display_last, display_last_ahead=display_ahead, last_price=positive(state['bars'][-1]['close']) if state['bars'] else None,

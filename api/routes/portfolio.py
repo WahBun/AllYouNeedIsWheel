@@ -215,20 +215,29 @@ def get_chart_pnl(con_id):
 @bp.get('/stock-chart-latest/<int:con_id>')
 def get_stock_chart_latest(con_id):
     """HTTP-only immutable reads: no connection lookup, no broker/portfolio queue."""
+    return latest_chart_response(con_id)
+
+
+def latest_chart_response(con_id, *, opening=False):
     from flask import Response
     from api.routes.account import epoch
     from api.services.chart_latest import latest_charts
     token=epoch()
     expected=request.args.get('epoch')
-    if expected and expected!=token:
+    header = request.headers.get('X-Wheel-Account-Epoch') if opening else None
+    if (expected and expected!=token) or (header and header!=token):
         return _no_store_json({'error':'Account changed; refresh connection state'},409)
     try: minutes=int(request.args.get('interval','5'))
     except ValueError: minutes=0
     session=request.args.get('session','rth')
     if con_id<=0 or minutes not in (1,3,5,10,15,60,480) or session not in ('rth','all') or (minutes==480 and session=='rth'):
+        if opening: return None
         return _no_store_json({'error':'Unsupported latest chart context'},400)
     encoded=latest_charts.read(con_id,minutes,session,token,request.args.get('generation'))
+    if opening and epoch() != token:
+        return _no_store_json({'error':'Account changed; refresh connection state'},409)
     if encoded is None:
+        if opening: return None
         return _no_store_json({'error':'Waiting for a fresh chart packet'},503)
     response=Response(encoded,mimetype='application/json')
     response.headers['Cache-Control']='no-store'

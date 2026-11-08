@@ -51,6 +51,11 @@ class LatestChartTests(unittest.TestCase):
         try:
             with patch('api.routes.account.epoch',return_value='epoch'),patch('api.services.chart_latest.latest_charts',self.cache):
                 started=time.monotonic()
+                url='/api/portfolio/stock-chart/7?interval=5&session=all&fast=1&defer_history=1&open=1&epoch=epoch'
+                opening=app.test_client().get(url)
+                self.assertEqual(opening.status_code,200)
+                self.assertEqual(opening.headers['X-Chart-Path'],'immutable-latest')
+                self.assertEqual(app.test_client().get(url,headers={'X-Wheel-Account-Epoch':'old'}).status_code,409)
                 response=app.test_client().get('/api/portfolio/stock-chart-latest/7?interval=5&session=all&epoch=epoch')
                 self.assertEqual(response.status_code,200)
                 self.assertLess(time.monotonic()-started,.5)

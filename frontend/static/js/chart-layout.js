@@ -104,13 +104,19 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  const loadingMessage=document.createElement('span'),chooseInstrument=document.createElement('button');
  chooseInstrument.type='button';chooseInstrument.id='chart-select-instrument';chooseInstrument.hidden=true;
  chooseInstrument.onclick=()=>document.getElementById('option-search').click();
- loadingMessage.textContent='Restoring charts…';cover.replaceChildren(loadingMessage,chooseInstrument);
- function showEmpty(){transition=null;cover.hidden=false;grid.removeAttribute('aria-busy');const zh=document.documentElement.lang.startsWith('zh');loadingMessage.textContent=zh?'选择一个标的，开始查看图表。':'Choose an instrument to open your charts.';chooseInstrument.textContent=zh?'选择标的':'Select instrument';chooseInstrument.hidden=false;}
+ cover.replaceChildren(loadingMessage,chooseInstrument);
+ function showEmpty(){transition=null;cover.hidden=false;grid.removeAttribute('aria-busy');loadingMessage.textContent='Choose an instrument to open your charts.';chooseInstrument.textContent='Select instrument';chooseInstrument.hidden=false;}
  let transition=null;
  function loading(){return transition!==null;}
  // Save only the visible history window when leaving a chart. Nothing from
  // this cache is assigned to the host's quote, stream, order or position state.
  const recentCharts=new Map();
+ const savedWindowsKey='wheel.recent-chart-windows.v1';
+ let restoredEpoch=null;
+ const recentEnough=p=>{
+  const age=Date.now()/1000-p.server_time;
+  return age>=-5&&age<3600;
+ };
  const chartKey=(epoch,cid,interval,session)=>JSON.stringify([epoch,cid,interval,session]);
  function rememberChart(p){
   if(!p?.bars?.length||!p.account_epoch||p.account_epoch!==current().epoch||!Number.isFinite(p.server_time))return;
@@ -122,11 +128,50 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   // Four independent interval/session views for each of twenty symbols.
   if(recentCharts.size>80)recentCharts.delete(recentCharts.keys().next().value);
  }
+ // Persist only when leaving this tab, outside the tick and symbol-switch paths.
+ function storeWindows(){
+  const root=current();
+  if(!root.epoch)return;
+  rememberChart(root.packet);
+  for(const p of panes.values())if(p.index!==active)rememberChart(p.data);
+  const entries=[];
+  for(const [key,p] of recentCharts){
+   if(recentEnough(p))entries.push([key,{...p,bars:p.bars.map(b=>[b.time,b.open,b.high,b.low,b.close])}]);
+  }
+  try{sessionStorage.setItem(savedWindowsKey,JSON.stringify(entries));}catch{/* Storage may be unavailable. */}
+ }
+ function restoreWindows(c){
+  if(!c.epoch||restoredEpoch===c.epoch)return;
+  restoredEpoch=c.epoch;
+  try{
+   const entries=JSON.parse(sessionStorage.getItem(savedWindowsKey)||'[]');
+   if(!Array.isArray(entries))return;
+   for(const entry of entries.slice(-80)){
+    if(!Array.isArray(entry)||entry.length!==2)continue;
+    const [key,p]=entry;
+    if(!p||!recentEnough(p)||key!==chartKey(c.epoch,p.con_id,p.interval,p.session)||
+       !Array.isArray(p.bars)||!p.bars.length||p.bars.length>240||
+       !p.bars.every(b=>Array.isArray(b)&&b.length===5))continue;
+    const bars=p.bars.map(([time,open,high,low,close])=>({time,open,high,low,close}));
+    if(!bars.every((b,i)=>Number.isSafeInteger(b.time)&&(!i||bars[i-1].time<b.time)&&
+       [b.open,b.high,b.low,b.close].every(n=>Number.isFinite(n)&&n>0)&&
+       b.low<=Math.min(b.open,b.close)&&b.high>=Math.max(b.open,b.close)))continue;
+    rememberChart({...p,account_epoch:c.epoch,bars});
+   }
+  }catch{/* Ignore malformed or unavailable tab storage. */}
+  if(!c.packet?.bars?.length&&recentCharts.has(chartKey(c.epoch,c.cid,c.interval,c.session)))
+   resetView(panes.get(active).frame,c);
+ }
+ function clearRecent(){
+  restoredEpoch=null;recentCharts.clear();
+  try{sessionStorage.removeItem(savedWindowsKey);}catch{}
+  for(const p of panes.values())delete p.el.dataset.historyContext;
+ }
  function resetView(frame,c){
   const key=chartKey(c.epoch,c.cid,c.interval,c.session),saved=recentCharts.get(key);
   const pane=frame.parentElement;
   delete pane.dataset.historyContext;
-  if(saved&&Date.now()/1000-saved.server_time<1800){
+  if(saved&&recentEnough(saved)){
    frame.contentWindow.receive(saved);
    pane.dataset.historyContext=key;
    checkSwitch();
@@ -143,7 +188,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   // Historical indicator seeds are optional; matching price panes reveal together.
   const complete=[...panes.values()].filter(p=>p.index<count).filter(p=>p.loaded&&matching(p.index===active?root.packet:p.data,p.index===active?root:p.context())).length;
   chooseInstrument.hidden=Date.now()-t.started<=8000;chooseInstrument.textContent='Choose another instrument';
-  loadingMessage.textContent=`Loading charts together · ${complete}/${count}`+(Date.now()-t.started>8000?' · Waiting for data, retrying automatically':'');
+  loadingMessage.textContent='';
   if(complete!==count||!root.epoch){
    t.revealing=false;
    // The shared transition still verifies all fresh packets; a matching saved
@@ -188,10 +233,13 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  async function readInitial(c,signal){
   signal=signal?AbortSignal.any([signal,AbortSignal.timeout(20000)]):AbortSignal.timeout(20000);
   const key=[1,3,5,10,15,60,480].includes(c.interval)&&!(c.interval===480&&c.session==='rth')?JSON.stringify([c.epoch,c.cid]):null;
+  let sharedReadFinished=false;
   while(true){
    signal.throwIfAborted();
    if(c.epoch!==current().epoch)throw Error('Account changed; refresh connection state');
-   const latest=await readLatest(c,signal);if(latest)return latest;
+   if(coldOwners.has(key)||sharedReadFinished){
+    const latest=await readLatest(c,signal);if(latest)return latest;
+   }
    const owner=coldOwners.get(key);
    if(owner){
     await new Promise((resolve,reject)=>{
@@ -200,6 +248,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
      signal.addEventListener('abort',aborted,{once:true});
      owner.then(()=>{signal.removeEventListener('abort',aborted);resolve();});
     });
+    sharedReadFinished=true;
     continue;
    }
    let release;
@@ -213,14 +262,13 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   while(true){
   signal.throwIfAborted();
   historyQuietUntil=Date.now()+2000;
-  const previous=initialReadTail,waited=initialReadPending>0;let release,packet;
+  const previous=initialReadTail;let release,packet;
   initialReadPending++;initialReadTail=new Promise(resolve=>{release=resolve;});
   try{
    await previous;signal.throwIfAborted();
    if(c.epoch!==current().epoch)throw Error('Account changed; refresh connection state');
-   // The preceding pane may have initialized this contract for every interval.
-   if(waited){const refreshed=await readLatest(c,signal);if(refreshed)return refreshed;}
-   packet=await api(`portfolio/stock-chart/${c.cid}?interval=${c.interval}&session=${c.session}&fast=1&defer_history=1`,undefined,signal);
+   // This GET returns a fresh immutable packet if another pane already initialized the contract.
+   packet=await api(`portfolio/stock-chart/${c.cid}?interval=${c.interval}&session=${c.session}&fast=1&defer_history=1&open=1&epoch=${encodeURIComponent(c.epoch)}`,undefined,signal);
   }finally{initialReadPending--;historyQuietUntil=Date.now()+2000;release();}
   if(packet.status!=='loading')return packet;
   // Release this page's admission before waiting: another pane may start its
@@ -232,7 +280,6 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
    firstPoll=false;
    signal.addEventListener('abort',aborted,{once:true});
   });
-  const latest=await readLatest(c,signal);if(latest)return latest;
   }
  }
  async function readHistory(c,before,signal,recent=false){
@@ -327,7 +374,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
     ]);}finally{this.extraBusy=false;}}
   }
  }
- function tick(){const c=current();if(!c.cid||!c.ready)return;if(!started){started=true;for(let i=0;i<4;i++)configs[i]={...configs[i],cid:links.symbol?c.cid:(configs[i].cid||c.cid),label:links.symbol?c.label:(configs[i].label||c.label),session:configs[i].cid?configs[i].session:c.session};arrange();beginSwitch();}captureActive();for(const other of panes.values())if(other.index!==active)void other.tick();checkSwitch();persist();}
+ function tick(){const c=current();if(!c.cid||!c.ready)return;restoreWindows(c);if(!started){started=true;for(let i=0;i<4;i++)configs[i]={...configs[i],cid:links.symbol?c.cid:(configs[i].cid||c.cid),label:links.symbol?c.label:(configs[i].label||c.label),session:configs[i].cid?configs[i].session:c.session};arrange();beginSwitch();}captureActive();for(const other of panes.values())if(other.index!==active)void other.tick();checkSwitch();persist();}
  function resume(){
   if(document.hidden)return;
   // Recovery applies to every visible pane. Healthy streams stay attached;
@@ -335,7 +382,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
   for(const pane of panes.values())if(pane.index!==active&&!pane.stream.healthy()){pane.stream.stop();pane.lastRead=0;}
   tick();
  }
- panes.set(active,new Pane(active,frame));arrange();setInterval(tick,2000);window.addEventListener('pagehide',()=>{for(const p of panes.values())p.stream.stop();});window.addEventListener('pageshow',resume);window.addEventListener('online',resume);document.addEventListener('visibilitychange',()=>document.hidden?tick():resume());
+ panes.set(active,new Pane(active,frame));arrange();setInterval(tick,2000);window.addEventListener('pagehide',()=>{storeWindows();for(const p of panes.values())p.stream.stop();});window.addEventListener('pageshow',resume);window.addEventListener('online',resume);document.addEventListener('visibilitychange',()=>document.hidden?tick():resume());
  window.renderChartLayoutImage=async()=>{
   const bounds=grid.getBoundingClientRect(),scale=devicePixelRatio||1;
   const visible=[...panes.values()].filter(p=>getComputedStyle(p.el).visibility!=='hidden').map(p=>({pane:p,rect:p.frame.getBoundingClientRect()}));
@@ -345,5 +392,5 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  };
  function showTable(target){return panes.get(count>=3?count-1:0)?.frame===target;}
  function rulesChanged(){for(const p of panes.values()){p.lastExtras=0;p.render();}}
- return {rememberChart,resetView,clearRecent:()=>{recentCharts.clear();for(const p of panes.values())delete p.el.dataset.historyContext;},rulesChanged,tick,readInitial,readHistory,expandHistory,follow,showTable,loading,checkSwitch,showEmpty,axisFor:target=>configs[[...panes.values()].find(pane=>pane.frame===target)?.index]?.axis,refreshTradingLock:()=>{for(const pane of panes.values())pane.render();}};
+ return {rememberChart,resetView,clearRecent,rulesChanged,tick,readInitial,readHistory,expandHistory,follow,showTable,loading,checkSwitch,showEmpty,axisFor:target=>configs[[...panes.values()].find(pane=>pane.frame===target)?.index]?.axis,refreshTradingLock:()=>{for(const pane of panes.values())pane.render();}};
 };

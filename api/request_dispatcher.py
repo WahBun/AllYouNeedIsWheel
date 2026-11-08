@@ -105,6 +105,15 @@ def install_api_dispatcher(app):
         # final credential save shares the account-switch serialization.
         if request.endpoint in ('maintenance.status', 'maintenance.validate', 'maintenance.validation_status'):
             return original_dispatch()
+        # One opening GET checks immutable data and, on a miss, continues
+        # through the normal serialized history read in this same request.
+        if (request.endpoint == 'portfolio.get_stock_chart' and request.args.get('open') == '1'
+                and request.args.get('fast') == '1' and request.args.get('defer_history') == '1'
+                and request.args.get('epoch') and set(request.args) <= {'open','fast','defer_history','epoch','interval','session'}):
+            from api.routes.portfolio import latest_chart_response
+            cached = latest_chart_response(request.view_args['con_id'], opening=True)
+            if cached is not None:
+                return cached
         # Storage/stream endpoints do not occupy the IB owner. Account-scoped
         # notification reads enforce their epoch inside the endpoint itself.
         # Match the exact endpoint, not a broad URL prefix; trading guards stay intact.
