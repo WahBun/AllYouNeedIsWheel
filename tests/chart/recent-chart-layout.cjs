@@ -58,8 +58,11 @@ async function run() {
     await fresh(8);
     holdReads = true;
     await select(7);
-    await page.waitForFunction(() => document.querySelectorAll('.chart-pane[data-history-notice]').length === 4 &&
+    await page.waitForFunction(() => document.querySelectorAll('.chart-pane[data-history-context]').length === 4 &&
       document.querySelector('#chart-group-loading').hidden);
+    const captions = await page.locator('.chart-pane').evaluateAll(panes =>
+      panes.map(pane => getComputedStyle(pane, '::after').content));
+    for (const caption of captions) assert.doesNotMatch(caption, /Saved bars|data-history-notice/i);
     const result = await page.evaluate(() => {
       const packets = [...document.querySelectorAll('.chart-pane iframe')].map(frame =>
         frame.contentWindow.eval('countdownPacket'));
@@ -73,7 +76,7 @@ async function run() {
     assert.deepEqual(result, {intervals: [1,5,15,60], historyOnly: true, hostHasMarketBars: false});
     release();
     await fresh(7);
-    assert.equal(await page.locator('.chart-pane[data-history-notice]').count(), 0);
+    assert.equal(await page.locator('.chart-pane[data-history-context]').count(), 0);
     assert.equal(harness.metrics.posts, 0);
     console.log('PASS four saved chart windows visible during a held history read; fresh packets replace all four.');
   } finally {
