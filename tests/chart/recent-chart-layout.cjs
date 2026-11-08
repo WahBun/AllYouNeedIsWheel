@@ -6,7 +6,7 @@ async function run() {
   const harness = await start();
   const browser = await chromium.launch();
   let release;
-  const held = new Promise(resolve => { release = resolve; });
+  let held = new Promise(resolve => { release = resolve; });
   try {
     const page = await browser.newPage({viewport: {width: 1440, height: 900}});
     let holdReads = false;
@@ -77,6 +77,35 @@ async function run() {
     release();
     await fresh(7);
     assert.equal(await page.locator('.chart-pane[data-history-context]').count(), 0);
+    // The reported QQQ revisit crossed a reload 31 minutes after its last view.
+    // Hold the replacement bars and verify the four visible views independently.
+    held = new Promise(resolve => { release = resolve; });
+    await page.addInitScript(() => {
+      if (window !== window.top) return;
+      const key = 'wheel.recent-chart-windows.v1';
+      const entries = JSON.parse(sessionStorage.getItem(key) || '[]');
+      for (const [, packet] of entries) {
+        packet.server_time -= 31 * 60;
+        packet.bid = 123; // Stored data cannot supply a quote to host or renderer.
+      }
+      sessionStorage.setItem(key, JSON.stringify(entries));
+    });
+    await page.reload({waitUntil: 'domcontentloaded'});
+    await page.waitForFunction(() => document.querySelector('#chart-group-loading').hidden &&
+      document.querySelectorAll('.chart-pane[data-history-context]').length === 4);
+    assert(await page.evaluate(() => !window.readHostChart().packet.bars?.length &&
+      [...document.querySelectorAll('.chart-pane iframe')].every(f =>
+        f.contentWindow.eval('countdownPacket.con_id===7 && countdownPacket.generation==="recent-history" && countdownPacket.bid===undefined && previous.length>0'))));
+    release();
+    await fresh(7);
+
+    held = new Promise(resolve => { release = resolve; });
+    harness.rotateEpoch('another-account');
+    await page.reload({waitUntil: 'domcontentloaded'});
+    await page.waitForFunction(() => window.readHostChart?.().epoch === 'another-account');
+    assert.equal(await page.locator('.chart-pane[data-history-context]').count(), 0);
+    assert.equal(await page.locator('#chart-group-loading').innerText(), '');
+    release();
     assert.equal(harness.metrics.posts, 0);
     console.log('PASS four saved chart windows visible during a held history read; fresh packets replace all four.');
   } finally {
