@@ -20,6 +20,24 @@ PRODUCT_BUNDLE_IDENTIFIER = com.yourname.wheel
 
 有线配对与签名正常后再启用无线 Run。App 的 Tailscale 后端访问和 Xcode 无线调试是两条独立链路。
 
+## Sync the Pro Xcode checkout after a merge
+
+On the Pro, run `/usr/bin/python3 ops/sync_pro_xcode.py --install "$PWD"` from the
+official Wheel checkout. The login agent checks GitHub every 60 seconds while
+the Mac is awake. The first run can request Documents access for **Wheel Xcode
+Sync**. It uses the existing GitHub CLI login and Git credentials.
+
+When the tip of `Ben/wheel-1.8` matches a merged PR, the helper fast-forwards
+the local project. Active builds and Git operations defer the update. A conflict
+keeps the local files in place. A macOS notification reports a successful update
+or a blocking merge conflict. The last check and last applied PR are recorded in
+`~/Library/Application Support/Wheel/XcodeSync/status.json`. Installation on the
+physical iPhone is a separate user-initiated Run in Xcode.
+
+To stop the agent, run `launchctl bootout "gui/$(id -u)/com.wahbun.wheel-pro-xcode-sync"`
+and move `~/Library/LaunchAgents/com.wahbun.wheel-pro-xcode-sync.plist` out of
+LaunchAgents. Rerun the installer to restore or update the local helper.
+
 ## Pro shortcut: Wheel iPhone Renew
 
 `renew_signing.py` renews signing and builds a local package using the existing
