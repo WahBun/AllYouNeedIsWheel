@@ -71,8 +71,53 @@ final class OpportunityCandidateTests: XCTestCase {
         XCTAssertEqual(store.trading.demoOrders.last?.expiration, "20261120")
         XCTAssertEqual(store.trading.demoOrders.last?.strike, auto.strike)
         let pin = try XCTUnwrap(book.pins[group]?.first)
-        book.removePin(pin, group: group)
+        book.removeCandidate("TSLL", type: "PUT", pin: pin)
         XCTAssertNil(book.rows[first]); XCTAssertNotNil(book.rows[second])
+    }
+
+    func testChangeThenRemovePrimaryPreservesSiblingIdentitySelectionAndQuantity() async throws {
+        for type in ["PUT", "CALL"] {
+            let (store, context) = await setUpBook()
+            let book = store.opportunities
+            let group = book.key("TSLL", type)
+            await book.load("TSLL", type: type, store: store)
+            let orders = store.trading.demoOrders.count
+            let second = book.pin("TSLL", type, expiration: "20261120", strike: 8)
+            let third = book.pin("TSLL", type, expiration: "20261120", strike: 12)
+            book.toggleSelection(second)
+            book.preferences[second] = OpportunityPreference(quantity: 2)
+            await book.refreshAll(type: type, store: store)
+            let siblings = try XCTUnwrap(book.pins[group])
+            XCTAssertEqual(book.changePrimary("TSLL", type: type, expiration: "20261120", strike: 10), group)
+            XCTAssertNil(book.rows[group]?.quote)
+            await book.load("TSLL", type: type, store: store)
+            XCTAssertEqual(book.rows[group]?.quote?.strike, 10)
+            XCTAssertEqual(book.pins[group], siblings)
+            book.removeCandidate("TSLL", type: type)
+            XCTAssertFalse(book.showsPrimary(group))
+            XCTAssertEqual(book.pins[group], siblings)
+            XCTAssertEqual(book.rows[second]?.quantity, 2)
+            book.excluded.append(group); book.save()
+            XCTAssertFalse(book.symbols(store, type: type).contains("TSLL"))
+            book.restoreHidden(type: type)
+            book.configure(context: context)
+            await book.refreshAll(type: type, store: store)
+            XCTAssertTrue(book.symbols(store, type: type).contains("TSLL"))
+            XCTAssertFalse(book.showsPrimary(group))
+            XCTAssertEqual(book.pins[group], siblings)
+            XCTAssertEqual(book.rows[third]?.quote?.strike, 12)
+            let selected = book.selectedRows(store, type: type).filter { $0.ticker == "TSLL" }
+            XCTAssertEqual(selected.map(\.id), [second])
+            XCTAssertEqual(selected.first?.quantity, 2)
+            // The removed automatic contract can be added back explicitly.
+            let added = book.pin("TSLL", type, expiration: "20261120", strike: 10)
+            XCTAssertNotEqual(added, group)
+            for pin in try XCTUnwrap(book.pins[group]) {
+                book.removeCandidate("TSLL", type: type, pin: pin)
+            }
+            XCTAssertFalse(book.symbols(store, type: type).contains("TSLL"))
+            XCTAssertEqual(store.trading.demoOrders.count, orders)
+        }
     }
 
     func testExistingSavedWatchlistMigratesWithPrimarySelected() {
