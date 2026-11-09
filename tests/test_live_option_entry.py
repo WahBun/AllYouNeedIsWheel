@@ -120,16 +120,63 @@ class LiveOptionEntryTests(unittest.TestCase):
             db.execute('INSERT INTO chart_paper_group_history VALUES(?,?,?,?)',('U_TEST',7,ref,json.dumps(group)))
         return group
 
+    def archived_entry_with_execution_marks_only(self):
+        group = self.old_flat_group()
+        with self.f.service.database() as db:
+            db.execute("DELETE FROM chart_broker_terms WHERE perm_id=501")
+            db.execute("ALTER TABLE chart_execution_marks ADD COLUMN price REAL")
+            db.execute("ALTER TABLE chart_execution_marks ADD COLUMN stamp REAL")
+            for role, perm in group['perms'].items():
+                db.execute("UPDATE chart_execution_marks SET price=?, stamp=? WHERE group_id=?",
+                           (10, group['ids'][role], f'perm:{perm}'))
+        return group
+
     def test_old_flat_option_group_does_not_lock_an_acknowledged_new_sell(self):
-        self.check_next_pending_entry('OPT')
+        self.old_flat_group()
+        self.check_next_pending_entry('OPT', -1)
 
     def test_old_flat_stock_group_does_not_lock_an_acknowledged_new_buy(self):
-        self.check_next_pending_entry('STK')
+        self.old_flat_group()
+        self.check_next_pending_entry('STK', 1)
 
     def test_old_flat_futures_group_does_not_lock_an_acknowledged_new_buy(self):
-        self.check_next_pending_entry('FUT')
+        self.old_flat_group()
+        self.check_next_pending_entry('FUT', 1)
 
-    def check_next_pending_entry(self, asset):
+    def test_missing_old_entry_terms_do_not_lock_an_acknowledged_new_put_buy(self):
+        self.archived_entry_with_execution_marks_only()
+        self.check_next_pending_entry('OPT', 1)
+
+    def test_old_entry_needs_consistent_complete_executions_for_its_perm_id(self):
+        from core.archived_order_group import proven_flat
+        from core.order_group_ledger import migrate
+        f = self.f
+        group = self.archived_entry_with_execution_marks_only()
+        migrate(f.service.path)
+        changes = {
+            'missing fill': "DELETE FROM chart_execution_marks WHERE group_id='perm:501'",
+            'partial fill': "UPDATE chart_execution_marks SET quantity=0.5 WHERE group_id='perm:501'",
+            'different contract': "UPDATE chart_execution_marks SET con_id=8 WHERE group_id='perm:501'",
+            'different account': "UPDATE chart_execution_marks SET account='OTHER' WHERE group_id='perm:501'",
+            'mismatched side': "UPDATE chart_execution_marks SET side='BUY' WHERE group_id='perm:501'",
+            'conflicting terms': "INSERT INTO chart_broker_terms VALUES ('U_TEST',7,501,'BUY')",
+            'corrected fill': "UPDATE chart_execution_marks SET exec_id='broker.1.01.02' WHERE group_id='perm:501'",
+            'exit before entry': "UPDATE chart_execution_marks SET stamp=0.5 WHERE group_id='perm:503'",
+            'missing canceled leg terms': "DELETE FROM chart_broker_terms WHERE perm_id=505",
+        }
+        with f.service.database() as db:
+            def proven():
+                return proven_flat(db,'U_TEST',7,71,group,[group],[],[])
+            self.assertTrue(proven())
+            for condition, statement in changes.items():
+                with self.subTest(condition=condition):
+                    db.execute("SAVEPOINT original")
+                    db.execute(statement)
+                    self.assertFalse(proven())
+                    db.execute("ROLLBACK TO original")
+                    db.execute("RELEASE original")
+
+    def check_next_pending_entry(self, asset, side):
         f = self.f
         capability = {'OPT':'chart_options_live_enabled','STK':'chart_stocks_live_enabled','FUT':'chart_futures_live_enabled'}[asset]
         profile = patch('api.routes.account.profiles', return_value={'live':{'account_id':'U_TEST',capability:True}})
@@ -140,8 +187,7 @@ class LiveOptionEntryTests(unittest.TestCase):
             f.contract.exchange, f.contract.multiplier = 'CME', '2'
         f.contract.right = 'P'
         f.conn.ib.client.clientId = 71
-        self.old_flat_group()
-        body = self.body(side=-1 if asset == 'OPT' else 1,quantity=1,tp=None,sl=None)
+        body = self.body(side=side,quantity=1,tp=None,sl=None)
         place = f.conn.ib.placeOrder.side_effect
         def pending(contract, order):
             trade = place(contract, order)
