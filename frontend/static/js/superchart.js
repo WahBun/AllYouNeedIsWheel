@@ -42,7 +42,7 @@ tradingLock.onclick=()=>{
 };
 renderTradingLock();
 let groupID='',switchingChart=false,marketReadError='',accountNotice='',pendingJoin=null,pnlPhase='loading';
-function chartTransition(){cancelMarketReads();chartLayout.rememberChart(packet);chartLayout.resetView(frame,marketContext());marketReadError='';switchingChart=true;frame.style.opacity='.3';frame.style.pointerEvents='none';frame.setAttribute('aria-busy','true');$('market-status').textContent=`Loading ${session==='all'?'ETH':'RTH'} · ${interval}m…`;sync();ensureMarket();}
+function chartTransition(){cancelMarketReads();marketReadError='';switchingChart=true;frame.style.opacity='.3';frame.style.pointerEvents='none';frame.setAttribute('aria-busy','true');$('market-status').textContent=`Loading ${session==='all'?'ETH':'RTH'} · ${interval}m…`;sync();ensureMarket();}
 let entryFlight=null,queuedEntry=null,writeVersion=0;
 const entryIdentity=s=>JSON.stringify((s.edit_snapshot||[]).map(({order_id,quantity,filled,tif})=>({order_id,quantity,filled,tif})));
 function priceRoleEditable(role){return state.active&&state.known===true&&!state.sync_error&&(role==='entry'?state.entry_editable===true&&!state.position:state.orders?.some(o=>o.role.split('_')[0]===role&&['Submitted','PreSubmitted'].includes(o.status)));}
@@ -63,14 +63,13 @@ function updateTabTitle(){
  const valid=packet.con_id===cid&&packet.account_epoch===epoch&&!switchingChart;
  const symbol=valid?contractLabel(packet):'';
  const live=packet.display_last,now=packet.server_time+Math.max(0,Date.now()-packetReceived)/1000;
- const price=valid?(live&&now<live.expires_at?live.price:packet.display_last_ahead?null:packet.last_price):null;
+ const price=valid?(live&&now<live.expires_at?live.price:packet.last_price):null;
  let title=symbol||'Wheel · Superchart';
  if(symbol&&Number.isFinite(price)&&price>0&&Date.now()-packetReceived<30000){
   const rule=(packet.price_rules||[]).filter(r=>r.low<=price&&r.increment>0).sort((a,b)=>b.low-a.low)[0];
   let digits=2;if(rule){while(digits<8&&Math.abs(rule.increment*10**digits-Math.round(rule.increment*10**digits))>1e-7)digits++;}
   if(!titleFormats.has(digits))titleFormats.set(digits,new Intl.NumberFormat('en-US',{minimumFractionDigits:digits,maximumFractionDigits:digits}));
-  // Match the chart axis's decimal rounding for sub-cent prints before adding grouping.
-  title+=' '+titleFormats.get(digits).format(Number(price.toFixed(digits)));
+  title+=' '+titleFormats.get(digits).format(price);
   const referenceKey=JSON.stringify([cid,epoch]);
   const close=Number.isFinite(packet.previous_close)&&packet.previous_close>0?packet.previous_close:titleReference?.key===referenceKey&&Date.now()-titleReference.received<30000?titleReference.close:null;
   if(Number.isFinite(close)&&close>0){
@@ -155,14 +154,9 @@ function volatilityContext(){return JSON.stringify([epoch,cid,generation,WheelVo
 function syncVolatility(){const status=volatilityKey===volatilityContext()?volatilityData?.status:null;if(status&&status!==volatilityDiagnostic){volatilityDiagnostic=status;if(status==='unavailable')trace('Volatility index unavailable; awaiting a later refresh');else if(status==='ready')trace('Volatility index ready');}const o=window.WheelMoonshineRules?.overlay(display.volatility)||{...display.volatility};if(interval>60||!display.indicatorVisible||!WheelChartSettings.visibleOnTimeframe(display,interval)){o.channels=false;o.gauge=false;}frame.contentWindow.configureVolatility?.(packet,volatilityKey===volatilityContext()?volatilityData:null,o);}
 async function refreshVolatility({sync=true}={}){if(chartLayout.loading())return;if(sync)syncVolatility();const family=WheelVolatility.family(packet);if(!family||!packet.bars?.length||interval>60||!display.indicatorVisible||!WheelChartSettings.visibleOnTimeframe(display,interval)||!display.volatility.channels||document.hidden||Date.now()<marketPriorityUntil||volatilityBusy||!epoch)return;const key=volatilityContext();if(key===volatilityKey&&Date.now()-volatilityLast<(volatilityData?.status==='waiting'?1000:10000))return;volatilityBusy=true;volatilityLast=Date.now();if(volatilityKey!==key)volatilityData=null;volatilityKey=key;try{const value=await api(`portfolio/chart-volatility/${cid}?source=${encodeURIComponent(display.volatility[family])}`);if(key!==volatilityContext())return;volatilityData=value;syncVolatility();}catch{if(key===volatilityContext()){volatilityData={...volatilityData,status:'unavailable'};syncVolatility();}}finally{volatilityBusy=false;}}
 const chartLayout=window.installChartLayout({frame,api,onReady:()=>sync(),onPlusButtonChange:enabled=>saveDisplay({...display,plusButton:enabled}),
- hasWorkingOrder:()=>profile.verified&&state.active&&state.known===true&&!state.sync_error&&state.order_ref&&
-  Date.now()-received<15000&&state.orders?.some(o=>(o.order_id>0||o.perm_id>0)&&
-   ['Submitted','PreSubmitted'].includes(o.status)&&Number.isFinite(o.filled)&&o.quantity>o.filled),
  current:()=>({cid,interval,session,epoch,packet,display,dark,ready,busy,tradingLocked,emaFrames:emaContext===emaKey()?emaFrames:{},volatility:volatilityKey===volatilityContext()?volatilityData:null,axis:frame.contentWindow.priceAxisSide||'right',label:contractLabel(packet)||$('contracts').selectedOptions[0]?.textContent||''}),
  activate:(target,nextFrame,seed)=>{
-  if(busy||document.querySelector('dialog[open]')||seed.packet.account_epoch!==epoch||
-     seed.packet.con_id!==target.cid||seed.packet.interval!==target.interval||seed.packet.session!==target.session)return false;
-  frame.style.opacity='';frame.style.pointerEvents='';frame.removeAttribute('aria-busy');switchingChart=false;
+  if(busy||switchingChart||document.querySelector('dialog[open]'))return false;
   cancelMarketReads();frame.contentWindow.removeEventListener('focus',resumeMarket);marketStream.stop();generation++;marketReadError='';quoteConfigKey='';
   frame=nextFrame;cid=target.cid;interval=target.interval;session=target.session;packet={...seed.packet,display_last:null};display=structuredClone(target.display);
   groupID=savedGroup(cid);state={};received=0;entry=0;resetNewQuantity();
@@ -444,7 +438,6 @@ function applyMarket(bars,push=false){
  frame.contentWindow.receive(bars.mode==='delta'&&!switchingChart?bars:packet);
  // Price/OHLC reaches the renderer before optional overlays; refresh once.
  syncVolatility();void refreshVolatility({sync:false});
- delete frame.parentElement.dataset.historyContext;
  switchingChart=false;chartLayout.checkSwitch();frame.style.opacity='';frame.style.pointerEvents='';frame.removeAttribute('aria-busy');
  $('market-status').textContent=(bars.message||(bars.status==='waiting'?'Historical bars · waiting for IB last ticks':bars.status)||'')+(push?' · SSE push':' · Snapshot refresh');
  $('market-status').title=$('market-status').textContent;$('market-status').hidden=!!packet.bars?.length&&!bars.message;
@@ -483,7 +476,7 @@ async function refreshMarket({full=false}={}){
   if(!packet.bars?.length){await refreshLegacyMarket(context);return;}
   if(streamSupported()){
    try{
-    const generation=!full&&!packet.opening_history_pending&&packet.generation&&packetReceived>Date.now()-5000?`&generation=${encodeURIComponent(packet.generation)}`:'';
+    const generation=!full&&packet.generation&&packetReceived>Date.now()-5000?`&generation=${encodeURIComponent(packet.generation)}`:'';
     const bars=await api(`portfolio/stock-chart-latest/${context.cid}?interval=${context.interval}&session=${context.session}${context.epoch?'&epoch='+encodeURIComponent(context.epoch):''}${generation}`,undefined,AbortSignal.any([request.signal,AbortSignal.timeout(800)]));
     if(!Array.isArray(bars.bars)||!bars.bars.length||!Number.isFinite(bars.server_time))throw Error('Latest quote packet unavailable');
     if(marketBusy===request&&currentMarket(context)&&(full||!marketStream.healthy()))applyMarket(bars);
@@ -540,7 +533,7 @@ const p=await api('account/profiles');if(token!==generation||readVersion!==write
 const groupAccountChanged=groupStorageKey(selected,p)!==groupStorageKey(selected);
 if(profile.selected&&(p.selected!==profile.selected||p.epoch!==profile.epoch||p.account_identity!==profile.account_identity||(profile.verified&&!p.verified))){
  pnlBusy?.abort();pnlBusy=null;pnlPhase='loading';pendingJoin=null;resetNewQuantity();token=++generation;marketStream.stop();cancelMarketReads();lastFallback=0;lastPnL=0;marketReadError='';quoteConfigKey='';
- frame.contentWindow.prepareAccountChart?.();switchingChart=true;historyCaches.clear();chartLayout.clearRecent();packet={};state={};received=0;entry=0;positions=[];chartExecutions=[];executionContext='';emaFrames={};volatilityData=null;
+ frame.contentWindow.prepareAccountChart?.();switchingChart=true;historyCaches.clear();packet={};state={};received=0;entry=0;positions=[];chartExecutions=[];executionContext='';emaFrames={};volatilityData=null;
  renderLeverage();renderRows('orders',[],true);renderRows('positions',[],false);log('Account connection changed; synchronizing current account.');accountNotice=$('trade-feedback').textContent;
 }
 // A short, bounded recovery window lets price snapshots reach the shared owner
@@ -657,7 +650,7 @@ function openAlertChart(id,label,alertEpoch){
  if(id!==cid)select(id,label);
  return true;
 }
-function select(id,label){if(busy)return;label=contractLabel(label);chartLayout.rememberChart(packet);cancelMarketReads();resetNewQuantity();cid=id;groupID=savedGroup(id);generation++;marketStream.stop();lastFallback=0;lastPnL=0;entry=0;state={};received=0;packet={};$('tif').value='DAY';$('editor').close();const url=new URL(location);url.searchParams.set('con_id',id);history.replaceState(null,'',url);if(![...$('contracts').options].some(o=>o.value===String(id)))$('contracts').append(new Option(label&&!/^\d+$/.test(label)?label:(contractFavorites.find(x=>x.id===id&&!/^\d+$/.test(x.label))?.label||'Loading contract…'),String(id)));$('contracts').value=String(id);renderContractFavorites();chartLayout.follow('symbol');frame.contentWindow.configureDrawings({key:`web:${location.origin}:${id}`,value:{...stored(`wheel.drawings:${id}`),magnet:'off'}});chartLayout.resetView(frame,marketContext());sync();refreshMarket({full:true});refresh();}
+function select(id,label){if(busy)return;label=contractLabel(label);cancelMarketReads();resetNewQuantity();cid=id;groupID=savedGroup(id);generation++;marketStream.stop();lastFallback=0;lastPnL=0;entry=0;state={};received=0;packet={};$('tif').value='DAY';$('editor').close();const url=new URL(location);url.searchParams.set('con_id',id);history.replaceState(null,'',url);if(![...$('contracts').options].some(o=>o.value===String(id)))$('contracts').append(new Option(label&&!/^\d+$/.test(label)?label:(contractFavorites.find(x=>x.id===id&&!/^\d+$/.test(x.label))?.label||'Loading contract…'),String(id)));$('contracts').value=String(id);renderContractFavorites();chartLayout.follow('symbol');frame.contentWindow.configureDrawings({key:`web:${location.origin}:${id}`,value:{...stored(`wheel.drawings:${id}`),magnet:'off'}});frame.contentWindow.receive({bars:[],con_id:id,generation:'clear',interval,session});sync();refreshMarket({full:true});refresh();}
 function entryPriceOnly(body){return !('order_id' in body)&&( body.action==='edit_entry'||body.action==='amend'&&['tp','sl'].includes(body.role))&&Number.isFinite(body.price)&&body.price>0&&!body.cancel&&!('quantity' in body)&&!('tif' in body);}
 function midManagement(body){
  if(!['OPT','STK'].includes(packet.security_type)||!state.position||!['add','trim','close'].includes(body.action))return body;

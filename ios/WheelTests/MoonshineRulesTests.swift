@@ -36,7 +36,6 @@ final class MoonshineRulesTests: XCTestCase {
     }
     func testReadsDoNotUploadLocalPreferencesAndSaveUsesSharedResponse() async throws {
         let model = model(); model.select(paper); await model.refresh()
-        XCTAssertTrue(model.message.contains("QQQ, ES, NQ and SPY"))
         XCTAssertEqual(RulesProtocol.requests.map(\.httpMethod), ["GET"])
         var local = VolatilitySettings(); local.inner = 8; local.width = 3; local.up1 = "#123456"
         let display = try XCTUnwrap(model.rules).applying(to: local)

@@ -12,7 +12,6 @@ from zoneinfo import ZoneInfo
 from functools import lru_cache
 import pandas_market_calendars as calendars
 from api.services.chart_last_gap import LastTradeGap
-from api.services.chart_tick_time import install_chart_tick_times
 from api.services.chart_sessions import cme_regular, session_windows, rth_source_size
 from api.services.chart_initial_history import InitialChartHistory, ChartHistoryPending
 
@@ -150,26 +149,8 @@ def bar_close_time(bar, minutes, session, now, contract=None):
     return end if end is not None and start <= now < end else None
 
 
-def historical_minutes(historical):
-    bars = []
-    for bar in historical:
-        if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
-            continue
-        prices = [positive(getattr(bar, field)) for field in ('open', 'high', 'low', 'close')]
-        if any(value is None for value in prices):
-            continue
-        o, h, l, c = prices
-        if not l <= min(o, c) <= max(o, c) <= h:
-            continue
-        bars.append(dict(time=int(bar.date.timestamp()), open=o, high=h, low=l, close=c, **historical_volume(bar)))
-    bars = list({b['time']: b for b in bars}.values())
-    bars.sort(key=lambda b: b['time'])
-    return bars
-
-
 class StockChart:
     MAX_CONTRACTS = 8  # Two independent four-chart pages; never unbounded.
-    OPENING_PREFIX_DELAYS = (2, 60)  # Let the requested view appear first; retry one transient failure.
     IDLE_SECONDS = 300  # Keep a bounded subscription warm across short app switches.
     def __init__(self, history_cache=None):
         from api.services.chart_eight_history import EightHourHistory
@@ -177,12 +158,9 @@ class StockChart:
         self.active = None
         self.states = {}
         self.next_request = {}
-        self.next_early_history_retry = 0
-        self.early_retry_contract = None
         self.request_errors = {}
         self.listeners = set()
         self.option_trade_listeners = set()
-        self.last_trade_observers = {}
         self.initial_history = InitialChartHistory()
         self.has_subscribers = lambda con_id: False
 
@@ -218,8 +196,6 @@ class StockChart:
                 # Account handover must not inherit the previous account's pacing or errors.
                 # Normal idle/reconnect cleanup retains pacing within the same account.
                 self.next_request.clear()
-                self.next_early_history_retry = 0
-                self.early_retry_contract = None
                 self.request_errors.clear()
 
     def stop_state(self, state):
@@ -230,8 +206,6 @@ class StockChart:
                 # Evicting one chart must not cancel another chart's shared index read.
                 if not any(task in other.get('volatility_pending', {}).values() for other in self.states.values()):
                     task.cancel()
-            task = state.pop('opening_prefix_task', None)
-            if task is not None: task.cancel()
             task = state.pop('rules_task', None)
             if task is not None: task.cancel()
             if state.get('minute_history') is not None:
@@ -258,55 +232,6 @@ class StockChart:
             self.stop_state(state)
         else:
             asyncio.get_event_loop().call_later(30, self.expire, state)
-
-    def complete_opening_window(self, state):
-        before = state.get('opening_before')
-        if not before or state.get('opening_prefix_task'):
-            return
-        from api.services.chart_history_budget import read_history
-        conn, contract = state['conn'], state['contract']
-        account = conn.account_id
-        socket = getattr(state['client'], 'conn', None)
-        transport = getattr(socket, 'transport', None)
-
-        def same_state():
-            return (self.states.get(contract.conId) is state and conn.ib.client is state['client']
-                    and getattr(socket, 'transport', None) is transport and conn.account_id == account
-                    and conn.is_connected() and conn.ib.ticker(contract) is state['ticker'])
-
-        def viewed():
-            recent_read = self.active is state and time.monotonic() - state['opening_viewed_at'] < 4
-            return same_state() and (self.has_subscribers(contract.conId) or recent_read)
-
-        def check_admission():
-            if not viewed():
-                raise ValueError('Chart changed before earlier history was requested')
-
-        async def prepend():
-            try:
-                for delay in self.OPENING_PREFIX_DELAYS:
-                    await asyncio.sleep(delay)
-                    if not viewed():
-                        return
-                    try:
-                        history = await read_history(conn, contract, datetime.fromtimestamp(before, timezone.utc),
-                            '1 D', '1 min', 'TRADES', useRTH=False, formatDate=2, keepUpToDate=False,
-                            timeout=15, optional=True, on_start=check_admission)
-                    except Exception:
-                        continue
-                    if not same_state():
-                        return
-                    prefix = [b for b in historical_minutes(history) if b['time'] < state['bars'][0]['time']]
-                    if prefix:
-                        state['bars'] = (prefix + state['bars'])[-12000:]
-                        state.pop('opening_before', None)
-                        for listener in tuple(self.listeners):
-                            listener(state)
-                        return
-                state.pop('opening_before', None)
-            finally:
-                state.pop('opening_prefix_task', None)
-        state['opening_prefix_task'] = asyncio.get_event_loop().create_task(prepend())
 
     def refresh_option_quotes(self, state):
         """Renew a silent option stream on the IB owner, never cached prices."""
@@ -413,9 +338,6 @@ class StockChart:
             state = None
         if state is not None:
             self.refresh_option_quotes(state)
-            if state.get('opening_before'):
-                state['opening_viewed_at'] = time.monotonic()
-                self.complete_opening_window(state)
         if state is None and len(self.states) >= self.MAX_CONTRACTS:
             idle = [item for item in self.states.values() if not self.has_subscribers(item['con_id'])]
             if not idle:
@@ -437,14 +359,10 @@ class StockChart:
         if state is None:
             now = time.monotonic()
             if now < self.next_request.get(con_id, 0) and not (background and self.initial_history.contains(conn, contract)):
-                if background and self.early_retry_contract == con_id:
-                    raise ChartHistoryPending('Retrying chart history')
                 raise ValueError(self.request_errors.get(con_id, 'Chart subscription cooling down; retry shortly'))
             self.next_request = {key: value for key, value in self.next_request.items() if value > now}
             self.request_errors = {key:value for key,value in self.request_errors.items() if key in self.next_request}
             self.request_errors.pop(con_id, None)
-            if self.early_retry_contract == con_id:
-                self.early_retry_contract = None
             option_bars=contract.secType=='OPT'
             permission_errors = []
             other_history_errors = []
@@ -455,11 +373,9 @@ class StockChart:
                     other_history_errors.append(code)
                 if any(term in lowered for term in ('no market data permission', 'not subscribed', 'subscription required')):
                     permission_errors.append(str(message))
-            short_seed = False
             if background:
                 try:
-                    historical, permission_errors, other_history_errors, history_elapsed, short_seed = self.initial_history.read(
-                        conn, contract, quick_open=fast and defer_history and minutes <= 60)
+                    historical, permission_errors, other_history_errors, history_elapsed = self.initial_history.read(conn, contract)
                 except ChartHistoryPending:
                     raise
                 except ValueError as error:
@@ -477,7 +393,19 @@ class StockChart:
                 finally:
                     if event is not None: event -= history_error
                 history_elapsed = time.monotonic() - history_started
-            bars = historical if short_seed else historical_minutes(historical)
+            bars = []
+            for bar in historical:
+                if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
+                    continue
+                prices = [positive(getattr(bar, field)) for field in ('open', 'high', 'low', 'close')]
+                if any(value is None for value in prices):
+                    continue
+                o, h, l, c = prices
+                if not l <= min(o, c) <= max(o, c) <= h:
+                    continue
+                bars.append(dict(time=int(bar.date.timestamp()), open=o, high=h, low=l, close=c, **historical_volume(bar)))
+            bars = list({b['time']: b for b in bars}.values())
+            bars.sort(key=lambda b: b['time'])
             from api.services.history_health import record as record_history_health
             history_timed_out = not other_history_errors and history_elapsed >= (6 if option_bars else 15)*0.95
             if bars:
@@ -490,19 +418,9 @@ class StockChart:
                 # of blank chart. Keep the existing 15-second pacing floor,
                 # and the longer backoff for denied or genuinely empty history.
                 retry_soon = (option_bars or history_timed_out) and not permission_errors
-                finished = time.monotonic()
-                pause = 15 if retry_soon else 60
-                if background and retry_soon and history_timed_out and finished >= self.next_early_history_retry:
-                    # One isolated timeout may retry after the pacing window from
-                    # dispatch. During a wider outage keep the normal backoff.
-                    pause = max(1, 15 - history_elapsed)
-                    self.next_early_history_retry = finished + 60
-                    self.early_retry_contract = con_id
-                self.next_request[con_id] = finished + pause
+                self.next_request[con_id] = time.monotonic() + (15 if retry_soon else 60)
                 if option_bars: conn.ib.cancelHistoricalData(historical)
                 self.request_errors[con_id] = 'Option market data permission unavailable; verify this contract entitlement in Gateway' if permission_errors else 'No historical trades returned for this contract; check history range and market data permissions'
-                if self.early_retry_contract == con_id:
-                    raise ChartHistoryPending('Retrying chart history')
                 raise ValueError(self.request_errors[con_id])
             self.next_request[con_id] = time.monotonic() + 15
             if option_bars:
@@ -511,7 +429,6 @@ class StockChart:
                     conn.ib.cancelHistoricalData(historical)
                     raise
             else:
-                install_chart_tick_times(conn.ib.wrapper)
                 ticker = conn.ib.reqTickByTickData(contract, 'Last', 0, False)
                 try:
                     conn.ib.reqTickByTickData(contract, 'BidAsk', 0, False)
@@ -522,14 +439,8 @@ class StockChart:
                 con_id=con_id, bars=bars[-12000:], used=now, last_tick=None, received=None,
                 generation=time.time_ns(), ticks=0, live_bars={}, quotes={},option_bars=option_bars,
                 quote_requested_at=time.monotonic(),model_greeks=getattr(ticker,'modelGreeks',None))
-            if short_seed:
-                state['opening_before'] = bars[0]['time']
-                state['opening_viewed_at'] = time.monotonic()
             gap = None if option_bars else LastTradeGap(con_id)
-            level1_prices = {}
-            tick_book = None
             def on_tick(updated):
-                nonlocal tick_book
                 if self.states.get(state['con_id']) is not state or updated is not state['ticker']:
                     return
                 if option_bars:
@@ -542,9 +453,6 @@ class StockChart:
                         state['delta_quote']=(state['iv_quote'][0],delta if isinstance(delta,(int,float)) and math.isfinite(delta) and -1<=delta<=1 and getattr(updated,'marketDataType',None)==1 else None)
                 # Actual side-specific price or size events establish quote freshness.
                 # ib_async carries the matching price on a size-only update.
-                book_in_batch = None
-                if not option_bars and any(q.tickType in (0, 3) for q in getattr(updated, 'ticks', [])):
-                    book_in_batch = next((t for t in reversed(updated.tickByTicks) if hasattr(t, 'bidPrice')), None)
                 ticks_before = state['ticks']
                 for quote in getattr(updated, 'ticks', []):
                     if gap is not None and quote.tickType in (4, 68):
@@ -554,42 +462,24 @@ class StockChart:
                             if state['bars'] and price != state['bars'][-1]['close']:
                                 gap.level1_different += 1
                             stamp = quote.time.timestamp()
-                            if not positive(getattr(quote, 'size', None)):
-                                state.pop('level1_last', None)
-                            elif state['last_tick'] is None or stamp - state['last_tick'] >= 1:
+                            if positive(getattr(quote, 'size', None)) and (
+                                    state['last_tick'] is None or stamp - state['last_tick'] >= 1):
                                 state['level1_last'] = (stamp, price)
+                            else:
+                                state.pop('level1_last', None)
                         else:
                             state.pop('level1_last', None)
                     side = {0: 'bid', 1: 'bid', 2: 'ask', 3: 'ask',
                             66: 'bid', 67: 'ask', 69: 'bid', 70: 'ask'}.get(quote.tickType)
                     if side:
-                        price = positive(quote.price)
-                        if quote.tickType in (1, 2):
-                            level1_prices[side] = price
-                        elif quote.tickType in (0, 3) and positive(getattr(quote, 'size', None)):
-                            # For stocks/futures ib_async shares Ticker.bid/ask
-                            # with BidAsk ticks, even a late one. A size-only
-                            # update must not renew that unrelated cached price.
-                            book = book_in_batch or tick_book
-                            if book and price != level1_prices.get(side) and price == getattr(book, side + 'Price'):
-                                book_time = book.time.timestamp()
-                                stamp, prior = state['quotes'].get(side, (0, None))
-                                if quote.time.timestamp() - book_time >= 30 or (book_time < stamp and price != prior):
-                                    continue
-                        else:
-                            price = None
-                            level1_prices.pop(side, None)
-                        state['quotes'][side] = (quote.time.timestamp(), price)
-                observer = self.last_trade_observers.get(con_id)
+                        state['quotes'][side] = (quote.time.timestamp(),
+                            positive(quote.price) if (quote.tickType in (1, 2) or
+                                (quote.tickType in (0, 3) and positive(getattr(quote, 'size', None)))) else None)
                 for tick in ([] if option_bars else updated.tickByTicks):
                     if hasattr(tick, 'bidPrice'):
                         gap.bid_ask += 1
-                        tick_book = tick
-                        stamp = tick.time.timestamp()
-                        if stamp <= time.time():
-                            for side, value in [('bid', tick.bidPrice), ('ask', tick.askPrice)]:
-                                if stamp >= state['quotes'].get(side, (0, None))[0]:
-                                    state['quotes'][side] = (stamp, positive(value))
+                        for side, value in [('bid', tick.bidPrice), ('ask', tick.askPrice)]:
+                            state['quotes'][side] = (tick.time.timestamp(), positive(value))
                         continue
                     if not hasattr(tick, 'price'):
                         continue
@@ -602,20 +492,12 @@ class StockChart:
                         continue
                     if apply_tick(state['bars'], timestamp, tick.price):
                         unknown_volume(state['bars'][-1])
-                        if timestamp >= state.get('level1_last', (0, None))[0]:
-                            state.pop('level1_last', None)
+                        state.pop('level1_last', None)
                         state['last_tick'] = timestamp
                         state['received'] = time.time()
                         state['ticks'] += 1
                         # Keep tick-only extrema separately from the historical baseline.
                         minute = int(timestamp) // 60 * 60
-                        if observer:
-                            if getattr(updated, 'marketDataType', None) == 1:
-                                old, prior_stamp = state.get('alert_last_trade', (None, None))
-                                state['alert_last_trade'] = tick.price, timestamp
-                                observer(state, old, prior_stamp, tick.price, timestamp)
-                            else:
-                                state.pop('alert_last_trade', None)
                         live = state['live_bars'].setdefault(minute, dict(
                             time=minute, open=tick.price, high=tick.price, low=tick.price, close=tick.price))
                         if len(state['live_bars']) > 12000:
@@ -674,8 +556,6 @@ class StockChart:
                     self.observe_option_trade(state, point)
                 state['minute_history']=historical;state['history_handler']=on_history
                 historical.updateEvent += on_history
-            if short_seed:
-                self.complete_opening_window(state)
             asyncio.get_event_loop().call_later(30, self.expire, state)
         if not (defer_history and (minutes >= 1440 or (minutes == 480 and session == 'rth'))) and not initial and not state.get('backfilled') and time.monotonic() >= state.get('backfill_retry', 0):
             state['backfill_retry'] = time.monotonic() + 30
@@ -875,15 +755,11 @@ class StockChart:
         # tick freshness, bid/ask and all trading inputs on their original paths.
         level1 = state.get('level1_last')
         display_last = None
-        display_ahead = False
         if level1 and getattr(ticker, 'marketDataType', None) == 1:
             stamp, price = level1
-            display_ahead = stamp <= server_time and (sessions is None or any(
-                start <= stamp <= server_time < end for start, end in sessions))
-            if display_ahead and server_time - stamp < 3:
+            if 0 <= server_time - stamp < 3 and (sessions is None or any(
+                    start <= stamp <= server_time < end for start, end in sessions)):
                 display_last = dict(price=price, time=stamp, expires_at=stamp + 3)
-                if not message and (age is None or age >= 10):
-                    message = 'Waiting for current IB trade bars · latest price shown separately'
         # A known current bar has a scheduled close before the first Last tick.
         # Countdown eligibility is independent of quote freshness/trading eligibility.
         closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time, contract)
@@ -910,10 +786,10 @@ class StockChart:
             cached_bid, cached_ask = positive(getattr(ticker, 'bid', None)), positive(getattr(ticker, 'ask', None))
             if cached_bid is not None and cached_ask is not None and cached_bid <= cached_ask:
                 display_quote = dict(bid=cached_bid, ask=cached_ask)
-        return dict(opening_history_pending=bool(state.get('opening_before')),delta=delta if delta_valid else None,delta_expires_at=delta_time+30 if delta_valid else None,option_display_quote=display_quote,covered_call_capacity=cc_capacity,option_right=getattr(contract, 'right', ''),iv_percent=iv if iv_valid else None,iv_expires_at=iv_time+30 if iv_valid else None,data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
+        return dict(delta=delta if delta_valid else None,delta_expires_at=delta_time+30 if delta_valid else None,option_display_quote=display_quote,covered_call_capacity=cc_capacity,option_right=getattr(contract, 'right', ''),iv_percent=iv if iv_valid else None,iv_expires_at=iv_time+30 if iv_valid else None,data_notice=option_data_notice(getattr(ticker, 'marketDataType', None), output_bars, server_time, in_session and age is not None and age < 10, minutes*60) if state.get('option_bars') else None,
             con_id=con_id, symbol=contract.symbol, message=message,
             # Display-only quote metadata; independent of chart interval/session.
-            display_last=display_last, display_last_ahead=display_ahead, last_price=positive(state['bars'][-1]['close']) if state['bars'] else None,
+            display_last=display_last, last_price=positive(state['bars'][-1]['close']) if state['bars'] else None,
             previous_close=positive(getattr(ticker, 'close', None)) if getattr(ticker, 'marketDataType', None) in (1, 2) else None,
             display_symbol=(f"{contract.symbol} {contract.lastTradeDateOrContractMonth} {contract.strike:g} {'CALL' if contract.right == 'C' else 'PUT'}" if contract.secType == 'OPT' else getattr(contract, 'localSymbol', '') or contract.symbol),
             security_type=contract.secType, local_symbol=getattr(contract, "localSymbol", "") or contract.symbol,

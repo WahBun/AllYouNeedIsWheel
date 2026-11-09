@@ -15,7 +15,7 @@
  }
  async function refresh(){
   if(!context||busy)return;const token=serial;busy=true;
-  try{const value=await request();if(token!==serial||!value)return;const changed=JSON.stringify(value)!==JSON.stringify(rules);rules=value;message='Shared across charts and QQQ, ES, NQ and SPY alerts for this account.';if(changed)notify();}
+  try{const value=await request();if(token!==serial||!value)return;const changed=JSON.stringify(value)!==JSON.stringify(rules);rules=value;message='Shared across charts and QQQ / ES alerts for this account.';if(changed)notify();}
   catch(error){if(token===serial){message=error.message;notify();}}
   finally{if(token===serial){busy=false;notify();}}
  }

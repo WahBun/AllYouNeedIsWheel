@@ -12,10 +12,6 @@ import Foundation
         gap["server_time"] = 1234.0
         gap["display_last"] = ["price": 102.5, "expires_at": 1237.0]
         precondition(value(gap) == 2.5 && value(gap, at: now.addingTimeInterval(3)) == 1.25)
-        gap["display_last_ahead"] = true
-        precondition(value(gap) == 2.5 && value(gap, at: now.addingTimeInterval(3)) == nil)
-        gap.removeValue(forKey: "display_last")
-        precondition(value(gap) == nil)
         packet["last_price"] = 98.5; precondition(value(packet) == -1.5)
         packet["last_price"] = 99.999; precondition(value(packet) == 0)
         precondition(ChartDailyChange.text(value(packet)) == "0.00%")

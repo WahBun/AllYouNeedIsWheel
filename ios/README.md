@@ -20,24 +20,6 @@ PRODUCT_BUNDLE_IDENTIFIER = com.yourname.wheel
 
 有线配对与签名正常后再启用无线 Run。App 的 Tailscale 后端访问和 Xcode 无线调试是两条独立链路。
 
-## Sync the Pro Xcode checkout after a merge
-
-On the Pro, run `/usr/bin/python3 ops/sync_pro_xcode.py --install "$PWD"` from the
-official Wheel checkout. The login agent checks GitHub every 60 seconds while
-the Mac is awake. The first run can request Documents access for **Wheel Xcode
-Sync**. It uses the existing GitHub CLI login and Git credentials.
-
-When the tip of `Ben/wheel-1.8` matches a merged PR, the helper fast-forwards
-the local project. Active builds and Git operations defer the update. A conflict
-keeps the local files in place. A macOS notification reports a successful update
-or a blocking merge conflict. The last check and last applied PR are recorded in
-`~/Library/Application Support/Wheel/XcodeSync/status.json`. Installation on the
-physical iPhone is a separate user-initiated Run in Xcode.
-
-To stop the agent, run `launchctl bootout "gui/$(id -u)/com.wahbun.wheel-pro-xcode-sync"`
-and move `~/Library/LaunchAgents/com.wahbun.wheel-pro-xcode-sync.plist` out of
-LaunchAgents. Rerun the installer to restore or update the local helper.
-
 ## Pro shortcut: Wheel iPhone Renew
 
 `renew_signing.py` renews signing and builds a local package using the existing
@@ -48,11 +30,10 @@ macOS desktop account with Xcode signing already configured.
 The script does not require Wheel to be closed because it never installs,
 launches, terminates or uninstalls the phone app.
 
-Each invocation resolves the current tip of the branch in `ios/Renew.local.json`
-on its configured GitHub repository. Build mode archives that exact commit,
-fetching it when needed. The Pro can have local edits or another branch open.
-The branch lookup and optional fetch use the Pro's existing proxy settings.
-The lookup has a 20-second timeout and the fetch has a 120-second timeout.
+The helper requires a clean checkout equal to its configured GitHub branch and
+builds an isolated archive of that exact commit. The GitHub read uses the Pro's
+already-configured system proxy for that subprocess only, preserves explicit
+proxy environment settings, and stops after 20 seconds if the read times out.
 No system or Git proxy configuration is changed. The copy uses a unique project
 name to keep Xcode scripting results separate from open developer projects. It backs up only cached profiles
 matching the existing team, bundle ID and iPhone, removes those copies, waits for Xcode to finish preparing a freshly issued profile, and calls

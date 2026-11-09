@@ -65,9 +65,7 @@ class FuturesSessionTests(unittest.TestCase):
         for contract in (S(secType='STK',exchange='CME'),S(secType='OPT',exchange='SMART'),S(secType='FUT',exchange='EUREX')):
             self.assertFalse(cme_regular(contract))
 
-    @patch('api.services.stock_chart.datetime', wraps=datetime)
-    def test_packet_and_history_have_identical_81_bars_and_close_at_every_interval(self, clock):
-        clock.now.return_value = datetime.fromtimestamp(END, timezone.utc)
+    def test_packet_and_history_have_identical_81_bars_and_close_at_every_interval(self):
         feed=StockChart();current=state();conn=Mock();conn.is_connected.return_value=True
         conn.ib.reqHistoricalData.side_effect=lambda *a,**k:history_for_size(a[3])
         with patch('api.services.chart_history.contracts.resolve',return_value=CONTRACT):
@@ -98,9 +96,7 @@ class FuturesSessionTests(unittest.TestCase):
         finally:
             feed.stop();close_test_loop()
 
-    @patch('api.services.stock_chart.datetime', wraps=datetime)
-    def test_tick_at_close_never_enters_rth_and_countdown_clamps_partial_bars(self, clock):
-        clock.now.return_value = datetime.fromtimestamp(END, timezone.utc)
+    def test_tick_at_close_never_enters_rth_and_countdown_clamps_partial_bars(self):
         feed=StockChart();current=state();current['bars']=[b for b in source() if b['time']<END]
         with patch('api.services.stock_chart.time.time',return_value=END-30):
             for minutes in (1,5,10,15,60,480):

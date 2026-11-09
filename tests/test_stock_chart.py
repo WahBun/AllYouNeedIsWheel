@@ -481,8 +481,7 @@ class StockChartTests(unittest.TestCase):
                     try:
                         await asyncio.sleep(.001)
                         if failed and len(ends)==4: raise TimeoutError('HMDS unavailable')
-                        # 15:00 UTC falls inside RTH under both US daylight and standard time.
-                        return [S(date=(end-timedelta(days=i)).replace(hour=15,minute=0,second=0,microsecond=0),open=3,high=4,low=2,close=3) for i in range(32)]
+                        return [S(date=(end-timedelta(days=i)).replace(hour=14,minute=0,second=0,microsecond=0),open=3,high=4,low=2,close=3) for i in range(32)]
                     finally: active-=1
                 conn.ib.reqHistoricalDataAsync=AsyncMock(side_effect=read)
                 conn.ib.reqHistoricalData.return_value=[S(date=datetime.now(timezone.utc).replace(hour=14,minute=0),open=10,high=11,low=9,close=10)]

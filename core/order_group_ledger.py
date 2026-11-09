@@ -3,7 +3,6 @@ import hashlib
 import json
 import math
 import sqlite3
-from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from core.execution_evidence import groups as execution_groups
@@ -155,67 +154,7 @@ def durable_terminal_trades(path, account, cid, trades):
         return _durable_terminal_trades(db, account, cid, trades)
 
 
-def _native_opening_events(group, account, cid, client, trades, batches):
-    """Prove the opening balance without transferring ownership of the ticket."""
-    opening = group['native_opening']
-    perm, oid, ref = opening['perm_id'], opening['order_id'], opening['reference']
-    size = abs(group['origin_position'])
-    action = 'BUY' if group['side'] == 1 else 'SELL'
-    side = 'BOT' if action == 'BUY' else 'SLD'
-    matching = [t for t in trades if t.order.account == account and t.contract.conId == cid
-                and (t.order.orderRef == ref or (t.order.permId or t.orderStatus.permId) == perm)]
-    if not matching or any(
-            (t.order.permId or t.orderStatus.permId) != perm or t.order.orderRef != ref
-            or t.order.orderId not in (0, oid) or t.order.clientId not in (0, client)
-            or t.order.action != action or t.order.orderType != 'LMT' or t.order.parentId or t.order.ocaGroup
-            or t.orderStatus.status != 'Filled' or t.orderStatus.filled != size or t.orderStatus.remaining != 0
-            or not _complete_fill_evidence(t, size) for t in matching):
-        return []
-    events = []
-    for batch in batches:
-        if not any(e.permId == perm or e.orderRef == ref for e in batch):
-            continue
-        e = batch[0]
-        if any(x.acctNumber != account or x.permId != perm or x.orderRef != ref
-               or x.orderId != oid or x.clientId != client or x.side != side for x in batch):
-            return []
-        if not all(isinstance(v, (int, float)) and math.isfinite(v) and v > 0 for v in (e.shares, e.price)):
-            return []
-        events.append((e.time, e.execId, group['ref'], action, e.shares, e.price))
-    if sum(row[4] for row in events) != size:
-        return []
-    average = sum(row[4] * row[5] for row in events) / size
-    return events if math.isclose(average, group['origin_entry'], abs_tol=.0001) else []
-
-
-def _opening_after_flat(db, account, cid, previous, opening, batches):
-    """A ticket already held before the previous exit cannot seed its successor."""
-    def stamp(value):
-        try:
-            date = datetime.fromisoformat(value)
-            return date.timestamp() if date.tzinfo is not None else None
-        except (TypeError, ValueError):
-            return None
-
-    starts = [stamp(event[0]) for event in opening]
-    if not starts or None in starts:
-        return False
-    first = min(starts)
-    mark_columns = {r[1] for r in db.execute('PRAGMA table_info(chart_execution_marks)')}
-    for role, row in previous['terminal'].items():
-        if role.startswith('entry') or not row['filled']:
-            continue
-        perm = previous['perms'][role]
-        fills = [(b[0].shares, stamp(b[0].time)) for b in batches if b[0].permId == perm]
-        if sum(q for q, _ in fills) != row['filled'] and 'stamp' in mark_columns:
-            fills = db.execute("""SELECT quantity,stamp FROM chart_execution_marks
-                WHERE account=? AND con_id=? AND group_id=?""", (account,cid,f'perm:{perm}')).fetchall()
-        if sum(q for q, _ in fills) != row['filled'] or any(t is None or not 0 < t < first for _, t in fills):
-            return False
-    return True
-
-
-def project(path, account, cid, client, groups, trades, fills, account_position, *, baseline_records=(), archived_refs=(), predecessor=None):
+def project(path, account, cid, client, groups, trades, fills, account_position, *, baseline_records=(), archived_refs=()):
     """Return quantities only from exact, nonconflicting executions.
 
     Every observed payload is retained. Duplicate callbacks are harmless;
@@ -247,7 +186,7 @@ def project(path, account, cid, client, groups, trades, fills, account_position,
                     resolved_balance_errors.update(('Execution sequence over-exits group: '+ref, 'Group over-exit: '+ref))
                     continue
             if len(set(g['ids'].values()))!=len(g['ids']):conflict('Duplicate order identity within group: '+ref)
-            if g.get('origin_position') and not g.get('native_opening'):conflict('Legacy opening balance lacks execution ownership: '+ref)
+            if g.get('origin_position'):conflict('Legacy opening balance lacks execution ownership: '+ref)
             for role,oid in g['ids'].items():
                 perm=g.get('perms',{}).get(role)
                 # API order IDs can be reused after reconnect/reset. Once saved,
@@ -301,29 +240,9 @@ def project(path, account, cid, client, groups, trades, fills, account_position,
         dedup,unambiguous=execution_groups(records)
         if not unambiguous:conflict('Execution identity or correction conflict')
         closed_external = _closed_external_brackets(trades, dedup, owners, account, cid, client) if unambiguous else set()
-        opening_perms = set()
-        for group in groups:
-            if not group.get('native_opening'):
-                continue
-            perm = group['native_opening']['perm_id']
-            opening = _native_opening_events(group, account, cid, client, trades, dedup)
-            already_flat = any(row.get('permId') == perm for row in baseline)
-            if predecessor and group is groups[-1] and not _opening_after_flat(db, account, cid, predecessor, opening, dedup):
-                errors.append('Opening execution does not follow the previous flat group')
-            if not opening or already_flat or perm in owners or perm in flat_perms or perm in opening_perms:
-                errors.append('Native opening fill requires reconciliation: ' + group['ref'])
-                continue
-            opening_perms.add(perm)
-            positions[group['ref']] = group['origin_position']
-            events.extend(opening)
-        if opening_perms and any(t.order.account == account and t.contract.conId == cid
-                and t.order.orderRef in archived_refs and t.orderStatus.status not in ('Filled','Cancelled','ApiCancelled')
-                for t in trades):
-            errors.append('An archived chart order is active again')
         totals={}
         for batch in dedup:
             e=batch[0];owner=owners.get(e.permId)
-            if e.permId in opening_perms:continue
             if not owner and e.permId in flat_perms:continue  # Individually verified against archived fills above.
             if not owner and all({k:getattr(x,k,None) for k in ('execId','acctNumber','clientId','orderId','permId','orderRef','side','shares','price')} in baseline for x in batch):continue
             if not owner and e.permId in closed_external:continue
@@ -359,8 +278,6 @@ def project(path, account, cid, client, groups, trades, fills, account_position,
         if not math.isfinite(account_position) or abs(sum(positions.values())-account_position)>1e-8:
             errors.append('Account total does not reconcile with attributed groups')
         errors += [r[0] for r in db.execute('SELECT detail FROM group_ledger_conflicts WHERE account=? AND con_id=?',(account,cid)) if r[0] not in resolved_balance_errors]
-        if predecessor:
-            db.rollback()  # A candidate must never leave speculative conflicts or ownership records.
     return dict(known=not errors,positions=positions,account_position=account_position,errors=sorted(set(errors)),owned_perms=sorted(owners),entry_basis=basis,
                 recovered_terminal_perms=sorted(t.order.permId or t.orderStatus.permId for t in recovered),
                 observed_order_count=observed_order_count,observed_execution_count=observed_execution_count)

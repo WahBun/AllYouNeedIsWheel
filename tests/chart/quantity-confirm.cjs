@@ -19,8 +19,7 @@ await p.locator('#order-quantity-popup').getByRole('button',{name:'+',exact:true
  await p.locator('#preview-order-quantity').click();await p.locator('#order-quantity-popup').getByRole('button',{name:'3',exact:true}).click();await p.evaluate(()=>configure({...cfg,paper:{...cfg.paper,web_account_epoch:'changed'}}));assert.equal(await p.locator('#confirm-quantity').count(),0);assert.equal(await p.evaluate(()=>sent.length),1);
  await p.evaluate(()=>configure(cfg));await p.waitForTimeout(100);
  const geometry=await p.evaluate(()=>{const el=document.getElementById('countdown'),y=series.priceToCoordinate(levels.tp),r=el.getBoundingClientRect(),label=document.getElementById('tp').getBoundingClientRect();const axis=document.querySelector('[data-axis-role=tp]').getBoundingClientRect();return {axisTop:axis.top,axisBottom:axis.bottom,top:r.top,bottom:r.bottom,y,gap:innerWidth-priceAxisWidth('right')-label.right};});
- // Packed labels may touch edges; their interiors must stay separate.
- assert.ok(geometry.bottom<=geometry.axisTop||geometry.top>=geometry.axisBottom,JSON.stringify(geometry));assert.ok(geometry.gap>=(width<500?47:63),JSON.stringify(geometry));
+ assert.ok(geometry.bottom+2<=geometry.axisTop||geometry.top>=geometry.axisBottom+2,JSON.stringify(geometry));assert.ok(geometry.gap>=(width<500?47:63),JSON.stringify(geometry));
  await p.screenshot({path:'/tmp/wheel-quantity-confirm-'+width+'.png'});
  // Broker-confirmed unfilled entries still show the planned bracket amounts
  // while unrelated ownership reconciliation disables entry editing.

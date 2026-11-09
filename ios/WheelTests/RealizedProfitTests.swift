@@ -35,14 +35,6 @@ final class RealizedProfitTests: XCTestCase {
         XCTAssertEqual(DailyClosedProfit.calculate([], now: now).amount, 0)
     }
 
-    func testPartialSummaryDistinguishesConfirmedZeroFromMissingProfit() {
-        let empty = DailyClosedProfit(amount: 0, pending: 0, confirmed: 0)
-        XCTAssertNil(empty.displayAmount(historyComplete: false))
-        XCTAssertEqual(empty.displayAmount(historyComplete: true), 0)
-        XCTAssertNil(DailyClosedProfit(amount: 0, pending: 1, confirmed: 0).displayAmount(historyComplete: true))
-        XCTAssertEqual(DailyClosedProfit(amount: 0, pending: 1, confirmed: 2).displayAmount(historyComplete: false), 0)
-    }
-
     func testSevenDaysAndMonthUseHistoryBoundaries() throws {
         let now = ISO8601DateFormatter().date(from: "2026-10-08T15:00:00Z")!
         let dates = ["2026-10-01T16:00:00Z", "2026-10-02T03:59:59Z", "2026-10-02T04:00:00Z", "2026-10-08T16:00:00Z", "2026-10-09T04:00:00Z"]

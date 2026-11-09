@@ -35,7 +35,7 @@ class LastGapTests(TestCase):
             wrapper.tcpDataProcessed()
 
         def trade(price, arrival):
-            message([99, 41, 1, arrival, price, 1, 0, 'CME', ''], arrival)
+            message([99, 41, 1, base - 15, price, 1, 0, 'CME', ''], arrival)
 
         # Separate the elapsed-time measurement from the wall clock used by IB.
         with patch('api.services.chart_last_gap.time') as clock:
@@ -72,22 +72,7 @@ class LastGapTests(TestCase):
                 self.assertEqual(state['ticks'], 1)
                 clock.monotonic.return_value = 18.4
                 trade(11, base)
-                # Older broker events arriving after a Level 1 print cannot retire it.
-                self.assertEqual(feed.packet(state, 5, 'all')['display_last']['price'], 12)
-                message([99, 42, 3, base-90, 6, 7, 1, 1, 0], base+1)
-                before = dict(state['quotes'])
-                self.assertEqual((before['bid'][1], before['ask'][1]), (10, 11))
-                wrapper.tcpDataArrived()
-                wrapper.tickSize(43, 0, 20)
-                wrapper.tcpDataProcessed()
-                self.assertEqual(state['quotes'], before)
-                wrapper.tcpDataArrived()
-                wrapper.priceSizeTick(43, 1, 10.5, 12)
-                wrapper.tcpDataProcessed()
-                wrapper.tcpDataArrived()
-                wrapper.tickSize(43, 0, 21)
-                wrapper.tcpDataProcessed()
-                self.assertEqual(state['quotes']['bid'][1], 10.5)
+                self.assertIsNone(feed.packet(state, 5, 'all')['display_last'])
             self.assertEqual(len(logs.output), 2)
             self.assertIn('phase=waiting', logs.output[0])
             self.assertIn('phase=resumed gap_ms=8400 accepted_batch=1', logs.output[1])
@@ -96,12 +81,10 @@ class LastGapTests(TestCase):
             # Several real Last ticks decoded in a single TCP batch preserve
             # extrema and close even if an IB wire timestamp is older than arrival.
             wrapper.tcpDataArrived()
-            wrapper.lastTime = datetime.fromtimestamp(base + 65, timezone.utc)
+            wrapper.lastTime = datetime.fromtimestamp(base, timezone.utc)
             for price in (14, 8, 11):
-                ib.client.decoder.interpret(list(map(str, [99, 41, 1, base, price, 1, 0, 'CME', ''])))
+                ib.client.decoder.interpret(list(map(str, [99, 41, 1, base-15, price, 1, 0, 'CME', ''])))
             wrapper.tcpDataProcessed()
             bar = state['bars'][-1]
             self.assertEqual((state['ticks'], bar['high'], bar['low'], bar['close']), (5, 14, 8, 11))
-            self.assertEqual(bar['time'], base // 60 * 60)
-            self.assertEqual(state['last_tick'], base)
             conn.ib.placeOrder.assert_not_called()
