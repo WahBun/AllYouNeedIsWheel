@@ -74,6 +74,13 @@ struct FuturesProfit: View {
 struct DailyClosedProfit {
     let amount: Double
     let pending: Int
+    let confirmed: Int
+
+    func displayAmount(historyComplete: Bool) -> Double? {
+        if confirmed > 0 { return amount }
+        return historyComplete && pending == 0 ? 0 : nil
+    }
+
     static func calculate(_ orders: [Order], days: Int = 1, now: Date = .now) -> DailyClosedProfit {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "America/New_York")!
@@ -83,14 +90,16 @@ struct DailyClosedProfit {
             : calendar.date(byAdding: .day, value: -(max(1, days) - 1), to: today)!
         let end = calendar.date(byAdding: .day, value: 1, to: today)!
         var seen: Set<OrderID> = []
-        var amount = 0.0, pending = 0
+        var amount = 0.0, pending = 0, confirmed = 0
         for order in orders where order.intent == "CLOSE" && order.hasFill {
             guard seen.insert(order.id).inserted, let date = order.fillDate,
                   date >= start, date < end else { continue }
-            if let net = order.closedNetProfit { amount += net }
-            else { pending += 1 }
+            if let net = order.closedNetProfit {
+                amount += net
+                confirmed += 1
+            } else { pending += 1 }
         }
-        return DailyClosedProfit(amount: amount, pending: pending)
+        return DailyClosedProfit(amount: amount, pending: pending, confirmed: confirmed)
     }
 }
 
@@ -102,12 +111,17 @@ struct OrdersDailyProfit: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { clock in
             let total = DailyClosedProfit.calculate(store.filledOrders, days: days, now: clock.date)
-            let ready = store.filledError == nil && store.filledUpdated != nil
+            let historyComplete = store.filledHistoryWarning == nil
+            let amount = store.filledError == nil && store.filledUpdated != nil
+                ? total.displayAmount(historyComplete: historyComplete) : nil
             VStack(alignment: .trailing, spacing: 3) {
                 Text(LocalizedStringKey(days == 7 ? "7-Day P&L" : (days == 0 || days == 30) ? "Month-to-date P&L" : "Daily P&L")).font(.caption).foregroundStyle(.secondary)
-                Text(ready ? (total.amount > 0 ? "+" : "") + money(total.amount) : "—")
+                Text(amount.map { ($0 > 0 ? "+" : "") + money($0) } ?? "—")
                     .font(.title3.weight(.semibold)).monospacedDigit()
-                    .foregroundStyle(!ready || total.amount == 0 ? Color.secondary : palette.color(total.amount > 0 ? "gain" : "loss", scheme: scheme, fallback: total.amount > 0 ? FinancialColors.gain : FinancialColors.loss))
+                    .foregroundStyle(amount == nil || total.amount == 0 ? Color.secondary : palette.color(total.amount > 0 ? "gain" : "loss", scheme: scheme, fallback: total.amount > 0 ? FinancialColors.gain : FinancialColors.loss))
+                if amount != nil && (!historyComplete || total.pending > 0) {
+                    Text(verbatim: "Confirmed subtotal").font(.caption2).foregroundStyle(.secondary)
+                }
                 if total.pending > 0 {
                     Text("\(total.pending) awaiting P&L").font(.caption2).foregroundStyle(.secondary)
                 }
