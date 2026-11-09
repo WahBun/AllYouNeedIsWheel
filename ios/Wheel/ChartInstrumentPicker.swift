@@ -16,11 +16,23 @@ struct ChartInstrument: Codable, Identifiable, Equatable {
               let type = value["security_type"] as? String, ["STK", "FUT", "OPT"].contains(type),
               let label = value["local_symbol"] as? String, !label.isEmpty else { return nil }
         self.id = id; self.type = type; self.label = label
-        symbol = value["symbol"] as? String ?? ""
+        let suppliedSymbol = value["symbol"] as? String ?? ""
+        let terms = type == "OPT" ? ContractLabel.optionName(label) : nil
         exchange = value["exchange"] as? String ?? ""
-        expiration = value["expiration"] as? String ?? ""
-        right = value["right"] as? String ?? ""
-        strike = (value["strike"] as? Double).flatMap { $0 > 0 && $0.isFinite ? $0 : nil }
+        let date = value["expiration"] as? String ?? ""
+        let side = value["right"] as? String ?? ""
+        expiration = type == "OPT" ? (date.isEmpty ? terms?.expiration ?? "" : date.replacingOccurrences(of: "-", with: "")) : date
+        right = type == "OPT" ? ContractLabel.rightCode(side) ?? (side.isEmpty ? terms?.right ?? "" : side) : side
+        strike = (value["strike"] as? Double).flatMap { $0 > 0 && $0.isFinite ? $0 : nil } ?? terms?.strike
+        if type == "OPT", suppliedSymbol.isEmpty || ContractLabel.optionName(suppliedSymbol) != nil {
+            if let terms, terms.matches(expiration: expiration, strike: strike, right: right) {
+                symbol = terms.root
+            } else {
+                symbol = ""
+            }
+        } else {
+            symbol = suppliedSymbol
+        }
     }
     var displayLabel: String { ContractLabel.label(symbol: symbol, expiration: expiration, strike: strike, right: right, raw: label, type: type) }
     var contract: [String: Any] {
@@ -46,6 +58,7 @@ final class ChartInstrumentSearch {
     private(set) var message: String?
     private var revision = 0
     private var loadedSymbol = ""
+    private var currentOption: ChartInstrument?
     var ticker: String { query.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() }
     var canOpen: Bool { !busy && !loadedSymbol.isEmpty && loadedSymbol == ticker && expirations.contains(expiration) && strike.map { strikes.contains($0) } == true }
 
@@ -67,7 +80,28 @@ final class ChartInstrumentSearch {
             if results.isEmpty { message = "No matching contract." }
         } catch { if token == revision { message = connectionMessage(error) } }
     }
-    func loadDates(read: Read) async {
+    func openPicker(current: ChartInstrument, read: Read) async {
+        currentOption = nil
+        options = current.type == "OPT"
+        query = current.symbol
+        guard options else { return }
+        var contract = current
+        // An adjusted option root (e.g. XYZ1) is not necessarily its stock's ticker.
+        if !Self.validUnderlying(ticker) || (ticker.last?.isNumber == true && ContractLabel.optionName(current.label)?.root == ticker) {
+            query = ""
+            guard let resolved = await resolveFavorite(current, read: read), resolved.type == "OPT",
+                  Self.validUnderlying(resolved.symbol) else { return }
+            contract = resolved
+            query = resolved.symbol
+        }
+        currentOption = contract
+        right = ContractLabel.rightCode(contract.right) ?? "C"
+        if expirations.isEmpty { await loadDates(preferred: contract, read: read) }
+    }
+    private static func validUnderlying(_ symbol: String) -> Bool {
+        symbol.range(of: #"^[A-Z][A-Z0-9.]{0,11}$"#, options: .regularExpression) != nil
+    }
+    func loadDates(preferred: ChartInstrument? = nil, read: Read) async {
         guard !busy, !ticker.isEmpty else { return }
         invalidate(); let token = revision, name = ticker; busy = true
         defer { if token == revision { busy = false } }
@@ -75,12 +109,14 @@ final class ChartInstrumentSearch {
             let response = try await read("api/portfolio/chart-contracts", items(["type": "OPT_DATES", "q": name]))
             guard token == revision else { return }
             expirations = (response["expirations"] as? [String] ?? []).filter { $0.count == 8 && $0.allSatisfy(\.isNumber) }.sorted()
-            loadedSymbol = name; expiration = expirations.first ?? ""
+            loadedSymbol = name
+            let selected = preferred.flatMap { $0.symbol == name && $0.right == right && expirations.contains($0.expiration) ? $0 : nil }
+            expiration = selected?.expiration ?? expirations.first ?? ""
             if expiration.isEmpty { message = "No available expirations."; return }
-            await loadStrikes(read: read)
+            await loadStrikes(preferredStrike: selected?.strike, read: read)
         } catch { if token == revision { message = connectionMessage(error) } }
     }
-    func loadStrikes(read: Read) async {
+    func loadStrikes(preferredStrike: Double? = nil, read: Read) async {
         invalidate(clearDates: false)
         guard loadedSymbol == ticker, !expiration.isEmpty else { return }
         let token = revision, name = ticker, date = expiration, side = right; busy = true
@@ -90,6 +126,10 @@ final class ChartInstrumentSearch {
             guard token == revision else { return }
             strikes = Array(Set((response["strikes"] as? [Double] ?? []).filter { $0.isFinite && $0 > 0 })).sorted()
             guard !strikes.isEmpty else { message = "No contracts for this expiration and type."; return }
+            if let preferredStrike, strikes.contains(preferredStrike) {
+                strike = preferredStrike
+                return
+            }
             let priceResponse = try? await read("api/options/stock-price", items(["tickers": name]))
             guard token == revision else { return }
             if let price = (priceResponse?["data"] as? [String: Double])?[name], price.isFinite, price > 0 {
@@ -113,6 +153,10 @@ final class ChartInstrumentSearch {
     }
     func resolve(read: Read) async -> ChartInstrument? {
         guard canOpen, let chosen = strike else { return nil }
+        if let currentOption, currentOption.symbol == ticker, currentOption.expiration == expiration,
+           currentOption.right == right, currentOption.strike == chosen {
+            return await resolveFavorite(currentOption, read: read)
+        }
         revision += 1; let token = revision, name = ticker, date = expiration, side = right
         busy = true; message = "Finding exact contract…"
         defer { if token == revision { busy = false } }
@@ -211,9 +255,8 @@ struct ChartInstrumentPicker: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
 
-        .onAppear {
-            if let current { search.query = current.symbol.isEmpty ? "QQQ" : current.symbol; search.options = current.type == "OPT" }
-            if search.options && search.expirations.isEmpty { load() }
+        .task {
+            if let current { await search.openPicker(current: current, read: read) }
         }
         .onDisappear { search.invalidate() }
         .onChange(of: context) { search.invalidate() }

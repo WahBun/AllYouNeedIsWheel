@@ -3,21 +3,10 @@ import SwiftUI
 extension Order {
     /// Shorten only a verified OCC option label for presentation, never its broker identity.
     var displaySymbol: String {
-        let raw = name
-        let kind = (option_type ?? "").uppercased()
-        guard ["CALL", "PUT", "C", "P"].contains(kind),
-              let match = Self.occDisplayPattern.firstMatch(in: raw, range: NSRange(raw.startIndex..., in: raw)),
-              let rootRange = Range(match.range(at: 1), in: raw),
-              let dateRange = Range(match.range(at: 2), in: raw),
-              let rightRange = Range(match.range(at: 3), in: raw),
-              let strikeRange = Range(match.range(at: 4), in: raw),
-              let encodedStrike = Double(raw[strikeRange]), let strike,
-              strike.isFinite, abs(encodedStrike / 1000 - strike) < 0.000001,
-              let expiration, expiration.replacingOccurrences(of: "-", with: "").suffix(6) == raw[dateRange],
-              String(raw[rightRange]) == (kind == "CALL" || kind == "C" ? "C" : "P") else { return raw }
-        return String(raw[rootRange])
+        guard let parsed = ContractLabel.optionName(name),
+              parsed.matches(expiration: expiration, strike: strike, right: option_type) else { return name }
+        return parsed.root
     }
-    private static let occDisplayPattern = try! NSRegularExpression(pattern: #"^([A-Z0-9.]{1,6}) *([0-9]{6})([CP])([0-9]{8})$"#)
     var realizedProfit: Double? {
         guard intent == "CLOSE", hasFill, commission_currency == "USD",
               let value = realized_pnl, value.isFinite, abs(value) < 1e100 else { return nil }

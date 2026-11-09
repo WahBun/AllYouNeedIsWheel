@@ -173,7 +173,9 @@ struct Order: Decodable, Identifiable {
         case "CALL", "PUT": type = "OPT"
         default: return nil
         }
-        return Position(symbol: name, position: 0, security_type: type,
+        let root = type == "OPT" ? displaySymbol : name
+        return Position(symbol: root, position: 0, security_type: type,
+                        local_symbol: type == "OPT" && ContractLabel.optionName(name) != nil ? name : nil,
                         strike: strike, expiration: expiration, option_type: option_type, con_id: cid)
     }
     var external_ib: Bool? = nil
