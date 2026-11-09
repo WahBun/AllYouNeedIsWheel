@@ -977,7 +977,11 @@ struct OrderDetail: View {
             } else {
                 let record = completed ?? initial
                 Section {
-                    LabeledContent("Contract", value: "\(record.name) · \(record.expiration ?? "") · \(money(record.strike)) · \(record.option_type ?? "")")
+                    if ["CALL", "PUT", "C", "P"].contains(record.option_type ?? "") {
+                        LabeledContent("Contract") { Text(verbatim: record.contractLabel) }
+                    } else {
+                        LabeledContent("Contract", value: "\(record.name) · \(record.expiration ?? "") · \(money(record.strike)) · \(record.option_type ?? "")")
+                    }
                     LabeledContent("Quantity", value: record.quantity?.formatted() ?? "—")
                     LabeledContent("Limit", value: money(record.premium))
                     LabeledContent("Time in force", value: record.timingLabel)
@@ -1000,7 +1004,7 @@ struct OrderDetail: View {
         }
         .modifier(KeyboardDismissal())
         .disabled(store.trading.busy || store.opportunities.batchRunning || (!store.demo && store.trading.uncertain && !TradeRules.chartManageable(current ?? initial) && !TradeRules.protectionCancelable(current ?? initial)))
-        .symbolTitle(initial.name)
+        .symbolTitle((current ?? completed ?? initial).contractLabel)
         .sheet(item: $pricePicker) { snapshot in
             NavigationStack {
                 PriceChoiceList(values: snapshot.values, selected: snapshot.selected) { value in

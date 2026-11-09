@@ -359,11 +359,8 @@ struct StockChartView: View {
     @State private var initialized = false
     private var recentChartKey: String { "lastViewedChartV1-\(store.demo)-\(store.address)" }
     private func rememberChart() {
-        guard initialized, let id = chartID, id > 0 else { return }
-        var contract = selectedContract
-        contract["con_id"] = id
-        contract["local_symbol"] = rawChartSymbol
-        contract["security_type"] = chartType
+        guard initialized, let instrument = currentInstrument else { return }
+        let contract = selectedContract.merging(instrument.contract) { _, current in current }
         let record: [String: Any] = ["contract": contract, "interval": interval, "session": session]
         if let data = try? JSONSerialization.data(withJSONObject: record) {
             UserDefaults.standard.set(data, forKey: recentChartKey)
@@ -634,8 +631,7 @@ struct StockChartView: View {
     @State private var selectedContract: [String: Any] = [:]
     @State private var showSymbols = false
     private var chartID: Int? { selectedContract["con_id"] as? Int ?? position.con_id }
-    private var rawChartSymbol: String { selectedContract["local_symbol"] as? String ?? position.chartContractSymbol }
-    private var chartSymbol: String { selectedContract["local_symbol"] as? String != nil ? ContractLabel.compact(rawChartSymbol) : position.chartLabel }
+    private var chartSymbol: String { currentInstrument?.displayLabel ?? position.chartLabel }
     private var chartType: String { selectedContract["security_type"] as? String ?? position.security_type }
     private func dailyChangeColor(_ value: Double?) -> Color {
         guard let value, value != 0 else { return .secondary }
@@ -647,10 +643,17 @@ struct StockChartView: View {
     }
     private var currentInstrument: ChartInstrument? {
         var contract = selectedContract
-        contract["con_id"] = chartID
-        contract["local_symbol"] = rawChartSymbol
-        contract["security_type"] = chartType
-        contract["symbol"] = selectedContract["symbol"] as? String ?? position.symbol
+        if contract.isEmpty {
+            guard let cid = position.con_id else { return nil }
+            contract = ["con_id": cid, "local_symbol": position.chartContractSymbol,
+                        "security_type": position.security_type, "symbol": position.symbol,
+                        "expiration": position.expiration ?? "", "right": position.option_type ?? ""]
+            if let strike = position.strike { contract["strike"] = strike }
+        }
+        if let cid = chartID, packet["con_id"] as? Int == cid,
+           packet["security_type"] as? String == chartType, let underlying = packet["symbol"] as? String, !underlying.isEmpty {
+            contract["symbol"] = underlying
+        }
         return ChartInstrument(contract)
     }
     @Environment(WheelStore.self) private var store
