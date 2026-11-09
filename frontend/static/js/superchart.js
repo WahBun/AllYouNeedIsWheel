@@ -69,7 +69,8 @@ function updateTabTitle(){
   const rule=(packet.price_rules||[]).filter(r=>r.low<=price&&r.increment>0).sort((a,b)=>b.low-a.low)[0];
   let digits=2;if(rule){while(digits<8&&Math.abs(rule.increment*10**digits-Math.round(rule.increment*10**digits))>1e-7)digits++;}
   if(!titleFormats.has(digits))titleFormats.set(digits,new Intl.NumberFormat('en-US',{minimumFractionDigits:digits,maximumFractionDigits:digits}));
-  title+=' '+titleFormats.get(digits).format(price);
+  // Match the chart axis's decimal rounding for sub-cent prints before adding grouping.
+  title+=' '+titleFormats.get(digits).format(Number(price.toFixed(digits)));
   const referenceKey=JSON.stringify([cid,epoch]);
   const close=Number.isFinite(packet.previous_close)&&packet.previous_close>0?packet.previous_close:titleReference?.key===referenceKey&&Date.now()-titleReference.received<30000?titleReference.close:null;
   if(Number.isFinite(close)&&close>0){
