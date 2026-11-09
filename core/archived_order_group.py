@@ -90,6 +90,21 @@ def proven_flat(db, account, cid, client, group, groups, trades, fills):
             return False
 
     directions = dict(db.execute('SELECT perm_id,action FROM chart_broker_terms WHERE account=? AND con_id=?', (account, cid)))
+    # Some older, fully filled entries have execution marks but no order terms.
+    # Read their direction from IB executions for the exact permId. The checks
+    # below must still reconcile every fill and the entire group's chronology.
+    entry_perm = perms.get('entry')
+    entry_from_marks = entry_perm is not None and entry_perm not in directions
+    if entry_from_marks:
+        columns = {r[1] for r in db.execute('PRAGMA table_info(chart_execution_marks)')}
+        if rows['entry'].get('status') != 'Filled' or not {'price', 'stamp'} <= columns:
+            return False
+        sides = db.execute('SELECT DISTINCT side FROM chart_execution_marks WHERE account=? AND con_id=? AND group_id=?',
+                           (account, cid, f'perm:{entry_perm}')).fetchall()
+        if len(sides) != 1:
+            return False
+        directions[entry_perm] = sides[0][0]
+
     expected = {}
     net = 0
     for role, perm in perms.items():
@@ -135,7 +150,7 @@ def proven_flat(db, account, cid, client, group, groups, trades, fills):
     chronology = []
     for perm, (_, action, filled) in expected.items():
         total = 0.
-        fields = 'price,stamp' if receipt else 'NULL,NULL'
+        fields = 'price,stamp' if receipt or entry_from_marks else 'NULL,NULL'
         for exec_id, side, quantity, price, stamp in db.execute(
                 f'SELECT exec_id,side,quantity,{fields} FROM chart_execution_marks WHERE account=? AND con_id=? AND group_id=?',
                 (account, cid, 'perm:'+str(perm))):
@@ -146,7 +161,7 @@ def proven_flat(db, account, cid, client, group, groups, trades, fills):
             if exec_id in marks:
                 return False
             marks[exec_id] = (perm, action, quantity, price)
-            if receipt:
+            if receipt or entry_from_marks:
                 if not all(isinstance(x, (int,float)) and math.isfinite(x) and x > 0 for x in (price, stamp)):
                     return False
                 chronology.append((stamp, exec_id, quantity if side == 'BUY' else -quantity))
