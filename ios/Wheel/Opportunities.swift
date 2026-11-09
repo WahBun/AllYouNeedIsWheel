@@ -186,6 +186,7 @@ final class OpportunityBook {
     var custom: [String] = []
     var excluded: [String] = []
     var removedPuts: [String] = []
+    private var removedPrimaries: Set<String> = []
     var pins: [String: [PinnedOpportunity]] = [:]
     var unselected: Set<String> = []
     var rows: [String: OpportunityRow] = [:]
@@ -230,6 +231,7 @@ final class OpportunityBook {
         var custom: [String]
         var excluded: [String]
         var removedPuts: [String]?
+        var removedPrimaries: Set<String>?
         var pins: [String: [PinnedOpportunity]]?
         var unselected: Set<String>?
     }
@@ -242,32 +244,80 @@ final class OpportunityBook {
         let saved = UserDefaults.standard.data(forKey: preferenceKey).flatMap { try? JSONDecoder().decode(Saved.self, from: $0) }
         preferences = saved?.preferences ?? [:]; custom = saved?.custom ?? []; excluded = saved?.excluded ?? []
         removedPuts = saved?.removedPuts ?? []
+        removedPrimaries = saved?.removedPrimaries ?? []
         pins = saved?.pins ?? [:]; unselected = saved?.unselected ?? []
     }
     func save() {
-        guard !preferenceKey.isEmpty, let data = try? JSONEncoder().encode(Saved(preferences: preferences, custom: custom, excluded: excluded, removedPuts: removedPuts, pins: pins, unselected: unselected)) else { return }
+        guard !preferenceKey.isEmpty, let data = try? JSONEncoder().encode(Saved(preferences: preferences, custom: custom, excluded: excluded, removedPuts: removedPuts, removedPrimaries: removedPrimaries, pins: pins, unselected: unselected)) else { return }
         UserDefaults.standard.set(data, forKey: preferenceKey)
     }
     func key(_ ticker: String, _ type: String) -> String { ticker + ":" + type }
     func showsPrimary(_ group: String) -> Bool {
+        guard !removedPrimaries.contains(group) else { return false }
         guard let quote = rows[group]?.quote else { return true }
         return !(pins[group] ?? []).contains { $0.expiration == quote.expiration && $0.strike == quote.strike }
     }
     func pin(_ symbol: String, _ type: String, expiration: String, strike: Double) -> String {
         let group = key(symbol, type)
         if let existing = pins[group]?.first(where: { $0.expiration == expiration && $0.strike == strike }) { return existing.id }
-        if let quote = rows[group]?.quote, quote.expiration == expiration, quote.strike == strike { return group }
+        if showsPrimary(group), let quote = rows[group]?.quote, quote.expiration == expiration, quote.strike == strike { return group }
         let pin = PinnedOpportunity(id: UUID().uuidString, expiration: expiration, strike: strike)
         pins[group, default: []].append(pin)
         unselected.insert(pin.id)
         save()
         return pin.id
     }
-    func removePin(_ pin: PinnedOpportunity, group: String) {
-        pins[group]?.removeAll { $0.id == pin.id }
-        rows[pin.id] = nil; preferences[pin.id] = nil; retryAfter[pin.id] = nil
-        retryFailures[pin.id] = nil; stockRecoveryRetried.remove(pin.id)
-        unselected.remove(pin.id)
+    func changePrimary(_ symbol: String, type: String, expiration: String, strike: Double) -> String {
+        let group = key(symbol, type)
+        if let existing = pins[group]?.first(where: { $0.expiration == expiration && $0.strike == strike }) {
+            removeCandidate(symbol, type: type)
+            return existing.id
+        }
+        guard !removedPrimaries.contains(group) else { return group }
+        var preference = preferences[group] ?? OpportunityPreference()
+        preference.expiration = expiration
+        preference.strike = strike
+        preferences[group] = preference
+        save()
+        if let quote = rows[group]?.quote, quote.expiration == expiration, quote.strike == strike { return group }
+        rows[group]?.quoteRequest = nil
+        rows[group]?.quote = nil
+        rows[group]?.price = ""
+        rows[group]?.manualPrice = false
+        rows[group]?.staged = false
+        return group
+    }
+    func removeCandidate(_ symbol: String, type: String, pin: PinnedOpportunity? = nil) {
+        let group = key(symbol, type)
+        if let pin {
+            guard pins[group]?.contains(pin) == true else { return }
+            if let quote = rows[group]?.quote, quote.expiration == pin.expiration && quote.strike == pin.strike {
+                removedPrimaries.insert(group)
+            }
+            pins[group]?.removeAll { $0.id == pin.id }
+            rows[pin.id] = nil; preferences[pin.id] = nil; retryAfter[pin.id] = nil
+            retryFailures[pin.id] = nil; stockRecoveryRetried.remove(pin.id)
+            unselected.remove(pin.id)
+            if pins[group]?.isEmpty != true || !removedPrimaries.contains(group) {
+                save(); return
+            }
+        }
+        // Keep each remaining pin's identity, quantity, inclusion and quote.
+        if pins[group]?.isEmpty == false {
+            removedPrimaries.insert(group)
+        } else {
+            removedPrimaries.remove(group)
+            rows[group] = nil
+            if type == "PUT" {
+                custom.removeAll { $0 == symbol }
+                if !removedPuts.contains(symbol) { removedPuts.append(symbol) }
+                excluded.removeAll { $0 == group }
+            } else if !excluded.contains(group) {
+                excluded.append(group)
+            }
+        }
+        rows[group]?.quoteRequest = nil
+        unselected.remove(group)
         save()
     }
     func toggleSelection(_ id: String) {
@@ -289,15 +339,6 @@ final class OpportunityBook {
             let available = min(availableCallContracts(symbol, store: store), Double(calls.map(\.capacity).min() ?? 0))
             return Double(calls.reduce(0) { $0 + $1.quantity }) <= available
         }
-    }
-    func removePut(_ ticker: String) {
-        let primary = key(ticker, "PUT")
-        for pin in pins[primary] ?? [] { removePin(pin, group: primary) }
-        unselected.remove(primary)
-        custom.removeAll { $0 == ticker }
-        if !removedPuts.contains(ticker) { removedPuts.append(ticker) }
-        excluded.removeAll { $0 == key(ticker, "PUT") }
-        save()
     }
     func hasHidden(type: String) -> Bool { excluded.contains { $0.hasSuffix(":" + type) } }
     func restoreHidden(type: String) {
@@ -359,7 +400,7 @@ final class OpportunityBook {
         let group = key(ticker, type)
         let key = pin?.id ?? group
         func stillListed() -> Bool {
-            guard let pin else { return true }
+            guard let pin else { return !removedPrimaries.contains(group) }
             return pins[group]?.contains(pin) == true
         }
         guard stillListed() else { return }
@@ -371,8 +412,9 @@ final class OpportunityBook {
             preference.expiration = pin.expiration; preference.strike = pin.strike
         }
         var row = previous ?? OpportunityRow(ticker: ticker, type: type, candidateID: pin?.id)
-        row.loading = true; rows[key] = row
-        defer { if generation == token { rows[key]?.loading = false } }
+        let request = UUID()
+        row.quoteRequest = request; rows[key] = row
+        defer { if rows[key]?.quoteRequest == request { rows[key]?.quoteRequest = nil } }
         do {
             let dates: [[String: Any]]
             if background, !row.dates.isEmpty { dates = row.dates.map { ["value": $0] } }
@@ -416,12 +458,13 @@ final class OpportunityBook {
                 }
             }
             guard generation == token, !Task.isCancelled, tradeVersion == store.trading.version,
-                  !store.trading.busy, preferences[key] == originalPreference, stillListed() else { return }
+                  !store.trading.busy, preferences[key] == originalPreference, rows[key]?.quoteRequest == request, stillListed() else { return }
             if previous?.quote?.id == row.quote?.id, previous?.manualPrice == true {
                 row.price = previous?.price ?? ""; row.manualPrice = true
             } else { row.price = row.quote?.mid.map { String(format: "%.2f", $0) } ?? ""; row.manualPrice = false }
             if type == "CALL" {
-                row.quantity = min(100, pin == nil ? row.capacity : min(row.capacity, preference.quantity ?? 1))
+                let requested = pin == nil ? (row.manualQuantity ? row.quantity : row.capacity) : (preference.quantity ?? 1)
+                row.quantity = min(100, row.capacity, requested)
             } else {
                 row.quantity = max(1, min(100, preference.quantity ?? (pin == nil && shares >= 100 ? Int(shares / 100) : 1)))
             }
@@ -455,8 +498,8 @@ final class OpportunityBook {
             row.error = connectionMessage(error)
         }
         guard generation == token, !Task.isCancelled, tradeVersion == store.trading.version,
-              !store.trading.busy, stillListed() else { return }
-        row.loading = false; rows[key] = row
+              !store.trading.busy, rows[key]?.quoteRequest == request, stillListed() else { return }
+        row.quoteRequest = nil; rows[key] = row
     }
     func refreshPrices(_ symbols: [String], type: String, store: WheelStore) async -> Bool {
         guard !pricesLoading, !symbols.isEmpty, !store.demo, !store.trading.busy else { return false }
@@ -613,7 +656,8 @@ struct OpportunityRow: Identifiable {
     var price = ""
     var manualPrice = false
     var error: String?
-    var loading = false
+    var quoteRequest: UUID?
+    var loading: Bool { quoteRequest != nil }
     var staged = false
     var updated: Date?
     var stockUpdated: Date?
@@ -711,15 +755,22 @@ struct OpportunitiesView: View {
     var body: some View {
         candidateList
             .sheet(item: $editor) { request in
-                CandidateContractPicker(symbol: request.symbol, type: type, initial: request.pin) { expiration, strike in
-                    let id = book.pin(request.symbol, type, expiration: expiration, strike: strike)
-                    if let previous = request.pin, previous.id != id {
-                        book.removePin(previous, group: book.key(request.symbol, type))
+                CandidateContractPicker(symbol: request.symbol, type: type, initial: request.pin, editingPrimary: request.editingPrimary) { expiration, strike in
+                    let id: String
+                    if request.editingPrimary {
+                        id = book.changePrimary(request.symbol, type: type, expiration: expiration, strike: strike)
+                    } else {
+                        id = book.pin(request.symbol, type, expiration: expiration, strike: strike)
+                        if let previous = request.pin, previous.id != id {
+                            book.removeCandidate(request.symbol, type: type, pin: previous)
+                        }
                     }
                     editor = nil
                     focusedCandidate = id
                     if let pin = book.pins[book.key(request.symbol, type)]?.first(where: { $0.id == id }) {
                         Task { await book.load(request.symbol, type: type, store: store, pin: pin) }
+                    } else if request.editingPrimary {
+                        Task { await book.load(request.symbol, type: type, store: store) }
                     }
                 }
             }
@@ -736,6 +787,14 @@ struct OpportunitiesView: View {
         Button { editor = CandidatePickerContext(symbol: symbol) } label: {
             Image(systemName: "plus").frame(minWidth: 32, minHeight: 44)
         }.buttonStyle(.borderless).accessibilityLabel("Add contract for \(symbol)")
+    }
+
+    private func hideButton(_ group: String) -> some View {
+        Button {
+            if !book.excluded.contains(group) { book.excluded.append(group); book.save() }
+        } label: {
+            Image(systemName: "eye.slash")
+        }.tint(.indigo).accessibilityLabel("Hide")
     }
 
     private func candidate(_ symbol: String, pin: PinnedOpportunity?, grouped: Bool, comparing: Bool) -> some View {
@@ -758,30 +817,21 @@ struct OpportunitiesView: View {
         }
         .listRowBackground(focusedCandidate == id ? Color.accentColor.opacity(0.16) : nil)
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            if let pin {
+            if grouped {
                 Button {
-                    editor = CandidatePickerContext(symbol: symbol, pin: pin)
+                    editor = CandidatePickerContext(symbol: symbol, pin: pin, editingPrimary: pin == nil)
                 } label: {
                     Image(systemName: "pencil")
                 }.tint(.blue).accessibilityLabel("Change contract")
+            } else {
+                hideButton(group)
+            }
+            if grouped || type == "PUT" {
                 Button(role: .destructive) {
-                    book.removePin(pin, group: group)
+                    book.removeCandidate(symbol, type: type, pin: pin)
                 } label: {
                     Image(systemName: "trash")
-                }.tint(.red).accessibilityLabel("Remove contract")
-            } else {
-                Button {
-                    book.excluded.append(group); book.save()
-                } label: {
-                    Image(systemName: "eye.slash")
-                }.tint(.indigo).accessibilityLabel("Hide")
-                if type == "PUT" {
-                    Button(role: .destructive) {
-                        book.removePut(symbol)
-                    } label: {
-                        Image(systemName: "trash")
-                    }.tint(.red).accessibilityLabel("Remove")
-                }
+                }.tint(.red).accessibilityLabel(grouped ? "Remove contract" : "Remove")
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -906,9 +956,10 @@ struct OpportunitiesView: View {
                         HStack {
                             SymbolText(symbol: symbol).font(.headline)
                             Spacer()
-                            OpportunityPrice(row: book.rows[book.key(symbol, type)])
+                            OpportunityPrice(row: book.rows[group] ?? pins.first.flatMap { book.rows[$0.id] })
                             addButton(symbol)
                         }
+                        .swipeActions(edge: .leading, allowsFullSwipe: false) { hideButton(group) }
                     }
                     let primary = book.showsPrimary(group) ? [CandidateListRow(id: group, pin: nil)] : []
                     let candidates = primary + pins.map { CandidateListRow(id: $0.id, pin: $0) }

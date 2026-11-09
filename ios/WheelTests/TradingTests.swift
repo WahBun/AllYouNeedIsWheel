@@ -1690,8 +1690,8 @@ final class TradingTests: XCTestCase {
         book.configure(context: context)
         book.custom = ["TEST"]
         book.excluded = ["TSLL:PUT"]
-        book.removePut("TSLL")
-        book.removePut("TEST")
+        book.removeCandidate("TSLL", type: "PUT")
+        book.removeCandidate("TEST", type: "PUT")
         book.restoreHidden(type: "PUT")
         XCTAssertFalse(book.symbols(store, type: "PUT").contains("TSLL"))
         XCTAssertFalse(book.custom.contains("TEST"))
@@ -2229,7 +2229,7 @@ final class TradingTests: XCTestCase {
         row.quote = ContractQuote(strike: 10, expiration: "20261016", bid: 0.2, ask: 0.3)
         row.price = "0.25"; row.updated = Date(timeIntervalSinceNow: -60)
         XCTAssertFalse(row.canStage)
-        row.updated = Date(); row.loading = true
+        row.updated = Date(); row.quoteRequest = UUID()
         XCTAssertTrue(row.canStage)
         row.error = "Offline"
         XCTAssertFalse(row.canStage)
