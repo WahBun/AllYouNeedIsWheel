@@ -1,6 +1,5 @@
 """Cold history must not occupy the shared API owner while IB is slow."""
 import asyncio
-from datetime import datetime, timedelta, timezone
 import threading
 import time
 import unittest
@@ -13,135 +12,6 @@ import test_stock_chart
 
 
 class InitialHistoryTests(unittest.TestCase):
-    def test_first_stock_session_is_visible_before_older_minutes_and_overlap_never_overwrites(self):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        conn, ticker = test_stock_chart.StockChartTests().connection()
-        feed = StockChart()
-        feed.OPENING_PREFIX_DELAYS = (.1, .1)
-        stamp = datetime(2026, 11, 6, 14, 30, tzinfo=timezone.utc)
-        def bar(t, price):
-            return S(date=t, open=price, high=price, low=price, close=price, volume=2)
-        recent = [bar(stamp, 20), bar(stamp + timedelta(hours=1), 21)]
-        prior = [bar(stamp - timedelta(days=1), 18), bar(stamp, 99)]
-        conn.ib.reqHistoricalDataAsync = AsyncMock(side_effect=[recent, prior])
-        feed.has_subscribers = lambda cid: cid == 7
-        conn.ib.sleep.side_effect = lambda seconds: loop.run_until_complete(asyncio.sleep(seconds))
-        try:
-            with patch('api.services.chart_initial_history.datetime') as clock:
-                clock.now.return_value = datetime(2026, 11, 8)
-                with self.assertRaises(ChartHistoryPending):
-                    feed.snapshot(conn, 7, 5, 'all', fast=True, defer_history=True, background=True)
-                loop.run_until_complete(asyncio.gather(*feed.initial_history.tasks))
-                packet = feed.snapshot(conn, 7, 5, 'all', fast=True, defer_history=True, background=True)
-            self.assertEqual([b['close'] for b in packet['bars']], [20, 21])
-            self.assertTrue(packet['opening_history_pending'])
-            self.assertEqual(conn.ib.reqHistoricalDataAsync.await_count, 1)
-            self.assertIsNone(packet['bid'])
-            self.assertIsNone(packet['last_tick'])
-            state = feed.states[7]
-            # A second interval joins the existing prefix read.
-            feed.complete_opening_window(state)
-            feed.complete_opening_window(state)
-            ticker.tickByTicks = [S(time=stamp + timedelta(hours=1, seconds=5), price=22)]
-            ticker.updateEvent.emit(ticker)
-            last_tick = state['last_tick']
-            loop.run_until_complete(state['opening_prefix_task'])
-            self.assertEqual([b['close'] for b in state['bars']], [18, 20, 22])
-            self.assertEqual(state['last_tick'], last_tick)
-            reads = conn.ib.reqHistoricalDataAsync.await_args_list
-            self.assertEqual([(c.args[1], c.args[2]) for c in reads], [('', '1 D'), (stamp, '1 D')])
-            self.assertNotIn('opening_before', state)
-            self.assertFalse(feed.packet(state, 5, 'all')['opening_history_pending'])
-            self.assertEqual(state['quotes'], {})
-            self.assertEqual(state['ticks'], 1)
-            conn.ib.placeOrder.assert_not_called()
-        finally:
-            feed.stop()
-            test_stock_chart.close_test_loop()
-
-    def test_opening_prefix_ignores_late_reply_after_account_change(self):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        conn, ticker = test_stock_chart.StockChartTests().connection()
-        conn.account_id = 'test-one'
-        contract = S(conId=7)
-        state = dict(conn=conn, client=conn.ib.client, contract=contract, ticker=ticker, bars=[{'time': 1000}],
-                     opening_before=1000, opening_viewed_at=time.monotonic())
-        feed = StockChart()
-        feed.states[7] = feed.active = state
-        feed.OPENING_PREFIX_DELAYS = (0,)
-        started = asyncio.Event()
-        release = asyncio.Event()
-        async def read(*args, **kwargs):
-            started.set()
-            await release.wait()
-            return [S(date=datetime.fromtimestamp(500, timezone.utc), open=10, high=10, low=10, close=10)]
-        conn.ib.reqHistoricalDataAsync = AsyncMock(side_effect=read)
-        try:
-            feed.complete_opening_window(state)
-            task = state['opening_prefix_task']
-            loop.run_until_complete(asyncio.wait_for(started.wait(), 1))
-            conn.account_id = 'test-two'
-            release.set()
-            loop.run_until_complete(task)
-            self.assertEqual(state['bars'], [{'time': 1000}])
-            self.assertNotIn('opening_prefix_task', state)
-        finally:
-            test_stock_chart.close_test_loop()
-
-    def test_futures_can_open_recent_first_and_options_keep_the_full_live_subscription(self):
-        for kind, duration in [('FUT', '1 D'), ('OPT', '2 D')]:
-            with self.subTest(kind=kind):
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                conn, _ = test_stock_chart.StockChartTests().connection()
-                feed = InitialChartHistory()
-                contract = S(conId=7, secType=kind, currency='USD', exchange='CME' if kind == 'FUT' else 'SMART')
-                history = [S(date=datetime(2026, 11, 6, hour, tzinfo=timezone.utc),
-                             open=20, high=21, low=19, close=20) for hour in (15, 16, 17)]
-                conn.ib.reqHistoricalDataAsync = AsyncMock(return_value=history)
-                conn.ib.sleep.side_effect = lambda delay: loop.run_until_complete(asyncio.sleep(delay))
-                try:
-                    with patch('api.services.chart_initial_history.datetime') as clock:
-                        clock.now.return_value = datetime(2026, 11, 8)
-                        with self.assertRaises(ChartHistoryPending): feed.read(conn, contract, quick_open=True)
-                        loop.run_until_complete(asyncio.gather(*feed.tasks))
-                        result = feed.read(conn, contract, quick_open=True)
-                    call = conn.ib.reqHistoricalDataAsync.await_args
-                    self.assertEqual(call.args[2], duration)
-                    self.assertEqual(call.kwargs['keepUpToDate'], kind == 'OPT')
-                    self.assertEqual(result[-1], kind == 'FUT')
-                    if kind == 'OPT': self.assertIs(result[0], history)
-                finally:
-                    feed.clear()
-                    test_stock_chart.close_test_loop()
-
-    def test_empty_first_stock_session_retries_full_window_but_opening_uses_full_window_directly(self):
-        for hour, durations in [(9, ['2 D']), (13, ['1 D', '2 D'])]:
-            with self.subTest(hour=hour):
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                conn, _ = test_stock_chart.StockChartTests().connection()
-                feed = InitialChartHistory()
-                contract = S(conId=7, secType='STK', currency='USD')
-                history = conn.ib.reqHistoricalData.return_value
-                conn.ib.reqHistoricalDataAsync = AsyncMock(side_effect=[[], history] if hour == 13 else [history])
-                conn.ib.sleep.side_effect = lambda delay: loop.run_until_complete(asyncio.sleep(delay))
-                try:
-                    with patch('api.services.chart_initial_history.datetime') as clock:
-                        clock.now.return_value = datetime(2026, 11, 6, hour)
-                        with self.assertRaises(ChartHistoryPending):
-                            feed.read(conn, contract, quick_open=True)
-                        loop.run_until_complete(asyncio.gather(*feed.tasks))
-                        result = feed.read(conn, contract, quick_open=True)
-                    self.assertIs(result[0], history)
-                    self.assertFalse(result[-1])
-                    self.assertEqual([call.args[2] for call in conn.ib.reqHistoricalDataAsync.await_args_list], durations)
-                finally:
-                    feed.clear()
-                    test_stock_chart.close_test_loop()
-
     def test_slow_initial_history_is_bounded_and_other_reads_and_ticks_progress(self):
         from flask import Flask
         from api.routes.portfolio import bp, portfolio_service
@@ -194,7 +64,7 @@ class InitialHistoryTests(unittest.TestCase):
                 started = time.monotonic()
                 for _ in range(3):
                     for cid in (8, 9, 10):
-                        response = client.get(f'/api/portfolio/stock-chart/{cid}?interval=1&session=all&fast=1&defer_history=1&open=1&epoch=fixture')
+                        response = client.get(f'/api/portfolio/stock-chart/{cid}?interval=1&session=all&defer_history=1')
                         self.assertEqual(response.status_code, 202, response.json)
                         self.assertEqual(response.json['status'], 'loading')
                     self.assertTrue(client.get('/api/foreground').json['ready'])
@@ -315,7 +185,7 @@ class InitialHistoryTests(unittest.TestCase):
 
     def test_stock_and_future_timeout_retry_avoids_full_minute_penalty(self):
         for kind, permissions, errors, elapsed, delay in (
-                ('STK', [], [], 15, 1), ('FUT', [], [], 15, 1),
+                ('STK', [], [], 15, 15), ('FUT', [], [], 15, 15),
                 ('STK', [], [], .1, 60), ('FUT', [], [162], 15, 60),
                 ('STK', ['Not subscribed'], [354], 15, 60)):
             with self.subTest(kind=kind, errors=errors, elapsed=elapsed):
@@ -323,18 +193,12 @@ class InitialHistoryTests(unittest.TestCase):
                 feed = StockChart()
                 contract = S(conId=7, secType=kind, currency='USD', symbol='TEST')
                 with patch('api.services.chart_contracts.contracts.resolve', return_value=contract), \
-                     patch.object(feed.initial_history, 'read', return_value=([], permissions, errors, elapsed, False)) as read, \
+                     patch.object(feed.initial_history, 'read', return_value=([], permissions, errors, elapsed)) as read, \
                      patch('api.services.stock_chart.time.monotonic', return_value=100):
                     with self.assertRaises(ValueError): feed.snapshot(conn, 7, 5, background=True)
                     self.assertEqual(feed.next_request[7], 100 + delay)
                     with self.assertRaises(ValueError): feed.snapshot(conn, 7, 5, background=True)
                     read.assert_called_once()
-                    if delay == 1:
-                        with patch('api.services.stock_chart.time.monotonic', return_value=102):
-                            with self.assertRaises(ValueError) as failure:
-                                feed.snapshot(conn, 7, 5, background=True)
-                            self.assertNotIsInstance(failure.exception, ChartHistoryPending)
-                            self.assertEqual(feed.next_request[7], 117)
                 conn.ib.placeOrder.assert_not_called()
 
     def test_late_option_history_is_released_after_account_handover(self):

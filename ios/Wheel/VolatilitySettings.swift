@@ -178,7 +178,7 @@ final class MoonshineRulesModel {
         do {
             let value = try await request(account)
             guard token == revision else { return }
-            rules = value; message = "Shared across charts and QQQ, ES, NQ and SPY alerts for this account."
+            rules = value; message = "Shared across charts and QQQ / ES alerts for this account."
         } catch {
             guard token == revision else { return }
             message = (error as? AppError)?.localizedDescription ?? "MoonShine sync failed. Refresh before saving."

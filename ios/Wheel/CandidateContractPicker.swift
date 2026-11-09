@@ -3,15 +3,13 @@ import SwiftUI
 struct CandidatePickerContext: Identifiable {
     let symbol: String
     var pin: PinnedOpportunity? = nil
-    var editingPrimary = false
-    var id: String { pin?.id ?? (editingPrimary ? symbol + ":primary" : symbol) }
+    var id: String { pin?.id ?? symbol }
 }
 
 struct CandidateContractPicker: View {
     let symbol: String
     let type: String
     var initial: PinnedOpportunity? = nil
-    var editingPrimary = false
     let choose: (String, Double) -> Void
     @Environment(WheelStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -24,10 +22,6 @@ struct CandidateContractPicker: View {
     @State private var retry = 0
 
     private var primary: OpportunityRow? { store.opportunities.rows[store.opportunities.key(symbol, type)] }
-
-    private var editedPreference: OpportunityPreference? {
-        editingPrimary ? store.opportunities.preferences[store.opportunities.key(symbol, type)] : nil
-    }
 
     var body: some View {
         NavigationStack {
@@ -51,12 +45,12 @@ struct CandidateContractPicker: View {
                     }
                 }
             }
-            .navigationTitle(initial != nil || editingPrimary ? "Change contract" : "Add contract")
+            .navigationTitle(initial == nil ? "Add contract" : "Change contract")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(initial != nil || editingPrimary ? "Save" : "Add") { if let strike { choose(expiration, strike) } }
+                    Button(initial == nil ? "Add" : "Save") { if let strike { choose(expiration, strike) } }
                         .disabled(loadedExpiration != expiration || strike.map { !strikes.contains($0) } != false)
                 }
             }
@@ -73,7 +67,7 @@ struct CandidateContractPicker: View {
                     try Task.checkCancellation()
                     dates = values.compactMap { $0["value"] as? String }
                     guard let first = dates.first else { throw AppError.message("No expiration available.") }
-                    let preferred = initial?.expiration ?? primary?.quote?.expiration ?? editedPreference?.expiration ?? ""
+                    let preferred = initial?.expiration ?? primary?.quote?.expiration ?? ""
                     expiration = dates.contains(preferred) ? preferred : first
                 }
             } catch { if !Task.isCancelled { self.error = connectionMessage(error) } }
@@ -86,7 +80,7 @@ struct CandidateContractPicker: View {
                 let values = try await store.opportunities.availableStrikes(symbol, type: type, expiration: date, store: store)
                 try Task.checkCancellation()
                 guard !values.isEmpty else { throw AppError.message("No strikes available.") }
-                let target = initial?.strike ?? primary?.quote?.strike ?? editedPreference?.strike ?? primary?.stockPrice ?? values[0]
+                let target = initial?.strike ?? primary?.quote?.strike ?? primary?.stockPrice ?? values[0]
                 strikes = values
                 strike = values.min { abs($0 - target) < abs($1 - target) }
                 loadedExpiration = date

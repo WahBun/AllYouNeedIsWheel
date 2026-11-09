@@ -86,14 +86,8 @@ def add_stock_ranges(conn, portfolio):
             continue
         if row.get('stream') and now - row['sample_at'] < 60 and not row.get('final'):
             pos.update(row['stream'], day_range_status='frozen' if closed else 'delayed')
-            if not closed:
-                continue
         elif row.get('history') and (row.get('final') or now - row['history_at'] < 180):
             pos.update(row['history'])
-            # Renew before the 180s display limit so a slow read can finish
-            # while the last valid range is still visible.
-            if row.get('final') or (not closed and now - row['history_at'] < 120):
-                continue
         if not row['pending'] and not row.get('final') and now >= row['retry_at']:
             row.update(pending=True, retry_at=now + 60)
             asyncio.get_event_loop().create_task(_load(conn, contract, day, closed, row))

@@ -1,7 +1,5 @@
 """Bounded initial history reads on the existing IB event loop."""
 from api.services.chart_history_budget import read_history
-from datetime import datetime
-from api.services.chart_sessions import NY, windows_for_bars
 import asyncio
 import time
 
@@ -41,7 +39,7 @@ class InitialChartHistory:
         for key, record in list(self.records.items()):
             self.discard(key, record)
 
-    def read(self, conn, contract, quick_open=False):
+    def read(self, conn, contract):
         key = self.key(conn, contract)
         # Calendar-only / first charts may have no SSE pump yet. This bounded
         # owner-loop turn advances pending reads without occupying the API lane.
@@ -55,7 +53,7 @@ class InitialChartHistory:
             record['owned'] = False
             if record.get('failed'):
                 raise ValueError('Chart history unavailable; retry shortly')
-            return (record.pop('history'), record['permissions'], record['errors'], record['elapsed'], record.get('short_seed', False))
+            return (record.pop('history'), record['permissions'], record['errors'], record['elapsed'])
         if record is None and len(self.tasks) < self.MAX_PENDING and len(self.records) < 8:
             option = contract.secType == 'OPT'
             record = dict(conn=conn, option=option, owned=True, ready=False,
@@ -78,40 +76,17 @@ class InitialChartHistory:
                 event = getattr(conn.ib, 'errorEvent', None)
                 if event is not None:
                     event += history_error
-                started = None
-                def admitted():
-                    nonlocal started
-                    started = time.monotonic()
+                started = time.monotonic()
                 try:
-                    # A fast stock or futures view needs the newest session first. The normal
-                    # two-day seed remains the fallback for sparse/premarket data.
-                    now = datetime.now(NY)
-                    # Keep the original depth ahead of and during the opening rush.
-                    short = (quick_open and contract.secType in ('STK', 'FUT') and getattr(contract, 'currency', '') == 'USD'
-                             and (now.weekday() >= 5 or now.hour >= 11))
-                    async def request(duration):
-                        return await read_history(conn, contract, '', duration, '1 min', 'TRADES',
-                            useRTH=False, formatDate=2, keepUpToDate=option, timeout=6 if option else 15,
-                            on_start=admitted)
-                    history = await request('1 D' if short else '2 D')
-                    empty_without_error = not record['errors'] and time.monotonic() - started < 15 * .95
-                    if short and (history or empty_without_error):
-                        from api.services.stock_chart import historical_minutes
-                        rows = historical_minutes(history)
-                        windows = windows_for_bars(rows, contract)
-                        regular = [b['time'] for b in rows if any(start <= b['time'] < end for start, end in windows)]
-                        if regular and regular[-1] - regular[0] >= 3600:
-                            record['short_seed'] = True
-                            history = rows
-                        elif not record['permissions'] and record['owned'] and self.key(conn, contract) == key and conn.is_connected():
-                            history = await request('2 D')
+                    history = await read_history(conn, contract, '', '2 D', '1 min', 'TRADES',
+                        useRTH=False, formatDate=2, keepUpToDate=option, timeout=6 if option else 15)
                     record['history'] = history
                 except Exception:
                     record['history'] = []
                     record['failed'] = True
                     record['errors'].append('request_failed')
                 finally:
-                    record['elapsed'] = time.monotonic() - started if started is not None else 0
+                    record['elapsed'] = time.monotonic() - started
                     if event is not None:
                         event -= history_error
                 if not record['owned'] or self.key(conn, contract) != key or not conn.is_connected():

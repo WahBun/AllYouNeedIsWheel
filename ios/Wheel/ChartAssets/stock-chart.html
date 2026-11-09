@@ -882,7 +882,11 @@ function captureTailView(packet){
  return range&&logical!==null&&range.from<=logical&&range.to>=logical?{range,logical}:null;
 }
 function restoreTailView(view){if(!view)return;const logical=latestBarLogical();if(logical===null)return;const shift=logical-view.logical;if(shift>0)chart.timeScale().setVisibleLogicalRange({from:view.range.from+shift,to:view.range.to+shift});}
-window.receive=(packet)=>{const tailView=captureTailView(packet);extremaBars=null;if(countdownPacket?.server_time!==packet.server_time){countdownReceived=Number.isFinite(packet.chart_received_at)?packet.chart_received_at*1000:Date.now();}countdownPacket=packet;document.getElementById('chart-header').classList.toggle('option-header',packet.security_type==='OPT');document.getElementById('chart-title').textContent=[chartContractLabel(packet),packet.interval<60?String(packet.interval):packet.interval<1440?(packet.interval/60)+'h':packet.interval===1440?'D':packet.interval===10080?'W':'M',packet.exchange].filter(Boolean).join(' · ');let bars=packet.bars||[];
+let projectedCandle=null;
+function restoreTradeCandle(){
+ if(projectedCandle){series.update(projectedCandle.base);projectedCandle=null;updateReadout();}
+}
+window.receive=(packet)=>{if(projectedCandle&&(packet.mode!=='delta'||packet.bars?.length||packet.generation!==countdownPacket?.generation))restoreTradeCandle();const tailView=captureTailView(packet);extremaBars=null;if(countdownPacket?.server_time!==packet.server_time){countdownReceived=Number.isFinite(packet.chart_received_at)?packet.chart_received_at*1000:Date.now();}countdownPacket=packet;document.getElementById('chart-header').classList.toggle('option-header',packet.security_type==='OPT');document.getElementById('chart-title').textContent=[chartContractLabel(packet),packet.interval<60?String(packet.interval):packet.interval<1440?(packet.interval/60)+'h':packet.interval===1440?'D':packet.interval===10080?'W':'M',packet.exchange].filter(Boolean).join(' · ');let bars=packet.bars||[];
  const incomingKey=(packet.con_id||'')+'-'+packet.generation+'-'+packet.interval+'-'+packet.session;
  // A recent snapshot may be shorter than cached/paged history already drawn.
  // Retain that older prefix in the model too, so later history is not counted twice.
@@ -920,7 +924,8 @@ function checkNativeHistory(){
 chart.timeScale().subscribeVisibleLogicalRangeChange(checkNativeHistory);
 let readoutTime=null,readoutLatest=false;
 function updateReadout(){
- const b=(readoutLatest?null:previous.find(b=>b.time===readoutTime))||previous.at(-1);
+ const selected=(readoutLatest?null:previous.find(b=>b.time===readoutTime))||previous.at(-1);
+ const b=projectedCandle&&projectedCandle.base===selected?projectedCandle.drawn:selected;
  const readout=document.getElementById('readout');
  readout.textContent=b?`O ${priceText(b.open)}  H ${priceText(b.high)}  L ${priceText(b.low)}  C ${priceText(b.close)}`:'';
  readout.style.fontSize=innerWidth>=768?'14px':'11px';
@@ -1173,12 +1178,19 @@ function updateCurrentPriceRay(bar){
  currentPriceRay.hidden=x===null||y===null||x<=plotLeft()||y<0||y>pane.height;
  if(!currentPriceRay.hidden){currentPriceRay.style.top=y+'px';currentPriceRay.style.left=plotLeft()+'px';currentPriceRay.style.width=Math.max(0,Math.min(x-plotLeft(),pane.width))+'px';}
 }
-// A fresh Level 1 print can move the price marker during a tick-by-tick
-// gap. Candles and their OHLC readout use only the timestamped trade bars.
+// The price ray can move even between candles. Only project into an existing
+// open candle; history, indicators and order controls continue to read previous.
 function displayedTail(bar,p,now){
- const live=p?.display_last;
- if(bar&&Number.isFinite(live?.price)&&now<live.expires_at)return {...bar,close:live.price};
- return p?.display_last_ahead?null:bar;
+ const live=p?.display_last,price=live?.price;
+ if(!bar||!Number.isFinite(price)||!(now<live.expires_at)){restoreTradeCandle();return bar;}
+ if(bar.time<=live.time&&now<p.bar_closes_at){
+  if(projectedCandle?.base!==bar||projectedCandle.drawn.close!==price){
+   const prior=projectedCandle?.base===bar?projectedCandle.drawn:bar;
+   const drawn={...bar,high:Math.max(prior.high,price),low:Math.min(prior.low,price),close:price};
+   series.update(drawn);projectedCandle={base:bar,drawn};updateReadout();
+  }
+ }else restoreTradeCandle();
+ return {...bar,close:price};
 }
 function updateCountdown(){updateOptionQuote();const el=document.getElementById('countdown'),bar=displayedTail(previous.at(-1),countdownPacket,countdownPacket?.server_time+Math.max(0,Date.now()-countdownReceived)/1000);updateCurrentPriceRay(bar);el.hidden=!bar;if(!bar)return;const down=bar.close<bar.open;el.style.background=down?series.options().downColor:'#e0e0e0';el.style.color=down?'#f4f5f3':'#242424';const y=series.priceToCoordinate(bar.close);el.hidden=y===null||y<0||y>chart.paneSize().height;if(el.hidden)return;el.style.top=(y-9)+'px';el.style.width=axisBadgeWidth()+'px';document.getElementById('countdown-price').textContent=priceText(bar.close);const p=countdownPacket,elapsed=Math.max(0,(Date.now()-countdownReceived)/1000),left=p?.bar_closes_at-(p?.server_time+elapsed),timer=document.getElementById('countdown-time');timer.hidden=!(Number.isFinite(left)&&left>0);timer.textContent=timer.hidden?'':formatCountdown(Math.ceil(left));
 }

@@ -30,12 +30,6 @@ Recommended roles: the **development Mac** handles development, Xcode and iPhone
 
 Captured on **2026-10-25** from the code reviewed above. iPhone Simulator views use built-in **synthetic Demo data**. The desktop screenshot renders a **QQQ RTH historical-price snapshot through 2026-10-23** in an isolated, read-only local preview with no account or position data; it is not a live broker session or trading acceptance.
 
-On a Mac with Python 3, Flask and Tailscale installed, double-click [Start Wheel Preview.command](ops/Start%20Wheel%20Preview.command) to preview Supercharts from the current worktree. On a phone connected to the same Tailscale network, open the private HTTPS address shown in Terminal. You can access the preview without an exit node. Refresh the page after saving a web change. The preview stays available while the Mac is locked, pauses when it sleeps, and stops when you close the Terminal window. It uses sample positions and prices. Use the selector at the top to change the sample margin rate. To preview another worktree, pass its path as the script’s first argument.
-
-Option-click an element to edit its layout, or find it under **Edit layout → Browse**. Use **Parent** to select its container. Control-drag to move the selection or drag an edge to resize it. With the selection focused, hold Control and press an arrow key to move it by 1 px, or add Shift for 10 px. You can also enter offsets under **Position**. To reorder components in a row, column or grid, hold Control and Command while dragging. Drop on the center of a component to swap places, or on an edge to insert before or after it. Press Esc to cancel or use **Undo** to step back. Use **Text** to edit a label, then press Enter or click away to save the draft. Press and hold **Hold original** to compare your changes with the original layout.
-
-Layout drafts are saved in the current browser for each preview address and worktree. **Draft changes** lists edited elements. Use **Reset element** to reset one element, or the reset button beside a property to undo just that change. Select **Use this version** to save a layout review on the Mac running the preview, under `~/Library/Application Support/Wheel Web Preview/Layout Reviews/`. You can then apply the chosen changes to the app.
-
 ### Desktop · Supercharts
 
 ![Wheel desktop Supercharts: QQQ historical candles in a four-chart layout with the trading panel](docs/screenshots/web-desktop-trading-20261025.png)
@@ -50,7 +44,7 @@ Layout drafts are saved in the current browser for each preview address and work
 
 - **A shared chart workspace:** a compact desktop toolbar, preserved 1/2/3/4 layouts, synchronized drawings and contract favorites; responsive web controls and a phone fullscreen fallback. Web positions default to options first.
 - **Price alerts and phone notifications:** standalone thresholds and horizontal-ray alerts, draggable alert lines, in-chart notifications and optional Bark delivery. Monitoring runs on the backend for the selected account; a closed browser receives no browser push. See [alerts and notification setup](docs/PRICE_ALERTS_AND_PUSH.md).
-- **MoonShine:** The backend monitors QQQ, ES, NQ and SPY during their regular sessions. NQ and QQQ share the Nasdaq volatility source (VXN by default). SPY and ES share the S&P 500 source (VIX by default). Each contract uses its own chart levels. Missing market data or a lost account connection pauses the affected alerts. Alerts never place orders.
+- **MoonShine:** permanent QQQ and ES watches share pricing rules with chart levels. Levels depend on the session and eligible source data; monitoring pauses when required data or the account connection is unavailable. These are alerts, not automatic orders.
 - **Recovery and stability:** focused repairs to order-state recovery and management of existing positions, alongside the preserved confirmation, quote-freshness and P&L rules. Merged code is not proof of installation or broker acceptance.
 
 ## Features

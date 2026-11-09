@@ -1012,8 +1012,7 @@ final class TradingTests: XCTestCase {
         MockProtocol.payload = { _ in ["orders": [second], "history_complete": false] }
         await store.loadFilled()
         XCTAssertEqual(store.filledOrders.count, 2)
-        XCTAssertNil(store.filledError)
-        XCTAssertNotNil(store.filledHistoryWarning)
+        XCTAssertNotNil(store.filledError)
         XCTAssertNotNil(store.filledUpdated)
         XCTAssertTrue(store.trading.uncertain)
         XCTAssertTrue(store.completedOrders.isEmpty)
@@ -1023,7 +1022,6 @@ final class TradingTests: XCTestCase {
         await store.loadFilled()
         XCTAssertEqual(store.filledOrders.count, 1)
         XCTAssertNil(store.filledError)
-        XCTAssertNil(store.filledHistoryWarning)
         XCTAssertTrue(store.trading.uncertain)
     }
 
@@ -1114,12 +1112,8 @@ final class TradingTests: XCTestCase {
             "warning": "History through 2026-10-30; newer executions are still updating."] }
         await store.loadFilled()
         XCTAssertEqual(store.filledOrders.count, 3)
-        XCTAssertNil(store.filledError)
-        XCTAssertTrue(store.filledHistoryWarning?.contains("2026-10-30") == true)
-        let partial = DailyClosedProfit.calculate(store.filledOrders, days: 0, now: now)
-        XCTAssertEqual(try XCTUnwrap(partial.displayAmount(historyComplete: false)), 344.504261, accuracy: 0.000001)
+        XCTAssertTrue(store.filledError?.contains("2026-10-30") == true)
         store.changeMode()
-        XCTAssertNil(store.filledHistoryWarning)
         XCTAssertNil(store.filledHistoryThrough)
         XCTAssertTrue(store.filledOrders.isEmpty)
     }
@@ -1696,8 +1690,8 @@ final class TradingTests: XCTestCase {
         book.configure(context: context)
         book.custom = ["TEST"]
         book.excluded = ["TSLL:PUT"]
-        book.removeCandidate("TSLL", type: "PUT")
-        book.removeCandidate("TEST", type: "PUT")
+        book.removePut("TSLL")
+        book.removePut("TEST")
         book.restoreHidden(type: "PUT")
         XCTAssertFalse(book.symbols(store, type: "PUT").contains("TSLL"))
         XCTAssertFalse(book.custom.contains("TEST"))
@@ -2235,7 +2229,7 @@ final class TradingTests: XCTestCase {
         row.quote = ContractQuote(strike: 10, expiration: "20261016", bid: 0.2, ask: 0.3)
         row.price = "0.25"; row.updated = Date(timeIntervalSinceNow: -60)
         XCTAssertFalse(row.canStage)
-        row.updated = Date(); row.quoteRequest = UUID()
+        row.updated = Date(); row.loading = true
         XCTAssertTrue(row.canStage)
         row.error = "Offline"
         XCTAssertFalse(row.canStage)

@@ -121,27 +121,11 @@ class LiveOptionEntryTests(unittest.TestCase):
         return group
 
     def test_old_flat_option_group_does_not_lock_an_acknowledged_new_sell(self):
-        self.check_next_pending_entry('OPT')
-
-    def test_old_flat_stock_group_does_not_lock_an_acknowledged_new_buy(self):
-        self.check_next_pending_entry('STK')
-
-    def test_old_flat_futures_group_does_not_lock_an_acknowledged_new_buy(self):
-        self.check_next_pending_entry('FUT')
-
-    def check_next_pending_entry(self, asset):
         f = self.f
-        capability = {'OPT':'chart_options_live_enabled','STK':'chart_stocks_live_enabled','FUT':'chart_futures_live_enabled'}[asset]
-        profile = patch('api.routes.account.profiles', return_value={'live':{'account_id':'U_TEST',capability:True}})
-        profile.start()
-        self.addCleanup(profile.stop)
-        f.contract.secType = asset
-        if asset == 'FUT':
-            f.contract.exchange, f.contract.multiplier = 'CME', '2'
         f.contract.right = 'P'
         f.conn.ib.client.clientId = 71
         self.old_flat_group()
-        body = self.body(side=-1 if asset == 'OPT' else 1,quantity=1,tp=None,sl=None)
+        body = self.body(side=-1,quantity=1,tp=None,sl=None)
         place = f.conn.ib.placeOrder.side_effect
         def pending(contract, order):
             trade = place(contract, order)
