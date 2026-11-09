@@ -53,6 +53,9 @@
    });
   }
   if(prices)activePriceScale().setVisibleRange(prices);
+  // Align the ray and axis label with the accepted packet before the host publishes its title.
+  // The existing animation loop still handles expiry, panning and scale changes.
+  if(!document.hidden)updateCountdown();
   if(packet.bars?.length||packet.generation==='clear'){accountTransition=false;document.body.style.opacity='';}
  };
  // Keep the shared price button in the plot, but never over the price axis.
