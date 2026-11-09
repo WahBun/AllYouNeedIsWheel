@@ -34,7 +34,7 @@ class WheelPaneBuffer {
 }
 globalThis.WheelPaneBuffer=WheelPaneBuffer;
 /* Auxiliary panes are read-only chart renderers. Only the existing main host trades. */
-window.installChartLayout=({frame,api,current,activate,holdings,executions,onReady=()=>{},onPlusButtonChange=()=>{},onHoldingChart=()=>{}})=>{
+window.installChartLayout=({frame,api,current,activate,holdings,executions,hasWorkingOrder=()=>false,onReady=()=>{},onPlusButtonChange=()=>{},onHoldingChart=()=>{}})=>{
  const saved=(()=>{try{return JSON.parse(localStorage.getItem('wheel.chart-layout')||'{}')||{}}catch{return {}}})();
  let count=[1,2,3,4].includes(saved.count)?saved.count:1,active=0,started=false;
  if(Number.isInteger(saved.active)&&saved.active>=0&&saved.active<count)active=saved.active;
@@ -109,17 +109,26 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  let transition=null;
  function loading(){return transition!==null;}
  function beginSwitch(){expansionController?.abort();historyQuietUntil=Date.now()+2000;transition={started:Date.now(),revealing:false};cover.hidden=false;grid.setAttribute('aria-busy','true');checkSwitch();}
+ function matching(packet,context){
+  return !!packet?.bars?.length&&packet.con_id===context.cid&&packet.interval===context.interval&&
+   packet.session===context.session&&packet.account_epoch===context.epoch;
+ }
+ function readyPaneCount(root){
+  return [...panes.values()].filter(p=>p.index<count&&p.loaded&&
+   (p.index===active?matching(root.packet,root):matching(p.data,p.context()))).length;
+ }
+ function readyToReveal(root,complete=readyPaneCount(root)){
+  if(!root.epoch||!panes.get(active)?.loaded||!matching(root.packet,root))return false;
+  return complete===count||root.tradingLocked===false||hasWorkingOrder();
+ }
  function checkSwitch(){
-  const t=transition;if(!t)return;const root=current();
-  const matching=(p,c)=>p?.bars?.length&&p.con_id===c.cid&&p.interval===c.interval&&p.session===c.session&&p.account_epoch===current().epoch;
-  // Historical indicator seeds are optional; matching price panes reveal together.
-  const complete=[...panes.values()].filter(p=>p.index<count).filter(p=>p.loaded&&matching(p.index===active?root.packet:p.data,p.index===active?root:p.context())).length;
+  const t=transition;if(!t)return;const root=current(),complete=readyPaneCount(root);
   chooseInstrument.hidden=Date.now()-t.started<=8000;chooseInstrument.textContent='Choose another instrument';
   loadingMessage.textContent=`Loading charts together · ${complete}/${count}`+(Date.now()-t.started>8000?' · Waiting for data, retrying automatically':'');
-  if(complete!==count||!root.epoch){t.revealing=false;return;}
+  if(!readyToReveal(root,complete)){t.revealing=false;return;}
   if(t.revealing)return;t.revealing=true;
   // Let the chart library paint its initial snapshot behind the shared cover.
-  requestAnimationFrame(()=>requestAnimationFrame(()=>{if(transition!==t||!t.revealing)return;if([...panes.values()].filter(p=>p.index<count).some(p=>!p.loaded||!matching(p.index===active?current().packet:p.data,p.index===active?current():p.context()))){t.revealing=false;checkSwitch();return;}transition=null;cover.hidden=true;grid.removeAttribute('aria-busy');onReady();}));
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{if(transition!==t||!t.revealing)return;if(!readyToReveal(current())){t.revealing=false;checkSwitch();return;}transition=null;cover.hidden=true;grid.removeAttribute('aria-busy');onReady();}));
  }
  let persisted='';function persist(){const value=JSON.stringify({count,active,panes:configs,links,syncVersion:1,drawingLayoutID});if(value===persisted)return;try{localStorage.setItem('wheel.chart-layout',value);persisted=value;}catch{}}
  // Only cold owner reads share this queue; immutable latest reads and SSE stay parallel.
@@ -303,5 +312,5 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,onRea
  };
  function showTable(target){return panes.get(count>=3?count-1:0)?.frame===target;}
  function rulesChanged(){for(const p of panes.values()){p.lastExtras=0;p.render();}}
- return {rulesChanged,tick,readInitial,readHistory,expandHistory,follow,showTable,loading,checkSwitch,showEmpty,axisFor:target=>configs[[...panes.values()].find(pane=>pane.frame===target)?.index]?.axis,refreshTradingLock:()=>{for(const pane of panes.values())pane.render();}};
+ return {rulesChanged,tick,readInitial,readHistory,expandHistory,follow,showTable,loading,checkSwitch,showEmpty,axisFor:target=>configs[[...panes.values()].find(pane=>pane.frame===target)?.index]?.axis,refreshTradingLock:()=>{for(const pane of panes.values())pane.render();checkSwitch();}};
 };
