@@ -8,6 +8,7 @@ import subprocess
 from types import SimpleNamespace
 from pathlib import Path
 import tempfile
+import tarfile
 import unittest
 from unittest.mock import patch
 
@@ -143,21 +144,64 @@ class RenewalTests(unittest.TestCase):
             with self.assertRaisesRegex(renew.RenewalError, "no build was started"):
                 renew.wait_for_fresh_profile(refresh, self.now, timeout=0)
 
-    def test_dirty_checkout_or_different_remote_commit_is_rejected(self):
-        with patch.object(renew, "command", return_value=" M file"):
-            with self.assertRaisesRegex(renew.RenewalError, "uncommitted"):
+    def test_wrong_remote_is_rejected_before_signing(self):
+        with patch.object(renew, "command", return_value="https://github.com/other/wheel"), patch.object(renew, "github_branch_head") as lookup:
+            with self.assertRaisesRegex(renew.RenewalError, "repository does not match"):
                 renew.github_revision(self.config)
-        with patch.object(renew, "command", side_effect=["", "test", self.config["repository"], "local"]), patch.object(renew, "github_branch_head", return_value="remote"):
-            with self.assertRaisesRegex(renew.RenewalError, "differs"):
-                renew.github_revision(self.config)
+            lookup.assert_not_called()
+
+    def test_archive_uses_pinned_remote_tip_and_preserves_dirty_checkout(self):
+        with tempfile.TemporaryDirectory() as folder:
+            remote, work = Path(folder) / "remote", Path(folder) / "work"
+            def git(root, *args):
+                return subprocess.check_output(["/usr/bin/git", "-C", str(root), *args], text=True).strip()
+            remote.mkdir()
+            git(remote, "init", "-b", "official")
+            git(remote, "config", "user.name", "Fixture")
+            git(remote, "config", "user.email", "fixture@example.invalid")
+            source = remote / "source.txt"
+            source.write_text("previous")
+            git(remote, "add", "source.txt")
+            git(remote, "commit", "-qm", "previous")
+            git(remote, "clone", "-q", str(remote), str(work))
+            git(work, "switch", "-c", "development")
+            (work / "source.txt").write_text("staged")
+            git(work, "add", "source.txt")
+            (work / "source.txt").write_text("unfinished")
+            (work / "untracked.txt").write_text("private")
+            def local_state():
+                return (git(work, "show-ref"), git(work, "branch", "--show-current"),
+                        git(work, "write-tree"), git(work, "status", "--porcelain"),
+                        (work / "source.txt").read_bytes(), (work / "untracked.txt").read_bytes())
+            before = local_state()
+            fetch_head = work / ".git/FETCH_HEAD"
+            fetch_head.write_text("previous fetch")
+            config = dict(self.config, branch="official", repository=str(remote))
+            with patch.object(renew, "ROOT", work):
+                source.write_text("official build")
+                git(remote, "commit", "-qam", "release")
+                sha = renew.github_revision(config)
+                self.assertEqual(sha, git(remote, "rev-parse", "HEAD"))
+                self.assertNotEqual(subprocess.run(["git","-C",str(work),"cat-file","-e",sha],
+                                                   stderr=subprocess.DEVNULL).returncode, 0)
+                source.write_text("next version")
+                git(remote, "commit", "-qam", "next")
+                archive = Path(folder) / "source.tar"
+                renew.archive_revision(sha, archive)
+                with tarfile.open(archive) as contents:
+                    self.assertEqual(contents.getnames(), ["source.txt"])
+                    self.assertEqual(contents.extractfile("source.txt").read(), b"official build")
+                self.assertEqual(renew.github_revision(config), git(remote, "rev-parse", "HEAD"))
+                self.assertEqual(before, local_state())
+                self.assertEqual(fetch_head.read_text(), "previous fetch")
 
     def test_github_read_uses_existing_proxy_without_changing_host_environment(self):
         for explicit in ({}, {"HTTPS_PROXY": "http://explicit.invalid:8080"}):
             with self.subTest(explicit=explicit), patch.dict(renew.os.environ, explicit, clear=True), patch.object(renew.urllib.request, "getproxies", return_value={"https": "http://127.0.0.1:12345"}), patch.object(renew.subprocess, "Popen") as popen:
                 process = popen.return_value.__enter__.return_value
-                process.communicate.return_value = ("sha refs/heads/test", "")
+                process.communicate.return_value = ("a"*40 + " refs/heads/test", "")
                 process.returncode = 0
-                self.assertEqual(renew.github_branch_head("test"), "sha")
+                self.assertEqual(renew.github_branch_head("test"), "a"*40)
                 env = popen.call_args.kwargs["env"]
                 self.assertEqual(env["GIT_TERMINAL_PROMPT"], "0")
                 if explicit:
