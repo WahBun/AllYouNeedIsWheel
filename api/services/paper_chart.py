@@ -179,7 +179,7 @@ class PaperChart:
                         db.execute('INSERT OR IGNORE INTO chart_paper_group_history VALUES(?,?,?,?)',(account,cid,ref,json.dumps(saved[ref])))
         return [g for ref,g in saved.items() if ref not in active_refs]
 
-    def group_projection(self, conn, account, cid):
+    def group_projection(self, conn, account, cid, *, successor=None):
         choices=self.group_choices(account,cid)
         if self.group_id and not choices:
             total=sum(float(p.position) for p in conn.ib.positions() if p.account==account and p.contract.conId==cid)
@@ -193,10 +193,19 @@ class PaperChart:
             historical = [g for g in historical if g['ref'] not in position_boundary['references']]
         from api.services.chart_flat_recovery import latest, active_old_order
         checkpoint = latest(self, account, cid)
-        if not checkpoint and len(choices)+len(historical)<2 and not (self.group_id and choices and not self.group(account,cid)):
+        native_opening = any((choice['ref'] or '').startswith('WheelPaper:native:') for choice in choices)
+        if not successor and not native_opening and not checkpoint and len(choices)+len(historical)<2 and not (self.group_id and choices and not self.group(account,cid)):
             return None
         from core.order_group_ledger import project
         groups=[PaperChart(self.path,c['id'] or None).group(account,cid) for c in choices]+historical
+        predecessor = None
+        archived_refs = {g['ref'] for g in historical}
+        if successor:
+            if any(g['ref'] == successor['ref'] for g in groups):
+                return dict(known=False)
+            predecessor = groups[0]
+            archived_refs.add(predecessor['ref'])
+            groups.append(successor)
         recovery_refs = sorted(g['ref'] for g in groups)
         selected_historical = checkpoint and (self.group(account, cid) or {}).get('ref') in checkpoint['references']
         if checkpoint:
@@ -217,7 +226,7 @@ class PaperChart:
         total=sum(float(p.position) for p in conn.ib.positions() if p.account==account and p.contract.conId==cid)
         view = project(self.path,account,cid,conn.ib.client.clientId,groups,trades,conn.ib.fills(),total,
                        baseline_records=checkpoint['baseline'] if checkpoint else (position_boundary or {}).get('baseline', ()),
-                       archived_refs={g['ref'] for g in historical})
+                       archived_refs=archived_refs, predecessor=predecessor)
         view['recovery_refs'] = recovery_refs
         if checkpoint:
             view.update(flat_checkpoint=checkpoint['request_id'], historical_unresolved_refs=checkpoint['references'])
@@ -266,6 +275,10 @@ class PaperChart:
                        and (t.order.permId or t.orderStatus.permId)==perm and t.order.orderRef==group.get('ref')]
             if len(matches)==1: trades[oid]=matches[0]
         position = next((p for p in conn.ib.positions() if p.account==account and p.contract.conId==cid),None)
+        if position and position.position and group:
+            from api.services.chart_native_opening import recover as recover_native_opening
+            if recover_native_opening(self, conn, account, cid, group, position):
+                return self.state(conn, cid)
         from api.services.chart_broker_orders import can_retire_empty_group
         if not self.group_id and group and can_retire_empty_group(self.path, conn, account, cid, group, float(position.position) if position else 0):
             try:
@@ -511,6 +524,8 @@ class PaperChart:
         result['broker_pending'] = any(r['status'] in ('Unknown','ValidationError','PendingSubmit','ApiPending','PendingCancel') for r in rows)
         result['active']=any(r['status'] not in ('Filled','Cancelled','ApiCancelled') for r in rows) or result['position']!=0
         result['status']='unknown' if not result['known'] else 'working' if result['active'] else 'done'
+        if group.get('native_opening') and result['known'] and result['position'] and not rows:
+            result['status'] = 'filled'
         for row in rows:
             if row['role'] in ('entry','tp','sl'): result[row['role']]=row['price']
         if group.get('lots') or group.get('split_stop_trim'):
