@@ -161,8 +161,41 @@ class StockChart:
         self.request_errors = {}
         self.listeners = set()
         self.option_trade_listeners = set()
+        self.last_trade_observers = {}
         self.initial_history = InitialChartHistory()
         self.has_subscribers = lambda con_id: False
+
+    def observe_alert_trade_times(self, wrapper):
+        """Read broker Last times for alerts while leaving the chart's SDK ticks intact."""
+        from ib_async.wrapper import Wrapper
+        if not isinstance(wrapper, Wrapper) or getattr(wrapper, '_wheel_alert_last_installed', False):
+            return
+        receive = wrapper.tickByTickAllLast
+
+        def on_last(req_id, kind, stamp, price, *fields):
+            receive(req_id, kind, stamp, price, *fields)
+            if not self.last_trade_observers:
+                return
+            ticker = wrapper.reqId2Ticker.get(req_id)
+            if ticker is None or wrapper.ticker2ReqId.get('Last', {}).get(ticker) != req_id:
+                return
+            cid = ticker.contract.conId
+            state, observer = self.states.get(cid), self.last_trade_observers.get(cid)
+            if not state or not observer or state['ticker'] is not ticker or state['conn'].ib.wrapper is not wrapper:
+                return
+            if ticker.marketDataType != 1:
+                state.pop('alert_last_trade', None)
+                return
+            now = time.time()
+            old, prior = state.get('alert_last_trade', (None, None))
+            if (positive(price) is None or not 0 <= now - stamp < 60
+                    or (prior is not None and stamp < prior)):
+                return
+            state['alert_last_trade'] = price, stamp
+            observer(state, old, prior, price, stamp, now)
+
+        wrapper.tickByTickAllLast = on_last
+        wrapper._wheel_alert_last_installed = True
 
     def observe_option_trade(self, state, bar):
         # Seed snapshots and backfilled bars never enter the alert crossing path.
