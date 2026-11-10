@@ -14,6 +14,50 @@ final class OpportunityCandidateTests: XCTestCase {
         return (store, context)
     }
 
+    func testRefreshingQuotedPinsKeepsSingleTradeGroupInPlace() async throws {
+        let store = WheelStore()
+        let book = store.opportunities
+        let context = UUID().uuidString
+        book.configure(context: context)
+        defer { UserDefaults.standard.removeObject(forKey: "opportunities-v1-" + context) }
+        book.custom = ["TQQQ"]
+        for strike in [53.0, 52.0] {
+            let id = book.pin("TQQQ", "PUT", expiration: "20261120", strike: strike)
+            let quote = ContractQuote(strike: strike, expiration: "20261120", bid: 0.86, ask: 0.90)
+            book.rows[id] = OpportunityRow(ticker: "TQQQ", type: "PUT", candidateID: id, quote: quote)
+        }
+        book.removeCandidate("TQQQ", type: "PUT")
+        XCTAssertEqual(book.symbols(store, type: "PUT"), ["TQQQ"])
+        XCTAssertFalse(book.showsPrimary(book.key("TQQQ", "PUT")))
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let host = UIHostingController(rootView: NavigationStack { OpportunitiesView() }
+            .environment(store).environment(\.scenePhase, .inactive))
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        func collection(in view: UIView) -> UICollectionView? {
+            (view as? UICollectionView) ?? view.subviews.lazy.compactMap { collection(in: $0) }.first
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        let list = try XCTUnwrap(collection(in: host.view))
+        // The ticker section has a header row and its two pinned contracts.
+        let section = try XCTUnwrap((0..<list.numberOfSections).first { list.numberOfItems(inSection: $0) == 3 })
+        let header = IndexPath(item: 0, section: section)
+        func tickerY() throws -> CGFloat {
+            let cell = try XCTUnwrap(list.cellForItem(at: header))
+            return cell.convert(cell.bounds, to: host.view).minY
+        }
+        let idleY = try tickerY()
+        for loading in [true, false, true, false] {
+            book.loading = loading
+            try await Task.sleep(for: .milliseconds(250))
+            XCTAssertEqual(try tickerY(), idleY, accuracy: 1, "Refreshing pinned quotes moved the ticker section")
+        }
+    }
+
     func testStrikeViewportCentersMarketPriceWithoutSelectingIt() async throws {
         let strikes = (0..<150).map { 10.0 + Double($0) / 2 }
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
