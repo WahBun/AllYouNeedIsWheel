@@ -151,6 +151,76 @@ class NotificationsTests(unittest.TestCase):
         restored = NotificationStore(self.path)
         self.assertEqual(restored.alerts(self.scope)[0]['state'], 'triggered')
         self.assertFalse(restored.fire(a, 101, 'IB Paper'))
+    def test_exact_chart_last_touch_without_level_one_trade(self):
+        import asyncio
+        from datetime import datetime, timezone
+        from ib_async import IB, Future
+        from test_stock_chart import StockChartTests, close_test_loop
+        from api.services.stock_chart import StockChart
+
+        alert = self.alert()
+        conn, _ = StockChartTests().connection()
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        self.addCleanup(close_test_loop)
+        ib = IB()
+        contract = Future('MES', '202612', 'CME', currency='USD', conId=7)
+        wrapper = ib.wrapper
+        ticker = wrapper.startTicker(41, contract, 'Last')
+        wrapper.startTicker(42, contract, 'BidAsk')
+        conn.get_option_position_by_con_id.return_value['contract'] = contract
+        conn.ib.reqTickByTickData.return_value = ticker
+        conn.ib.ticker.return_value = ticker
+        conn.ib.wrapper = wrapper
+        self.runtime.conn, self.runtime.scope, self.runtime.mode = conn, self.scope, 'IB Paper'
+        feed = StockChart()
+        self.addCleanup(feed.stop)
+        self.runtime.touch_prices = {(self.scope, 7): {100: alert['created']}}
+        feed.last_trade_observers[7] = self.runtime.chart_touch
+        feed.observe_alert_trade_times(wrapper)
+        now = int(alert['created']) + 2
+        conn.ib.reqHistoricalData.return_value[0].date = datetime.fromtimestamp(now // 60 * 60, timezone.utc)
+        feed.snapshot(conn, 7, 1, 'all', fast=True)
+        ticker.marketDataType = 1
+
+        def message(fields):
+            wrapper.tcpDataArrived()
+            wrapper.lastTime = datetime.fromtimestamp(now, timezone.utc)
+            ib.client.decoder.interpret([str(v) for v in fields])
+            wrapper.tcpDataProcessed()
+            while not self.runtime.queue.empty():
+                self.runtime.process(self.runtime.queue.get_nowait())
+
+        with patch('api.services.stock_chart.time.time', return_value=now):
+            message([99, 42, 3, now, 100, 101, 1, 1, 0])
+            message([99, 41, 1, now - 90, 100, 1, 0, 'CME', ''])
+            self.assertFalse(self.events())
+            self.assertEqual(feed.states[7]['last_tick'], now)
+            for price in (101, 100, 100, 101):
+                message([99, 41, 1, now, price, 1, 0, 'CME', ''])
+        self.assertEqual(len(self.events()), 1)
+        self.assertIn('Last 100', self.events()[0]['body'])
+        self.assertEqual(self.store.alerts(self.scope)[0]['id'], alert['id'])
+        self.assertEqual(conn.ib.reqTickByTickData.call_count, 2)
+
+    def test_touch_requires_current_side_for_direction_and_matching_scope(self):
+        for condition in ('up', 'down', 'crossing'):
+            self.store.create_alert(self.scope, 7, 'TEST', dict(id=str(uuid.uuid4()), price=100,
+                                    condition=condition, repeat='once'))
+        self.runtime.active = self.store.alerts(active=True)
+        now = time.time() + 2
+        def touch(old, prior, stamp, scope=self.scope):
+            self.runtime.process(('touch', scope, 7, old, prior, 100, stamp, 'IB Paper', now))
+        touch(None, None, now, self.other)
+        touch(99, now-4, now-3)
+        self.assertFalse(self.events())
+        touch(None, None, now)
+        touch(100, now, now)
+        self.assertEqual(len(self.events()), 1)
+        touch(99, now-1, now)
+        self.assertEqual(len(self.events()), 2)
+        touch(101, now-1, now)
+        self.assertEqual(len(self.events()), 3)
+
     def test_no_initial_or_stale_crossing(self):
         self.alert(); self.prices(101)
         self.assertFalse(self.events())
