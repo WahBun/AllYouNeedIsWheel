@@ -32,7 +32,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),{sta
    const f=await p.locator('#chart').elementHandle().then(e=>e.contentFrame());
    await f.locator('#price-axis-settings').click();await f.getByRole('menuitem',{name:'More settings...',exact:true}).click();await p.locator('[data-settings-mode="indicators"]').click();
    const inner=p.locator('[data-setting="volatility.inner"]'),outer=p.locator('[data-setting="volatility.outer"]');
-   assert.match(await p.locator('[data-moonshine-status]').innerText(), /QQQ, ES, NQ and SPY/);
+   assert.match(await p.locator('[data-moonshine-status]').innerText(), /QQQ \/ ES/);
    assert.equal(await inner.inputValue(),'0.5');assert.equal(await outer.inputValue(),'0.8');
    let releaseSave;saveGate=new Promise(r=>releaseSave=r);
    await inner.fill('0.6');await inner.dispatchEvent('change');

@@ -119,6 +119,11 @@ partial fills, and TP/SL triggers remain unverified until actually observed.
 
 ## Protected market-data foundation
 
+Before making any change that could affect market-data refresh, tell the user
+which part of the feed or chart may be affected and how to check it against the
+stable baseline. Include indirect effects from background alerts, extra IB
+requests, retries and work that shares the IB connection.
+
 Keep the price/OHLC delivery path stable by default. Before changing aggregation,
 streaming, chart scheduling or indicator work on that path, follow
 `docs/MARKET_DATA_BASELINE.md` and compare the same workload against its baseline.

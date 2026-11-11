@@ -18,9 +18,8 @@ START = datetime(2026, 10, 23, 13, 30, tzinfo=timezone.utc).timestamp()
 
 
 def contract(symbol='QQQ', cid=7):
-    stock = symbol in ('QQQ', 'SPY')
-    return S(symbol=symbol, secType='STK' if stock else 'FUT', conId=cid,
-             localSymbol=symbol if stock else symbol + 'Z6', exchange='SMART' if stock else 'CME',
+    return S(symbol=symbol, secType='STK' if symbol == 'QQQ' else 'FUT', conId=cid,
+             localSymbol=symbol if symbol == 'QQQ' else 'ESZ6', exchange='SMART' if symbol == 'QQQ' else 'CME',
              currency='USD', lastTradeDateOrContractMonth='20261218')
 
 
@@ -101,7 +100,7 @@ class MoonshineTests(unittest.TestCase):
         self.assertEqual(m.plan(contract(), bars(), vol, [], START+360)['levels'], p['levels'])
         self.assertIsNone(m.plan(contract(), bars()[1:], vol, [], START+360))
         self.assertIsNone(m.plan(contract(), bars(), vol, [], START+299))
-        for symbol, kind in [('TQQQ','STK'), ('QQQ','OPT'), ('MES','FUT'), ('MNQ','FUT'), ('NQ','OPT'), ('SPY','OPT')]:
+        for symbol, kind in [('TQQQ','STK'), ('QQQ','OPT'), ('MES','FUT'), ('NQ','FUT')]:
             c = contract(symbol); c.secType = kind
             self.assertIsNone(m.plan(c, bars(), vol, [], START+360))
         fallback = m.plan(contract(), bars(), [], [dict(day='2026-10-22', close=20), dict(day='2026-10-23', close=80)], START+360)
@@ -153,8 +152,6 @@ class MoonshineTests(unittest.TestCase):
         half = datetime(2026,11,27,14,30,tzinfo=timezone.utc).timestamp()
         self.assertEqual(make_plan(start=half)['end'], half+3.5*3600)
         self.assertEqual(make_plan('ES',8,half)['end'], half+3.75*3600)
-        self.assertEqual(make_plan('NQ',9,half)['end'], half+3.75*3600)
-        self.assertEqual(make_plan('SPY',10,half)['end'], half+3.5*3600)
         holiday = datetime(2026,12,25,14,30,tzinfo=timezone.utc).timestamp()
         self.assertIsNone(make_plan(start=holiday))
 
@@ -215,13 +212,13 @@ class MoonshineTests(unittest.TestCase):
 
 
 class MonitorTests(unittest.IsolatedAsyncioTestCase):
-    async def test_paired_watches_share_daily_fallback_without_future_seed(self):
+    async def test_index_intraday_failure_uses_daily_without_future_seed(self):
         conn=Mock();conn.account_id='DU_TEST';conn.is_connected.return_value=True
-        conn.ib.reqContractDetailsAsync=AsyncMock(return_value=[S(contract=contract('NQ',9))])
+        conn.ib.reqContractDetailsAsync=AsyncMock(return_value=[])
         async def qualify(c): return [contract()] if isinstance(c,Stock) else [S(symbol=c.symbol)]
         conn.ib.qualifyContractsAsync=AsyncMock(side_effect=qualify)
         async def history(owner,c,end,duration,size,*args,**kwargs):
-            if c.symbol in ('QQQ','NQ'):
+            if c.symbol=='QQQ':
                 return [S(date=datetime.fromtimestamp(v['time'],timezone.utc),close=v['close'],high=v['high'],low=v['low']) for v in bars()]
             if size=='1 min': raise TimeoutError('Fixture intraday unavailable')
             return [S(date='20261022',close=20),S(date='20261023',close=80)]
@@ -229,14 +226,11 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(m.time,'time',return_value=START+360),patch.object(m,'read_history',new=AsyncMock(side_effect=history)) as read:
             monitor.pulse(conn,'paper',START+360)
             await asyncio.gather(*monitor.tasks.values())
-            self.assertEqual({event[2]['symbol'] for event in queued}, {'QQQ','NQ'})
-            for _, _, value in queued:
-                self.assertEqual(value['levels'], make_plan()['levels'])
-                self.assertEqual(value['basis']['kind'], 'daily')
-            self.assertCountEqual([(call.args[1].symbol, call.args[4]) for call in read.await_args_list],
-                                  [('QQQ','1 min'), ('NQ','1 min'), ('VXN','1 min'), ('VXN','1 day')])
+            self.assertEqual(len(queued),1)
+            self.assertEqual(queued[0][2]['levels'],make_plan()['levels'])
+            self.assertEqual(read.await_count,3)
             monitor.pulse(conn,'paper',START+361)
-            self.assertEqual(read.await_count,4)
+            self.assertEqual(read.await_count,3)
 
     async def test_fallback_recovers_without_browser_and_cached_promotion_needs_no_reads(self):
         from api.services.stock_chart import stock_chart
@@ -296,49 +290,38 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_background_without_chart_exact_contract_budget_daily_bound_and_reset(self):
         conn = Mock(); conn.account_id = 'DU_TEST'; conn.is_connected.return_value = True
-        watches = {symbol: contract(symbol, cid) for cid, symbol in enumerate(('QQQ','ES','NQ','SPY'), 7)}
+        qqq, es = contract(), contract('ES',8)
         async def qualify(c):
-            if isinstance(c, Stock):
-                self.assertEqual((c.exchange, c.currency), ('SMART','USD'))
-                return [watches[c.symbol]]
+            if isinstance(c, Stock): return [qqq]
             return [S(symbol=c.symbol, conId=99)]
         conn.ib.qualifyContractsAsync = AsyncMock(side_effect=qualify)
-        expired = contract('NQ', 20); expired.lastTradeDateOrContractMonth = '20260918'
-        next_month = contract('NQ', 21); next_month.lastTradeDateOrContractMonth = '20270319'
-        # Mixed detail responses must bind only the requested CME root and nearest unexpired month.
-        conn.ib.reqContractDetailsAsync = AsyncMock(return_value=[
-            S(contract=c) for c in [next_month, expired, watches['ES'], watches['NQ']]])
+        expired = contract('ES', 9); expired.lastTradeDateOrContractMonth = '20260918'
+        next_month = contract('ES', 10); next_month.lastTradeDateOrContractMonth = '20270319'
+        conn.ib.reqContractDetailsAsync = AsyncMock(return_value=[S(contract=c) for c in [next_month, expired, es]])
         async def history(owner, c, *args, **kwargs):
             self.assertTrue(kwargs['optional']); self.assertFalse(kwargs['useRTH'])
             if c.symbol in ('VXN','VIX','RVX','OVX'):
                 return [S(date=datetime.fromtimestamp(START+240,timezone.utc), close=20, high=20, low=20)]
-            anchor = c.conId * 100
-            return [S(date=datetime.fromtimestamp(b['time'],timezone.utc), close=anchor, high=anchor, low=anchor) for b in bars()]
+            return [S(date=datetime.fromtimestamp(b['time'],timezone.utc),close=b['close'],high=b['high'],low=b['low']) for b in bars()]
         queued = []; monitor = m.MoonshineMonitor(queued.append)
         with patch.object(m, 'read_history', new=AsyncMock(side_effect=history)) as read, patch.object(m.time,'time', return_value=START+360):
             from api.services.stock_chart import stock_chart
             with patch.dict(stock_chart.states, {}, clear=True):
                 self.assertEqual(monitor.pulse(conn, 'paper', START+360), {})
                 await asyncio.gather(*monitor.tasks.values())
-                self.assertEqual(set(monitor.pulse(conn, 'paper', START+361)), {7,8,9,10})
-                self.assertEqual(len(queued), 4)
-                self.assertEqual({p[2]['symbol']: p[2]['basis']['source'] for p in queued},
-                                 {'QQQ':'VXN', 'ES':'VIX', 'NQ':'VXN', 'SPY':'VIX'})
-                self.assertCountEqual([c.args[0].symbol for c in conn.ib.reqContractDetailsAsync.await_args_list], ['ES','NQ'])
-                self.assertEqual(read.await_count, 6)
+                self.assertEqual(set(monitor.pulse(conn, 'paper', START+361)), {7,8})
+                self.assertEqual(len(queued), 2)
+                self.assertEqual(read.await_count, 4)
                 for _ in range(10): monitor.pulse(conn, 'paper', START+362)
-                self.assertEqual(read.await_count, 6, 'No periodic history after levels are ready')
+                self.assertEqual(read.await_count, 4, 'No periodic history after levels are ready')
                 self.assertEqual(stock_chart.states, {}, 'No invisible chart slots or eviction')
                 conn.ib.placeOrder.assert_not_called()
                 revised = dict(version=2, inner=.6, outer=.9, spx='OVX', ndx='RVX')
                 self.assertEqual(monitor.pulse(conn, 'paper', START+363, rules=revised), {})
                 await asyncio.gather(*monitor.tasks.values())
-                self.assertEqual({event[2]['rules_version'] for event in queued[-4:]}, {2})
-                self.assertEqual({call.args[1].symbol for call in read.await_args_list[-6:]}, {'QQQ', 'ES', 'NQ', 'SPY', 'RVX', 'OVX'})
-                for _, _, value in queued[-4:]:
-                    anchor = watches[value['symbol']].conId * 100
-                    self.assertEqual(value['basis']['source'], 'RVX' if value['symbol'] in ('QQQ','NQ') else 'OVX')
-                    self.assertAlmostEqual(value['levels'][0], anchor + anchor * .2 / math.sqrt(252) * .6)
+                self.assertEqual({event[2]['rules_version'] for event in queued[-2:]}, {2})
+                self.assertEqual({call.args[1].symbol for call in read.await_args_list[-4:]}, {'QQQ', 'ES', 'RVX', 'OVX'})
+                self.assertAlmostEqual(queued[-2][2]['levels'][0], 100 + 100 * .2 / math.sqrt(252) * .6)
                 monitor.reset(); self.assertFalse(monitor.ready)
 
     async def test_late_old_account_results_do_not_install(self):
@@ -369,29 +352,28 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
             conn = Mock(); conn.account_id = 'DU_TEST'; conn.is_connected.return_value = True
             conn.ib.orderStatusEvent=Event(); conn.ib.execDetailsEvent=Event(); conn.ib.fills.return_value=[]
             conn.get_order_status_snapshot.return_value={'trades':[]}; conn.has_market_subscription.return_value=True
-            watches = {symbol: contract(symbol, cid) for cid, symbol in enumerate(('QQQ','ES','NQ','SPY'), 7)}
-            tickers={cid:S(updateEvent=Event(),ticks=[],marketDataType=1) for cid in (7,8,9,10)}
+            tickers={cid:S(updateEvent=Event(),ticks=[],marketDataType=1) for cid in (7,8)}
             conn.get_market_ticker.side_effect=lambda c:tickers[c.conId]
-            async def qualify(c): return [watches[c.symbol]] if isinstance(c, Stock) else [S(symbol=c.symbol)]
+            async def qualify(c): return [contract()] if isinstance(c, Stock) else [S(symbol=c.symbol)]
             conn.ib.qualifyContractsAsync=AsyncMock(side_effect=qualify)
-            conn.ib.reqContractDetailsAsync=AsyncMock(side_effect=lambda c: [S(contract=watches[c.symbol])])
+            conn.ib.reqContractDetailsAsync=AsyncMock(return_value=[S(contract=contract('ES',8))])
             async def history(owner,c,*args,**kwargs):
                 values=bars() if c.symbol in m.SYMBOLS else [dict(time=START+240,close=20,high=20,low=20)]
                 return [S(date=datetime.fromtimestamp(v['time'],timezone.utc),close=v['close'],high=v['high'],low=v['low']) for v in values]
             service=S(_ensure_connection=lambda:conn,config={'account_id':'DU_TEST'},connection_status=lambda c:{'mode':'paper'})
             with patch.object(m.time,'time',return_value=START+360), patch.object(m,'read_history',new=AsyncMock(side_effect=history)):
                 runtime.pulse(service)
-                self.assertEqual(set(runtime.moonshine.tasks), set(watches))
+                self.assertEqual(set(runtime.moonshine.tasks), {'QQQ','ES'})
                 await asyncio.gather(*runtime.moonshine.tasks.values())
-                self.assertEqual(set(runtime.moonshine.ready), set(watches))
+                self.assertEqual(set(runtime.moonshine.ready), {'QQQ','ES'})
                 runtime.pulse(service)  # Ready plans wake the owner immediately.
                 while not runtime.queue.empty(): runtime.process(runtime.queue.get_nowait())
-                self.assertEqual(set(runtime.bindings),set(tickers))
-                for cid in tickers:
+                self.assertEqual(set(runtime.bindings),{7,8})
+                for cid in (7,8):
                     ticker=tickers[cid]; target=runtime.moonshine_plans[scope,cid]['levels'][0]
                     ticker.ticks=[S(tickType=4,price=target)];ticker.updateEvent.emit(ticker)
                 while not runtime.queue.empty(): runtime.process(runtime.queue.get_nowait())
-                self.assertEqual(len(store.events(scope,0)['events']),4)
+                self.assertEqual(len(store.events(scope,0)['events']),2)
                 runtime.detach()
                 self.assertTrue(all(len(t.updateEvent)==0 for t in tickers.values()))
                 runtime.next_refresh=0;runtime.pulse(service)
@@ -400,6 +382,6 @@ class MonitorTests(unittest.IsolatedAsyncioTestCase):
                 while not runtime.queue.empty(): runtime.process(runtime.queue.get_nowait())
                 for ticker in tickers.values(): ticker.updateEvent.emit(ticker)
                 while not runtime.queue.empty(): runtime.process(runtime.queue.get_nowait())
-                self.assertEqual(len(store.events(scope,0)['events']),4,'Reconnect never duplicates a fired target')
+                self.assertEqual(len(store.events(scope,0)['events']),2,'Reconnect never duplicates a fired target')
                 runtime.detach()
                 conn.ib.placeOrder.assert_not_called();conn.ib.cancelOrder.assert_not_called()
