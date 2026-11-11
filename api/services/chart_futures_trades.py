@@ -1,4 +1,5 @@
 """Exchange-timed CME chart trades. The extra IB ticker is private to the chart."""
+import asyncio
 from bisect import bisect_left
 import math
 import time
@@ -11,7 +12,7 @@ from ib_async import Ticker
 class FuturesChartTrades:
     def __init__(self, state):
         self.state = state
-        self.seed = state['bars'][-1]['time']
+        self.seed = state['bars'][-1]['time'] if state['bars'] else -math.inf
         self.seed_end = min(time.time(), self.seed + 60)
         self.last_primary = None
         self.primary_received = None
@@ -24,9 +25,9 @@ class FuturesChartTrades:
         from api.services.stock_chart import unknown_volume
         state = self.state
         bars = state['bars']
-        index = len(bars)-1 if bars[-1]['time'] == minute else bisect_left(bars, minute, key=lambda b: b['time'])
+        index = len(bars)-1 if bars and bars[-1]['time'] == minute else bisect_left(bars, minute, key=lambda b: b['time'])
         exists = index < len(bars) and bars[index]['time'] == minute
-        if minute < self.seed or minute in self.settled or (minute < bars[0]['time'] and len(bars) >= 12000):
+        if minute < self.seed or minute in self.settled or (len(bars) >= 12000 and minute < bars[0]['time']):
             return False
         if exists:
             bar = bars[index]
@@ -73,7 +74,7 @@ class FuturesChartTrades:
                     self.late[1:3] = [self.late[0], self.late[0] + 60 - .000001]
                 self.merge(*self.late)
                 self.late = None
-            if minute < state['bars'][-1]['time']:
+            if state['bars'] and minute < state['bars'][-1]['time']:
                 # Finish a delayed minute once, instead of redrawing old candles on every print.
                 if minute < self.seed:
                     return False
@@ -103,11 +104,59 @@ class FuturesChartTrades:
         # A snapshot requested while a minute was still open can be partial.
         settled = {b['time'] for b in bars if b['time'] + 60 <= request_start}
         self.settled = settled
+        if self.seed == -math.inf and bars:
+            # Install the recovered baseline just as on a healthy cold open.
+            # An already-seen live close can predate the broker's snapshot.
+            tail = bars[-1]
+            self.seed = tail['time']
+            self.seed_end = max(self.seed, min(request_start, self.seed + 60))
+            if self.seed in self.edges and self.seed not in settled:
+                _, last = self.edges[self.seed]
+                if last < self.seed_end:
+                    self.state['live_bars'][self.seed]['close'] = tail['close']
+                self.edges[self.seed] = -math.inf, max(last, self.seed_end)
         for minute in settled:
             self.state['live_bars'].pop(minute, None)
             self.edges.pop(minute, None)
         if settled:
             self.state['history_revision'] = self.state.get('history_revision', 0) + 1
+
+    def recover_history(self, notify):
+        """Recover the missing minute seed once per stream, off the serialized HTTP lane."""
+        from api.services.chart_history_budget import read_history
+        from api.services.stock_chart import merge_minute_history, minute_bars
+        state = self.state
+        conn, contract = state['conn'], state['contract']
+        client, account = state['client'], conn.account_id
+
+        def current():
+            return (conn.is_connected() and conn.ib.client is client and conn.account_id == account
+                    and conn.ib.ticker(contract) is state['ticker'])
+
+        async def recover():
+            delay = 15
+            while True:
+                await asyncio.sleep(delay)
+                if not current():
+                    return
+                started = time.time()
+                try:
+                    history = await read_history(conn, contract, '', '2 D', '1 min', 'TRADES',
+                                                 useRTH=False, formatDate=2, keepUpToDate=False, timeout=15, optional=True)
+                except Exception:
+                    logging.getLogger('autotrader.api').warning('CME chart minute history retry failed')
+                    history = []
+                if not current():
+                    return
+                rows = minute_bars(history)
+                if rows:
+                    merge_minute_history(state, rows, started)
+                    notify()
+                    return
+                delay = min(60, delay * 2)
+
+        task = state['recovery_task'] = asyncio.get_event_loop().create_task(recover())
+        task.add_done_callback(lambda done: state.pop('recovery_task', None))
 
     def start(self, ib, notify):
         self.ib = ib
@@ -139,6 +188,9 @@ class FuturesChartTrades:
             logging.getLogger('autotrader.api').warning('Futures chart RT Trade Volume subscription unavailable')
 
     def stop(self):
+        recovery = self.state.get('recovery_task')
+        if recovery is not None:
+            recovery.cancel()
         if self.handler is not None:
             self.ticker.updateEvent -= self.handler
             self.handler = None

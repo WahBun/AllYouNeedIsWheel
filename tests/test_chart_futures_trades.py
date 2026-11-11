@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, timezone
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from ib_async import Future, IB
 from api.services.stock_chart import StockChart
@@ -89,3 +89,59 @@ class FuturesTradeTests(TestCase):
         self.assertNotIn(t,self.state['live_bars'])
         self.assertFalse(chart.merge(t,t,t+59,200,200,200,200))
         self.assertTrue(chart.merge(t+60,t+62,t+62,106,106,106,106))
+
+    def cold_open(self, permissions=()):
+        self.feed.stop(reset_cooldown=True)
+        with patch.object(self.feed.initial_history, 'read', return_value=([], permissions, [], 15)):
+            packet = self.feed.snapshot(self.conn, 7, 5, 'rth', fast=True, background=True)
+        self.state = self.feed.states[7]
+        return packet
+
+    def test_timeout_admits_one_live_stream_and_recovers_broker_history(self):
+        t = self.open
+        packet = self.cold_open()
+        self.assertEqual(packet['bars'], [])
+        self.assertIsNone(packet['last_price'])
+        self.assertFalse(packet['historical'])
+        task = self.state['recovery_task']
+        self.batch([('RT', t+301.2, 105)], t+301.5)
+        with patch('time.time', return_value=t+301.5):
+            for minutes in (1, 5, 15, 60):
+                pane = self.feed.snapshot(self.conn, 7, minutes, 'rth', fast=True, background=True)
+                self.assertEqual([b['close'] for b in pane['bars']], [105])
+                self.assertIsNone(pane['bid'])
+                self.assertIsNone(pane['ask'])
+        self.assertIs(self.state['recovery_task'], task)
+        from ib_async import BarData
+        def row(stamp, o, h, l, c):
+            return BarData(date=datetime.fromtimestamp(stamp, timezone.utc), open=o, high=h, low=l, close=c)
+        history = [row(t, 99, 100, 98, 100), row(t+300, 101, 108, 99, 107)]
+        self.conn.ib.reqHistoricalDataAsync = AsyncMock(return_value=history)
+        with patch('asyncio.sleep', new_callable=AsyncMock), patch('time.time', return_value=t+302):
+            asyncio.get_event_loop().run_until_complete(task)
+        self.assertEqual([(b['open'], b['close']) for b in self.state['bars']], [(99,100), (101,107)])
+        self.batch([('Last', t+301, 104), ('RT', t+305, 106)], t+305.5)
+        self.assertEqual(self.state['bars'][-1]['open'], 101)
+        self.assertEqual(self.state['bars'][-1]['close'], 106)
+        self.assertGreater(self.state['history_revision'], 0)
+        self.assertTrue(self.feed.packet(self.state, 1, 'rth')['historical'])
+        self.conn.ib.reqHistoricalDataAsync.assert_awaited_once()
+        self.conn.ib.placeOrder.assert_not_called()
+
+    def test_delayed_last_can_be_first_and_retired_recovery_cannot_publish(self):
+        t = self.open
+        self.cold_open()
+        self.batch([('Last', t, 97)], t+408)
+        self.batch([('RT', t+408.1, 108)], t+408.4)
+        self.assertEqual([b['time'] for b in self.state['bars']], [t, t+360])
+        task = self.state['recovery_task']
+        self.feed.stop(reset_cooldown=True)
+        with self.assertRaises(asyncio.CancelledError):
+            asyncio.get_event_loop().run_until_complete(task)
+        self.assertFalse(self.feed.states)
+        self.conn.ib.placeOrder.assert_not_called()
+
+    def test_explicit_denied_history_does_not_start_timeout_recovery(self):
+        with self.assertRaisesRegex(ValueError, 'permission'):
+            self.cold_open(['Not subscribed'])
+        self.assertFalse(self.feed.states)
