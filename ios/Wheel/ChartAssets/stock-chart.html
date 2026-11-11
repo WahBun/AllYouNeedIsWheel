@@ -1183,7 +1183,7 @@ function updateCurrentPriceRay(bar){
 function displayedTail(bar,p,now){
  const live=p?.display_last,price=live?.price;
  if(!bar||!Number.isFinite(price)||!(now<live.expires_at)){restoreTradeCandle();return bar;}
- if(bar.time<=live.time&&now<p.bar_closes_at){
+ if(!live.ray_only&&bar.time<=live.time&&now<p.bar_closes_at){
   if(projectedCandle?.base!==bar||projectedCandle.drawn.close!==price){
    const prior=projectedCandle?.base===bar?projectedCandle.drawn:bar;
    const drawn={...bar,high:Math.max(prior.high,price),low:Math.min(prior.low,price),close:price};
