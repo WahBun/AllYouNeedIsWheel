@@ -215,6 +215,31 @@ def _opening_after_flat(db, account, cid, previous, opening, batches):
     return True
 
 
+def _native_exits_confirmed(group, current):
+    """Match every saved terminal row to its independently identified broker order."""
+    ids = group['ids']
+    perms = group.get('perms', {})
+    terminal = group.get('terminal', {})
+    if not ids or ids.keys() != perms.keys() or ids.keys() != terminal.keys():
+        return False
+    for role, oid in ids.items():
+        row = terminal[role]
+        trade = current.get(perms[role])
+        if not trade or row.get('role') != role or row.get('order_id') != oid:
+            return False
+        status = trade.orderStatus
+        if (trade.order.orderRef != group['ref'] or trade.order.orderId not in (0, oid)
+                or status.status not in ('Filled', 'Cancelled', 'ApiCancelled')
+                or row.get('status') != status.status or row.get('filled') != status.filled):
+            return False
+        # IB may zero totalQuantity on a completed order. Only a full fill
+        # then establishes the original quantity.
+        quantity = trade.order.totalQuantity or (status.filled if status.status == 'Filled' else 0)
+        if quantity <= 0 or row.get('quantity') != quantity:
+            return False
+    return True
+
+
 def project(path, account, cid, client, groups, trades, fills, account_position, *, baseline_records=(), archived_refs=(), predecessor=None):
     """Return quantities only from exact, nonconflicting executions.
 
@@ -356,6 +381,16 @@ def project(path, account, cid, client, groups, trades, fills, account_position,
                 else:conflict('Execution sequence over-exits group: '+ref)
             basis[g['ref']]=cost/held if held else 0
             if positions[g['ref']]*g['side'] < -1e-8:conflict('Group over-exit: '+g['ref'])
+            # Older versions persisted these balance errors before recognizing
+            # native ticket fills. Keep the journal and re-prove the flat group
+            # on each projection. Current errors always remain in the result.
+            ref = g['ref']
+            perm = (g.get('native_opening') or {}).get('perm_id')
+            if (ref in archived_refs and perm in opening_perms and ref == f'WheelPaper:native:{perm}'
+                    and held == 0 and positions[ref] == 0 and _native_exits_confirmed(g, current)):
+                resolved_balance_errors.update(('Legacy opening balance lacks execution ownership: '+ref,
+                                                'Execution sequence over-exits group: '+ref,
+                                                'Group over-exit: '+ref))
         if not math.isfinite(account_position) or abs(sum(positions.values())-account_position)>1e-8:
             errors.append('Account total does not reconcile with attributed groups')
         errors += [r[0] for r in db.execute('SELECT detail FROM group_ledger_conflicts WHERE account=? AND con_id=?',(account,cid)) if r[0] not in resolved_balance_errors]
