@@ -1,4 +1,4 @@
-"""Permanent MoonShine watches on the existing IB owner loop.
+"""Two permanent MoonShine watches on the existing IB owner loop.
 
 No chart subscription, broker write or extra thread. History setup uses the
 shared optional budget for setup and provisional-seed recovery; live hits use the
@@ -13,9 +13,9 @@ from ib_async import Stock, Future, Index
 from api.services.chart_history_budget import read_history
 from api.services.notifications import MOONSHINE_DEFAULTS
 from api.services.chart_sessions import NY, session_windows
-from api.services.chart_volatility import group, session_anchors
+from api.services.chart_volatility import session_anchors
 
-SYMBOLS = {'QQQ': 'STK', 'ES': 'FUT', 'NQ': 'FUT', 'SPY': 'STK'}
+SYMBOLS = {'QQQ': ('STK', 'VXN'), 'ES': ('FUT', 'VIX')}
 NAMES = ('1st Bulls', '1st Bears', '2nd Bulls', '2nd Bears')
 SOUNDS = ('soft-chime', 'soft-chime', 'three-notes', 'three-notes')
 log = logging.getLogger(__name__)
@@ -25,9 +25,9 @@ def plan(contract, bars, intraday, daily, now, rules=None):
     """Match the chart's B1 close, seed cutoff and shared multipliers."""
     rules = rules or MOONSHINE_DEFAULTS
     symbol = contract.symbol
-    if symbol not in SYMBOLS or contract.secType != SYMBOLS[symbol]: return None
+    if symbol not in SYMBOLS or contract.secType != SYMBOLS[symbol][0]: return None
     day = datetime.fromtimestamp(now, NY).date().isoformat()
-    windows = session_windows(day, day, SYMBOLS[symbol] == 'FUT')
+    windows = session_windows(day, day, symbol == 'ES')
     if not windows or not windows[0][0] + 300 <= now < windows[0][1]: return None
     anchor = next((a for a in session_anchors(bars, now, contract) if a['day'] == day), None)
     if not anchor: return None
@@ -41,7 +41,7 @@ def plan(contract, bars, intraday, daily, now, rules=None):
     levels = [anchor['close'] + sigma * multiplier for multiplier in (rules['inner'], -rules['inner'], rules['outer'], -rules['outer'])]
     return dict(cid=contract.conId, symbol=symbol, label=contract.localSymbol or symbol,
                 day=day, rules_version=rules['version'], start=anchor['ready_at'], end=windows[0][1], levels=levels,
-                observed_at=now, basis=dict(anchor=anchor['close'], source=rules[group(contract)],
+                observed_at=now, basis=dict(anchor=anchor['close'], source=rules['ndx' if symbol == 'QQQ' else 'spx'],
                     kind='intraday' if seeds else 'daily', volatility=vol,
                     stamp=seed['time'] if seeds else datetime.fromisoformat(seed['day']).replace(tzinfo=NY).timestamp()),
                 high=anchor.get('high'), low=anchor.get('low'),
@@ -75,28 +75,12 @@ class MoonshineMonitor:
         self.contracts = {}
         self.plans = {}
         self.cache_versions = {}
-        self.index_reads = {}
 
     def reset(self):
         for task in self.tasks.values(): task.cancel()
-        for _, task in self.index_reads.values(): task.cancel()
-        self.index_reads.clear()
         self.tasks.clear(); self.ready.clear(); self.retry.clear(); self.contracts.clear()
         self.plans.clear(); self.cache_versions.clear()
         self.identity = None
-
-    async def index_rows(self, conn, index, size):
-        # Paired watches use the same index bars. Share in-flight and recent
-        # reads within this account/day/rule identity and its setup retry window.
-        key = (index.symbol, size)
-        now = time.time()
-        started, task = self.index_reads.get(key, (0, None))
-        if task is None or (task.done() and now >= started + 60):
-            duration = '2 D' if size == '1 min' else '10 D'
-            task = asyncio.create_task(read_history(conn, index, '', duration, size, 'TRADES',
-                                                    useRTH=False, formatDate=2, timeout=6, optional=True))
-            self.index_reads[key] = (now, task)
-        return rows(await task)
 
     def publish(self, symbol, scope, value):
         prior = self.plans.get(symbol)
@@ -111,7 +95,7 @@ class MoonshineMonitor:
         contract = self.ready[symbol]
         state = stock_chart.states.get(contract.conId, {})
         if state.get('conn') is not conn or state.get('client') is not conn.ib.client: return
-        source = rules[group(contract)]
+        source = rules['ndx' if symbol == 'QQQ' else 'spx']
         cached = state.get('volatility_cache', {}).get(source, {})
         if cached.get('identity') != (conn.ib, conn.ib.client, conn.account_id): return
         inputs = (cached.get('intraday'), cached.get('daily'))
@@ -130,7 +114,7 @@ class MoonshineMonitor:
         if identity != self.identity:
             self.reset(); self.identity = identity
         for symbol in SYMBOLS:
-            windows = session_windows(day, day, SYMBOLS[symbol] == 'FUT')
+            windows = session_windows(day, day, symbol == 'ES')
             if not windows or not windows[0][0] + 300 <= now < windows[0][1]:
                 self.ready.pop(symbol, None)
                 continue
@@ -147,18 +131,18 @@ class MoonshineMonitor:
                 try:
                     contract = self.contracts.get(symbol)
                     if contract is None:
-                        if SYMBOLS[symbol] == 'STK':
-                            found = await asyncio.wait_for(conn.ib.qualifyContractsAsync(Stock(symbol, 'SMART', 'USD')), 6)
+                        if symbol == 'QQQ':
+                            found = await asyncio.wait_for(conn.ib.qualifyContractsAsync(Stock('QQQ', 'SMART', 'USD')), 6)
                         else:
-                            details = await asyncio.wait_for(conn.ib.reqContractDetailsAsync(Future(symbol=symbol, exchange='CME', currency='USD')), 6)
-                            found = sorted((d.contract for d in details if d.contract.symbol == symbol
+                            details = await asyncio.wait_for(conn.ib.reqContractDetailsAsync(Future(symbol='ES', exchange='CME', currency='USD')), 6)
+                            found = sorted((d.contract for d in details if d.contract.symbol == 'ES'
                                             and d.contract.secType == 'FUT' and d.contract.exchange == 'CME'
                                             and d.contract.currency == 'USD'
                                             and d.contract.lastTradeDateOrContractMonth > day.replace('-', '')),
                                            key=lambda c: c.lastTradeDateOrContractMonth)[:1]
                         if len(found) != 1 or not found[0].conId: return
                         contract = found[0]
-                        if contract.symbol != symbol or contract.secType != SYMBOLS[symbol] or contract.currency != 'USD': return
+                        if contract.symbol != symbol or contract.secType != SYMBOLS[symbol][0] or contract.currency != 'USD': return
                         if not current(): return
                         self.contracts[symbol] = contract
                     # Reuse the visible chart's current minute cache when complete.
@@ -170,7 +154,7 @@ class MoonshineMonitor:
                                                         useRTH=False, formatDate=2, timeout=6, optional=True))
                     if not current(): return
                     if not any(a['day'] == day for a in session_anchors(bars, time.time(), contract)): return
-                    source = rules[group(contract)]
+                    source = rules['ndx' if symbol == 'QQQ' else 'spx']
                     cached = state.get('volatility_cache', {}).get(source, {})
                     if cached.get('identity') == (conn.ib, conn.ib.client, conn.account_id):
                         intraday, daily = list(cached['intraday']), list(cached['daily'])
@@ -185,12 +169,13 @@ class MoonshineMonitor:
                         indices = await asyncio.wait_for(conn.ib.qualifyContractsAsync(Index(source, 'CBOE', 'USD')), 6)
                         if len(indices) != 1 or not current(): return
                         try:
-                            intraday, _ = await self.index_rows(conn, indices[0], '1 min')
+                            intraday, _ = rows(await read_history(conn, indices[0], '', '2 D', '1 min', 'TRADES',
+                                                                useRTH=False, formatDate=2, timeout=6, optional=True))
                         except Exception:
                             intraday = []  # Match the chart's independent daily fallback.
-                        if not current(): return
                         if not any(v['time'] + 60 <= cutoff and datetime.fromtimestamp(v['time'], NY).date().isoformat() == day for v in intraday) and not any(v['day'] < day for v in daily):
-                            _, daily = await self.index_rows(conn, indices[0], '1 day')
+                            _, daily = rows(await read_history(conn, indices[0], '', '10 D', '1 day', 'TRADES',
+                                                             useRTH=False, formatDate=2, timeout=6, optional=True))
                         result = plan(contract, bars, intraday, daily, time.time(), rules)
                     if result and current():
                         self.publish(symbol, scope, result)
