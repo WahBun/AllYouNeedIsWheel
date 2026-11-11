@@ -1,7 +1,9 @@
 import sqlite3
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from ib_async import Option
@@ -14,6 +16,7 @@ class ChartOrderHistoryTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.path = str(Path(self.tmp.name) / 'orders.db')
         self.conn = Mock()
+        self.conn.ib.fills.return_value = []
         self.conn.is_connected.return_value = True
         self.conn._order_account.return_value = 'LIVE_TEST'
         self.contract = Option('TEST', '20261120', 11, 'C', 'SMART', currency='USD', conId=7, multiplier='100')
@@ -32,6 +35,99 @@ class ChartOrderHistoryTests(unittest.TestCase):
 
     def rows(self, known=()):
         return saved_chart_orders(self.conn,self.path,known)
+
+    def manual_fill(self, key='a.01', shares=1, price=.52, side='BOT', pnl=24.5):
+        execution = SimpleNamespace(acctNumber='LIVE_TEST', permId=123, execId=key,
+                                    orderId=0, clientId=0, orderRef='', side=side,
+                                    shares=shares, price=price,
+                                    time=datetime.fromtimestamp(1791985664, timezone.utc))
+        report = SimpleNamespace(execId=key, commission=1.25, currency='USD', _wheel_realized_pnl=pnl)
+        return SimpleNamespace(execution=execution, contract=self.contract, commissionReport=report)
+
+    def manual_rows(self, known=()):
+        return saved_chart_orders(self.conn, self.path, known, manual_fills_since=0)
+
+    def test_manual_option_visible_before_chart_visit_on_complete_and_partial_reads(self):
+        from api.services.futures_orders import CompletedHistoryUnavailable
+        from api.services.options_service import OptionsService
+        service = OptionsService.__new__(OptionsService)
+        service.config = {'account_id': 'LIVE_TEST'}
+        service.db = Mock(db_path=self.path)
+        service.db.get_pending_orders.return_value = []
+        service._ensure_connection = Mock(return_value=self.conn)
+        with sqlite3.connect(self.path) as db:
+            db.execute('DROP TABLE chart_execution_marks')
+        self.conn.ib.fills.return_value = [self.manual_fill(shares=3, price=.13, side='SLD', pnl=-78.9)]
+        with patch('api.services.execution_record_history.read_mtd', return_value=None), \
+                patch('api.services.options_service.futures_orders',
+                      side_effect=[[], CompletedHistoryUnavailable(), []]):
+            for complete in (True, False):
+                result = service.get_executed_records()
+                self.assertEqual(result['history_complete'], complete)
+                row, = result['orders']
+                self.assertEqual((row['id'], row['filled'], row['avg_fill_price']), ('ib-123', 3, .13))
+                self.assertEqual((row['action'], row['intent'], row['realized_pnl']), ('SELL', 'CLOSE', -78.9))
+                self.assertEqual(row['commission'], 1.25)
+                self.assertEqual(row['history_source'], 'broker_executions')
+            # Legacy reconciliation never consumes display-only fills.
+            self.assertEqual(service.get_pending_orders_with_ib(executed=True), [])
+        self.resolve.assert_not_called()
+        self.conn.ib.reqExecutions.assert_not_called()
+        service.db.update_order_status.assert_not_called()
+
+    def test_manual_fill_merges_saved_and_repeated_executions_once(self):
+        self.add()
+        second = self.manual_fill(key='b.01', shares=2, price=.56, pnl=6.25)
+        self.conn.ib.fills.return_value = [self.manual_fill(), second, second]
+        row, = self.manual_rows()
+        self.assertEqual(row['filled'], 3)
+        self.assertAlmostEqual(row['avg_fill_price'], (.52 + 2 * .56) / 3)
+        self.assertEqual((row['realized_pnl'], row['commission']), (30.75, 2.5))
+        self.assertEqual(self.manual_rows([{'perm_id': 123}]), [])
+        self.resolve.assert_not_called()
+
+    def test_manual_partial_order_excludes_executions_already_in_flex(self):
+        self.add()
+        later = self.manual_fill(key='b.01', shares=2, price=.56, pnl=6.25)
+        later.execution.time = datetime.fromtimestamp(1792085664, timezone.utc)
+        self.conn.ib.fills.return_value = [later]
+        row, = saved_chart_orders(self.conn, self.path, [], manual_fills_since=1792000000)
+        self.assertEqual((row['filled'], row['avg_fill_price'], row['realized_pnl']), (2, .56, 6.25))
+
+    def test_manual_fill_requires_scoped_identity(self):
+        wrong = self.manual_fill()
+        wrong.execution.acctNumber = 'DU_TEST'
+        app_order = self.manual_fill()
+        app_order.execution.orderRef = 'AYNIW-1'
+        unidentified = self.manual_fill()
+        unidentified.execution.permId = 0
+        self.conn.ib.fills.return_value = [wrong, app_order, unidentified]
+        self.assertEqual(self.manual_rows(), [])
+
+    def test_manual_fees_can_arrive_late_and_conflicting_fees_leave_fill_visible(self):
+        fill = self.manual_fill()
+        fill.commissionReport = None
+        self.conn.ib.fills.return_value = [fill]
+        row, = self.manual_rows()
+        self.assertNotIn('commission', row)
+        self.assertNotIn('realized_pnl', row)
+        self.conn.ib.fills.return_value.append(self.manual_fill())
+        row, = self.manual_rows()
+        self.assertEqual((row['filled'], row['commission'], row['realized_pnl']), (1, 1.25, 24.5))
+        conflicting = self.manual_fill()
+        conflicting.commissionReport.commission = 2
+        self.conn.ib.fills.return_value.append(conflicting)
+        row, = self.manual_rows()
+        self.assertEqual(row['filled'], 1)
+        self.assertNotIn('commission', row)
+        self.assertNotIn('realized_pnl', row)
+
+    def test_manual_and_saved_corrections_are_not_summed(self):
+        self.add(key='a.b.c')
+        self.conn.ib.fills.return_value = [self.manual_fill(key='a.b.c.02')]
+        self.assertEqual(self.manual_rows(), [])
+        self.conn.ib.fills.return_value = [self.manual_fill(key='a.b.c.01', shares=2)]
+        self.assertEqual(self.manual_rows(), [])
 
     def test_two_closes_survive_empty_broker_completed_cache(self):
         self.add(); self.add(perm=124,key='b',price=.55,realized=21.28)
