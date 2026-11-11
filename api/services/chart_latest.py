@@ -85,17 +85,11 @@ class LatestCharts:
                 continue
             packet = dict(feed.packet(state, minutes, session), account_epoch=epoch,
                           mode='snapshot', transport='Latest quote snapshot')
-            # A corrected older minute is outside the two-bar HTTP delta.
-            # Use a separate fallback cursor so a correction never resets the chart viewport.
-            cursor = packet['generation']
-            if state.get('history_revision'):
-                cursor = f"{cursor}:{state['history_revision']}"
-                packet['latest_cursor'] = cursor
             full = json.dumps(packet, allow_nan=False, separators=(',', ':'))
             tail = json.dumps(dict(packet, mode='delta', bars=packet['bars'][-2:]),
                               allow_nan=False, separators=(',', ':'))
             with self.lock:
-                self.rows[key] = dict(at=now, generation=cursor, full=full, tail=tail)
+                self.rows[key] = dict(at=now, generation=packet['generation'], full=full, tail=tail)
 
 
 latest_charts = LatestCharts()

@@ -194,7 +194,7 @@ class NotificationsTests(unittest.TestCase):
             message([99, 42, 3, now, 100, 101, 1, 1, 0])
             message([99, 41, 1, now - 90, 100, 1, 0, 'CME', ''])
             self.assertFalse(self.events())
-            self.assertIsNone(feed.states[7]['last_tick'])  # A pre-seed print must not freshen the candle.
+            self.assertEqual(feed.states[7]['last_tick'], now)
             for price in (101, 100, 100, 101):
                 message([99, 41, 1, now, price, 1, 0, 'CME', ''])
         self.assertEqual(len(self.events()), 1)

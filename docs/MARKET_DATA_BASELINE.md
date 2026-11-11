@@ -59,10 +59,10 @@ Volume contract: historical `TRADES` bar volume is preserved in IB-reported unit
 
 ## Existing chart engine and reference provenance
 
-Wheel currently embeds TradingView Lightweight Charts 5.3.0 in
+Wheel currently embeds TradingView Lightweight Charts 5.2.1 in
 `ios/Wheel/ChartAssets/lightweight-charts.standalone.production.js`. Its license
 header states Apache 2.0. Keep that license/attribution and the existing
-`attributionLogo: true`. Exact vendor provenance is recorded in `LightweightCharts-version.json`. The
+`attributionLogo: true`; the separately authorized 5.2.0 → 5.2.1 patch upgrade preserves this engine and layout. Exact vendor provenance is recorded in `LightweightCharts-version.json`. The
 inspected web/iOS code does not use Advanced Charts. `stock-chart.html` uses
 `series.update` for tail deltas; `setData` is reserved for initial/new identity,
 older-history insertion and historical correction.

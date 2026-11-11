@@ -379,8 +379,7 @@ class PaperChart:
                 result['protection']['status']='not_requested'
                 if (not account.startswith('DU') or position.contract.secType == 'OPT') and result['enabled'] and result['protection_manageable']:
                     result.update(position_manageable=True, add_allowed=True, trim_allowed=True,
-                                  trim_available=abs(size), unprotected_scaling=True, unprotected_trim=True,
-                                  full_limit_trim_allowed=position.contract.secType == 'OPT')
+                                  trim_available=abs(size), unprotected_scaling=True, unprotected_trim=True)
                 # Buying whole shares can increase a fractional stock holding without
                 # consuming the shares reserved for covered calls. Exit eligibility
                 # remains separate from this add-only permission.
@@ -786,8 +785,6 @@ class PaperChart:
             if result['unprotected_trim']:
                 result['trim_available']=max(0,abs(result['position'])-reserved)
                 result['trim_allowed']=result['trim_available']>=1
-                # A sole standalone Trim can be resized back to the entire position.
-                result['full_limit_trim_allowed'] = scaling_contract.secType == 'OPT' and len(working) <= 1
 
             result['independent_add']=bool(scaling_contract.secType=='OPT' and scaling_contract.right=='C' and result['position']<0 and result['known'] and abs(owned-result['position'])<.000001 and
                 all(t.order.orderRef==group.get('ref') and t.orderStatus.status in ('Submitted','PreSubmitted') and
@@ -897,7 +894,7 @@ class PaperChart:
             result['protection']['status']='unknown'
             result['protection_manageable']=False
             result['scalable']=False
-            for key in ('add_allowed','trim_allowed','full_limit_trim_allowed','stop_trim_allowed','unprotected_trim','protection_cancelable','entry_editable','protected_stock_scaling','stock_trim_editable'):
+            for key in ('add_allowed','trim_allowed','stop_trim_allowed','unprotected_trim','protection_cancelable','entry_editable','protected_stock_scaling','stock_trim_editable'):
                 result[key]=False
         from api.services.chart_position_recovery import recover
         if recover(self, conn, account, cid, group, result):
@@ -918,8 +915,6 @@ class PaperChart:
         # updates on collateral reads. Execution still performs fresh validation.
         size = abs(result.get('position', 0))
         ready = bool(result.get('known') and result.get('enabled') and not result.get('closing') and not result.get('sync_error'))
-        result['full_limit_trim_allowed'] = bool(ready and result.get('full_limit_trim_allowed')
-            and result.get('account_position', result.get('position')) == result.get('position'))
         if not ready:
             result['protected_stock_scaling'] = result['stock_trim_editable'] = False
         result['close_allowed'] = bool(ready and result.get('active') and (not result.get('position_only') or result.get('position_manageable')))
@@ -2082,26 +2077,6 @@ class PaperChart:
             group['close_request']['confirmed_price']=target
             self.save_group(account,cid,group)
 
-    @staticmethod
-    def check_full_trim_orders(conn, account, cid, editing=None):
-        from core.order_amendments import broker_order_key
-        def terms(trade):
-            order = trade.order
-            return (broker_order_key(order.orderId, trade.contract, order), order.totalQuantity,
-                    trade.orderStatus.filled, order.lmtPrice, order.parentId, order.ocaGroup)
-
-        expected = terms(editing) if editing is not None else None
-        opened = conn._bounded_order_read(conn.ib.reqAllOpenOrders, timeout_seconds=3)
-        if not isinstance(opened, (list, tuple)):
-            raise ValueError('Waiting for open orders before full-size Trim')
-        working = [t for t in opened if t.order.account == account and t.contract.conId == cid and not t.isDone()]
-        if editing is None:
-            if working:
-                raise ValueError('Other working orders exist; reopen the limit Trim')
-        elif (len(working) != 1 or terms(working[0]) != expected
-                or working[0].orderStatus.status not in ('Submitted', 'PreSubmitted')):
-            raise ValueError('Working Trim changed; reopen the quantity editor')
-
     def edit_standalone_trim(self, conn, account, cid, contract, current, group, body, request_id, price):
         expected=body.get('expected_orders',[])
         oid=body.get('order_id') or (expected[0].get('order_id') if len(expected)==1 else None)
@@ -2121,10 +2096,7 @@ class PaperChart:
             order=copy.copy(trade.order);order.lmtPrice=target;order.transmit=True
             return self.modify_exit(conn,trade,order,'lmtPrice')
         qty=body.get('quantity');size=abs(current['position'])
-        full_size = qty == size
-        if (body.get('expected_position') != current['position'] or isinstance(qty, bool)
-                or not isinstance(qty, int) or not 0 <= qty <= size
-                or (full_size and (not current.get('full_limit_trim_allowed') or trade.order.ocaGroup or trade.order.parentId))):
+        if body.get('expected_position')!=current['position'] or isinstance(qty,bool) or not isinstance(qty,int) or not 0<=qty<size:
             raise ValueError('Invalid remaining Trim quantity or changed position')
         if qty==row['quantity']:return
         if contract.secType == 'STK' and current.get('stock_trim_editable'):
@@ -2137,13 +2109,10 @@ class PaperChart:
             import copy
             reserved=sum(r['quantity'] for r in current.get('pending_exits',[]) if r['order_id']!=oid)
             if qty+reserved>size:raise ValueError('Trim exceeds unallocated position')
-            if full_size:
-                self.check_full_trim_orders(conn, account, cid, editing=trade)
             positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
             actual=self.group_size(conn,account,cid,positions)
             fresh=self.state(conn,cid)
-            if (actual != current['position'] or fresh['edit_snapshot'] != current['edit_snapshot']
-                    or (full_size and (not fresh.get('full_limit_trim_allowed') or fresh.get('order_ref') != group['ref']))):
+            if actual!=current['position'] or fresh['edit_snapshot']!=current['edit_snapshot']:
                 raise ValueError('Orders changed; reopen Trim quantity editor')
             order=copy.copy(trade.order);order.totalQuantity=qty+float(trade.orderStatus.filled)
             return self.modify_exit(conn,trade,order,'totalQuantity')
@@ -2649,10 +2618,6 @@ class PaperChart:
             current=self.state(conn,cid)
         if not group: raise ValueError('No chart bracket for this contract')
         trades=getattr(self,'_resolved_trades',{})
-        full_limit_trim = action == 'trim' and body.get('full_limit_trim') is True
-        if full_limit_trim and not (current.get('full_limit_trim_allowed') and body.get('exit_type') == 'LMT'
-                and body.get('exit_price') is not None and body.get('quantity') == abs(current['position'])):
-            raise ValueError('Position or protection changed; reopen the limit Trim')
         if action in ('add', 'trim') and contract.secType == 'STK' and current.get('protected_stock_scaling'):
             from api.services.stock_scaling import adjust
             return adjust(self, conn, account, cid, contract, current, group, body, request_id, price)
@@ -2703,21 +2668,15 @@ class PaperChart:
             if ('exit_price' in body or 'exit_type' in body) and target is None:
                 raise ValueError('Priced Trim requires a valid limit price')
             qty=body.get('quantity')
-            size = abs(current['position'])
-            if (isinstance(qty,bool) or not isinstance(qty,(int,float)) or not math.isfinite(qty)
-                    or qty != int(qty) or not 1 <= qty <= size or (qty == size and not full_limit_trim)):
+            if isinstance(qty,bool) or not isinstance(qty,(int,float)) or not math.isfinite(qty) or qty!=int(qty) or not 1<=qty<abs(current['position']):
                 raise ValueError('Trim quantity must be whole shares/contracts and leave a position; use Close for a full exit')
             # No cancellations, no reverse order overlap, and no automatic replay.
-            if full_limit_trim:
-                self.check_full_trim_orders(conn, account, cid)
             positions=conn._bounded_order_read(conn.ib.reqPositions,timeout_seconds=3)
             actual=self.group_size(conn,account,cid,positions)
             fresh=self.state(conn,cid)
             if actual!=current['position'] or fresh['position']!=actual or not fresh.get('unprotected_trim') or fresh['edit_snapshot']!=current['edit_snapshot']:
                 raise ValueError('Position/orders changed before Trim; reconcile first')
-            if (qty > fresh.get('trim_available', 0) or
-                    full_limit_trim and (not fresh.get('full_limit_trim_allowed') or fresh.get('order_ref') != group['ref'])):
-                raise ValueError('Trim exceeds unreserved position quantity')
+            if qty>fresh.get('trim_available',0):raise ValueError('Trim exceeds unreserved position quantity')
             if contract.secType == 'STK' and actual > 0:
                 available=unreserved_stock_shares(conn,account,contract)
                 if qty > available+1e-8:

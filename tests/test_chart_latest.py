@@ -19,14 +19,6 @@ class LatestChartTests(unittest.TestCase):
         self.cache.read(7,5,'all','epoch')
         self.cache.publish(self.feed,self.state,'epoch')
 
-    def test_historical_correction_requests_one_full_snapshot_without_changing_generation(self):
-        self.state['history_revision'] = 1
-        self.prime()
-        previous = json.loads(self.cache.read(7, 5, 'all', 'epoch', 'g'))
-        self.assertEqual((previous['mode'], previous['generation']), ('snapshot', 'g'))
-        delta = json.loads(self.cache.read(7, 5, 'all', 'epoch', previous['latest_cursor']))
-        self.assertEqual((delta['mode'], len(delta['bars'])), ('delta', 2))
-
     def test_full_tail_immutability_and_epoch_isolation(self):
         self.prime()
         self.packet['bars'][-1]['close']=999
