@@ -17908,18 +17908,18 @@
       },
       "extractionState" : "manual"
     },
-    "Tap a reported day to review executions and book entries.\n\nDashes indicate unreported dates or unavailable P&L. Reported dates with no activity show zero.\n\nDates follow the IBKR trade date. Overnight futures and FX executions may occur on the previous evening." : {
+    "Tap a reported day to review executions and book entries.\n\nDates follow the IBKR trade date. Overnight futures and FX executions may occur on the previous evening." : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "点击有报告数据的日期，可查看成交与记账记录。\n\n横线表示日期尚未报告或盈亏不可用；已报告但没有交易的日期显示为零。\n\n日期以 IBKR 的交易日期为准。隔夜期货和外汇成交可能发生在前一天晚上。"
+            "value" : "点击有报告数据的日期，可查看成交与记账记录。\n\n日期以 IBKR 的交易日期为准。隔夜期货和外汇成交可能发生在前一天晚上。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "點擊有報告數據的日期，可查看成交與記帳記錄。\n\n橫線表示日期尚未報告或盈虧不可用；已報告但沒有交易的日期顯示為零。\n\n日期以 IBKR 的交易日期為準。隔夜期貨和外匯成交可能發生在前一天晚上。"
+            "value" : "點擊有報告數據的日期，可查看成交與記帳記錄。\n\n日期以 IBKR 的交易日期為準。隔夜期貨和外匯成交可能發生在前一天晚上。"
           }
         }
       },

@@ -113,6 +113,23 @@ final class PerformanceAnalyticsTests: XCTestCase {
         XCTAssertNil(old.daily_commissions)
     }
 
+    func testCalendarDashesForInactiveWeekends() throws {
+        let slots = AnalyticsCalendar.slots(month: "2026-11")
+        func displayed(_ date: String, fills: Int = 0, books: Int = 0, pnl: Double? = 0) throws -> Double? {
+            let slot = try XCTUnwrap(slots.firstIndex(of: date))
+            let day = PerformanceAnalytics.Day(date: date, executions: fills, book_entries: books,
+                                               realized_pnl: pnl, missing_pnl: pnl == nil ? 1 : 0)
+            return AnalyticsCalendar.displayedPnL(for: day, at: slot)
+        }
+        for date in ["2026-11-01", "2026-11-07", "2026-11-08"] {
+            XCTAssertNil(try displayed(date))
+        }
+        XCTAssertEqual(try displayed("2026-11-09"), 0)
+        XCTAssertEqual(try displayed("2026-11-08", fills: 1), 0)
+        XCTAssertEqual(try displayed("2026-11-07", books: 1, pnl: -5), -5)
+        XCTAssertNil(try displayed("2026-11-09", fills: 1, pnl: nil))
+    }
+
     @MainActor func testNativeCalendarAndExecutionLayouts() async throws {
         AnalyticsProtocol.version = "verified-1"
         URLProtocol.registerClass(AnalyticsProtocol.self)

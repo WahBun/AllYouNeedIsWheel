@@ -146,6 +146,14 @@ enum AnalyticsCalendar {
         let blank = calendar.component(.weekday, from: first) - 1
         return Array(repeating: nil, count: blank) + days.map { String(format: "%@-%02d", month, $0) }
     }
+    static func displayedPnL(for day: PerformanceAnalytics.Day?, at slot: Int) -> Double? {
+        // slots starts on Sunday, including any leading blanks.
+        let column = slot % 7
+        if (column == 0 || column == 6), day?.activityCount == 0, day?.realized_pnl == 0 {
+            return nil
+        }
+        return day?.realized_pnl
+    }
     static func weekdays(locale: Locale) -> [String] {
         let formatter = DateFormatter(); formatter.locale = locale
         return formatter.veryShortStandaloneWeekdaySymbols
@@ -281,7 +289,7 @@ enum PerformanceHelpTopic: String {
         case .pnl:
             "Reported realized P&L, not live account P&L. Commissions are already included; opening premium is not realized profit.\n\nTotals include reported executions and recognized assignment, exercise and expiration book entries. These entries are counted separately from exchange executions.\n\nTotals cover reported dates only. Earlier history appears when available in a Flex report.\n\nCurrencies are shown separately; no FX conversion is applied."
         case .calendar:
-            "Tap a reported day to review executions and book entries.\n\nDashes indicate unreported dates or unavailable P&L. Reported dates with no activity show zero.\n\nDates follow the IBKR trade date. Overnight futures and FX executions may occur on the previous evening."
+            "Tap a reported day to review executions and book entries.\n\nDates follow the IBKR trade date. Overnight futures and FX executions may occur on the previous evening."
         case .contributions:
             "Ranked by absolute realized P&L for the selected month and currency.\n\nStock and option executions share their underlying symbol. This is not total portfolio return."
         }
@@ -368,10 +376,11 @@ struct AnalyticsCalendarGrid: View {
                 ForEach(slots.indices, id: \.self) { index in
                     if let date = slots[index] {
                         let day = byDate[date]
+                        let pnl = AnalyticsCalendar.displayedPnL(for: day, at: index)
                         Button { onSelect(date) } label: {
                             VStack(spacing: 5) {
                                 Text(verbatim: String(Int(date.suffix(2)) ?? 0)).font(.caption.weight(.medium)).lineLimit(1).minimumScaleFactor(0.7)
-                                Text(verbatim: day.flatMap(\.realized_pnl).map { $0.formatted(.number.notation(.compactName).precision(.fractionLength(0...1))) } ?? "—")
+                                Text(verbatim: pnl.map { $0.formatted(.number.notation(.compactName).precision(.fractionLength(0...1))) } ?? "—")
                                     .font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.6)
                             }
                             .frame(maxWidth: .infinity, minHeight: 47)
@@ -380,7 +389,7 @@ struct AnalyticsCalendarGrid: View {
                             .contentShape(Rectangle())
                         }.buttonStyle(.plain).disabled(day == nil)
                         .accessibilityIdentifier("analytics-day-\(date)")
-                        .accessibilityLabel("\(date), \(AnalyticsCalendar.amount(day?.realized_pnl, currency: report.currency)), \(PerformanceAnalytics.activityLabel(day?.executions ?? 0, day?.book_entries, locale: locale))")
+                        .accessibilityLabel("\(date), \(AnalyticsCalendar.amount(pnl, currency: report.currency)), \(PerformanceAnalytics.activityLabel(day?.executions ?? 0, day?.book_entries, locale: locale))")
                     } else { Color.clear.frame(height: 47) }
                 }
             }
