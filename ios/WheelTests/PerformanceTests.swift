@@ -233,6 +233,52 @@ final class PerformanceTests: XCTestCase {
     }
 
     @MainActor
+    func testNewTradeTickersShowSeparateSymbolAndContractRows() async throws {
+        let store = WheelStore()
+        store.demo = true
+        store.selectedTab = "settings" // Keep the fixture off the automatic refresh loop.
+        let book = store.opportunities
+        let context = UUID().uuidString
+        book.configure(context: context)
+        defer { UserDefaults.standard.removeObject(forKey: "opportunities-v1-" + context) }
+        book.custom = ["TQQQ"]
+        book.marketOpen = true
+        let quote = ContractQuote(strike: 60, expiration: "20261120", bid: 2.1, ask: 2.2,
+                                  delta: -0.3, implied_volatility: 0.7)
+        let pinID = book.pin("TQQQ", "PUT", expiration: quote.expiration, strike: quote.strike)
+        for symbol in ["TQQQ", "CRCL", "NVDA"] {
+            book.rows[book.key(symbol, "PUT")] = OpportunityRow(ticker: symbol, type: "PUT", quote: quote,
+                stockPrice: 65, previousClose: 64, price: "2.15")
+        }
+        book.rows[pinID] = OpportunityRow(ticker: "TQQQ", type: "PUT", candidateID: pinID, quote: quote, price: "2.15")
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let host = UIHostingController(rootView: NavigationStack { OpportunitiesView() }.environment(store)
+            .environment(\.locale, Locale(identifier: "en")).environment(\.scenePhase, .inactive))
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await Task.sleep(for: .milliseconds(300))
+        func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
+        let list = try XCTUnwrap(descendants(host.view).compactMap { $0 as? UICollectionView }.first)
+        func itemCounts() -> [Int] { (0..<list.numberOfSections).map { list.numberOfItems(inSection: $0) } }
+        let initial = itemCounts()
+        book.custom += ["CRCL", "NVDA"]
+        try await Task.sleep(for: .milliseconds(350))
+        let updated = itemCounts()
+        XCTAssertEqual(updated.count, initial.count + 2)
+        XCTAssertEqual(updated.filter { $0 == 2 }.count, initial.filter { $0 == 2 }.count + 2,
+                       "Each new ticker should have a symbol row above its one automatic contract.")
+        for dark in [true, false] {
+            window.overrideUserInterfaceStyle = dark ? .dark : .light
+            try await Task.sleep(for: .milliseconds(100))
+            capture(host, "Trade-ticker-sections-\(dark ? "dark" : "light")")
+        }
+    }
+
+    @MainActor
     func testTradeTitleActionsPreview() async throws {
         let store = WheelStore(); store.demo = false; store.address = "https://performance.invalid"
         store.selectedTab = "settings"
