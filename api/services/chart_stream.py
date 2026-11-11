@@ -109,7 +109,7 @@ class ChartStreams:
         # while synchronous IB reads are yielding to that same event loop.
         from api.routes.account import epoch
         now = time.monotonic()
-        marker = (state['ticks'], tuple(sorted(state['quotes'].items())),
+        marker = (state['ticks'], state.get('history_revision', 0), tuple(sorted(state['quotes'].items())),
                   tuple((r['low'], r['increment']) for r in state.get('price_rules', [])), state.get('level1_last'))
         packets = {}
         for sub in tuple(self.clients.values()):
