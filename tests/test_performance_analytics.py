@@ -110,6 +110,21 @@ class AnalyticsTests(unittest.TestCase):
         self.assertEqual(result['trades'][0]['report_trade_day'], '2026-10-30')
         self.assertEqual(self.analytics(day='2026-10-29')['trade_count'], 0)
 
+    def test_friday_evening_fx_keeps_its_execution_time_and_monday_trade_date(self):
+        days = [{'date': '2026-11-06'}, {'date': '2026-11-10'}]
+        fx = self.row(AssetClass='CASH', Symbol='USD.HKD', CurrencyPrimary='HKD',
+                      TradeDate='20261109', DateTime='20261106,221930')
+        self.publish(fx, days=days)
+        result = self.analytics(day='2026-11-09', currency='HKD')
+        self.assertEqual(result['report_through'], '2026-11-10')
+        self.assertEqual(result['trade_count'], 1)
+        self.assertEqual(result['trades'][0]['fill_time'], '2026-11-07T03:19:30+00:00')
+        self.assertEqual(result['trades'][0]['report_trade_day'], '2026-11-09')
+        for change in ({'AssetClass': 'OPT'}, {'DateTime': '20261106,165959'}, {'TradeDate': '20261110'}):
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'Execution time unavailable'):
+                self.publish({**fx, **change}, days=days)
+        self.assertEqual(self.analytics()['report_version'], result['report_version'])
+
     def test_http_account_switch_epoch_and_no_broker_access(self):
         self.publish(self.row())
         app = Flask(__name__); app.register_blueprint(performance.bp)
