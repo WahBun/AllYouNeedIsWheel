@@ -49,7 +49,7 @@ class NativeOpeningAfterCloseTests(unittest.TestCase):
         f.trades.append(trade)
         return trade
 
-    def opening(self, stock=False):
+    def opening(self, stock=False, oid=3, price=10.02):
         f = self.f
         if stock:
             f.contract.secType = 'STK'
@@ -57,10 +57,43 @@ class NativeOpeningAfterCloseTests(unittest.TestCase):
         action = 'BUY' if stock else 'SELL'
         db = OptionsDatabase(f.service.path)
         ticket = db.save_order(dict(ticker=f.contract.symbol,option_type='STOCK' if stock else 'PUT',
-            action=action,intent='OPEN',strike=60,expiration='20261120',premium=10.02,quantity=1,account_id=self.account))
+            action=action,intent='OPEN',strike=60,expiration='20261120',premium=price,quantity=1,account_id=self.account))
         db.update_order_status(ticket, 'executed', executed=True, execution_details=dict(
-            ib_order_id=3, perm_id=103, ib_status='Filled', filled=1, remaining=0, avg_fill_price=10.02))
-        return self.trade(3, action, 10.02, f'AYNIW-{ticket}')
+            ib_order_id=oid, perm_id=oid+100, ib_status='Filled', filled=1, remaining=0, avg_fill_price=price))
+        return self.trade(oid, action, price, f'AYNIW-{ticket}')
+
+    def test_second_native_ticket_after_legacy_balance_conflicts(self):
+        f = self.f
+        self.opening()
+        old_ref = f.service.state(f.conn,7)['order_ref']
+        group = f.service.group(self.account,7)
+        exit_trade = self.trade(4, 'BUY', 8.20, old_ref)
+        group.update(ids={'close':4}, perms={'close':104}, terminal={'close':dict(
+            role='close', order_id=4, status='Filled', price=8.20, quantity=1, filled=1)})
+        f.service.save_group(self.account,7,group)
+        conflicts = [(self.account, 7, reason+old_ref) for reason in (
+            'Legacy opening balance lacks execution ownership: ',
+            'Execution sequence over-exits group: ', 'Group over-exit: ')]
+        with f.service.database() as db:
+            db.executemany('INSERT INTO group_ledger_conflicts VALUES(?,?,?)', conflicts)
+        self.opening(oid=5, price=3.10)
+        exit_trade.orderStatus.status = 'PendingCancel'
+        self.assertFalse(f.service.state(f.conn,7)['known'])
+        self.assertEqual(f.service.group(self.account,7)['ref'],old_ref)
+        exit_trade.orderStatus.status = 'Filled'
+        # The next read persists the terminal callback before the following
+        # chart poll can verify the flat predecessor and its successor.
+        f.service.state(f.conn,7)
+        state = f.service.state(f.conn,7)
+        self.assertEqual((state['order_ref'],state['position'],state['entry']), ('WheelPaper:native:105',-1,3.10))
+        self.assertTrue(state['known'] and state['protection_manageable'] and state['close_allowed'])
+        self.assertNotIn('close_progress', state)
+        with f.service.database() as db:
+            self.assertCountEqual(list(db.execute('SELECT * FROM group_ledger_conflicts')),conflicts)
+        exit_trade.orderStatus.status = 'Submitted'
+        self.assertFalse(f.service.state(f.conn,7)['known'])
+        f.conn.ib.placeOrder.assert_not_called()
+        f.conn.ib.cancelOrder.assert_not_called()
 
     def test_put_reconnect_and_one_original_limit_close(self):
         f = self.f
