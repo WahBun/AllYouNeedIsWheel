@@ -479,7 +479,7 @@ async function refreshMarket({full=false}={}){
   if(!packet.bars?.length){await refreshLegacyMarket(context);return;}
   if(streamSupported()){
    try{
-    const generation=!full&&packet.generation&&packetReceived>Date.now()-5000?`&generation=${encodeURIComponent(packet.latest_cursor||packet.generation)}`:'';
+    const generation=!full&&packet.generation&&packetReceived>Date.now()-5000?`&generation=${encodeURIComponent(packet.generation)}`:'';
     const bars=await api(`portfolio/stock-chart-latest/${context.cid}?interval=${context.interval}&session=${context.session}${context.epoch?'&epoch='+encodeURIComponent(context.epoch):''}${generation}`,undefined,AbortSignal.any([request.signal,AbortSignal.timeout(800)]));
     if(!Array.isArray(bars.bars)||!bars.bars.length||!Number.isFinite(bars.server_time))throw Error('Latest quote packet unavailable');
     if(marketBusy===request&&currentMarket(context)&&(full||!marketStream.healthy()))applyMarket(bars);

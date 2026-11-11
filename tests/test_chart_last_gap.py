@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from unittest import TestCase
 from unittest.mock import patch
 
-from ib_async import IB, Stock
+from ib_async import IB, Future
 from api.services.stock_chart import StockChart
 import test_stock_chart as fixtures
 
@@ -14,7 +14,7 @@ class LastGapTests(TestCase):
         self.addCleanup(fixtures.close_test_loop)
         feed = StockChart()
         conn, _ = fixtures.StockChartTests().connection()
-        contract = Stock('QQQ', 'SMART', 'USD', conId=7)
+        contract = Future(symbol='MES', lastTradeDateOrContractMonth='202612', exchange='CME', currency='USD', conId=7)
         conn.get_option_position_by_con_id.return_value['contract'] = contract
         # Exercise the installed decoder/wrapper and the real chart callback offline.
         ib = IB()
