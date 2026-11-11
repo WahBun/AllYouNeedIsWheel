@@ -1,11 +1,11 @@
 {
   "package": "lightweight-charts",
-  "version": "5.2.1",
-  "source": "https://registry.npmjs.org/lightweight-charts/-/lightweight-charts-5.2.1.tgz",
-  "integrity": "sha512-IVwoK1RLFiLPubaKIjNbtjWLnpPMqiABSrTay6whmNa8L1+19292VtHJ+BWyPUuLCwF0tcQlhEWd1CLB2a1nsQ==",
+  "version": "5.3.0",
+  "source": "https://registry.npmjs.org/lightweight-charts/-/lightweight-charts-5.3.0.tgz",
+  "integrity": "sha512-w16fu2/FteUkIJdgc9G2tOCKs1fwFSqnqF8+kMgHGv0uGIfcfpEJhziSaQbML1yrkbeg4nQXV3msjmhBzhLNhw==",
   "vendored_file": "lightweight-charts.standalone.production.js",
-  "sha256": "e21cc5caa0226ef30bd8549c50b9ef926615f2a4ee6b4e486353477a55f598cf",
+  "sha256": "338a625ece52c5b85fb026e222dad5d0f365f745060afbfae96bda91636142e9",
   "license": "Apache-2.0",
-  "release": "https://github.com/tradingview/lightweight-charts/releases/tag/v5.2.1",
-  "notice": "https://raw.githubusercontent.com/tradingview/lightweight-charts/v5.2.1/NOTICE"
+  "release": "https://github.com/tradingview/lightweight-charts/releases/tag/v5.3.0",
+  "notice": "https://raw.githubusercontent.com/tradingview/lightweight-charts/v5.3.0/NOTICE"
 }
