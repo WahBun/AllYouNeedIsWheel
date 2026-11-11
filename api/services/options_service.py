@@ -83,11 +83,11 @@ class OptionsService:
             return self._recent_executed_records()
         if report['history_complete']:
             return report
+        cutoff = datetime.fromisoformat(report['history_cutoff'])
         try:
-            recent = self._recent_executed_records()
+            recent = self._recent_executed_records(manual_fills_since=cutoff.timestamp())
         except (CompletedHistoryUnavailable, ConnectionError):
             recent = dict(orders=[], history_complete=False)
-        cutoff = datetime.fromisoformat(report['history_cutoff'])
         # The report owns its entire covered date range. This avoids guessing
         # equivalence between Flex IBOrderID, Gateway permId and local row IDs.
         for row in recent['orders']:
@@ -104,7 +104,7 @@ class OptionsService:
             report['warning'] = f"History through {report['history_through']}; newer executions are still updating."
         return report
 
-    def _recent_executed_records(self):
+    def _recent_executed_records(self, *, manual_fills_since=0):
         """Display known fills without weakening strict order reconciliation."""
         from api.services.futures_orders import CompletedHistoryUnavailable
         from api.services.chart_order_history import saved_chart_orders
@@ -113,8 +113,8 @@ class OptionsService:
         if not account or not conn or not conn.is_connected() or conn._order_account() != account:
             raise CompletedHistoryUnavailable('Verify the account connection before loading execution records.')
         try:
-            rows = self.get_pending_orders_with_ib(executed=True)
-            return dict(orders=rows, history_complete=True)
+            rows = self.get_pending_orders_with_ib(executed=True, manual_fills_since=manual_fills_since)
+            result = dict(orders=rows, history_complete=True)
         except (CompletedHistoryUnavailable, ConnectionError):
             if not conn.is_connected() or conn._order_account() != account:
                 raise CompletedHistoryUnavailable('Account connection changed; refresh execution records.') from None
@@ -122,12 +122,20 @@ class OptionsService:
             # consume a partial SDK response, cancel or resend its fixed-key read.
             rows = [row for row in self.db.get_pending_orders(executed=True)
                     if not row.get('account_id') or row['account_id'] == account]
-            rows += saved_chart_orders(conn, self.db.db_path, rows, cached_only=True)
-            return dict(orders=rows, history_complete=False,
+            rows += saved_chart_orders(conn, self.db.db_path, rows, cached_only=True, manual_fills_since=manual_fills_since)
+            result = dict(orders=rows, history_complete=False,
                         warning='Showing recorded fills; broker history is still syncing. Recent fills may be missing.')
 
+        # iOS merges active, executed and retained rows by ID. Keep an external
+        # option's active-feed identity as partial fills move into history.
+        for row in rows:
+            perm = row.get('perm_id')
+            if perm and row.get('external_ib') and row.get('id') == f'ib-opt-{perm}':
+                row['id'] = f'ib-{perm}'
+        return result
+
     def get_pending_orders_with_ib(
-        self, executed=False, is_rollover=None, force_refresh=False
+        self, executed=False, is_rollover=None, force_refresh=False, *, manual_fills_since=None
     ):
         """Merge local pending orders with active orders entered directly in IB."""
         local_orders = self.db.get_pending_orders(
@@ -153,7 +161,7 @@ class OptionsService:
                 return local_orders
             from api.services.chart_order_history import saved_chart_orders
             history = local_orders + futures_orders(conn, completed=True, db_path=self.db.db_path)
-            return history + saved_chart_orders(conn, self.db.db_path, history)
+            return history + saved_chart_orders(conn, self.db.db_path, history, manual_fills_since=manual_fills_since)
         if is_rollover is not None:
             return local_orders
 

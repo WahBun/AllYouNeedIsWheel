@@ -10,7 +10,61 @@ from api.services.chart_contracts import contracts
 logger = logging.getLogger(__name__)
 
 
-def saved_chart_orders(conn, path, known_orders, *, cached_only=False):
+def _merge_manual_option_fills(fills, saved, reports, fees):
+    """Merge one broker order without counting a repeated callback or correction twice."""
+    from core.connection import IBConnection
+    from core.execution_evidence import groups as execution_groups
+
+    batches, unambiguous = execution_groups(fills, lambda fill: fill.execution)
+    if not unambiguous:
+        return []
+    marks = {mark['exec_id']: mark for mark in saved}
+    for batch in batches:
+        fill = batch[0]
+        e = fill.execution
+        meta = IBConnection._fill_metadata(batch, e.shares)
+        if (not meta['fill_time'] or not meta['avg_fill_price'] or not meta['fill_action']
+                or len({f.execution.time for f in batch}) != 1):
+            return []
+        key = (fill.contract.conId, e.execId)
+        mark = dict(con_id=key[0], exec_id=e.execId, stamp=e.time.timestamp(),
+                    quantity=e.shares, price=e.price, side=meta['fill_action'])
+        previous = marks.get(e.execId)
+        if previous and any(previous[k] != v for k, v in mark.items()):
+            return []
+        marks[e.execId] = mark
+
+        charge = dict(commission=meta['commission'], currency=meta['commission_currency'])
+        realized = meta['realized_pnl']
+        saved_fee = fees.get(key)
+        saved_pnl = reports.get(key)
+        if (meta['_fee_conflict'] or
+                (saved_fee and charge['commission'] is not None and
+                 any(charge[k] != saved_fee[k] for k in charge))):
+            fees[key] = dict(commission=None, currency=None)
+            reports.pop(key, None)
+            continue
+        if charge['commission'] is not None:
+            fees[key] = charge
+        if realized is not None:
+            if saved_pnl and saved_pnl['ready'] and (saved_pnl['currency'], saved_pnl['realized']) != ('USD', realized):
+                reports.pop(key)
+            else:
+                reports[key] = dict(ready=True, realized=realized, currency='USD')
+
+    # A saved fill may be a different revision of an execution in the session.
+    revisions = set()
+    for exec_id in marks:
+        parts = exec_id.split('.')
+        if len(parts) == 4 and parts[-1].isdigit():
+            family = tuple(parts[:-1])
+            if family in revisions:
+                return []
+            revisions.add(family)
+    return list(marks.values())
+
+
+def saved_chart_orders(conn, path, known_orders, *, cached_only=False, manual_fills_since=None):
     """No order writes or inferred fills; use the verified account and exact conId."""
     if not conn or not path or not conn.is_connected():
         return []
@@ -22,10 +76,8 @@ def saved_chart_orders(conn, path, known_orders, *, cached_only=False):
         with sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True) as db:
             db.row_factory = sqlite3.Row
             tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            if 'chart_execution_marks' not in tables:
-                return []
             marks = [dict(r) for r in db.execute(
-                'SELECT * FROM chart_execution_marks WHERE account=? ORDER BY stamp', (account,))]
+                'SELECT * FROM chart_execution_marks WHERE account=? ORDER BY stamp', (account,))] if 'chart_execution_marks' in tables else []
             reports = {}
             terms = {(r['con_id'], r['perm_id']): dict(r) for r in db.execute(
                 'SELECT * FROM chart_broker_terms WHERE account=?', (account,))} if 'chart_broker_terms' in tables else {}
@@ -47,6 +99,24 @@ def saved_chart_orders(conn, path, known_orders, *, cached_only=False):
         if perm <= 0 or perm in known:
             continue
         groups.setdefault(perm, []).append(mark)
+    manual_contracts = {}
+    if manual_fills_since is not None:
+        # ib.fills() is the SDK's in-memory execution list, including fills for
+        # contracts whose chart the user never opened.
+        by_perm = {}
+        for fill in conn.ib.fills():
+            e = fill.execution
+            if e.acctNumber == account and e.permId > 0 and e.permId not in known:
+                by_perm.setdefault(e.permId, []).append(fill)
+        for perm, fills in by_perm.items():
+            contract = fills[0].contract
+            if not all(f.contract.secType == 'OPT' and f.contract.currency == 'USD'
+                       and f.contract.conId == contract.conId > 0 and not f.execution.orderRef for f in fills):
+                continue
+            merged = _merge_manual_option_fills(fills, groups.get(perm, []), reports, fees)
+            # A multi-day order may have earlier partial fills already in Flex.
+            groups[perm] = [mark for mark in merged if mark['stamp'] >= manual_fills_since]
+            manual_contracts[perm] = contract
     result = []
     from api.services.chart_execution_reports import reported_execution_details
     reported = reported_execution_details(account) if groups else {}
@@ -62,7 +132,9 @@ def saved_chart_orders(conn, path, known_orders, *, cached_only=False):
         try:
             # A partial display response must not queue per-contract IB reads
             # behind an already unavailable history request.
-            contract = contracts.contracts.get(cid) if cached_only else contracts.resolve(conn, cid)
+            contract = manual_contracts.get(perm)
+            if contract is None:
+                contract = contracts.contracts.get(cid) if cached_only else contracts.resolve(conn, cid)
             if contract is None:
                 continue
         except Exception:
@@ -85,7 +157,7 @@ def saved_chart_orders(conn, path, known_orders, *, cached_only=False):
                    fill_time=datetime.fromtimestamp(max(f['stamp'] for f in fills), timezone.utc).isoformat(),
                    status='executed', ib_status='Execution recorded', executed=True, external_ib=True,
                    order_type='—', tif='—', currency=contract.currency, contract_multiplier=contract.multiplier or '1',
-                   history_source='persisted_broker_executions')
+                   history_source='broker_executions' if perm in manual_contracts else 'persisted_broker_executions')
         pnl = [reports.get((cid, f['exec_id'])) for f in fills]
         if all(p and p['ready'] and p['currency'] == 'USD' and isinstance(p['realized'], (int, float))
                and math.isfinite(p['realized']) and abs(p['realized']) < 1e100 for p in pnl):
