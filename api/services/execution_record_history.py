@@ -46,6 +46,18 @@ def report_day(value):
     return datetime.strptime(value, '%Y%m%d').date() if len(value) == 8 else datetime.fromisoformat(value).date()
 
 
+def matches_trade_day(when, day, asset):
+    gap = (day - when.date()).days
+    if gap == 0:
+        return True
+    if when.hour < 17:
+        return False
+    if gap == 1:
+        return asset in ('CASH', 'FUT', 'STK')
+    # Flex can book Friday evening FX executions on the following Monday.
+    return asset == 'CASH' and when.weekday() == 4 and gap == 3
+
+
 def parse_mtd(text, account, first, through, *, native_pnl=False, include_book_trades=False):
     """Validate every MTD execution before replacing the published snapshot.
 
@@ -104,10 +116,7 @@ def parse_mtd(text, account, first, through, *, native_pnl=False, include_book_t
                 break
             except ValueError:
                 pass
-        # FX/futures (and overnight stock) trade dates may roll to the next
-        # session while the actual New York execution is still the prior evening.
-        if when is None or not (when.date() == day or
-                (asset in ('CASH', 'FUT', 'STK') and when.hour >= 17 and when.date() + timedelta(days=1) == day)):
+        if when is None or not matches_trade_day(when, day, asset):
             raise ValueError('Execution time unavailable')
         kind = {'STK': 'STOCK', 'FUT': 'FUTURE', 'CASH': 'FOREX'}.get(asset)
         strike, expiration = None, None
