@@ -797,7 +797,7 @@ struct OpportunitiesView: View {
         }.tint(.indigo).accessibilityLabel("Hide")
     }
 
-    private func candidate(_ symbol: String, pin: PinnedOpportunity?, grouped: Bool, comparing: Bool) -> some View {
+    private func candidate(_ symbol: String, pin: PinnedOpportunity?, hasPins: Bool, comparing: Bool) -> some View {
         let group = book.key(symbol, type)
         let id = pin?.id ?? group
         let row = book.rows[id]
@@ -812,12 +812,11 @@ struct OpportunitiesView: View {
                     .accessibilityLabel("Include contract in estimates")
                     .accessibilityValue(book.unselected.contains(id) ? "Off" : "On")
             }
-            candidateContent(symbol, pin: pin, grouped: grouped, row: row, displayQuantity: displayQuantity)
-            if !grouped { addButton(symbol) }
+            candidateContent(symbol, pin: pin, row: row, displayQuantity: displayQuantity)
         }
         .listRowBackground(focusedCandidate == id ? Color.accentColor.opacity(0.16) : nil)
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            if grouped {
+            if hasPins {
                 Button {
                     editor = CandidatePickerContext(symbol: symbol, pin: pin, editingPrimary: pin == nil)
                 } label: {
@@ -826,12 +825,12 @@ struct OpportunitiesView: View {
             } else {
                 hideButton(group)
             }
-            if grouped || type == "PUT" {
+            if hasPins || type == "PUT" {
                 Button(role: .destructive) {
                     book.removeCandidate(symbol, type: type, pin: pin)
                 } label: {
                     Image(systemName: "trash")
-                }.tint(.red).accessibilityLabel(grouped ? "Remove contract" : "Remove")
+                }.tint(.red).accessibilityLabel(hasPins ? "Remove contract" : "Remove")
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -844,17 +843,15 @@ struct OpportunitiesView: View {
         }
     }
 
-    private func candidateContent(_ symbol: String, pin: PinnedOpportunity?, grouped: Bool,
+    private func candidateContent(_ symbol: String, pin: PinnedOpportunity?,
                                   row: OpportunityRow?, displayQuantity: Int) -> some View {
         ExpandableRangeRow(range: row?.dayRange, detailsHint: "Open contract details") {
             OpportunityDetail(ticker: symbol, type: type, pin: pin).navigationBarTitleDisplayMode(.large)
         } content: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    if grouped {
-                        Text(ContractLabel.expiry(row?.quote?.expiration ?? pin?.expiration ?? ""))
-                            .font(.caption.weight(.semibold))
-                    } else { SymbolText(symbol: symbol).font(.headline) }
+                    Text(ContractLabel.expiry(row?.quote?.expiration ?? pin?.expiration ?? ""))
+                        .font(.caption.weight(.semibold))
                     Text(verbatim: String(-abs(displayQuantity)))
                         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                         .accessibilityLabel(Text("Quantity")).accessibilityValue(String(-abs(displayQuantity)))
@@ -865,22 +862,11 @@ struct OpportunitiesView: View {
                         Text(verbatim: pin.strike.formatted() + (type == "CALL" ? "C" : "P")).font(.caption)
                     }
                     Spacer(minLength: 2)
-                    if grouped {
-                        PremiumValue(amount: row?.total, perSymbol: true).font(.body.weight(.semibold))
-                    } else {
-                        OpportunityPrice(row: row).font(.subheadline)
-                    }
+                    PremiumValue(amount: row?.total, perSymbol: true).font(.body.weight(.semibold))
                 }
                 .lineLimit(1).minimumScaleFactor(0.75)
                 if let quote = row?.quote {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        OpportunityMetrics(quote: quote)
-                        Spacer(minLength: 2)
-                        if !grouped {
-                            PremiumValue(amount: row?.total, perSymbol: true)
-                                .font(.body.weight(.semibold)).fixedSize(horizontal: true, vertical: false)
-                        }
-                    }
+                    OpportunityMetrics(quote: quote)
                 }
                 if row?.quote != nil {
                     if type == "CALL" && row?.capacity == 0 {
@@ -950,21 +936,18 @@ struct OpportunitiesView: View {
             ForEach(symbols, id: \.self) { symbol in
                 let group = book.key(symbol, type)
                 let pins = book.pins[group] ?? []
-                let grouped = !pins.isEmpty
                 Section {
-                    if grouped {
-                        HStack {
-                            SymbolText(symbol: symbol).font(.headline)
-                            Spacer()
-                            OpportunityPrice(row: book.rows[group] ?? pins.first.flatMap { book.rows[$0.id] })
-                            addButton(symbol)
-                        }
-                        .swipeActions(edge: .leading, allowsFullSwipe: false) { hideButton(group) }
+                    HStack {
+                        SymbolText(symbol: symbol).font(.headline)
+                        Spacer()
+                        OpportunityPrice(row: book.rows[group] ?? pins.first.flatMap { book.rows[$0.id] })
+                        addButton(symbol)
                     }
+                    .swipeActions(edge: .leading, allowsFullSwipe: false) { hideButton(group) }
                     let primary = book.showsPrimary(group) ? [CandidateListRow(id: group, pin: nil)] : []
                     let candidates = primary + pins.map { CandidateListRow(id: $0.id, pin: $0) }
                     ForEach(candidates) { item in
-                        candidate(symbol, pin: item.pin, grouped: grouped, comparing: comparing)
+                        candidate(symbol, pin: item.pin, hasPins: !pins.isEmpty, comparing: comparing)
                     }
                 }
             }
