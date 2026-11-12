@@ -395,16 +395,17 @@
   return `${symbol.trim()} · ${month}/${day}/${year} · ${Number(strike)/1000}${right}`;
  }
  function orderItems(price,append,direct=false){
-  const updates=[],contract=paperCID,epoch=paperConfig.web_account_epoch;
+  const updates=[],contract=paperCID,epoch=paperConfig.web_account_epoch,group=paperConfig.group_id;
+  const sameGroup=()=>contract===paperCID&&epoch===paperConfig.web_account_epoch&&group===paperConfig.group_id;
   for(const choice of priceOrderChoices(price,previous.at(-1)?.close)){
    const adding=!!paperConfig.position;
    const reducing=adding&&choice.side!==Math.sign(paperConfig.position);
    const reduceReason=()=>exitReason(Math.abs(paperConfig.position)>1,true)||(choice.type!=='LMT'?'Priced stop exits are not supported; choose a limit price':'');
-   const disabled=adding?(reducing?!!reduceReason():!addAllowed(choice)):!paperConfig.enabled||paperConfig.active||paperConfig.busy||ovtStopBlocked(choice.type);
+   const disabled=adding?(reducing?!!reduceReason():!addAllowed(choice)):(!canRecoverPriceOrder()&&(!paperConfig.enabled||paperConfig.active))||paperConfig.busy||ovtStopBlocked(choice.type);
    const quantity=adding?(paperConfig.adjustment_quantity||1):qty;
    const choiceLabel=choice.label;
-   const b=append(`${reducing?(Math.abs(paperConfig.position)===1?'Close · ':'Trim · '):adding?'Add · ':''}${choiceLabel} ${quantity} ${menuContractName()} @ ${priceText(price)}`,()=>{if(contract===paperCID&&epoch===paperConfig.web_account_epoch)choosePriceOrder(choice,price,qty,direct);},disabled,adding?null:{quantities:[1,2,3,4].filter(n=>n<=priceMenuLimit()),choose:n=>{if(contract===paperCID&&epoch===paperConfig.web_account_epoch&&!paperConfig.position)choosePriceOrder(choice,price,n,direct);}},choice.side);
-   if(b)updates.push(()=>{const changed=contract!==paperCID||epoch!==paperConfig.web_account_epoch||adding!==!!paperConfig.position||quantity!==(adding?(paperConfig.adjustment_quantity||1):qty);const reason=changed?'Chart or quantity changed; reopen menu':ovtStopBlocked(choice.type)?'OVT supports limit orders only':!paperConfig.enabled?(paperConfig.trading_block_reason||'Waiting for verified order status'):paperConfig.busy?'Order request in progress':paperConfig.active&&!adding?'An entry order is already working':reducing?reduceReason():adding&&!addAllowed(choice)?'Position is not ready for this add order':'';b.disabled=!!reason;b.style.opacity=reason?'.4':'1';b.title=reason;let note=b.querySelector('small');if(reason&&!note){note=document.createElement('small');note.style.cssText='display:block;max-width:270px;white-space:normal;margin-top:5px;font-size:11px';b.append(note);}if(note){note.textContent=reason;note.hidden=!reason;}});
+   const b=append(`${reducing?(Math.abs(paperConfig.position)===1?'Close · ':'Trim · '):adding?'Add · ':''}${choiceLabel} ${quantity} ${menuContractName()} @ ${priceText(price)}`,()=>{if(sameGroup())choosePriceOrder(choice,price,qty,direct);},disabled,adding?null:{quantities:[1,2,3,4].filter(n=>n<=priceMenuLimit()),choose:n=>{if(sameGroup()&&!paperConfig.position)choosePriceOrder(choice,price,n,direct);}},choice.side);
+   if(b)updates.push(()=>{const changed=!sameGroup()||adding!==!!paperConfig.position||quantity!==(adding?(paperConfig.adjustment_quantity||1):qty);const reason=changed?'Chart or quantity changed; reopen menu':ovtStopBlocked(choice.type)?'OVT supports limit orders only':!adding&&canRecoverPriceOrder()?'':!paperConfig.enabled?(paperConfig.trading_block_reason||'Waiting for verified order status'):paperConfig.busy?'Order request in progress':paperConfig.active&&!adding?'An entry order is already working':reducing?reduceReason():adding&&!addAllowed(choice)?'Position is not ready for this add order':'';b.disabled=!!reason;b.style.opacity=reason?'.4':'1';b.title=reason;let note=b.querySelector('small');if(reason&&!note){note=document.createElement('small');note.style.cssText='display:block;max-width:270px;white-space:normal;margin-top:5px;font-size:11px';b.append(note);}if(note){note.textContent=reason;note.hidden=!reason;}});
 
   }
   const refresh=()=>updates.forEach(update=>update());refresh();return refresh;
