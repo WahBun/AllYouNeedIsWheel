@@ -887,6 +887,12 @@ struct OpportunitiesView: View {
         }
     }
 
+    private func hasVisibleQuote(_ symbol: String) -> Bool {
+        let group = book.key(symbol, type)
+        if book.showsPrimary(group), book.rows[group]?.quote != nil { return true }
+        return (book.pins[group] ?? []).contains { book.rows[$0.id]?.quote != nil }
+    }
+
     private var candidateList: some View {
         let symbols = self.symbols
         let comparing = self.comparing
@@ -931,7 +937,9 @@ struct OpportunitiesView: View {
                         NoticeText(tickerError).font(.caption).foregroundStyle(.orange)
                     }
                 }
-                if book.loading && symbols.allSatisfy({ book.rows[book.key($0, type)]?.quote == nil }) { ProgressView("Loading opportunities…") }
+                if book.loading && !symbols.isEmpty && !symbols.contains(where: hasVisibleQuote) {
+                    ProgressView("Loading opportunities…")
+                }
             }
             ForEach(symbols, id: \.self) { symbol in
                 let group = book.key(symbol, type)
