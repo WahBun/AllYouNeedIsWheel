@@ -115,11 +115,48 @@ class FlatHistoryRecovery(unittest.TestCase):
         self.assertTrue(r['confirmed']);self.assertEqual(r['status'],'reconciled')
         self.conn.ib.placeOrder.assert_not_called()
 
-    def test_current_group_and_live_recovery_are_rejected(self):
+    def test_current_group_and_mismatched_account_are_rejected(self):
         self.old()
         self.assertFalse(self.service.execute(self.conn,7,self.body)['success'])
         from api.services.chart_flat_recovery import reconcile
         with self.assertRaises(ValueError):reconcile(self.new,self.conn,'U_TEST',7,self.body,str(uuid4()))
+
+    def test_live_reentry_for_each_enabled_asset_preserves_missing_day_order(self):
+        from api.services.live_options import CAPABILITIES
+        live = 'U_TEST'
+        self.conn.account_id, self.conn.port = live, 4001
+        self.conn.ib.client.clientId = 71
+        self.conn.ib.managedAccounts.return_value = [live, 'U_LINKED']
+        profile = {'account_id': live, **dict.fromkeys(CAPABILITIES.values(), True)}
+        with patch('api.routes.account.profiles', return_value={'live': profile}):
+            for cid, kind in enumerate(CAPABILITIES, 1):
+                with self.subTest(asset=kind):
+                    self.contract.conId, self.contract.secType = cid, kind
+                    self.contract.right, self.contract.tradingClass = 'P', self.contract.symbol
+                    self.contract.multiplier = '100' if kind == 'OPT' else '2'
+                    ref = 'WheelPaper:' + str(uuid4())
+                    old = dict(ref=ref, side=-1, ids={'entry': 10}, perms={'entry': 110},
+                               tif='DAY', requested_protection=[], terminal={})
+                    self.service.save_group(live, cid, old)
+                    new = PaperChart(self.service.path, str(uuid4()))
+                    def request():
+                        return new.execute(self.conn, cid, dict(action='reconcile_flat_history',
+                            request_id=str(uuid4()), expected_refs=[ref]))
+                    self.assertFalse(self.service.state(self.conn, cid)['known'])
+                    # Even with the other two capabilities enabled, this contract must be allowed.
+                    profile[CAPABILITIES[kind]] = False
+                    self.assertFalse(request()['success'])
+                    self.assertIsNone(latest(new, live, cid))
+                    profile[CAPABILITIES[kind]] = True
+                    result = request()
+                    self.assertTrue(result['success'], result)
+                    self.assertTrue(new.state(self.conn, cid)['known'])
+                    self.assertEqual(new.state(self.conn, cid)['position'], 0)
+                    self.assertEqual(self.service.group(live, cid), old)
+                    self.assertFalse(self.service.state(self.conn, cid)['known'])
+                    self.assertIsNone(latest(new, 'U_LINKED', cid))
+        self.conn.ib.placeOrder.assert_not_called()
+        self.conn.ib.cancelOrder.assert_not_called()
 
     def test_history_timeout_returns_unknown_rows_not_http_failure(self):
         self.old()

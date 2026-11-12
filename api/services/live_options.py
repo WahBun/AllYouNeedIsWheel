@@ -34,14 +34,30 @@ def validate(conn,contract,body,current):
     if not contract_allowed(conn, contract):
         raise ValueError('Live chart trading is not enabled for this account and asset')
     action=body.get('action')
-    if action not in ('submit','edit_entry','close','set_protection','cancel_protection','amend','be','add','resize_add','amend_add','cancel_add','trim','resize_trim','resize_stop','cancel_trim','cancel_exit','amend_exit_tif'):
+    if action == 'reconcile_flat_history':
+        # This action reads broker state and records a local boundary. It cannot send an order.
+        return
+    broker_edit = action == 'manage_broker_order'
+    if broker_edit:
+        operation = body.get('operation')
+        if operation not in ('amend', 'cancel') or contract.secType not in ('OPT', 'STK'):
+            raise ValueError('Unsupported working order operation')
+        available = 'editable' if operation == 'amend' else 'cancelable'
+        identity = ('local_order_id', 'order_id', 'client_id', 'perm_id')
+        if not body.get('perm_id') or not any(row.get(available) is True
+                and all(row.get(key) == body.get(key) for key in identity)
+                for row in current.get('broker_pending_orders', ())):
+            raise ValueError('Working order identity changed; refresh before editing')
+        if operation == 'cancel':
+            return  # The order service rechecks broker identity and terms before cancellation.
+    elif action not in ('submit','edit_entry','close','set_protection','cancel_protection','amend','be','add','resize_add','amend_add','cancel_add','trim','resize_trim','resize_stop','cancel_trim','cancel_exit','amend_exit_tif'):
         raise ValueError('This action is not enabled for Live charts')
     if action=='submit':
         if isinstance(body.get('side'),bool) or body.get('side') not in (-1,1) or body.get('entry_type') not in ('LMT','STP'):
             raise ValueError('Live chart entry requires a buy or sell limit/stop order')
         if current.get('position') or current.get('active'):
             raise ValueError('Resolve existing contract position/orders before opening')
-    if action=='submit' or action=='edit_entry' and 'quantity' in body:
+    if broker_edit or action=='submit' or action=='edit_entry' and 'quantity' in body:
         quantity=body.get('quantity')
         if isinstance(quantity,bool) or not isinstance(quantity,(int,float)) or not math.isfinite(quantity) or quantity!=int(quantity) or not 1<=quantity<=(1000 if contract.secType == "STK" else 10):
             raise ValueError('Live entry requires a whole quantity within the asset limit')

@@ -1,4 +1,4 @@
-"""A new Paper lifecycle from fresh broker-flat evidence, preserving old unknowns.
+"""A new chart order group from fresh broker-flat evidence, preserving old unknowns.
 
 A checkpoint does not cancel an order, assert a historical fill, or waive an
 unresolved write. Old groups remain inspectable and cannot be traded. Only a
@@ -35,12 +35,15 @@ def active_old_order(checkpoint, trades, account, cid):
 
 
 def reconcile(service, conn, account, cid, body, request_id):
-    if not account.startswith('DU') or conn.port != 4002 or conn.ib.managedAccounts() != [account]:
-        raise ValueError('Flat history recovery is available only in the configured Paper account')
+    from api.services.paper_chart import PaperChart, paper_account
+    from api.services.live_options import contract_allowed
+    from api.services.chart_contracts import contracts
+    if paper_account(conn, write=True) != account:
+        raise ValueError('The configured broker account changed before recovery')
+    live_contract = None if account.startswith('DU') else contracts.resolve(conn, cid)
     if not service.group_id or service.group(account, cid):
         raise ValueError('Choose a new independent order group for flat history recovery')
     choices = service.group_choices(account, cid)
-    from api.services.paper_chart import PaperChart
     groups = [PaperChart(service.path, c['id'] or None).group(account, cid) for c in choices]
     groups += service.historical_groups(account, cid, {c['ref'] for c in choices})
     refs = sorted(g['ref'] for g in groups)
@@ -66,8 +69,10 @@ def reconcile(service, conn, account, cid, body, request_id):
 
     def unchanged():
         if (not conn.is_connected() or conn.account_id != account or conn.ib.client is not client
-                or conn.port != 4002 or client.clientId != client_id or conn.ib.managedAccounts() != [account]):
+                or client.clientId != client_id or paper_account(conn, write=True) != account):
             raise ValueError('Broker connection changed during recovery')
+        if live_contract is not None and not contract_allowed(conn, live_contract):
+            raise ValueError('Live chart trading is not enabled for this account and asset')
         if any(p.account == account and p.contract.conId == cid and p.position != 0 for p in conn.ib.positions()):
             raise ValueError('A position remains; no flat checkpoint is possible')
         if any(t.order.account == account and t.contract.conId == cid for t in conn.ib.openTrades()):

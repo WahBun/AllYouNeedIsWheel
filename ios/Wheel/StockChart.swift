@@ -427,7 +427,7 @@ struct StockChartView: View {
             guard !tradingLocked, chartID == cid, selectedOrderGroup == original,
                   store.address == base, store.trading.accountEpoch == epoch else { return }
             do {
-                let result = try await store.trading.paperChartWrite(base: base, conID: cid, body: body)
+                let result = try await store.trading.paperChartWrite(base: base, conID: cid, body: body, expectedEpoch: epoch)
                 guard chartID == cid, selectedOrderGroup == original, store.address == base,
                       store.trading.accountEpoch == epoch else { return }
                 if result["success"] as? Bool == true || store.trading.paperPending(base: base, conID: cid, groupID: id) {
