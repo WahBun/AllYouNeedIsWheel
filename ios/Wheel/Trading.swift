@@ -210,8 +210,10 @@ enum TradeRules {
         let refs = attribution?["recovery_refs"] as? [String]
             ?? (state["group_choices"] as? [[String: Any]] ?? []).compactMap { $0["ref"] as? String }
         let position = (state["account_position"] ?? state["position"]) as? Double
-        guard UUID(uuidString: groupID) != nil, state["paper"] as? Bool == true,
-              state["account_mode"] as? String == "paper", state["known"] as? Bool == false,
+        let mode = state["account_mode"] as? String
+        let paper = state["paper"] as? Bool
+        let matchedAccount = (mode == "paper" && paper == true) || (mode == "live" && paper == false && state["live_chart_scope"] as? Bool == true)
+        guard UUID(uuidString: groupID) != nil, matchedAccount, state["known"] as? Bool == false,
               state["enabled"] as? Bool == true, state["sync_error"] as? Bool != true,
               (state["sync_error"] as? String ?? "").isEmpty,
               let position, position.isFinite, position == 0, !refs.isEmpty,

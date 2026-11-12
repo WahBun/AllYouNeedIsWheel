@@ -14,7 +14,18 @@ import XCTest
         XCTAssertEqual(body["expected_refs"] as? [String], ["WheelPaper:old"])
         XCTAssertEqual(Set(body.keys), ["action", "group_id", "expected_refs"])
     }
-    func testLivePositionUnknownContextAndSyncFailuresAreRejected() {
+    func testEnabledLiveAssetCanStartAnIndependentGroup() throws {
+        let live = state.merging(["paper": false, "account_mode": "live", "live_chart_scope": true]) { _, n in n }
+        let id = UUID().uuidString
+        let request = try TradeRules.flatHistoryRecoveryRequest(state: live, groupID: id)
+        XCTAssertEqual(request["expected_refs"] as? [String], ["WheelPaper:old"])
+        XCTAssertEqual(request["group_id"] as? String, id)
+        XCTAssertEqual(Set(request.keys), ["action", "group_id", "expected_refs"])
+        for key in ["enabled", "live_chart_scope"] {
+            XCTAssertThrowsError(try TradeRules.flatHistoryRecoveryRequest(state: live.merging([key: false]) { _, n in n }, groupID: id))
+        }
+    }
+    func testPositionUnknownContextAndSyncFailuresAreRejected() {
         let changes: [[String: Any]] = [["paper": false], ["account_mode": "live"], ["position": 1.0],
             ["position": Double.nan], ["account_position": -1.0], ["known": true], ["enabled": false],
             ["sync_error": true], ["sync_error": "Disconnected"], ["group_choices": []]]

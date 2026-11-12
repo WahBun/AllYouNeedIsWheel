@@ -770,7 +770,7 @@ $('new-order').onclick=async()=>{
  if($('new-order').disabled)return;
  const id=crypto.randomUUID();
  if(state.known!==false){selectGroup(id);log('New independent order · previous orders remain in Orders.');return;}
- if(profile.selected!=='paper'||!epoch||Date.now()-received>=15000||state.sync_error||localStorage.getItem(pendingKey()))return log(tradingBlockReason());
+ if(!epoch||state.enabled!==true||Date.now()-received>=15000||state.sync_error||localStorage.getItem(pendingKey()))return log(tradingBlockReason());
  const refs=state.group_attribution?.recovery_refs||state.group_choices?.map(g=>g.ref)||[];
  if(!refs.length||(state.account_position??state.position)!==0)return log('Resolve the current position and orders before starting a new group.');
  const selected=cid,token=generation,accountEpoch=epoch,request={action:'reconcile_flat_history',expected_refs:refs,request_id:crypto.randomUUID()};

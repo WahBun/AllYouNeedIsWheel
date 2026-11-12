@@ -43,6 +43,26 @@ class LiveAssetPolicyTests(unittest.TestCase):
                 with self.assertRaises(ValueError):validate(self.conn,c,dict(b,expected_position=2),state)
                 with self.assertRaises(ValueError):validate(self.conn,c,dict(b,entry_type='MKT',exit_type='MKT'),state)
 
+    def test_manage_only_an_identified_working_native_order_within_live_limits(self):
+        identity = dict(local_order_id=12, order_id=31, client_id=8, perm_id=1234)
+        state = dict(broker_pending_orders=[dict(identity, editable=True, cancelable=True)])
+        body = dict(identity, action='manage_broker_order', operation='amend', quantity=2, tif='DAY')
+        for contract in (self.contracts[0], self.contracts[2]):
+            validate(self.conn, contract, body, state)
+            validate(self.conn, contract, dict(body, operation='cancel'), state)
+            for key in identity:
+                with self.assertRaises(ValueError):
+                    validate(self.conn, contract, dict(body, **{key: 77}), state)
+        for change in ({'quantity': 11}, {'quantity': 0}, {'tif': 'OVERNIGHT'}, {'operation': 'submit'}):
+            with self.assertRaises(ValueError):
+                validate(self.conn, self.contracts[2], dict(body, **change), state)
+        with self.assertRaises(ValueError):
+            validate(self.conn, self.contracts[1], body, state)
+        state['broker_pending_orders'][0]['editable'] = False
+        with self.assertRaises(ValueError):
+            validate(self.conn, self.contracts[2], body, state)
+        validate(self.conn, self.contracts[2], dict(body, operation='cancel'), state)
+
     def test_unknown_contracts_and_unverified_future_multiplier_rejected(self):
         for c in self.contracts:
             c.currency='EUR'

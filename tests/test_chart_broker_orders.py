@@ -36,6 +36,39 @@ class ChartBrokerOrdersTests(unittest.TestCase):
         self.assertEqual(self.fixture.writes[0][1].orderId, 17)
         self.assertEqual(self.fixture.db.get_order(self.fixture.oid)['quantity'], 2)
 
+    def test_live_chart_and_orders_share_one_amendment_of_the_original_ticket(self):
+        import sys
+        from uuid import uuid4
+        from ib_async import Trade, OrderStatus
+        from api.services.paper_chart import PaperChart
+
+        f = self.fixture
+        account = 'U_TEST'
+        chart = PaperChart(f.db.db_path)
+        with chart.database() as db:
+            db.execute('UPDATE orders SET account_id=? WHERE id=?', (account, f.oid))
+        f.conn.account_id, f.conn.port = account, 4001
+        f.conn._order_account = lambda: account
+        f.service.config['account_id'] = f.order.account = account
+        f.contract.currency, f.contract.multiplier, f.contract.tradingClass = 'USD', '100', 'TEST'
+        f.conn.ib.client = NS(clientId=8)
+        f.conn.ib.managedAccounts = lambda: [account]
+        f.conn.ib.trades = lambda: [Trade(f.contract, f.order, OrderStatus(status=f.broker_status))]
+        f.conn.ib.openTrades = f.conn.ib.trades
+        f.conn.ib.fills = f.conn.ib.positions = lambda: []
+        request = dict(self.body, action='manage_broker_order', request_id=str(uuid4()))
+        profile = {'live': {'account_id': account, 'chart_options_live_enabled': True}}
+        with patch('api.routes.account.profiles', return_value=profile), \
+             patch('api.services.paper_chart.contracts.resolve', return_value=f.contract), \
+             patch.dict(sys.modules, {'api.routes.options': NS(options_service=f.service)}):
+            state = chart.state(f.conn, 123)
+            self.assertTrue(state['broker_pending_orders'][0]['editable'])
+            result = chart.execute(f.conn, 123, request)
+            self.assertTrue(result['success'], result)
+            self.assertEqual(chart.execute(f.conn, 123, request), result)
+            self.assertEqual([(o.orderId, o.permId, o.account) for _, o in f.writes], [(17, 71, account)])
+            self.assertEqual(f.db.get_order(f.oid)['quantity'], 2)
+
     def test_changed_identity_and_terms_do_not_write(self):
         for key, value in [('perm_id', 72), ('client_id', 9), ('order_id', 18),
                            ('expected', dict(quantity=4, premium=1., tif='GTC'))]:
