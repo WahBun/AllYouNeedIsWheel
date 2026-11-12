@@ -213,14 +213,24 @@ enum TradeRules {
         let mode = state["account_mode"] as? String
         let paper = state["paper"] as? Bool
         let matchedAccount = (mode == "paper" && paper == true) || (mode == "live" && paper == false && state["live_chart_scope"] as? Bool == true)
+        let draft = state["flat_draft"] as? [String: String]
+        let checkpoint = draft?["checkpoint"]
+        if let draft {
+            guard let checkpoint, UUID(uuidString: checkpoint) != nil,
+                  let target = draft["group_id"], target.isEmpty || target == groupID else {
+                throw AppError.message("The recovered draft changed. Refresh the selected order group.")
+            }
+        }
         guard UUID(uuidString: groupID) != nil, matchedAccount, state["known"] as? Bool == false,
               state["enabled"] as? Bool == true, state["sync_error"] as? Bool != true,
-              (state["sync_error"] as? String ?? "").isEmpty,
+              (state["sync_error"] as? String ?? "").isEmpty || checkpoint != nil,
               let position, position.isFinite, position == 0, !refs.isEmpty,
               refs.allSatisfy({ !$0.isEmpty }), Set(refs).count == refs.count else {
             throw AppError.message("Resolve the current position and orders before starting a new group.")
         }
-        return ["action": "reconcile_flat_history", "expected_refs": refs.sorted(), "group_id": groupID]
+        var request: [String: Any] = ["action": "reconcile_flat_history", "expected_refs": refs.sorted(), "group_id": groupID]
+        request["resume_checkpoint"] = checkpoint
+        return request
     }
     static func optionJoinMid(packet: [String: Any], conID: Int, epoch: String?, received: Date?, now: Date = .now) -> Double? {
         guard packet["security_type"] as? String == "OPT", let epoch, !epoch.isEmpty,

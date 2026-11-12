@@ -406,9 +406,10 @@ struct StockChartView: View {
         entry = "0"; beApplied = false; paperMessage = nil
         showAdjustment = false; showPositionProtection = false; showQuantityEditor = false
     }
-    private func newIndependentOrder() {
+    private func newIndependentOrder(previewDirection: Int? = nil) {
         guard !tradingLocked, !paperBusy, !store.trading.busy, store.chartTradingAvailable, let cid = chartID else { return }
-        let id = UUID().uuidString.lowercased()
+        let draft = paperState["flat_draft"] as? [String: String]
+        let id = draft?["group_id"].flatMap { $0.isEmpty ? nil : $0 } ?? UUID().uuidString.lowercased()
         guard paperState["known"] as? Bool == false else { selectOrderGroup(id); return }
         guard let received = paperReceived, (0..<3).contains(Date().timeIntervalSince(received)),
               let epoch = store.trading.accountEpoch, !epoch.isEmpty,
@@ -419,7 +420,11 @@ struct StockChartView: View {
         let body: [String: Any]
         do { body = try TradeRules.flatHistoryRecoveryRequest(state: paperState, groupID: id) }
         catch { paperMessage = connectionMessage(error); return }
-        let base = store.address, original = selectedOrderGroup
+        if store.trading.paperPending(base: store.address, conID: cid, groupID: id) {
+            selectOrderGroup(id)
+            return
+        }
+        let base = store.address, original = selectedOrderGroup, sourceContext = context
         paperBusy = true
         paperMessage = "Checking broker positions and open orders before starting a new group…"
         Task {
@@ -432,6 +437,13 @@ struct StockChartView: View {
                       store.trading.accountEpoch == epoch else { return }
                 if result["success"] as? Bool == true || store.trading.paperPending(base: base, conID: cid, groupID: id) {
                     paperBusy = false; selectOrderGroup(id)
+                    if let previewDirection, !tradingLocked, sourceContext == context,
+                       let draft = result["state"] as? [String: Any], draft["group_id"] as? String == id,
+                       draft["known"] as? Bool == true, draft["active"] as? Bool == false,
+                       draft["enabled"] as? Bool == true, draft["sync_error"] == nil {
+                        applyPaperState(draft)
+                        makePreview(side: previewDirection)
+                    }
                 }
                 paperMessage = result["message"] as? String
             } catch {
@@ -1152,7 +1164,12 @@ struct StockChartView: View {
         }
     }
     private func makePreview(side: Int) {
-        guard !paperActive, !paperBusy else { return }
+        guard !tradingLocked, !paperBusy else { return }
+        if paperState["can_preview_new_entry"] as? Bool == true {
+            newIndependentOrder(previewDirection: side)
+            return
+        }
+        guard !paperActive else { return }
         let price = validEntry > 0 ? validEntry : ((packet["bars"] as? [[String: Any]])?.last?["close"] as? Double ?? 0)
         guard price > 0 else { return }
         entry = String(price); previewSide = side; midDirectionContext = joinMidContext; previewRevision += 1
@@ -1537,7 +1554,7 @@ struct StockChartView: View {
                     Spacer()
                     Button { newIndependentOrder() } label: {
                         Label("New order", systemImage: "plus")
-                    }
+                    }.disabled(paperState["known"] as? Bool == nil)
                 }.disabled(paperBusy || store.trading.busy)
             }
             if !fullScreen && !tradingPanelCollapsed {
@@ -1571,7 +1588,7 @@ struct StockChartView: View {
                     HStack(spacing: 8) {
                         Button { makePreview(side: 1) } label: { Text("Buy").frame(maxWidth: .infinity, minHeight: 30) }.tint(.blue).overlay(RoundedRectangle(cornerRadius: 8).stroke(chartType == "OPT" && midDirectionSelected && previewSide == 1 ? Color.blue : Color.clear, lineWidth: 2))
                         Button { makePreview(side: -1) } label: { Text("Sell").frame(maxWidth: .infinity, minHeight: 30) }.tint(.red).overlay(RoundedRectangle(cornerRadius: 8).stroke(chartType == "OPT" && midDirectionSelected && previewSide == -1 ? Color.red : Color.clear, lineWidth: 2))
-                    }.disabled(paperBusy || paperActive)
+                    }.disabled(paperBusy || (paperActive && paperState["can_preview_new_entry"] as? Bool != true))
                     if chartType == "OPT" {
                         Button { joinMid() } label: { Text("Join Mid").frame(maxWidth: .infinity, minHeight: 30) }
                             .tint(.primary).disabled(joinMidPrice == nil || !paperEnabled || paperBusy || paperActive || tradingLocked)

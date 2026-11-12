@@ -364,10 +364,10 @@ function sync(){if(ready)syncVolatility();defaultNewQuantity();if(state.live_ini
 const config={con_id:cid,entry,quantity:Number($('quantity').value),entryType:$('type').value,dark,priceRules:packet.price_rules||[],multiplier:protectionMultiplier(),holdings:holdingRows(),tpDistance:Number($('tp').value),slDistance:Number($('sl').value),tpEnabled:$('bracket-enabled').checked&&$('tp-enabled').checked,slEnabled:$('bracket-enabled').checked&&$('sl-enabled').checked,tpMode:$('tp-mode').value,slMode:$('sl-mode').value,templateRevision:revision,joinSide,joinRevision,previewSide,previewRevision,display:{...WheelChartSettings.effective(WheelChartSettings.paneDisplay({...display,atr:packet.security_type==='OPT'?display.optionATR===true:display.atr},packet.security_type,chartLayout.showTable(frame)),session,emaContext===emaKey()?emaFrames:{},interval),tradingLocked},executions:executionContext===executionsKey()?chartExecutions:[],paper:{...state,quantity_limit:newQuantityLimit(),trading_block_reason:can?'':tradingBlockReason(),adjustment_quantity:Number($('adjustment-quantity').value),enabled:can,busy,webEntryDrag:true,web_account_epoch:epoch,entry_drag_allowed:entryFlight?.role==='entry'&&canQueueEntry(),entry_target:entryFlight?.role==='entry'?(queuedEntry?.price??entryFlight.price):undefined,protection_drag_role:entryFlight?.role!=='entry'&&canQueueEntry()?entryFlight?.role:null,protection_target:entryFlight?.role!=='entry'?(queuedEntry?.price??entryFlight?.price):undefined,preview_tif:$('tif').value,submit_revision:revision}};
 $('resolve-request').hidden=!localStorage.getItem(pendingKey())||busy||state.known!==true;frame.contentWindow.configure(config);renderPendingAdds(can);$('order-status').textContent=`${enabled()?'Trading · ':''}${state.orders?.some(o=>o.status==='PendingCancel')?'Waiting for IB cancellation':state.status||'View'}${busy?' · Updating…':''}${entryFlight?' · '+entryFlight.role.toUpperCase()+' target '+(queuedEntry?.price??entryFlight.price)+' (pending)':''}${localStorage.getItem(pendingKey())?' · Confirming outcome…':''}`;$('order-status').title=$('order-status').textContent;
 $('order-group').disabled=tradingLocked||busy;
-$('new-order').disabled=tradingLocked||busy||!cid||(profile.selected!=='paper'&&profile.chart_execution_enabled!==true)||!profile.verified;
+$('new-order').disabled=tradingLocked||busy||!cid||typeof state.known!=='boolean'||(profile.selected!=='paper'&&profile.chart_execution_enabled!==true)||!profile.verified;
 syncJoinControls();clearAccountNotice();
 for(const id of ['close','be'])$(id).disabled=!can||(id==='close'?(!(state.active||state.position)||(state.position_only===true&&!state.position_manageable)||state.close_allowed===false):id==='be'?(!state.position||state.be_allowed!==true):state.active===true||!(Number($('quantity').value)>0));
-for(const id of ['preview-buy','preview-sell'])$(id).disabled=tradingLocked||!!newQuantityReason(Number($('quantity').value))||!cid||busy||switchingChart||state.active;for(const id of ['quantity-minus','quantity-plus'])$(id).disabled=tradingLocked||busy||state.active===true;const size=Math.abs(state.position||0),adjustment=Number($('adjustment-quantity').value),valid=Number.isInteger(adjustment)&&adjustment>0;$('adjustment-control').hidden=!size;$('adjustment-quantity').disabled=!can||!(state.add_allowed??state.scalable)&&!(state.trim_allowed??state.scalable)||!size;const adjustmentMax=Math.max(1,(state.add_allowed??state.scalable)?(state.add_available??1):0,(state.trim_allowed??state.scalable)?Math.floor(Math.min(Math.ceil(size)-1,state.trim_available??size)):0);$('adjustment-quantity').max=adjustmentMax;$('adjustment-minus').disabled=$('adjustment-quantity').disabled||adjustment<=1;$('adjustment-plus').disabled=$('adjustment-quantity').disabled||adjustment>=adjustmentMax;for(const id of ['add','trim']){$(id).disabled=!can||!(id==='add'?(state.add_allowed??state.scalable):(state.trim_allowed??state.scalable))||!size||!valid||(id==='trim'&&(adjustment>=size||adjustment>(state.trim_available??size)))||(id==='add'&&adjustment>(state.add_available??Infinity));$(id).title=id==='trim'&&adjustment>=size?'Trim must leave a position; use Close position':'';}$('bracket-control').hidden=state.active===true;for(const id of ['quantity','type','tif','bracket-enabled','tp-enabled','sl-enabled'])$(id).disabled=tradingLocked||busy||state.active===true||(!!state.live_initial_scope&&['quantity','type','bracket-enabled','tp-enabled','sl-enabled'].includes(id));if(!state.position)for(const role of ['tp','sl']){$(role).disabled=tradingLocked||busy||state.active===true||!$('bracket-enabled').checked||!$(role+'-enabled').checked;$(role+'-mode').disabled=tradingLocked||busy||state.active===true||!$('bracket-enabled').checked;}$('manage-protection').hidden=!state.position;$('manage-protection').disabled=!can||!state.protection_manageable;$('manage-protection').title=state.protection_block_reason||'';syncPositionProtection();renderTradingContext();}
+for(const id of ['preview-buy','preview-sell'])$(id).disabled=tradingLocked||!!newQuantityReason(Number($('quantity').value))||!cid||busy||switchingChart||(state.active&&!state.can_preview_new_entry);for(const id of ['quantity-minus','quantity-plus'])$(id).disabled=tradingLocked||busy||state.active===true;const size=Math.abs(state.position||0),adjustment=Number($('adjustment-quantity').value),valid=Number.isInteger(adjustment)&&adjustment>0;$('adjustment-control').hidden=!size;$('adjustment-quantity').disabled=!can||!(state.add_allowed??state.scalable)&&!(state.trim_allowed??state.scalable)||!size;const adjustmentMax=Math.max(1,(state.add_allowed??state.scalable)?(state.add_available??1):0,(state.trim_allowed??state.scalable)?Math.floor(Math.min(Math.ceil(size)-1,state.trim_available??size)):0);$('adjustment-quantity').max=adjustmentMax;$('adjustment-minus').disabled=$('adjustment-quantity').disabled||adjustment<=1;$('adjustment-plus').disabled=$('adjustment-quantity').disabled||adjustment>=adjustmentMax;for(const id of ['add','trim']){$(id).disabled=!can||!(id==='add'?(state.add_allowed??state.scalable):(state.trim_allowed??state.scalable))||!size||!valid||(id==='trim'&&(adjustment>=size||adjustment>(state.trim_available??size)))||(id==='add'&&adjustment>(state.add_available??Infinity));$(id).title=id==='trim'&&adjustment>=size?'Trim must leave a position; use Close position':'';}$('bracket-control').hidden=state.active===true;for(const id of ['quantity','type','tif','bracket-enabled','tp-enabled','sl-enabled'])$(id).disabled=tradingLocked||busy||state.active===true||(!!state.live_initial_scope&&['quantity','type','bracket-enabled','tp-enabled','sl-enabled'].includes(id));if(!state.position)for(const role of ['tp','sl']){$(role).disabled=tradingLocked||busy||state.active===true||!$('bracket-enabled').checked||!$(role+'-enabled').checked;$(role+'-mode').disabled=tradingLocked||busy||state.active===true||!$('bracket-enabled').checked;}$('manage-protection').hidden=!state.position;$('manage-protection').disabled=!can||!state.protection_manageable;$('manage-protection').title=state.protection_block_reason||'';syncPositionProtection();renderTradingContext();}
 const cancelAddButtons=new Map();
 function renderPendingAdds(can){
  let list=$('pending-adds');if(!list){list=document.createElement('div');list.id='pending-adds';$('adjustment-control').after(list);}
@@ -766,21 +766,34 @@ function renderGroups(value){
  picker.value=groupID;picker.disabled=busy;
 }
 function selectGroup(id){if(busy)return;resetNewQuantity();groupID=id;saveSelectedGroup(cid,id);generation++;marketStream.stop();lastFallback=0;lastPnL=0;entry=0;state={};received=0;revision++;$('editor').close();renderGroups({});sync();refresh();}
-$('new-order').onclick=async()=>{
+async function startNewOrder(previewDirection){
  if($('new-order').disabled)return;
- const id=crypto.randomUUID();
+ const draft=state.flat_draft;
+ const id=draft?.group_id||crypto.randomUUID();
  if(state.known!==false){selectGroup(id);log('New independent order · previous orders remain in Orders.');return;}
- if(!epoch||state.enabled!==true||Date.now()-received>=15000||state.sync_error||localStorage.getItem(pendingKey()))return log(tradingBlockReason());
+ if(!epoch||state.enabled!==true||Date.now()-received>=15000||(state.sync_error&&!draft)||localStorage.getItem(pendingKey()))return log(tradingBlockReason());
  const refs=state.group_attribution?.recovery_refs||state.group_choices?.map(g=>g.ref)||[];
  if(!refs.length||(state.account_position??state.position)!==0)return log('Resolve the current position and orders before starting a new group.');
  const selected=cid,token=generation,accountEpoch=epoch,request={action:'reconcile_flat_history',expected_refs:refs,request_id:crypto.randomUUID()};
+ if(draft)request.resume_checkpoint=draft.checkpoint;
  const key=`wheel.web.pending:${profile.selected}:${selected}:${id}`;
+ if(localStorage.getItem(key)){selectGroup(id);return;}
  busy=true;writeVersion++;localStorage.setItem(key,request.request_id);sync();log('Checking broker positions and open orders before starting a new group…');
  let result;
  try{result=await api(`portfolio/paper-chart/${selected}?group_id=${encodeURIComponent(id)}`,request);if(terminal.has(result.status))localStorage.removeItem(key);log(result.message||result.status);}
  catch(error){if(error.confirmed)localStorage.removeItem(key);log(error.message+' · No trading order was sent.');}
- finally{busy=false;if(token===generation&&accountEpoch===epoch&&(result?.success||localStorage.getItem(key)))selectGroup(id);else sync();}
-};
+ finally{
+  busy=false;
+  if(token===generation&&accountEpoch===epoch&&(result?.success||localStorage.getItem(key))){
+   selectGroup(id);
+   const draftState=result?.state;
+   if(previewDirection&&!tradingLocked&&draftState?.group_id===id&&draftState.known&&draftState.enabled&&!draftState.active&&!draftState.sync_error){
+    applyState(draftState);previewEntry(previewDirection);
+   }
+  }else sync();
+ }
+}
+$('new-order').onclick=()=>startNewOrder();
 $('order-group').onchange=()=>selectGroup($('order-group').value);
 $('contracts').onchange=()=>select(Number($('contracts').value),$('contracts').selectedOptions[0].textContent);
 const periods=[[1,'1m','Minutes'],[3,'3m','Minutes'],[5,'5m','Minutes'],[10,'10m','Minutes'],[15,'15m','Minutes'],[60,'1h','Hours'],[480,'8h','Hours'],[1440,'1D','Days'],[10080,'1W','Days'],[43200,'1M','Days']];
@@ -837,7 +850,13 @@ $('protection-dismiss').onclick=()=>$('protection-editor').close();
 function protectionCurrent(){return protectionContext&&protectionContext.cid===cid&&protectionContext.ref===state.order_ref&&protectionContext.epoch===epoch&&protectionContext.groupID===groupID&&protectionContext.quantity===Math.abs(state.position)&&protectionContext.entry===state.entry;}
 $('protection-form').onsubmit=e=>{e.preventDefault();if(!protectionCurrent())return log('Order changed; reopen TP / SL.');const tp=$('position-tp-enabled').checked?positionTP():null,sl=$('position-sl-enabled').checked?positionTarget('sl'):null;if([tp,sl].some(v=>v!==null&&(!Number.isFinite(v)||v<=0)))return log('Enter valid enabled protection prices.');$('protection-editor').close();write({action:'set_protection',expected_ref:protectionContext.ref,expected_snapshot:protectionContext.snapshot,confirm_replace_protection:true,tp,sl});};
 $('protection-remove').onclick=()=>{if(!protectionCurrent())return;const ref=protectionContext.ref;$('protection-editor').close();action({action:'cancelProtectionPreview',con_id:cid,expected_ref:ref});};
-for(const [id,side] of [['preview-buy',1],['preview-sell',-1]])$(id).onclick=()=>{if(tradingLocked||!cid||busy||switchingChart||state.active)return;entry=entry||packet.bars?.at(-1)?.close||0;previewSide=side;midDirectionContext=JSON.stringify(marketContext());previewRevision++;sync();};
+function previewEntry(side){
+ if(tradingLocked||!cid||busy||switchingChart)return;
+ if(state.can_preview_new_entry)return startNewOrder(side);
+ if(state.active)return;
+ entry=entry||packet.bars?.at(-1)?.close||0;previewSide=side;midDirectionContext=JSON.stringify(marketContext());previewRevision++;sync();
+}
+for(const [id,side] of [['preview-buy',1],['preview-sell',-1]])$(id).onclick=()=>previewEntry(side);
 $('mid').onclick=()=>beginJoin('mid',previewSide);
 for(const [id,side] of [['bid',1],['ask',-1]])$(id).onclick=()=>beginJoin(id,side);
 $('quantity').addEventListener('input',()=>{quantityEdited=true;});

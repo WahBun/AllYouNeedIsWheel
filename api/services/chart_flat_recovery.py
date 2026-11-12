@@ -94,10 +94,26 @@ def reconcile(service, conn, account, cid, body, request_id):
             raise ValueError('Broker position is not confirmed flat')
         unchanged()
     baseline = [json.loads(r) for r in before]
+    if 'resume_checkpoint' in body:
+        checkpoint = latest(service, account, cid)
+        if not checkpoint or checkpoint['request_id'] != body['resume_checkpoint']:
+            raise ValueError('The recovered draft changed; refresh the selected order group')
+        projection = service.group_projection(conn, account, cid)
+        if not projection['known'] or any(projection['positions'].values()):
+            raise ValueError('Order history changed; reconcile the current orders before returning to a draft')
+        used = any(choice['id'] == checkpoint['group_id'] for choice in choices)
+        if not used:
+            if service.group_id != checkpoint['group_id']:
+                raise ValueError('The recovered draft does not match this order group')
+            unchanged()
+            return dict(success=True, status='acknowledged', message='Broker confirmed flat. Returned to the existing order draft.')
+        # IB may have aged older fills out of this session.
+        baseline.extend(checkpoint['baseline'])
     with service.database() as db:
         if db.execute("SELECT 1 FROM sqlite_master WHERE name='group_execution_evidence'").fetchone():
             baseline += [{k: json.loads(row[0]).get(k) for k in FIELDS} for row in db.execute(
                 'SELECT payload FROM group_execution_evidence WHERE account=? AND con_id=?', (account, cid))]
+    baseline = [json.loads(row) for row in sorted({json.dumps(r, sort_keys=True) for r in baseline})]
     _, unambiguous = execution_groups([SimpleNamespace(**r) for r in baseline])
     if not unambiguous:
         raise ValueError('Conflicting historical executions cannot establish a new lifecycle')

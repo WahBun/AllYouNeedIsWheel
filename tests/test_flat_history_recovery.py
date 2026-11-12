@@ -40,6 +40,34 @@ class FlatHistoryRecovery(unittest.TestCase):
         self.assertEqual(state['group_attribution']['historical_unresolved_refs'],[self.ref])
         self.conn.ib.placeOrder.assert_not_called();self.conn.ib.cancelOrder.assert_not_called()
 
+    def test_resume_checks_current_evidence_and_preserves_boundary(self):
+        self.old()
+        self.assertTrue(self.recover()['success'])
+        old_state = self.service.state(self.conn, 7)
+        draft = old_state['flat_draft']
+        checkpoint = latest(self.new, 'DU_TEST', 7)
+        def resume(service, checkpoint_id):
+            return service.execute(self.conn, 7, dict(self.body, request_id=str(uuid4()),
+                                   resume_checkpoint=checkpoint_id))
+
+        self.assertFalse(resume(PaperChart(self.service.path, str(uuid4())), draft['checkpoint'])['success'])
+        self.assertFalse(resume(self.new, str(uuid4()))['success'])
+        self.assertFalse(resume(self.service, draft['checkpoint'])['success'])
+        opened = S(order=S(account='DU_TEST'), contract=self.contract)
+        self.conn._bounded_order_read.side_effect = lambda fn, **kw: [opened] if fn == self.conn.ib.reqAllOpenOrders else []
+        self.assertFalse(resume(self.new, draft['checkpoint'])['success'])
+        self.conn._bounded_order_read.side_effect = None
+        self.conn._bounded_order_read.return_value = []
+        now = datetime.now(timezone.utc)
+        self.conn.ib.fills.return_value = [Fill(self.contract, Execution(execId='late', acctNumber='DU_TEST',
+            clientId=71, orderId=11, permId=111, orderRef=self.ref, side='BOT', shares=1, price=9, time=now),
+            CommissionReport(), now)]
+        self.assertNotIn('flat_draft', self.service.state(self.conn, 7))
+        self.assertFalse(resume(self.new, draft['checkpoint'])['success'])
+        self.assertEqual(latest(self.new, 'DU_TEST', 7), checkpoint)
+        self.conn.ib.placeOrder.assert_not_called()
+        self.conn.ib.cancelOrder.assert_not_called()
+
     def test_submit_after_checkpoint_tracks_only_new_execution_ownership(self):
         self.old();self.assertTrue(self.recover()['success'])
         original=self.conn.ib.placeOrder.side_effect
@@ -51,6 +79,39 @@ class FlatHistoryRecovery(unittest.TestCase):
         self.assertTrue(result['success'],result)
         self.assertEqual(self.conn.ib.placeOrder.call_count,1)
         self.assertTrue(self.new.state(self.conn,7)['known'])
+
+    def test_consumed_draft_remains_manageable_until_broker_confirms_terminal(self):
+        self.old()
+        now = datetime.now(timezone.utc)
+        self.conn.ib.fills.return_value = [Fill(self.contract, Execution(execId='aged', acctNumber='DU_TEST',
+            clientId=71, orderId=10, permId=110, orderRef=self.ref, side='SLD', shares=1, price=9, time=now),
+            CommissionReport(), now)]
+        self.assertTrue(self.recover()['success'])
+        self.conn.ib.fills.return_value = []
+        place = self.conn.ib.placeOrder.side_effect
+        def place_identified(contract, order):
+            order.clientId = 71
+            order.permId = 1000 + order.orderId
+            return place(contract, order)
+        self.conn.ib.placeOrder.side_effect = place_identified
+        submitted = self.new.execute(self.conn, 7, dict(action='submit', request_id=str(uuid4()),
+            side=1, quantity=1, entry_type='LMT', entry=10, tif='DAY'))
+        self.assertTrue(submitted['state']['entry_editable'])
+        self.assertNotIn('can_preview_new_entry', self.service.state(self.conn, 7))
+        self.trades[-1].orderStatus.status = 'Cancelled'
+        state = self.service.state(self.conn, 7)
+        self.assertTrue(state['can_preview_new_entry'])
+        draft = state['flat_draft']
+        self.assertEqual(draft['group_id'], '')
+        next_draft = PaperChart(self.service.path, str(uuid4()))
+        result = next_draft.execute(self.conn, 7, dict(action='reconcile_flat_history',
+            request_id=str(uuid4()), expected_refs=state['group_attribution']['recovery_refs'],
+            resume_checkpoint=draft['checkpoint']))
+        self.assertTrue(result['success'], result)
+        self.assertEqual(self.service.state(self.conn, 7)['flat_draft']['group_id'], next_draft.group_id)
+        self.assertEqual([r['execId'] for r in latest(next_draft, 'DU_TEST', 7)['baseline']], ['aged'])
+        self.assertEqual(self.conn.ib.placeOrder.call_count, 1)
+        self.conn.ib.cancelOrder.assert_not_called()
 
     def test_unresolved_write_blocks_even_with_empty_broker_snapshots(self):
         self.old()
@@ -142,7 +203,9 @@ class FlatHistoryRecovery(unittest.TestCase):
                     def request():
                         return new.execute(self.conn, cid, dict(action='reconcile_flat_history',
                             request_id=str(uuid4()), expected_refs=[ref]))
-                    self.assertFalse(self.service.state(self.conn, cid)['known'])
+                    history = self.service.state(self.conn, cid)
+                    self.assertFalse(history['known'])
+                    self.assertTrue(history['can_preview_new_entry'])
                     # Even with the other two capabilities enabled, this contract must be allowed.
                     profile[CAPABILITIES[kind]] = False
                     self.assertFalse(request()['success'])
@@ -153,7 +216,18 @@ class FlatHistoryRecovery(unittest.TestCase):
                     self.assertTrue(new.state(self.conn, cid)['known'])
                     self.assertEqual(new.state(self.conn, cid)['position'], 0)
                     self.assertEqual(self.service.group(live, cid), old)
-                    self.assertFalse(self.service.state(self.conn, cid)['known'])
+                    history = self.service.state(self.conn, cid)
+                    self.assertFalse(history['known'])
+                    draft = history['flat_draft']
+                    self.assertTrue(history['can_preview_new_entry'])
+                    self.assertEqual(draft['group_id'], new.group_id)
+                    resumed = new.execute(self.conn, cid, dict(action='reconcile_flat_history',
+                        request_id=str(uuid4()), expected_refs=[ref], resume_checkpoint=draft['checkpoint']))
+                    self.assertTrue(resumed['success'], resumed)
+                    self.assertTrue(resumed['state']['known'])
+                    self.assertFalse(resumed['state']['active'])
+                    self.assertEqual(latest(new, live, cid)['request_id'], draft['checkpoint'])
+                    self.assertEqual(self.service.group(live, cid), old)
                     self.assertIsNone(latest(new, 'U_LINKED', cid))
         self.conn.ib.placeOrder.assert_not_called()
         self.conn.ib.cancelOrder.assert_not_called()
