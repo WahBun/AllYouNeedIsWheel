@@ -12,6 +12,8 @@ from zoneinfo import ZoneInfo
 from functools import lru_cache
 import pandas_market_calendars as calendars
 from api.services.chart_last_gap import LastTradeGap
+from api.services.chart_timed_trades import ChartTrades
+from ib_async.wrapper import Wrapper
 from api.services.chart_sessions import cme_regular, session_windows, rth_source_size
 from api.services.chart_initial_history import InitialChartHistory, ChartHistoryPending
 
@@ -48,12 +50,39 @@ def historical_volume(bar):
                 volume_unit='IB_reported')
 
 
+def minute_bars(history):
+    rows = {}
+    for bar in history:
+        if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
+            continue
+        prices = [positive(getattr(bar, field)) for field in ('open', 'high', 'low', 'close')]
+        if None in prices:
+            continue
+        o, h, l, c = prices
+        if l <= min(o, c) <= max(o, c) <= h:
+            stamp = int(bar.date.timestamp())
+            rows[stamp] = dict(time=stamp, open=o, high=h, low=l, close=c, **historical_volume(bar))
+    return [rows[stamp] for stamp in sorted(rows)]
+
+
 def unknown_volume(bar):
     # No trade identity or history/live watermark: adding sizes can double count.
     if bar.get('volume_status') == 'historical_snapshot':
         bar['historical_volume'] = bar.get('volume')
     bar.update(volume=None, volume_status='unknown', volume_unit='IB_reported')
     return bar
+
+
+def merge_minute_history(state, older, request_start):
+    merged = {b['time']: b for b in state['bars']}
+    merged.update({b['time']: b for b in older})
+    if state.get('timed_trades'):
+        state['timed_trades'].settle_history(older, request_start)
+    for stamp, live in state['live_bars'].items():
+        baseline = merged.get(stamp, live)
+        merged[stamp] = unknown_volume(dict(baseline, high=max(baseline['high'], live['high']),
+                                            low=min(baseline['low'], live['low']), close=live['close']))
+    state['bars'] = sorted(merged.values(), key=lambda bar: bar['time'])[-12000:]
 
 
 def merge_volume(target, incoming):
@@ -166,22 +195,27 @@ class StockChart:
         self.has_subscribers = lambda con_id: False
 
     def observe_alert_trade_times(self, wrapper):
-        """Read broker Last times for alerts while leaving the chart's SDK ticks intact."""
-        from ib_async.wrapper import Wrapper
+        """Retain wire trade times for alerts and exchange-timed chart bars."""
         if not isinstance(wrapper, Wrapper) or getattr(wrapper, '_wheel_alert_last_installed', False):
             return
         receive = wrapper.tickByTickAllLast
 
         def on_last(req_id, kind, stamp, price, *fields):
             receive(req_id, kind, stamp, price, *fields)
-            if not self.last_trade_observers:
-                return
             ticker = wrapper.reqId2Ticker.get(req_id)
             if ticker is None or wrapper.ticker2ReqId.get('Last', {}).get(ticker) != req_id:
                 return
             cid = ticker.contract.conId
-            state, observer = self.states.get(cid), self.last_trade_observers.get(cid)
-            if not state or not observer or state['ticker'] is not ticker or state['conn'].ib.wrapper is not wrapper:
+            state = self.states.get(cid)
+            if not state or state['ticker'] is not ticker or state['conn'].ib.wrapper is not wrapper:
+                return
+            trades = state.get('timed_trades')
+            if trades and ticker.tickByTicks:
+                # The SDK stamps its TickByTickAllLast with local receipt time.
+                # Keep the wire timestamp separately so other ticker listeners are unchanged.
+                trades.wire_times[id(ticker.tickByTicks[-1])] = stamp
+            observer = self.last_trade_observers.get(cid)
+            if not observer:
                 return
             if ticker.marketDataType != 1:
                 state.pop('alert_last_trade', None)
@@ -248,6 +282,8 @@ class StockChart:
                 state['conn'].ib.cancelHistoricalData(historical)
             for historical in state.get('higher', {}).values():
                 state['conn'].ib.cancelHistoricalData(historical)
+            if state.get('timed_trades'):
+                state['timed_trades'].close()
             state['ticker'].updateEvent -= state['handler']
             if state.get('permission_handler') is not None:
                 state['conn'].ib.errorEvent -= state['permission_handler']
@@ -426,26 +462,17 @@ class StockChart:
                 finally:
                     if event is not None: event -= history_error
                 history_elapsed = time.monotonic() - history_started
-            bars = []
-            for bar in historical:
-                if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
-                    continue
-                prices = [positive(getattr(bar, field)) for field in ('open', 'high', 'low', 'close')]
-                if any(value is None for value in prices):
-                    continue
-                o, h, l, c = prices
-                if not l <= min(o, c) <= max(o, c) <= h:
-                    continue
-                bars.append(dict(time=int(bar.date.timestamp()), open=o, high=h, low=l, close=c, **historical_volume(bar)))
-            bars = list({b['time']: b for b in bars}.values())
-            bars.sort(key=lambda b: b['time'])
+            bars = minute_bars(historical)
             from api.services.history_health import record as record_history_health
             history_timed_out = not other_history_errors and history_elapsed >= (6 if option_bars else 15)*0.95
             if bars:
                 record_history_health(conn, con_id, 'success')
             elif history_timed_out:
                 record_history_health(conn, con_id, 'timeout')
-            if not bars:
+            timed_stock = contract.secType == 'STK' and contract.currency == 'USD'
+            live_only = (not bars and history_timed_out and not permission_errors
+                         and (timed_stock or cme_regular(contract)) and isinstance(conn.ib.wrapper, Wrapper))
+            if not bars and not live_only:
                 # Failed history must not monopolize the serialized account/order lane.
                 # Transient history timeouts should not impose a full minute
                 # of blank chart. Keep the existing 15-second pacing floor,
@@ -508,6 +535,8 @@ class StockChart:
                         state['quotes'][side] = (quote.time.timestamp(),
                             positive(quote.price) if (quote.tickType in (1, 2) or
                                 (quote.tickType in (0, 3) and positive(getattr(quote, 'size', None)))) else None)
+                trades = state.get('timed_trades')
+                now_wall = time.time()
                 for tick in ([] if option_bars else updated.tickByTicks):
                     if hasattr(tick, 'bidPrice'):
                         gap.bid_ask += 1
@@ -516,8 +545,13 @@ class StockChart:
                         continue
                     if not hasattr(tick, 'price'):
                         continue
+                    if trades:
+                        stamp = trades.wire_times.pop(id(tick), None)
+                        if type(stamp) is int and updated.marketDataType == 1:
+                            trades.record(stamp, tick.price, True, now_wall)
+                        continue
                     timestamp = tick.time.timestamp()
-                    if timestamp > time.time() + 5:
+                    if timestamp > now_wall + 5:
                         gap.future += 1
                         continue
                     if state['last_tick'] is not None and timestamp < state['last_tick']:
@@ -541,6 +575,9 @@ class StockChart:
                         gap.invalid += 1
                     else:
                         gap.before_tail += 1
+                if trades:
+                    trades.wire_times.clear()
+                    trades.update_subscription(now_wall)
                 if gap is not None:
                     gap.observe(state['ticks'] - ticks_before)
                 for listener in tuple(self.listeners):
@@ -549,6 +586,16 @@ class StockChart:
             self.active = state
             self.states[con_id] = state
             ticker.updateEvent += on_tick
+            if (timed_stock or live_only) and isinstance(conn.ib.wrapper, Wrapper):
+                self.observe_alert_trade_times(conn.ib.wrapper)
+                def publish_trades():
+                    if self.states.get(con_id) is state:
+                        for listener in tuple(self.listeners):
+                            listener(state)
+                trades = state['timed_trades'] = ChartTrades(state, publish_trades)
+                if live_only:
+                    trades.start()
+                    trades.recover_history()
             if not option_bars:
                 # Match IB subscription IDs, not just the contract: retired
                 # subscriptions can report errors after the same chart reopens.
@@ -562,7 +609,7 @@ class StockChart:
                             or state['client'] is not conn.ib.client):
                         return
                     state.setdefault('permission_errors', {})[request_ids[req_id]] = (
-                        state['last_tick'], dict(state['quotes']))
+                        state['timed_trades'].last_primary if state.get('timed_trades') else state['last_tick'], dict(state['quotes']))
                 state['permission_handler'] = on_permission_error
                 conn.ib.errorEvent += on_permission_error
             if minutes != 480:
@@ -590,30 +637,14 @@ class StockChart:
                 state['minute_history']=historical;state['history_handler']=on_history
                 historical.updateEvent += on_history
             asyncio.get_event_loop().call_later(30, self.expire, state)
-        if not (defer_history and (minutes >= 1440 or (minutes == 480 and session == 'rth'))) and not initial and not state.get('backfilled') and time.monotonic() >= state.get('backfill_retry', 0):
+        if not (defer_history and (minutes >= 1440 or (minutes == 480 and session == 'rth'))) and not initial and not state.get('backfilled') and not state.get('recovery_task') and time.monotonic() >= state.get('backfill_retry', 0):
             state['backfill_retry'] = time.monotonic() + 30
+            history_requested = time.time()
             history = conn.ib.reqHistoricalData(contract, '', '5 D', '1 min', 'TRADES',
                 useRTH=False, formatDate=2, keepUpToDate=False, timeout=2 if contract.secType == 'OPT' else 5)
-            older = []
-            for bar in history:
-                if not isinstance(bar.date, datetime) or bar.date.tzinfo is None:
-                    continue
-                values = [positive(getattr(bar, field)) for field in ('open','high','low','close')]
-                if any(value is None for value in values):
-                    continue
-                o,h,l,c = values
-                if l <= min(o,c) <= max(o,c) <= h:
-                    older.append(dict(time=int(bar.date.timestamp()),open=o,high=h,low=l,close=c,**historical_volume(bar)))
+            older = minute_bars(history)
             if older:
-                # Refresh historical baselines; retain extrema from received live ticks.
-                merged = {b['time']: b for b in state['bars']}
-                merged.update({b['time']: b for b in older})
-                for stamp, live_bar in state['live_bars'].items():
-                    baseline = merged.get(stamp, live_bar)
-                    merged[stamp] = dict(baseline, high=max(baseline['high'], live_bar['high']),
-                        low=min(baseline['low'], live_bar['low']), close=live_bar['close'])
-                    unknown_volume(merged[stamp])
-                state['bars'] = sorted(merged.values(), key=lambda b:b['time'])[-12000:]
+                merge_minute_history(state, older, history_requested)
                 state['backfilled'] = True
         state['used'] = time.monotonic()
         conn.ib.sleep(0.01)  # Drain IB events on the owner thread, not an HTTP thread.
@@ -745,7 +776,9 @@ class StockChart:
         ticker = state['ticker']
         now = time.time()
         quotes = state['quotes']
-        activity = max([stamp for stamp, _ in quotes.values()] + [last or 0])
+        trades = state.get('timed_trades')
+        primary_activity = trades.primary_received if trades else last
+        activity = max([stamp for stamp, _ in quotes.values()] + [primary_activity or 0])
         def fresh_quote(side):
             stamp, price = quotes.get(side, (None, None))
             return price if (stamp is not None and 0 <= now - stamp < 30 and 0 <= now - activity < 10
@@ -759,7 +792,8 @@ class StockChart:
         # ticker fields into executable quotes, nor change candle freshness.
         permission_errors = state.get('permission_errors', {})
         for kind, (previous_last, previous_quotes) in list(permission_errors.items()):
-            recovered = (last != previous_last and age is not None and 0 <= age < 10) if kind == 'Last' else (
+            primary_last = trades.last_primary if trades else last
+            recovered = (primary_last is not None and primary_last != previous_last and 0 <= now - primary_last < 10) if kind == 'Last' else (
                 bid is not None and ask is not None
                 and all(quotes.get(side) != previous_quotes.get(side) for side in ('bid', 'ask')))
             if recovered:
@@ -793,6 +827,8 @@ class StockChart:
             if 0 <= server_time - stamp < 3 and (sessions is None or any(
                     start <= stamp <= server_time < end for start, end in sessions)):
                 display_last = dict(price=price, time=stamp, expires_at=stamp + 3)
+                if state.get('timed_trades'):
+                    display_last['ray_only'] = True
         # A known current bar has a scheduled close before the first Last tick.
         # Countdown eligibility is independent of quote freshness/trading eligibility.
         closes_at = bar_close_time(output_bars[-1] if output_bars else None, minutes, session, server_time, contract)
@@ -832,9 +868,9 @@ class StockChart:
             bars=output_bars, session=session, rth_close_minutes=975 if cme_regular(contract) else 960, generation=str(state['generation']),
             bid=bid, ask=ask, quote_time=quote_time,
             quote_expires_at=min(quote_time + 30, activity + 10) if quote_time is not None else None,
-            source='IB option historical updates' if state.get('option_bars') else 'IB Last tick-by-tick', status='live' if in_session and age is not None and age < 10 and (not state.get('option_bars') or ticker.marketDataType==1) else 'waiting',
+            source='IB option historical updates' if state.get('option_bars') else state.get('trade_source', 'IB Last tick-by-tick'), status='live' if in_session and age is not None and age < 10 and (not state.get('option_bars') or ticker.marketDataType==1) else 'waiting',
             last_tick=last, received_at=state['received'], tick_count=state['ticks'],
-            historical=True, transport='HTTP batches, about 250ms plus request time', currency='USD')
+            historical=(higher_bars is not None or not trades or trades.seed != -math.inf), transport='HTTP batches, about 250ms plus request time', currency='USD')
 
 
 stock_chart = StockChart()
