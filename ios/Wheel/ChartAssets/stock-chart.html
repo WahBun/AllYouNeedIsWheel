@@ -852,14 +852,14 @@ let explicitPreviewSide=null,lastSubmitRevision=0,lastPreviewRevision=0;
 let cancelPending=false;
 let submitPending=false,submitSawBusy=false,entryDragMoved=false,entryPressDirection=false,entryPressY=0;
 function ovtStopBlocked(type){return type==='STP'&&(paperConfig.preview_tif==='OVERNIGHT'||paperConfig.tif==='OVERNIGHT');}
-function submitPreview(source){
+function submitPreview(source,recoveredDraft){
  if(ovtStopBlocked(entryType)){validation('OVT supports limit orders only; STP is unavailable');return;}
  if(!paperConfig.enabled||paperConfig.busy){if(paperConfig.webEntryDrag)paperAction({action:'submitBlocked'});else validation('Trading unavailable; waiting for order status');return;}
  if(submitPending||paperConfig.active||canceled||!(entry>0&&qty>0))return;
  if(paperConfig.preview_tif!=='OVERNIGHT'&&templateVersion!==appliedTemplate&&!applyTemplate())return;
  if(paperConfig.preview_tif!=='OVERNIGHT'&&((template.tpEnabled&&!levels.tp)||(template.slEnabled&&!levels.sl))){validation('Set valid enabled protection first');return;}
  submitPending=true;
- paperAction({action:'submit',entry,quantity:qty,side,entry_type:entryType,...(template.tpEnabled!==false&&levels.tp?{tp:levels.tp}:{}),...(template.slEnabled!==false&&levels.sl?{sl:levels.sl}:{}),...(source==='join'?{source:'join',join_revision:lastJoinRevision}:source==='right-click'?{source:'right-click'}:{})});
+ paperAction({action:'submit',...recoveredDraft,entry,quantity:qty,side,entry_type:entryType,...(template.tpEnabled!==false&&levels.tp?{tp:levels.tp}:{}),...(template.slEnabled!==false&&levels.sl?{sl:levels.sl}:{}),...(source==='join'?{source:'join',join_revision:lastJoinRevision}:source==='right-click'?{source:'right-click'}:{})});
 }
 let appliedPriceFormat=null;
 window.configure=(config)=>{const wasLocked=nativeTradingLocked();optionQuoteDark=!!config.dark;accountExecutions=config.executions||[];syncHoldingOverlays(config);displayOptions=config.display||{};document.body.classList.toggle('native-compact',!!displayOptions.nativeCompact);document.body.dataset.dark=String(!!config.dark);document.body.classList.toggle('cursor-plus-hidden',displayOptions.plusButton===false);priceAdd.disabled=displayOptions.plusButton===false;priceAdd.tabIndex=priceAdd.disabled?-1:0;contractMultiplier=config.multiplier||1;if(profitMultiplier!==Number(config.multiplier)&&(config.tpMode==='profit'||config.slMode==='profit'))appliedTemplate=-1;profitMultiplier=Number(config.multiplier);paperConfig={...(config.paper||{})};if(nativeTradingLocked())paperConfig.busy=true;if(nativeTradingLocked()&&!wasLocked){clearOrderHold();closePriceMenu();quantityPopup.hidden=true;window.cancelNativeOrderGestures?.();}if(webProtectionDrag&&(nativeTradingLocked()||webProtectionDrag.cid!==(config.con_id||0)||webProtectionDrag.ref!==paperConfig.order_ref||webProtectionDrag.epoch!==paperConfig.web_account_epoch||!paperConfig.active))cancelWebProtectionDrag('Order changed; price unchanged.');if(paperConfig.webEntryDrag&&dragging==='entry'&&(paperConfig.position||nativeTradingLocked())){dragging=null;entryDragSnapshot=null;clearOrderDragCursor();}if((paperConfig.submit_revision||0)!==lastSubmitRevision){lastSubmitRevision=paperConfig.submit_revision||0;submitPending=false;cancelPending=false;}if(paperCID!==(config.con_id||0))explicitPreviewSide=null;if(paperConfig.busy)submitSawBusy=true;if(paperConfig.active||(submitSawBusy&&!paperConfig.busy)||paperCID!==(config.con_id||0)){submitPending=false;submitSawBusy=false;if(!paperConfig.active||paperCID!==(config.con_id||0))cancelPending=false;}paperCID=config.con_id||0;updateExecutionMarks();let submitPaper=false;if(dragging==='entry')config={...config,entry};priceRules=config.priceRules||priceRules;const formatKey=JSON.stringify(priceRules);if(appliedPriceFormat!==formatKey){appliedPriceFormat=formatKey;series.applyOptions({priceFormat:{type:'custom',minMove:priceRules.length?Math.min(...priceRules.map(r=>r.increment)):.01,formatter:axisPriceText}});}template={tp:config.tpDistance||0,sl:config.slDistance||0,tpEnabled:config.tpEnabled!==false,slEnabled:config.slEnabled!==false,tpMode:config.tpMode||'distance',slMode:config.slMode||'distance'};templateVersion=config.templateRevision||0;if(config.entry===0){explicitPreviewSide=null;canceled=false;levels={tp:0,sl:0};appliedTemplate=-1;breakEven=false;dragging=null;validation();}const changed=entry!==config.entry||entryType!==(config.entryType||'LMT');const snapped=config.entry>0?snapPrice(config.entry):0;entry=snapped??config.entry;if(snapped!==null&&snapped!==config.entry)window.webkit?.messageHandlers.entryChanged?.postMessage(snapped);if(qty!==config.quantity&&(template.tpMode==='profit'||template.slMode==='profit'))appliedTemplate=-1;qty=config.quantity;entryType=config.entryType||'LMT';if(changed){breakEven=false;if(!levels.tp||(!paperConfig.active&&(template.tpMode!=='distance'||template.slMode!=='distance')))appliedTemplate=-1;}if(config.beRevision>lastBERevision){lastBERevision=config.beRevision;const target=stepPrice(entry,side);if(target!==null&&template.slEnabled!==false){levels.sl=target;breakEven=true;}}if(config.joinRevision>lastJoinRevision&&(config.joinSide===1||config.joinSide===-1)){lastJoinRevision=config.joinRevision;explicitPreviewSide=config.joinSide;submitPaper=paperConfig.enabled===true&&!paperConfig.active;breakEven=false;canceled=false;levels={tp:0,sl:0};appliedTemplate=-1;setSide(config.joinSide);}else if(changed&&!paperConfig.active){inferSide();clampLevels();}
@@ -873,6 +873,7 @@ window.configure=(config)=>{const wasLocked=nativeTradingLocked();optionQuoteDar
  document.getElementById('cancel').style.pointerEvents=paperConfig.busy?'none':'auto';
  updateATR();updateEMA();updateExecutionMarks();
  if(submitPaper)submitPreview('join');
+ finishRecoveredPriceOrder();
 };
 // Preserve the latest candle's screen offset only when it was already in view.
 // Historical browsing stays anchored; same-candle ticks do no viewport work.
@@ -966,16 +967,43 @@ function priceOrderChoices(price,reference){
  return price>reference?[{side:-1,type:'LMT',label:'Sell Limit'},{side:1,type:'STP',label:'Buy Stop'}]:[{side:1,type:'LMT',label:'Buy Limit'},{side:-1,type:'STP',label:'Sell Stop'}];
 }
 function priceMenuLimit(){return paperConfig.live_initial_scope?1:Number.isInteger(paperConfig.quantity_limit)&&paperConfig.quantity_limit>0?paperConfig.quantity_limit:contractMultiplier===1?1000:10;}
-function sendPriceOrder(choice,quantity=qty,direct=false){
+let pendingPriceOrder=null;
+function canRecoverPriceOrder(){
+ return paperConfig.recover_price_entry===true&&!nativeTradingLocked()&&!paperConfig.chart_only&&!paperConfig.busy
+  &&paperConfig.known===false&&!paperConfig.position&&!submitPending;
+}
+function priceOrderSettings(){return JSON.stringify([paperConfig.preview_tif,template,displayOptions.rightClickTrading===true]);}
+function finishRecoveredPriceOrder(){
+ const order=pendingPriceOrder;
+ if(!order)return;
+ if(nativeTradingLocked()||paperCID!==order.cid||paperConfig.web_account_epoch!==order.epoch||key!==order.chartKey){
+  pendingPriceOrder=null;return;
+ }
+ if(paperConfig.ready_price_request!==order.id)return;
+ pendingPriceOrder=null;
+ if(paperConfig.known!==true||!paperConfig.enabled||paperConfig.active||paperConfig.busy||submitPending||
+    paperConfig.chart_only||priceOrderSettings()!==order.settings){
+  validation('Order settings changed; choose the chart price again');return;
+ }
+ menuOrderPrice=order.price;menuOrderCID=order.cid;menuOrderEpoch=order.epoch;
+ sendPriceOrder(order.choice,order.quantity,order.direct,{price_draft_group:paperConfig.group_id,price_draft_epoch:order.epoch});
+}
+function sendPriceOrder(choice,quantity=qty,direct=false,recoveredDraft){
  if(nativeTradingLocked())return;
  if(ovtStopBlocked(choice.type)){validation('OVT supports limit orders only; STP is unavailable');return;}
  const price=menuOrderPrice,cid=menuOrderCID,epoch=menuOrderEpoch;closePriceMenu();
- if(cid!==paperCID||epoch!==paperConfig.web_account_epoch||!paperConfig.enabled||paperConfig.chart_only||paperConfig.active||paperConfig.busy||submitPending||!Number.isInteger(quantity)||quantity<1||quantity>priceMenuLimit())return;
+ if(cid!==paperCID||epoch!==paperConfig.web_account_epoch||paperConfig.chart_only||((!paperConfig.enabled||paperConfig.active)&&!canRecoverPriceOrder())||paperConfig.busy||submitPending||!Number.isInteger(quantity)||quantity<1||quantity>priceMenuLimit())return;
  if(!priceOrderChoices(price,previous.at(-1)?.close).some(c=>c.side===choice.side&&c.type===choice.type)){validation('Price crossed the market · select the order again');return;}
  const values=paperConfig.preview_tif==='OVERNIGHT'?{tp:0,sl:0}:templatePrices(price,choice.side,quantity);
  if(!values){validation('Set valid enabled TP / SL values first');return;}const {tp,sl}=values;
+ if(canRecoverPriceOrder()){
+  const id=Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('');
+  pendingPriceOrder={id,cid,epoch,chartKey:key,settings:priceOrderSettings(),choice,price,quantity,direct};
+  paperAction({action:'recoverPriceEntry',id,epoch,group_id:paperConfig.group_id,expected_ref:paperConfig.order_ref});
+  return;
+ }
  qty=quantity;
- entry=price;entryType=choice.type;explicitPreviewSide=choice.side;setSide(choice.side);levels={tp,sl};canceled=false;updateLines();if(direct&&displayOptions.rightClickTrading===true){submitPreview('right-click');return;}paperAction({action:'previewOrder',entry:price,side:choice.side,entry_type:choice.type,quantity});
+ entry=price;entryType=choice.type;explicitPreviewSide=choice.side;setSide(choice.side);levels={tp,sl};canceled=false;updateLines();if(direct&&displayOptions.rightClickTrading===true){submitPreview('right-click',recoveredDraft);return;}paperAction({action:'previewOrder',...recoveredDraft,entry:price,side:choice.side,entry_type:choice.type,quantity});
 }
 priceAdd.addEventListener('pointerdown',e=>{priceControlTouchUntil=performance.now()+600;e.preventDefault();e.stopPropagation();});
 function positionPriceMenu(y,x=null){
@@ -1009,7 +1037,7 @@ function openPriceMenu(price,y,x=null){
   const button=document.createElement('button'),expand=document.createElement('button'),presets=document.createElement('div');
   button.dataset.orderChoice='true';button.textContent=choice.label+' '+qty+' '+chartContractLabel(countdownPacket)+' @ '+priceText(menuOrderPrice);
   button.style.cssText='display:block;flex:1;background:transparent;color:inherit;border:0;text-align:left;padding:10px;font:13px -apple-system;min-height:44px;touch-action:manipulation';
-  button.disabled=!paperConfig.enabled||paperConfig.active||paperConfig.busy||ovtStopBlocked(choice.type);
+  button.disabled=(!canRecoverPriceOrder()&&(!paperConfig.enabled||paperConfig.active))||paperConfig.busy||ovtStopBlocked(choice.type);
   button.onclick=e=>{e.stopPropagation();sendPriceOrder(choice);};
   expand.textContent='▸';expand.dataset.quantityExpand=choice.side+':'+choice.type;expand.setAttribute('aria-label','Choose quantity');expand.setAttribute('aria-expanded','false');expand.style.cssText='background:transparent;color:inherit;border:0;min-width:44px;min-height:44px;font-size:18px';expand.disabled=button.disabled;
   presets.hidden=true;presets.dataset.quantityPresets=choice.side+':'+choice.type;

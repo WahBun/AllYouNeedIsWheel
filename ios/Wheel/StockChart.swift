@@ -402,11 +402,13 @@ struct StockChartView: View {
     @State private var selectedOrderGroup = ""
     private func selectOrderGroup(_ id: String) {
         guard !paperBusy, !store.trading.busy else { return }
+        readyPriceRequest = nil
         selectedOrderGroup = id; paperState = [:]; paperReceived = nil
         entry = "0"; beApplied = false; paperMessage = nil
         showAdjustment = false; showPositionProtection = false; showQuantityEditor = false
     }
-    private func newIndependentOrder(previewDirection: Int? = nil) {
+    @State private var readyPriceRequest: (group: String, id: String)?
+    private func newIndependentOrder(previewDirection: Int? = nil, priceRequest: String? = nil) {
         guard !tradingLocked, !paperBusy, !store.trading.busy, store.chartTradingAvailable, let cid = chartID else { return }
         let draft = paperState["flat_draft"] as? [String: String]
         let id = draft?["group_id"].flatMap { $0.isEmpty ? nil : $0 } ?? UUID().uuidString.lowercased()
@@ -437,12 +439,13 @@ struct StockChartView: View {
                       store.trading.accountEpoch == epoch else { return }
                 if result["success"] as? Bool == true || store.trading.paperPending(base: base, conID: cid, groupID: id) {
                     paperBusy = false; selectOrderGroup(id)
-                    if let previewDirection, !tradingLocked, sourceContext == context,
+                    if result["success"] as? Bool == true, (previewDirection != nil || priceRequest != nil), !tradingLocked, sourceContext == context,
                        let draft = result["state"] as? [String: Any], draft["group_id"] as? String == id,
                        draft["known"] as? Bool == true, draft["active"] as? Bool == false,
                        draft["enabled"] as? Bool == true, draft["sync_error"] == nil {
                         applyPaperState(draft)
-                        makePreview(side: previewDirection)
+                        if let priceRequest { readyPriceRequest = (id, priceRequest) }
+                        if let previewDirection { makePreview(side: previewDirection) }
                     }
                 }
                 paperMessage = result["message"] as? String
@@ -508,6 +511,11 @@ struct StockChartView: View {
         })
     }
     private var hasOrderPreview: Bool { paperReceived != nil && paperState["known"] as? Bool == true && paperState["sync_error"] as? Bool != true && !paperActive && validEntry > 0 && validQuantity > 0 }
+    private var canRecoverPriceEntry: Bool {
+        paperState["can_preview_new_entry"] as? Bool == true && store.chartTradingAvailable && !store.trading.busy
+            && paperState["sync_error"] as? Bool != true && Date().timeIntervalSince(paperReceived ?? .distantPast) < 3
+            && !store.trading.paperPending(base: store.address, conID: chartID ?? 0, groupID: selectedOrderGroup)
+    }
     private var paperEnabled: Bool { !store.trading.paperPending(base: store.address, conID: chartID ?? 0, groupID: selectedOrderGroup) && !store.trading.busy && Date().timeIntervalSince(paperReceived ?? .distantPast) < 3 && store.chartTradingAvailable && paperState["sync_error"] as? Bool != true && paperState["known"] as? Bool != false && paperState["enabled"] as? Bool == true }
     private var paperActive: Bool { paperState["active"] as? Bool == true }
     private var tradingAccountLabel: String { paperState["account_mode"] as? String == "live" ? "Live" : "Paper" }
@@ -530,6 +538,10 @@ struct StockChartView: View {
     }
     private func paperAction(_ incoming: [String: Any]) {
         var body = incoming
+        if let group = body.removeValue(forKey: "price_draft_group") as? String {
+            guard !group.isEmpty, group == selectedOrderGroup,
+                  body.removeValue(forKey: "price_draft_epoch") as? String == store.trading.accountEpoch else { return }
+        }
         let readOnlyActions = ["quoteStatus", "chartValidation", "indicatorSettings", "indicatorToggle", "indicatorCollapse"]
         guard !tradingLocked || readOnlyActions.contains(body["action"] as? String ?? "") else { return }
         if body["action"] as? String == "quoteStatus" {
@@ -565,6 +577,14 @@ struct StockChartView: View {
         if body["action"] as? String == "indicatorSettings" { showIndicatorSettings = true; return }
         if body["action"] as? String == "indicatorToggle" { indicatorVisible.toggle(); return }
         if body["action"] as? String == "indicatorCollapse", let collapsed = body["collapsed"] as? Bool { indicatorCollapsed = collapsed; return }
+        if body["action"] as? String == "recoverPriceEntry" {
+            guard paperState["can_preview_new_entry"] as? Bool == true, body["con_id"] as? Int == chartID,
+                  body["epoch"] as? String == store.trading.accountEpoch, body["group_id"] as? String == selectedOrderGroup,
+                  body["expected_ref"] as? String == paperState["order_ref"] as? String,
+                  let id = body["id"] as? String, id.count == 32 else { return }
+            newIndependentOrder(priceRequest: id)
+            return
+        }
         if body["action"] as? String == "previewOrder" {
             guard !paperActive, !paperBusy, body["con_id"] as? Int == chartID,
                   let price = body["entry"] as? Double, price > 0,
@@ -1489,7 +1509,7 @@ struct StockChartView: View {
                         .frame(width: 36, height: 44)
                 }.buttonStyle(.plain).accessibilityLabel(fullScreen ? "Exit full screen" : "Full screen")
             }
-            StockChartWeb(backendAddress: store.address, executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, previewSide: previewSide, previewRevision: previewRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", slMode: protectionOption(chartType, "slMode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "webEntryDrag": true, "web_account_epoch": store.trading.accountEpoch ?? "", "adjustment_quantity": adjustmentQuantity, "quantity_limit": quantityLimit, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction, onHistory: requestHistory)
+            StockChartWeb(backendAddress: store.address, executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, previewSide: previewSide, previewRevision: previewRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", slMode: protectionOption(chartType, "slMode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["recover_price_entry": canRecoverPriceEntry, "ready_price_request": paperEnabled && !paperBusy && readyPriceRequest?.group == (paperState["group_id"] as? String) ? readyPriceRequest?.id ?? "" : "", "enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "webEntryDrag": true, "web_account_epoch": store.trading.accountEpoch ?? "", "adjustment_quantity": adjustmentQuantity, "quantity_limit": quantityLimit, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction, onHistory: requestHistory)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             ZStack {
                 ChartStatusControl(text: chartStatusText, highlighted: paperEnabled, hasNotice: !chartNotices.isEmpty || (quoteStatusCID == chartID && !quoteStatusMessage.isEmpty)) {
