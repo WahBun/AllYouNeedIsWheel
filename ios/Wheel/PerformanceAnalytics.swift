@@ -143,20 +143,21 @@ enum AnalyticsCalendar {
         let parts = month.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 2, let first = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: 1)),
               let days = calendar.range(of: .day, in: .month, for: first) else { return [] }
-        let blank = calendar.component(.weekday, from: first) - 1
-        return Array(repeating: nil, count: blank) + days.map { String(format: "%@-%02d", month, $0) }
+        // Monday is column zero. A month starting on a weekend begins at the following Monday.
+        let firstColumn = (calendar.component(.weekday, from: first) + 5) % 7
+        let leadingBlanks = firstColumn < 5 ? firstColumn : 0
+        let weekdays = days.filter { (firstColumn + $0 - 1) % 7 < 5 }
+        return Array(repeating: nil, count: leadingBlanks) + weekdays.map { String(format: "%@-%02d", month, $0) }
     }
-    static func displayedPnL(for day: PerformanceAnalytics.Day?, at slot: Int) -> Double? {
-        // slots starts on Sunday, including any leading blanks.
-        let column = slot % 7
-        if (column == 0 || column == 6), day?.activityCount == 0, day?.realized_pnl == 0 {
+    static func displayedPnL(for day: PerformanceAnalytics.Day?) -> Double? {
+        if day?.activityCount == 0, day?.realized_pnl == 0 {
             return nil
         }
         return day?.realized_pnl
     }
     static func weekdays(locale: Locale) -> [String] {
         let formatter = DateFormatter(); formatter.locale = locale
-        return formatter.veryShortStandaloneWeekdaySymbols
+        return Array(formatter.shortStandaloneWeekdaySymbols.dropFirst().prefix(5))
     }
     static func amount(_ number: Double?, currency: String) -> String {
         guard let number else { return "—" }
@@ -365,18 +366,19 @@ struct AnalyticsCalendarGrid: View {
     @Environment(\.colorScheme) private var scheme
     var body: some View {
         let slots = AnalyticsCalendar.slots(month: report.month)
+        let weekdays = AnalyticsCalendar.weekdays(locale: locale)
         let byDate = Dictionary(uniqueKeysWithValues: report.days.map { ($0.date, $0) })
         VStack(spacing: 6) {
             HStack(spacing: 2) {
-                ForEach(Array(AnalyticsCalendar.weekdays(locale: locale).enumerated()), id: \.offset) { _, title in
+                ForEach(Array(weekdays.enumerated()), id: \.offset) { _, title in
                     Text(verbatim: title).font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity)
                 }
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 5) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: weekdays.count), spacing: 5) {
                 ForEach(slots.indices, id: \.self) { index in
                     if let date = slots[index] {
                         let day = byDate[date]
-                        let pnl = AnalyticsCalendar.displayedPnL(for: day, at: index)
+                        let pnl = AnalyticsCalendar.displayedPnL(for: day)
                         Button { onSelect(date) } label: {
                             VStack(spacing: 5) {
                                 Text(verbatim: String(Int(date.suffix(2)) ?? 0)).font(.caption.weight(.medium)).lineLimit(1).minimumScaleFactor(0.7)

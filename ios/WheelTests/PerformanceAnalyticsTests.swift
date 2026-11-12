@@ -33,7 +33,7 @@ final class PerformanceAnalyticsTests: XCTestCase {
             for label in ["Trade review", "Monthly commissions", "Daily commissions", "Book entries", "Replace Flex token", "No commissions reported"] {
                 XCTAssertNotEqual(localizedLabel(label, locale: locale), label)
             }
-            XCTAssertEqual(AnalyticsCalendar.weekdays(locale: locale).count, 7)
+            XCTAssertEqual(AnalyticsCalendar.weekdays(locale: locale).count, 5)
             XCTAssertNotEqual(AnalyticsCalendar.weekdays(locale: locale), AnalyticsCalendar.weekdays(locale: Locale(identifier: "en")))
             XCTAssertFalse(PerformanceAnalytics.activityLabel(51, 1, locale: locale).contains("execution"))
             XCTAssertEqual(localizedNotice("Underlying $61.87 · Nearest strike selected.", locale: locale),
@@ -86,8 +86,9 @@ final class PerformanceAnalyticsTests: XCTestCase {
 
     func testCalendarLeapYearAndUnknownValues() throws {
         let slots = AnalyticsCalendar.slots(month: "2028-02")
-        XCTAssertEqual(slots.compactMap { $0 }.count, 29)
-        XCTAssertEqual(slots.first!, nil)
+        XCTAssertEqual(slots.compactMap { $0 }.count, 21)
+        XCTAssertEqual(Array(slots.prefix(3)), [nil, "2028-02-01", "2028-02-02"])
+        XCTAssertEqual(slots.last, "2028-02-29")
         XCTAssertEqual(AnalyticsCalendar.amount(nil, currency: "USD"), "—")
         let report = try JSONDecoder().decode(PerformanceAnalytics.self, from: Self.payload())
         XCTAssertEqual(report.trades[0].contract, "TQQQ · 2026-10-30 · 60P")
@@ -113,21 +114,33 @@ final class PerformanceAnalyticsTests: XCTestCase {
         XCTAssertNil(old.daily_commissions)
     }
 
-    func testCalendarDashesForInactiveWeekends() throws {
+    func testCalendarKeepsWeekdaysAlignedAcrossMonthBoundaries() {
+        XCTAssertEqual(AnalyticsCalendar.weekdays(locale: Locale(identifier: "en_US")),
+                       ["Mon", "Tue", "Wed", "Thu", "Fri"])
         let slots = AnalyticsCalendar.slots(month: "2026-11")
-        func displayed(_ date: String, fills: Int = 0, books: Int = 0, pnl: Double? = 0) throws -> Double? {
-            let slot = try XCTUnwrap(slots.firstIndex(of: date))
-            let day = PerformanceAnalytics.Day(date: date, executions: fills, book_entries: books,
-                                               realized_pnl: pnl, missing_pnl: pnl == nil ? 1 : 0)
-            return AnalyticsCalendar.displayedPnL(for: day, at: slot)
+        XCTAssertEqual(slots.count, 21)
+        XCTAssertEqual(Array(slots.prefix(5)), ["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06"])
+        XCTAssertEqual(slots[6], "2026-11-10")
+        XCTAssertEqual(slots[20], "2026-11-30")
+        XCTAssertFalse(slots.contains("2026-11-07"))
+        XCTAssertFalse(slots.contains("2026-11-08"))
+        XCTAssertEqual(AnalyticsCalendar.slots(month: "2026-08").first, "2026-08-03")
+        XCTAssertEqual(Array(AnalyticsCalendar.slots(month: "2026-10").prefix(5)),
+                       [nil, nil, nil, "2026-10-01", "2026-10-02"])
+    }
+
+    func testCalendarDistinguishesInactiveDaysFromReportedZero() {
+        func displayed(fills: Int = 0, books: Int? = nil, pnl: Double? = 0) -> Double? {
+            AnalyticsCalendar.displayedPnL(for: .init(date: "2026-11-10", executions: fills, book_entries: books,
+                                                       realized_pnl: pnl, missing_pnl: pnl == nil ? 1 : 0))
         }
-        for date in ["2026-11-01", "2026-11-07", "2026-11-08"] {
-            XCTAssertNil(try displayed(date))
-        }
-        XCTAssertEqual(try displayed("2026-11-09"), 0)
-        XCTAssertEqual(try displayed("2026-11-08", fills: 1), 0)
-        XCTAssertEqual(try displayed("2026-11-07", books: 1, pnl: -5), -5)
-        XCTAssertNil(try displayed("2026-11-09", fills: 1, pnl: nil))
+        XCTAssertNil(displayed())
+        XCTAssertNil(displayed(books: 0))
+        XCTAssertEqual(displayed(fills: 1), 0)
+        XCTAssertEqual(displayed(books: 1), 0)
+        XCTAssertEqual(displayed(books: 1, pnl: -5), -5)
+        XCTAssertNil(displayed(fills: 1, pnl: nil))
+        XCTAssertNil(AnalyticsCalendar.displayedPnL(for: nil))
     }
 
     @MainActor func testNativeCalendarAndExecutionLayouts() async throws {
