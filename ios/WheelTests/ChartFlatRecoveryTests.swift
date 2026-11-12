@@ -25,6 +25,29 @@ import XCTest
             XCTAssertThrowsError(try TradeRules.flatHistoryRecoveryRequest(state: live.merging([key: false]) { _, n in n }, groupID: id))
         }
     }
+    func testReturnFromHistoricalGroupUsesTheExistingDraft() async throws {
+        let id = UUID().uuidString.lowercased(), checkpoint = UUID().uuidString.lowercased()
+        let historical = state.merging(["sync_error": "Group ownership requires reconciliation: Historical group is read-only",
+            "flat_draft": ["checkpoint": checkpoint, "group_id": id]]) { _, n in n }
+        let body = try TradeRules.flatHistoryRecoveryRequest(state: historical, groupID: id)
+        XCTAssertEqual(body["resume_checkpoint"] as? String, checkpoint)
+        XCTAssertThrowsError(try TradeRules.flatHistoryRecoveryRequest(state: historical, groupID: UUID().uuidString))
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        let session = TradingSession(session: URLSession(configuration: config))
+        session.accountEpoch = "fixture"
+        MockProtocol.requests = []; MockProtocol.fail = false; MockProtocol.statusCode = 200
+        MockProtocol.payload = { _ in ["success": true, "status": "acknowledged",
+            "state": ["group_id": id, "known": true, "active": false]] }
+        defer { MockProtocol.payload = nil }
+        let result = try await session.paperChartWrite(base: "https://mock.invalid", conID: 42, body: body, expectedEpoch: "fixture")
+        XCTAssertEqual((result["state"] as? [String: Any])?["group_id"] as? String, id)
+        XCTAssertEqual(MockProtocol.requests.count, 1)
+        let request = try XCTUnwrap(MockProtocol.requests.first)
+        XCTAssertEqual(request.url?.query, "group_id=" + id)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Wheel-Account-Epoch"), "fixture")
+        XCTAssertEqual(body["action"] as? String, "reconcile_flat_history")
+    }
     func testPositionUnknownContextAndSyncFailuresAreRejected() {
         let changes: [[String: Any]] = [["paper": false], ["account_mode": "live"], ["position": 1.0],
             ["position": Double.nan], ["account_position": -1.0], ["known": true], ["enabled": false],

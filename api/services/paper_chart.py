@@ -230,9 +230,15 @@ class PaperChart:
         view['recovery_refs'] = recovery_refs
         if checkpoint:
             view.update(flat_checkpoint=checkpoint['request_id'], historical_unresolved_refs=checkpoint['references'])
-            if selected_historical or active_old_order(checkpoint, trades, account, cid):
+            if active_old_order(checkpoint, trades, account, cid):
                 view['known'] = False
-                view['errors'].append('Historical group is read-only' if selected_historical else 'An order from before the flat checkpoint reappeared')
+                view['errors'].append('An order from before the flat checkpoint reappeared')
+            if selected_historical:
+                if view['known'] and not total and not any(view['positions'].values()):
+                    used = any(c['id'] == checkpoint['group_id'] for c in choices)
+                    view['flat_draft'] = dict(checkpoint=checkpoint['request_id'], group_id='' if used else checkpoint['group_id'])
+                view['known'] = False
+                view['errors'].append('Historical group is read-only')
         return view
 
     def group_size(self, conn, account, cid, positions):
@@ -550,8 +556,10 @@ class PaperChart:
         if group.get('origin_position'):
             result['entry']=group['origin_entry']
         if not result['known']: result['status']='unknown'
+        draft = attribution_view.pop('flat_draft', None) if attribution_view else None
         if attribution_view is not None and not attribution_view['known']:
-            result['sync_error']='Group ownership requires reconciliation: '+ '; '.join(attribution_view['errors'])
+            ownership_error = 'Group ownership requires reconciliation: '+ '; '.join(attribution_view['errors'])
+            result['sync_error'] = result.get('sync_error') or ownership_error
         if result['position']:
             # Broker avgCost includes commission for futures. Use actual fills for
             # the chart's price basis, retaining average cost through trims.
@@ -903,6 +911,16 @@ class PaperChart:
         if recover(self, conn, account, cid, group, result):
             return self.state(conn, cid)
         from api.services.chart_day_history import inactive_day_history
+        if draft and result.get('sync_error') == ownership_error and not result.get('broker_pending_orders'):
+            result['flat_draft'] = draft
+        # Buy/Sell can start a separate preview. The selected group's own
+        # actions keep their original state; recovery rechecks IB on click.
+        if (not result['known'] and result['enabled'] and not result.get('account_position', result['position'])
+                and (result.get('flat_draft') or not result.get('sync_error'))
+                and not result.get('broker_pending_orders') and not result.get('closing')
+                and all(row['status'] in ('Filled', 'Cancelled', 'ApiCancelled', 'Unknown') for row in rows)
+                and not any(t.order.account == account and t.contract.conId == cid for t in conn.ib.openTrades())):
+            result['can_preview_new_entry'] = True
         if inactive_day_history(self, conn, account, cid, group, result):
             result['inactive_day_history'] = True
         return result
@@ -1004,6 +1022,8 @@ class PaperChart:
         if body.get('con_id') != cid: raise ValueError('Request contract mismatch')
         result = json.loads(row[1]) if row[1] else {}
         if body.get('action') == 'reconcile_flat_history':
+            if body.get('resume_checkpoint') and result.get('status') in ('acknowledged', 'rejected', 'reconciled'):
+                return dict(confirmed=True, status=result['status'])
             with self.database() as db:
                 saved = db.execute('SELECT 1 FROM chart_flat_checkpoints WHERE request_id=? AND account=? AND con_id=?', (request_id, account, cid)).fetchone()
                 status = 'reconciled' if saved else 'rejected'
