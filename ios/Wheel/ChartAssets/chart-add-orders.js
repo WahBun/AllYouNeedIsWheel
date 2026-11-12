@@ -163,7 +163,9 @@
    const zh=parent.document.documentElement.lang.startsWith('zh');addDialog.replaceChildren();addDialog.dataset.light=String(!darkAppearance);
    const title=document.createElement('strong');title.textContent=(zh?'修改 Trim 数量 @ ':'Edit Trim quantity @ ')+priceText(current.price);
    const note=document.createElement('p');note.textContent=current.standalone?(zh?'修改剩余减仓数量，止损随之调整。0 = 撤销减仓。':'Edit remaining Trim quantity with matching stop protection. 0 cancels Trim.') : zh?'增加：分配可用持仓。减少：退回普通 TP，保留 SL。0 = 撤销本计划。':'Increase: allocate unreserved units. Decrease: return units to ordinary TP, keeping SL. 0 cancels this plan.';
-   const input=document.createElement('input');input.type='number';input.min='0';input.max=String(current.standalone?Math.max(0,Math.abs(position)-1):total+(paperConfig.trim_available||0));input.step='1';input.value=String(total);input.setAttribute('aria-label','Trim plan quantity');
+   const available=total+(paperConfig.trim_available||0);
+   const maxQuantity=current.standalone?(paperConfig.full_limit_trim_allowed?Math.min(Math.abs(position),available):Math.max(0,Math.abs(position)-1)):available;
+   const input=document.createElement('input');input.type='number';input.min='0';input.max=String(maxQuantity);input.step='1';input.value=String(total);input.setAttribute('aria-label','Trim plan quantity');
    const cancel=document.createElement('button');cancel.textContent=zh?'返回':'Back';cancel.onclick=()=>addDialog.close();
    const save=document.createElement('button');save.textContent=zh?'确认数量':'Confirm quantity';save.onclick=()=>{
     const quantity=Number(input.value);if(!input.value||!Number.isSafeInteger(quantity)||quantity<0||quantity>Number(input.max))return input.reportValidity();
@@ -370,13 +372,17 @@
   const title=document.createElement('strong');title.textContent=priced?(zh?'限价减仓 / 平仓':'Limit trim / close'):trim?(zh?'减仓':'Trim position'):(zh?'全部平仓':'Close position');
   const detail=document.createElement('p');detail.textContent=`${countdownPacket?.local_symbol||countdownPacket?.symbol||''} · ${position>0?'Long':'Short'} ${size} · `+(paperConfig.scalable?(zh?'按当前买卖价调整退出限价单，不保证立即成交。':'Exit limit at current bid/ask; immediate fill is not guaranteed.'):(trim?(zh?'核对持仓后市价减仓，不保证成交价格。':'Market trim after position reconciliation; execution price is not guaranteed.'):(zh?'核验撤单与剩余仓位后市价平仓。':'Market close after cancellation and position reconciliation.')));
   if(priced)detail.textContent=`${countdownPacket?.local_symbol||countdownPacket?.symbol||''} · ${position>0?'Sell':'Buy'} Limit @ ${priceText(price)} · ${zh?'现有持仓':'Position'} ${size}`;
-  const input=document.createElement('input');input.type='number';input.min='1';input.max=String(trim?Math.floor(Math.min(availableTrim(),priced&&paperConfig.scalable?size:Math.ceil(size)-1)):size);input.step='1';input.value=String(trim?Math.min(Number(input.max),paperConfig.adjustment_quantity||1):size);input.disabled=!trim;input.setAttribute('aria-label','Exit quantity');
+  const fullOptionTrim=trim&&priced&&!paperConfig.scalable&&paperConfig.full_limit_trim_allowed===true;
+  const canExitAll=priced&&(paperConfig.scalable||fullOptionTrim);
+  const maxQuantity=()=>trim?Math.floor(Math.min(availableTrim(),canExitAll?size:Math.ceil(size)-1)):size;
+  const input=document.createElement('input');input.type='number';input.min='1';input.max=String(maxQuantity());input.step='1';input.value=String(trim?Math.min(Number(input.max),paperConfig.adjustment_quantity||1):size);input.disabled=!trim;input.setAttribute('aria-label','Exit quantity');
   const remaining=document.createElement('p');const updateRemaining=()=>{remaining.textContent=(zh?'成交后剩余：':'Remaining after fill: ')+Math.max(0,size-Number(input.value));};input.oninput=updateRemaining;updateRemaining();
   const cancel=document.createElement('button');cancel.textContent=zh?'返回':'Cancel';cancel.onclick=()=>addDialog.close();
   const submit=document.createElement('button');submit.textContent=priced?(zh?'挂限价退出单':'Place limit exit'):trim?(zh?'确认减仓':'Confirm trim'):(zh?'确认平仓':'Confirm close');
-  submit.onclick=()=>{const quantity=Number(input.value);if(!Number.isSafeInteger(quantity)||quantity<1||(trim&&(!priced||!paperConfig.scalable)&&quantity>=size)||quantity>size||(trim&&quantity>availableTrim()))return input.reportValidity();
+  submit.onclick=()=>{const quantity=Number(input.value);if(!Number.isSafeInteger(quantity)||quantity<1||quantity>maxQuantity())return input.reportValidity();
    if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||position!==paperConfig.position||exitReason(trim,priced)){addDialog.close();return validation('Position changed; reopen exit menu');}
-   addDialog.close();paperAction({action:trim?'trim':'close',quantity,expected_ref:ref,expected_position:position,...(priced?{exit_type:'LMT',exit_price:price,expected_position:position}:{})});
+   const fullLimitTrim=fullOptionTrim&&quantity===size;
+   addDialog.close();paperAction({action:trim?'trim':'close',quantity,expected_ref:ref,expected_position:position,...(priced?{exit_type:'LMT',exit_price:price}:{}),...(fullLimitTrim?{full_limit_trim:true}:{})});
   };
   const footer=document.createElement('footer');footer.append(cancel,submit);addDialog.append(title,detail,input,remaining,footer);addDialog.showModal();
  }
