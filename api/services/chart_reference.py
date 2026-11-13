@@ -1,4 +1,5 @@
 """Display-only previous close; never modify live/executable quote state."""
+from api.services.chart_history_pressure import historical_request
 from api.services.stock_chart import stock_chart, regular_sessions
 import asyncio
 import math
@@ -37,9 +38,10 @@ def _stock_daily_close(conn, cid, state):
             previous = max(datetime.fromtimestamp(start, zone).date()
                            for start, _ in sessions
                            if datetime.fromtimestamp(start, zone).date() < today)
-            bars = await conn.ib.reqHistoricalDataAsync(
-                contract, '', '10 D', '1 day', 'TRADES', useRTH=True,
-                formatDate=2, keepUpToDate=False, timeout=10)
+            with historical_request(conn, contract, background=True) as record:
+                bars = record(await conn.ib.reqHistoricalDataAsync(
+                    contract, '', '10 D', '1 day', 'TRADES', useRTH=True,
+                    formatDate=2, keepUpToDate=False, timeout=10))
             if (stock_chart.states.get(cid) is not state or not conn.is_connected()
                     or conn.ib.ticker(contract) is not state['ticker']
                     or state.get('title_daily_close') is not row

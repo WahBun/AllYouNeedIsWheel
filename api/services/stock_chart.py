@@ -11,6 +11,7 @@ from datetime import date, datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from functools import lru_cache
 import pandas_market_calendars as calendars
+from api.services.chart_history_pressure import HistoryDeferred, read_history_now
 from api.services.chart_last_gap import LastTradeGap
 from api.services.chart_timed_trades import ChartTrades
 from ib_async.wrapper import Wrapper
@@ -275,6 +276,11 @@ class StockChart:
                     task.cancel()
             task = state.pop('rules_task', None)
             if task is not None: task.cancel()
+            if state.get('option_history_error') is not None:
+                state['conn'].ib.errorEvent -= state['option_history_error']
+            recovery = state.pop('option_history_recovery', None)
+            if recovery is not None:
+                recovery.cancel()
             if state.get('minute_history') is not None:
                 state['minute_history'].updateEvent -= state['history_handler']
                 state['conn'].ib.cancelHistoricalData(state['minute_history'])
@@ -447,6 +453,9 @@ class StockChart:
                     historical, permission_errors, other_history_errors, history_elapsed = self.initial_history.read(conn, contract)
                 except ChartHistoryPending:
                     raise
+                except HistoryDeferred:
+                    self.next_request[con_id] = time.monotonic() + 15
+                    raise
                 except ValueError as error:
                     self.next_request[con_id] = time.monotonic() + (15 if option_bars else 60)
                     self.request_errors[con_id] = str(error)
@@ -457,8 +466,8 @@ class StockChart:
                 if event is not None: event += history_error
                 history_started = time.monotonic()
                 try:
-                    historical = conn.ib.reqHistoricalData(contract, '', '2 D', '1 min', 'TRADES',
-                        useRTH=False, formatDate=2, keepUpToDate=option_bars, timeout=6 if option_bars else 15)
+                    historical = read_history_now(conn, contract, '', '2 D', '1 min', 'TRADES',
+                        useRTH=False, formatDate=2, keepUpToDate=option_bars, timeout=6 if option_bars else 15, background=False)
                 finally:
                     if event is not None: event -= history_error
                 history_elapsed = time.monotonic() - history_started
@@ -634,14 +643,17 @@ class StockChart:
                     if 0<=time.time()-stamp<60 and ticker.marketDataType==1: state['last_tick']=time.time()
                     for listener in tuple(self.listeners): listener(state)
                     self.observe_option_trade(state, point)
-                state['minute_history']=historical;state['history_handler']=on_history
-                historical.updateEvent += on_history
+                from api.services.chart_option_history import attach_option_history
+                attach_option_history(self, state, historical, on_history)
             asyncio.get_event_loop().call_later(30, self.expire, state)
         if not (defer_history and (minutes >= 1440 or (minutes == 480 and session == 'rth'))) and not initial and not state.get('backfilled') and not state.get('recovery_task') and time.monotonic() >= state.get('backfill_retry', 0):
             state['backfill_retry'] = time.monotonic() + 30
             history_requested = time.time()
-            history = conn.ib.reqHistoricalData(contract, '', '5 D', '1 min', 'TRADES',
-                useRTH=False, formatDate=2, keepUpToDate=False, timeout=2 if contract.secType == 'OPT' else 5)
+            try:
+                history = read_history_now(conn, contract, '', '5 D', '1 min', 'TRADES',
+                    useRTH=False, formatDate=2, keepUpToDate=False, timeout=2 if contract.secType == 'OPT' else 5)
+            except HistoryDeferred:
+                history = []
             older = minute_bars(history)
             if older:
                 merge_minute_history(state, older, history_requested)
@@ -665,8 +677,11 @@ class StockChart:
                 # successful page instead of retrying one large six-month read.
                 before = state.get('rth_eight_before') if expanding else None
                 end = datetime.fromtimestamp(before, timezone.utc) if before else ''
-                history = conn.ib.reqHistoricalData(contract, end, '1 M', rth_source_size(minutes) if cme_regular(contract) else '30 mins', 'TRADES',
-                    useRTH=not cme_regular(contract), formatDate=2, keepUpToDate=False, timeout=2 if contract.secType == 'OPT' else 5)
+                try:
+                    history = read_history_now(conn, contract, end, '1 M', rth_source_size(minutes) if cme_regular(contract) else '30 mins', 'TRADES',
+                        useRTH=not cme_regular(contract), formatDate=2, keepUpToDate=False, timeout=2 if contract.secType == 'OPT' else 5)
+                except HistoryDeferred:
+                    return self.eight_hour_packet(state)
                 older = []
                 for bar in history:
                     if not isinstance(bar.date, datetime) or bar.date.tzinfo is None: continue
@@ -702,14 +717,18 @@ class StockChart:
                         duration = {1440: '1 M', 10080: '6 M', 43200: '2 Y'}[history_minutes]
                     elif contract.secType == 'OPT' and history_minutes == 1440:
                         duration = '6 M' if expand_history else '1 M'
-                    history = conn.ib.reqHistoricalData(contract, '', duration, size, 'TRADES',
-                        useRTH=session == 'rth', formatDate=2, keepUpToDate=True, timeout=2 if contract.secType == 'OPT' else 5)
+                    try:
+                        history = read_history_now(conn, contract, '', duration, size, 'TRADES',
+                            useRTH=session == 'rth', formatDate=2, keepUpToDate=True, timeout=2 if contract.secType == 'OPT' else 5,
+                            background=cache_key in cache or expand_history)
+                    except HistoryDeferred:
+                        history = None
                     if history:
                         previous = cache.get(cache_key)
                         cache[cache_key] = history
                         if full and not (contract.secType == 'OPT' and history_minutes == 1440 and not expand_history): expanded.add(cache_key)
                         if previous is not None and previous is not history: conn.ib.cancelHistoricalData(previous)
-                    else:
+                    elif history is not None:
                         conn.ib.cancelHistoricalData(history)
                 if cache_key not in cache:
                     raise ValueError('Historical chart request cooling down; recent bars unavailable')

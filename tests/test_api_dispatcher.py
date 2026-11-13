@@ -46,6 +46,50 @@ class ApiDispatcherTests(unittest.TestCase):
         self.assertEqual(self.get('/api/portfolio/stock-chart/7?expand_history=1').status_code,200)
         self.assertEqual(history_calls,[1])
 
+    def test_full_history_queue_yields_unstarted_page_to_order_check_after_second_timeout(self):
+        from types import SimpleNamespace as S
+        from api.routes.portfolio import portfolio_service
+        from api.services.chart_history_pressure import market_history
+
+        conn = S(ib=S(client=object()), account_id='DU_FIXTURE')
+        market = market_history(conn, S(conId=1, secType='STK', currency='USD', exchange='SMART'))
+        market.finish(1, False, True, [])
+        ran = []
+        def page(cid):
+            ran.append(('history', cid))
+            return {}
+        def order(cid):
+            ran.append(('order', cid))
+            return {'order_id': 42}
+        self.app.add_url_rule('/api/history/<int:cid>', endpoint='portfolio.chart_history_page', view_func=page)
+        self.app.add_url_rule('/api/order/<int:cid>', endpoint='portfolio.paper_chart_order', view_func=order)
+        owner = self.app.extensions['ib_api_executor']
+        submit = owner.submit
+        admitted = threading.Semaphore(0)
+        def observe(fn, **kwargs):
+            future = submit(fn, **kwargs)
+            admitted.release()
+            return future
+        blocker = submit(lambda: self.release.wait(3))
+        with patch.object(portfolio_service, 'connection', conn), patch.object(owner, 'submit', side_effect=observe):
+            with ThreadPoolExecutor(4) as pool:
+                try:
+                    waiting = []
+                    for cid in (1, 2, 3):
+                        waiting.append(pool.submit(self.get, '/api/history/' + str(cid)))
+                        self.assertTrue(admitted.acquire(timeout=1))
+                    market.finish(2, False, True, [])
+                    self.assertEqual(self.get('/api/history/4').status_code, 503)
+                    check = pool.submit(self.get, '/api/order/7')
+                    self.assertTrue(admitted.acquire(timeout=1))
+                finally:
+                    self.release.set()
+                self.assertEqual(check.result().json['order_id'], 42)
+                self.assertEqual([job.result().status_code for job in waiting], [200, 200, 503])
+                self.assertEqual(waiting[-1].result().json['code'], 'NOT_EXECUTED')
+        blocker.result()
+        self.assertEqual(ran, [('order', 7), ('history', 1), ('history', 2)])
+
     def test_report_analytics_remain_available_while_broker_is_busy(self):
         self.app.add_url_rule('/api/performance/analytics', view_func=lambda: {'source': 'report'})
         with ThreadPoolExecutor(2) as clients:

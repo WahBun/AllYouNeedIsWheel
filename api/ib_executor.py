@@ -12,7 +12,7 @@ class IBExecutor(Executor):
         self._closed = False
 
     def submit(self, fn, *, kind='normal'):
-        if kind not in ('normal', 'read', 'write'):
+        if kind not in ('normal', 'read', 'history', 'order_read', 'write'):
             raise ValueError('Unsupported IB job kind')
         future = Future()
         job = (kind, fn, future)
@@ -40,7 +40,11 @@ class IBExecutor(Executor):
                 if any(kind == 'write' for kind, _, future in self._pending if not future.cancelled()):
                     # Preserve FIFO among writes and ordinary owner work (chart
                     # pumps, stream setup, fill sync). Only HTTP reads yield.
-                    index = next(i for i, (kind, _, _) in enumerate(self._pending) if kind != 'read')
+                    index = next(i for i, (kind, _, _) in enumerate(self._pending) if kind not in ('read', 'order_read', 'history'))
+                elif any(kind == 'order_read' and not future.cancelled() for kind, _, future in self._pending):
+                    # Skip queued historical work only. Keep the chart pump and
+                    # any earlier non-history work in their original order.
+                    index = next(i for i, (kind, _, _) in enumerate(self._pending) if kind != 'history')
                 _, fn, future = self._pending.pop(index)
             if not future.set_running_or_notify_cancel():
                 continue

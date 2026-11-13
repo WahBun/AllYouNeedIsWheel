@@ -1,6 +1,8 @@
 """Shared admission for asynchronous chart history on the existing IB owner loop."""
 import asyncio
 
+from api.services.chart_history_pressure import historical_request, identity
+
 
 class HistoryBudget:
     MAX_PENDING = 4
@@ -27,26 +29,33 @@ class HistoryBudget:
             self.optional.release()
 
 
-async def read_history(conn, *args, optional=False, **kwargs):
+async def read_history(conn, *args, optional=False, background=None, **kwargs):
     """Reserve primary-chart capacity; canceled callers do not free live IB reads."""
     loop = asyncio.get_running_loop()
     budget = getattr(conn, '_chart_history_budget', None)
     if not isinstance(budget, HistoryBudget) or budget.loop is not loop:
         budget = conn._chart_history_budget = HistoryBudget()
-    ib, client, account = conn.ib, conn.ib.client, getattr(conn, 'account_id', None)
+    ib = conn.ib
+    scope = identity(conn)
 
     def current():
-        return (conn.ib is ib and ib.client is client
-                and getattr(conn, 'account_id', None) == account and conn.is_connected())
+        return identity(conn) == scope and conn.is_connected()
 
     await budget.acquire(optional)
     if not current():
         budget.release(optional)
         raise ValueError('Chart history context changed while waiting')
+
+    async def request_history():
+        if not current():
+            raise ValueError('Chart history context changed while waiting')
+        with historical_request(conn, args[0], optional if background is None else background) as record:
+            return record(await ib.reqHistoricalDataAsync(*args, **kwargs))
+
     abandoned = False
     cleaned = False
     try:
-        task = asyncio.ensure_future(ib.reqHistoricalDataAsync(*args, **kwargs))
+        task = asyncio.ensure_future(request_history())
     except BaseException:
         budget.release(optional)
         raise
@@ -63,7 +72,7 @@ async def read_history(conn, *args, optional=False, **kwargs):
             cleaned = True
             # The old socket is already gone after a client replacement. Do not
             # cancel a possibly reused request ID on the replacement client.
-            if conn.ib is ib and ib.client is client:
+            if identity(conn)[:3] == scope[:3]:
                 try:
                     ib.cancelHistoricalData(history)
                 except Exception:
