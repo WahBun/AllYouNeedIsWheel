@@ -156,7 +156,7 @@ class ChartTrades:
                 started = time.time()
                 try:
                     history = await read_history(conn, contract, '', '2 D', '1 min', 'TRADES',
-                                                 useRTH=False, formatDate=2, keepUpToDate=False, timeout=15, optional=True)
+                                                 useRTH=False, formatDate=2, keepUpToDate=False, timeout=15, optional=True, background=False)
                 except Exception:
                     logging.getLogger('autotrader.api').warning('Chart minute history retry failed')
                     history = []

@@ -1,5 +1,6 @@
 """Bounded initial history reads on the existing IB event loop."""
 from api.services.chart_history_budget import read_history
+from api.services.chart_history_pressure import HistoryDeferred
 import asyncio
 import time
 
@@ -51,6 +52,8 @@ class InitialChartHistory:
         if record is not None and record['ready']:
             self.records.pop(key)
             record['owned'] = False
+            if record.get('deferred'):
+                raise HistoryDeferred('Historical data cooling down')
             if record.get('failed'):
                 raise ValueError('Chart history unavailable; retry shortly')
             return (record.pop('history'), record['permissions'], record['errors'], record['elapsed'])
@@ -81,6 +84,8 @@ class InitialChartHistory:
                     history = await read_history(conn, contract, '', '2 D', '1 min', 'TRADES',
                         useRTH=False, formatDate=2, keepUpToDate=option, timeout=6 if option else 15)
                     record['history'] = history
+                except HistoryDeferred:
+                    record['deferred'] = True
                 except Exception:
                     record['history'] = []
                     record['failed'] = True

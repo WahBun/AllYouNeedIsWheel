@@ -2,6 +2,7 @@
 
 from concurrent.futures import TimeoutError, CancelledError
 from api.ib_executor import IBExecutor
+from api.services.chart_history_pressure import under_history_pressure
 from threading import RLock, BoundedSemaphore, Event, Thread
 import logging
 import time
@@ -34,6 +35,7 @@ def install_api_dispatcher(app):
     lock = RLock()
     pending_reads = {}
     pending_jobs = set()
+    pending_history = {}
     original_dispatch = app.dispatch_request
     app.extensions['ib_api_executor'] = executor
     stop_background = Event()
@@ -122,6 +124,12 @@ def install_api_dispatcher(app):
         queued_at = time.monotonic()
         optional_history = (request.method == 'GET' and request.endpoint == 'portfolio.get_stock_chart'
                             and request.args.get('expand_history') == '1')
+        history_read = request.method == 'GET' and request.endpoint in {
+            'portfolio.chart_history_page', 'portfolio.get_chart_ema', 'portfolio.get_chart_volatility',
+            'portfolio.chart_reference', 'portfolio.get_stock_chart',
+        }
+        order_read = request.method == 'GET' and (request.endpoint == 'portfolio.paper_chart_order'
+            or (request.endpoint == 'options.get_pending_orders' and request.args.get('executed', 'false').lower() != 'true'))
         logger = logging.getLogger('autotrader.api')
         from api.routes.account import epoch
         admitted_epoch = epoch()
@@ -179,19 +187,41 @@ def install_api_dispatcher(app):
                 logger.debug('ib_job_shared id=%s owner=%s', request_id, getattr(future, 'wheel_job_id', 'untracked'))
             if future is None:
                 # Capacity counts IB jobs, not clients sharing the same read.
-                if (optional_history and pending_jobs) or not acquire_slot(key is not None):
+                pressure = False
+                if history_read or order_read:
+                    from api.routes.portfolio import portfolio_service
+                    pressure = under_history_pressure(portfolio_service.connection)
+                # Leave one read slot free for order verification when pages compete.
+                yield_history = ((optional_history and pending_jobs)
+                                 or (pressure and history_read and len(pending_reads) >= 2))
+                admitted = not yield_history and acquire_slot(key is not None)
+                if not admitted and order_read and pressure:
+                    # All three reads may predate the second timeout. Retire at
+                    # most one unstarted chart read, never a running IB request.
+                    for waiting in reversed(tuple(pending_history)):
+                        if waiting.cancel():
+                            admitted = acquire_slot(True)
+                            break
+                if not admitted:
                     logger.warning('ib_queue_full id=%s', request_id)
                     response = jsonify(status='rejected', code='QUEUE_FULL', error='IB requests are busy; please retry shortly')
                     response.status_code = 503
                     response.headers['Retry-After'] = '2'
                     return response
                 try:
-                    future = executor.submit(run, kind='read' if key is not None else 'write')
+                    kind = 'read' if key is not None else 'write'
+                    if history_read:
+                        kind = 'history'
+                    elif order_read and pressure:
+                        kind = 'order_read'
+                    future = executor.submit(run, kind=kind)
                     future.wheel_job_id = request_id
                 except Exception:
                     release_slot(key is not None)
                     raise
                 pending_jobs.add(future)
+                if history_read:
+                    pending_history[future] = None
                 if key is not None:
                     pending_reads[key] = future
 
@@ -199,6 +229,7 @@ def install_api_dispatcher(app):
                     # Jobs retain their slots even when HTTP clients disconnect.
                     with lock:
                         pending_jobs.discard(done)
+                        pending_history.pop(done, None)
                         if key is not None and pending_reads.get(key) is done:
                             pending_reads.pop(key, None)
                         release_slot(key is not None)
