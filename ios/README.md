@@ -27,7 +27,7 @@ official Wheel checkout. The login agent checks GitHub every 60 seconds while
 the Mac is awake. The first run can request Documents access for **Wheel Xcode
 Sync**. It uses the existing GitHub CLI login and Git credentials.
 
-When the tip of `Ben/wheel-1.8` matches a merged PR, the helper fast-forwards
+When the tip of `main` matches a merged PR, the helper fast-forwards
 the local project. Active builds and Git operations defer the update. A conflict
 keeps the local files in place. A macOS notification reports a successful update
 or a blocking merge conflict. The last check and last applied PR are recorded in

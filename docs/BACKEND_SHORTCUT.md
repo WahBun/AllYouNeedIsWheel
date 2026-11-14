@@ -36,7 +36,7 @@ arguments must match 7–40 hexadecimal characters; arbitrary commands, branch
 names, extra arguments, newlines and shell expressions are rejected. No SSH
 permissions or authorized keys need to change.
 
-Mini fetches the fixed repository and `codex/chart-labels-1.7` branch itself, checks
+Mini fetches the fixed repository and `main` branch itself, checks
 branch membership, clean working tree, forward-only history and Backend health,
 then uses the same rollback/lock/pending-record/new-PID verification as the Pro
 script. A failed GitHub fetch stops before changing the checkout. The shortcut

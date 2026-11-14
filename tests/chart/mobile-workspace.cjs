@@ -31,7 +31,7 @@ const {chromium,webkit}=require('playwright'),assert=require('node:assert/strict
    assert.equal(await p.evaluate(()=>originalFrames.every(e=>e.isConnected)),true);assert.deepEqual(errors,[]);await p.close();
   }
   // Compare desktop geometry with the exact pre-change stylesheet.
-  const css=execFileSync('git',['show','origin/Ben/wheel-1.8:frontend/static/css/superchart.css'],{encoding:'utf8'});
+  const css=execFileSync('git',['show','origin/main:frontend/static/css/superchart.css'],{encoding:'utf8'});
   for(const width of [1024,1440,1920]){
    const p=await browser.newPage({viewport:{width,height:950}});await p.goto(h.url+'/superchart?con_id=7');await p.waitForFunction(()=>!document.getElementById('chart-grid').hasAttribute('aria-busy'));
    const geometry=()=>p.evaluate(()=>['header','nav','#chart-grid','#trade','#intervals','#fullscreen'].map(q=>{const r=document.querySelector(q).getBoundingClientRect();return [q,r.x,r.y,r.width,r.height];}));

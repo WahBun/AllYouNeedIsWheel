@@ -22,7 +22,7 @@ Create `ops/deploy-mini.local.json` on Pro (Git ignores this file):
   "host": "your-mini-ssh-alias",
   "identity": "~/.ssh/your-mini-key",
   "repo": "~/Projects/AllYouNeedIsWheel",
-  "branch": "codex/chart-labels-1.7"
+  "branch": "main"
 }
 ```
 

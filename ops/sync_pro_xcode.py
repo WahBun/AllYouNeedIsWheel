@@ -15,7 +15,7 @@ import tempfile
 import urllib.request
 
 REPOSITORY = "WahBun/AllYouNeedIsWheel"
-BRANCH = "Ben/wheel-1.8"
+BRANCH = "main"
 LABEL = "com.wahbun.wheel-pro-xcode-sync"
 SUPPORT = Path.home() / "Library/Application Support/Wheel/XcodeSync"
 
