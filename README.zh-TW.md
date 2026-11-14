@@ -16,7 +16,7 @@ SwiftUI 構建，支援 iOS 18 及以上、淺色／深色模式。原生頁面�
 
 截至 **2026-11-05**，項目以日常使用和穩定性維護為主：普通問題先收集歸類，攢一批做最小修復；交易安全或影響正常使用的問題及時處理。保留現有佈局、tick 級行情刷新和已確認的交易互動。這一維護方向不代表所有場景或 Live 交易均已驗收。
 
-目前的正式版本是 [Wheel: v1.9.1](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.9.1)，正式分支為 **`Ben/wheel-1.8`**。iOS 版本為 **1.9.1 (7)**，網頁版本為 **1.9.1**。本次變更與升級方式請見[發布說明](docs/RELEASE_1.9.1.md)。
+目前的正式版本是 [Wheel: v1.9.1](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.9.1)，正式分支為 **`main`**。iOS 版本為 **1.9.1 (7)**，網頁版本為 **1.9.1**。本次變更與升級方式請見[發布說明](docs/RELEASE_1.9.1.md)。
 
 推薦分工：**開發 Mac** 負責開發、Xcode 與手機構建；**後端主機** 長期運行 Gateway、Backend 和 API；開發 Mac 與 iPhone 通過 Tailscale 訪問後端主機。部署與重啓由用戶在電腦或手機上選擇執行，手機 App 的 Xcode Run 也由用戶操作。
 
@@ -168,7 +168,7 @@ flowchart LR
 ```sh
 mkdir -p "$HOME/Projects"
 cd "$HOME/Projects"
-git clone --branch Ben/wheel-1.8 https://github.com/WahBun/AllYouNeedIsWheel.git
+git clone --branch main https://github.com/WahBun/AllYouNeedIsWheel.git
 cd AllYouNeedIsWheel
 git branch --show-current
 git rev-parse HEAD
