@@ -1,5 +1,5 @@
 /* Shared bookmarks only. Never sends a broker or order request. */
-window.WheelContractFavorites=({api,onChange,onError,storage=localStorage})=>{
+window.WheelContractFavorites=({api,onChange,onError,onSynced,storage=localStorage})=>{
  const legacyKey='wheel.web.favorite-contracts',cacheKey='wheel.web.synced-favorite-contracts',migrationKey='wheel.web.favorite-contracts-imported';
  const stored=key=>{try{return JSON.parse(storage.getItem(key)||'null');}catch{return null;}};
  const valid=items=>Array.isArray(items)?items.filter(x=>Number.isSafeInteger(x?.id)&&x.id>0&&typeof x.label==='string').slice(0,100):[];
@@ -10,6 +10,7 @@ window.WheelContractFavorites=({api,onChange,onError,storage=localStorage})=>{
   items=valid(result.favorites);revision=result.revision;ready=true;
   try{storage.setItem(cacheKey,JSON.stringify({revision,favorites:items}));}catch{}
   if(result.conflicts?.length)onError(result.conflicts.some(x=>x.reason==='limit')?'Favorites limit: 100. Some local favorites were not imported.':'Favorites changed on another device. Review the list and try again.');
+  else onSynced?.();
  }
  async function refresh(){
   if(busy)return;busy=true;notify();

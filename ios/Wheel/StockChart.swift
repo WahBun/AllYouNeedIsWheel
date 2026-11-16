@@ -353,6 +353,24 @@ enum ChartHoldingOverlay {
     }
 }
 
+enum ChartEntryReference {
+    case draft(String)
+    case broker(Double)
+
+    func text(brokerActive: Bool) -> String {
+        switch self {
+        case .draft(let value): return value
+        case .broker(let price): return brokerActive ? String(price) : "0"
+        }
+    }
+
+    mutating func updateFromChart(_ price: Double) {
+        // WebKit also echoes tick rounding for broker prices. Only a draft can be edited here.
+        guard case .draft(let value) = self, (Double(value) ?? 0) > 0 else { return }
+        self = .draft(String(price))
+    }
+}
+
 struct StockChartView: View {
     let position: Position
     var resumeLast = false
@@ -530,7 +548,7 @@ struct StockChartView: View {
             if let type = state["entry_type"] as? String { entryType = type }
             if let tif = state["tif"] as? String { previewTIF = tif }
         }
-        if state["active"] as? Bool == true, let price = state["entry"] as? Double, price > 0 { entry = String(price) }
+        if state["active"] as? Bool == true, let price = state["entry"] as? Double, price > 0 { entryReference = .broker(price) }
         if let completion = ChartOrderCompletion.key(state) {
             let identity = "\(store.address)-\(chartID ?? 0)-\(completion)"
             if completedPaperOrders.insert(identity).inserted { entry = "0"; beApplied = false }
@@ -705,7 +723,11 @@ struct StockChartView: View {
     }
     @AppStorage("stockChartSession") private var session = "rth"
     @State private var quantity = "1"
-    @State private var entry = "0"
+    @State private var entryReference = ChartEntryReference.draft("0")
+    private var entry: String {
+        get { entryReference.text(brokerActive: paperActive) }
+        nonmutating set { entryReference = .draft(newValue) }
+    }
     @State private var entryType = "LMT"
     @State private var joinSide = 0
     @State private var joinRevision = 0
@@ -1509,7 +1531,7 @@ struct StockChartView: View {
                         .frame(width: 36, height: 44)
                 }.buttonStyle(.plain).accessibilityLabel(fullScreen ? "Exit full screen" : "Full screen")
             }
-            StockChartWeb(backendAddress: store.address, executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, previewSide: previewSide, previewRevision: previewRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", slMode: protectionOption(chartType, "slMode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entry = String($0) }, paperState: paperState.merging(["recover_price_entry": canRecoverPriceEntry, "ready_price_request": paperEnabled && !paperBusy && readyPriceRequest?.group == (paperState["group_id"] as? String) ? readyPriceRequest?.id ?? "" : "", "enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "webEntryDrag": true, "web_account_epoch": store.trading.accountEpoch ?? "", "adjustment_quantity": adjustmentQuantity, "quantity_limit": quantityLimit, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction, onHistory: requestHistory)
+            StockChartWeb(backendAddress: store.address, executions: executionCID == chartID ? accountExecutions : [], holdings: ChartHoldingOverlay.rows(positions: store.portfolio?.positions ?? [], conID: chartID, symbol: selectedContract["symbol"] as? String ?? position.symbol, type: chartType, chinese: locale.language.languageCode?.identifier == "zh"), display: chartDisplay, drawingKey: "\(store.address)-\(chartID ?? 0)", packet: packet, entry: validEntry, quantity: validQuantity, dark: colors == .dark, entryType: entryType, joinSide: joinSide, joinRevision: joinRevision, previewSide: previewSide, previewRevision: previewRevision, beRevision: beRevision, tpDistance: Double(tpDistance) ?? 0, slDistance: Double(slDistance) ?? 0, tpEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "tp") != "off", slEnabled: paperState["live_initial_scope"] as? Bool != true && bracketEnabled(chartType) && protectionOption(chartType, "sl") != "off", tpMode: protectionOption(chartType, "mode") ?? "distance", slMode: protectionOption(chartType, "slMode") ?? "distance", templateRevision: templateRevision, onBE: { beApplied = $0 }, onEntry: { entryReference.updateFromChart($0) }, paperState: paperState.merging(["recover_price_entry": canRecoverPriceEntry, "ready_price_request": paperEnabled && !paperBusy && readyPriceRequest?.group == (paperState["group_id"] as? String) ? readyPriceRequest?.id ?? "" : "", "enabled": paperEnabled, "busy": paperBusy, "chart_only": false, "webEntryDrag": true, "web_account_epoch": store.trading.accountEpoch ?? "", "adjustment_quantity": adjustmentQuantity, "quantity_limit": quantityLimit, "submit_revision": submitRevision, "preview_tif": previewTIF]) { _, new in new }, conID: chartID ?? 0, onPaper: paperAction, onHistory: requestHistory)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             ZStack {
                 ChartStatusControl(text: chartStatusText, highlighted: paperEnabled, hasNotice: !chartNotices.isEmpty || (quoteStatusCID == chartID && !quoteStatusMessage.isEmpty)) {
@@ -1877,7 +1899,7 @@ struct StockChartView: View {
         .sheet(isPresented: $showInfo) {
             NavigationStack {
                 Form {
-                    Section("Entry reference") { TextField("Price", text: $entry).keyboardType(.decimalPad) }
+                    Section("Entry reference") { TextField("Price", text: Binding(get: { entry }, set: { entry = $0 })).keyboardType(.decimalPad) }
                     Text(paperEnabled && chartType == "OPT" ? "Choose Buy or Sell, then Join Mid to submit a limit entry at the current midpoint. The price is aligned to the contract increment. Fresh quotes are required." : paperEnabled ? "IB Paper: Join Bid / Ask submits Entry and the enabled TP / SL exits. Dragging TP / SL sends an amendment on release. New futures brackets keep protection while Trim / Close sends a limit exit at bid / ask; a moving market may leave the exit working." : "TP / SL preview only · drag the labels. No orders are sent.")
                     Text("Prices and market-data permissions come from the connected IB account.")
                     Text("ETH includes available extended-hours data. Time: New York.")
