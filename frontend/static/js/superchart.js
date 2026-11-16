@@ -91,7 +91,15 @@ function updateTabTitle(){
 setInterval(updateTabTitle,250);
 function stored(key){try{return JSON.parse(localStorage.getItem(key)||'{}');}catch{return {};}}
 let contractFavorites=[];
-const favoritesSync=WheelContractFavorites({api,onChange:items=>{contractFavorites=items;renderContractFavorites();},onError:message=>log(message)});
+const favoritesNotice=new Option('', 'notice');
+favoritesNotice.disabled=true;
+function showFavoritesNotice(message=''){
+ const menu=$('favorite-contracts');
+ if(!message){favoritesNotice.remove();return;}
+ favoritesNotice.text=message;
+ if(!favoritesNotice.isConnected)menu.append(favoritesNotice);
+}
+const favoritesSync=WheelContractFavorites({api,onChange:items=>{contractFavorites=items;renderContractFavorites();},onError:showFavoritesNotice,onSynced:()=>showFavoritesNotice()});
 contractFavorites=favoritesSync.items;
 $('favorite-contracts').setAttribute('aria-label','Favorite contracts');
 function renderContractFavorites(){
@@ -99,15 +107,17 @@ function renderContractFavorites(){
  button.title=saved?'Remove favorite':'Favorite current contract';button.setAttribute('aria-label',button.title);
  const menu=$('favorite-contracts'),options=[['','Favorites'],...contractFavorites.map(x=>[String(x.id),contractLabel(x)])];
  // Background sync must not reset an in-progress native picker selection.
- if(menu.options.length!==options.length||options.some(([value,label],i)=>menu.options[i].value!==value||menu.options[i].text!==label)){
+ const hasNotice=menu.contains(favoritesNotice);
+ if(menu.options.length!==options.length+Number(hasNotice)||options.some(([value,label],i)=>menu.options[i].value!==value||menu.options[i].text!==label)){
   const selected=menu.value;menu.replaceChildren(...options.map(([value,label])=>new Option(label,value)));
+  if(hasNotice)menu.append(favoritesNotice);
   menu.value=options.some(([value])=>value===selected)?selected:'';
  }
 }
 $('favorite-contract').onclick=()=>{
  if(!cid)return;
  const label=packet.display_symbol||packet.local_symbol||$('contracts').selectedOptions[0]?.textContent||String(cid);
- if(!contractFavorites.some(x=>x.id===cid)&&(!label||/^\d+$/.test(label)||label==='Loading contract…'))return log('Contract name is still loading; retry shortly');
+ if(!contractFavorites.some(x=>x.id===cid)&&(!label||/^\d+$/.test(label)||label==='Loading contract…'))return showFavoritesNotice('Contract name is still loading; retry shortly');
  void favoritesSync.toggle({id:cid,label});
 };
 $('favorite-contracts').onchange=()=>{const item=contractFavorites.find(x=>String(x.id)===$('favorite-contracts').value);if(item)select(item.id,item.label);$('favorite-contracts').value='';};

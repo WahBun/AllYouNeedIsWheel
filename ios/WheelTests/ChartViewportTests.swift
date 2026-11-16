@@ -133,7 +133,7 @@ final class ChartViewportTests: XCTestCase {
             ready.fulfill()
         }
     }
-    func testNativeFirstFrameAndFullscreenWithoutMarketRefresh() async throws {
+    private func loadNativeChart() async throws -> (ChartViewportWebView, UIWindow) {
         let bundle = Bundle(for: ChartViewportWebView.self)
         func resource(_ name: String, _ ext: String) throws -> String {
             let url = try XCTUnwrap(bundle.url(forResource: name, withExtension: ext) ?? bundle.url(forResource: name, withExtension: ext, subdirectory: "ChartAssets"))
@@ -148,10 +148,47 @@ final class ChartViewportTests: XCTestCase {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
         let controller = UIViewController(); window.rootViewController = controller
         window.isHidden = false; controller.view.addSubview(web)
-        defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }
         web.loadHTMLString(html, baseURL: nil)
         await fulfillment(of: [ready], timeout: 10)
         web.viewportReady = true
+        return (web, window)
+    }
+    func testRecheckingBrokerEntryDoesNotDrawABuyOrSellPreview() async throws {
+        let (web, window) = try await loadNativeChart()
+        defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }
+        var reference = ChartEntryReference.broker(100.125)
+        func line(_ paper: [String: Any]) async throws -> String {
+            let active = paper["active"] as? Bool == true
+            let price = try XCTUnwrap(Double(reference.text(brokerActive: active)))
+            let result = try await web.callAsyncJavaScript("""
+            applyChartState({width:393,height:700,
+              config:{entry:price,quantity:1,con_id:7,display:{nativeCompact:true},priceRules:[{low:0,increment:0.01}],paper},
+              packet:{con_id:7,generation:'test',interval:5,bars:[{time:1000,open:100,high:101,low:99,close:100}]}});
+            const entry=document.getElementById('entry');
+            return entry.hidden ? 'hidden' : entry.getAttribute('aria-label');
+            """, arguments: ["price": price, "paper": paper], in: nil, contentWorld: .page)
+            return try XCTUnwrap(result as? String)
+        }
+        let position: [String: Any] = ["active": true, "known": true, "entry": 100.125, "position": 1, "side": 1]
+        let held = try await line(position)
+        XCTAssertNotEqual(held, "hidden")
+        reference.updateFromChart(100.13)
+        let rechecking = try await line([:])
+        XCTAssertEqual(rechecking, "hidden")
+        let restored = try await line(position)
+        XCTAssertEqual(restored, held)
+        let working = try await line(["active": true, "known": true, "position": 0, "entry": 100.125, "side": 1])
+        XCTAssertTrue(working.contains("LMT"))
+        let closed = try await line(["active": false, "known": true])
+        XCTAssertEqual(closed, "hidden")
+        reference = .draft("99.50")
+        let preview = try await line([:])
+        XCTAssertTrue(preview.contains("Buy"))
+    }
+
+    func testNativeFirstFrameAndFullscreenWithoutMarketRefresh() async throws {
+        let (web, window) = try await loadNativeChart()
+        defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }
         _ = try await web.evaluateJavaScript("""
         applyChartState({width:0,height:0,config:{entry:9.14,quantity:1,entryType:'LMT',joinSide:-1,joinRevision:1,tpDistance:.25,slDistance:.25,templateRevision:1,priceRules:[]},packet:{generation:'native',interval:5,session:'rth',bars:Array.from({length:70},(_,i)=>({time:1000+i*300,open:9.1,high:9.2,low:8.97,close:8.97}))}});true
         """)

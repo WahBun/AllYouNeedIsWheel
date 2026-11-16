@@ -9,6 +9,7 @@ async function run() {
   let slow = true;
   let freshQuote = true;
   let known = true;
+  let favoritesOffline = false;
   let active = true;
   let quantity = 1;
   let tif = 'DAY';
@@ -34,6 +35,10 @@ async function run() {
     await page.route('**/*', async route => {
       const request = route.request(), url = new URL(request.url()), path = url.pathname;
       if (url.origin !== harness.url) return route.abort();
+      if (path === '/api/chart-favorites') {
+        return favoritesOffline ? route.fulfill({status:503,json:{error:'Offline'}})
+          : route.fulfill({json:{revision:0,favorites:[]}});
+      }
       if (path.includes('/paper-chart/7')) {
         if (request.method() === 'POST') {
           const body = request.postDataJSON();
@@ -43,7 +48,8 @@ async function run() {
           quantity = body.quantity ?? quantity;
           tif = body.tif ?? tif;
           side = body.side ?? side;
-          return route.fulfill({json:{success:true,status:'acknowledged',state:orderState()}});
+          const message = body.cancel ? 'Order canceled' : 'Order acknowledged';
+          return route.fulfill({json:{success:true,status:'acknowledged',message,state:orderState()}});
         }
         return route.fulfill({json:orderState()});
       }
@@ -171,6 +177,37 @@ async function run() {
     await frame.waitForFunction(()=>paperConfig.active && paperConfig.side===-1 && !paperConfig.busy);
     assert.deepEqual([writes[5].action,writes[5].entry,writes[5].side],['submit',100.25,-1]);
     assert.equal(writes.length,6);
+    async function checkFavoritesDuringFeedback(expected) {
+      const feedback = page.locator('#trade-feedback');
+      await page.waitForFunction(text => document.querySelector('#trade-feedback').textContent.includes(text), expected);
+      const message = await feedback.textContent();
+      const notice = page.locator('#favorite-contracts option:disabled');
+      favoritesOffline = true;
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await notice.waitFor({state:'attached'});
+      assert.match(await notice.textContent(), /Favorites sync unavailable/);
+      assert.equal(await feedback.textContent(), message);
+      favoritesOffline = false;
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await notice.waitFor({state:'detached'});
+      assert.equal(await feedback.textContent(), message);
+    }
+    await frame.waitForFunction(()=>paperConfig.entry_editable && !paperConfig.busy && paperConfig.active);
+    await drag();
+    await confirm.waitFor();
+    assert.equal(writes.length,6);
+    await confirm.click();
+    await frame.waitForFunction(()=>!chartConfirmation && !paperConfig.busy);
+    await checkFavoritesDuringFeedback(': confirmed');
+    assert.equal(writes.length,7);
+    assert.equal(writes[6].action,'edit_entry');
+    assert.equal(writes[6].expected_ref,'working-group');
+    assert.deepEqual(writes[6].expected_snapshot,orderState().edit_snapshot);
+    await page.locator('#close').click();
+    await checkFavoritesDuringFeedback('Order canceled');
+    assert.equal(writes.length,8);
+    assert.equal(writes[7].cancel,true);
+    assert.equal(writes[7].expected_ref,'working-group');
     assert.deepEqual(errors,[]);
     console.log('PASS: unlocked first entry, both quote sides, quantity/TIF, one confirmed line edit and original cancellation during peer loading; stale quote and unknown-order recovery');
   } finally {
