@@ -1,6 +1,7 @@
 """Local, opt-in Gateway mode controller. Never handles broker orders."""
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import threading
@@ -66,6 +67,51 @@ def dual_config():
         return data
     except (OSError, ValueError):
         raise ValueError('Invalid dual Gateway configuration or unequal API permissions.') from None
+
+
+def running_version(config, mode):
+    """Read only the managed container publishing the selected local IB endpoint."""
+    host = config.get('host', '127.0.0.1')
+    port = str(config.get('port', ''))
+    bind_addresses = {'127.0.0.1': ('127.0.0.1', '0.0.0.0'), '::1': ('::1', '::'),
+                      'localhost': ('127.0.0.1', '0.0.0.0', '::1', '::')}
+    if host not in bind_addresses or not port.isdecimal():
+        return None
+    docker = os.environ.get('WHEEL_DOCKER_CLI', '/usr/local/bin/docker')
+
+    def output(*args):
+        return subprocess.run([docker, *args], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              text=True, timeout=1).stdout.strip()
+
+    try:
+        if not enabled():
+            return None
+        if (root() / 'dual-session.json').is_file():
+            container = 'wheel-gateway-dual'
+        elif (root() / 'warm-paper.json').is_file():
+            container = 'wheel-gateway-' + mode
+        else:
+            directory = Path(os.environ.get('WHEEL_GATEWAY_COMPOSE_DIR', Path.home() / 'Docker/ib-gateway'))
+            container = output('compose', '-f', str(directory / 'docker-compose.yml'), 'ps', '-q', 'ib-gateway')
+            if not re.fullmatch(r'[0-9a-f]{12,64}', container):
+                return None
+        # Filter in Docker's template; never read credentials or return floating tags.
+        template = ('{{if .State.Running}}{{json .NetworkSettings.Ports}}{{println}}'
+                    '{{range .Config.Env}}{{if eq (index (split . "=") 0) "IB_GATEWAY_VERSION"}}'
+                    '{{println .}}{{end}}{{end}}{{end}}')
+        fields = output('container', 'inspect', '--format', template, container).splitlines()
+        if len(fields) != 2:
+            return None
+        bindings = json.loads(fields[0])
+        if not isinstance(bindings, dict):
+            return None
+        if not any(b['HostIp'] in bind_addresses[host] and b['HostPort'] == port
+                   for target, entries in bindings.items() if target.endswith('/tcp') for b in entries or []):
+            return None
+        value = re.fullmatch(r'IB_GATEWAY_VERSION=([0-9]{1,3}(?:\.[0-9]{1,4}){1,3}[a-z]?)', fields[1])
+        return value.group(1) if value else None
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        return None
 
 
 def _dual_running():

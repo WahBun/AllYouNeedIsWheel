@@ -42,7 +42,7 @@ final class BackendMaintenanceTests: XCTestCase {
         MaintenanceProtocol.requests = []; MaintenanceProtocol.state = "ready"
         MaintenanceProtocol.failSave = false; MaintenanceProtocol.statusCode = 200
         MaintenanceProtocol.hold = false; MaintenanceProtocol.pending = nil
-        MaintenanceProtocol.status = ["backend": "reachable", "mode": "live", "gateway_connected": true, "epoch": "epoch",
+        MaintenanceProtocol.status = ["backend": "reachable", "mode": "live", "gateway_connected": true, "gateway_version": "10.50.1g", "epoch": "epoch",
             "performance": ["configured": true, "can_replace": true, "source": "IBKR Flex", "history_through": "2026-10-29",
                 "last_success": "2026-10-30T08:00:00+00:00", "token_expires_on": "2026-11-20", "days_remaining": 20]]
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MaintenanceProtocol.self]
@@ -55,6 +55,19 @@ final class BackendMaintenanceTests: XCTestCase {
         while stream.hasBytesAvailable { let count = stream.read(&buffer, maxLength: buffer.count); if count <= 0 { break }; data.append(buffer, count: count) }
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
+    func testGatewayVersionIsOptionalAndRefreshReplacesIt() async {
+        let model = makeModel()
+        model.select(account)
+        await model.refresh()
+        XCTAssertEqual(model.status?.gateway_version, "10.50.1g")
+        MaintenanceProtocol.status.removeValue(forKey: "gateway_version")
+        MaintenanceProtocol.status["gateway_connected"] = false
+        await model.refresh()
+        XCTAssertNil(model.status?.gateway_version)
+        XCTAssertEqual(model.status?.gateway_connected, false)
+        XCTAssertNil(model.error)
+    }
+
     func testValidationNeverSavesUntilExplicitSaveAndOnlyReceiptIsSent() async throws {
         let model = makeModel(); model.select(account); await model.refresh()
         model.token = "  private-fixture-token  "
