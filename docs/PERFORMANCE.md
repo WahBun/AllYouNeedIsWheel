@@ -114,7 +114,7 @@ not deployment of this change or final acceptance on the user's phone.
 ## Trade review (iOS)
 
 Portfolio > Performance > Trade review adds a realized P&L calendar, daily
-execution detail and monthly symbol contributions. Existing TWR/benchmarks and
+execution detail and symbol contributions for the selected period. Existing TWR/benchmarks and
 intraday account P&L keep their own definitions. The new view reads
 `GET /api/performance/analytics` only while visible, with a bounded retry while
 an existing Flex refresh is pending. It does not poll quotes or create a broker
@@ -127,6 +127,14 @@ version change invalidates further pagination until Refresh, avoiding mixed
 snapshots. The month response includes covered days, per-currency totals and
 symbol contributions sorted by absolute realized P&L. Options use their reported
 underlying symbol for ranking and retain exact contract fields in execution detail.
+
+The iPhone opens the current New York calendar month. The period menu also offers
+Year and All time. An annual response (`scope=year&year=YYYY`) groups activity by
+report month. An all-time response (`scope=all`) groups it by report year.
+Both include the exact contiguous ranges of archived dates. Account Information
+may supply the account opening date as a separate label. Opening the account
+does not extend report coverage. Selecting a covered tile opens its detail in
+the same currency, and Back restores the parent period.
 
 The same Performance worker imports execution-level TRNT/Trades from the report
 already fetched for TWR. It reuses Wheel's validated execution parser and stores
