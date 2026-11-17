@@ -151,6 +151,109 @@ class StockTradeTests(TestCase):
         self.conn.ib.client.reqMktData.assert_called_once_with(43, self.ticker.contract, '375', False, False, [])
         self.conn.ib.placeOrder.assert_not_called()
 
+    def test_pending_mes_seed_streams_each_trade_and_merges_history_without_price_rollback(self):
+        from api.services.chart_stream import ChartStreams
+        self.prepare_mes()
+        self.conn.ib.reqTickByTickData.reset_mock()
+        loop = asyncio.get_event_loop()
+        broker_reply = loop.create_future()
+
+        async def read(*args, **kwargs):
+            return await broker_reply
+
+        self.conn.ib.reqHistoricalDataAsync = AsyncMock(side_effect=read)
+        hub = ChartStreams()
+        t = self.open
+        with patch('api.services.chart_stream.stock_chart', self.feed), \
+             patch('api.routes.account.epoch', return_value='fixture'), patch('time.time', return_value=t + 1):
+            first = self.feed.snapshot(self.conn, 7, 5, 'rth', fast=True, background=True)
+            self.assertEqual(first['bars'], [])
+            self.state = self.feed.states[7]
+            recovery = self.state['recovery_task']
+            subs = [hub.open(self.conn, 7, period, 'rth')[1] for period in (5, 1, 15, 60)]
+            loop.run_until_complete(asyncio.sleep(0))
+            self.conn.ib.reqHistoricalDataAsync.assert_awaited_once()
+            self.assertEqual([call.args[1] for call in self.conn.ib.reqTickByTickData.call_args_list], ['Last', 'BidAsk'])
+            for sub in subs:
+                self.assertEqual(sub.queue.get_nowait()['mode'], 'snapshot')
+            for second, price in [(2, 103), (3, 105), (4, 101), (5, 104)]:
+                self.batch([('Last', t + second, price)], t + second + .25)
+                for sub in subs:
+                    packet = sub.queue.get_nowait()
+                    self.assertEqual((packet['mode'], packet['bars'][-1]['close']), ('delta', price))
+                    self.assertIsNone(packet['bid'])
+                    self.assertIsNone(packet['ask'])
+                self.assertFalse(recovery.done())
+            self.conn.ib.client.reqMktData.assert_not_called()
+            broker_reply.set_result([BarData(date=datetime.fromtimestamp(stamp, timezone.utc),
+                    open=99, high=102, low=97, close=100) for stamp in [t - 60, t]])
+            loop.run_until_complete(recovery)
+            main = subs[0].queue.get_nowait()
+            self.assertTrue(main['historical'])
+            self.assertEqual([main['bars'][-1][k] for k in ('open', 'high', 'low', 'close')], [99, 105, 97, 104])
+            self.conn.ib.reqHistoricalDataAsync.assert_awaited_once()
+            self.conn.ib.placeOrder.assert_not_called()
+
+    def test_slow_disk_restore_fills_gaps_after_ib_without_overwriting_live_or_corrected_bars(self):
+        self.prepare_mes()
+        self.conn.host, self.conn.port, self.conn.account_id = 'fixture', 4001, 'live-fixture'
+        t = self.open + 300
+        saved = [dict(time=stamp, open=90, high=91, low=89, close=90) for stamp in (t-120, t-60)]
+        broker = [BarData(date=datetime.fromtimestamp(stamp, timezone.utc),
+                          open=99, high=101, low=98, close=100) for stamp in (t-180, t-60, t)]
+        self.conn.ib.reqHistoricalDataAsync = AsyncMock(return_value=broker)
+        release = threading.Event()
+        def load(*args):
+            if not release.wait(3):
+                raise TimeoutError('Disk restore was never released')
+            return dict(bars=saved, saved=t)
+        cache = self.feed.minute_cache
+        with patch.object(cache, 'load', side_effect=load), patch.object(cache, 'remember'), \
+             patch('time.time', return_value=t+1), patch.object(self.feed.eight_history, 'schedule_preload') as preload:
+            self.feed.snapshot(self.conn, 7, 5, 'rth', fast=True, background=True)
+            self.state = self.feed.states[7]
+            restore = self.state['timed_trades'].cache_restore
+            loop = asyncio.get_event_loop()
+            preload.assert_not_called()
+            try:
+                self.batch([('Last', t+2, 104)], t+2.1)
+                loop.run_until_complete(self.state['recovery_task'])
+                preload.assert_called_once_with(self.state)
+            finally:
+                release.set()
+                loop.run_until_complete(restore)
+            bars = self.feed.packet(self.state, 1, 'rth')['bars']
+            self.assertEqual([(b['time'], b['close']) for b in bars],
+                             [(t-180,100), (t-120,90), (t-60,100), (t,104)])
+            self.assertIn(t-120, self.state['timed_trades'].settled)
+
+    def test_mes_can_attach_while_both_initial_history_slots_are_in_use(self):
+        self.prepare_mes()
+        with patch.object(self.feed.initial_history, 'MAX_PENDING', 0):
+            self.feed.snapshot(self.conn, 7, 5, 'rth', fast=True, background=True)
+        self.state = self.feed.states[7]
+        self.batch([('Last', self.open + 3, 103)], self.open + 3.2)
+        self.assertEqual(self.state['bars'][-1]['close'], 103)
+        self.conn.ib.reqHistoricalDataAsync.assert_not_called()
+        self.conn.ib.client.reqMktData.assert_not_called()
+
+    def test_pending_mes_history_permission_preserves_live_ticks_and_stops_retries(self):
+        self.prepare_mes()
+        loop = asyncio.get_event_loop()
+        async def denied(*args, **kwargs):
+            self.conn.ib.errorEvent.emit(70, 162, 'No market data permissions', self.ticker.contract)
+            return []
+        self.conn.ib.reqHistoricalDataAsync = AsyncMock(side_effect=denied)
+        self.feed.snapshot(self.conn, 7, 5, 'rth', fast=True, background=True)
+        self.state = self.feed.states[7]
+        loop.run_until_complete(self.state['recovery_task'])
+        self.batch([('Last', self.open + 2, 101)], self.open + 2.3)
+        packet = self.feed.packet(self.state, 5, 'rth')
+        self.assertIn('Historical market data permission', packet['message'])
+        self.assertEqual(packet['bars'][-1]['close'], 101)
+        self.assertNotIn('recovery_task', self.state)
+        self.conn.ib.reqHistoricalDataAsync.assert_awaited_once()
+
     def cold_open(self, permissions=()):
         self.prepare_mes()
         with patch.object(self.feed.initial_history, 'read', return_value=([], permissions, [], 15, self.open)):

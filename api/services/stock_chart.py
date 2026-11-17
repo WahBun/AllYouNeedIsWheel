@@ -450,11 +450,17 @@ class StockChart:
                     other_history_errors.append(code)
                 if any(term in lowered for term in ('no market data permission', 'not subscribed', 'subscription required')):
                     permission_errors.append(str(message))
+            pending_seed = None
             if background:
                 try:
                     historical, permission_errors, other_history_errors, history_elapsed, history_requested = self.initial_history.read(conn, contract)
-                except ChartHistoryPending:
-                    raise
+                except ChartHistoryPending as pending:
+                    if not (minutes <= 60 and cme_regular(contract) and isinstance(conn.ib.wrapper, Wrapper)):
+                        raise
+                    # Even when both initial history slots are occupied, this
+                    # contract can receive trades and restore its closed minutes.
+                    pending_seed = pending
+                    historical, history_elapsed, history_requested = [], 0, time.time()
                 except HistoryDeferred:
                     self.next_request[con_id] = time.monotonic() + 15
                     raise
@@ -483,7 +489,7 @@ class StockChart:
                 record_history_health(conn, con_id, 'timeout')
             timed_trades = isinstance(conn.ib.wrapper, Wrapper) and (
                 (contract.secType == 'STK' and contract.currency == 'USD') or cme_regular(contract))
-            live_only = not bars and history_timed_out and not permission_errors and timed_trades
+            live_only = not bars and (pending_seed is not None or history_timed_out) and not permission_errors and timed_trades
             if not bars and not live_only:
                 # Failed history must not monopolize the serialized account/order lane.
                 # Transient history timeouts should not impose a full minute
@@ -607,8 +613,9 @@ class StockChart:
                 trades = state['timed_trades'] = ChartTrades(state, publish_trades, self.minute_cache)
                 trades.remember_history(bars, history_requested)
                 if live_only:
-                    trades.start()
-                    trades.recover_history()
+                    if pending_seed is None:
+                        trades.start()
+                    trades.recover_history(pending_seed.wait if pending_seed else None)
             if not option_bars:
                 # Match IB subscription IDs, not just the contract: retired
                 # subscriptions can report errors after the same chart reopens.
@@ -625,7 +632,13 @@ class StockChart:
                         state['timed_trades'].last_primary if state.get('timed_trades') else state['last_tick'], dict(state['quotes']))
                 state['permission_handler'] = on_permission_error
                 conn.ib.errorEvent += on_permission_error
-            if minutes != 480:
+            if pending_seed is not None:
+                # Keep optional 8h work behind the visible chart's first seed.
+                def preload_after_history(task):
+                    if not task.cancelled() and self.states.get(con_id) is state and not state.get('history_permission_denied'):
+                        self.eight_history.schedule_preload(state)
+                state['recovery_task'].add_done_callback(preload_after_history)
+            elif minutes != 480:
                 self.eight_history.schedule_preload(state)
             if option_bars:
                 def on_history(updated, has_new_bar):
@@ -650,7 +663,7 @@ class StockChart:
                 from api.services.chart_option_history import attach_option_history
                 attach_option_history(self, state, historical, on_history)
             asyncio.get_event_loop().call_later(30, self.expire, state)
-        if not (defer_history and (minutes >= 1440 or (minutes == 480 and session == 'rth'))) and not initial and not state.get('backfilled') and not state.get('recovery_task') and time.monotonic() >= state.get('backfill_retry', 0):
+        if not (defer_history and (minutes >= 1440 or (minutes == 480 and session == 'rth'))) and not initial and not state.get('backfilled') and not state.get('recovery_task') and not state.get('history_permission_denied') and time.monotonic() >= state.get('backfill_retry', 0):
             state['backfill_retry'] = time.monotonic() + 30
             history_requested = time.time()
             try:
@@ -824,6 +837,8 @@ class StockChart:
             if recovered:
                 permission_errors.pop(kind)
         message = 'Live market data permission unavailable; verify this contract entitlement in Gateway' if permission_errors else None
+        if message is None and state.get('history_permission_denied'):
+            message = 'Historical market data permission unavailable for this contract'
         output_bars = higher_bars
         if output_bars is None:
             bars = state['bars']

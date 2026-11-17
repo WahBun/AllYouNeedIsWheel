@@ -150,9 +150,11 @@ class ChartTrades:
         if self.cache_key and self.cache.key(self.state, minute=True) == self.cache_key:
             self.cache.remember(self.cache_key, rows, requested_at)
 
-    def recover_history(self):
+    def recover_history(self, pending_seed=None):
         """Recover the missing minute seed once per stream, off the serialized HTTP lane."""
         from api.services.chart_history_budget import read_history
+        from api.services.chart_history_pressure import HistoryDeferred
+        from api.services.history_health import record as record_history_health
         from api.services.stock_chart import merge_minute_history, minute_bars
         state = self.state
         conn, contract = state['conn'], state['contract']
@@ -164,16 +166,60 @@ class ChartTrades:
 
         async def restore_closed():
             cached = await asyncio.to_thread(self.cache.load, self.cache_key, time.time())
-            if (cached and cached['bars'] and self.seed == -math.inf and current()
-                    and self.cache.key(state, minute=True) == self.cache_key):
+            if not cached or not cached['bars'] or not current() or self.cache.key(state, minute=True) != self.cache_key:
+                return
+            if self.seed == -math.inf:
                 merge_minute_history(state, cached['bars'], cached['saved'])
-                self.publish()
+            else:
+                # IB finished first. Fill gaps without replacing its corrections
+                # or disturbing the live tail. Disk rows are closed minutes.
+                present = {bar['time'] for bar in state['bars']}
+                missing = [bar for bar in cached['bars'] if bar['time'] not in present]
+                if not missing:
+                    return
+                state['bars'] = sorted(state['bars'] + missing, key=lambda bar: bar['time'])[-12000:]
+                self.settled.update(bar['time'] for bar in missing)
+                state['history_revision'] = state.get('history_revision', 0) + 1
+            self.publish()
 
         if self.cache_key:
             self.cache_restore = asyncio.get_event_loop().create_task(restore_closed())
 
+        def apply_history(history, started):
+            rows = minute_bars(history)
+            if rows:
+                merge_minute_history(state, rows, started)
+                self.remember_history(rows, started)
+                self.publish()
+            return bool(rows)
+
         async def recover():
             delay = 15
+            if pending_seed is not None:
+                try:
+                    result = await pending_seed()
+                except HistoryDeferred:
+                    result = None
+                except ValueError:
+                    result = None
+                    delay = 60
+                if not current():
+                    return
+                if result is not None:
+                    history, permissions, errors, elapsed, started = result
+                    if apply_history(history, started):
+                        record_history_health(conn, state['con_id'], 'success')
+                        return
+                    if permissions:
+                        state['history_permission_denied'] = True
+                        self.publish()
+                        return
+                    if not errors and elapsed >= 15 * .95:
+                        record_history_health(conn, state['con_id'], 'timeout')
+                        if self.last_primary is None or time.time() - self.last_primary >= self.BACKLOG_SECONDS:
+                            self.start()
+                    else:
+                        delay = 60
             while True:
                 await asyncio.sleep(delay)
                 if not current():
@@ -187,11 +233,7 @@ class ChartTrades:
                     history = []
                 if not current():
                     return
-                rows = minute_bars(history)
-                if rows:
-                    merge_minute_history(state, rows, started)
-                    self.remember_history(rows, started)
-                    self.publish()
+                if apply_history(history, started):
                     return
                 delay = min(60, delay * 2)
 

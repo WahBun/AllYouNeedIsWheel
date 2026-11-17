@@ -6,7 +6,9 @@ import time
 
 
 class ChartHistoryPending(ValueError):
-    pass
+    def __init__(self, message, wait=None):
+        super().__init__(message)
+        self.wait = wait
 
 
 class InitialChartHistory:
@@ -40,6 +42,15 @@ class InitialChartHistory:
         for key, record in list(self.records.items()):
             self.discard(key, record)
 
+    def consume(self, key, record):
+        self.records.pop(key)
+        record['owned'] = False
+        if record.get('deferred'):
+            raise HistoryDeferred('Historical data cooling down')
+        if record.get('failed') and not record['permissions']:
+            raise ValueError('Chart history unavailable; retry shortly')
+        return (record.pop('history'), record['permissions'], record['errors'], record['elapsed'], record['requested_at'])
+
     def read(self, conn, contract):
         key = self.key(conn, contract)
         # Calendar-only / first charts may have no SSE pump yet. This bounded
@@ -50,13 +61,7 @@ class InitialChartHistory:
                 self.discard(old_key, old)
         record = self.records.get(key)
         if record is not None and record['ready']:
-            self.records.pop(key)
-            record['owned'] = False
-            if record.get('deferred'):
-                raise HistoryDeferred('Historical data cooling down')
-            if record.get('failed'):
-                raise ValueError('Chart history unavailable; retry shortly')
-            return (record.pop('history'), record['permissions'], record['errors'], record['elapsed'], record['requested_at'])
+            return self.consume(key, record)
         if record is None and len(self.tasks) < self.MAX_PENDING and len(self.records) < 8:
             option = contract.secType == 'OPT'
             record = dict(conn=conn, option=option, owned=True, ready=False,
@@ -65,6 +70,10 @@ class InitialChartHistory:
 
             def history_error(req_id, code, message, error_contract=None):
                 if getattr(error_contract, 'conId', None) != contract.conId:
+                    return
+                # The same CME contract can already have live tick subscriptions.
+                tickers = getattr(conn.ib.wrapper, 'reqId2Ticker', None)
+                if isinstance(tickers, dict) and req_id in tickers:
                     return
                 lowered = str(message).lower()
                 if 'query cancelled' not in lowered:
@@ -104,9 +113,17 @@ class InitialChartHistory:
                 asyncio.get_event_loop().call_later(30, self.expire, key, record)
 
             task = asyncio.get_event_loop().create_task(load())
+            record['task'] = task
             self.tasks.add(task)
             task.add_done_callback(self.tasks.discard)
-        raise ChartHistoryPending('Loading chart history')
+
+        async def wait():
+            await asyncio.shield(record['task'])
+            if self.records.get(key) is record and record['ready']:
+                return self.consume(key, record)
+            return None
+
+        raise ChartHistoryPending('Loading chart history', wait if record is not None else None)
 
     def needs_pump(self):
         return bool(self.tasks or self.records)
