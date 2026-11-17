@@ -194,9 +194,10 @@ class NotificationsTests(unittest.TestCase):
             message([99, 42, 3, now, 100, 101, 1, 1, 0])
             message([99, 41, 1, now - 90, 100, 1, 0, 'CME', ''])
             self.assertFalse(self.events())
-            self.assertEqual(feed.states[7]['last_tick'], now)
+            self.assertIsNone(feed.states[7]['last_tick'])  # Older than the broker history seed.
             for price in (101, 100, 100, 101):
                 message([99, 41, 1, now, price, 1, 0, 'CME', ''])
+            self.assertEqual(feed.states[7]['last_tick'], now)
         self.assertEqual(len(self.events()), 1)
         self.assertIn('Last 100', self.events()[0]['body'])
         self.assertEqual(self.store.alerts(self.scope)[0]['id'], alert['id'])

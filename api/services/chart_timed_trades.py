@@ -7,6 +7,8 @@ import time
 
 from ib_async import Ticker
 
+from api.services.chart_sessions import cme_regular
+
 
 class ChartTrades:
     BACKLOG_SECONDS = 3
@@ -15,6 +17,8 @@ class ChartTrades:
     def __init__(self, state, publish):
         self.state = state
         self.publish = publish
+        # CME trade timestamps can lead the host clock by a fraction of a second.
+        self.max_clock_lead = 1 if cme_regular(state['contract']) else 0
         self.wire_times = {}
         self.request_id = None
         self.healthy_since = None
@@ -66,7 +70,8 @@ class ChartTrades:
 
     def record(self, stamp, price, primary, now):
         state = self.state
-        if not math.isfinite(stamp) or not 0 < stamp <= now or not math.isfinite(price) or not 0 < price < 1e100:
+        if (not math.isfinite(stamp) or not 0 < stamp <= now + self.max_clock_lead
+                or not math.isfinite(price) or not 0 < price < 1e100):
             return False
         minute = int(stamp)//60*60
         if primary:
@@ -96,7 +101,7 @@ class ChartTrades:
                 if self.late_timer is None:
                     self.late_timer = asyncio.get_event_loop().call_later(2, self.publish_late)
                 return False
-        elif (not 0 <= now-stamp < 3 or
+        elif (now-stamp >= 3 or
               (self.last_primary is not None and stamp-self.last_primary < 2)):
             return False
         if not self.merge(minute, stamp, stamp, price, price, price, price):

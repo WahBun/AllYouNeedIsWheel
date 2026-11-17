@@ -120,11 +120,36 @@ class StockTradeTests(TestCase):
         self.conn.ib.client.cancelMktData.assert_called_once_with(43)
         self.assertEqual(self.state['bars'][-1]['close'],105)
 
-    def cold_open(self, permissions=()):
+    def prepare_mes(self):
         self.feed.stop(reset_cooldown=True)
         contract = Future('MES', '20261218', 'CME', currency='USD', conId=7, localSymbol='MESZ6')
         self.ticker.contract = contract
         self.conn.get_option_position_by_con_id.return_value['contract'] = contract
+
+    def test_seeded_mes_keeps_backlogged_b3_trades_out_of_b4(self):
+        self.prepare_mes()
+        b3 = self.open + 600
+        b4 = b3 + 300
+        self.feed.snapshot(self.conn, 7, 5, 'rth', fast=True)
+        self.state = self.feed.states[7]
+        self.batch([('Last', b3, 7420.25)], b3 + .4)
+        self.conn.ib.client.reqMktData.assert_not_called()
+        self.batch([('Last', b3 + 1, 7436)], b4 + 5)
+        self.batch([('RT', b4 + 5.4, 7417)], b4 + 5.12)
+        self.batch([('Last', b3 + 2, 7416.75), ('Last', b3 + 298, 7417)], b4 + 305)
+        self.batch([('Last', b4, 7417)], b4 + 306)
+        # A wire time well ahead of receipt must not extend the current candle.
+        self.batch([('RT', b4 + 310, 7500)], b4 + 306)
+        rows = self.feed.packet(self.state, 5, 'rth')['bars']
+        self.assertEqual([(b['time'], b['open'], b['high'], b['low'], b['close']) for b in rows[-2:]],
+                         [(b3, 7420.25, 7436, 7416.75, 7417), (b4, 7417, 7417, 7417, 7417)])
+        self.assertEqual(self.state['last_tick'], b4 + 5.4)
+        self.assertEqual(self.state['quotes'], {})
+        self.conn.ib.client.reqMktData.assert_called_once_with(43, self.ticker.contract, '375', False, False, [])
+        self.conn.ib.placeOrder.assert_not_called()
+
+    def cold_open(self, permissions=()):
+        self.prepare_mes()
         with patch.object(self.feed.initial_history, 'read', return_value=([], permissions, [], 15)):
             packet = self.feed.snapshot(self.conn, 7, 5, 'rth', fast=True, background=True)
         self.state = self.feed.states[7]
