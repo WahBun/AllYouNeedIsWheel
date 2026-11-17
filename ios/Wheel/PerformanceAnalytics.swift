@@ -300,9 +300,15 @@ struct PerformanceAnalyticsScreen: View {
                     HStack(spacing: 4) {
                         Text(LocalizedStringKey(period.gridTitle))
                         if monthly { PerformanceInfoButton(topic: .calendar) }
-                        if !parents.isEmpty {
+                        if !monthly, !parents.isEmpty {
                             Spacer()
-                            Button("Back") { if let parent = parents.popLast() { period = parent } }
+                            Button {
+                                if let parent = parents.popLast() { period = parent }
+                            } label: {
+                                Label("Back", systemImage: "arrow.uturn.backward")
+                                    .labelStyle(.iconOnly)
+                            }
+                            .accessibilityIdentifier("review-back")
                         }
                     }.textCase(nil)
                 }
