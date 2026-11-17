@@ -54,6 +54,46 @@ class AnalyticsTests(unittest.TestCase):
         self.assertEqual(self.analytics(currency='EUR')['summary']['realized_pnl'], 20)
         self.assertIsNone(self.analytics(currency='USD')['contributions'][0]['realized_pnl'])
 
+    def test_year_and_all_reconcile_by_report_date_without_filling_coverage_gaps(self):
+        prior = self.row(IBExecID='older', TradeDate='20251231', DateTime='20251231,113829',
+                         FifoPnlRealized='-30', IBCommission='-2')
+        metadata = ('HEADER,ACCT,ClientAccountID,DateOpened\nDATA,ACCT,OTHER,20240201\n'
+                    'DATA,ACCT,LIVE_TEST,20251201\n')
+        archive_analytics(metadata + self.report(prior), self.config, [{'date': '2025-12-31'}])
+        self.publish(self.row(FifoPnlRealized='15'), self.row(IBExecID='eur', CurrencyPrimary='EUR',
+                     IBOrderID='eur', FifoPnlRealized='7', IBCommissionCurrency='EUR', IBCommission='-2'))
+        month = self.analytics(month='2026-10')
+        year = self.analytics(scope='year', year='2026', currency='USD')
+        all_time = self.analytics(scope='all', currency='USD')
+        self.assertEqual(month['summary'], year['summary'])
+        self.assertEqual([r['period'] for r in year['periods']], ['2026-09', '2026-10'])
+        self.assertEqual([r['realized_pnl'] for r in all_time['periods']], [15, -30])
+        self.assertEqual(all_time['summary']['realized_pnl'], -15)
+        self.assertEqual(all_time['account_opened'], '2025-12-01')
+        self.assertEqual(all_time['coverage'], [
+            {'first': '2025-12-31', 'through': '2025-12-31'},
+            {'first': '2026-09-30', 'through': '2026-10-30'}])
+        self.assertEqual(all_time['contributions'][0]['realized_pnl'], -15)
+        self.assertEqual(all_time['period_commissions'][0]['currency'], 'EUR')
+        self.assertAlmostEqual(all_time['period_commissions'][1]['total'], 3.04)
+        self.assertEqual(all_time['days'], [])
+        self.assertEqual(all_time['trades'], [])
+        self.assertEqual(self.analytics(scope='year', year='2025', currency='EUR')['summary']['realized_pnl'], 0)
+        self.assertIsNone(self.analytics(scope='year', year='2024')['summary']['realized_pnl'])
+        self.assertIsNone(read_analytics(dict(self.config, account_id='OTHER'), scope='all'))
+
+    def test_aggregate_missing_pnl_and_arguments(self):
+        self.publish(self.row(FifoPnlRealized=''), self.row(IBExecID='known', FifoPnlRealized='0'))
+        for scope in ('year', 'all'):
+            report = self.analytics(scope=scope)
+            self.assertIsNone(report['summary']['realized_pnl'])
+            self.assertIsNone(report['contributions'][0]['realized_pnl'])
+            self.assertTrue(any(b['missing_pnl'] == 1 and b['realized_pnl'] is None for b in report['periods']))
+        for args in ({'scope': 'all', 'month': '2026-10'}, {'scope': 'year', 'day': '2026-10-30'},
+                     {'scope': 'year', 'year': '26'}, {'scope': 'week'}, {'year': '2026'}):
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                self.analytics(**args)
+
     def test_bad_report_keeps_verified_snapshot_and_exposes_warning(self):
         self.publish(self.row())
         version = self.analytics()['report_version']
@@ -136,6 +176,11 @@ class AnalyticsTests(unittest.TestCase):
             result = app.test_client().get('/api/performance/analytics', headers={'X-Wheel-Account-Epoch': 'first'})
             self.assertEqual(result.status_code, 200)
             self.assertEqual(result.headers['Cache-Control'], 'no-store')
+            annual = app.test_client().get('/api/performance/analytics?scope=year&year=2026')
+            self.assertEqual(annual.json['scope'], 'year')
+            self.assertEqual(annual.json['periods'][-1]['period'], '2026-10')
+            self.assertEqual(app.test_client().get('/api/performance/analytics?scope=all',
+                             headers={'X-Wheel-Account-Epoch': 'old'}).status_code, 409)
             self.assertEqual(app.test_client().get('/api/performance/analytics', headers={'X-Wheel-Account-Epoch': 'old'}).status_code, 409)
             with patch.object(performance, 'Config', return_value={'account_id': 'DU_TEST'}):
                 self.assertEqual(app.test_client().get('/api/performance/analytics').status_code, 409)

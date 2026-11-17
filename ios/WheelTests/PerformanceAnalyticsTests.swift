@@ -70,6 +70,28 @@ final class PerformanceAnalyticsTests: XCTestCase {
         XCTAssertNil(model.error)
     }
 
+    @MainActor func testPeriodRequestsAndLegacyResponse() async throws {
+        let model = PerformanceAnalyticsModel()
+        let session = session()
+        await model.load(base: "https://analytics.invalid", epoch: "live", scope: "all", session: session)
+        XCTAssertEqual(model.report?.scope, "all")
+        XCTAssertEqual(model.report?.coverage?.first?.first, "2025-11-03")
+        XCTAssertEqual(model.report?.periods?.first?.period, "2026")
+        await model.load(base: "https://analytics.invalid", epoch: "live", currency: "USD", scope: "year", year: "2026", session: session)
+        XCTAssertEqual(model.report?.periods?.first?.period, "2026-10")
+        let url = try XCTUnwrap(AnalyticsProtocol.lastRequest?.url)
+        XCTAssertTrue(url.query?.contains("year=2026") == true)
+        XCTAssertFalse(url.query?.contains("month=") == true)
+        XCTAssertEqual(AnalyticsProtocol.lastRequest?.value(forHTTPHeaderField: "X-Wheel-Account-Epoch"), "live")
+        AnalyticsProtocol.legacy = true
+        defer { AnalyticsProtocol.legacy = false }
+        await model.load(base: "https://analytics.invalid", epoch: "live", scope: "all", session: session)
+        XCTAssertNil(model.report)
+        XCTAssertNotNil(model.error)
+        await model.load(base: "https://analytics.invalid", epoch: "live", month: "2026-10", session: session)
+        XCTAssertNotNil(model.report)
+    }
+
     @MainActor func testRefreshFailureRetainsSameAccountButNeverLeaksAcrossEpochs() async {
         let model = PerformanceAnalyticsModel()
         let session = session()
@@ -155,7 +177,7 @@ final class PerformanceAnalyticsTests: XCTestCase {
                         if detail {
                             PerformanceExecutionView(base: "https://analytics.invalid", epoch: "test", month: "2026-10", currency: "USD", day: "2026-10-30")
                         } else {
-                            PerformanceAnalyticsScreen(base: "https://analytics.invalid", epoch: "test").navigationTitle("Trade review")
+                            PerformanceAnalyticsScreen(base: "https://analytics.invalid", epoch: "test", period: .month("2026-10")).navigationTitle("Trade review")
                         }
                     }
                     let host = UIHostingController(rootView: NavigationStack { root }
@@ -177,6 +199,7 @@ final class PerformanceAnalyticsTests: XCTestCase {
 }
 
 private final class AnalyticsProtocol: URLProtocol {
+    static var legacy = false
     static var fail = false
     static var version = "verified-1"
     static var lastRequest: URLRequest?
@@ -190,7 +213,18 @@ private final class AnalyticsProtocol: URLProtocol {
         }
         let offset = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "offset" })?.value.flatMap(Int.init) ?? 0
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: PerformanceAnalyticsTests.payload(offset: offset, version: Self.version))
+        let items = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
+        let scope = items?.first { $0.name == "scope" }?.value ?? "month"
+        var data = PerformanceAnalyticsTests.payload(offset: offset, version: Self.version)
+        if scope != "month" && !Self.legacy {
+            var object = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+            object["scope"] = scope
+            object["year"] = "2026"
+            object["coverage"] = [["first": "2025-11-03", "through": "2026-10-30"]]
+            object["periods"] = [["period": scope == "all" ? "2026" : "2026-10", "realized_pnl": 156.11, "executions": 2]]
+            data = try! JSONSerialization.data(withJSONObject: object)
+        }
+        client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

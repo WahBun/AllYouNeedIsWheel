@@ -58,6 +58,24 @@ struct PerformanceAnalytics: Decodable {
             return formatter.string(from: stamp)
         }
     }
+    struct Bucket: Decodable, Identifiable {
+        let period: String
+        let executions: Int
+        let book_entries: Int?
+        let realized_pnl: Double?
+        var displayAmount: Double? { executions + (book_entries ?? 0) == 0 ? nil : realized_pnl }
+        var id: String { period }
+    }
+    struct Coverage: Decodable {
+        let first: String
+        let through: String
+    }
+    let scope: String?
+    let year: String?
+    let periods: [Bucket]?
+    let coverage: [Coverage]?
+    let account_opened: String?
+    let period_commissions: [CommissionTotal]?
     let month: String
     let months: [String]
     let currency: String
@@ -92,16 +110,18 @@ struct PerformanceAnalytics: Decodable {
     private var loadedContext = ""
 
     func load(base: String, epoch: String?, month: String = "", currency: String = "",
-              day: String? = nil, offset: Int = 0, refresh: Bool = false,
+              scope: String = "month", year: String = "", day: String? = nil, offset: Int = 0, refresh: Bool = false,
               session: URLSession = .shared) async {
         let token = UUID(); requestID = token
         loading = true; error = nil
-        let context = "\(base)|\(epoch ?? "")|\(month)|\(currency)|\(day ?? "")"
+        let context = "\(base)|\(epoch ?? "")|\(scope)|\(year)|\(month)|\(currency)|\(day ?? "")"
         if context != loadedContext { report = nil; trades = []; loadedContext = context }
         defer { if requestID == token { loading = false } }
         for attempt in 0..<15 {
             do {
                 var query = [URLQueryItem(name: "offset", value: String(offset))]
+                query.append(URLQueryItem(name: "scope", value: scope))
+                if !year.isEmpty { query.append(URLQueryItem(name: "year", value: year)) }
                 if !month.isEmpty { query.append(URLQueryItem(name: "month", value: month)) }
                 if !currency.isEmpty { query.append(URLQueryItem(name: "currency", value: currency)) }
                 if let day { query.append(URLQueryItem(name: "day", value: day)) }
@@ -111,6 +131,10 @@ struct PerformanceAnalytics: Decodable {
                 guard requestID == token else { return }
                 if status == 202 { try await Task.sleep(for: .seconds(2)); continue }
                 let next = try JSONDecoder().decode(PerformanceAnalytics.self, from: data)
+                guard (next.scope ?? "month") == scope else {
+                    error = "Update the Wheel backend to view this period."
+                    return
+                }
                 if offset > 0 && next.report_version != report?.report_version {
                     error = "The report changed. Refresh to load the updated executions."
                     return
@@ -155,6 +179,11 @@ enum AnalyticsCalendar {
         }
         return day?.realized_pnl
     }
+    static func monthNames(_ locale: Locale) -> [String] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = locale
+        return calendar.shortStandaloneMonthSymbols
+    }
     static func weekdays(locale: Locale) -> [String] {
         let formatter = DateFormatter(); formatter.locale = locale
         return Array(formatter.shortStandaloneWeekdaySymbols.dropFirst().prefix(5))
@@ -179,26 +208,60 @@ struct PerformanceAnalyticsView: View {
     }
 }
 
+enum ReviewPeriod: Hashable {
+    case month(String)
+    case year(String)
+    case all
+
+    static var currentMonth: String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        let parts = calendar.dateComponents([.year, .month], from: Date())
+        return String(format: "%04d-%02d", parts.year!, parts.month!)
+    }
+    var scope: String {
+        switch self { case .month: "month"; case .year: "year"; case .all: "all" }
+    }
+    var month: String { if case let .month(value) = self { value } else { "" } }
+    var year: String { if case let .year(value) = self { value } else { "" } }
+    var title: String {
+        switch self { case .month: "Month"; case .year: "Year"; case .all: "All time" }
+    }
+    var gridTitle: String {
+        switch self { case .month: "P&L calendar"; case .year: "Monthly P&L"; case .all: "Yearly P&L" }
+    }
+    var feeTitle: String {
+        switch self { case .month: "Monthly commissions"; case .year: "Annual commissions"; case .all: "Total commissions" }
+    }
+}
+
 struct PerformanceAnalyticsScreen: View {
     let base: String
     let epoch: String?
     @Environment(\.scenePhase) private var phase
     @Environment(\.locale) private var locale
     @State private var model = PerformanceAnalyticsModel()
-    @State private var month = ""
+    @State var period: ReviewPeriod = .month(ReviewPeriod.currentMonth)
+    @State private var parents: [ReviewPeriod] = []
     @State private var currency = ""
     @State private var revision = 0
+    @State private var pendingRefresh = false
     @State private var visible = false
     @State private var selectedDate: String?
-    private var context: String { "\(visible)-\(phase == .active)-\(month)-\(currency)-\(revision)" }
+    private var currentReport: PerformanceAnalytics? {
+        guard let report = model.report, (report.scope ?? "month") == period.scope,
+              (period.month.isEmpty || period.month == report.month),
+              (period.year.isEmpty || period.year == report.year),
+              (currency.isEmpty || currency == report.currency) else { return nil }
+        return report
+    }
+    private var context: String { "\(visible)-\(phase == .active)-\(period)-\(currency)-\(revision)" }
 
     var body: some View {
         List {
-            if let report = model.report {
-                Section {
-                    Picker("Month", selection: Binding(get: { month.isEmpty ? report.month : month }, set: { month = $0; currency = "" })) {
-                        ForEach(report.months, id: \.self) { Text(verbatim: $0).tag($0) }
-                    }
+            Section {
+                periodPicker
+                if let report = currentReport {
                     if report.currencies.count > 1 {
                         Picker("Currency", selection: Binding(get: { currency.isEmpty ? report.currency : currency }, set: { currency = $0 })) {
                             ForEach(report.currencies, id: \.self) { Text(verbatim: $0).tag($0) }
@@ -209,19 +272,39 @@ struct PerformanceAnalyticsScreen: View {
                             Text("Realized P&L")
                             PerformanceInfoButton(topic: .pnl)
                         }.font(.subheadline).foregroundStyle(.secondary)
-                        AnalyticsAmount(value: report.summary.realized_pnl, currency: report.currency)
+                        AnalyticsAmount(value: report.report_through == nil ? nil : report.summary.realized_pnl, currency: report.currency)
                             .font(.largeTitle.bold()).minimumScaleFactor(0.6).lineLimit(1)
                         Text(verbatim: "\(PerformanceAnalytics.activityLabel(report.summary.executions, report.summary.book_entries, locale: locale)) · \(report.currency)")
                             .font(.caption).foregroundStyle(.secondary)
                     }.padding(.vertical, 4)
                     AnalyticsReportNote(report: report)
                 }
-                AnalyticsCommissionsSection(title: "Monthly commissions", totals: report.monthly_commissions)
+            }
+            if let report = currentReport {
+                let monthly = period.scope == "month"
+                AnalyticsCommissionsSection(title: period.feeTitle,
+                                             totals: monthly ? report.monthly_commissions : report.period_commissions, periodSummary: !monthly)
                 Section {
-                    AnalyticsCalendarGrid(report: report) { selectedDate = $0 }
-                        .listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 8))
+                    Group {
+                        if monthly {
+                            AnalyticsCalendarGrid(report: report) { selectedDate = $0 }
+                        } else {
+                            AnalyticsPeriodGrid(report: report, period: period) { child in
+                                parents.append(period)
+                                period = child
+                                currency = report.currency
+                            }
+                        }
+                    }.listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 8))
                 } header: {
-                    HStack(spacing: 4) { Text("P&L calendar"); PerformanceInfoButton(topic: .calendar) }.textCase(nil)
+                    HStack(spacing: 4) {
+                        Text(LocalizedStringKey(period.gridTitle))
+                        if monthly { PerformanceInfoButton(topic: .calendar) }
+                        if !parents.isEmpty {
+                            Spacer()
+                            Button("Back") { if let parent = parents.popLast() { period = parent } }
+                        }
+                    }.textCase(nil)
                 }
                 Section {
                     if report.contributions.isEmpty { Text("No executions in this report period.").foregroundStyle(.secondary) }
@@ -236,31 +319,69 @@ struct PerformanceAnalyticsScreen: View {
                         }.padding(.vertical, 3)
                     }
                 } header: {
-                    HStack(spacing: 4) { Text("Symbol contributions"); PerformanceInfoButton(topic: .contributions) }.textCase(nil)
+                    HStack(spacing: 4) { Text("Symbol contributions"); PerformanceInfoButton(topic: .contributions, forLongerPeriod: !monthly) }.textCase(nil)
                 }
             }
             if model.loading { Section { ProgressView("Loading report…") } }
             if let error = model.error { Section { NoticeText(error).foregroundStyle(.orange) } }
-            Section { Button("Refresh") { revision += 1 }.disabled(model.loading) }
+            Section { Button("Refresh") { pendingRefresh = true; revision += 1 }.disabled(model.loading) }
         }
         .navigationDestination(item: $selectedDate) { date in
-            if let report = model.report {
+            if let report = currentReport {
                 PerformanceExecutionView(base: base, epoch: epoch, month: report.month, currency: report.currency, day: date)
             }
         }
         .onAppear { visible = true }.onDisappear { visible = false }
         .task(id: context) {
             guard visible, phase == .active else { return }
-            await model.load(base: base, epoch: epoch, month: month, currency: currency, refresh: revision > 0)
+            let refresh = pendingRefresh
+            pendingRefresh = false
+            await model.load(base: base, epoch: epoch, month: period.month, currency: currency,
+                             scope: period.scope, year: period.year, refresh: refresh)
         }
     }
+
+    private var periodPicker: some View {
+        let current = ReviewPeriod.currentMonth
+        let months = Set((model.report?.months ?? []) + [current, period.month]).filter { !$0.isEmpty }.sorted(by: >)
+        let years = Set(months.map { String($0.prefix(4)) } + [period.year]).filter { !$0.isEmpty }.sorted(by: >)
+        let month = period.month.isEmpty ? (months.first { $0.hasPrefix(period.year) } ?? current) : period.month
+        let year = period.year.isEmpty ? String(month.prefix(4)) : period.year
+        return HStack {
+            Menu {
+                Button("Month") { select(.month(month)) }
+                Button("Year") { select(.year(year)) }
+                Button("All time") { select(.all) }
+            } label: {
+                HStack(spacing: 5) { Text(LocalizedStringKey(period.title)); Image(systemName: "chevron.down").font(.caption2) }
+            }.accessibilityIdentifier("review-scope")
+            Spacer()
+            if period != .all {
+                Picker("Selected period", selection: Binding(get: { period.month.isEmpty ? year : month },
+                                                            set: { select(period.month.isEmpty ? .year($0) : .month($0)) })) {
+                    ForEach(period.month.isEmpty ? years : months, id: \.self) { Text(verbatim: $0).tag($0) }
+                }.labelsHidden().pickerStyle(.menu).accessibilityIdentifier("review-period")
+            }
+        }
+    }
+
+    private func select(_ next: ReviewPeriod) {
+        guard next != period else { return }
+        parents.removeAll()
+        period = next
+    }
+
 }
 
 struct AnalyticsReportNote: View {
     let report: PerformanceAnalytics
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            if let through = report.report_through { Text("Flex report through \(through)") }
+            if let ranges = report.coverage, report.scope != "month", report.scope != nil {
+                ForEach(ranges, id: \.first) { range in Text("Reported \(range.first) – \(range.through)") }
+                if ranges.isEmpty { Text("No report coverage for this period") }
+                if let opened = report.account_opened { Text("Account opened \(opened)") }
+            } else if let through = report.report_through { Text("Flex report through \(through)") }
             else { Text("No report coverage for this month") }
             if report.summary.missing_pnl > 0 { Text("Some executions have no reported realized P&L. Totals remain unavailable until the report is complete.").foregroundStyle(.orange) }
             if report.refreshing { Text("Report refresh pending").foregroundStyle(.orange) }
@@ -300,6 +421,7 @@ enum PerformanceHelpTopic: String {
 struct AnalyticsCommissionsSection: View {
     let title: String
     let totals: [PerformanceAnalytics.CommissionTotal]?
+    var periodSummary = false
     var body: some View {
         Section {
             if let totals {
@@ -315,13 +437,14 @@ struct AnalyticsCommissionsSection: View {
                 }
             } else { Text("—").foregroundStyle(.secondary) }
         } header: {
-            HStack(spacing: 4) { Text(LocalizedStringKey(title)); PerformanceInfoButton(topic: .commissions) }.textCase(nil)
+            HStack(spacing: 4) { Text(LocalizedStringKey(title)); PerformanceInfoButton(topic: .commissions, forLongerPeriod: periodSummary) }.textCase(nil)
         }
     }
 }
 
 struct PerformanceInfoButton: View {
     let topic: PerformanceHelpTopic
+    var forLongerPeriod = false
     @State private var presented = false
     @Environment(\.locale) private var locale
     var body: some View {
@@ -335,6 +458,10 @@ struct PerformanceInfoButton: View {
                         if topic == .performance {
                             Section { NoticeText(PerformanceHelpTopic.dailyPnl.explanation) } header: { Text("Daily P&L") }
                             Section { NoticeText(PerformanceHelpTopic.history.explanation) } header: { Text("Performance history") }
+                        } else if forLongerPeriod && topic == .commissions {
+                            Text("Account trading commissions for the reported dates in this period, grouped by fee currency. Credits reduce costs. Commissions are already included in realized P&L.")
+                        } else if forLongerPeriod && topic == .contributions {
+                            Text("Symbols are ranked by absolute realized P&L for the selected period and currency. Stock and option activity share their underlying symbol.")
                         } else { NoticeText(topic.explanation) }
                     }
                         .navigationTitle(LocalizedStringKey(topic.rawValue)).navigationBarTitleDisplayMode(.inline)
@@ -355,6 +482,42 @@ struct AnalyticsAmount: View {
     }
     var body: some View {
         Text(verbatim: AnalyticsCalendar.amount(value, currency: currency)).foregroundStyle(color).monospacedDigit()
+    }
+}
+
+struct AnalyticsPeriodGrid: View {
+    let report: PerformanceAnalytics
+    let period: ReviewPeriod
+    let onSelect: (ReviewPeriod) -> Void
+    @Environment(\.customPalette) private var palette
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        let annual = period.scope == "year"
+        let buckets = Dictionary(uniqueKeysWithValues: (report.periods ?? []).map { ($0.period, $0) })
+        let keys = annual ? (1...12).map { String(format: "%@-%02d", period.year, $0) } : buckets.keys.sorted(by: >)
+        let names = AnalyticsCalendar.monthNames(locale)
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: annual ? 3 : 2), spacing: 5) {
+            ForEach(keys, id: \.self) { key in
+                let amount = buckets[key]?.displayAmount
+                let value = amount ?? 0
+                let color: Color = value == 0 ? .secondary : palette.color(value > 0 ? "gain" : "loss", scheme: scheme,
+                                                                           fallback: value > 0 ? FinancialColors.gain : FinancialColors.loss)
+                let label = annual ? names[(Int(key.suffix(2)) ?? 1) - 1] : key
+                Button { onSelect(annual ? .month(key) : .year(key)) } label: {
+                    VStack(spacing: 5) {
+                        Text(verbatim: label).font(.caption.weight(.medium))
+                        Text(verbatim: amount?.formatted(.number.notation(.compactName).precision(.fractionLength(0...1))) ?? "—")
+                            .font(.caption.weight(.semibold)).monospacedDigit()
+                    }.frame(maxWidth: .infinity, minHeight: 47)
+                        .background(color.opacity(buckets[key] == nil ? 0.04 : 0.13), in: RoundedRectangle(cornerRadius: 6))
+                        .foregroundStyle(color).contentShape(Rectangle())
+                }.buttonStyle(.plain).disabled(buckets[key] == nil)
+                    .accessibilityLabel("\(key), \(AnalyticsCalendar.amount(amount, currency: report.currency))")
+                    .accessibilityIdentifier("analytics-period-\(key)")
+            }
+        }
     }
 }
 

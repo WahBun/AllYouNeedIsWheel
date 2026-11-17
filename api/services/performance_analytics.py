@@ -4,6 +4,8 @@ Dates follow the report's trade date, including overnight futures/FX sessions.
 Realized FIFO P&L is already net: commission is displayed, never subtracted again.
 Currencies remain separate; no guessed FX rates or premiums counted as profit.
 """
+import csv
+import io
 import json
 import math
 import os
@@ -18,6 +20,41 @@ from api.services.execution_record_history import parse_mtd, grouped_orders, rep
 
 
 ISSUE = 'The latest execution report needs verification. Showing the previous verified report.'
+
+
+def account_open_date(text, account):
+    """Account Information identifies inception independently of first funding."""
+    if text.lstrip().startswith('<'):
+        root = ET.fromstring(text)
+        values = [info.get('dateOpened') for statement in root.iter('FlexStatement')
+                  if statement.get('accountId') == account for info in statement.iter('AccountInformation')]
+    else:
+        fields, values = [], []
+        for row in csv.reader(io.StringIO(text.lstrip('\ufeff'))):
+            if row[:2] == ['HEADER', 'ACCT']:
+                fields = row[2:]
+            elif row[:2] == ['DATA', 'ACCT']:
+                info = dict(zip(fields, row[2:]))
+                if info.get('ClientAccountID') == account:
+                    values.append(info.get('DateOpened'))
+    try:
+        dates = {report_day(value).isoformat() for value in values if value}
+    except ValueError:
+        return None
+    return dates.pop() if len(dates) == 1 else None
+
+
+def coverage_ranges(days):
+    ranges = []
+    previous = None
+    for value in days:
+        day = date.fromisoformat(value)
+        if previous is None or day - previous != timedelta(days=1):
+            ranges.append({'first': value, 'through': value})
+        else:
+            ranges[-1]['through'] = value
+        previous = day
+    return ranges
 
 
 def archive_analytics(text, config, daily):
@@ -47,6 +84,10 @@ def archive_analytics(text, config, daily):
             db.execute('INSERT OR REPLACE INTO analytics_status VALUES (?,?)', (account, ISSUE))
             db.commit()
             raise
+        opened = account_open_date(text, account)
+        if opened:
+            db.execute('CREATE TABLE IF NOT EXISTS analytics_accounts (account TEXT PRIMARY KEY, opened TEXT NOT NULL)')
+            db.execute('INSERT OR REPLACE INTO analytics_accounts VALUES (?,?)', (account, opened))
         stamp = datetime.now(timezone.utc).isoformat()
         # Replace the complete report window atomically, retaining older months.
         # A corrected report may remove executions; an upsert alone would leave ghosts.
@@ -77,7 +118,13 @@ def commission_totals(rows):
             for currency, values in sorted(buckets.items())]
 
 
-def read_analytics(config, *, month=None, currency=None, day=None, offset=0, limit=50):
+def read_analytics(config, *, month=None, currency=None, day=None, offset=0, limit=50, scope=None, year=None):
+    keep_currency = scope is not None
+    scope = 'month' if scope is None else scope
+    if scope not in ('month', 'year', 'all') or (scope != 'month' and (day or month or offset)):
+        raise ValueError('Invalid review period.')
+    if year is not None and (scope != 'year' or not re.fullmatch(r'[0-9]{4}', year)):
+        raise ValueError('Invalid year.')
     if month and not re.fullmatch(r'\d{4}-(0[1-9]|1[0-2])', month):
         raise ValueError('Invalid month.')
     if day and (not re.fullmatch(r'\d{4}-\d{2}-\d{2}', day) or date.fromisoformat(day).isoformat() != day):
@@ -97,8 +144,17 @@ def read_analytics(config, *, month=None, currency=None, day=None, offset=0, lim
             month = month or months[0]
             if day and day[:7] != month:
                 raise ValueError('Trade date must be in the selected month.')
-            covered = list(db.execute('SELECT day,fetched_at FROM analytics_days WHERE account=? AND substr(day,1,7)=? ORDER BY day', (account, month)))
-            rows = [dict(json.loads(body), id=eid) for eid, body in db.execute('SELECT exec_id,body FROM analytics_executions WHERE account=? AND day>=? AND day<=?', (account, month + '-01', month + '-31'))]
+            year = year or month[:4]
+            bounds = {'month': (month + '-01', month + '-31'), 'year': (year + '-01-01', year + '-12-31'),
+                      'all': ('0001-01-01', '9999-12-31')}
+            interval = (account, *bounds[scope])
+            covered = list(db.execute('SELECT day,fetched_at FROM analytics_days WHERE account=? AND day BETWEEN ? AND ? ORDER BY day', interval))
+            selection = 'SELECT exec_id,body FROM analytics_executions WHERE account=? AND day BETWEEN ? AND ?'
+            rows = [dict(json.loads(body), id=eid) for eid, body in db.execute(selection, interval)]
+            opened = None
+            if scope == 'all' and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='analytics_accounts'").fetchone():
+                metadata = db.execute('SELECT opened FROM analytics_accounts WHERE account=?', (account,)).fetchone()
+                opened = metadata[0] if metadata else None
             issue = db.execute('SELECT issue FROM analytics_status WHERE account=?', (account,)).fetchone()
     except sqlite3.OperationalError as error:
         if 'no such table' in str(error) or 'unable to open' in str(error):
@@ -106,24 +162,37 @@ def read_analytics(config, *, month=None, currency=None, day=None, offset=0, lim
         raise
     currencies = sorted({r['currency'] for r in rows})
     currency = currency or ('USD' if 'USD' in currencies or not currencies else currencies[0])
-    if currencies and currency not in currencies:
+    if currencies and currency not in currencies and not keep_currency:
         raise ValueError('Currency unavailable for this month.')
+    if currency not in currencies and not re.fullmatch(r'[A-Z]{3}', currency):
+        raise ValueError('Invalid currency.')
+    # A drill-down keeps the chosen currency even in a child period with no fills in it.
+    if currency not in currencies:
+        currencies = sorted([*currencies, currency])
     # Fee totals cover the account's full activity, not just the selected P&L
     # currency or current detail page. Never infer missing report days as zero.
-    monthly_commissions = commission_totals(rows) if covered else None
+    fees = commission_totals(rows) if covered else None
     daily_commissions = commission_totals([r for r in rows if r['report_trade_day'] == day]) if day in {d for d, _ in covered} else None
     rows = [r for r in rows if r['currency'] == currency]
-    by_day, by_symbol = defaultdict(list), defaultdict(list)
+    bucket_length = {'month': 10, 'year': 7, 'all': 4}[scope]
+    by_period, by_symbol = defaultdict(list), defaultdict(list)
     for row in rows:
-        by_day[row['report_trade_day']].append(row)
+        by_period[row['report_trade_day'][:bucket_length]].append(row)
         by_symbol[row['ticker']].append(row)
-    daily = [dict(date=d, **totals(by_day[d])) for d, _ in covered]
+    daily, buckets = [], []
+    if scope == 'month':
+        daily = [dict(date=d, **totals(by_period[d])) for d, _ in covered]
+    else:
+        keys = sorted({d[:bucket_length] for d, _ in covered}, reverse=scope == 'all')
+        buckets = [dict(period=k, **totals(by_period[k])) for k in keys]
     contributors = [dict(ticker=ticker, **totals(fills)) for ticker, fills in by_symbol.items()]
     contributors.sort(key=lambda r: (r['realized_pnl'] is None, -abs(r['realized_pnl'] or 0), r['ticker']))
     selected = sorted([r for r in rows if r['report_trade_day'] == day], key=lambda r: (r['fill_time'], r['id']), reverse=True)
-    return dict(month=month, months=months, currency=currency, currencies=currencies or [currency],
-                days=daily, summary=totals(rows), contributions=contributors,
-                monthly_commissions=monthly_commissions, daily_commissions=daily_commissions,
+    return dict(scope=scope, year=year, month=month, months=months, currency=currency,
+                periods=buckets, coverage=coverage_ranges(d for d, _ in covered) if scope != 'month' else [],
+                account_opened=opened, currencies=currencies or [currency],
+                days=daily, summary=totals(rows) if covered else dict(totals([]), realized_pnl=None), contributions=contributors,
+                monthly_commissions=fees if scope == 'month' else None, period_commissions=fees, daily_commissions=daily_commissions,
                 selected_day=day, trades=selected[offset:offset + limit], trade_count=len(selected),
                 next_offset=offset + limit if offset + limit < len(selected) else None,
                 report_through=covered[-1][0] if covered else None,

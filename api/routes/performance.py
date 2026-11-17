@@ -32,7 +32,8 @@ def analytics():
     if not matching_account():
         return jsonify(error='Performance and selected account must match.'), 409
     try:
-        data = read_analytics(config, month=request.args.get('month'), currency=request.args.get('currency'),
+        data = read_analytics(config, scope=request.args.get('scope'), year=request.args.get('year'),
+                              month=request.args.get('month'), currency=request.args.get('currency'),
                               day=request.args.get('day'), offset=int(request.args.get('offset', '0')))
         # Reuse the existing Flex worker and its retry bound; never queue IB work.
         history, status = service.read(config, 'MTD', include_unmatched=True,
