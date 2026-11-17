@@ -242,7 +242,7 @@ class StockTradeTests(TestCase):
         loop = asyncio.get_event_loop()
         async def denied(*args, **kwargs):
             self.conn.ib.errorEvent.emit(70, 162, 'No market data permissions', self.ticker.contract)
-            return []
+            raise ValueError('IB rejected the historical data request')
         self.conn.ib.reqHistoricalDataAsync = AsyncMock(side_effect=denied)
         self.feed.snapshot(self.conn, 7, 5, 'rth', fast=True, background=True)
         self.state = self.feed.states[7]

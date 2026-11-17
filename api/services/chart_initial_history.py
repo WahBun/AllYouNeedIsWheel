@@ -42,12 +42,12 @@ class InitialChartHistory:
         for key, record in list(self.records.items()):
             self.discard(key, record)
 
-    def consume(self, key, record):
+    def consume(self, key, record, *, attached=False):
         self.records.pop(key)
         record['owned'] = False
         if record.get('deferred'):
             raise HistoryDeferred('Historical data cooling down')
-        if record.get('failed') and not record['permissions']:
+        if record.get('failed') and not (attached and record['permissions']):
             raise ValueError('Chart history unavailable; retry shortly')
         return (record.pop('history'), record['permissions'], record['errors'], record['elapsed'], record['requested_at'])
 
@@ -120,7 +120,7 @@ class InitialChartHistory:
         async def wait():
             await asyncio.shield(record['task'])
             if self.records.get(key) is record and record['ready']:
-                return self.consume(key, record)
+                return self.consume(key, record, attached=True)
             return None
 
         raise ChartHistoryPending('Loading chart history', wait if record is not None else None)
