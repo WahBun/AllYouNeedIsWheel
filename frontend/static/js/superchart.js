@@ -531,8 +531,8 @@ async function refreshPnL({force=false}={}){
 function ensureMarket(){
  if(!ready||!cid||!epoch){marketStream.stop();return;}
  const supported=streamSupported();
- // Bootstrap with one finite history request before starting SSE, as native does.
- if(supported&&packet.bars?.length)marketStream.ensure(marketContext());else marketStream.stop();
+ // Open push once the finite snapshot confirms the chart subscription.
+ if(supported&&WheelChartStream.canOpen(packet))marketStream.ensure(marketContext());else marketStream.stop();
  if((!supported||!marketStream.healthy())&&Date.now()-lastFallback>=(supported?(Date.now()<marketPriorityUntil?250:1000):2000))refreshMarket();
  refreshPnL();
 }

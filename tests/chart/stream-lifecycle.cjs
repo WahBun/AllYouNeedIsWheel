@@ -3,6 +3,9 @@ const ctx={};vm.runInNewContext(fs.readFileSync('frontend/static/js/chart-stream
 let now=1000,received=0;const sources=[];class Source{constructor(){sources.push(this);}close(){this.closed=true;}}
 const stream=new ctx.WheelChartStream({EventSource:Source,now:()=>now,random:()=>1,receive:()=>received++,status:()=>{}}),context={cid:7,interval:5,session:'all',epoch:'a'};
 const packet={con_id:7,interval:5,session:'all',generation:'g',sequence:1,mode:'snapshot',bars:[]};
+assert.ok(ctx.WheelChartStream.canOpen({...packet, security_type:'FUT', historical:false}), 'open confirmed futures ticker before its first candle');
+assert.ok(!ctx.WheelChartStream.canOpen({status:'loading', bars:[]}), 'wait for a confirmed chart subscription');
+assert.ok(!ctx.WheelChartStream.canOpen({...packet, security_type:'OPT'}), 'preserve option bootstrap');
 const send=(source,p=packet)=>source.onmessage({data:JSON.stringify(p)});
 stream.ensure(context);send(sources[0]);assert.ok(stream.healthy());now+=8001;stream.ensure(context);assert.ok(sources[0].closed);assert.equal(sources.length,1);
 now+=1000;stream.ensure(context);assert.equal(sources.length,2);send(sources[0]);assert.equal(received,1,'late callback discarded');send(sources[1]);assert.equal(received,2);
