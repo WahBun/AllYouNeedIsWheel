@@ -4,6 +4,7 @@ import Observation
 struct BackendMaintenanceStatus: Decodable {
     let backend: String
     let mode: String
+    let gateway_version: String?
     let gateway_connected: Bool
     let epoch: String
     let performance: PerformanceMaintenanceStatus
@@ -180,7 +181,14 @@ struct BackendMaintenanceSections: View {
             Section {
                 row("Backend", model.busy && model.status == nil ? "Checking…" : model.status == nil ? "Unavailable" : "Reachable")
                 if let status = model.status {
-                    row("Gateway", status.gateway_connected ? "Connected" : "Disconnected")
+                    LabeledContent {
+                        HStack(spacing: 4) {
+                            NoticeText(status.gateway_connected ? "Connected" : "Disconnected")
+                            if let version = status.gateway_version {
+                                Text(verbatim: "· " + version).monospacedDigit()
+                            }
+                        }.multilineTextAlignment(.trailing).accessibilityElement(children: .combine)
+                    } label: { Text("Gateway") }
                 }
             }
             if let performance = model.status?.performance {

@@ -20,6 +20,40 @@ class GatewayLoginTests(unittest.TestCase):
             path=self.root/(mode+'.json')
             path.write_text(json.dumps(dict(TRADING_MODE=mode,TWS_USERID='test-user',TWS_PASSWORD='test-pass',UNEXPECTED='drop')))
             path.chmod(0o600)
+    def test_running_version_only_for_matching_local_container_and_port(self):
+        (self.root / 'dual-session.json').touch()
+        (self.root / 'warm-paper.json').touch()
+        bindings = {'4003/tcp': [{'HostIp': '127.0.0.1', 'HostPort': '4001'}],
+                    '4004/tcp': [{'HostIp': '127.0.0.1', 'HostPort': '4002'}]}
+        line = json.dumps(bindings) + '\nIB_GATEWAY_VERSION=10.50.1g'
+        with patch.object(gateway.subprocess, 'run', return_value=Mock(stdout=line)) as run:
+            for mode, port in [('live', 4001), ('paper', 4002)]:
+                self.assertEqual(gateway.running_version({'port': port}, mode), '10.50.1g')
+                self.assertEqual(run.call_args.args[0][-1], 'wheel-gateway-dual')
+            self.assertIsNone(gateway.running_version({'port': 7496}, 'live'))
+            run.reset_mock()
+            self.assertIsNone(gateway.running_version({'port': 4001, 'host': 'elsewhere'}, 'live'))
+            run.assert_not_called()
+            (self.root / 'dual-session.json').unlink()
+            self.assertEqual(gateway.running_version({'port': 4002}, 'paper'), '10.50.1g')
+            self.assertEqual(run.call_args.args[0][-1], 'wheel-gateway-paper')
+            (self.root / 'warm-paper.json').unlink()
+            run.side_effect = [Mock(stdout='a' * 64), Mock(stdout=line)]
+            self.assertEqual(gateway.running_version({'port': 4002}, 'paper'), '10.50.1g')
+            self.assertEqual(run.call_args.args[0][-1], 'a' * 64)
+
+    def test_missing_version_is_optional_and_never_retried(self):
+        (self.root / 'dual-session.json').touch()
+        ports = '{"4003/tcp":[{"HostIp":"127.0.0.1","HostPort":"4001"}]}'
+        for value in ['', ports, ports + '\nIB_GATEWAY_VERSION=stable',
+                      ports + '\nIB_GATEWAY_VERSION=10.50.1g\nunexpected']:
+            with self.subTest(value=value), patch.object(gateway.subprocess, 'run', return_value=Mock(stdout=value)):
+                self.assertIsNone(gateway.running_version({'port': 4001}, 'live'))
+        for error in [FileNotFoundError(), subprocess.TimeoutExpired('docker', 1), subprocess.CalledProcessError(1, 'docker')]:
+            with patch.object(gateway.subprocess, 'run', side_effect=error) as run:
+                self.assertIsNone(gateway.running_version({'port': 4001}, 'live'))
+                run.assert_called_once()
+
     def test_credentials_are_allowlisted_and_private(self):
         self.assertNotIn('UNEXPECTED',gateway.credentials('paper'))
         (self.root/'paper.json').chmod(0o644)

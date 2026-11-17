@@ -144,12 +144,16 @@ class PerformanceMaintenanceTests(unittest.TestCase):
             install_api_dispatcher(app)
             executor = app.extensions['ib_api_executor']
             try:
-                with patch.object(executor, 'submit', wraps=executor.submit) as submit:
+                with patch.object(executor, 'submit', wraps=executor.submit) as submit, \
+                     patch.object(routes, 'running_version', return_value='10.50.1g') as version:
                     client = app.test_client()
                     self.assertEqual(client.get('/api/maintenance/status').status_code, 409)
                     status = client.get('/api/maintenance/status', headers=headers)
                     self.assertEqual(status.status_code, 200)
                     self.assertEqual(status.headers['Cache-Control'], 'no-store')
+                    self.assertEqual(status.json['gateway_version'], '10.50.1g')
+                    self.assertFalse(status.json['gateway_connected'])
+                    version.assert_called_once_with(fake.config, 'live')
                     result = client.post('/api/maintenance/flex/validate', json={'token': 'fixture-new'}, headers=headers)
                     self.assertEqual(result.status_code, 202)
                     self.assertTrue(entered.wait(1))

@@ -1,5 +1,6 @@
 """Small maintenance surface; no broker commands, restarts or arbitrary settings."""
 from flask import Blueprint, jsonify, request
+from api.services.gateway_login import running_version
 from api.services.performance_maintenance import MaintenanceError, performance_status, validation
 
 bp = Blueprint('maintenance', __name__, url_prefix='/api/maintenance')
@@ -35,8 +36,10 @@ def status():
     conn = portfolio_service.connection
     # Passive connection state only; do not reconnect/start Gateway from this page.
     connected = bool(conn and conn.is_connected() and conn.account_id == account)
-    data = dict(backend='reachable', mode='paper' if account.startswith('DU') else 'live',
-                gateway_connected=connected, performance=performance_status(account), epoch=epoch)
+    mode = 'paper' if account.startswith('DU') else 'live'
+    data = dict(backend='reachable', mode=mode, gateway_connected=connected,
+                gateway_version=running_version(portfolio_service.config, mode),
+                performance=performance_status(account), epoch=epoch)
     if context() != (account, epoch):
         raise MaintenanceError('Account changed. Refresh maintenance.')
     return jsonify(data)
