@@ -14,11 +14,14 @@ class ChartTrades:
     BACKLOG_SECONDS = 3
     RECOVERY_SECONDS = 30
 
-    def __init__(self, state, publish):
+    def __init__(self, state, publish, cache):
         self.state = state
         self.publish = publish
         # CME trade timestamps can lead the host clock by a fraction of a second.
         self.max_clock_lead = 1 if cme_regular(state['contract']) else 0
+        self.cache = cache
+        self.cache_key = cache.key(state, minute=True) if cme_regular(state['contract']) else None
+        self.cache_restore = None
         self.wire_times = {}
         self.request_id = None
         self.healthy_since = None
@@ -34,7 +37,7 @@ class ChartTrades:
         self.pending = []
         self.settled = set()
 
-    def merge(self, minute, first, last, o, h, l, c):
+    def merge(self, minute, first, last, o, h, l, c, *, complete_cme_minute=False):
         from api.services.stock_chart import unknown_volume
         state = self.state
         bars = state['bars']
@@ -48,6 +51,9 @@ class ChartTrades:
             start, end = self.edges.get(minute, (-math.inf, self.seed_end if minute == self.seed else minute+60))
             values = (o if first < start else bar['open'], max(h, bar['high']),
                       min(l, bar['low']), c if last >= end else bar['close'])
+            if complete_cme_minute:
+                # Last traversed the whole minute. Drop any provisional RT wick.
+                values = o, h, l, c
             self.edges[minute] = min(start, first), max(end, last)
             changed = values != (bar['open'], bar['high'], bar['low'], bar['close'])
             bar['open'], bar['high'], bar['low'], bar['close'] = values
@@ -86,7 +92,7 @@ class ChartTrades:
                     # and last prints resolve ordering within a one-second wire timestamp.
                     boundary = self.late['minute']
                     self.late.update(first=boundary, last=math.nextafter(boundary + 60, -math.inf))
-                self.merge(**self.late)
+                self.merge(**self.late, complete_cme_minute=self.complete_late and cme_regular(state['contract']))
                 self.late = None
             if state['bars'] and minute < state['bars'][-1]['time']:
                 # Accumulate the old minute while newer trades drive the visible tail.
@@ -140,6 +146,10 @@ class ChartTrades:
         if settled:
             self.state['history_revision'] = self.state.get('history_revision', 0) + 1
 
+    def remember_history(self, rows, requested_at):
+        if self.cache_key and self.cache.key(self.state, minute=True) == self.cache_key:
+            self.cache.remember(self.cache_key, rows, requested_at)
+
     def recover_history(self):
         """Recover the missing minute seed once per stream, off the serialized HTTP lane."""
         from api.services.chart_history_budget import read_history
@@ -151,6 +161,16 @@ class ChartTrades:
         def current():
             return (conn.is_connected() and conn.ib.client is client and conn.account_id == account
                     and conn.ib.ticker(contract) is state['ticker'])
+
+        async def restore_closed():
+            cached = await asyncio.to_thread(self.cache.load, self.cache_key, time.time())
+            if (cached and cached['bars'] and self.seed == -math.inf and current()
+                    and self.cache.key(state, minute=True) == self.cache_key):
+                merge_minute_history(state, cached['bars'], cached['saved'])
+                self.publish()
+
+        if self.cache_key:
+            self.cache_restore = asyncio.get_event_loop().create_task(restore_closed())
 
         async def recover():
             delay = 15
@@ -170,6 +190,7 @@ class ChartTrades:
                 rows = minute_bars(history)
                 if rows:
                     merge_minute_history(state, rows, started)
+                    self.remember_history(rows, started)
                     self.publish()
                     return
                 delay = min(60, delay * 2)
@@ -178,6 +199,8 @@ class ChartTrades:
         task.add_done_callback(lambda done: state.pop('recovery_task', None))
 
     def close(self):
+        if self.cache_restore is not None:
+            self.cache_restore.cancel()
         task = self.state.pop('recovery_task', None)
         if task is not None:
             task.cancel()

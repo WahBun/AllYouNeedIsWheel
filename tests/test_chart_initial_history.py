@@ -193,7 +193,7 @@ class InitialHistoryTests(unittest.TestCase):
                 feed = StockChart()
                 contract = S(conId=7, secType=kind, currency='USD', symbol='TEST')
                 with patch('api.services.chart_contracts.contracts.resolve', return_value=contract), \
-                     patch.object(feed.initial_history, 'read', return_value=([], permissions, errors, elapsed)) as read, \
+                     patch.object(feed.initial_history, 'read', return_value=([], permissions, errors, elapsed, time.time())) as read, \
                      patch('api.services.stock_chart.time.monotonic', return_value=100):
                     with self.assertRaises(ValueError): feed.snapshot(conn, 7, 5, background=True)
                     self.assertEqual(feed.next_request[7], 100 + delay)

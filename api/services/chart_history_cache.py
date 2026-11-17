@@ -3,12 +3,14 @@
 All filesystem work is called through asyncio.to_thread by the history loader.
 The versioned key separates account/source/contract/session/price semantics.
 """
+import asyncio
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
 import tempfile
+import time
 from threading import Lock
 
 DAY = 86400
@@ -53,7 +55,7 @@ class HistoryCache:
         self.writer = Lock()
 
     @staticmethod
-    def key(state):
+    def key(state, *, minute=False):
         conn, contract = state['conn'], state['contract']
         account, host, port = (getattr(conn, name, None) for name in ('account_id', 'host', 'port'))
         data_type = getattr(state['ticker'], 'marketDataType', None)
@@ -74,8 +76,9 @@ class HistoryCache:
         identity = [getattr(contract, name, '') for name in fields]
         if any(not isinstance(value, (str, int, float)) for value in identity):
             return None
+        session, size = ('all', '1 min') if minute else ('RTH-480', '15 mins-all' if cme_regular(contract) else '30 mins-RTH')
         payload = [HistoryCache.VERSION, host, port, account, data_type, identity,
-                   'IB-TRADES', 'RTH-480', '15 mins-all' if cme_regular(contract) else '30 mins-RTH',
+                   'IB-TRADES', session, size,
                    'session-calendar-v1', 'IB-reported-volume']
         try:
             return hashlib.sha256(json.dumps(payload, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
@@ -160,3 +163,31 @@ class HistoryCache:
                     Path(temporary).unlink(missing_ok=True)
                 except OSError:
                     pass
+
+
+class MinuteHistoryCache(HistoryCache):
+    """Closed IB minute bars shared by all intraday panes of a CME contract."""
+
+    def __init__(self, directory=None):
+        super().__init__(directory if directory is not None else Path(__file__).resolve().parents[2] / '.api-cache' / 'chart-cme-minutes-v1')
+
+    def remember(self, key, rows, cutoff):
+        if not key or not rows:
+            return
+        # A later live tick can mutate the chart tail. Hand the worker only
+        # owned copies of broker bars already closed when history was requested.
+        closed = [dict(row) for row in rows if row['time'] + 60 <= cutoff]
+        if closed:
+            return asyncio.get_event_loop().run_in_executor(None, self.merge_closed, key, closed, time.time())
+
+    def merge_closed(self, key, rows, saved):
+        with self.writer:
+            previous = self.load(key, time.time())
+            known = {row['time']: row for row in previous['bars']} if previous else {}
+            incoming = {row['time']: row for row in rows}
+            if previous and previous['saved'] > saved:
+                incoming.update(known)
+                saved = previous['saved']
+            else:
+                incoming = known | incoming
+            self._save(key, [incoming[t] for t in sorted(incoming)], [], saved)

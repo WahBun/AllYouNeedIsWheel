@@ -1,9 +1,12 @@
 import asyncio
+import tempfile
+import threading
 from datetime import datetime, timezone
 from unittest import TestCase
 from unittest.mock import AsyncMock, patch
 
-from ib_async import Future, Stock, IB
+from ib_async import BarData, Future, Stock, IB
+from api.services.chart_history_cache import MinuteHistoryCache
 from api.services.stock_chart import StockChart
 import test_stock_chart as fixtures
 
@@ -150,10 +153,94 @@ class StockTradeTests(TestCase):
 
     def cold_open(self, permissions=()):
         self.prepare_mes()
-        with patch.object(self.feed.initial_history, 'read', return_value=([], permissions, [], 15)):
+        with patch.object(self.feed.initial_history, 'read', return_value=([], permissions, [], 15, self.open)):
             packet = self.feed.snapshot(self.conn, 7, 5, 'rth', fast=True, background=True)
         self.state = self.feed.states[7]
         return packet
+
+    def test_complete_mes_last_minute_replaces_provisional_wick_only_in_old_candle(self):
+        t = self.open
+        self.cold_open()
+        self.batch([('Last', t - 2, 7417)], t + 4)
+        self.batch([('RT', t + 5.1, 7424.25), ('RT', t + 5.2, 7408)], t + 5.3)
+        self.batch([('RT', t + 60.1, 7414.25)], t + 60.4)
+        self.batch([('Last', t, 7419.5), ('Last', t + 10, 7421),
+                    ('Last', t + 40, 7410), ('Last', t + 59, 7412.25)], t + 305)
+        # A partial old-minute correction still retains the observed extremes.
+        self.state['timed_trades'].publish_late()
+        rows = self.feed.packet(self.state, 1, 'rth')['bars']
+        self.assertEqual((rows[-2]['high'], rows[-2]['low']), (7424.25, 7408))
+        self.batch([('Last', t + 60, 7414)], t + 306)
+        rows = self.feed.packet(self.state, 1, 'rth')['bars']
+        self.assertEqual(tuple(rows[-2][k] for k in ('open', 'high', 'low', 'close')),
+                         (7419.5, 7421, 7410, 7412.25))
+        self.assertEqual((rows[-1]['close'], self.state['last_tick']), (7414.25, t + 60.1))
+
+    def test_mes_restart_restores_closed_minutes_while_fresh_history_is_pending(self):
+        self.prepare_mes()
+        self.conn.host, self.conn.port, self.conn.account_id = 'fixture', 4001, 'live-fixture'
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        cache = self.feed.minute_cache = MinuteHistoryCache(directory.name)
+        loop = asyncio.get_event_loop()
+        opened = self.open
+        now = opened + 65 * 60 + 5
+
+        def bar(stamp, o, h, l, c):
+            return BarData(date=datetime.fromtimestamp(stamp, timezone.utc), open=o, high=h, low=l, close=c)
+
+        seed = [bar(opened + minute * 60, 7400, 7401, 7399, 7400) for minute in range(66)]
+        seed[-1] = bar(now - 5, 7424.25, 7424.25, 7410, 7412)
+        self.conn.ib.reqHistoricalData.return_value = seed
+        with patch('time.time', return_value=now):
+            saved = threading.Event()
+            write = cache.merge_closed
+            def save(*args):
+                write(*args)
+                saved.set()
+            with patch.object(cache, 'merge_closed', side_effect=save):
+                self.feed.snapshot(self.conn, 7, 5, 'rth', fast=True)
+                self.assertTrue(saved.wait(2))
+            state = self.feed.states[7]
+            key = cache.key(state, minute=True)
+            self.assertEqual(len(cache.load(key, now)['bars']), 65)
+            self.conn.port = 4002
+            self.assertIsNone(cache.load(cache.key(state, minute=True), now))
+            self.conn.port = 4001
+
+            self.feed.stop(reset_cooldown=True)
+            self.feed = StockChart(minute_cache=MinuteHistoryCache(directory.name))
+            self.addCleanup(self.feed.stop)
+            self.cold_open()
+            restore = self.state['timed_trades'].cache_restore
+            recovery = self.state['recovery_task']
+            retry = asyncio.Event()
+            self.batch([('RT', now + .1, 7412.25)], now + .4)
+            with patch('asyncio.sleep', new=lambda delay: retry.wait()):
+                loop.run_until_complete(restore)
+            for minutes, count in ((1, 66), (5, 14), (15, 5), (60, 2)):
+                packet = self.feed.packet(self.state, minutes, 'rth')
+                self.assertEqual(len(packet['bars']), count)
+                self.assertEqual(packet['bars'][0]['time'], opened)
+                self.assertEqual(packet['bars'][-1]['close'], 7412.25)
+                self.assertIsNone(packet['bid'])
+                self.assertIsNone(packet['ask'])
+            self.assertEqual(self.state['last_tick'], now + .1)
+            self.assertNotIn(7424.25, [b['high'] for b in self.state['bars']])
+            self.conn.ib.reqHistoricalDataAsync.assert_not_called()
+
+        # Let the existing recovery read complete. A broker-corrected closed
+        # minute wins over the provisional candle, while a newer tick stays live.
+        fresh = [bar(now - 5, 7419.5, 7421, 7410, 7412.25)]
+        self.conn.ib.reqHistoricalDataAsync = AsyncMock(return_value=fresh)
+        self.batch([('RT', now + 60.1, 7408)], now + 60.4)
+        with patch('time.time', return_value=now + 65):
+            retry.set()
+            loop.run_until_complete(recovery)
+            rows = self.feed.packet(self.state, 1, 'rth')['bars']
+            self.assertEqual((rows[-2]['open'], rows[-2]['high'], rows[-1]['close']), (7419.5, 7421, 7408))
+            self.conn.ib.reqHistoricalDataAsync.assert_awaited_once()
+            loop.run_until_complete(loop.shutdown_default_executor())
 
     def test_timeout_admits_one_live_stream_and_recovers_broker_history(self):
         t = self.open

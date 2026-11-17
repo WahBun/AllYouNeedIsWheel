@@ -56,7 +56,7 @@ class InitialChartHistory:
                 raise HistoryDeferred('Historical data cooling down')
             if record.get('failed'):
                 raise ValueError('Chart history unavailable; retry shortly')
-            return (record.pop('history'), record['permissions'], record['errors'], record['elapsed'])
+            return (record.pop('history'), record['permissions'], record['errors'], record['elapsed'], record['requested_at'])
         if record is None and len(self.tasks) < self.MAX_PENDING and len(self.records) < 8:
             option = contract.secType == 'OPT'
             record = dict(conn=conn, option=option, owned=True, ready=False,
@@ -80,6 +80,7 @@ class InitialChartHistory:
                 if event is not None:
                     event += history_error
                 started = time.monotonic()
+                record['requested_at'] = time.time()
                 try:
                     history = await read_history(conn, contract, '', '2 D', '1 min', 'TRADES',
                         useRTH=False, formatDate=2, keepUpToDate=option, timeout=6 if option else 15)
