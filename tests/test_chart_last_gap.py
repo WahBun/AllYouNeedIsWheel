@@ -14,7 +14,8 @@ class LastGapTests(TestCase):
         self.addCleanup(fixtures.close_test_loop)
         feed = StockChart()
         conn, _ = fixtures.StockChartTests().connection()
-        contract = Future(symbol='MES', lastTradeDateOrContractMonth='202612', exchange='CME', currency='USD', conId=7)
+        # Non-CME futures still use the SDK receipt-time path exercised here.
+        contract = Future(symbol='DX', lastTradeDateOrContractMonth='202612', exchange='NYBOT', currency='USD', conId=7)
         conn.get_option_position_by_con_id.return_value['contract'] = contract
         # Exercise the installed decoder/wrapper and the real chart callback offline.
         ib = IB()
@@ -35,7 +36,7 @@ class LastGapTests(TestCase):
             wrapper.tcpDataProcessed()
 
         def trade(price, arrival):
-            message([99, 41, 1, base - 15, price, 1, 0, 'CME', ''], arrival)
+            message([99, 41, 1, base - 15, price, 1, 0, contract.exchange, ''], arrival)
 
         # Separate the elapsed-time measurement from the wall clock used by IB.
         with patch('api.services.chart_last_gap.time') as clock:
@@ -83,7 +84,7 @@ class LastGapTests(TestCase):
             wrapper.tcpDataArrived()
             wrapper.lastTime = datetime.fromtimestamp(base, timezone.utc)
             for price in (14, 8, 11):
-                ib.client.decoder.interpret(list(map(str, [99, 41, 1, base-15, price, 1, 0, 'CME', ''])))
+                ib.client.decoder.interpret(list(map(str, [99, 41, 1, base-15, price, 1, 0, contract.exchange, ''])))
             wrapper.tcpDataProcessed()
             bar = state['bars'][-1]
             self.assertEqual((state['ticks'], bar['high'], bar['low'], bar['close']), (5, 14, 8, 11))

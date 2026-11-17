@@ -478,9 +478,9 @@ class StockChart:
                 record_history_health(conn, con_id, 'success')
             elif history_timed_out:
                 record_history_health(conn, con_id, 'timeout')
-            timed_stock = contract.secType == 'STK' and contract.currency == 'USD'
-            live_only = (not bars and history_timed_out and not permission_errors
-                         and (timed_stock or cme_regular(contract)) and isinstance(conn.ib.wrapper, Wrapper))
+            timed_trades = isinstance(conn.ib.wrapper, Wrapper) and (
+                (contract.secType == 'STK' and contract.currency == 'USD') or cme_regular(contract))
+            live_only = not bars and history_timed_out and not permission_errors and timed_trades
             if not bars and not live_only:
                 # Failed history must not monopolize the serialized account/order lane.
                 # Transient history timeouts should not impose a full minute
@@ -595,7 +595,7 @@ class StockChart:
             self.active = state
             self.states[con_id] = state
             ticker.updateEvent += on_tick
-            if (timed_stock or live_only) and isinstance(conn.ib.wrapper, Wrapper):
+            if timed_trades:
                 self.observe_alert_trade_times(conn.ib.wrapper)
                 def publish_trades():
                     if self.states.get(con_id) is state:
