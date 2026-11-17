@@ -280,7 +280,9 @@ class PersistentHistoryTests(unittest.TestCase):
                 stamp = self.now - DAY + 1
                 ticker.tickByTicks = [S(time=datetime.fromtimestamp(stamp, timezone.utc), price=112)]
                 ticker.updateEvent.emit(ticker)
-                packet = feed.packet(state, 480, 'rth')
+                from api.services.stock_chart import regular_sessions
+                day = datetime.fromtimestamp(stamp, timezone.utc).date().isoformat()
+                packet = feed.packet(state, 480, 'rth', rth_windows=regular_sessions(day))
                 self.assertEqual(packet['bars'][-1]['close'], 112)
                 self.assertEqual(state['ticks'], 1)
                 self.assertFalse(calls)

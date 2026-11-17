@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from functools import lru_cache
 import pandas_market_calendars as calendars
 from api.services.chart_history_pressure import HistoryDeferred, read_history_now
+from api.services.chart_history_cache import MinuteHistoryCache
 from api.services.chart_last_gap import LastTradeGap
 from api.services.chart_timed_trades import ChartTrades
 from ib_async.wrapper import Wrapper
@@ -182,9 +183,10 @@ def bar_close_time(bar, minutes, session, now, contract=None):
 class StockChart:
     MAX_CONTRACTS = 8  # Two independent four-chart pages; never unbounded.
     IDLE_SECONDS = 300  # Keep a bounded subscription warm across short app switches.
-    def __init__(self, history_cache=None):
+    def __init__(self, history_cache=None, minute_cache=None):
         from api.services.chart_eight_history import EightHourHistory
         self.eight_history = EightHourHistory(self, history_cache)
+        self.minute_cache = minute_cache if minute_cache is not None else MinuteHistoryCache()
         self.active = None
         self.states = {}
         self.next_request = {}
@@ -450,7 +452,7 @@ class StockChart:
                     permission_errors.append(str(message))
             if background:
                 try:
-                    historical, permission_errors, other_history_errors, history_elapsed = self.initial_history.read(conn, contract)
+                    historical, permission_errors, other_history_errors, history_elapsed, history_requested = self.initial_history.read(conn, contract)
                 except ChartHistoryPending:
                     raise
                 except HistoryDeferred:
@@ -465,6 +467,7 @@ class StockChart:
                 event = getattr(conn.ib, 'errorEvent', None)
                 if event is not None: event += history_error
                 history_started = time.monotonic()
+                history_requested = time.time()
                 try:
                     historical = read_history_now(conn, contract, '', '2 D', '1 min', 'TRADES',
                         useRTH=False, formatDate=2, keepUpToDate=option_bars, timeout=6 if option_bars else 15, background=False)
@@ -601,7 +604,8 @@ class StockChart:
                     if self.states.get(con_id) is state:
                         for listener in tuple(self.listeners):
                             listener(state)
-                trades = state['timed_trades'] = ChartTrades(state, publish_trades)
+                trades = state['timed_trades'] = ChartTrades(state, publish_trades, self.minute_cache)
+                trades.remember_history(bars, history_requested)
                 if live_only:
                     trades.start()
                     trades.recover_history()
@@ -657,6 +661,8 @@ class StockChart:
             older = minute_bars(history)
             if older:
                 merge_minute_history(state, older, history_requested)
+                if state.get('timed_trades'):
+                    state['timed_trades'].remember_history(older, history_requested)
                 state['backfilled'] = True
         state['used'] = time.monotonic()
         conn.ib.sleep(0.01)  # Drain IB events on the owner thread, not an HTTP thread.
