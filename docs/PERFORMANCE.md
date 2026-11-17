@@ -134,7 +134,9 @@ report month. An all-time response (`scope=all`) groups it by report year.
 Both include the exact contiguous ranges of archived dates. Account Information
 may supply the account opening date as a separate label. Opening the account
 does not extend report coverage. Selecting a covered tile opens its detail in
-the same currency, and Back restores the parent period.
+the same currency. A year opened from All time has a back arrow to that summary.
+The date detail’s navigation button returns to the full month calendar, where
+the period menu is available.
 
 The same Performance worker imports execution-level TRNT/Trades from the report
 already fetched for TWR. It reuses Wheel's validated execution parser and stores
