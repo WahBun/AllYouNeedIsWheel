@@ -34,6 +34,10 @@
   let offset=null;
   if(range){const next=new Map(packet.bars.map((b,i)=>[b.time,i]));const index=previous.findIndex(b=>next.has(b.time));if(index>=0)offset=next.get(previous[index].time)-index;}
   receiveChart(packet);
+  // Queue the stock candle paint on receipt, before the frame that moves its price ray.
+  if(projectedCandle?.previewOnly||(packet.display_last?.ray_only&&packet.security_type==='STK'&&window.frameElement?.id==='chart')){
+   displayedTail(previous.at(-1),packet,packet.server_time+Math.max(0,Date.now()-countdownReceived)/1000);
+  }
   requestWeekSeed();
   if(range&&offset!==null)chart.timeScale().setVisibleLogicalRange({from:range.from+offset,to:range.to+offset});
   if(prices)activePriceScale().setVisibleRange(prices);
