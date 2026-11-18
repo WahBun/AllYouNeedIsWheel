@@ -321,6 +321,35 @@ are excluded. It never submits input or touches broker/API settings.
 Disable with `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.wahbun.gateway-window-layout.plist`.
 
 
+## Dual Gateway connection recovery
+
+The existing Paper Gateway LaunchAgent also checks both loopback API ports once
+a minute, regardless of the account selected in Wheel. Each short-lived client
+checks its expected managed account and requests the current time. It neither
+subscribes to quotes nor requests or replays orders. It checks the pinned image,
+container ID, start time and published ports before dispatch.
+
+Three failed samples spanning about two minutes and a final immediate confirmation
+are required. A Paper failure with verified healthy Live uses only the Paper
+IBC process and its existing private login file. If that process has exited,
+the job relaunches it with its saved Paper settings. An unexpected Live failure
+restarts the shared Gateway container once. Both sessions briefly disconnect
+during that container restart. When both endpoints fail, a Live container restart
+requires evidence that the Live process itself has exited.
+
+Startup, the configured 23:45 New York restart and the overnight reset window
+have grace periods. A Live outage observed during the Sunday reauthentication
+window or an unfinished Live login waits for a verified login. Approve IB Key
+when prompted. Unknown accounts or missing evidence cannot authorize a restart.
+An attempt stays latched across monitor and container restarts until the
+affected account is verified. Separate incidents have a 30-minute cooldown.
+The existing private credential profiles remain on the Mini.
+
+The LaunchAgent picks up the scripts on its next tick after deployment.
+For a read-only check, run the installed LaunchAgent command with
+`--check-only`. Session status and dispatch latches are in
+`~/Library/Application Support/Wheel/PaperGatewayWatchdog/sessions.json`.
+
 ## Paper historical-data recovery
 
 `ops/paper_gateway_watchdog.py` passively watches actual cold-history results;
