@@ -6,7 +6,6 @@ import logging
 import os
 from pathlib import Path
 import re
-import secrets
 import time
 from zoneinfo import ZoneInfo
 
@@ -15,6 +14,7 @@ from ops.docker_watchdog import run, save
 DOCKER = os.environ.get('WHEEL_DOCKER_CLI', '/usr/local/bin/docker')
 CONTAINER = 'wheel-gateway-dual'
 PORTS = {'live': 4001, 'paper': 4002}
+PROBE_CLIENT_IDS = {'live': 9701, 'paper': 9702}
 SCRIPT = Path(__file__).with_name('paper_session.sh')
 PRIVATE = Path.home() / 'Library/Application Support/Wheel'
 LOCAL_INTERVAL = 12
@@ -56,6 +56,13 @@ def matches_account(mode, expected, accounts):
 async def probe(mode, profile):
     from ib_async import IB
     port = PORTS[mode]
+    client_id = PROBE_CLIENT_IDS[mode]
+    try:
+        trading_id = int(profile.get('client_id', 1))
+    except (TypeError, ValueError, OverflowError):
+        return 'unknown'
+    if trading_id == client_id:
+        return 'client_id_in_use'
     account = profile.get('account_id', '')
     if not (profile.get('host', '127.0.0.1') in ('localhost', '127.0.0.1') and profile.get('port') == port
             and isinstance(account, str) and account.startswith('DU' if mode == 'paper' else 'U')):
@@ -65,9 +72,11 @@ async def probe(mode, profile):
     ib.errorEvent -= ib._onError
     errors = []
     ib.errorEvent += lambda req, code, *_: errors.append(code)
+    api_errors = []
+    ib.client.apiError += api_errors.append
     try:
         # Raw handshake only. IB.connectAsync would also synchronize account/order data.
-        await ib.client.connectAsync('127.0.0.1', port, 100000 + secrets.randbelow(1000000000), timeout=4)
+        await ib.client.connectAsync('127.0.0.1', port, client_id, timeout=4)
         if not matches_account(mode, account, ib.client.getAccounts()):
             return 'unknown'
         reply = await asyncio.wait_for(ib.reqCurrentTimeAsync(), timeout=4)
@@ -76,7 +85,10 @@ async def probe(mode, profile):
             return 'upstream'
         return 'healthy' if abs(reply.timestamp() - time.time()) < 60 else 'unknown'
     except (ConnectionError, TimeoutError, EOFError):
-        if 326 in errors or 502 in errors:
+        if 326 in errors:
+            return 'client_id_in_use'
+        # ib_async can report a possible duplicate only via apiError on a pre-ready close.
+        if 502 in errors or any('already in use' in message for message in api_errors):
             return 'unknown'
         return 'upstream' if 1100 in errors else 'offline'
     finally:

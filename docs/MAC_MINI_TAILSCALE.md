@@ -329,6 +329,12 @@ accounts and broker times once a minute, regardless of the account selected in
 Wheel. A change in process identity or listener availability starts a fresh broker
 check immediately. These probes do not request orders or market data.
 
+Every probe reuses client ID 9701 on Live or 9702 on Paper, including the final
+confirmation before recovery. Reserve those IDs for the watchdog. If Wheel is
+configured with the same ID or IB reports a duplicate, the check records
+`client_id_in_use`. A possible duplicate reported during the handshake records
+`unknown`. Neither result authorizes recovery or a retry with another ID.
+
 The first confirmed unexpected disconnect starts a 60-second timer. The job samples
 the incident again on its 12-second cadence. A healthy or inconclusive observation
 or a long sampling gap interrupts the timer. After a full minute, a fresh broker

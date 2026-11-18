@@ -1,10 +1,61 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from ib_async import IB
+from ib_async.client import Client
+
 from ops import gateway_session_watchdog as w
+
+
+class GatewayProbeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_repeated_probes_reuse_one_id_per_gateway(self):
+        for mode, account in [('live', 'U_TEST'), ('paper', 'DU_TEST')]:
+            with (
+                self.subTest(mode=mode),
+                patch.object(Client, 'connectAsync', new_callable=AsyncMock) as connect,
+                patch.object(Client, 'getAccounts', return_value=[account]),
+                patch.object(IB, 'reqCurrentTimeAsync', new_callable=AsyncMock) as clock,
+            ):
+                clock.return_value = datetime.now(timezone.utc)
+                profile = dict(account_id=account, port=w.PORTS[mode], client_id=71)
+                for _ in range(3):
+                    self.assertEqual(await w.probe(mode, profile), 'healthy')
+                self.assertEqual(connect.await_count, 3)
+                for call in connect.await_args_list:
+                    self.assertEqual(call.args, ('127.0.0.1', w.PORTS[mode], w.PROBE_CLIENT_IDS[mode]))
+        self.assertNotEqual(w.PROBE_CLIENT_IDS['live'], w.PROBE_CLIENT_IDS['paper'])
+
+    async def test_never_connects_with_the_trading_client_id(self):
+        with patch.object(Client, 'connectAsync', new_callable=AsyncMock) as connect:
+            for mode, client_id in w.PROBE_CLIENT_IDS.items():
+                profile = dict(port=w.PORTS[mode], account_id='DU_TEST' if mode == 'paper' else 'U_TEST')
+                for value in (client_id, str(client_id)):
+                    self.assertEqual(await w.probe(mode, dict(profile, client_id=value)), 'client_id_in_use')
+            connect.assert_not_awaited()
+
+    async def test_duplicate_id_and_ambiguous_disconnect_never_retry(self):
+        for failure, expected in [('duplicate', 'client_id_in_use'), ('pre_ready_close', 'unknown'),
+                                  ('refused', 'offline')]:
+            with self.subTest(failure=failure):
+                async def fail(client, host, port, clientId, timeout):
+                    if failure == 'duplicate':
+                        client.wrapper.ib.errorEvent.emit(-1, 326, 'Client ID is already in use', None)
+                    elif failure == 'pre_ready_close':
+                        client.clientId = clientId
+                        client.connState = Client.CONNECTED
+                        client._onSocketDisconnected('')
+                    else:
+                        raise ConnectionRefusedError()
+                    raise TimeoutError()
+
+                with patch.object(Client, 'connectAsync', autospec=True, side_effect=fail) as connect:
+                    profile = dict(port=4002, account_id='DU_TEST', client_id=71)
+                    self.assertEqual(await w.probe('paper', profile), expected)
+                    connect.assert_awaited_once()
 
 
 class GatewaySessionTests(unittest.TestCase):
@@ -130,7 +181,7 @@ class GatewaySessionTests(unittest.TestCase):
         self.assertEqual(w.probes.await_count, 2)
 
     def test_recovered_or_uncertain_sample_restarts_the_minute(self):
-        for result in ('healthy', 'unknown'):
+        for result in ('healthy', 'unknown', 'client_id_in_use'):
             self.readings['paper'] = 'offline'
             self.tick(5)
             self.readings['paper'] = result
