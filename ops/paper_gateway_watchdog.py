@@ -3,6 +3,7 @@
 import argparse
 import fcntl
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -38,20 +39,14 @@ def paper_selected(project):
         return False
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--project', type=Path, required=True)
-    parser.add_argument('--state-dir', type=Path, required=True)
-    parser.add_argument('--check-only', action='store_true')
-    args = parser.parse_args()
-    args.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+def run_once(args, scheduled=False):
     with (args.state_dir/'lock').open('a') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
         session_path = args.state_dir / 'sessions.json'
-        ready = sessions.check(session_path, args.check_only)
+        ready = sessions.check(session_path, args.check_only, scheduled=scheduled)
         if ready is None:
             return
         current, last_session_action = ready
@@ -95,6 +90,30 @@ def main():
             print(time.strftime('%Y-%m-%d %H:%M:%S'), choice, flush=True)
         state.update(status=choice, checked=time.time())
         save(path, state)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--project', type=Path, required=True)
+    parser.add_argument('--state-dir', type=Path, required=True)
+    parser.add_argument('--check-only', action='store_true')
+    args = parser.parse_args()
+    args.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    scheduled = not args.check_only and os.environ.get('XPC_SERVICE_NAME') == 'com.wahbun.wheel.paper-gateway-watchdog'
+    if not scheduled:
+        run_once(args)
+        return
+
+    # The installed 60-second LaunchAgent also relaunches us after an exit.
+    # Keep its single worker responsive between broker probes; never hold the lock while sleeping.
+    sources = [Path(__file__), Path(sessions.__file__), sessions.SCRIPT, Path(__file__).with_name('docker_watchdog.py')]
+    initial = [p.stat().st_mtime_ns for p in sources]
+    while True:
+        started = time.monotonic()
+        run_once(args, scheduled=True)
+        time.sleep(max(0, sessions.LOCAL_INTERVAL - (time.monotonic() - started)))
+        if [p.stat().st_mtime_ns for p in sources] != initial:
+            os.execv(sys.executable, [sys.executable, *sys.argv])
 
 
 if __name__ == '__main__':

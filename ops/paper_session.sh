@@ -9,14 +9,45 @@ has_arg() {
     grep -Fzxq -- "$2" "/proc/$1/cmdline" 2>/dev/null
 }
 
-# Read only login event classes. The launcher logs also contain private data.
+# Fast local signal only. Recovery still requires independent broker verification.
+if [[ $1 = local-status ]]; then
+    listeners=$(awk '$4 == "0A" {split($2, a, ":"); print a[length(a)]}' /proc/net/tcp /proc/net/tcp6)
+    for mode in live paper; do
+        port=0FA1; relay=0FA3
+        if [[ $mode = paper ]]; then port=0FA2; relay=0FA4; fi
+        java=none
+        wrapper=$(cat "/tmp/pid_$mode" 2>/dev/null || true)
+        if [[ $wrapper =~ ^[0-9]+$ && -r /proc/$wrapper/task/$wrapper/children ]]; then
+            for pid in $(cat "/proc/$wrapper/task/$wrapper/children" 2>/dev/null); do
+                if has_arg "$pid" "${IBC_INI}_$mode"; then java=$pid; break; fi
+            done
+        fi
+        ports=closed
+        if grep -Fxq "$port" <<< "$listeners" && grep -Fxq "$relay" <<< "$listeners"; then ports=open; fi
+        echo "$mode $java $ports"
+    done
+    exit
+fi
+
+# Output only event classes and timestamps. The native per-session logs are private.
 login_phase() {
     local log="/sessions/settings_$1/launcher.log"
-    [[ -r $log ]] || { echo unknown; return; }
-    LC_ALL=C awk '
-        /SPLASH Authenticating|NS_AUTH_START |Soft token=0 received instead of expected permanent|[Ww]eekly reauthentication required/ {phase="auth"}
-        /Authentication completed\.| - Authentication complete$/ {phase="complete"}
-        END {print (phase ? phase : "unknown")}
+    if [[ ! -r $log ]]; then
+        if [[ ${2:-} = events ]]; then echo 'unknown - -'; else echo unknown; fi
+        return
+    fi
+    LC_ALL=C awk -v events="${2:-}" '
+        { stamp = ($1 ~ /^[0-9-]+$/ && $2 ~ /^[0-9:.]+$/) ? $1 "T" $2 : "-" }
+        /SPLASH Authenticating|NS_AUTH_START / {phase="auth"; key=0}
+        /Soft token=0 received instead of expected permanent|[Ww]eekly reauthentication required/ {phase="reauth"}
+        /last used.*\[IB Key\]/ {phase="key"; key=1}
+        /authenticated=true/ && key && /tokenProtocol=[1-9][0-9]*/ {key_time=stamp}
+        /Authentication completed\.| - Authentication complete$/ {phase="complete"; login_time=stamp}
+        END {
+            printf "%s", phase ? phase : "unknown"
+            if (events == "events") printf " %s %s", login_time ? login_time : "-", key_time ? key_time : "-"
+            print ""
+        }
     ' "$log"
 }
 
@@ -35,7 +66,9 @@ java_pids() {
     done
 }
 
-if [[ $1 = observe ]]; then
+if [[ $1 = observe || $1 = observe-events ]]; then
+    fields=
+    if [[ $1 = observe-events ]]; then fields=events; fi
     for mode in live paper; do
         w=$(wrapper_pids "$mode")
         j=$(java_pids "$mode")
@@ -44,7 +77,7 @@ if [[ $1 = observe ]]; then
         elif [[ $w =~ ^[0-9]+$ && -z $j ]]; then process=starting
         elif [[ $w =~ ^[0-9]+$ && $j =~ ^[0-9]+$ ]] &&
              [[ $(ps -o ppid= -p "$j" | tr -d ' ') = "$w" ]]; then process=running; fi
-        echo "$mode $process $(login_phase "$mode")"
+        echo "$mode $process $(login_phase "$mode" "$fields")"
     done
     exit
 fi
