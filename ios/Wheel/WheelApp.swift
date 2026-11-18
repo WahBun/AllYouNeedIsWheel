@@ -927,6 +927,7 @@ struct PortfolioView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("portfolioShowCashMetrics") private var showCashMetrics = false
     @State private var cashMetricsHeight: CGFloat = 0
+    @State private var collapsedPositionTypes: Set<String> = []
     @State private var titleRowVisible = true
     @Environment(WheelStore.self) private var store
     private enum SummaryDestination: String, Identifiable {
@@ -1024,8 +1025,9 @@ struct PortfolioView: View {
             ForEach(["OPT", "STK", "FUT"].filter { type in
                 heldPositions.contains { $0.security_type == type }
             }, id: \.self) { type in
-                Section(LocalizedStringKey(type == "STK" ? "Stocks" : type == "FUT" ? "Futures" : "Options")) {
-                    let sectionPositions = heldPositions.filter { $0.security_type == type }
+                let collapsed = collapsedPositionTypes.contains(type)
+                Section {
+                    let sectionPositions = collapsed ? [] : heldPositions.filter { $0.security_type == type }
                     ForEach(type == "OPT" ? OptionPositionOrder.sorted(sectionPositions) : sectionPositions) { position in
                         ExpandableRangeRow(range: PositionDayRange(position: position), detailsHint: "Open position details") {
                             PositionDetail(position: position)
@@ -1083,6 +1085,25 @@ struct PortfolioView: View {
                             }
                         }
                     }
+                } header: {
+                    Button {
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                            if collapsed { collapsedPositionTypes.remove(type) }
+                            else { collapsedPositionTypes.insert(type) }
+                        }
+                    } label: {
+                        HStack {
+                            Text(LocalizedStringKey(type == "STK" ? "Stocks" : type == "FUT" ? "Futures" : "Options"))
+                            Spacer()
+                            Image(systemName: collapsed ? "chevron.forward" : "chevron.down")
+                                .font(.caption.weight(.semibold)).accessibilityHidden(true)
+                        }
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityValue(collapsed ? Text("Collapsed") : Text("Expanded"))
+                    .accessibilityIdentifier("portfolioSection-\(type)")
                 }
             }
             if let weekly = store.weekly, weekly.positions_count > 0 {
