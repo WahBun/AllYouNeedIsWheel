@@ -926,7 +926,7 @@ chart.timeScale().subscribeVisibleLogicalRangeChange(checkNativeHistory);
 let readoutTime=null,readoutLatest=false;
 function updateReadout(){
  const selected=(readoutLatest?null:previous.find(b=>b.time===readoutTime))||previous.at(-1);
- const b=projectedCandle&&projectedCandle.base===selected?projectedCandle.drawn:selected;
+ const b=projectedCandle&&!projectedCandle.previewOnly&&projectedCandle.base===selected?projectedCandle.drawn:selected;
  const readout=document.getElementById('readout');
  readout.textContent=b?`O ${priceText(b.open)}  H ${priceText(b.high)}  L ${priceText(b.low)}  C ${priceText(b.close)}`:'';
  readout.style.fontSize=innerWidth>=768?'14px':'11px';
@@ -1211,11 +1211,17 @@ function updateCurrentPriceRay(bar){
 function displayedTail(bar,p,now){
  const live=p?.display_last,price=live?.price;
  if(!bar||!Number.isFinite(price)||!(now<live.expires_at)){restoreTradeCandle();return bar;}
- if(!live.ray_only&&bar.time<=live.time&&now<p.bar_closes_at){
+ // An untimed Last cannot start a bar. On the web stock main chart, preview
+ // its body only when a recent exchange-timed trade anchors this open bar.
+ const previewOnly=live.ray_only===true&&window.frameElement?.id==='chart'&&p.security_type==='STK'&&
+  p.interval>0&&p.interval<=60&&Number.isFinite(p.last_tick)&&p.last_tick>=bar.time&&
+  p.last_tick<=live.time&&live.time-p.last_tick<3&&live.time<=now;
+ if((!live.ray_only||previewOnly)&&bar.time<=live.time&&now<p.bar_closes_at){
   if(projectedCandle?.base!==bar||projectedCandle.drawn.close!==price){
-   const prior=projectedCandle?.base===bar?projectedCandle.drawn:bar;
+   // Never accumulate unconfirmed stock prints as wicks.
+   const prior=!previewOnly&&projectedCandle?.base===bar?projectedCandle.drawn:bar;
    const drawn={...bar,high:Math.max(prior.high,price),low:Math.min(prior.low,price),close:price};
-   series.update(drawn);projectedCandle={base:bar,drawn};updateReadout();
+   series.update(drawn);projectedCandle={base:bar,drawn,previewOnly};updateReadout();
   }
  }else restoreTradeCandle();
  return {...bar,close:price};
