@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Passive Paper-only history recovery; no market polling, no order replay."""
+"""Mini LaunchAgent for dual Gateway connectivity and Paper history recovery."""
 import argparse
 import fcntl
 import json
@@ -7,27 +7,8 @@ import sys
 import time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from ops.docker_watchdog import run, save, unsafe_orders
-
-# IBC's own cold-restart marker relaunches only the Paper child Java process.
-RESTART = r"""
-set -eu
-p=$(cat /tmp/pid_paper)
-l=$(cat /tmp/pid_live)
-[ "$p" != "$l" ]
-kill -0 "$p"; kill -0 "$l"
-children=$(ps --ppid "$p" -o pid=,comm= | awk '$2=="java" {print $1}')
-[ "$(echo "$children" | wc -w)" -eq 1 ]
-j=$children
-[ "$(ps -o ppid= -p "$j" | tr -d ' ')" = "$p" ]
-args=$(tr '\0' '\n' < /proc/$j/cmdline)
-echo "$args" | grep -q '/sessions/settings_paper'
-token=$(echo "$args" | sed -n 's/^-Dibcsessionid=//p')
-case "$token" in ''|*[!a-zA-Z0-9_-]*) exit 1;; esac
-[ -d /sessions/settings_paper ]
-touch "/sessions/settings_paper/COLDRESTART$token"
-kill -TERM "$j"
-"""
+from ops.docker_watchdog import save, unsafe_orders
+from ops import gateway_session_watchdog as sessions
 
 
 def decision(evidence, state, now):
@@ -69,10 +50,17 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
+        session_path = args.state_dir / 'sessions.json'
+        ready = sessions.check(session_path, args.check_only)
+        if ready is None:
+            return
+        current, last_session_action = ready
         path = args.state_dir/'state.json'
         try:
             state = json.loads(path.read_text()) if path.exists() else {}
             evidence = json.loads((args.project/'logs/paper-history-health.json').read_text())
+            evidence['failures'] = [sample for sample in evidence.get('failures', [])
+                                    if sample[0] > last_session_action]
             choice = decision(evidence, state, time.time())
         except (OSError, ValueError, TypeError, KeyError):
             print('No usable history evidence; no restart', flush=True)
@@ -90,10 +78,18 @@ def main():
             state.update(latched=True, last_attempt=now)
             state.setdefault('attempts', []).append(now)
             save(path, state)
-            if not paper_selected(args.project) or unsafe_orders(args.project):
+            if sessions.target() != current:
+                choice = 'gateway_changed'
+            elif not paper_selected(args.project) or unsafe_orders(args.project):
                 choice = 'blocked_by_orders'
             else:
-                ok, _ = run(['/usr/local/bin/docker', 'exec', 'wheel-gateway-dual', 'bash', '-c', RESTART], timeout=15)
+                # A history restart that ends in an authentication prompt is the same incident.
+                session_state = json.loads(session_path.read_text())
+                session_state['paper']['attempted'] = True
+                session_state['paper_last_attempt'] = now
+                session_state['last_action'] = now
+                save(session_path, session_state)
+                ok = sessions.recover(current[0], 'paper', history=True)
                 choice = 'paper_restart_requested' if ok else 'restart_unconfirmed'
         if state.get('status') != choice:
             print(time.strftime('%Y-%m-%d %H:%M:%S'), choice, flush=True)
