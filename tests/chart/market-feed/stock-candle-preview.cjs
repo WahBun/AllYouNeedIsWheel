@@ -34,7 +34,27 @@ const {start}=require('./harness.cjs');
    const expired=series.data().at(-1);
    const closed=gap(660.05,t+300),older=gap(660.05,t+60,{last_tick:t-1});
    const futures=gap(660.05,t+60,{security_type:'FUT'});
-   const late=gap(660.05,t+70);
+   // Fresh Lasts can move in both directions while timed prints lag within
+   // this bucket. Only the forming body follows them; never a closed bar.
+   async function paintedGap(){
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    const size=chart.paneSize(),canvas=[...document.querySelectorAll('#chart canvas')].find(c=>c.offsetWidth===size.width&&c.offsetHeight===size.height);
+    const dx=canvas.width/size.width,dy=canvas.height/size.height;
+    // Sample off-center to exclude the wick. The end farther from the open
+    // is the painted close of either a hollow up candle or a filled down one.
+    const x=Math.round((chart.timeScale().timeToCoordinate(t)+chart.timeScale().options().barSpacing*.22)*dx);
+    const col=canvas.getContext('2d').getImageData(x,0,1,canvas.height).data,edges=[];
+    for(let y=0;y<canvas.height;y++)if(col[4*y]===48&&col[4*y+1]===51&&col[4*y+2]===50)edges.push(y/dy);
+    if(!edges.length)throw Error('Candle body not painted');
+    const open=series.priceToCoordinate(real.open),ray=currentPriceRay.getBoundingClientRect().top;
+    const close=Math.abs(edges[0]-open)>Math.abs(edges.at(-1)-open)?edges[0]:edges.at(-1);
+    return Math.abs(close-ray);
+   }
+   const fastUp=gap(660.05,t+62.55),upGap=await paintedGap();
+   const fastDown=gap(659.89,t+63.2),downGap=await paintedGap(),fastAgain=gap(660.07,t+70);
+   const canonicalAfterBurst=Object.fromEntries(Object.keys(real).map(k=>[k,previous.at(-1)[k]]));
+   const stale=gap(660.08,t+71,{display_last:{price:660.08,time:t+67,expires_at:t+70,ray_only:true}});
+   const rollover=gap(660.20,t+301,{bar_closes_at:null});
    const missing=gap(660.05,t+60,{last_tick:null});
    window.frameElement.removeAttribute('id');
    const auxiliary=gap(660.05,t+60);
@@ -42,12 +62,14 @@ const {start}=require('./harness.cjs');
    gap(660.01,t+61);
    receive({...packet,mode:'delta',server_time:t+62,last_tick:t+62,bars:[{...real,close:659.97}]});
    const confirmed=series.data().at(-1);
-   return {first,second,marker,official,real,expired,closed,older,futures,late,missing,auxiliary,confirmed};
+   return {first,second,marker,official,real,expired,closed,older,futures,upGap,downGap,fastUp,fastDown,fastAgain,canonicalAfterBurst,stale,rollover,missing,auxiliary,confirmed};
   });
   assert.equal(result.marker,660.01);
   assert.equal(result.first.close,result.marker,'QQQ open candle should follow the fresh Last marker');
   assert.deepEqual([result.second.close,result.second.high],[659.90,659.99]);
-  for(const k of ['official','expired','closed','older','futures','late','missing','auxiliary'])assert.deepEqual(result[k],result.real,k);
+  assert.deepEqual([result.fastUp.close,result.fastDown.close,result.fastAgain.close],[660.05,659.89,660.07]);
+  assert.ok(result.upGap<=1&&result.downGap<=1,`Painted candle/ray gaps: ${result.upGap}, ${result.downGap}`);
+  for(const k of ['official','expired','closed','older','futures','canonicalAfterBurst','stale','rollover','missing','auxiliary'])assert.deepEqual(result[k],result.real,k);
   assert.deepEqual(result.confirmed,{...result.real,close:659.97});
   assert.deepEqual(errors,[]);assert.equal(h.metrics.posts,0);
   console.log('PASS: open stock candle, confirmed data, quote expiry, rollover, backlog and futures isolation');
