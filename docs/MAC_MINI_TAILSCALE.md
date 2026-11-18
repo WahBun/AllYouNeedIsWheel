@@ -323,32 +323,46 @@ Disable with `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.wahbun.g
 
 ## Dual Gateway connection recovery
 
-The existing Paper Gateway LaunchAgent also checks both loopback API ports once
-a minute, regardless of the account selected in Wheel. Each short-lived client
-checks its expected managed account and requests the current time. It neither
-subscribes to quotes nor requests or replays orders. It checks the pinned image,
-container ID, start time and published ports before dispatch.
+The existing Paper Gateway LaunchAgent checks the two local Gateway Java processes
+and API listeners every 12 seconds. With stable local state it verifies the two
+accounts and broker times once a minute, regardless of the account selected in
+Wheel. A change in process identity or listener availability starts a fresh broker
+check immediately. These probes do not request orders or market data.
 
-Three failed samples spanning about two minutes and a final immediate confirmation
-are required. A Paper failure with verified healthy Live uses only the Paper
-IBC process and its existing private login file. If that process has exited,
-the job relaunches it with its saved Paper settings. An unexpected Live failure
-restarts the shared Gateway container once. Both sessions briefly disconnect
-during that container restart. When both endpoints fail, a Live container restart
-requires evidence that the Live process itself has exited.
+Every probe reuses client ID 9701 on Live or 9702 on Paper, including the final
+confirmation before recovery. Reserve those IDs for the watchdog. If Wheel is
+configured with the same ID or IB reports a duplicate, the check records
+`client_id_in_use`. A possible duplicate reported during the handshake records
+`unknown`. Neither result authorizes recovery or a retry with another ID.
 
-Startup, the configured 23:45 New York restart and the overnight reset window
-have grace periods. A Live outage observed during the Sunday reauthentication
-window or an unfinished Live login waits for a verified login. Approve IB Key
-when prompted. Unknown accounts or missing evidence cannot authorize a restart.
-An attempt stays latched across monitor and container restarts until the
-affected account is verified. Separate incidents have a 30-minute cooldown.
-The existing private credential profiles remain on the Mini.
+The first confirmed unexpected disconnect starts a 60-second timer. The job samples
+the incident again on its 12-second cadence. A healthy or inconclusive observation
+or a long sampling gap interrupts the timer. After a full minute, a fresh broker
+probe and a check of both processes and the container generation must still agree.
+Broker timeouts and login time are additional. A failure visible only at the broker
+API may first be discovered on the normal one-minute probe.
 
-The LaunchAgent picks up the scripts on its next tick after deployment.
-For a read-only check, run the installed LaunchAgent command with
-`--check-only`. Session status and dispatch latches are in
-`~/Library/Application Support/Wheel/PaperGatewayWatchdog/sessions.json`.
+Paper recovery targets its own IBC process or relaunches its missing wrapper with
+the private saved settings. A confirmed Live outage restarts the shared Gateway
+container once. When both endpoints lose connectivity but both processes are
+running, the job waits for connectivity. An outstanding Paper login or IB Key
+challenge also holds a shared restart.
+
+Each newly started container gets up to five minutes for startup. Verified
+account and current-time replies from **both** sessions end this protection early
+for that container generation. The scheduled 23:45 New York restart, overnight
+maintenance window and observed authentication retain their own protections.
+Each dispatch is persisted before execution. Another attempt requires verified
+recovery and the existing 30-minute cooldown. Approve IB Key when prompted.
+
+After Deploy only, the installed LaunchAgent picks up the new code on its next
+invocation. Its worker sleeps between samples and reloads updated Python code.
+The existing 60-second launchd interval relaunches the worker if it exits. Manual
+invocations remain single checks. Use `--check-only` for a read-only probe.
+`~/Library/Application Support/Wheel/PaperGatewayWatchdog/sessions.json` records
+the per-session status, native login and confirmed IB Key timestamps, observed
+scheduled logins and the last automatic restart request. Login history is
+diagnostic; elapsed days since login never authorize a restart.
 
 ## Paper historical-data recovery
 
