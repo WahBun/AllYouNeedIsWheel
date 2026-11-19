@@ -208,8 +208,10 @@
    const more=item('More settings...',()=>parent.postMessage({wheelChart:true,name:'chartSettings'},location.origin));const gear=axisButton.firstElementChild.cloneNode(true);gear.style.cssText='position:absolute;left:8px;top:50%;transform:translateY(-50%);width:16px;height:16px';more.prepend(gear);
    for(const row of menu.querySelectorAll('button')){row.style.position='relative';row.style.paddingLeft='34px';}
   }else{
-  item(price>0?'Add alert at '+priceText(price):'Price unavailable',()=>{if(contract===paperCID)window.chartAlerts?.open({price});},!(price>0),'alert');
-  refreshOrderMenu=price>0?orderItems(price,(label,run,disabled,presets,side)=>entryItem(label,()=>{if(contract===paperCID)run();},disabled,presets,side),true):()=>{};
+  const manualLimit=!previous.length&&countdownPacket?.security_type==='OPT'&&paperConfig.webEntryDrag===true&&
+   paperConfig.position&&countdownPacket.con_id===contract&&paperConfig.web_account_epoch&&countdownPacket.account_epoch===paperConfig.web_account_epoch;
+  if(!manualLimit)item(price>0?'Add alert at '+priceText(price):'Price unavailable',()=>{if(contract===paperCID)window.chartAlerts?.open({price});},!(price>0),'alert');
+  refreshOrderMenu=(manualLimit||price>0)?orderItems(manualLimit?null:price,(label,run,disabled,presets,side)=>entryItem(label,()=>{if(contract===paperCID)run();},disabled,presets,side),true,!!manualLimit):()=>{};
   const n=window.chartDrawingActions?.count()||0;if(n>0)item(`Remove ${n} drawing${n===1?'':'s'}`,()=>window.chartDrawingActions?.removeAll()).style.paddingLeft='40px';
   }
   menu.hidden=false;menu.style.left=Math.max(6,Math.min(event.clientX,innerWidth-menu.offsetWidth-6))+'px';menu.style.top=Math.max(6,Math.min(event.clientY,innerHeight-menu.offsetHeight-6))+'px';

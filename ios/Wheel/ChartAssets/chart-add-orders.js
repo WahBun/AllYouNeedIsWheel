@@ -326,14 +326,39 @@
  `;document.head.append(addStyle);
  const pendingQuantity=()=> (paperConfig.orders||[]).filter(o=>o.role.split('_')[0]==='entry'&&!['Filled','Cancelled','ApiCancelled','Inactive'].includes(o.status)).reduce((n,o)=>n+Math.max(0,o.quantity-o.filled),0);
  function addAllowed(choice){return paperConfig.enabled&&(paperConfig.add_allowed??paperConfig.scalable)&&paperConfig.position&&choice.side===Math.sign(paperConfig.position)&&!paperConfig.busy&&!paperConfig.orders?.some(o=>['PendingSubmit','PendingCancel','Unknown'].includes(o.status));}
- function choosePriceOrder(choice,price,quantity=qty,direct=false){
+ // A blank chart has no price coordinate. Capture a user-entered limit and the
+ // held position it belongs to without seeding candles or borrowing a cached quote.
+ function manualLimitField(){
+  const cid=paperCID,epoch=paperConfig.web_account_epoch,group=paperConfig.group_id;
+  const ref=paperConfig.order_ref,position=paperConfig.position;
+  const label=document.createElement('label');label.textContent='Limit price';
+  const input=document.createElement('input');input.type='number';input.step='any';input.required=true;
+  input.inputMode='decimal';label.append(input);
+  input.oninput=()=>input.setCustomValidity('');
+  return {label,read(){
+   if(nativeTradingLocked()||!paperConfig.enabled||cid!==paperCID||epoch!==paperConfig.web_account_epoch||
+      group!==paperConfig.group_id||ref!==paperConfig.order_ref||position!==paperConfig.position||
+      countdownPacket?.con_id!==cid||countdownPacket.account_epoch!==epoch||countdownPacket.security_type!=='OPT'){
+    addDialog.close();validation('Position changed. Reopen the limit order.');return null;
+   }
+   const price=input.valueAsNumber;
+   if(!(price>0)||snapPrice(price)!==price){
+    input.setCustomValidity('Enter a positive limit price that matches the contract price increment.');
+    input.reportValidity();return null;
+   }
+   return price;
+  }};
+ }
+ function choosePriceOrder(choice,price,quantity=qty,direct=false,manual=false){
+  if(manual&&(!paperConfig.position||choice.type!=='LMT'))return;
   if(!paperConfig.position){menuOrderPrice=price;menuOrderCID=paperCID;menuOrderEpoch=paperConfig.web_account_epoch;sendPriceOrder(choice,quantity,direct);return;}
-  if(choice.side!==Math.sign(paperConfig.position)){if(choice.type==='LMT')chooseExit(Math.abs(paperConfig.position)>1,price);return;}
+  if(choice.side!==Math.sign(paperConfig.position)){if(choice.type==='LMT')chooseExit(Math.abs(paperConfig.position)>1,price,manual);return;}
   if(!addAllowed(choice))return;
   const cid=paperCID,ref=paperConfig.order_ref,epoch=paperConfig.web_account_epoch,tp=paperConfig.add_tp||paperConfig.tp,sl=paperConfig.sl;
   addDialog.replaceChildren();const zh=parent.document.documentElement.lang.startsWith('zh');addDialog.dataset.light=String(!darkAppearance);
   const title=document.createElement('strong');title.textContent=`${zh?'加仓':'Add position'} · ${choice.label}`;
-  const detail=document.createElement('p');detail.textContent=`${countdownPacket?.local_symbol||countdownPacket?.symbol||''} · ${priceText(price)} · ${paperConfig.tif||'DAY'}`;
+  const limit=manual?manualLimitField():null;
+  const detail=document.createElement('p');detail.textContent=[countdownPacket?.local_symbol||countdownPacket?.symbol||'',manual?'':priceText(price),paperConfig.tif||'DAY'].filter(Boolean).join(' · ');
   const label=document.createElement('label');label.textContent=zh?'加仓数量':'Add quantity';
   const input=document.createElement('input');input.type='number';input.min='1';input.step='1';input.value=String(paperConfig.adjustment_quantity||1);input.setAttribute('aria-label','Add quantity');label.append(input);
 
@@ -342,14 +367,15 @@
   submit.onclick=()=>{
    const quantity=Number(input.value);
    if(!Number.isSafeInteger(quantity)||quantity<1){input.reportValidity();return;}
+   const entry=manual?limit.read():price;if(entry===null)return;
    addDialog.close();
    if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||tp!==(paperConfig.add_tp||paperConfig.tp)||sl!==paperConfig.sl||!addAllowed(choice))return validation('Position changed · reopen the add order');
-   paperAction({action:'add',quantity,entry:price,entry_type:choice.type,side:choice.side,expected_ref:ref,expected_tp:tp,expected_sl:sl});
+   paperAction({action:'add',quantity,entry,entry_type:choice.type,side:choice.side,expected_ref:ref,expected_tp:tp,expected_sl:sl});
   };
   const summary=document.createElement('div');summary.className='add-summary';
   for(const text of [`TP  ${tp?priceText(tp):"—"}`,`SL  ${sl?priceText(sl):"—"}`,`${zh?'已挂':'Pending'}  ${pendingQuantity()}`]){const cell=document.createElement('span');cell.textContent=text;summary.append(cell);}
   const footer=document.createElement('footer');footer.append(cancel,submit);
-  addDialog.append(title,detail,label,summary,footer);addDialog.showModal();
+  addDialog.append(title,detail);if(limit)addDialog.append(limit.label);addDialog.append(label,summary,footer);addDialog.showModal();
  }
  const availableTrim=()=>paperConfig.trim_available??Math.max(0,Math.abs(paperConfig.position||0)-(paperConfig.pending_exits||[]).reduce((n,r)=>n+r.quantity,0));
  function exitReason(trim,priced=false){
@@ -363,15 +389,17 @@
   if(priced&&!(paperConfig.scalable||paperConfig.unprotected_trim||paperConfig.unprotected_scaling||paperConfig.stop_trim_allowed||paperConfig.protected_stock_scaling))return 'Wait for reconciled position and exits';
   return '';
  }
- function chooseExit(trim,price=null){
-  const priced=price!==null;
+ function chooseExit(trim,price=null,manual=false){
+  const priced=manual||price!==null;
   if(exitReason(trim,priced))return;
   const cid=paperCID,ref=paperConfig.order_ref,epoch=paperConfig.web_account_epoch,position=paperConfig.position;
   const size=Math.abs(position),zh=parent.document.documentElement.lang.startsWith('zh');
   addDialog.replaceChildren();addDialog.dataset.light=String(!darkAppearance);
   const title=document.createElement('strong');title.textContent=priced?(zh?'限价减仓 / 平仓':'Limit trim / close'):trim?(zh?'减仓':'Trim position'):(zh?'全部平仓':'Close position');
   const detail=document.createElement('p');detail.textContent=`${countdownPacket?.local_symbol||countdownPacket?.symbol||''} · ${position>0?'Long':'Short'} ${size} · `+(paperConfig.scalable?(zh?'按当前买卖价调整退出限价单，不保证立即成交。':'Exit limit at current bid/ask; immediate fill is not guaranteed.'):(trim?(zh?'核对持仓后市价减仓，不保证成交价格。':'Market trim after position reconciliation; execution price is not guaranteed.'):(zh?'核验撤单与剩余仓位后市价平仓。':'Market close after cancellation and position reconciliation.')));
-  if(priced)detail.textContent=`${countdownPacket?.local_symbol||countdownPacket?.symbol||''} · ${position>0?'Sell':'Buy'} Limit @ ${priceText(price)} · ${zh?'现有持仓':'Position'} ${size}`;
+  const limit=manual?manualLimitField():null;
+  if(manual)detail.textContent=menuContractName()+' · '+(position>0?'Sell Limit':'Buy Limit')+' · Position '+size;
+  else if(priced)detail.textContent=`${countdownPacket?.local_symbol||countdownPacket?.symbol||''} · ${position>0?'Sell':'Buy'} Limit @ ${priceText(price)} · ${zh?'现有持仓':'Position'} ${size}`;
   const fullOptionTrim=trim&&priced&&!paperConfig.scalable&&paperConfig.full_limit_trim_allowed===true;
   const canExitAll=priced&&(paperConfig.scalable||fullOptionTrim);
   const maxQuantity=()=>trim?Math.floor(Math.min(availableTrim(),canExitAll?size:Math.ceil(size)-1)):size;
@@ -381,10 +409,11 @@
   const submit=document.createElement('button');submit.textContent=priced?(zh?'挂限价退出单':'Place limit exit'):trim?(zh?'确认减仓':'Confirm trim'):(zh?'确认平仓':'Confirm close');
   submit.onclick=()=>{const quantity=Number(input.value);if(!Number.isSafeInteger(quantity)||quantity<1||quantity>maxQuantity())return input.reportValidity();
    if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||position!==paperConfig.position||exitReason(trim,priced)){addDialog.close();return validation('Position changed; reopen exit menu');}
+   const exitPrice=manual?limit.read():price;if(priced&&exitPrice===null)return;
    const fullLimitTrim=fullOptionTrim&&quantity===size;
-   addDialog.close();paperAction({action:trim?'trim':'close',quantity,expected_ref:ref,expected_position:position,...(priced?{exit_type:'LMT',exit_price:price}:{}),...(fullLimitTrim?{full_limit_trim:true}:{})});
+   addDialog.close();paperAction({action:trim?'trim':'close',quantity,expected_ref:ref,expected_position:position,...(priced?{exit_type:'LMT',exit_price:exitPrice}:{}),...(fullLimitTrim?{full_limit_trim:true}:{})});
   };
-  const footer=document.createElement('footer');footer.append(cancel,submit);addDialog.append(title,detail,input,remaining,footer);addDialog.showModal();
+  const footer=document.createElement('footer');footer.append(cancel,submit);addDialog.append(title,detail);if(limit)addDialog.append(limit.label);addDialog.append(input,remaining,footer);addDialog.showModal();
  }
  function menuContractName(){
   const packet=countdownPacket,raw=packet?.local_symbol||packet?.symbol||'';
@@ -394,18 +423,23 @@
   const [,symbol,year,month,day,right,strike]=option;
   return `${symbol.trim()} · ${month}/${day}/${year} · ${Number(strike)/1000}${right}`;
  }
- function orderItems(price,append,direct=false){
+ function orderItems(price,append,direct=false,manual=false){
   const updates=[],contract=paperCID,epoch=paperConfig.web_account_epoch,group=paperConfig.group_id;
   const sameGroup=()=>contract===paperCID&&epoch===paperConfig.web_account_epoch&&group===paperConfig.group_id;
-  for(const choice of priceOrderChoices(price,previous.at(-1)?.close)){
+  const position=paperConfig.position,ref=paperConfig.order_ref;
+  const manualContext=()=>!!position&&position===paperConfig.position&&ref===paperConfig.order_ref&&
+   !!epoch&&countdownPacket?.con_id===contract&&countdownPacket.account_epoch===epoch&&countdownPacket.security_type==='OPT';
+  if(manual&&!manualContext())return ()=>{};
+  const choices=manual?[{side:1,type:'LMT',label:'Buy Limit'},{side:-1,type:'LMT',label:'Sell Limit'}]:priceOrderChoices(price,previous.at(-1)?.close);
+  for(const choice of choices){
    const adding=!!paperConfig.position;
    const reducing=adding&&choice.side!==Math.sign(paperConfig.position);
    const reduceReason=()=>exitReason(Math.abs(paperConfig.position)>1,true)||(choice.type!=='LMT'?'Priced stop exits are not supported; choose a limit price':'');
    const disabled=adding?(reducing?!!reduceReason():!addAllowed(choice)):(!canRecoverPriceOrder()&&(!paperConfig.enabled||paperConfig.active))||paperConfig.busy||ovtStopBlocked(choice.type);
    const quantity=adding?(paperConfig.adjustment_quantity||1):qty;
    const choiceLabel=choice.label;
-   const b=append(`${reducing?(Math.abs(paperConfig.position)===1?'Close · ':'Trim · '):adding?'Add · ':''}${choiceLabel} ${quantity} ${menuContractName()} @ ${priceText(price)}`,()=>{if(sameGroup())choosePriceOrder(choice,price,qty,direct);},disabled,adding?null:{quantities:[1,2,3,4].filter(n=>n<=priceMenuLimit()),choose:n=>{if(sameGroup()&&!paperConfig.position)choosePriceOrder(choice,price,n,direct);}},choice.side);
-   if(b)updates.push(()=>{const changed=!sameGroup()||adding!==!!paperConfig.position||quantity!==(adding?(paperConfig.adjustment_quantity||1):qty);const reason=changed?'Chart or quantity changed; reopen menu':ovtStopBlocked(choice.type)?'OVT supports limit orders only':!adding&&canRecoverPriceOrder()?'':!paperConfig.enabled?(paperConfig.trading_block_reason||'Waiting for verified order status'):paperConfig.busy?'Order request in progress':paperConfig.active&&!adding?'An entry order is already working':reducing?reduceReason():adding&&!addAllowed(choice)?'Position is not ready for this add order':'';b.disabled=!!reason;b.style.opacity=reason?'.4':'1';b.title=reason;let note=b.querySelector('small');if(reason&&!note){note=document.createElement('small');note.style.cssText='display:block;max-width:270px;white-space:normal;margin-top:5px;font-size:11px';b.append(note);}if(note){note.textContent=reason;note.hidden=!reason;}});
+   const b=append(`${reducing?(Math.abs(paperConfig.position)===1?'Close · ':'Trim · '):adding?'Add · ':''}${choiceLabel} ${quantity} ${menuContractName()}${manual?'…':' @ '+priceText(price)}`,()=>{if(sameGroup()&&(!manual||manualContext()))choosePriceOrder(choice,price,qty,direct,manual);},disabled,adding?null:{quantities:[1,2,3,4].filter(n=>n<=priceMenuLimit()),choose:n=>{if(sameGroup()&&!paperConfig.position)choosePriceOrder(choice,price,n,direct);}},choice.side);
+   if(b)updates.push(()=>{const changed=!sameGroup()||(manual&&!manualContext())||adding!==!!paperConfig.position||quantity!==(adding?(paperConfig.adjustment_quantity||1):qty);const reason=changed?'Chart or quantity changed; reopen menu':ovtStopBlocked(choice.type)?'OVT supports limit orders only':!adding&&canRecoverPriceOrder()?'':!paperConfig.enabled?(paperConfig.trading_block_reason||'Waiting for verified order status'):paperConfig.busy?'Order request in progress':paperConfig.active&&!adding?'An entry order is already working':reducing?reduceReason():adding&&!addAllowed(choice)?'Position is not ready for this add order':'';b.disabled=!!reason;b.style.opacity=reason?'.4':'1';b.title=reason;let note=b.querySelector('small');if(reason&&!note){note=document.createElement('small');note.style.cssText='display:block;max-width:270px;white-space:normal;margin-top:5px;font-size:11px';b.append(note);}if(note){note.textContent=reason;note.hidden=!reason;}});
 
   }
   const refresh=()=>updates.forEach(update=>update());refresh();return refresh;
