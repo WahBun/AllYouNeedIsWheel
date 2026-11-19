@@ -748,6 +748,7 @@ struct StockChartView: View {
     @AppStorage("chartShowProfit") private var showProfit = true
     @AppStorage("chartOneClickTrading") private var oneClickTrading = false
     @AppStorage("chartNoOverlappingLabels") private var noOverlappingLabels = true
+    @AppStorage("chartShowPriceLine") private var showPriceLine = true
     @AppStorage("chartPlusButton") private var showPlusButton = true
     @AppStorage("chartShowHoldings") private var showHoldings = true
     @AppStorage("chartOrderExtensionLines") private var showOrderExtensionLines = true
@@ -1246,7 +1247,7 @@ struct StockChartView: View {
     }
     @State private var showDisplaySettings = false
     private var chartDisplay: [String: Any] {
-        ["tradingLocked": tradingLocked, "noOverlappingLabels": noOverlappingLabels, "plusButton": showPlusButton, "rightClickTrading": oneClickTrading, "volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && expandedIndicatorsActive, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": interval > 60 ? 0 : emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && expandedIndicatorsActive, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorsActive, "emaLength": interval > 60 ? 20 : emaLength, "emaSource": interval > 60 ? "close" : emaSource, "emaOffset": interval > 60 ? 0 : emaOffset,
+        ["tradingLocked": tradingLocked, "noOverlappingLabels": noOverlappingLabels, "plusButton": showPlusButton, "showPriceLine": showPriceLine, "rightClickTrading": oneClickTrading, "volatility": volatilityDisplay, "volatilityData": volatilityContext == volatilityRequestKey ? volatilityData : [:], "nativeCompact": true, "previousValues": pvDisplay, "fvg": fvgDisplay, "holdingsVisible": showHoldings, "orderExtensionLines": showOrderExtensionLines, "barCount": showBarCount && expandedIndicatorsActive, "barCountFrame": barCountFrame, "barCountSize": barCountSize, "barCountColor": barCountColor, "barCountOpacity": barCountOpacity, "barCountLimit": barCountLimit, "barCountBars": barCountBars, "emaFrame": interval > 60 ? 0 : emaFrame, "extraEMAs": extraEMAs.map { ["enabled": $0.enabled && expandedIndicatorsActive, "timeframe": $0.timeframe, "length": $0.length, "source": $0.source, "offset": $0.offset, "color": $0.color + "ab", "width": $0.width, "style": $0.style, "stepped": $0.stepped] as [String: Any] }, "emaFrames": emaFrameContext == emaRequestKey ? emaFrames : [:], "indicatorCollapsed": indicatorCollapsed, "indicatorVisible": indicatorVisible, "ema": showEMA && indicatorsActive, "emaLength": interval > 60 ? 20 : emaLength, "emaSource": interval > 60 ? "close" : emaSource, "emaOffset": interval > 60 ? 0 : emaOffset,
          "emaDynamic": emaDynamic, "emaColor": emaColor + "ab", "emaWidth": emaWidth, "emaStyle": emaStyle,
          "atr": showATR && expandedIndicatorsActive, "atrLength": atrLength, "profit": showHoldings && showProfit, "positions": showHoldings && showPositionProfit, "brackets": showHoldings && showBracketProfit,
          "executions": showExecutions, "executionLabels": showExecutionLabels,
@@ -1808,6 +1809,7 @@ struct StockChartView: View {
                     Section("General") {
                         Toggle("No overlapping labels", isOn: $noOverlappingLabels)
                         Toggle("Plus button", isOn: $showPlusButton)
+                        Toggle("Price line", isOn: $showPriceLine)
                         Toggle("One-click trading", isOn: $oneClickTrading)
                         Text("Submit chart right-click Buy/Sell and drag or remove TP/SL without confirmation. Other order edits still require confirmation.").font(.caption).foregroundStyle(.secondary)
                     }
