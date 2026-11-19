@@ -1,5 +1,8 @@
 const {chromium}=require('playwright'),assert=require('node:assert/strict');
 const {start}=require('./market-feed/harness.cjs');
+function cursorAt(page,x,y){
+ return page.evaluate(([x,y])=>getComputedStyle(document.elementFromPoint(x,y)).cursor,[x,y]);
+}
 (async()=>{const h=await start({history:6000}),b=await chromium.launch();try{
  for(const width of [393,1200])for(const side of ['left','right'])for(const dark of [false,true]){
   const p=await b.newPage({viewport:{width,height:650}});p.on('pageerror',e=>console.error('PAGE',e.message));await p.goto(h.url+'/superchart/frame');
@@ -22,12 +25,16 @@ const {start}=require('./market-feed/harness.cjs');
   // Sweep through the actual wide drawing hit zones, not just their axis levels.
   const crossing=await p.evaluate(()=>({x:plotLeft()+chart.paneSize().width*.75,y:series.priceToCoordinate(103)}));
   await p.mouse.move(crossing.x,crossing.y-35);await p.waitForTimeout(40);
+  assert.equal(await cursorAt(p,crossing.x,crossing.y-35),'crosshair','mouse over the candle plot');
   await p.evaluate(()=>{window.cursorFrames=[];window.sampleCursor=true;function sample(){if(!sampleCursor)return;cursorFrames.push({visible:!passiveCursor.hidden||!priceAdd.hidden,y:crosshairAxisY});requestAnimationFrame(sample);}requestAnimationFrame(sample);});
   await p.mouse.move(crossing.x,crossing.y+35,{steps:60});await p.waitForTimeout(50);
   const samples=await p.evaluate(()=>{sampleCursor=false;return cursorFrames;});
   assert.ok(samples.length>5);assert.ok(Math.abs(samples.at(-1).y-(crossing.y+35))<1,'cursor follows current pointer rather than retaining the previous price');assert.ok(samples.every(s=>s.visible),'cursor must remain visible on every rendered frame through drawing hit zones');
   await p.mouse.move(crossing.x,crossing.y);await p.waitForTimeout(40);await p.mouse.move(side==='left'?10:width-10,crossing.y);await p.waitForTimeout(40);
   assert.equal(await p.evaluate(()=>passiveCursor.hidden&&priceAdd.hidden),true,'leaving a drawing for the price axis clears the hover cursor');
+  assert.equal(await cursorAt(p,side==='left'?10:width-10,crossing.y),'ns-resize','vertical cursor over the price scale');
+  await p.mouse.move(crossing.x,645);
+  assert.equal(await cursorAt(p,crossing.x,645),'ew-resize','horizontal cursor over the time scale');
   await p.mouse.move(0,649);await p.evaluate(()=>syncPaneCrosshair({time:4000,price:103}));await p.waitForTimeout(40);await check();
   await p.screenshot({path:`/tmp/wheel-crosshair-priority-${width}-${side}-${dark}.png`});
   await p.evaluate(()=>syncPaneCrosshair(null));await p.waitForTimeout(40);assert.equal(await p.evaluate(()=>passiveCursor.hidden),true);
@@ -35,7 +42,9 @@ const {start}=require('./market-feed/harness.cjs');
   await p.evaluate(()=>configureDrawings({key:'drag-only',value:{drawings:[{id:'ray',type:'hray',p:[{time:4000,price:103}]}]}}));await p.waitForTimeout(60);
   const line=await p.locator('[data-drawing="ray"] line').first().evaluate(e=>({x:Number(e.getAttribute('x1'))+30,y:Number(e.getAttribute('y1'))}));
   const before=await p.evaluate(()=>tradeAxisBadges.get('drawing:ray:0').textContent);
-  await p.mouse.move(line.x,line.y);await p.mouse.down();await p.mouse.move(line.x,line.y+28,{steps:5});await p.mouse.up();await p.waitForTimeout(70);
+  await p.mouse.move(line.x,line.y);
+  assert.equal(await cursorAt(p,line.x,line.y),'pointer','drawing hit area keeps its own cursor');
+  await p.mouse.down();await p.mouse.move(line.x,line.y+28,{steps:5});await p.mouse.up();await p.waitForTimeout(70);
   assert.notEqual(await p.evaluate(()=>tradeAxisBadges.get('drawing:ray:0').textContent),before,'drawing still drags');
   await p.close();
  }

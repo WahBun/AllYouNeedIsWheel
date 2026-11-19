@@ -689,7 +689,7 @@ function showDrawingPrice(point){
   document.body.classList.toggle('draw-price-active',show);
  }
  if(!show)return;
- const value=priceText(point.price);
+ const value=groupedPriceText(point.price);
  if(drawingCursorPrice.textContent!==value)drawingCursorPrice.textContent=value;
  drawingCursorPrice.style.top=y+'px';
 }
@@ -699,9 +699,13 @@ function paintCursor(){
  element('line',{x1:0,y1:p.y,x2:right,y2:p.y,stroke:color,'stroke-width':1,'stroke-dasharray':'5 4','data-placement-cursor':'horizontal'});
  element('line',{x1:p.x,y1:0,x2:p.x,y2:bottom,stroke:color,'stroke-width':1,'stroke-dasharray':'5 4','data-placement-cursor':'vertical'});
  element('circle',{cx:p.x,cy:p.y,r:5,fill:'none',stroke:color,'stroke-width':1.5});
- const time=new Date(cursor.time*1000).toLocaleTimeString('en-GB',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit'});
- const x=Math.max(0,Math.min(right-48,p.x-24));element('rect',{x,y:bottom-20,width:48,height:20,fill:color,rx:2});
- const t=element('text',{x:x+24,y:bottom-6,fill:'white','font-size':10,'text-anchor':'middle'});t.textContent=time;
+ const time=formatCrosshairTime(cursor.time);
+ const box=element('rect',{y:bottom-20,height:20,fill:color,rx:2});
+ const text=element('text',{y:bottom-10,fill:'white','font-size':10,'text-anchor':'middle','dominant-baseline':'central','xml:space':'preserve'});
+ text.textContent=time;
+ const left=plotLeft(),width=Math.min(right-left,Math.ceil(text.getComputedTextLength())+12);
+ const x=Math.max(left,Math.min(right-width,p.x-width/2));
+ box.setAttribute('x',x);box.setAttribute('width',width);text.setAttribute('x',x+width/2);
 }
 
 function completeDraft(){if(!draft)return;if(['long','short'].includes(active)&&draft.p.length===1){const a=draft.p[0],screen=xy(a),sign=active==='long'?1:-1;const risk=Math.min(a.price*.25,Math.abs(series.coordinateToPrice(screen.y+55)-a.price));if(!(risk>0))return;draft.p.push({time:a.time,price:a.price-sign*risk},{time:a.time,price:a.price+sign*risk});draft.endTime=anchor(screen.x+85,screen.y)?.time??a.time;}if(active==='text'){beginTextEdit(draft,true,gesture?.cursorPlacement?gesture.pointer:null);return;}if(active==='note'){editor.style.display='block';editor.querySelector('input').value='';editor.querySelector('input').focus();return;}if(active==='long'||active==='short'){const sign=active==='long'?1:-1,base=draft.p[0].price;if(sign*(draft.p[1].price-base)>=0||sign*(draft.p[2].price-base)<=0){draft=null;ghost=null;hint.textContent='Tap entry, then stop on risk side, then target on profit side';return;}}commit();}
