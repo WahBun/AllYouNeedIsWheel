@@ -233,6 +233,29 @@ final class ChartViewportTests: XCTestCase {
         XCTAssertEqual(rows.map(\.doubleValue), [661.11, 660.31, 660.91, 1, 1, 660.91, 2])
     }
 
+    func testNativeFuturesCandleFollowsETHLastOnReceipt() async throws {
+        let (web, window) = try await loadNativeChart()
+        defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }
+        let result = try await web.callAsyncJavaScript("""
+        const t=1795065600, base={time:t,open:27451.75,high:27468.25,low:27441.75,close:27465.50};
+        const p={con_id:7,symbol:'MNQ',security_type:'FUT',session:'all',generation:'eth',interval:5,
+          last_tick:t+249,server_time:t+250,bar_closes_at:t+300};
+        applyChartState({width:393,height:700,config:{con_id:7,entry:0,quantity:1,priceRules:[{low:0,increment:.25}],
+          display:{nativeCompact:true}},packet:{...p,mode:'snapshot',bars:[{...base,time:t-300},base]}});
+        const values=[];
+        for(const [offset,price] of [[250,27464.50],[251,27466.75],[252,27463.25],[300,27460]]){
+          const at=t+offset;
+          applyChartState({width:393,height:700,packet:{...p,mode:'delta',bars:[],server_time:at,
+            display_last:{ray_only:true,price,time:at,expires_at:at+3}}});
+          values.push(series.data().at(-1).close);
+        }
+        values.push(previous.at(-1).close,previous.at(-1).high,previous.at(-1).low);
+        return values;
+        """, arguments: [:], in: nil, contentWorld: .page)
+        let values = try XCTUnwrap(result as? [NSNumber])
+        XCTAssertEqual(values.map(\.doubleValue), [27464.50, 27466.75, 27463.25, 27465.50, 27465.50, 27468.25, 27441.75])
+    }
+
     func testRecheckingBrokerEntryDoesNotDrawABuyOrSellPreview() async throws {
         let (web, window) = try await loadNativeChart()
         defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }
