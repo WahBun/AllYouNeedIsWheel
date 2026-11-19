@@ -10,13 +10,15 @@ Built with SwiftUI for iOS 18 and later, with light and dark themes. Native scre
 
 The **desktop web workspace** brings 1/2/3/4 charts, drawings, indicators, price alerts and a trading panel into one screen. The **native iPhone app** provides Portfolio, Trade, Orders and charts on the same backend. The web layout also adapts to smaller screens.
 
-> This README describes the current development branch. Building from source is not an App Store release. Publishing to GitHub, updating the backend and installing the iPhone app are three separate steps.
+> Wheel is distributed as source. Updating GitHub, deploying to the backend host and installing the iPhone app are separate steps.
 
 ## Project status and versions
 
-As of **2026-11-05**, Wheel is in everyday use and stability maintenance. Ordinary issues are collected and grouped for small, focused repairs; trading-safety problems and normal-use blockers take priority. Preserve the established layouts, tick-level market-data path and confirmed trading interactions. This direction does not imply acceptance of every scenario or Live trading workflow.
+Wheel is in everyday use and stability maintenance. Ordinary issues are collected and grouped for small, focused repairs; trading-safety problems and normal-use blockers take priority. Preserve the established layouts, tick-level market-data path and confirmed trading interactions. This direction does not imply acceptance of every scenario or Live trading workflow.
 
-The current release is [Wheel: v1.9.2](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.9.2) on **`main`**. It includes iOS **1.9.2 (8)** and web **1.9.2**. See the [release notes](docs/RELEASE_1.9.2.md) for changes and upgrade instructions.
+**Wheel v1.9.2** · Web **1.9.2** · iPhone **1.9.2 (8)** · Branch **`main`**
+
+The [November 19 source ZIP (`1a5db0f`)](https://github.com/WahBun/AllYouNeedIsWheel/releases/download/v1.9.2/Wheel-v1.9.2-source-1a5db0f.zip) includes the latest chart fixes. GitHub’s automatic **Source code** archives contain the original November 17 release. For changes and upgrade instructions by starting version, see the [v1.9.2 release notes](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.9.2).
 
 Recommended roles: the **development Mac** handles development, Xcode and iPhone builds; the **backend host** runs Gateway, Backend and the API continuously. The development Mac and iPhone reach the backend host through Tailscale. The user chooses deployments and restarts from a computer or phone, and performs the iPhone Xcode Run.
 
@@ -28,7 +30,7 @@ Recommended roles: the **development Mac** handles development, Xcode and iPhone
 
 ## Screenshots
 
-Captured on **2026-10-25** from the code reviewed above. iPhone Simulator views use built-in **synthetic Demo data**. The desktop screenshot renders a **QQQ RTH historical-price snapshot through 2026-10-23** in an isolated, read-only local preview with no account or position data; it is not a live broker session or trading acceptance.
+Captured on **2026-10-25**. iPhone Simulator views use built-in **synthetic Demo data**. The desktop screenshot renders a **QQQ RTH historical-price snapshot through 2026-10-23** in an isolated, read-only local preview with no account or position data; it is not a live broker session or trading acceptance.
 
 On a Mac with Python 3, Flask and Tailscale installed, double-click [Start Wheel Preview.command](ops/Start%20Wheel%20Preview.command) to preview Supercharts from the current worktree. On a phone connected to the same Tailscale network, open the private HTTPS address shown in Terminal. You can access the preview without an exit node. Refresh the page after saving a web change. The preview stays available while the Mac is locked, pauses when it sleeps, and stops when you close the Terminal window. It uses sample positions and prices. Use the selector at the top to change the sample margin rate. To preview another worktree, pass its path as the script’s first argument.
 
@@ -46,7 +48,7 @@ Layout drafts are saved in the current browser for each preview address and work
 | :---: | :---: | :---: |
 | <img src="docs/screenshots/ios-portfolio-20261025.png" width="250" alt="Wheel Portfolio Demo: assets, margin, stock and option holdings"> | <img src="docs/screenshots/ios-trade-20261025.png" width="250" alt="Wheel Trade Demo: CSP contract details, expiration and bid/ask quotes"> | <img src="docs/screenshots/ios-orders-20261025.png" width="250" alt="Wheel Orders Demo: pending orders and execution history"> |
 
-## Since the previous README review
+## Workspace highlights
 
 - **A shared chart workspace:** a compact desktop toolbar, preserved 1/2/3/4 layouts, synchronized drawings and contract favorites; responsive web controls and a phone fullscreen fallback. Web positions default to options first.
 - **Price alerts and phone notifications:** standalone thresholds and horizontal-ray alerts, draggable alert lines, in-chart notifications and optional Bark delivery. Monitoring runs on the backend for the selected account; a closed browser receives no browser push. See [alerts and notification setup](docs/PRICE_ALERTS_AND_PUSH.md).
@@ -57,9 +59,9 @@ Layout drafts are saved in the current browser for each preview address and work
 
 | Screen | Capabilities |
 | --- | --- |
-| **Portfolio** | Net liquidation value, expandable cash and liquidity, initial margin and leverage; stock and option holdings, entry fill prices, days remaining and P&L; allocation, position sharing, closing and rolling workflows. |
+| **Portfolio** | Net liquidation value, expandable cash and liquidity balances, initial margin and leverage. Tap **Options**, **Stocks** or **Futures** on iPhone to collapse or expand that group. Position details include entry fill prices, days remaining and P&L, with tools for allocation, sharing, closing and rolling. |
 | **Performance** | MTD/YTD/ALL return curves, initially YTD; Portfolio only, SPX, NDX or SPX + NDX comparisons, initially both benchmarks; drag to inspect dates and returns; daily P&L and provisional intraday estimates. |
-| **Trade review** | Calendar icon at the top right of Performance; monthly realized P&L, daily calendar, symbol contributions, execution and lifecycle book entries, and daily/monthly commissions by fee currency. Pull down on Performance to refresh; Today has one information button for daily P&L and history methodology. |
+| **Trade review** | Open the calendar in Performance. **Month** shows daily realized P&L, **Year** groups it by month and **All time** by year. Select a period for its details, including symbol contributions, executions, lifecycle entries and commissions by fee currency. Pull down on Performance to refresh. The information button beside Today explains daily P&L and history. |
 | **Trade** | CSP → CC workflow; expiration and strike selection, bid/mid/ask, spreads and Greeks; contract quantity and limit editing, premium estimates, CSP initial-margin-change estimates, individual or batch order drafts. |
 | **Orders** | Pending orders and partial/full execution records; Today/7 Days/MTD, symbol search and Stock/Future/Option filters; commissions displayed to two decimals; order details, edits, execution, cancellation and fill notifications. |
 | **Supercharts** | Stock, futures and option charts; position average prices, related option strikes, execution markers, multi-timeframe EMA, ATR, Bar Count, FVG, Previous values, volatility channels/extreme gauge and drawing tools; instrument search and shared favorites. |
@@ -73,9 +75,10 @@ SGOV, VTI, QQQ, SPY and VOO have dedicated names and allocation animations. VTI/
 
 Open **𝑺𝒖𝒑𝒆𝒓𝒄𝒉𝒂𝒓𝒕𝒔** from position details or the chart entry in Trade. Charts open for analysis without automatically creating an order preview; use the **+** beside a price when needed. Features include 1/2/3/4-chart layouts, timeframe selection, RTH/ETH, full screen and drawings with saved styles.
 
+- **Live candles and price line.** On web and iPhone, a fresh last trade in the current candle updates its body even when the price line is hidden. On the web, toggle **Price line** from the price-axis gear in each pane. On iPhone, use **Chart display → General → Price line**. The crosshair’s time label includes the weekday, and major price levels appear in bold.
 - **Positions and executions:** stocks show shares, options/futures show contracts, and short quantities are negative. Stock charts can also show related option strikes. Positions toggles these position markers. Fill arrows group partial fills of the same order while keeping separate orders distinct; select an arrow for details.
 - **𝔹𝕖𝕟:** the indicator bar starts collapsed, with Inputs/Style/Visibility settings. It includes three independently configurable EMAs (default length 20, with multiple timeframes), ATR, Bar Count, FVG, Previous values, Volatility Channels and Intraday Extreme Gauge. Visibility and styles are configurable; availability depends on the instrument and data.
-- **Loading and state:** cached historical bars and previously fetched multi-timeframe EMA history can appear after a restart before refreshing. First access still depends on IB history. Cached, frozen, delayed or missing data is not live market data. Demo does not provide the complete chart feed; charts need the backend.
+- **Loading and state:** cached historical bars and previously fetched multi-timeframe EMA history can appear after a restart before refreshing. CME futures charts can show incoming trades while IB history loads. Exchange timestamps place trades in their corresponding candles. Cached, frozen, delayed or missing data is not live market data. Demo does not provide the complete chart feed; charts need the backend.
 - **Instruments and favorites:** search stocks/futures, or select an exact option through underlying → expiration → Call/Put → strike. Web and native clients share contract favorites through the same backend, up to 100 favorites. Selecting an instrument creates no order; favorite synchronization does not synchronize trading state or all display settings.
 - **Drawing synchronization:** each contract offers **Main chart only** (main charts on computer and phone; hidden on auxiliary charts) and **All charts** (main and auxiliary charts on both). Both synchronize through the same backend, independently of timeframe. Activating or maximizing an auxiliary chart does not change its pane role. Drawings are analysis annotations, not broker orders.
 - **Trading capabilities:** stocks, futures and supported standard USD options can use chart trading according to account capabilities. Join, entry, TP/SL, Add, Trim, BE and Close depend on the account, position, contract and backend capability switches. Existing protection, coverage and unresolved outcomes may restrict actions. A Live connection alone does not enable unrestricted trading; mock tests are not Live acceptance.
@@ -352,11 +355,12 @@ After rebooting the host, verify FileVault unlock, user login, Docker Desktop, G
 
 ### Optional host maintenance
 
-Two separate user-level maintenance tasks are provided and must be explicitly installed on the backend host. Pulling code does not enable them:
+Install the maintenance tasks you need on the backend host. Each runs under the signed-in user account.
 
 | Task | Behavior and limits |
 | --- | --- |
 | Docker watchdog | Detects failures and attempts guarded recovery. Recovery that restarts Gateway interrupts it and may require IB Key/manual login. It is not an unconditional periodic restart. |
+| [Dual Gateway session recovery](docs/MAC_MINI_TAILSCALE.md#dual-gateway-connection-recovery) | The first confirmed unexpected disconnect starts a one-minute timer. If a fresh check still confirms a Paper failure, only Paper restarts. A confirmed Live failure can restart the shared container and interrupt both sessions. Recovery waits during scheduled relogins and IB Key approval. |
 | Database backup and log rotation | Checks hourly. SQLite online backup saves one orders/history copy per UTC date, verifies integrity and retains the latest 14 copies. Gunicorn access/error logs rotate at 20 MiB, retaining seven archives. |
 
 The maintenance script currently targets `options_dev.db` at the repository root. If using another database path, adapt the script before installation. Custom Flex configuration paths must also reach the maintenance task, not just Backend.
