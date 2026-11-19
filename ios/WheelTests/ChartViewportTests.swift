@@ -161,7 +161,18 @@ final class ChartViewportTests: XCTestCase {
         const selectedTime=Date.parse('2026-11-18T19:40:00Z')/1000, selectedText='Wed 18 Nov  14:40';
         let timeCenter=null;
         CanvasRenderingContext2D.prototype.fillText=function(text,...coords){
-          if(this.canvas.closest('#chart') && this.canvas.clientWidth<120)ink.set(text,this.font);
+          if(this.canvas.closest('#chart') && this.canvas.clientWidth<120 && /^[0-9,.]+$/.test(text)){
+            const font=this.font, actual=this.measureText(text), transform=this.getTransform();
+            this.font='bold '+font.replace(/^bold /,'');
+            const reference=this.measureText(text);
+            this.font=font;
+            const width=m=>m.actualBoundingBoxLeft+m.actualBoundingBoxRight;
+            const height=m=>m.actualBoundingBoxAscent+m.actualBoundingBoxDescent;
+            const sx=transform.a*this.canvas.clientWidth/this.canvas.width;
+            const sy=transform.d*this.canvas.clientHeight/this.canvas.height;
+            ink.set(text,{bold:font.includes('bold'),fits:Math.abs(width(actual)*sx-width(reference))<.5 &&
+              Math.abs(height(actual)*sy-height(reference))<.5});
+          }
           if(text===selectedText){
             const r=this.canvas.getBoundingClientRect(), m=this.getTransform();
             const w=this.measureText(text).width;
@@ -181,9 +192,9 @@ final class ChartViewportTests: XCTestCase {
             await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
             chart.setCrosshairPosition(price,selectedTime,series);
             await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-            const bold=new Set(majorAxisLabels.map(label=>label.text));
+            const bold=new Set(priceAxisLabels.filter(label=>label.bold).map(label=>label.text));
             reports.push(bold.size>0 && bold.size<axisTickPrices.length &&
-              axisTickPrices.map(axisPriceText).every(text=>ink.has(text) && ink.get(text).includes('bold')===bold.has(text)) &&
+              axisTickPrices.map(axisPriceText).every(text=>ink.get(text)?.fits && ink.get(text).bold===bold.has(text)) &&
               document.getElementById('countdown-price').textContent===(symbol==='NQ'?'27,250.00':'660.00') &&
               timeCenter!==null && Math.abs(timeCenter-timeToScreenCoordinate(selectedTime))<2);
           }

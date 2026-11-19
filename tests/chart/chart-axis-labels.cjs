@@ -11,8 +11,18 @@ const { start } = require('./market-feed/harness.cjs');
    window.tickInk = new Map();
    const paint = CanvasRenderingContext2D.prototype.fillText;
    CanvasRenderingContext2D.prototype.fillText = function(text, ...coords) {
-    if (this.canvas.closest('#chart') && this.canvas.clientWidth < 120 && /^[\d,]+\.\d+$/.test(text)) {
-     tickInk.set(text, this.font);
+    if (this.canvas.closest('#chart') && this.canvas.clientWidth < 120 && /^-?[\d,]+\.\d+$/.test(text)) {
+     const font=this.font, ink=this.measureText(text), matrix=this.getTransform();
+     this.font='bold '+font.replace(/^bold /,'');
+     const reference=this.measureText(text);
+     this.font=font;
+     const xScale=matrix.a*this.canvas.clientWidth/this.canvas.width;
+     const yScale=matrix.d*this.canvas.clientHeight/this.canvas.height;
+     const width=m=>m.actualBoundingBoxLeft+m.actualBoundingBoxRight;
+     const height=m=>m.actualBoundingBoxAscent+m.actualBoundingBoxDescent;
+     const anchor=coords[0]*xScale+matrix.e*this.canvas.clientWidth/this.canvas.width;
+     tickInk.set(text,{font,widthError:width(ink)*xScale-width(reference),heightError:height(ink)*yScale-height(reference),
+      left:anchor-ink.actualBoundingBoxLeft*xScale,right:anchor+ink.actualBoundingBoxRight*xScale,canvasWidth:this.canvas.clientWidth});
     }
     if (this.canvas.closest('#chart') && /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) /.test(text)) {
      const rect = this.canvas.getBoundingClientRect(), transform = this.getTransform();
@@ -35,9 +45,10 @@ const { start } = require('./market-feed/harness.cjs');
   assert.deepEqual(examples, [[27000,27500],[650,660,670],
    [27459,27459.5,27460,27460.5,27461,27461.5,27462],[660]]);
 
-  for (const [side,price,step,span,dark] of [
-   ['left',27250,.25,1600,false], ['right',660,.01,35,true],
-   ['right',27250,.25,8,true], ['left',660,.01,3,false]
+  for (const [side,price,step,span,dark,last] of [
+   ['left',27250,.25,1600,false,'27,250.00'], ['right',660,.01,35,true,'660.00'],
+   ['right',1234567.25,.25,320,false,'1,234,567.25'], ['left',-39.5,.01,3,true,'-39.50'],
+   ['right',27250,.25,8,true,'27,250.00'], ['left',660,.01,3,false,'660.00']
   ]) {
    const result = await page.evaluate(async ({side,price,step,span,dark}) => {
     const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -50,14 +61,16 @@ const { start } = require('./market-feed/harness.cjs');
     activePriceScale().setVisibleRange({from:price-span/2,to:price+span/2});
     await frame();
     const ticks = axisTickPrices.map(price => [axisPriceText(price), tickInk.get(axisPriceText(price)) || '']);
-    return {ticks,major:majorAxisLabels.map(mark=>mark.text),last:document.getElementById('countdown-price').textContent};
+    return {ticks,major:priceAxisLabels.filter(label=>label.bold).map(mark=>mark.text),last:document.getElementById('countdown-price').textContent};
    },{side,price,step,span,dark});
    assert.ok(result.major.length && result.major.length < result.ticks.length);
-   for (const [text,font] of result.ticks) {
-    assert.ok(font,'tick must be painted: '+text);
-    assert.equal(font.includes('bold'),result.major.includes(text),text);
+   for (const [text,ink] of result.ticks) {
+    assert.ok(ink,'tick must be painted: '+text);
+    assert.equal(ink.font.includes('bold'),result.major.includes(text),text);
+    assert.ok(Math.abs(ink.widthError)<.5 && Math.abs(ink.heightError)<.5,'visible tick size: '+text+' '+JSON.stringify(ink));
+    assert.ok(ink.left>=0 && ink.right<=ink.canvasWidth,'tick fits the axis: '+text);
    }
-   assert.equal(result.last,price===660?'660.00':'27,250.00');
+   assert.equal(result.last,last);
   }
   const positions = await page.evaluate(async () => {
    const t = Date.parse('2026-11-18T19:40:00Z')/1000;
