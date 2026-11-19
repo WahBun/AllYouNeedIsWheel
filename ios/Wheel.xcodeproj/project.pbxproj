@@ -6,6 +6,14 @@
 	objectVersion = 71;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		D00000000000000000000008 /* WheelWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = D00000000000000000000003; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		D00000000000000000000007 /* Embed Watch Content */ = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = "$(CONTENTS_FOLDER_PATH)/Watch"; dstSubfolderSpec = 16; files = (D00000000000000000000008, ); name = "Embed Watch Content"; runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXContainerItemProxy section */
 		B00000000000000000000009 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -14,17 +22,21 @@
 			remoteGlobalIDString = A00000000000000000000005;
 			remoteInfo = Wheel;
 		};
+		D00000000000000000000009 = {isa = PBXContainerItemProxy; containerPortal = A00000000000000000000001; proxyType = 1; remoteGlobalIDString = D00000000000000000000004; remoteInfo = WheelWatch; };
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		A00000000000000000000006 /* Wheel.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = Wheel.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000002 /* WheelTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = WheelTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C00000000000000000000001 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		D00000000000000000000003 /* WheelWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = WheelWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A00000000000000000000004 /* Wheel */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Wheel; sourceTree = "<group>"; };
 		B00000000000000000000001 /* WheelTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = WheelTests; sourceTree = "<group>"; };
+		D00000000000000000000001 /* Watch */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Watch; sourceTree = "<group>"; };
+		D00000000000000000000002 /* WatchShared */ = {isa = PBXFileSystemSynchronizedRootGroup; path = WatchShared; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXGroup section */
@@ -33,6 +45,8 @@
 			children = (
 				C00000000000000000000001 /* Signing.xcconfig */,
 				A00000000000000000000004 /* Wheel */,
+				D00000000000000000000001 /* Watch */,
+				D00000000000000000000002 /* WatchShared */,
 				B00000000000000000000001 /* WheelTests */,
 				A00000000000000000000003 /* Products */,
 			);
@@ -42,6 +56,7 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000006 /* Wheel.app */,
+				D00000000000000000000003 /* WheelWatch.app */,
 				B00000000000000000000002 /* WheelTests.xctest */,
 			);
 			name = Products;
@@ -56,12 +71,15 @@
 			buildPhases = (
 				A00000000000000000000007 /* Sources */,
 				A00000000000000000000008 /* Resources */,
+				D00000000000000000000007 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				D0000000000000000000000A /* WheelWatch */,
 			);
 			fileSystemSynchronizedGroups = (
+				D00000000000000000000002 /* WatchShared */,
 				A00000000000000000000004 /* Wheel */,
 			);
 			name = Wheel;
@@ -88,6 +106,18 @@
 			productReference = B00000000000000000000002 /* WheelTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		D00000000000000000000004 /* WheelWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D0000000000000000000000B;
+			buildPhases = (D00000000000000000000005 /* Sources */, D00000000000000000000006 /* Resources */, );
+			buildRules = ();
+			dependencies = ();
+			fileSystemSynchronizedGroups = (D00000000000000000000001 /* Watch */, D00000000000000000000002 /* WatchShared */, );
+			name = WheelWatch;
+			productName = WheelWatch;
+			productReference = D00000000000000000000003 /* WheelWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -111,6 +141,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				D00000000000000000000004 /* WheelWatch */,
 				B00000000000000000000003 /* WheelTests */,
 				A00000000000000000000005 /* Wheel */,
 			);
@@ -125,6 +156,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D00000000000000000000006 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -142,6 +174,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D00000000000000000000005 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -150,6 +183,7 @@
 			target = A00000000000000000000005 /* Wheel */;
 			targetProxy = B00000000000000000000009 /* PBXContainerItemProxy */;
 		};
+		D0000000000000000000000A /* WheelWatch */ = {isa = PBXTargetDependency; target = D00000000000000000000004; targetProxy = D00000000000000000000009; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -157,6 +191,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				CURRENT_PROJECT_VERSION = 8;
+				MARKETING_VERSION = 1.9.2;
 				ENABLE_TESTABILITY = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LM_SKIP_METADATA_EXTRACTION = YES;
@@ -170,6 +206,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				CURRENT_PROJECT_VERSION = 8;
+				MARKETING_VERSION = 1.9.2;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LM_SKIP_METADATA_EXTRACTION = YES;
 				SDKROOT = iphoneos;
@@ -183,12 +221,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to your private Wheel backend.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				MARKETING_VERSION = 1.9.2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -200,12 +236,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to your private Wheel backend.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				MARKETING_VERSION = 1.9.2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -239,6 +273,48 @@
 			};
 			name = Release;
 		};
+		D0000000000000000000000C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C00000000000000000000001 /* Signing.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Wheel;
+				INFOPLIST_KEY_WKApplication = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "$(PRODUCT_BUNDLE_IDENTIFIER:base)";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(inherited).watchkitapp";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Debug;
+		};
+		D0000000000000000000000D /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C00000000000000000000001 /* Signing.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Wheel;
+				INFOPLIST_KEY_WKApplication = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "$(PRODUCT_BUNDLE_IDENTIFIER:base)";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(inherited).watchkitapp";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -269,6 +345,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
+		D0000000000000000000000B /* WheelWatch */ = {isa = XCConfigurationList; buildConfigurations = (D0000000000000000000000C, D0000000000000000000000D, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 	};
 	rootObject = A00000000000000000000001 /* Project object */;
