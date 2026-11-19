@@ -997,13 +997,36 @@ function checkNativeHistory(){
 }
 chart.timeScale().subscribeVisibleLogicalRangeChange(checkNativeHistory);
 let readoutTime=null,readoutLatest=false;
+const readout=document.getElementById('readout');
+let readoutFitShape=null,readoutFitWidth=0;
+function fitReadout(text){
+ const baseSize=innerWidth>=768?14:11;
+ // Tabular digits have the same advance. Changing their values does not need layout.
+ const shape=baseSize+' '+text.replace(/\d/g,'0');
+ if(shape===readoutFitShape)return;
+ readoutFitShape=shape;
+ let size=baseSize;
+ readout.style.fontSize=size+'px';
+ for(let i=0;text&&i<3;i++){
+  const available=readout.clientWidth,needed=readout.scrollWidth;
+  if(needed<=available||size===8)break;
+  size=Math.max(8,size*available/needed*.98);
+  readout.style.fontSize=size+'px';
+ }
+ readoutFitWidth=readout.clientWidth;
+}
+new ResizeObserver(([entry])=>{
+ if(Math.round(entry.contentRect.width)===readoutFitWidth)return;
+ readoutFitShape=null;
+ fitReadout(readout.textContent);
+}).observe(readout);
 function updateReadout(){
- const selected=(readoutLatest?null:previous.find(b=>b.time===readoutTime))||previous.at(-1);
+ const historical=readoutTime!==null&&!readoutLatest?previous.find(b=>b.time===readoutTime):null;
+ const selected=historical||previous.at(-1);
  const b=projectedCandle&&!projectedCandle.previewOnly&&projectedCandle.base===selected?projectedCandle.drawn:selected;
- const readout=document.getElementById('readout');
- readout.textContent=b?`O ${priceText(b.open)}  H ${priceText(b.high)}  L ${priceText(b.low)}  C ${priceText(b.close)}`:'';
- readout.style.fontSize=innerWidth>=768?'14px':'11px';
- for(let i=0;b&&i<3&&readout.scrollWidth>readout.clientWidth;i++)readout.style.fontSize=Math.max(8,parseFloat(readout.style.fontSize)*readout.clientWidth/readout.scrollWidth*.98)+'px';
+ const text=b?`O ${priceText(b.open)}  H ${priceText(b.high)}  L ${priceText(b.low)}  C ${priceText(b.close)}`:'';
+ if(readout.textContent!==text)readout.textContent=text;
+ fitReadout(text);
 }
 let crosshairAxisY=null;
 function handleReadoutMove(p){
@@ -1426,12 +1449,14 @@ function separatePriceAxisLabels(){
 }
 // Offset labels only: their price lines remain anchored to the true price.
 function separateHoldingLabels(){
- const limit=chart.paneSize().height;
  const anchors=[...holdingBadges.entries()].map(([id,badge])=>({id,badge,y:series.priceToCoordinate(Number(badge.dataset.price))}))
   .filter(row=>row.badge.dataset.price!==''&&row.y!==null).sort((a,b)=>a.y-b.y||a.id.localeCompare(b.id));
+ if(!anchors.length)return;
+ const limit=chart.paneSize().height;
  const fixed=[document.getElementById('countdown'),...Object.values(extremaLabels),...['entry','tp','sl'].map(id=>document.getElementById(id))]
-  .filter(el=>el&&!el.hidden&&getComputedStyle(el).display!=='none'&&getComputedStyle(el).visibility!=='hidden');
- const occupied=fixed.map(el=>el.getBoundingClientRect());
+  .filter(el=>el&&!el.hidden&&getComputedStyle(el).display!=='none'&&getComputedStyle(el).visibility!=='hidden')
+  .map(el=>el.getBoundingClientRect());
+ const occupied=fixed.slice();
  for(let i=0;i<anchors.length;i++){
   const {id,badge,y}=anchors[i],axis=holdingAxisBadges.get(id);
   // Offscreen strike levels must not masquerade as prices at the chart edge.
@@ -1440,7 +1465,7 @@ function separateHoldingLabels(){
   let lower=Math.max(16,i?(anchors[i-1].y+y)/2:16),upper=Math.min(limit-16,i+1<anchors.length?(y+anchors[i+1].y)/2:limit-16);
   // Holding text stays near its anchor; numeric axis labels are arranged
   // separately below, without moving the underlying holding price.
-  for(const el of fixed){const r=el.getBoundingClientRect(),center=r.top+r.height/2;if(center<base)lower=Math.max(lower,center+12);else if(center>base)upper=Math.min(upper,center-12);}
+  for(const r of fixed){const center=r.top+r.height/2;if(center<base)lower=Math.max(lower,center+12);else if(center>base)upper=Math.min(upper,center-12);}
   let placed=false;
   for(let step=0;step<21;step++){
    const target=base+(step?Math.ceil(step/2)*3*(step%2?-1:1):0);
