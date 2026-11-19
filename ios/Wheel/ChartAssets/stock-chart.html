@@ -979,7 +979,7 @@ let projectedCandle=null;
 function restoreTradeCandle(){
  if(projectedCandle){series.update(projectedCandle.base);projectedCandle=null;updateReadout();}
 }
-window.receive=(packet)=>{if(projectedCandle&&(packet.mode!=='delta'||packet.bars?.length||packet.generation!==countdownPacket?.generation))restoreTradeCandle();const tailView=captureTailView(packet);extremaBars=null;if(countdownPacket?.server_time!==packet.server_time){countdownReceived=Number.isFinite(packet.chart_received_at)?packet.chart_received_at*1000:Date.now();}countdownPacket=packet;document.getElementById('chart-header').classList.toggle('option-header',packet.security_type==='OPT');document.getElementById('chart-title').textContent=[chartContractLabel(packet),packet.interval<60?String(packet.interval):packet.interval<1440?(packet.interval/60)+'h':packet.interval===1440?'D':packet.interval===10080?'W':'M',packet.exchange].filter(Boolean).join(' · ');let bars=packet.bars||[];
+function receiveChartBars(packet){if(projectedCandle&&(packet.mode!=='delta'||packet.bars?.length||packet.generation!==countdownPacket?.generation))restoreTradeCandle();const tailView=captureTailView(packet);extremaBars=null;if(countdownPacket?.server_time!==packet.server_time){countdownReceived=Number.isFinite(packet.chart_received_at)?packet.chart_received_at*1000:Date.now();}countdownPacket=packet;document.getElementById('chart-header').classList.toggle('option-header',packet.security_type==='OPT');document.getElementById('chart-title').textContent=[chartContractLabel(packet),packet.interval<60?String(packet.interval):packet.interval<1440?(packet.interval/60)+'h':packet.interval===1440?'D':packet.interval===10080?'W':'M',packet.exchange].filter(Boolean).join(' · ');let bars=packet.bars||[];
  const incomingKey=(packet.con_id||'')+'-'+packet.generation+'-'+packet.interval+'-'+packet.session;
  // A recent snapshot may be shorter than cached/paged history already drawn.
  // Retain that older prefix in the model too, so later history is not counted twice.
@@ -992,7 +992,13 @@ window.receive=(packet)=>{if(projectedCandle&&(packet.mode!=='delta'||packet.bar
   for(const b of bars){series.update(b);if(b.time===previous.at(-1).time)previous[previous.length-1]=b;else previous.push(b);}
   updateReadout();updateATR();updateEMA();if(!sideReady&&!paperConfig.active){inferSide();clampLevels();}updateLines();restoreTailView(tailView);return;
  }
- if(packet.mode==='delta'&&key===incomingKey){const merged=new Map(previous.map(b=>[b.time,b]));for(const b of bars)merged.set(b.time,b);bars=[...merged.values()].sort((a,b)=>a.time-b.time);}const dateAxis=packet.interval>=1440;chart.applyOptions({timeScale:{timeVisible:!dateAxis,tickMarkMaxCharacterLength:dateAxis||packet.interval===480?8:5,tickMarkFormatter:(t,type)=>new Date(t*1000).toLocaleString('en-US',(dateAxis||packet.interval===480&&type<=LightweightCharts.TickMarkType.DayOfMonth)?(type===LightweightCharts.TickMarkType.Year?{timeZone:'America/New_York',year:'numeric'}:{timeZone:'America/New_York',month:'short',day:'numeric'}):{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false})}});const newKey=(packet.con_id||'')+'-'+packet.generation+'-'+packet.interval+'-'+packet.session;if(key!==newKey||!previous.length){for(const overlay of [emaSeries,...extraEMASeries])overlay.setData([]);emaCache=null;mtfCaches.clear();key=newKey;closePriceMenu();priceAdd.hidden=true;readoutTime=null;readoutLatest=false;chart.clearCrosshairPosition();document.getElementById('readout').textContent='';activePriceScale().applyOptions({autoScale:true});series.setData(bars);chart.timeScale().setVisibleLogicalRange({from:bars.length-(displayOptions.nativeCompact?48:56),to:bars.length+4});}else if(bars.length&&bars[0].time<previous[0].time){const range=chart.timeScale().getVisibleLogicalRange();const offset=bars.findIndex(b=>b.time===previous[0].time);series.setData(bars);if(range&&offset>=0)chart.timeScale().setVisibleLogicalRange({from:range.from+offset,to:range.to+offset});}else if(bars.length){const last=previous[previous.length-1].time;const old=new Map(previous.map(b=>[b.time,b]));const revised=bars.some(b=>b.time<last&&JSON.stringify(old.get(b.time))!==JSON.stringify(b));if(revised){const range=chart.timeScale().getVisibleLogicalRange();series.setData(bars);if(range)chart.timeScale().setVisibleLogicalRange(range);}else for(const b of bars)if(b.time>=last)series.update(b);}previous=bars;updateATR();updateEMA();updateReadout();updateExecutionMarks();if(!sideReady&&!paperConfig.active){inferSide();clampLevels();}document.getElementById('empty').textContent=bars.length?'':'No bars for this session';updateLines();restoreTailView(tailView);};
+ if(packet.mode==='delta'&&key===incomingKey){const merged=new Map(previous.map(b=>[b.time,b]));for(const b of bars)merged.set(b.time,b);bars=[...merged.values()].sort((a,b)=>a.time-b.time);}const dateAxis=packet.interval>=1440;chart.applyOptions({timeScale:{timeVisible:!dateAxis,tickMarkMaxCharacterLength:dateAxis||packet.interval===480?8:5,tickMarkFormatter:(t,type)=>new Date(t*1000).toLocaleString('en-US',(dateAxis||packet.interval===480&&type<=LightweightCharts.TickMarkType.DayOfMonth)?(type===LightweightCharts.TickMarkType.Year?{timeZone:'America/New_York',year:'numeric'}:{timeZone:'America/New_York',month:'short',day:'numeric'}):{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false})}});const newKey=(packet.con_id||'')+'-'+packet.generation+'-'+packet.interval+'-'+packet.session;if(key!==newKey||!previous.length){for(const overlay of [emaSeries,...extraEMASeries])overlay.setData([]);emaCache=null;mtfCaches.clear();key=newKey;closePriceMenu();priceAdd.hidden=true;readoutTime=null;readoutLatest=false;chart.clearCrosshairPosition();document.getElementById('readout').textContent='';activePriceScale().applyOptions({autoScale:true});series.setData(bars);chart.timeScale().setVisibleLogicalRange({from:bars.length-(displayOptions.nativeCompact?48:56),to:bars.length+4});}else if(bars.length&&bars[0].time<previous[0].time){const range=chart.timeScale().getVisibleLogicalRange();const offset=bars.findIndex(b=>b.time===previous[0].time);series.setData(bars);if(range&&offset>=0)chart.timeScale().setVisibleLogicalRange({from:range.from+offset,to:range.to+offset});}else if(bars.length){const last=previous[previous.length-1].time;const old=new Map(previous.map(b=>[b.time,b]));const revised=bars.some(b=>b.time<last&&JSON.stringify(old.get(b.time))!==JSON.stringify(b));if(revised){const range=chart.timeScale().getVisibleLogicalRange();series.setData(bars);if(range)chart.timeScale().setVisibleLogicalRange(range);}else for(const b of bars)if(b.time>=last)series.update(b);}previous=bars;updateATR();updateEMA();updateReadout();updateExecutionMarks();if(!sideReady&&!paperConfig.active){inferSide();clampLevels();}document.getElementById('empty').textContent=bars.length?'':'No bars for this session';updateLines();restoreTailView(tailView);}
+window.receive=packet=>{
+ receiveChartBars(packet);
+ // Queue the forming candle on receipt so it can paint with the price ray.
+ if(packet.display_last||projectedCandle)displayedTail(previous.at(-1),packet,displayTime(packet));
+};
+function displayTime(packet){return packet?.server_time+Math.max(0,Date.now()-countdownReceived)/1000;}
 // Native charts prepare a useful history window, then page at the visible left edge.
 let nativeHistoryKey='',nativeHistoryScheduled=false;
 function checkNativeHistory(){
@@ -1326,25 +1332,21 @@ function updateCurrentPriceRay(bar){
 function displayedTail(bar,p,now){
  const live=p?.display_last,price=live?.price;
  if(!bar||!Number.isFinite(price)||!(now<live.expires_at)){restoreTradeCandle();return bar;}
- // An untimed Last cannot start a bar. On the active stock chart, preview
- // its body only after an exchange-timed trade establishes this very bar.
- // Freshness belongs to the display Last (expires_at above); the timestamp
- // of an earlier confirmed trade cannot tell us that the new price is stale.
- const mainChart=window.frameElement?.id==='chart'||(window.parent===window&&displayOptions.nativeCompact===true);
- const previewOnly=live.ray_only===true&&mainChart&&p.security_type==='STK'&&
-  p.interval>0&&p.interval<=60&&Number.isFinite(p.last_tick)&&p.last_tick>=bar.time&&
-  p.last_tick<=live.time&&live.time<=now;
- if((!live.ray_only||previewOnly)&&bar.time<=live.time&&now<p.bar_closes_at){
-  if(projectedCandle?.base!==bar||projectedCandle.drawn.close!==price){
-   // Never accumulate unconfirmed stock prints as wicks.
-   const prior=!previewOnly&&projectedCandle?.base===bar?projectedCandle.drawn:bar;
+ // An arrival-timed Last can preview an existing candle only after a confirmed
+ // trade establishes that candle. Use the same evidence in every chart.
+ const previewOnly=live.ray_only===true;
+ const confirmedInBar=Number.isFinite(p.last_tick)&&bar.time<=p.last_tick&&p.last_tick<=live.time&&live.time<=now;
+ if((!previewOnly||confirmedInBar)&&bar.time<=live.time&&now<p.bar_closes_at){
+  if(projectedCandle?.base!==bar||projectedCandle.drawn.close!==price||projectedCandle.previewOnly!==previewOnly){
+   // Arrival-timed previews never accumulate as wicks, even when a timed update follows.
+   const prior=!previewOnly&&projectedCandle?.base===bar&&!projectedCandle.previewOnly?projectedCandle.drawn:bar;
    const drawn={...bar,high:Math.max(prior.high,price),low:Math.min(prior.low,price),close:price};
    series.update(drawn);projectedCandle={base:bar,drawn,previewOnly};updateReadout();
   }
  }else restoreTradeCandle();
  return {...bar,close:price};
 }
-function updateCountdown(){updateOptionQuote();const el=document.getElementById('countdown'),bar=displayedTail(previous.at(-1),countdownPacket,countdownPacket?.server_time+Math.max(0,Date.now()-countdownReceived)/1000);updateCurrentPriceRay(bar);el.hidden=!bar;if(!bar)return;const down=bar.close<bar.open;el.style.background=down?series.options().downColor:'#e0e0e0';el.style.color=down?'#f4f5f3':'#242424';const y=series.priceToCoordinate(bar.close);el.hidden=y===null||y<0||y>chart.paneSize().height;if(el.hidden)return;el.style.top=(y-9)+'px';el.style.width=axisBadgeWidth()+'px';document.getElementById('countdown-price').textContent=groupedPriceText(bar.close);const p=countdownPacket,elapsed=Math.max(0,(Date.now()-countdownReceived)/1000),left=p?.bar_closes_at-(p?.server_time+elapsed),timer=document.getElementById('countdown-time');timer.hidden=!(Number.isFinite(left)&&left>0);timer.textContent=timer.hidden?'':formatCountdown(Math.ceil(left));
+function updateCountdown(){updateOptionQuote();const el=document.getElementById('countdown'),bar=displayedTail(previous.at(-1),countdownPacket,displayTime(countdownPacket));updateCurrentPriceRay(bar);el.hidden=!bar;if(!bar)return;const down=bar.close<bar.open;el.style.background=down?series.options().downColor:'#e0e0e0';el.style.color=down?'#f4f5f3':'#242424';const y=series.priceToCoordinate(bar.close);el.hidden=y===null||y<0||y>chart.paneSize().height;if(el.hidden)return;el.style.top=(y-9)+'px';el.style.width=axisBadgeWidth()+'px';document.getElementById('countdown-price').textContent=groupedPriceText(bar.close);const p=countdownPacket,elapsed=Math.max(0,(Date.now()-countdownReceived)/1000),left=p?.bar_closes_at-(p?.server_time+elapsed),timer=document.getElementById('countdown-time');timer.hidden=!(Number.isFinite(left)&&left>0);timer.textContent=timer.hidden?'':formatCountdown(Math.ceil(left));
 }
 function formatCountdown(s){const days=Math.floor(s/86400);const hours=Math.floor(s%86400/3600);const mins=Math.floor(s%3600/60);const secs=s%60;return days?days+'d '+hours+'h':hours?hours+':'+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0'):String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0');}
 // WebKit suspends animation frames in the background. Reconcile immediately on
@@ -1563,9 +1565,6 @@ window.applyChartState=state=>{
  if(state.config?.display?.nativeCompact)currentPriceRay.style.display=state.config.display.showPriceLine===false?'none':'';
  if(state.packet&&Object.keys(state.packet).length){
   const packet=state.packet;window.receive(packet);
-  if(displayOptions.nativeCompact&&(projectedCandle?.previewOnly||(packet.display_last?.ray_only&&packet.security_type==='STK'))){
-   displayedTail(previous.at(-1),packet,packet.server_time+Math.max(0,Date.now()-countdownReceived)/1000);
-  }
   checkNativeHistory();nativeVolatilityPacket={...nativeVolatilityPacket,...packet};
  }
  if(window.configureVolatility&&state.config?.display){const d=state.config.display;window.configureVolatility({...nativeVolatilityPacket,bars:previous},d.volatilityData,d.volatility||{});}
