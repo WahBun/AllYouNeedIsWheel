@@ -16,6 +16,31 @@ const {chromium}=require('playwright'),fs=require('fs'),path=require('path'),ass
  const title=await page.locator('#chart-title').boundingBox(),readout=await page.locator('#readout').boundingBox();
  if(width>=768){assert.ok(Math.abs(title.y-readout.y)<5);assert.equal(await page.locator('#readout').evaluate(e=>getComputedStyle(e).fontSize),'14px');}
  else assert.ok(readout.y>=title.y+title.height);
+ if(width>=768){
+  const hover=await page.evaluate(()=>{
+   const el=document.getElementById('readout');
+   const scrollWidth=Object.getOwnPropertyDescriptor(Element.prototype,'scrollWidth').get;
+   let measurements=0;
+   Object.defineProperty(el,'scrollWidth',{configurable:true,get(){measurements++;return scrollWidth.call(this);}});
+   try{
+    const bar=previous[0];
+    receive({con_id:1,generation:1,interval:5,session:'all',mode:'delta',bars:[{...bar,time:bar.time+300,close:31072.50}]});
+    measurements=0;
+    const closes=[];
+    for(const b of previous){
+     handleReadoutMove({point:{x:100,y:100},seriesData:new Map([[series,b]])});
+     closes.push(el.textContent.split('C ')[1]);
+    }
+    return {closes,measurements};
+   }finally{delete el.scrollWidth;}
+  });
+  assert.deepEqual(hover,{closes:['31069.75','31072.50'],measurements:0},'same-width prices update without fitting the font on pointer movement');
+  const label=page.locator('#readout');
+  await label.evaluate(el=>{el.style.flex='none';el.style.width='200px';});
+  await page.waitForFunction(()=>{const el=document.getElementById('readout');return parseFloat(el.style.fontSize)<14&&el.scrollWidth<=el.clientWidth+1;});
+  await label.evaluate(el=>{el.style.width='450px';});
+  await page.waitForFunction(()=>document.getElementById('readout').style.fontSize==='14px');
+ }
  await page.screenshot({path:`/tmp/wheel-header-${width}.png`});await page.close();
  }console.log('Header: desktop single line, mobile two lines, stable indicator position and latest OHLC passed');
 }finally{await browser.close();}})();
