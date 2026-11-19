@@ -164,6 +164,7 @@ function volatilityContext(){return JSON.stringify([epoch,cid,generation,WheelVo
 function syncVolatility(){const status=volatilityKey===volatilityContext()?volatilityData?.status:null;if(status&&status!==volatilityDiagnostic){volatilityDiagnostic=status;if(status==='unavailable')trace('Volatility index unavailable; awaiting a later refresh');else if(status==='ready')trace('Volatility index ready');}const o=window.WheelMoonshineRules?.overlay(display.volatility)||{...display.volatility};if(interval>60||!display.indicatorVisible||!WheelChartSettings.visibleOnTimeframe(display,interval)){o.channels=false;o.gauge=false;}frame.contentWindow.configureVolatility?.(packet,volatilityKey===volatilityContext()?volatilityData:null,o);}
 async function refreshVolatility({sync=true}={}){if(chartLayout.loading())return;if(sync)syncVolatility();const family=WheelVolatility.family(packet);if(!family||!packet.bars?.length||interval>60||!display.indicatorVisible||!WheelChartSettings.visibleOnTimeframe(display,interval)||!display.volatility.channels||document.hidden||Date.now()<marketPriorityUntil||volatilityBusy||!epoch)return;const key=volatilityContext();if(key===volatilityKey&&Date.now()-volatilityLast<(volatilityData?.status==='waiting'?1000:10000))return;volatilityBusy=true;volatilityLast=Date.now();if(volatilityKey!==key)volatilityData=null;volatilityKey=key;try{const value=await api(`portfolio/chart-volatility/${cid}?source=${encodeURIComponent(display.volatility[family])}`);if(key!==volatilityContext())return;volatilityData=value;syncVolatility();}catch{if(key===volatilityContext()){volatilityData={...volatilityData,status:'unavailable'};syncVolatility();}}finally{volatilityBusy=false;}}
 const chartLayout=window.installChartLayout({frame,api,onReady:()=>sync(),onPlusButtonChange:enabled=>saveDisplay({...display,plusButton:enabled}),
+ isKnownOption:id=>positions.some(p=>p.con_id===id&&p.security_type==='OPT')||contractFavorites.some(f=>f.id===id&&f.type==='OPT'),
  hasWorkingOrder:()=>profile.verified&&state.active&&state.known===true&&!state.sync_error&&state.order_ref&&
   Date.now()-received<15000&&state.orders?.some(o=>(o.order_id>0||o.perm_id>0)&&
    ['Submitted','PreSubmitted'].includes(o.status)&&Number.isFinite(o.filled)&&o.quantity>o.filled),
@@ -486,12 +487,12 @@ async function refreshMarket({full=false}={}){
  const request=marketBusy=new AbortController();lastFallback=Date.now();const context=marketContext(),revision=marketRevision;
  const timeout=setTimeout(()=>request.abort(),12000);
  try{
-  if(!packet.bars?.length){await refreshLegacyMarket(context);return;}
+  if(!packet.bars?.length&&!WheelChartStream.optionSession(packet)){await refreshLegacyMarket(context);return;}
   if(streamSupported()){
    try{
     const generation=!full&&packet.generation&&packetReceived>Date.now()-5000?`&generation=${encodeURIComponent(packet.latest_cursor||packet.generation)}`:'';
     const bars=await api(`portfolio/stock-chart-latest/${context.cid}?interval=${context.interval}&session=${context.session}${context.epoch?'&epoch='+encodeURIComponent(context.epoch):''}${generation}`,undefined,AbortSignal.any([request.signal,AbortSignal.timeout(800)]));
-    if(!Array.isArray(bars.bars)||!bars.bars.length||!Number.isFinite(bars.server_time))throw Error('Latest quote packet unavailable');
+    if(!Array.isArray(bars.bars)||(!bars.bars.length&&!WheelChartStream.optionSession(bars))||!Number.isFinite(bars.server_time))throw Error('Latest quote packet unavailable');
     if(marketBusy===request&&currentMarket(context)&&(full||!marketStream.healthy()))applyMarket(bars);
     return;
    }catch(error){if(request.signal.aborted)throw error;if(!marketStream.healthy())refreshLegacyMarket(context);return;}

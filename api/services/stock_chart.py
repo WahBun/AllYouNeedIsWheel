@@ -451,19 +451,22 @@ class StockChart:
                 if any(term in lowered for term in ('no market data permission', 'not subscribed', 'subscription required')):
                     permission_errors.append(str(message))
             pending_seed = None
+            option_intraday = background and option_bars and minutes <= 60
             if background:
                 try:
                     historical, permission_errors, other_history_errors, history_elapsed, history_requested = self.initial_history.read(conn, contract)
                 except ChartHistoryPending as pending:
-                    if not (minutes <= 60 and cme_regular(contract) and isinstance(conn.ib.wrapper, Wrapper)):
+                    if not (option_intraday or (minutes <= 60 and cme_regular(contract) and isinstance(conn.ib.wrapper, Wrapper))):
                         raise
                     # Even when both initial history slots are occupied, this
                     # contract can receive trades and restore its closed minutes.
                     pending_seed = pending
                     historical, history_elapsed, history_requested = [], 0, time.time()
                 except HistoryDeferred:
-                    self.next_request[con_id] = time.monotonic() + 15
-                    raise
+                    if not option_intraday:
+                        self.next_request[con_id] = time.monotonic() + 15
+                        raise
+                    historical, history_elapsed, history_requested = [], 0, time.time()
                 except ValueError as error:
                     self.next_request[con_id] = time.monotonic() + (15 if option_bars else 60)
                     self.request_errors[con_id] = str(error)
@@ -490,7 +493,8 @@ class StockChart:
             timed_trades = isinstance(conn.ib.wrapper, Wrapper) and (
                 (contract.secType == 'STK' and contract.currency == 'USD') or cme_regular(contract))
             live_only = not bars and (pending_seed is not None or history_timed_out) and not permission_errors and timed_trades
-            if not bars and not live_only:
+            option_without_history = option_intraday and not bars
+            if not bars and not live_only and not option_without_history:
                 # Failed history must not monopolize the serialized account/order lane.
                 # Transient history timeouts should not impose a full minute
                 # of blank chart. Keep the existing 15-second pacing floor,
@@ -502,9 +506,14 @@ class StockChart:
                 raise ValueError(self.request_errors[con_id])
             self.next_request[con_id] = time.monotonic() + 15
             if option_bars:
+                if option_without_history:
+                    if getattr(historical, 'reqId', None) is not None:
+                        conn.ib.cancelHistoricalData(historical)
+                    historical = None
                 try: ticker=conn.get_market_ticker(contract)
                 except Exception:
-                    conn.ib.cancelHistoricalData(historical)
+                    if historical is not None:
+                        conn.ib.cancelHistoricalData(historical)
                     raise
             else:
                 ticker = conn.ib.reqTickByTickData(contract, 'Last', 0, False)
@@ -632,13 +641,13 @@ class StockChart:
                         state['timed_trades'].last_primary if state.get('timed_trades') else state['last_tick'], dict(state['quotes']))
                 state['permission_handler'] = on_permission_error
                 conn.ib.errorEvent += on_permission_error
-            if pending_seed is not None:
+            if pending_seed is not None and not option_bars:
                 # Keep optional 8h work behind the visible chart's first seed.
                 def preload_after_history(task):
                     if not task.cancelled() and self.states.get(con_id) is state and not state.get('history_permission_denied'):
                         self.eight_history.schedule_preload(state)
                 state['recovery_task'].add_done_callback(preload_after_history)
-            elif minutes != 480:
+            elif minutes != 480 and not option_without_history:
                 self.eight_history.schedule_preload(state)
             if option_bars:
                 def on_history(updated, has_new_bar):
@@ -661,9 +670,11 @@ class StockChart:
                     for listener in tuple(self.listeners): listener(state)
                     self.observe_option_trade(state, point)
                 from api.services.chart_option_history import attach_option_history
-                attach_option_history(self, state, historical, on_history)
+                if option_without_history and permission_errors:
+                    state['history_permission_denied'] = True
+                attach_option_history(self, state, historical, on_history, pending=pending_seed, requested_at=history_requested)
             asyncio.get_event_loop().call_later(30, self.expire, state)
-        if not (defer_history and (minutes >= 1440 or (minutes == 480 and session == 'rth'))) and not initial and not state.get('backfilled') and not state.get('recovery_task') and not state.get('history_permission_denied') and time.monotonic() >= state.get('backfill_retry', 0):
+        if not (defer_history and (minutes >= 1440 or (minutes == 480 and session == 'rth'))) and not initial and not state.get('backfilled') and not state.get('recovery_task') and not state.get('option_history_recovery') and not state.get('history_permission_denied') and time.monotonic() >= state.get('backfill_retry', 0):
             state['backfill_retry'] = time.monotonic() + 30
             history_requested = time.time()
             try:
@@ -839,6 +850,8 @@ class StockChart:
         message = 'Live market data permission unavailable; verify this contract entitlement in Gateway' if permission_errors else None
         if message is None and state.get('history_permission_denied'):
             message = 'Historical market data permission unavailable for this contract'
+        if message is None and state.get('option_history_recovery') and not state['bars']:
+            message = 'Waiting for IB option trades'
         output_bars = higher_bars
         if output_bars is None:
             bars = state['bars']

@@ -287,6 +287,73 @@ class StockChartTests(unittest.TestCase):
         finally:
             feed.stop(); close_test_loop()
 
+    def test_option_four_intervals_share_pending_history_and_never_trade_from_cached_prices(self):
+        from ib_async.objects import BarDataList
+        from unittest.mock import patch
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        feed = StockChart()
+        conn, ticker = self.connection()
+        contract = conn.get_option_position_by_con_id.return_value['contract']
+        contract.secType, contract.exchange, contract.right = 'OPT', 'SMART', 'P'
+        contract.strike, contract.lastTradeDateOrContractMonth = 60, '20261120'
+        conn.get_market_ticker.return_value = ticker
+        ticker.marketDataType, ticker.bid, ticker.ask = 1, 2.02, 2.04
+        waiting = loop.create_future()
+        async def read(*args, **kwargs):
+            return await waiting
+        conn.ib.reqHistoricalDataAsync = AsyncMock(side_effect=read)
+        alert = Mock()
+        feed.option_trade_listeners.add(alert)
+        def snapshot(minutes):
+            return feed.snapshot(conn, 7, minutes, 'all', fast=True, defer_history=True, background=True)
+
+        now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        saved_time = int((now - timedelta(minutes=10)).timestamp())
+        saved = dict(time=saved_time, open=2, high=2.2, low=1.9, close=2.1)
+        history = BarDataList([S(date=now, open=2.05, high=2.1, low=2.03, close=2.08)])
+        history.reqId = 51
+        try:
+            with patch('api.services.chart_contracts.contracts.resolve', return_value=contract), \
+                 patch('api.services.chart_option_history.option_minutes') as cache:
+                cache.key.return_value = 'fixture'
+                cache.load.return_value = {'bars': [saved]}
+                first = snapshot(5)
+                self.assertEqual((first['security_type'], first['bars']), ('OPT', []))
+                self.assertEqual(first['option_display_quote'], {'bid': 2.02, 'ask': 2.04})
+                self.assertIsNone(first['quote_time'])
+                state = feed.states[7]
+                for minutes in (1, 15, 60):
+                    self.assertEqual(snapshot(minutes)['generation'], first['generation'])
+                owner = state['option_history_recovery']
+
+                async def restore_saved():
+                    while not state['bars']:
+                        await asyncio.sleep(.001)
+                loop.run_until_complete(asyncio.wait_for(restore_saved(), 2))
+                self.assertEqual(state['bars'], [saved])
+                self.assertIsNone(snapshot(5)['bid'])
+                ticker.ticks = [S(tickType=k, time=datetime.now(timezone.utc), price=v)
+                                for k, v in [(1, 2.02), (2, 2.04)]]
+                ticker.updateEvent.emit(ticker)
+                self.assertEqual((snapshot(5)['bid'], snapshot(5)['ask']), (2.02, 2.04))
+                self.assertEqual(state['bars'], [saved])
+                waiting.set_result(history)
+                loop.run_until_complete(asyncio.wait_for(owner, 2))
+                self.assertIs(state['minute_history'], history)
+                self.assertEqual([row['close'] for row in state['bars']], [2.1, 2.08])
+                self.assertIsNone(state['last_tick'])
+                self.assertEqual(state['ticks'], 0)
+                alert.assert_not_called()
+                conn.get_market_ticker.assert_called_once_with(contract)
+                conn.ib.reqHistoricalDataAsync.assert_awaited_once()
+                conn.ib.placeOrder.assert_not_called()
+                cache.remember.assert_called_once()
+        finally:
+            feed.stop()
+            close_test_loop()
+
     def test_option_empty_history_retries_after_pacing_not_one_minute(self):
         from unittest.mock import patch
         conn,_=self.connection(); feed=StockChart()

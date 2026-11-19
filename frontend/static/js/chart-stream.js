@@ -38,9 +38,10 @@ class WheelChartSource {
 globalThis.WheelChartSource=WheelChartSource;
 /* Read-only SSE lifecycle; no trading requests or write retries. */
 class WheelChartStream {
+ static optionSession(packet){return packet.security_type==='OPT' && !!packet.generation && Array.isArray(packet.bars);}
  static canOpen(packet){
   // An attached CME ticker can deliver its first candle while history is pending.
-  return packet.bars?.length>0 || (packet.security_type==='FUT' && packet.historical===false && !!packet.generation);
+  return packet.bars?.length>0 || WheelChartStream.optionSession(packet) || (packet.security_type==='FUT' && packet.historical===false && !!packet.generation);
  }
  static supports({interval,session}){return [1,3,5,10,15,60,480].includes(interval)&&!(interval===480&&session==='rth');}
  constructor({receive,status,EventSource:Source=globalThis.EventSource?WheelChartSource:null,now=Date.now,random=Math.random}) {
