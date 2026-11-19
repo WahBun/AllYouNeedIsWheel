@@ -34,7 +34,7 @@ class WheelPaneBuffer {
 }
 globalThis.WheelPaneBuffer=WheelPaneBuffer;
 /* Auxiliary panes are read-only chart renderers. Only the existing main host trades. */
-window.installChartLayout=({frame,api,current,activate,holdings,executions,hasWorkingOrder=()=>false,onReady=()=>{},onPlusButtonChange=()=>{},onHoldingChart=()=>{}})=>{
+window.installChartLayout=({frame,api,current,activate,holdings,executions,isKnownOption=()=>false,hasWorkingOrder=()=>false,onReady=()=>{},onPlusButtonChange=()=>{},onHoldingChart=()=>{}})=>{
  const saved=(()=>{try{return JSON.parse(localStorage.getItem('wheel.chart-layout')||'{}')||{}}catch{return {}}})();
  let count=[1,2,3,4].includes(saved.count)?saved.count:1,active=0,started=false;
  if(Number.isInteger(saved.active)&&saved.active>=0&&saved.active<count)active=saved.active;
@@ -110,7 +110,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,hasWo
  function loading(){return transition!==null;}
  function beginSwitch(){expansionController?.abort();historyQuietUntil=Date.now()+2000;transition={started:Date.now(),revealing:false};cover.hidden=false;grid.setAttribute('aria-busy','true');checkSwitch();}
  function matching(packet,context){
-  return !!packet?.bars?.length&&packet.con_id===context.cid&&packet.interval===context.interval&&
+  return !!packet&&(packet.bars?.length>0||WheelChartStream.optionSession(packet))&&packet.con_id===context.cid&&packet.interval===context.interval&&
    packet.session===context.session&&packet.account_epoch===context.epoch;
  }
  function readyPaneCount(root){
@@ -119,7 +119,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,hasWo
  }
  function readyToReveal(root,complete=readyPaneCount(root)){
   if(!root.epoch||!panes.get(active)?.loaded||!matching(root.packet,root))return false;
-  return complete===count||root.tradingLocked===false||hasWorkingOrder();
+  return WheelChartStream.optionSession(root.packet)||complete===count||root.tradingLocked===false||hasWorkingOrder();
  }
  function checkSwitch(){
   const t=transition;if(!t)return;const root=current(),complete=readyPaneCount(root);
@@ -148,7 +148,7 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,hasWo
   if(c.epoch&&[1,3,5,10,15,60,480].includes(c.interval)&&!(c.interval===480&&c.session==='rth')){
    try{
     const p=await api(`portfolio/stock-chart-latest/${c.cid}?interval=${c.interval}&session=${c.session}&epoch=${encodeURIComponent(c.epoch)}`,undefined,AbortSignal.any([signal,AbortSignal.timeout(800)]));
-    if(p.con_id===c.cid&&p.interval===c.interval&&p.session===c.session&&p.account_epoch===c.epoch&&p.bars?.length&&Number.isFinite(p.server_time))return p;
+    if(p.con_id===c.cid&&p.interval===c.interval&&p.session===c.session&&p.account_epoch===c.epoch&&(p.bars?.length||WheelChartStream.optionSession(p))&&Number.isFinite(p.server_time))return p;
    }catch(error){if(signal.aborted)throw error;}
   }
   return null;
@@ -283,7 +283,12 @@ window.installChartLayout=({frame,api,current,activate,holdings,executions,hasWo
    this.frame.contentWindow.configurePriceAxis?.(c.axis);this.frame.contentWindow.configure({con_id:c.cid,entry:0,quantity:0,paper:{enabled:false,web_account_epoch:root.epoch},holdings:holdings(c.cid,this.data),executions:c.cid===root.cid?executions():[],dark:root.dark,display:{...display,tradingLocked:root.tradingLocked===true},priceRules:this.data.price_rules||[]});const o={...display.volatility};if(!display.indicatorVisible){o.channels=false;o.gauge=false;}this.frame.contentWindow.configureVolatility?.(this.data,this.volatility,o);
   }
   async tick(){if(!started||this.dead||!this.loaded||this.index===active)return;const c=this.context();if(!c.cid)return;const key=JSON.stringify(c);if(key!==this.key){const old=this.key?JSON.parse(this.key):null;const accountOnly=old&&old.cid===c.cid&&old.interval===c.interval&&old.session===c.session;this.key=key;this.seq++;this.controller?.abort();this.historyController?.abort();this.expansionAbort?.abort();this.expanding=false;this.inflight=false;this.buffer.clear();this.data={};this.ema={};this.volatility=null;this.lastRead=0;this.lastExtras=0;this.historyBusy=false;this.historyRetry=0;this.detailHistoryRequested=false;this.stream.stop();if(accountOnly)this.frame.contentWindow.prepareAccountChart?.();else this.frame.contentWindow.receive({bars:[],generation:'clear',con_id:c.cid,interval:c.interval,session:c.session});this.drawingKey=`web:${location.origin}:${c.cid}`;let value={};try{value=JSON.parse(localStorage.getItem('wheel.drawings:'+c.cid)||'{}')}catch{}this.frame.contentWindow.configureDrawings({key:this.drawingKey,value});}
-   this.render();if(!c.epoch)return;if((c.interval>=1440||(c.interval===480&&c.session==='rth'))&&this.data.bars?.length&&(!this.data.history_expanded||this.data.history_refresh_due)&&!this.expanding){this.expanding=true;const seq=this.seq;this.expansionAbort=new AbortController();void expandHistory(c,this.expansionAbort.signal).then(p=>{if(p&&!this.dead&&seq===this.seq&&(!Number.isFinite(this.data.server_time)||p.server_time>=this.data.server_time))this.receive(p);}).catch(()=>{}).finally(()=>{if(seq===this.seq)this.expanding=false;});}if(c.interval===15&&!(this.data.security_type==='FUT'&&c.session==='rth')&&this.data.bars?.length&&this.data.bars.at(-1).time-this.data.bars[0].time<7*86400)void this.loadHistory(this.data.bars[0].time);if(WheelChartStream.canOpen(this.data))this.stream.ensure(c);
+   this.render();if(!c.epoch)return;
+   if(loading()){
+    const root=current();
+    if(c.cid===root.cid&&!matching(root.packet,root)&&isKnownOption(c.cid))return;
+   }
+   if((c.interval>=1440||(c.interval===480&&c.session==='rth'))&&this.data.bars?.length&&(!this.data.history_expanded||this.data.history_refresh_due)&&!this.expanding){this.expanding=true;const seq=this.seq;this.expansionAbort=new AbortController();void expandHistory(c,this.expansionAbort.signal).then(p=>{if(p&&!this.dead&&seq===this.seq&&(!Number.isFinite(this.data.server_time)||p.server_time>=this.data.server_time))this.receive(p);}).catch(()=>{}).finally(()=>{if(seq===this.seq)this.expanding=false;});}if(c.interval===15&&!(this.data.security_type==='FUT'&&c.session==='rth')&&this.data.bars?.length&&this.data.bars.at(-1).time-this.data.bars[0].time<7*86400)void this.loadHistory(this.data.bars[0].time);if(WheelChartStream.canOpen(this.data))this.stream.ensure(c);
    if(!this.inflight&&!this.stream.healthy()&&Date.now()-this.lastRead>5000){this.inflight=true;this.lastRead=Date.now();const seq=this.seq;this.controller=new AbortController();try{const p=await readInitial(c,this.controller.signal);if(!this.dead&&seq===this.seq)this.receive(p);}catch{}finally{if(seq===this.seq)this.inflight=false;}}
    if(!document.hidden&&!loading()&&this.data.bars?.length&&!this.extraBusy&&Date.now()-this.lastExtras>10000){this.extraBusy=true;this.lastExtras=Date.now();const seq=this.seq,display=configs[this.index].display;try{const frames=WheelChartSettings.requested(display,c.interval,c.session),family=WheelVolatility.family(this.data);
     // Apply each ready indicator without waiting for the other request.
