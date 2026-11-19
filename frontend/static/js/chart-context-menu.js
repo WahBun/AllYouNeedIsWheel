@@ -145,7 +145,17 @@
   return html2canvas(document.body,{backgroundColor:getComputedStyle(document.body).backgroundColor,scale:devicePixelRatio,logging:false,width:innerWidth,height:innerHeight,onclone:doc=>{for(const layer of layers){const target=doc.getElementById(layer.id);if(!target)continue;const img=doc.createElement("img");img.src=layer.url;img.style.cssText=`position:absolute;left:${layer.x}px;top:${layer.y}px;width:${layer.w}px;height:${layer.h}px;z-index:${layer.z};pointer-events:none`;target.replaceWith(img);}},ignoreElements:el=>['chart-copy-toast','validation','desktop-chart-menu','draw-toolbar','draw-menu','draw-properties','draw-editor','price-order-menu','price-add','draw-hint','latest-bar','quantity-popup','price-axis-settings'].includes(el.id)});
  };
 
- const atrStyle=document.createElement('style');atrStyle.textContent='#atr-value:not([data-option="true"]){bottom:32px!important}@media(max-width:600px){#atr-value:not([data-option="true"]){bottom:36px!important}}';document.head.append(atrStyle);
+ const frameStyle=document.createElement('style');
+ frameStyle.textContent=`
+  /* The candle plot sits between the price scales, above the time scale.
+     Set the inherited cursor here so order handles and drawing tools take priority. */
+  @media (any-hover: hover) and (any-pointer: fine) {
+   #chart .tv-lightweight-charts tr:first-child > td:nth-child(2) { cursor: crosshair; }
+  }
+  #atr-value:not([data-option="true"]){bottom:32px!important}
+  @media(max-width:600px){#atr-value:not([data-option="true"]){bottom:36px!important}}
+ `;
+ document.head.append(frameStyle);
  let copying=false;
  window.copyChartImage=async()=>{
   if(copying)return;close();closePriceMenu();
