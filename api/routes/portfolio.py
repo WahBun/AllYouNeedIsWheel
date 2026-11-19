@@ -353,3 +353,28 @@ def get_chart_volatility(con_id):
         return _no_store_json(snapshot(portfolio_service._ensure_connection(),con_id,request.args.get('source'),rules))
     except Exception:
         return _no_store_json({'error':'Volatility index history unavailable'},503)
+
+
+@bp.get('/watch')
+def watch_snapshot():
+    """Read the account already selected and verified on the paired phone."""
+    from api.routes.account import epoch
+    from api.services.watch_quotes import holding_page, watch_quotes
+    import time
+
+    mode, token = request.args.get('mode'), request.args.get('epoch')
+    section, page = request.args.get('section'), request.args.get('page', 0, type=int)
+    if mode not in ('live', 'paper') or section not in ('quotes', 'holdings') or page is None or page < 0:
+        return _no_store_json({'error': 'Invalid watch request'}, 400)
+    conn = portfolio_service.connection
+    if not token or token != epoch() or not conn or not conn.is_connected():
+        return _no_store_json({'error': 'Verify account on iPhone'}, 409)
+    identity = portfolio_service.connection_status(conn)
+    if identity['mode'] != mode or conn.account_id != portfolio_service.config.get('account_id'):
+        return _no_store_json({'error': 'Account changed'}, 409)
+    payload = dict(mode=mode, epoch=token, sampledAt=time.time(), positions=[], quotes=[], total=0)
+    if section == 'holdings':
+        payload['positions'], payload['total'] = holding_page(conn.ib, conn.account_id, page)
+    else:
+        payload['quotes'] = watch_quotes.read(conn, token)
+    return _no_store_json(payload)

@@ -267,3 +267,10 @@ constitute live-order validation or a long-duration phone battery measurement.
 网页和 WKWebView 共同加载 `ChartAssets/chart-add-orders.js`，挂单加仓、取消和订单身份校验共用同一实现。原生加仓数量可直接输入，不再限制合计持仓；减仓仍需保留持仓。保留动态翻译键，清理无引用的旧翻译，并使用百分比 FormatStyle。项目没有 App Intents，关闭该项元数据提取，不关闭编译警告。
 
 验证：后端 460 项、iOS 模拟器 121 项通过；移动触控加仓、20 手数量、取消、旧订单引用、明暗主题，以及网页提交/修改/撤销、OVT 500 股与未知请求恢复交互通过。干净模拟器构建及真机构建没有编译警告。以上订单测试使用模拟数据，不代表 IB 成交验收。
+
+## Apple Watch companion
+
+Wheel includes a read-only companion for watchOS 11 or later. Install the matching Wheel backend and iPhone build, then open Wheel on iPhone and select the account. With the paired iPhone nearby, open Wheel on the watch. The iPhone uses its usual private connection to the backend.
+
+- **Quotes** shows QQQ, SPY, MES and MNQ. Futures use the nearest listed CME contract expiring after the current New York date. Each row shows the contract, sample time and whether IB supplied a last trade, previous close, frozen or delayed quote. A dash means a price is unavailable.
+- **Holdings** shows the selected account’s positions, quantities and available broker marks in the contract currency. The title identifies Demo, Paper or Live. The watch follows the iPhone palette and uses the same signature lettering for core holdings such as QQQ and SPY. When the iPhone is unreachable, previously displayed values retain their timestamps.
