@@ -174,9 +174,17 @@
   arrow.onclick=()=>{if(b.disabled)return;const show=options.hidden;for(const el of menu.querySelectorAll('[data-quantity-presets]'))el.hidden=true;for(const el of menu.querySelectorAll('[data-quantity-expand]'))el.setAttribute('aria-expanded','false');options.hidden=!show;arrow.setAttribute('aria-expanded',String(show));menu.style.top=Math.max(6,Math.min(parseFloat(menu.style.top)||6,innerHeight-menu.offsetHeight-6))+'px';};
   row.append(arrow);row.after(options);return b;
  }
- function openChartMenu(event,forceAxis=false){
+ function axisCheckbox(label,checked,toggle){
+  const row=item(label,()=>toggle(!checked));
+  row.setAttribute('role','menuitemcheckbox');row.setAttribute('aria-checked',String(checked));
+  if(checked){const check=document.createElement('span');check.textContent='✓';check.setAttribute('aria-hidden','true');check.style.cssText='position:absolute;left:7px;top:50%;transform:translateY(-50%);width:18px;text-align:center';row.prepend(check);}
+ }
+ // The renderer owns the ray's geometry and off-screen visibility. The menu
+ // controls only its display, independently of candles and the price badge.
+ window.setPriceLineVisible=visible=>{currentPriceRay.style.display=visible?'':'none';};
+ function openChartMenu(event,fromAxisButton=false){
   if(event.target.closest('input,textarea,button,#draw-toolbar,#draw-menu,#draw-properties,#price-order-menu'))return;
-  const size=chart.paneSize();if(event.clientY>size.height)return;const onAxis=forceAxis||event.clientX<plotLeft()||event.clientX>=plotRight();
+  const size=chart.paneSize();if(event.clientY>size.height)return;const onAxis=fromAxisButton||event.clientX<plotLeft()||event.clientX>=plotRight();
   event.preventDefault();event.stopPropagation();closePriceMenu();hideExecutionPopup();
   const price=snapPrice(series.coordinateToPrice(event.clientY)),contract=paperCID;
   menu.replaceChildren();menu.style.background=document.body.dataset.dark==='true'?'#202124':'#f4f5f3';menu.style.color=document.body.dataset.dark==='true'?'#eee':'#171919';menu.style.maxHeight=Math.max(80,innerHeight-12)+'px';menu.style.overflowY='auto';
@@ -184,8 +192,12 @@
    item('Auto (fits data to screen)',()=>activePriceScale().applyOptions({autoScale:true}));
    const side=window.priceAxisSide==='left'?'right':'left';
    item('Move scale to '+side,()=>{window.configurePriceAxis(side);parent.postMessage({wheelChart:true,name:'priceAxisChanged',body:{side}},location.origin);});
-   const plus=item('Plus button',()=>parent.postMessage({wheelChart:true,name:'plusButtonChanged',body:{enabled:displayOptions.plusButton===false}},location.origin));plus.setAttribute('role','menuitemcheckbox');plus.setAttribute('aria-checked',String(displayOptions.plusButton!==false));plus.style.position='relative';plus.style.paddingLeft='34px';if(displayOptions.plusButton!==false){const check=document.createElement('span');check.textContent='✓';check.setAttribute('aria-hidden','true');check.style.cssText='position:absolute;left:7px;top:50%;transform:translateY(-50%);width:18px;text-align:center';plus.prepend(check);}
-   const overlap=item('No overlapping labels',()=>parent.postMessage({wheelChart:true,name:'noOverlappingLabelsChanged',body:{enabled:displayOptions.noOverlappingLabels===false}},location.origin));overlap.setAttribute('role','menuitemcheckbox');overlap.setAttribute('aria-checked',String(displayOptions.noOverlappingLabels!==false));overlap.style.position='relative';overlap.style.paddingLeft='34px';if(displayOptions.noOverlappingLabels!==false){const check=document.createElement('span');check.textContent='✓';check.setAttribute('aria-hidden','true');check.style.cssText='position:absolute;left:7px;top:50%;transform:translateY(-50%);width:18px;text-align:center';overlap.prepend(check);}
+   axisCheckbox('Plus button',displayOptions.plusButton!==false,enabled=>parent.postMessage({wheelChart:true,name:'plusButtonChanged',body:{enabled}},location.origin));
+   if(fromAxisButton)axisCheckbox('Price line',currentPriceRay.style.display!=='none',enabled=>{
+    window.setPriceLineVisible(enabled);
+    parent.postMessage({wheelChart:true,name:'priceLineChanged',body:{enabled}},location.origin);
+   });
+   axisCheckbox('No overlapping labels',displayOptions.noOverlappingLabels!==false,enabled=>parent.postMessage({wheelChart:true,name:'noOverlappingLabelsChanged',body:{enabled}},location.origin));
    const separator=document.createElement('div');separator.style.cssText='height:1px;background:currentColor;opacity:.2;margin:4px 0';menu.append(separator);
    const more=item('More settings...',()=>parent.postMessage({wheelChart:true,name:'chartSettings'},location.origin));const gear=axisButton.firstElementChild.cloneNode(true);gear.style.cssText='position:absolute;left:8px;top:50%;transform:translateY(-50%);width:16px;height:16px';more.prepend(gear);
    for(const row of menu.querySelectorAll('button')){row.style.position='relative';row.style.paddingLeft='34px';}
