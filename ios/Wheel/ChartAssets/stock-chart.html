@@ -62,7 +62,7 @@ function formatCrosshairTime(time){
  const date=new Date(time*1000),day=cursorDateFormat.format(date).replace(',','');
  return countdownPacket?.interval>=1440?day:day+'  '+cursorClockFormat.format(date);
 }
-let axisTickPrices=[],majorAxisLabels=[];
+let axisTickPrices=[],priceAxisLabels=[];
 const chart=LightweightCharts.createChart(document.getElementById('chart'),{autoSize:false,crosshair:{mode:LightweightCharts.CrosshairMode.Normal},layout:{background:{color:'#b8b8b8'},textColor:'#171919',fontSize:10,attributionLogo:true},grid:{vertLines:{visible:false},horzLines:{visible:false}},rightPriceScale:{borderVisible:false,scaleMargins:{top:.18,bottom:.18}},timeScale:{borderVisible:false,tickMarkMaxCharacterLength:5,timeVisible:true,secondsVisible:false,tickMarkFormatter:t=>new Date(t*1000).toLocaleTimeString('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false})},localization:{tickmarksPriceFormatter:formatPriceScaleTicks,timeFormatter:formatCrosshairTime}});
 function activePriceScale(){return chart.priceScale(window.priceAxisSide||'right');}
 // Axis widgets are recreated on the next library frame when changing sides.
@@ -287,37 +287,56 @@ function majorPriceTicks(prices,minMove){
 function formatPriceScaleTicks(prices){
  axisTickPrices=prices;
  const labels=prices.map(axisPriceText);
- const major=new Set(prices.length>1&&series.priceScale().options().mode===LightweightCharts.PriceScaleMode.Normal
-  ?majorPriceTicks(prices,series.options().priceFormat.minMove):[]);
- majorAxisLabels=[];
- return labels.map((text,i)=>{
-  if(!major.has(prices[i]))return text;
-  majorAxisLabels.push({price:prices[i],text});
-  // Reserve the native label width; the price-axis primitive paints it once in bold.
-  return text.replace(/\d/g,'\u2007').replace(/[.,-]/g,'\u2008');
- });
+ priceAxisLabels=[];
+ if(series.priceScale().options().mode!==LightweightCharts.PriceScaleMode.Normal)return labels;
+ const major=new Set(majorPriceTicks(prices,series.options().priceFormat.minMove));
+ priceAxisLabels=labels.map((text,i)=>({text,price:prices[i],bold:major.has(prices[i])}));
+ // Preserve scale width and tick positions. The primitive supplies the visible text.
+ return labels.map(text=>text.replace(/\d/g,'\u2007').replace(/[.,-]/g,'\u2008'));
 }
-const majorAxisRenderer={
+function measurePriceTick(ctx,label,font){
+ ctx.font='bold '+font;
+ const bold=ctx.measureText(label.text);
+ let ink=bold,scaleX=1,scaleY=1;
+ if(!label.bold){
+  ctx.font=font;
+  ink=ctx.measureText(label.text);
+  const width=ink.actualBoundingBoxLeft+ink.actualBoundingBoxRight;
+  const height=ink.actualBoundingBoxAscent+ink.actualBoundingBoxDescent;
+  if(width>0)scaleX=(bold.actualBoundingBoxLeft+bold.actualBoundingBoxRight)/width;
+  if(height>0)scaleY=(bold.actualBoundingBoxAscent+bold.actualBoundingBoxDescent)/height;
+ }
+ return {font,scaleX,scaleY,center:(ink.actualBoundingBoxAscent-ink.actualBoundingBoxDescent)/2};
+}
+const priceAxisTickRenderer={
  draw(target){
-  if(!majorAxisLabels.length)return;
+  if(!priceAxisLabels.length)return;
+  const scale=series.priceScale().options();
+  if(scale.mode!==LightweightCharts.PriceScaleMode.Normal)return;
   const layout=chart.options().layout,left=window.priceAxisSide==='left';
+  const font=layout.fontSize+'px '+layout.fontFamily;
   target.useMediaCoordinateSpace(({context:ctx,mediaSize})=>{
-   const inset=Math.round(5+5*layout.fontSize/12);
-   ctx.font='bold '+layout.fontSize+'px '+layout.fontFamily;
-   ctx.fillStyle=series.priceScale().options().textColor??layout.textColor;
+   const inset=Math.round(5+5*layout.fontSize/12),x=left?mediaSize.width-inset:inset;
+   ctx.fillStyle=scale.textColor??layout.textColor;
    ctx.textAlign=left?'right':'left';ctx.textBaseline='middle';
-   for(const {price,text} of majorAxisLabels){
-    const y=series.priceToCoordinate(price);
+   for(const label of priceAxisLabels){
+    const y=series.priceToCoordinate(label.price);
     if(y===null)continue;
-    const metrics=ctx.measureText(text);
-    const center=(metrics.actualBoundingBoxAscent-metrics.actualBoundingBoxDescent)/2;
-    ctx.fillText(text,left?mediaSize.width-inset:inset,y+center);
+    // Cache at tick-list lifetime. A cursor repaint needs no new glyph measurements.
+    if(label.ink?.font!==font)label.ink=measurePriceTick(ctx,label,font);
+    const {scaleX,scaleY,center}=label.ink;
+    ctx.save();
+    ctx.font=label.bold?'bold '+font:font;
+    ctx.translate(x,y);
+    ctx.scale(scaleX,scaleY);
+    ctx.fillText(label.text,0,center);
+    ctx.restore();
    }
   });
  }
 };
-const majorAxisViews=[{renderer:()=>majorAxisRenderer}];
-series.attachPrimitive({priceAxisPaneViews:()=>majorAxisViews});
+const priceAxisTickViews=[{renderer:()=>priceAxisTickRenderer}];
+series.attachPrimitive({priceAxisPaneViews:()=>priceAxisTickViews});
 // Pine ta.atr: true range smoothed with Wilder RMA, seeded by length TRs.
 function calculateATR(bars,length){
  if(!Number.isInteger(length)||length<1)return null;
