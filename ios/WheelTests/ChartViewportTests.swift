@@ -153,6 +153,35 @@ final class ChartViewportTests: XCTestCase {
         web.viewportReady = true
         return (web, window)
     }
+    func testNativeStockTailFollowsFreshLastEvenWithPriceLineHidden() async throws {
+        let (web, window) = try await loadNativeChart()
+        defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }
+        let result = try await web.callAsyncJavaScript("""
+        const t=Math.floor(Date.now()/300000)*300-300, base={time:t,open:660.4,high:661,low:660,close:660.91};
+        const cfg=show=>({con_id:7,entry:0,quantity:1,priceRules:[{low:0,increment:.01}],display:{nativeCompact:true,showPriceLine:show}});
+        const p={con_id:7,generation:'native',symbol:'QQQ',security_type:'STK',session:'rth',interval:5,
+                 last_tick:t+20,server_time:t+23.6,bar_closes_at:t+300};
+        function send(packet,show=true){applyChartState({width:393,height:700,config:cfg(show),packet});}
+        send({...p,mode:'snapshot',bars:[{...base,time:t-300,high:662,low:659},base]});
+        function tick(price,at,show,end=t+300){send({...p,mode:'delta',server_time:at,bars:[],bar_closes_at:end,
+          display_last:{price,time:at,expires_at:at+3,ray_only:true}},show);}
+        tick(661.11,t+24,true);
+        const shownClose=series.data().at(-1).close;
+        tick(660.31,t+25,false);
+        await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+        const badge=document.getElementById('countdown');
+        const hiddenWorks=getComputedStyle(currentPriceRay).display==='none'&&!badge.hidden&&
+          !document.getElementById('countdown-time').hidden&&Number(document.getElementById('countdown-price').textContent)===660.31;
+        const hiddenClose=series.data().at(-1).close, confirmedClose=previous.at(-1).close;
+        send({},true);
+        const shownAgain=getComputedStyle(currentPriceRay).display!=='none';
+        tick(662,t+301,true,null);
+        return [shownClose,hiddenClose,confirmedClose,hiddenWorks,shownAgain,series.data().at(-1).close,previous.length];
+        """, arguments: [:], in: nil, contentWorld: .page)
+        let rows = try XCTUnwrap(result as? [NSNumber])
+        XCTAssertEqual(rows.map(\.doubleValue), [661.11, 660.31, 660.91, 1, 1, 660.91, 2])
+    }
+
     func testRecheckingBrokerEntryDoesNotDrawABuyOrSellPreview() async throws {
         let (web, window) = try await loadNativeChart()
         defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }

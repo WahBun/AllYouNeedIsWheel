@@ -1211,11 +1211,12 @@ function updateCurrentPriceRay(bar){
 function displayedTail(bar,p,now){
  const live=p?.display_last,price=live?.price;
  if(!bar||!Number.isFinite(price)||!(now<live.expires_at)){restoreTradeCandle();return bar;}
- // An untimed Last cannot start a bar. On the web stock main chart, preview
+ // An untimed Last cannot start a bar. On the active stock chart, preview
  // its body only after an exchange-timed trade establishes this very bar.
  // Freshness belongs to the display Last (expires_at above); the timestamp
  // of an earlier confirmed trade cannot tell us that the new price is stale.
- const previewOnly=live.ray_only===true&&window.frameElement?.id==='chart'&&p.security_type==='STK'&&
+ const mainChart=window.frameElement?.id==='chart'||(window.parent===window&&displayOptions.nativeCompact===true);
+ const previewOnly=live.ray_only===true&&mainChart&&p.security_type==='STK'&&
   p.interval>0&&p.interval<=60&&Number.isFinite(p.last_tick)&&p.last_tick>=bar.time&&
   p.last_tick<=live.time&&live.time<=now;
  if((!live.ray_only||previewOnly)&&bar.time<=live.time&&now<p.bar_closes_at){
@@ -1442,7 +1443,14 @@ window.applyChartState=state=>{
  if(!(state.width>0&&state.height>0)){pendingNativeState=state;return;}
  window.setNativeViewport(state.width,state.height);
  if(state.config&&Object.keys(state.config).length)window.configure(state.config);
- if(state.packet&&Object.keys(state.packet).length){window.receive(state.packet);checkNativeHistory();nativeVolatilityPacket={...nativeVolatilityPacket,...state.packet};}
+ if(state.config?.display?.nativeCompact)currentPriceRay.style.display=state.config.display.showPriceLine===false?'none':'';
+ if(state.packet&&Object.keys(state.packet).length){
+  const packet=state.packet;window.receive(packet);
+  if(displayOptions.nativeCompact&&(projectedCandle?.previewOnly||(packet.display_last?.ray_only&&packet.security_type==='STK'))){
+   displayedTail(previous.at(-1),packet,packet.server_time+Math.max(0,Date.now()-countdownReceived)/1000);
+  }
+  checkNativeHistory();nativeVolatilityPacket={...nativeVolatilityPacket,...packet};
+ }
  if(window.configureVolatility&&state.config?.display){const d=state.config.display;window.configureVolatility({...nativeVolatilityPacket,bars:previous},d.volatilityData,d.volatility||{});}
 };
 function resizeViewport(){

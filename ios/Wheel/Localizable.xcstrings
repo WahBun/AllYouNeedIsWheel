@@ -13981,6 +13981,23 @@
       },
       "extractionState" : "manual"
     },
+    "Price line" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "现价线"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現價線"
+          }
+        }
+      },
+      "extractionState" : "manual"
+    },
     "Price scale labels" : {
       "localizations" : {
         "zh-Hans" : {
