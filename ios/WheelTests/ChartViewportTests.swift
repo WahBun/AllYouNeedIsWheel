@@ -153,6 +153,46 @@ final class ChartViewportTests: XCTestCase {
         web.viewportReady = true
         return (web, window)
     }
+    func testNativeChartPaintsMajorTicksAndCenteredWeekday() async throws {
+        let (web, window) = try await loadNativeChart()
+        defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }
+        let result = try await web.callAsyncJavaScript("""
+        const ink=new Map(), original=CanvasRenderingContext2D.prototype.fillText;
+        const selectedTime=Date.parse('2026-11-18T19:40:00Z')/1000, selectedText='Wed 18 Nov  14:40';
+        let timeCenter=null;
+        CanvasRenderingContext2D.prototype.fillText=function(text,...coords){
+          if(this.canvas.closest('#chart') && this.canvas.clientWidth<120)ink.set(text,this.font);
+          if(text===selectedText){
+            const r=this.canvas.getBoundingClientRect(), m=this.getTransform();
+            const w=this.measureText(text).width;
+            const left=coords[0]-(this.textAlign==='center'?w/2:this.textAlign==='right'||this.textAlign==='end'?w:0);
+            timeCenter=r.left+(m.a*(left+w/2)+m.e)*r.width/this.canvas.width;
+          }
+          return original.call(this,text,...coords);
+        };
+        const reports=[];
+        try {
+          for(const [symbol,price,step,span] of [['NQ',27250,.25,1600],['QQQ',660,.01,35]]){
+            const bars=Array.from({length:32},(_,i)=>({time:selectedTime+(i-15)*300,open:price,high:price+step,low:price-step,close:price}));
+            applyChartState({width:393,height:700,config:{con_id:7,entry:0,quantity:1,priceRules:[{low:0,increment:step}],display:{nativeCompact:true}},
+              packet:{con_id:7,generation:symbol,interval:5,mode:'snapshot',bars,symbol}});
+            ink.clear();timeCenter=null;chart.timeScale().fitContent();
+            activePriceScale().setVisibleRange({from:price-span/2,to:price+span/2});
+            await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+            chart.setCrosshairPosition(price,selectedTime,series);
+            await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+            const bold=new Set(majorAxisLabels.map(label=>label.text));
+            reports.push(bold.size>0 && bold.size<axisTickPrices.length &&
+              axisTickPrices.map(axisPriceText).every(text=>ink.has(text) && ink.get(text).includes('bold')===bold.has(text)) &&
+              document.getElementById('countdown-price').textContent===(symbol==='NQ'?'27,250.00':'660.00') &&
+              timeCenter!==null && Math.abs(timeCenter-timeToScreenCoordinate(selectedTime))<2);
+          }
+        } finally { CanvasRenderingContext2D.prototype.fillText=original; }
+        return reports;
+        """, arguments: [:], in: nil, contentWorld: .page)
+        XCTAssertEqual(result as? [Bool], [true, true])
+    }
+
     func testNativeStockTailFollowsFreshLastEvenWithPriceLineHidden() async throws {
         let (web, window) = try await loadNativeChart()
         defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }

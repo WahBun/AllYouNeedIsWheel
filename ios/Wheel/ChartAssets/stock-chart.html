@@ -56,8 +56,14 @@ body[data-order-cursor] *{cursor:var(--order-drag-cursor)!important}
 for(const type of ['selectstart','contextmenu','dragstart'])document.addEventListener(type,e=>{
  if(!e.target.closest?.('input,textarea,[contenteditable="true"]'))e.preventDefault();
 });
-let axisTickPrices=[];
-const chart=LightweightCharts.createChart(document.getElementById('chart'),{autoSize:false,crosshair:{mode:LightweightCharts.CrosshairMode.Normal},layout:{background:{color:'#b8b8b8'},textColor:'#171919',fontSize:10,attributionLogo:true},grid:{vertLines:{visible:false},horzLines:{visible:false}},rightPriceScale:{borderVisible:false,scaleMargins:{top:.18,bottom:.18}},timeScale:{borderVisible:false,tickMarkMaxCharacterLength:5,timeVisible:true,secondsVisible:false,tickMarkFormatter:t=>new Date(t*1000).toLocaleTimeString('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false})},localization:{tickmarksPriceFormatter:prices=>{axisTickPrices=prices;return prices.map(axisPriceText);},timeFormatter:t=>new Date(t*1000).toLocaleString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})}});
+const cursorDateFormat=new Intl.DateTimeFormat('en-GB',{timeZone:'America/New_York',weekday:'short',day:'numeric',month:'short'});
+const cursorClockFormat=new Intl.DateTimeFormat('en-GB',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+function formatCrosshairTime(time){
+ const date=new Date(time*1000),day=cursorDateFormat.format(date).replace(',','');
+ return countdownPacket?.interval>=1440?day:day+'  '+cursorClockFormat.format(date);
+}
+let axisTickPrices=[],majorAxisLabels=[];
+const chart=LightweightCharts.createChart(document.getElementById('chart'),{autoSize:false,crosshair:{mode:LightweightCharts.CrosshairMode.Normal},layout:{background:{color:'#b8b8b8'},textColor:'#171919',fontSize:10,attributionLogo:true},grid:{vertLines:{visible:false},horzLines:{visible:false}},rightPriceScale:{borderVisible:false,scaleMargins:{top:.18,bottom:.18}},timeScale:{borderVisible:false,tickMarkMaxCharacterLength:5,timeVisible:true,secondsVisible:false,tickMarkFormatter:t=>new Date(t*1000).toLocaleTimeString('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false})},localization:{tickmarksPriceFormatter:formatPriceScaleTicks,timeFormatter:formatCrosshairTime}});
 function activePriceScale(){return chart.priceScale(window.priceAxisSide||'right');}
 // Axis widgets are recreated on the next library frame when changing sides.
 const lastAxisWidths={left:54,right:54};
@@ -244,7 +250,74 @@ function tickAt(p){return priceRules.filter(r=>Number.isFinite(r.low)&&r.low<=p&
 function snapPrice(p,direction=0){if(!Number.isFinite(p)||p<=0)return null;for(let i=0;i<8;i++){const tick=tickAt(p);if(!tick)return null;const units=p/tick;const next=Number(((direction>0?Math.ceil(units-1e-8):direction<0?Math.floor(units+1e-8):Math.round(units))*tick).toFixed(8));if(next<=0)return null;if(tickAt(next)===tick)return next;p=next;}return null;}
 function stepPrice(p,direction){const tick=tickAt(direction<0?p-1e-8:p);return tick?snapPrice(p+direction*tick,direction):null;}
 function priceText(p){const tick=tickAt(p);const digits=tick?Math.max(2,Math.min(8,((tick.toFixed(8).replace(/0+$/,'').split('.')[1])||'').length)):8;return p.toFixed(tick?digits:2);/* Display fallback only: unknown increments still cannot snap orders. */}
-function axisPriceText(p){return priceText(snapPrice(p)??p);}
+function groupedPriceText(price){
+ return priceText(price).replace(/\d(?=(?:\d{3})+\.)/g,'$&,');
+}
+function axisPriceText(p){return groupedPriceText(snapPrice(p)??p);}
+
+// Select round levels from the scale's actual ticks. Fractional contracts first
+// work through factors of two; decimal levels then prefer groups of ten or five.
+function majorPriceTicks(prices,minMove){
+ if(prices.length<2||!(minMove>0))return [];
+ const base=1/minMove;
+ let fractionalBase=base>1&&!Number.isInteger(Math.log10(base))?base:1;
+ const units=prices.map(price=>Math.round(price*base));
+ if(!units.every(Number.isSafeInteger))return [];
+ let candidates=units,stride=1;
+ const sparse=count=>prices.length>6&&count<=(prices.length+1)/2;
+ for(let level=0;level<30;level++){
+  if(sparse(candidates.length))break;
+  const group=divisor=>({step:stride*divisor,values:candidates.filter(value=>value%(stride*divisor)===0)});
+  let next;
+  if(fractionalBase<=1){
+   const decimal=[group(10),group(5)];
+   const sparseGroups=decimal.filter(group=>sparse(group.values.length));
+   next=sparseGroups.length?sparseGroups.reduce((a,b)=>b.values.length>a.values.length?b:a):decimal.find(group=>group.values.length);
+  }
+  if(!next?.values.length)next=group(2);
+  if(!next.values.length)break;
+  stride=next.step;candidates=next.values;
+  fractionalBase=Math.max(1,Math.round(fractionalBase/2));
+  if(level===29)return [];
+ }
+ if(candidates.length===units.length)return [];
+ const selected=new Set(candidates);
+ return prices.filter((price,i)=>selected.has(units[i])&&Math.abs(price*base-units[i])<.01);
+}
+function formatPriceScaleTicks(prices){
+ axisTickPrices=prices;
+ const labels=prices.map(axisPriceText);
+ const major=new Set(prices.length>1&&series.priceScale().options().mode===LightweightCharts.PriceScaleMode.Normal
+  ?majorPriceTicks(prices,series.options().priceFormat.minMove):[]);
+ majorAxisLabels=[];
+ return labels.map((text,i)=>{
+  if(!major.has(prices[i]))return text;
+  majorAxisLabels.push({price:prices[i],text});
+  // Reserve the native label width; the price-axis primitive paints it once in bold.
+  return text.replace(/\d/g,'\u2007').replace(/[.,-]/g,'\u2008');
+ });
+}
+const majorAxisRenderer={
+ draw(target){
+  if(!majorAxisLabels.length)return;
+  const layout=chart.options().layout,left=window.priceAxisSide==='left';
+  target.useMediaCoordinateSpace(({context:ctx,mediaSize})=>{
+   const inset=Math.round(5+5*layout.fontSize/12);
+   ctx.font='bold '+layout.fontSize+'px '+layout.fontFamily;
+   ctx.fillStyle=series.priceScale().options().textColor??layout.textColor;
+   ctx.textAlign=left?'right':'left';ctx.textBaseline='middle';
+   for(const {price,text} of majorAxisLabels){
+    const y=series.priceToCoordinate(price);
+    if(y===null)continue;
+    const metrics=ctx.measureText(text);
+    const center=(metrics.actualBoundingBoxAscent-metrics.actualBoundingBoxDescent)/2;
+    ctx.fillText(text,left?mediaSize.width-inset:inset,y+center);
+   }
+  });
+ }
+};
+const majorAxisViews=[{renderer:()=>majorAxisRenderer}];
+series.attachPrimitive({priceAxisPaneViews:()=>majorAxisViews});
 // Pine ta.atr: true range smoothed with Wilder RMA, seeded by length TRs.
 function calculateATR(bars,length){
  if(!Number.isInteger(length)||length<1)return null;
@@ -1061,7 +1134,7 @@ function updatePriceCursor(p){
  }
  cursorOrderPrice=snapPrice(series.coordinateToPrice(p.point.y));
  priceAdd.hidden=paperConfig.chart_only===true||cursorOrderPrice===null||p.point.y<35||p.point.y>innerHeight-32;
- if(!priceAdd.hidden){priceAdd.style.top=(p.point.y-9)+'px';const value=priceAdd.querySelector('.price-cursor-value');value.textContent=axisPriceText(cursorOrderPrice).split('.').map((part,i)=>i?part:part.replace(/\B(?=(\d{3})+(?!\d))/g,',')).join('.');value.style.minWidth=Math.ceil(priceAxisWidth(window.priceAxisSide||'right'))+'px';priceAdd.style.right=value.style.minWidth;}
+ if(!priceAdd.hidden){priceAdd.style.top=(p.point.y-9)+'px';const value=priceAdd.querySelector('.price-cursor-value');value.textContent=axisPriceText(cursorOrderPrice);value.style.minWidth=Math.ceil(priceAxisWidth(window.priceAxisSide||'right'))+'px';priceAdd.style.right=value.style.minWidth;}
 }
 chart.subscribeCrosshairMove(updatePriceCursor);
 function dismissPriceControls(e){
@@ -1229,7 +1302,7 @@ function displayedTail(bar,p,now){
  }else restoreTradeCandle();
  return {...bar,close:price};
 }
-function updateCountdown(){updateOptionQuote();const el=document.getElementById('countdown'),bar=displayedTail(previous.at(-1),countdownPacket,countdownPacket?.server_time+Math.max(0,Date.now()-countdownReceived)/1000);updateCurrentPriceRay(bar);el.hidden=!bar;if(!bar)return;const down=bar.close<bar.open;el.style.background=down?series.options().downColor:'#e0e0e0';el.style.color=down?'#f4f5f3':'#242424';const y=series.priceToCoordinate(bar.close);el.hidden=y===null||y<0||y>chart.paneSize().height;if(el.hidden)return;el.style.top=(y-9)+'px';el.style.width=axisBadgeWidth()+'px';document.getElementById('countdown-price').textContent=priceText(bar.close);const p=countdownPacket,elapsed=Math.max(0,(Date.now()-countdownReceived)/1000),left=p?.bar_closes_at-(p?.server_time+elapsed),timer=document.getElementById('countdown-time');timer.hidden=!(Number.isFinite(left)&&left>0);timer.textContent=timer.hidden?'':formatCountdown(Math.ceil(left));
+function updateCountdown(){updateOptionQuote();const el=document.getElementById('countdown'),bar=displayedTail(previous.at(-1),countdownPacket,countdownPacket?.server_time+Math.max(0,Date.now()-countdownReceived)/1000);updateCurrentPriceRay(bar);el.hidden=!bar;if(!bar)return;const down=bar.close<bar.open;el.style.background=down?series.options().downColor:'#e0e0e0';el.style.color=down?'#f4f5f3':'#242424';const y=series.priceToCoordinate(bar.close);el.hidden=y===null||y<0||y>chart.paneSize().height;if(el.hidden)return;el.style.top=(y-9)+'px';el.style.width=axisBadgeWidth()+'px';document.getElementById('countdown-price').textContent=groupedPriceText(bar.close);const p=countdownPacket,elapsed=Math.max(0,(Date.now()-countdownReceived)/1000),left=p?.bar_closes_at-(p?.server_time+elapsed),timer=document.getElementById('countdown-time');timer.hidden=!(Number.isFinite(left)&&left>0);timer.textContent=timer.hidden?'':formatCountdown(Math.ceil(left));
 }
 function formatCountdown(s){const days=Math.floor(s/86400);const hours=Math.floor(s%86400/3600);const mins=Math.floor(s%3600/60);const secs=s%60;return days?days+'d '+hours+'h':hours?hours+':'+String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0'):String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0');}
 // WebKit suspends animation frames in the background. Reconcile immediately on
@@ -1247,7 +1320,7 @@ function axisBadgeWidth(){
   axisBadgeWidthKey=key;
   // The library's tick font is smaller than our badges. Measure their own
   // tabular numeric text so long prices do not widen only High/Low cells.
-  axisBadgeMeasuredWidth=Math.max(42,scaleWidth,...prices.map(price=>Math.ceil(axisBadgeMeasure.measureText(priceText(price).replace(/\d/g,'0')).width+6)));
+  axisBadgeMeasuredWidth=Math.max(42,scaleWidth,...prices.map(price=>Math.ceil(axisBadgeMeasure.measureText(groupedPriceText(price).replace(/\d/g,'0')).width+6)));
  }
  return axisBadgeMeasuredWidth;
 }
@@ -1268,7 +1341,7 @@ function positionExtremaLabels(){
    label.style.top=top+'px';
    // The shared allocator clamps the anchor at a pane edge.
   }
-  label.lastChild.textContent=priceText(price);
+  label.lastChild.textContent=groupedPriceText(price);
  }
 }
 
@@ -1299,7 +1372,7 @@ function separatePriceAxisLabels(){
   let badge=tradeAxisBadges.get(name);
   if(!badge){badge=document.createElement('div');badge.className='holding-axis';badge.dataset.axisRole=name;document.body.append(badge);tradeAxisBadges.set(name,badge);}
   const options=line.options(),y=series.priceToCoordinate(options.price);
-  badge.hidden=y===null||y<0||y>height||(name==='entry'&&!positionEdgeBadge.hidden);badge.textContent=priceText(options.price);badge.style.background=options.color;badge.style.width=axisBadgeWidth()+'px';
+  badge.hidden=y===null||y<0||y>height||(name==='entry'&&!positionEdgeBadge.hidden);if(badge.dataset.price!==String(options.price))badge.dataset.price=String(options.price);badge.textContent=groupedPriceText(options.price);badge.style.background=options.color;badge.style.width=axisBadgeWidth()+'px';
   if(!badge.hidden)badge.style.top=(y-badge.offsetHeight/2)+'px';
  }
  for(const [name,badge] of tradeAxisBadges){if(!priceLines.get(name)){badge.remove();tradeAxisBadges.delete(name);}}
@@ -1386,7 +1459,7 @@ function positionHoldingEdge(){
  const visible=!!paperConfig.active&&!!paperConfig.position&&!canceled&&displayOptions.holdingsVisible!==false&&previous.length>0&&y!==null&&(y<16||y>limit-16);
  positionEdgeBadge.hidden=!visible;
  if(!visible)return;
- positionEdgeBadge.textContent=priceText(entry);
+ positionEdgeBadge.textContent=groupedPriceText(entry);
  positionEdgeBadge.style.background=paperConfig.position>0?'#315fc4':'#c6384d';
  positionEdgeBadge.style.width=axisBadgeWidth()+'px';
  positionEdgeBadge.style.top=(Math.min(limit-16,Math.max(16,y))-9)+'px';
@@ -1416,7 +1489,7 @@ function positionNativeATR(){
  }
  atrBadge.classList.toggle('native-footer-atr',aligned);
 }
-function position(){drawExecutionMarks();document.body.style.setProperty('--axis-width',priceAxisWidth(window.priceAxisSide||'right')+'px');document.body.style.setProperty('--axis-badge-width',axisBadgeWidth()+'px');document.getElementById('chart-header').style.left=(plotLeft()+8)+'px';indicatorRow.style.left=(plotLeft()+8)+'px';window.drawVolatility?.();positionNativeATR();positionHoldingEdge();updateVisibleExtrema();updateCountdown();positionExtremaLabels();document.getElementById('chart-header').style.right=(priceAxisWidth('right')+7)+'px';updateLatestBarButton();drawPV();drawFVG();drawBarCount();for(const badge of holdingAxisBadges.values()){const price=Number(badge.dataset.price),y=series.priceToCoordinate(price);badge.hidden=y===null;badge.textContent=priceText(price);badge.style.width=axisBadgeWidth()+'px';if(y!==null)badge.style.top=(Math.min(chart.paneSize().height-16,Math.max(16,y))-9)+'px';}const axisRight=Math.ceil(priceAxisWidth(window.priceAxisSide||'right'))+(innerWidth<500?48:64);for(const badge of holdingBadges.values()){const y=badge.dataset.price===''?innerHeight-65:series.priceToCoordinate(Number(badge.dataset.price));badge.hidden=y===null;placeByPriceAxis(badge,axisRight);if(y!==null)badge.style.top=Math.min(chart.paneSize().height-16,Math.max(16,y))+'px';}for(const id of ['tp','sl','cancel'])placeByPriceAxis(document.getElementById(id),axisRight);placeByPriceAxis(document.getElementById('entry'),axisRight+23);for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}separateHoldingLabels();separatePriceAxisLabels();positionOrderConnectors();positionChartConfirmation();requestAnimationFrame(position);}position();
+function position(){drawExecutionMarks();document.body.style.setProperty('--axis-width',priceAxisWidth(window.priceAxisSide||'right')+'px');document.body.style.setProperty('--axis-badge-width',axisBadgeWidth()+'px');document.getElementById('chart-header').style.left=(plotLeft()+8)+'px';indicatorRow.style.left=(plotLeft()+8)+'px';window.drawVolatility?.();positionNativeATR();positionHoldingEdge();updateVisibleExtrema();updateCountdown();positionExtremaLabels();document.getElementById('chart-header').style.right=(priceAxisWidth('right')+7)+'px';updateLatestBarButton();drawPV();drawFVG();drawBarCount();for(const badge of holdingAxisBadges.values()){const price=Number(badge.dataset.price),y=series.priceToCoordinate(price);badge.hidden=y===null;badge.textContent=groupedPriceText(price);badge.style.width=axisBadgeWidth()+'px';if(y!==null)badge.style.top=(Math.min(chart.paneSize().height-16,Math.max(16,y))-9)+'px';}const axisRight=Math.ceil(priceAxisWidth(window.priceAxisSide||'right'))+(innerWidth<500?48:64);for(const badge of holdingBadges.values()){const y=badge.dataset.price===''?innerHeight-65:series.priceToCoordinate(Number(badge.dataset.price));badge.hidden=y===null;placeByPriceAxis(badge,axisRight);if(y!==null)badge.style.top=Math.min(chart.paneSize().height-16,Math.max(16,y))+'px';}for(const id of ['tp','sl','cancel'])placeByPriceAxis(document.getElementById(id),axisRight);placeByPriceAxis(document.getElementById('entry'),axisRight+23);for(const k of ['tp','sl','entry']){const y=series.priceToCoordinate(k==='entry'?entry:levels[k]);const h=document.getElementById(k);const onScreen=y!==null&&y>=12&&y<innerHeight-36;h.style.visibility=onScreen?'visible':'hidden';if(y!==null){h.style.top=(y-22)+'px';if(k==='entry'){const cancel=document.getElementById('cancel');cancel.style.top=h.style.top;cancel.style.visibility=h.style.visibility;}}}separateHoldingLabels();separatePriceAxisLabels();positionOrderConnectors();positionChartConfirmation();requestAnimationFrame(position);}position();
 // A WKWebView changes size in place when native full-screen controls appear.
 // Resize the canvas and restore the time window together; stale manual Y scaling
 // must not carry the full-screen pixel range into the shorter chart.
