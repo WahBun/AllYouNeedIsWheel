@@ -19,4 +19,17 @@ final class WatchSnapshotTests: XCTestCase {
         XCTAssertTrue(snapshot(21701, 125, source: "close").directions(since: first).isEmpty)
         XCTAssertTrue(snapshot(21701, 180).directions(since: first).isEmpty)
     }
+
+    func testTabSwitchRestoresOnlyTheSamePageAndAccount() {
+        var cache = WatchPageCache()
+        let first = snapshot(21700, 100)
+        cache.store(first, section: .holdings, page: 0)
+        cache.store(snapshot(21701, 115), section: .quotes, page: 0)
+        XCTAssertEqual(cache.snapshot(for: .holdings, page: 0)?.sampledAt, 100)
+        XCTAssertNil(cache.snapshot(for: .holdings, page: 1))
+        cache.store(snapshot(21702, 130), section: .holdings, page: 1)
+        XCTAssertNil(cache.snapshot(for: .holdings, page: 0))
+        cache.store(snapshot(21703, 145, epoch: "two"), section: .quotes, page: 0)
+        XCTAssertNil(cache.snapshot(for: .holdings, page: 1))
+    }
 }

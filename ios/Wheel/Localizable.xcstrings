@@ -35,6 +35,70 @@
         }
       }
     },
+    "Account opened %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开户日期：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開戶日期：%@"
+          }
+        }
+      }
+    },
+    "Account trading commissions for the reported dates in this period, grouped by fee currency. Credits reduce costs. Commissions are already included in realized P&L." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按费用币种汇总此时段报告所列的交易佣金。返还款会抵减费用。已实现盈亏已计入佣金。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按費用幣別彙總此時段報告所列的交易佣金。回贈會抵減費用。已實現損益已計入佣金。"
+          }
+        }
+      }
+    },
+    "All time" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部时间"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "全部時間"
+          }
+        }
+      }
+    },
+    "Collapsed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已收起"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已收合"
+          }
+        }
+      }
+    },
     "Connect and verify the selected IB account first" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -69,6 +133,54 @@
         }
       }
     },
+    "Expanded" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已展开"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已展開"
+          }
+        }
+      }
+    },
+    "Gateway" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gateway"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gateway"
+          }
+        }
+      }
+    },
+    "No report coverage for this period" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "该时段没有报告记录"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此時段沒有報告紀錄"
+          }
+        }
+      }
+    },
     "Paste the push address or device key shown in Bark" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -82,6 +194,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "請貼上 Bark 中顯示的推送地址或設備密鑰"
+          }
+        }
+      }
+    },
+    "Reported %@ – %@" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "报告日期：%1$@ 至 %2$@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "報告日期：%1$@ 至 %2$@"
+          }
+        }
+      }
+    },
+    "Selected period" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所选时段"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所選時段"
+          }
+        }
+      }
+    },
+    "Symbols are ranked by absolute realized P&L for the selected period and currency. Stock and option activity share their underlying symbol." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按所选时段和币种的已实现盈亏绝对值排序。股票和期权交易按标的代码合并统计。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按所選時段及幣別的已實現損益絕對值排序。股票和期權交易按標的代號合併統計。"
           }
         }
       }
@@ -235,6 +395,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "序列"
+          }
+        }
+      }
+    },
+    "Year" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "年"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "年"
           }
         }
       }
@@ -2773,6 +2949,7 @@
       "shouldTranslate" : false
     },
     "%@ · %@ · %@" : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2784,6 +2961,7 @@
       "shouldTranslate" : false
     },
     "%@ · %@ · %@ · %@ · %@\n%@ · %@ · %@\n%@" : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2874,6 +3052,7 @@
       "shouldTranslate" : false
     },
     "%@ %@ %@" : {
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3018,6 +3197,7 @@
       }
     },
     "1–%@" : {
+      "extractionState" : "manual",
       "shouldTranslate" : false
     },
     "1. Keep Tailscale connected on both devices." : {
@@ -18003,6 +18183,7 @@
       "shouldTranslate" : false
     },
     "%@\n%@" : {
+      "extractionState" : "manual",
       "shouldTranslate" : false
     },
     "%@, %@" : {
@@ -18075,18 +18256,23 @@
       "shouldTranslate" : false
     },
     "hl/2" : {
+      "extractionState" : "manual",
       "shouldTranslate" : false
     },
     "hlc3" : {
+      "extractionState" : "manual",
       "shouldTranslate" : false
     },
     "ohlc/4" : {
+      "extractionState" : "manual",
       "shouldTranslate" : false
     },
     "hlcc/4" : {
+      "extractionState" : "manual",
       "shouldTranslate" : false
     },
     "IB Avg*" : {
+      "extractionState" : "manual",
       "shouldTranslate" : false
     },
     "Close price" : {
