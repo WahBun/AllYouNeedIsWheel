@@ -123,6 +123,42 @@ class StockTradeTests(TestCase):
         self.conn.ib.client.cancelMktData.assert_called_once_with(43)
         self.assertEqual(self.state['bars'][-1]['close'],105)
 
+    def test_last_capacity_rejection_before_first_tick_recovers_all_panes(self):
+        from api.services.chart_stream import ChartStreams
+        hub = ChartStreams()
+        t = self.open
+        with patch('api.services.chart_stream.stock_chart', self.feed), \
+                patch('api.routes.account.epoch', return_value='fixture'), patch('time.time', return_value=t+120):
+            panes = {n: hub.open(self.conn, 7, n, 'rth')[1] for n in (5, 1, 15, 60)}
+            for pane in panes.values():
+                pane.queue.get_nowait()
+            error = self.conn.ib.errorEvent.emit
+            error(42, 10190, 'BidAsk at capacity', self.contract)
+            error(99, 10190, 'Unrelated request', self.contract)
+            error(41, 10190, 'Other contract', Stock(conId=8))
+            self.conn.ib.client.reqMktData.assert_not_called()
+            error(41, 10190, 'Last at capacity', self.contract)
+            error(41, 10190, 'Last at capacity', self.contract)
+            self.conn.ib.client.reqMktData.assert_called_once_with(43, self.contract, '375', False, False, [])
+            self.assertIsNone(self.state['last_tick'])
+            self.batch([('RT', t + 120.1, 42.63), ('RT', t + 120.2, 42.66)], t + 120.4)
+            for n, pane in panes.items():
+                packet = pane.queue.get_nowait()
+                bar = packet['bars'][-1]
+                self.assertEqual((bar['time'], bar['open'], bar['high'], bar['close']),
+                                 (t+120 if n == 1 else t, 42.63, 42.66, 42.66))
+                self.assertEqual(packet['source'], 'IB RT Trade Volume')
+                self.assertIsNone(packet['bid'])
+                self.assertIsNone(packet['ask'])
+            self.batch([('RT', t + 300.1, 42.72)], t + 300.4)
+            next_bar = panes[5].queue.get_nowait()['bars'][-1]
+            self.assertEqual((next_bar['time'], next_bar['close']), (t+300, 42.72))
+        self.feed.stop()
+        self.conn.ib.client.cancelMktData.assert_called_once_with(43)
+        error(41, 10190, 'Retired request', self.contract)
+        self.assertEqual(self.conn.ib.client.reqMktData.call_count, 1)
+        self.conn.ib.placeOrder.assert_not_called()
+
     def prepare_mes(self):
         self.feed.stop(reset_cooldown=True)
         contract = Future('MES', '20261218', 'CME', currency='USD', conId=7, localSymbol='MESZ6')
