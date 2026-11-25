@@ -269,6 +269,8 @@ def project(path, account, cid, client, groups, trades, fills, account_position,
                 from core.archived_order_group import proven_flat
                 if proven_flat(db, account, cid, client, g, groups, trades, fills):
                     flat_perms.update(g['perms'].values())
+                    if g.get('origin_position') and not g.get('native_opening'):
+                        resolved_balance_errors.add('Legacy opening balance lacks execution ownership: '+ref)
                     resolved_balance_errors.update(('Execution sequence over-exits group: '+ref, 'Group over-exit: '+ref))
                     continue
             if len(set(g['ids'].values()))!=len(g['ids']):conflict('Duplicate order identity within group: '+ref)

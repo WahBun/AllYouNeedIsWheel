@@ -1044,6 +1044,11 @@ class PaperChart:
         if not state['known']:
             return dict(confirmed=False, status='unknown')
         def resolved(status, message=None):
+            # Retain the original broker-flat observation when replacing a legacy submit reply.
+            if body.get('action') == 'submit':
+                from core.archived_order_group import unfilled_submit_at_flat
+                if unfilled_submit_at_flat(request_id, result.get('state') or {}):
+                    result['initial_flat_submit'] = request_id
             # Persist reconciliation: a later read/restart must not resurrect the lock.
             if group.get('pending_edit') == request_id:
                 group.pop('pending_edit'); self.save_group(account, cid, group)
@@ -2641,9 +2646,16 @@ class PaperChart:
             if body.get('entry_type') not in ('LMT','STP'): raise ValueError('Unsupported entry type')
             if side == -1: require_call_coverage(conn,account,contract,int(qty))
             from api.services.chart_position_recovery import retire_completed
-            retire_completed(self, conn, account, cid, self.group(account, cid))
+            previous = self.group(account, cid)
+            retire_completed(self, conn, account, cid, previous)
+            flat_predecessor = {}
+            if (previous and not self.group_id and current.get('order_ref') == previous['ref']
+                    and current.get('group_choices') == [dict(id='', ref=previous['ref'])]
+                    and current.get('account_position', current['position']) == 0
+                    and not current.get('sync_error') and current.get('close_progress', {}).get('status') == 'completed'):
+                flat_predecessor['flat_predecessor'] = previous['ref']
             if contract.secType == 'FUT' or contract.secType == 'OPT' and (qty == 1 or not (tp is not None or sl is not None)):
-                group=dict(ids={},lots=[],side=side,ref='WheelPaper:'+request_id,tif=tif)
+                group=dict(ids={},lots=[],side=side,ref='WheelPaper:'+request_id,tif=tif,**flat_predecessor)
                 aggregate = contract.secType == 'OPT' and tp is None and sl is None
                 self.add_lots(conn,account,cid,contract,group,1 if aggregate else int(qty),body['entry_type'],entry,tp,sl,
                               unit_quantity=int(qty) if aggregate else 1)
@@ -2654,7 +2666,7 @@ class PaperChart:
             parent=(LimitOrder if body['entry_type']=='LMT' else StopOrder)(buy,qty,entry,orderId=ids['entry'],transmit=not values)
             orders=[parent]+[(LimitOrder if r=='tp' else StopOrder)(sell,qty,v,orderId=ids[r],parentId=ids['entry'],transmit=False) for r,v in values.items()]
             orders[-1].transmit=True
-            self.save_group(account,cid,dict(ids=ids,side=side,ref='WheelPaper:'+request_id,requested_protection=list(values),entry_kinds={str(ids['entry']):'entry'}))
+            self.save_group(account,cid,dict(ids=ids,side=side,ref='WheelPaper:'+request_id,requested_protection=list(values),entry_kinds={str(ids['entry']):'entry'},**flat_predecessor))
             for order in orders:
                 order.account=account;order.tif=tif if order is parent else 'GTC';order.orderRef='WheelPaper:'+request_id
                 conn.ib.placeOrder(contract,order)
