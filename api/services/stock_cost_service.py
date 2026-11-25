@@ -72,14 +72,15 @@ def archive_costs(text, config):
     os.chmod(path, 0o600)
 
 
-def reported_costs(account):
+def reported_costs(account, *, refresh=True):
     from api.services.performance_service import configuration, service
     try:
         config = configuration()
         if not account or config.get('account_id') != account or not config.get('history_path'):
             return {}
         # Download only in the existing background worker; never occupy the IB dispatcher.
-        service.read(config, 'ALL')
+        if refresh:
+            service.read(config, 'ALL')
         uri = Path(os.path.expanduser(config['history_path'])).resolve().as_uri() + '?mode=ro'
         with sqlite3.connect(uri, uri=True, timeout=0.05) as db:
             rows = db.execute('SELECT conid,currency,day,quantity,basis,average FROM stock_cost_snapshot WHERE account=?', (account,)).fetchall()

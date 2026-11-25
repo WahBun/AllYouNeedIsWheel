@@ -47,7 +47,7 @@ final class WatchLink: NSObject, ObservableObject, WCSessionDelegate {
         notice = snapshot == nil ? "Updating…" : ""
     }
 
-    func read(_ section: WatchSection, page: Int) async {
+    func read(_ section: WatchSection, page: Int, symbol: String? = nil) async {
         let id = UUID()
         requestID = id
         let session = WCSession.default
@@ -57,8 +57,10 @@ final class WatchLink: NSObject, ObservableObject, WCSessionDelegate {
             return
         }
         do {
+            var message: [String: Any] = ["section": section.rawValue, "page": page]
+            if let symbol { message["symbol"] = symbol }
             let reply: [String: Any] = try await withCheckedThrowingContinuation { continuation in
-                session.sendMessage(["section": section.rawValue, "page": page],
+                session.sendMessage(message,
                     replyHandler: { continuation.resume(returning: $0) },
                     errorHandler: { continuation.resume(throwing: $0) })
             }
@@ -72,7 +74,8 @@ final class WatchLink: NSObject, ObservableObject, WCSessionDelegate {
             let next = try JSONDecoder().decode(WatchSnapshot.self, from: data)
             acceptTheme(reply["theme"])
             directions = next.directions(since: snapshot)
-            pages.store(next, section: section, page: page)
+            if let snapshot, snapshot.mode != next.mode || snapshot.epoch != next.epoch { pages = WatchPageCache() }
+            if symbol == nil { pages.store(next, section: section, page: page) }
             snapshot = next
             notice = ""
         } catch {
@@ -104,6 +107,7 @@ private struct WatchDashboard: View {
     @Environment(\.isLuminanceReduced) private var dimmed
     @AppStorage("wheel.watch.section") private var section: WatchSection = .quotes
     @State private var page = 0
+    @State private var selection: WatchAssetSelection?
 
     var body: some View {
         NavigationStack {
@@ -140,27 +144,10 @@ private struct WatchDashboard: View {
                                 Text("As of \(stamp(oldest))").font(.caption2).foregroundStyle(.secondary)
                             }
                         } else {
-                            if snapshot.total == 0 { Text("No holdings") }
-                            ForEach(snapshot.positions) { row in
-                                NavigationLink(value: WatchHoldingSelection(mode: snapshot.mode, epoch: snapshot.epoch,
-                                                                            contractID: row.id)) {
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        holdingHeader(row)
-                                        HStack {
-                                            Text(verbatim: row.quantity.formatted())
-                                                .accessibilityLabel("Quantity \(row.quantity.formatted())")
-                                            Spacer()
-                                            Text(verbatim: row.priceText(locale: locale))
-                                        }.font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                                    }.contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                Divider()
+                            WatchAllocationOverview(snapshot: snapshot) { asset in
+                                page = 0
+                                selection = asset
                             }
-                            if page > 0 { Button("Previous") { page -= 1 } }
-                            if (page + 1) * 30 < snapshot.total { Button("Next") { page += 1 } }
-                            Text("As of \(Date(timeIntervalSince1970: snapshot.sampledAt).formatted(date: .abbreviated, time: .shortened))")
-                                .font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -173,47 +160,35 @@ private struct WatchDashboard: View {
             .toolbarTitleDisplayMode(.inline)
             .toolbarForegroundStyle(phone.snapshot?.mode == "live" ? color(0x4EC890) : (phone.theme.dark ? Color.white : .black),
                                     for: .navigationBar)
-            .navigationDestination(for: WatchHoldingSelection.self) { selection in
+            .navigationDestination(item: $selection) { asset in
                 ScrollView {
-                    if let snapshot = phone.snapshot, let row = selection.holding(in: snapshot) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            holdingHeader(row)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Average cost").font(.footnote).foregroundStyle(.secondary)
-                                Text(verbatim: row.formatPrice(row.averageCost, locale: locale))
-                                    .font(.title2).monospacedDigit()
-                            }
-                            Text("As of \(stamp(snapshot.sampledAt))").font(.caption2).foregroundStyle(.secondary)
-                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    if let snapshot = phone.snapshot, asset.matches(snapshot) {
+                        WatchAssetDetail(asset: asset, snapshot: snapshot, page: $page)
                     } else {
                         Text("Holding unavailable")
+                    }
+                    if !phone.notice.isEmpty {
+                        Text(verbatim: phone.notice).font(.footnote).foregroundStyle(.secondary)
                     }
                 }
                 .foregroundStyle(phone.theme.dark ? Color.white : .black)
                 .background(phone.theme.dark ? Color.black : .white)
                 .navigationTitle("Holdings")
-                .toolbarForegroundStyle(phone.theme.dark ? Color.white : .black, for: .navigationBar)
                 .environment(\.colorScheme, phone.theme.dark ? .dark : .light)
             }
+            .onChange(of: selection) { _, _ in
+                page = 0
+                phone.select(.holdings, page: 0)
+            }
             .onChange(of: section) { _, next in page = 0; phone.select(next, page: 0) }
-            .onChange(of: page) { _, next in phone.select(section, page: next) }
+            .onChange(of: page) { _, next in if selection == nil { phone.select(section, page: next) } }
         }
-        .task(id: "\(section.rawValue)-\(page)-\(phase)-\(dimmed)-\(phone.reachability)") {
+        .task(id: "\(section.rawValue)-\(page)-\(phase)-\(dimmed)-\(phone.reachability)-\(selection?.symbol ?? "")") {
             guard phase == .active, !dimmed else { return }
             while !Task.isCancelled {
-                await phone.read(section, page: page)
+                await phone.read(section, page: page, symbol: selection?.symbol)
                 let waiting = section == .quotes && phone.snapshot?.quotes.contains { $0.price == nil } == true
                 do { try await Task.sleep(for: .seconds(waiting ? 6 : 15)) } catch { return }
-            }
-        }
-    }
-
-    private func holdingHeader(_ row: WatchHolding) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 3) {
-            SymbolText(symbol: row.symbol, textStyle: .headline).font(.headline)
-            if row.contract != row.symbol {
-                Text(verbatim: row.contract.hasPrefix(row.symbol) ? String(row.contract.dropFirst(row.symbol.count)) : row.contract)
-                    .font(.caption2).fixedSize(horizontal: false, vertical: true)
             }
         }
     }

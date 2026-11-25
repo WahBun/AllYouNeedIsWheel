@@ -37,6 +37,15 @@ struct WatchHolding: Codable, Identifiable {
     let price: Double?
     let currency: String
     var averageCost: Double? = nil
+    var costSource: String? = nil
+    var reportDate: String? = nil
+    var reportedShares: Double? = nil
+
+    func averageCostText(locale: Locale) -> String {
+        // An older phone can relay a number without its source.
+        guard costSource == "position" || (costSource == "report" && reportDate != nil) else { return "—" }
+        return formatPrice(averageCost, locale: locale)
+    }
 
     func priceText(locale: Locale) -> String {
         formatPrice(price, locale: locale)
@@ -52,14 +61,18 @@ struct WatchHolding: Codable, Identifiable {
     }
 }
 
-struct WatchHoldingSelection: Hashable {
+struct WatchAssetSelection: Hashable {
     let mode: String
     let epoch: String
-    let contractID: Int
+    let symbol: String? // nil identifies the cash balance, including when a ticker is named CASH.
 
-    func holding(in snapshot: WatchSnapshot?) -> WatchHolding? {
-        guard let snapshot, snapshot.mode == mode, snapshot.epoch == epoch else { return nil }
-        return snapshot.positions.first { $0.id == contractID }
+    func matches(_ snapshot: WatchSnapshot) -> Bool {
+        snapshot.mode == mode && snapshot.epoch == epoch
+    }
+
+    func holdings(in snapshot: WatchSnapshot) -> [WatchHolding] {
+        guard matches(snapshot), let symbol else { return [] }
+        return snapshot.positions.filter { $0.symbol.uppercased() == symbol }
     }
 }
 
@@ -70,6 +83,8 @@ struct WatchSnapshot: Codable {
     var positions: [WatchHolding]
     var quotes: [WatchQuote]
     var total: Int
+    var allocation: AllocationSnapshot? = nil
+    var symbolFilter: String? = nil
 
     func directions(since previous: WatchSnapshot?) -> [String: Int] {
         guard let previous, previous.mode == mode, previous.epoch == epoch else { return [:] }

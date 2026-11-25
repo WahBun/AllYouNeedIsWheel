@@ -374,7 +374,8 @@ def watch_snapshot():
         return _no_store_json({'error': 'Account changed'}, 409)
     payload = dict(mode=mode, epoch=token, sampledAt=time.time(), positions=[], quotes=[], total=0)
     if section == 'holdings':
-        payload['positions'], payload['total'] = holding_page(conn.ib, conn.account_id, page)
+        payload.update(holding_page(conn.ib, conn.account_id, page, request.args.get('symbol'),
+                                    include_allocation=request.args.get('allocation') == '1'))
     else:
         payload['quotes'] = watch_quotes.read(conn, token)
     return _no_store_json(payload)
