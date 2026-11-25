@@ -36,7 +36,7 @@ struct PortfolioOptionRow: View {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        SymbolText(symbol: position.symbol).font(.headline)
+                        SymbolText(symbol: position.symbol, textStyle: .headline).font(.headline)
                         Text(verbatim: position.position.formatted())
                             .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                             .accessibilityLabel(Text("Quantity"))

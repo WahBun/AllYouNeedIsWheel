@@ -1064,7 +1064,7 @@ struct PortfolioView: View {
                             VStack(alignment: .leading, spacing: 8) {
                             HStack(alignment: .top) {
                                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                    SymbolText(symbol: position.symbol).font(.headline)
+                                    SymbolText(symbol: position.symbol, textStyle: .headline).font(.headline)
                                     if position.security_type == "FUT" {
                                         Text(verbatim: "@" + (position.optionAveragePrice.map { String(format: "%.2f", $0) } ?? "—") + (position.optionAverageUsesBrokerCost ? "*" : ""))
                                             .font(.caption).monospacedDigit()
@@ -1459,7 +1459,7 @@ extension View {
     @ViewBuilder func symbolTitle(_ symbol: String) -> some View {
         if CoreAssetStyle.contains(symbol) {
             self.navigationTitle(symbol).navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .principal) { SymbolText(symbol: symbol).font(.headline) } }
+                .toolbar { ToolbarItem(placement: .principal) { SymbolText(symbol: symbol, textStyle: .headline).font(.headline) } }
         } else {
             self.navigationTitle(symbol)
         }

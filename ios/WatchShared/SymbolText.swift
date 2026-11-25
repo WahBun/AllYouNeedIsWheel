@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum CoreAssetStyle {
     private static let letteringBySymbol = [
@@ -24,6 +25,7 @@ enum CoreAssetStyle {
 
 struct SymbolText: View {
     let symbol: String
+    var textStyle: UIFont.TextStyle = .body
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -42,16 +44,21 @@ struct SymbolText: View {
 
     var body: some View {
         if CoreAssetStyle.contains(symbol) {
+            let text = Text(verbatim: CoreAssetStyle.lettering(symbol))
+            // The default fallback splits ℕ from the other three double-struck capitals.
+            let lettering = symbol.uppercased() == "NVDA"
+                ? text.font(.custom("STIXTwoMath-Regular", fixedSize: UIFont.preferredFont(forTextStyle: textStyle).pointSize))
+                : text
             TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !visible || phase != .active || reduceMotion)) { context in
                 let progress = reduceMotion ? 0.5 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
-                Text(verbatim: CoreAssetStyle.lettering(symbol)).foregroundStyle(letteringStyle)
+                lettering.foregroundStyle(letteringStyle)
                     .overlay {
                         if !reduceMotion {
                             GeometryReader { geometry in
                                 LinearGradient(colors: symbol.uppercased() == "SGOV" ? [.clear, scheme == .dark ? Color.white : Color(red: 0.48, green: 0.23, blue: 0.02), .clear] : CoreAssetStyle.signatureFlow, startPoint: .leading, endPoint: .trailing)
                                     .frame(width: geometry.size.width * 0.65)
                                     .offset(x: geometry.size.width * (progress * 1.65 - 0.65))
-                            }.mask(Text(verbatim: CoreAssetStyle.lettering(symbol))).allowsHitTesting(false)
+                            }.mask(lettering).allowsHitTesting(false)
                         }
                     }
             }
