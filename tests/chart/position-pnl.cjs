@@ -5,8 +5,8 @@ const {start}=require('./market-feed/harness.cjs');
   const p=await browser.newPage({viewport:{width,height:1000}}),errors=[];
   p.on('pageerror',e=>errors.push(e.message));
   let rows=[
-   {con_id:8,symbol:'TSLL',position:100,avg_cost:10,unrealized_pnl:125,security_type:'STK'},
-   {con_id:9,symbol:'TSLL',local_symbol:'TSLL 20NOV26 9 P',position:-1,avg_cost:97.23,multiplier:100,unrealized_pnl:-12.5,security_type:'OPT'},
+   {con_id:8,symbol:'NVDA',position:100,avg_cost:10,unrealized_pnl:125,security_type:'STK'},
+   {con_id:9,symbol:'NVDA',local_symbol:'NVDA 20NOV26 9 P',position:-1,avg_cost:97.23,multiplier:100,unrealized_pnl:-12.5,security_type:'OPT'},
    {con_id:10,symbol:'VOO',position:2,avg_cost:500,unrealized_pnl:0},
    {con_id:11,symbol:'MISSING',position:1,avg_cost:10,unrealized_pnl:null},
    {con_id:12,symbol:'NO COST',position:1,avg_cost:null,unrealized_pnl:5},
@@ -19,8 +19,19 @@ const {start}=require('./market-feed/harness.cjs');
   if(!dark)await p.locator('#theme').click();await p.locator('#toggle-trade').click();
   const allButtons=p.locator('#positions button');
   // Find contracts by label so the default option-first sorting does not affect assertions.
-  const byRow=rows.map(row=>allButtons.filter({has:p.locator('.position-label',{hasText:(row.symbol==='VOO'?'𝕍𝕆𝕆':row.local_symbol||row.symbol)+' · '+row.position})}));
+  const lettering={NVDA:'ℕ𝕍𝔻𝔸',VOO:'𝕍𝕆𝕆'};
+  const byRow=rows.map(row=>{
+   const label=(lettering[row.symbol]||row.symbol)+(row.local_symbol||row.symbol).slice(row.symbol.length);
+   return allButtons.filter({has:p.locator('.position-label',{hasText:label+' · '+row.position})});
+  });
   const buttons={nth:i=>byRow[i],first:()=>byRow[0]};
+  for(const i of [0,1]){
+   const name=buttons.nth(i).locator('.core-symbol');
+   assert.equal(await name.textContent(),'ℕ𝕍𝔻𝔸');
+   assert.equal(await name.evaluate(e=>getComputedStyle(e).color),dark?'rgb(255, 214, 82)':'rgb(148, 77, 13)');
+   assert.equal(await name.evaluate(e=>getComputedStyle(e,'::after').animationName),'core-symbol-flow');
+   assert.equal(await buttons.nth(i).locator('.position-label').getAttribute('aria-label'),(rows[i].local_symbol||'NVDA')+' · '+rows[i].position);
+  }
   assert.equal(await buttons.nth(0).locator('.position-pnl').textContent(),'$125.00');
   assert.equal(await buttons.nth(0).locator('.position-rate').textContent(),'+12.5%');
   assert.equal(await buttons.nth(1).locator('.position-rate').textContent(),'-12.9%','Option average cost already includes multiplier');

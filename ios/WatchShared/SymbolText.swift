@@ -1,10 +1,13 @@
 import SwiftUI
 
 enum CoreAssetStyle {
-    static let symbols = ["SGOV", "VTI", "QQQ", "SPY", "VOO"]
-    static func contains(_ symbol: String) -> Bool { symbols.contains(symbol.uppercased()) }
+    private static let letteringBySymbol = [
+        "SGOV": "𝕊𝔾𝕆𝕍", "VTI": "𝕍𝕋𝕀", "QQQ": "ℚℚℚ",
+        "SPY": "𝕊ℙ𝕐", "VOO": "𝕍𝕆𝕆", "NVDA": "ℕ𝕍𝔻𝔸"
+    ]
+    static func contains(_ symbol: String) -> Bool { letteringBySymbol[symbol.uppercased()] != nil }
     static func lettering(_ symbol: String) -> String {
-        ["SGOV": "𝕊𝔾𝕆𝕍", "VTI": "𝕍𝕋𝕀", "QQQ": "ℚℚℚ", "SPY": "𝕊ℙ𝕐", "VOO": "𝕍𝕆𝕆"][symbol.uppercased()] ?? symbol
+        letteringBySymbol[symbol.uppercased()] ?? symbol
     }
     static let red = Color(red: 0.84, green: 0.13, blue: 0.09)
     static let brightGold = Color(red: 1, green: 0.84, blue: 0.32)
