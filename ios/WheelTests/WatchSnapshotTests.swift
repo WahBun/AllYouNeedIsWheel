@@ -56,13 +56,46 @@ final class WatchSnapshotTests: XCTestCase {
                                   price: 3, currency: "USD", averageCost: 2.5)
         var page = snapshot(1, 100)
         page.positions = [stock, option]
-        let selected = WatchHoldingSelection(mode: page.mode, epoch: page.epoch, contractID: option.id)
-        XCTAssertEqual(selected.holding(in: page)?.averageCost, 2.5)
+        let selected = WatchAssetSelection(mode: page.mode, epoch: page.epoch, symbol: "TEST")
+        XCTAssertEqual(selected.holdings(in: page).map(\.id), [10, 11])
         page.positions[1].averageCost = 2.75
-        XCTAssertEqual(selected.holding(in: page)?.averageCost, 2.75)
-        XCTAssertNil(WatchHoldingSelection(mode: "live", epoch: page.epoch, contractID: option.id).holding(in: page))
-        XCTAssertNil(WatchHoldingSelection(mode: page.mode, epoch: "another", contractID: option.id).holding(in: page))
+        XCTAssertEqual(selected.holdings(in: page).last?.averageCost, 2.75)
+        XCTAssertTrue(WatchAssetSelection(mode: "live", epoch: page.epoch, symbol: "TEST").holdings(in: page).isEmpty)
+        XCTAssertTrue(WatchAssetSelection(mode: page.mode, epoch: "another", symbol: "TEST").holdings(in: page).isEmpty)
+        XCTAssertTrue(WatchAssetSelection(mode: page.mode, epoch: page.epoch, symbol: nil).holdings(in: page).isEmpty)
         page.positions = [stock]
-        XCTAssertNil(selected.holding(in: page))
+        XCTAssertEqual(selected.holdings(in: page).map(\.id), [10])
+    }
+
+    func testRingTapMatchesPositiveSectorAndKeepsShortsSeparate() throws {
+        let wire = Data(#"{"net":95,"cash":5,"positions":[{"symbol":"B","value":25},{"symbol":"A","value":70},{"symbol":"A","value":-5},{"symbol":"SHORT","value":-10},{"symbol":"UNKNOWN","value":null}]}"#.utf8)
+        let data = AllocationData(snapshot: try JSONDecoder().decode(AllocationSnapshot.self, from: wire))
+        XCTAssertEqual(data.total, 100)
+        XCTAssertEqual(data.net, 95)
+        XCTAssertEqual(data.missingCount, 1)
+        XCTAssertEqual(data.liabilities.map(\.name), ["SHORT", "A"])
+        let slices = data.slices
+        XCTAssertEqual(slices.map(\.id), ["asset:A", "asset:B", "cash"])
+        XCTAssertEqual(AllocationSlice.at(clockwiseDegrees: 90, in: slices)?.id, "asset:A")
+        XCTAssertEqual(AllocationSlice.at(clockwiseDegrees: -30, in: slices)?.id, "asset:B")
+        XCTAssertEqual(AllocationSlice.at(clockwiseDegrees: -1, in: slices)?.id, "cash")
+        XCTAssertEqual(AllocationSlice.at(clockwiseDegrees: 360, in: slices)?.id, "asset:A")
+    }
+
+    func testReportedAverageSurvivesPhoneRelayAndRequiresAnIdentifiedSource() throws {
+        let payload = Data(#"{"id":7,"symbol":"TEST","contract":"TEST","quantity":3,"price":60,"currency":"USD","costSource":"report","averageCost":37.75,"reportDate":"2026-01-02","reportedShares":2}"#.utf8)
+        let phone = try JSONDecoder().decode(WatchHolding.self, from: payload)
+        var watch = try JSONDecoder().decode(WatchHolding.self, from: JSONEncoder().encode(phone))
+        let locale = Locale(identifier: "zh_Hant_HK")
+        XCTAssertEqual(watch.averageCostText(locale: locale), "$37.75")
+        XCTAssertEqual(watch.reportDate, "2026-01-02")
+        XCTAssertEqual(watch.reportedShares, 2)
+        XCTAssertEqual(watch.priceText(locale: locale), "$60.00")
+        watch.reportDate = nil
+        XCTAssertEqual(watch.averageCostText(locale: locale), "—")
+        watch.costSource = nil
+        XCTAssertEqual(watch.averageCostText(locale: locale), "—")
+        watch.costSource = "position"
+        XCTAssertEqual(watch.averageCostText(locale: locale), "$37.75")
     }
 }

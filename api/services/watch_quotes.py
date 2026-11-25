@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 from ib_async import Future, Stock, Ticker
 
 from api.services.contract_labels import contract_label
+from api.services.stock_cost_service import reported_costs
+from core.currency import CurrencyHelper
 
 SYMBOLS = ('QQQ', 'SPY', 'MES', 'MNQ')
 EASTERN = ZoneInfo('America/New_York')
@@ -23,8 +25,6 @@ def holding_average_cost(position):
     if cost is None or abs(cost) == sys.float_info.max:
         return None
     contract = position.contract
-    if contract.secType == 'STK':
-        return cost
     if contract.secType not in ('OPT', 'FOP', 'FUT'):
         return None
     try:
@@ -36,20 +36,62 @@ def holding_average_cost(position):
     return finite(cost / multiplier)
 
 
-def holding_page(ib, account, page):
+def allocation_snapshot(ib, account, positions, marks):
+    def usd(value, currency):
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(value) or abs(value) == sys.float_info.max:
+            return None
+        return finite(CurrencyHelper.convert_amount(value, currency or 'USD'))
+
+    totals = {}
+    # Summary rows match the iPhone. After a cold start the account update
+    # stream can already contain the same tags before a summary is requested.
+    for source in (ib.wrapper.acctSummary.values(), ib.accountValues(account)):
+        for row in source:
+            if (row.account == account and row.tag in ('NetLiquidation', 'TotalCashValue')
+                    and not getattr(row, 'modelCode', '') and row.currency not in ('BASE', '')
+                    and row.tag not in totals):
+                value = usd(row.value, row.currency)
+                if value is not None:
+                    totals[row.tag] = value
+    values = []
+    for position in positions:
+        contract = position.contract
+        mark = marks.get(contract.conId)
+        value = usd(mark.marketValue, contract.currency) if mark and mark.position == position.position else None
+        values.append(dict(symbol=contract.symbol.upper(), value=value))
+    return dict(positions=values, cash=totals.get('TotalCashValue'), net=totals.get('NetLiquidation'))
+
+
+def holding_page(ib, account, page, symbol=None, *, include_allocation=True):
     # The position stream can be ahead of account-value updates following a fill.
     marks = {p.contract.conId: p for p in ib.portfolio(account) if p.account == account}
     positions = sorted((p for p in ib.positions(account) if p.account == account and p.position),
                        key=lambda p: (p.contract.symbol, p.contract.localSymbol, p.contract.conId))
+    allocation = allocation_snapshot(ib, account, positions, marks) if include_allocation else None
+    if symbol is not None:
+        positions = [p for p in positions if p.contract.symbol.upper() == symbol]
+    visible = positions[page * 30:(page + 1) * 30]
+    reports = reported_costs(account, refresh=False) if any(p.contract.secType == 'STK' for p in visible) else {}
     rows = []
-    for p in positions[page * 30:(page + 1) * 30]:
+    for p in visible:
         c = p.contract
         mark = marks.get(c.conId)
         price = finite(mark.marketPrice) if mark and mark.position == p.position else None
-        rows.append(dict(id=c.conId, symbol=c.symbol, contract=contract_label(c),
-                         quantity=p.position, price=price, currency=c.currency,
-                         averageCost=holding_average_cost(p)))
-    return rows, len(positions)
+        row = dict(id=c.conId, symbol=c.symbol, contract=contract_label(c),
+                   quantity=p.position, price=price, currency=c.currency)
+        if c.secType == 'STK':
+            report = reports.get((c.conId, c.currency))
+            row.update(costSource='report', averageCost=report['average'] if report else None)
+            if report:
+                row.update(reportDate=report['date'], reportedShares=report['quantity'])
+        else:
+            row.update(costSource='position', averageCost=holding_average_cost(p))
+        rows.append(row)
+    return dict(positions=rows, total=len(positions), allocation=allocation, symbolFilter=symbol)
 
 
 class WatchQuotes:

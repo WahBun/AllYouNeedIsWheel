@@ -79,17 +79,21 @@ final class WatchPhone: NSObject, WCSessionDelegate {
                   let account = self.account else { replyHandler(["error": "account"]); return }
             do {
                 let snapshot: WatchSnapshot
+                let symbol = section == .holdings ? message["symbol"] as? String : nil
                 if account.mode == "demo" {
-                    snapshot = await self.demo(section: section, page: page)
+                    snapshot = await self.demo(section: section, page: page, symbol: symbol)
                 } else {
                     guard let url = URL(string: account.address), url.scheme == "https", url.host != nil,
                           url.user == nil, url.password == nil, url.fragment == nil, url.query == nil else {
                         replyHandler(["error": "account"]); return
                     }
-                    let endpoint = url.appendingPathComponent("api/portfolio/watch").appending(queryItems: [
+                    var query: [URLQueryItem] = [
                         .init(name: "mode", value: account.mode), .init(name: "epoch", value: account.epoch),
                         .init(name: "section", value: section.rawValue), .init(name: "page", value: String(page))
-                    ])
+                    ]
+                    if section == .holdings { query.append(.init(name: "allocation", value: "1")) }
+                    if let symbol { query.append(.init(name: "symbol", value: symbol)) }
+                    let endpoint = url.appendingPathComponent("api/portfolio/watch").appending(queryItems: query)
                     var request = URLRequest(url: endpoint, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
                     request.setValue(account.epoch, forHTTPHeaderField: "X-Wheel-Account-Epoch")
                     let (data, response) = try await URLSession.shared.data(for: request)
@@ -107,18 +111,22 @@ final class WatchPhone: NSObject, WCSessionDelegate {
         }
     }
 
-    private func demo(section: WatchSection, page: Int) async -> WatchSnapshot {
+    private func demo(section: WatchSection, page: Int, symbol: String?) async -> WatchSnapshot {
         // Only read from a Demo store. A real account's holdings never enter a Demo reply.
         if let store, store.demo, store.portfolio == nil { await store.refreshPortfolio(includeWeekly: false) }
-        let rows = store?.demo == true ? (store?.portfolio?.positions ?? []).filter { $0.position != 0 } : []
+        let portfolio = store?.demo == true ? store?.portfolio : nil
+        let rows = (portfolio?.positions ?? []).filter { $0.position != 0 && (symbol == nil || $0.symbol.uppercased() == symbol) }
         let now = Date.now.timeIntervalSince1970
         let quotes = [("QQQ", 512.35), ("SPY", 605.42), ("MES", 6085.25), ("MNQ", 21345.5)]
-        return WatchSnapshot(mode: "demo", epoch: "demo", sampledAt: now, positions: section == .holdings && page == 0 ? rows.map {
+        return WatchSnapshot(mode: "demo", epoch: "demo", sampledAt: now, positions: section == .holdings ? rows.dropFirst(page * 30).prefix(30).map {
             WatchHolding(id: $0.con_id ?? 0, symbol: $0.symbol, contract: $0.chartLabel, quantity: $0.position,
                          price: $0.market_price, currency: "USD",
-                         averageCost: $0.security_type == "STK" ? $0.avg_cost : $0.optionAveragePrice)
+                         averageCost: $0.security_type == "STK" ? $0.reported_cost?.average : $0.optionAveragePrice,
+                         costSource: $0.security_type == "STK" ? "report" : "position",
+                         reportDate: $0.reported_cost?.date, reportedShares: $0.reported_cost?.quantity)
         } : [], quotes: section == .quotes ? quotes.map {
             WatchQuote(symbol: $0.0, contract: ["MNQ": "MNQZ6", "MES": "MESZ6"][$0.0] ?? $0.0, price: $0.1, source: "last", dataType: 1, sampledAt: now)
-        } : [], total: rows.count)
+        } : [], total: rows.count, allocation: section == .holdings ? portfolio.map(AllocationSnapshot.init) : nil,
+                             symbolFilter: symbol)
     }
 }

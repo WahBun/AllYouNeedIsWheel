@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import tempfile
 import unittest
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
@@ -82,38 +83,101 @@ class WatchQuoteTests(unittest.IsolatedAsyncioTestCase):
 
 
 class WatchHoldingsTests(unittest.TestCase):
-    def test_average_cost_uses_current_position_and_contract_multiplier(self):
+    def broker(self):
         ib = Mock()
+        ib.wrapper.acctSummary = {}
+        ib.accountValues.return_value = []
+        ib.portfolio.return_value = []
+        return ib
+
+    def test_derivative_average_cost_uses_current_position_and_contract_multiplier(self):
+        ib = self.broker()
         ib.portfolio.return_value = []
         for kind, multiplier, cost, expected in [
-            ('STK', '', 95.45, 95.45), ('OPT', '100', 601, 6.01), ('OPT', '10', 43, 4.3),
+            ('OPT', '100', 601, 6.01), ('OPT', '10', 43, 4.3),
             ('FUT', '2', 44000, 22000), ('FOP', '5', 60, 12),
             ('FUT', '2', -10, -5), ('OPT', '', 601, None), ('FUT', '0', 80, None),
-            ('OPT', 'nan', 100, None), ('STK', '', sys.float_info.max, None),
-            ('STK', '', float('nan'), None), ('STK', '', 0, 0),
+            ('OPT', 'nan', 100, None), ('FUT', '2', sys.float_info.max, None),
+            ('FUT', '2', float('nan'), None), ('OPT', '100', 0, 0),
         ]:
             with self.subTest(kind=kind, multiplier=multiplier, cost=cost):
                 contract = Stock('TEST', 'SMART', 'USD', conId=8)
                 contract.secType, contract.multiplier = kind, multiplier
                 ib.positions.return_value = [NS(account='paper-test', contract=contract, position=-2, avgCost=cost)]
-                rows, _ = holding_page(ib, 'paper-test', 0)
+                rows = holding_page(ib, 'paper-test', 0)['positions']
                 self.assertEqual(rows[0]['averageCost'], expected)
+                self.assertEqual(rows[0]['costSource'], 'position')
                 self.assertIsNone(rows[0]['price'])
         ib.reqContractDetails.assert_not_called()
         ib.reqMktData.assert_not_called()
 
+    def test_stock_cost_matches_phone_report_for_account_contract_and_currency(self):
+        from api.services.stock_cost_service import archive_costs
+        ib = self.broker()
+        ib.portfolio.return_value = []
+        def position(conid, currency='USD', kind='STK'):
+            c = Stock('TEST', 'SMART', currency, conId=conid)
+            c.secType, c.multiplier = kind, '100' if kind == 'OPT' else ''
+            return NS(account='A', contract=c, position=3, avgCost=200)
+        ib.positions.return_value = [position(1), position(2, 'CAD'), position(3), position(4, kind='OPT')]
+        report = ('HEADER,POST,ClientAccountID,AssetClass,Conid,CurrencyPrimary,ReportDate,Quantity,CostBasisMoney,LevelOfDetail\n'
+                  'DATA,POST,A,STK,1,USD,20260102,2,75.5,SUMMARY\n'
+                  'DATA,POST,A,STK,2,USD,20260102,1,30,SUMMARY\n'
+                  'DATA,POST,B,STK,3,USD,20260102,1,40,SUMMARY\n')
+        with tempfile.TemporaryDirectory() as folder:
+            config = {'account_id': 'A', 'history_path': folder + '/costs.sqlite3'}
+            archive_costs(report, config)
+            archive_costs(report, dict(config, account_id='B'))
+            with patch('api.services.performance_service.configuration', return_value=config), \
+                 patch('api.services.performance_service.service.read') as refresh:
+                payload = holding_page(ib, 'A', 0)
+                rows, total = payload['positions'], payload['total']
+                refresh.assert_not_called()
+        self.assertEqual(total, 4)
+        stock, wrong_currency, other_account, option = rows
+        self.assertEqual((stock['averageCost'], stock['reportDate'], stock['reportedShares'], stock['quantity']),
+                         (37.75, '2026-01-02', 2, 3))
+        for missing in (wrong_currency, other_account):
+            self.assertEqual(missing['costSource'], 'report')
+            self.assertIsNone(missing['averageCost'])
+            self.assertNotIn('reportDate', missing)
+        self.assertEqual((option['costSource'], option['averageCost']), ('position', 2))
+
     def test_quantity_identity_currency_and_paging(self):
-        ib = Mock()
+        ib = self.broker()
         account = 'paper-test'
         holdings = [NS(account=account, contract=Stock(f'S{i:02}', 'SMART', 'CAD', conId=i+1), position=-1.5)
                     for i in range(31)]
         ib.positions.return_value = holdings + [NS(account='elsewhere', position=1)]
-        ib.portfolio.return_value = [NS(account=account, contract=holdings[-1].contract, position=-1.5, marketPrice=42)]
-        rows, total = holding_page(ib, account, 1)
+        ib.portfolio.return_value = [NS(account=account, contract=holdings[-1].contract, position=-1.5, marketPrice=42, marketValue=-63)]
+        payload = holding_page(ib, account, 1)
+        rows, total = payload['positions'], payload['total']
         self.assertEqual(total, 31)
         self.assertEqual((rows[0]['quantity'], rows[0]['currency'], rows[0]['price']), (-1.5, 'CAD', 42))
         ib.portfolio.return_value[0].position = 1
-        self.assertIsNone(holding_page(ib, account, 1)[0][0]['price'])
+        self.assertIsNone(holding_page(ib, account, 1)['positions'][0]['price'])
+
+    def test_ring_uses_entire_account_and_symbol_details_filter_before_paging(self):
+        ib = self.broker()
+        def balance(account, tag, value):
+            return NS(account=account, tag=tag, currency='USD', value=str(value), modelCode='')
+        ib.wrapper.acctSummary = {1: balance('A', 'NetLiquidation', 900), 2: balance('B', 'TotalCashValue', 999)}
+        ib.accountValues.return_value = [balance('A', 'TotalCashValue', -25), balance('A', 'NetLiquidation', 700)]
+        positions = [NS(account='A', contract=Stock('FIRST' if n < 31 else 'LAST', 'SMART', 'USD', conId=n+1),
+                        position=1, avgCost=12) for n in range(32)]
+        ib.positions.return_value = positions
+        ib.portfolio.return_value = [NS(account='A', contract=p.contract, position=1, marketPrice=8,
+                                        marketValue=8 if p.contract.symbol == 'FIRST' else -5) for p in positions]
+        ib.portfolio.return_value[0].position = 2
+        payload = holding_page(ib, 'A', 0, 'LAST')
+        self.assertEqual((payload['symbolFilter'], payload['total'], payload['positions'][0]['id']), ('LAST', 1, 32))
+        allocation = payload['allocation']
+        self.assertEqual((allocation['cash'], allocation['net']), (-25, 900))
+        self.assertEqual(len(allocation['positions']), 32)
+        self.assertIsNone(allocation['positions'][0]['value'])
+        self.assertEqual(allocation['positions'][-1], {'symbol': 'LAST', 'value': -5})
+        ib.reqMktData.assert_not_called()
+        ib.reqAccountSummary.assert_not_called()
 
     def test_endpoint_rejects_old_epoch_and_other_account_without_read(self):
         app = Flask(__name__)
