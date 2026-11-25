@@ -142,21 +142,19 @@ private struct WatchDashboard: View {
                         } else {
                             if snapshot.total == 0 { Text("No holdings") }
                             ForEach(snapshot.positions) { row in
-                                VStack(alignment: .leading, spacing: 1) {
-                                    HStack(alignment: .firstTextBaseline, spacing: 3) {
-                                        SymbolText(symbol: row.symbol).font(.headline)
-                                        if row.contract != row.symbol {
-                                            Text(verbatim: row.contract.hasPrefix(row.symbol) ? String(row.contract.dropFirst(row.symbol.count)) : row.contract)
-                                                .font(.caption2).fixedSize(horizontal: false, vertical: true)
-                                        }
-                                    }
-                                    HStack {
-                                        Text(verbatim: row.quantity.formatted())
-                                            .accessibilityLabel("Quantity \(row.quantity.formatted())")
-                                        Spacer()
-                                        Text(verbatim: row.priceText(locale: locale))
-                                    }.font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                                NavigationLink(value: WatchHoldingSelection(mode: snapshot.mode, epoch: snapshot.epoch,
+                                                                            contractID: row.id)) {
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        holdingHeader(row)
+                                        HStack {
+                                            Text(verbatim: row.quantity.formatted())
+                                                .accessibilityLabel("Quantity \(row.quantity.formatted())")
+                                            Spacer()
+                                            Text(verbatim: row.priceText(locale: locale))
+                                        }.font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                                    }.contentShape(Rectangle())
                                 }
+                                .buttonStyle(.plain)
                                 Divider()
                             }
                             if page > 0 { Button("Previous") { page -= 1 } }
@@ -175,15 +173,44 @@ private struct WatchDashboard: View {
             .toolbarTitleDisplayMode(.inline)
             .toolbarForegroundStyle(phone.snapshot?.mode == "live" ? color(0x4EC890) : Color.primary,
                                     for: .navigationBar)
+            .navigationDestination(for: WatchHoldingSelection.self) { selection in
+                ScrollView {
+                    if let snapshot = phone.snapshot, let row = selection.holding(in: snapshot) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            holdingHeader(row)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Average cost").font(.footnote).foregroundStyle(.secondary)
+                                Text(verbatim: row.formatPrice(row.averageCost, locale: locale))
+                                    .font(.title2).monospacedDigit()
+                            }
+                            Text("As of \(stamp(snapshot.sampledAt))").font(.caption2).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Text("Holding unavailable")
+                    }
+                }
+                .navigationTitle("Holdings")
+                .environment(\.colorScheme, phone.theme.dark ? .dark : .light)
+            }
             .onChange(of: section) { _, next in page = 0; phone.select(next, page: 0) }
             .onChange(of: page) { _, next in phone.select(section, page: next) }
-            .task(id: "\(section.rawValue)-\(page)-\(phase)-\(dimmed)-\(phone.reachability)") {
-                guard phase == .active, !dimmed else { return }
-                while !Task.isCancelled {
-                    await phone.read(section, page: page)
-                    let waiting = section == .quotes && phone.snapshot?.quotes.contains { $0.price == nil } == true
-                    do { try await Task.sleep(for: .seconds(waiting ? 6 : 15)) } catch { return }
-                }
+        }
+        .task(id: "\(section.rawValue)-\(page)-\(phase)-\(dimmed)-\(phone.reachability)") {
+            guard phase == .active, !dimmed else { return }
+            while !Task.isCancelled {
+                await phone.read(section, page: page)
+                let waiting = section == .quotes && phone.snapshot?.quotes.contains { $0.price == nil } == true
+                do { try await Task.sleep(for: .seconds(waiting ? 6 : 15)) } catch { return }
+            }
+        }
+    }
+
+    private func holdingHeader(_ row: WatchHolding) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 3) {
+            SymbolText(symbol: row.symbol).font(.headline)
+            if row.contract != row.symbol {
+                Text(verbatim: row.contract.hasPrefix(row.symbol) ? String(row.contract.dropFirst(row.symbol.count)) : row.contract)
+                    .font(.caption2).fixedSize(horizontal: false, vertical: true)
             }
         }
     }

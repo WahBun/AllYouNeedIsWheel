@@ -47,4 +47,22 @@ final class WatchSnapshotTests: XCTestCase {
                            10.0.formatted(.currency(code: "CAD").locale(locale)), region)
         }
     }
+
+    func testHoldingDetailFollowsTheExactContractAndAccount() throws {
+        let old = Data(#"{"id":10,"symbol":"TEST","contract":"TEST","currency":"USD","quantity":1,"price":30}"#.utf8)
+        let stock = try JSONDecoder().decode(WatchHolding.self, from: old)
+        XCTAssertNil(stock.averageCost)
+        let option = WatchHolding(id: 11, symbol: "TEST", contract: "TEST 50P", quantity: -1,
+                                  price: 3, currency: "USD", averageCost: 2.5)
+        var page = snapshot(1, 100)
+        page.positions = [stock, option]
+        let selected = WatchHoldingSelection(mode: page.mode, epoch: page.epoch, contractID: option.id)
+        XCTAssertEqual(selected.holding(in: page)?.averageCost, 2.5)
+        page.positions[1].averageCost = 2.75
+        XCTAssertEqual(selected.holding(in: page)?.averageCost, 2.75)
+        XCTAssertNil(WatchHoldingSelection(mode: "live", epoch: page.epoch, contractID: option.id).holding(in: page))
+        XCTAssertNil(WatchHoldingSelection(mode: page.mode, epoch: "another", contractID: option.id).holding(in: page))
+        page.positions = [stock]
+        XCTAssertNil(selected.holding(in: page))
+    }
 }
