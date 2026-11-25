@@ -293,8 +293,8 @@ class StockChart:
             if state.get('timed_trades'):
                 state['timed_trades'].close()
             state['ticker'].updateEvent -= state['handler']
-            if state.get('permission_handler') is not None:
-                state['conn'].ib.errorEvent -= state['permission_handler']
+            if state.get('tick_error_handler') is not None:
+                state['conn'].ib.errorEvent -= state['tick_error_handler']
             try:
                 if state.get('option_bars'): return  # Shared quote subscription belongs to the connection cache.
                 state['conn'].ib.cancelTickByTickData(state['contract'], 'Last')
@@ -631,16 +631,23 @@ class StockChart:
                 mapping = getattr(getattr(conn.ib, 'wrapper', None), 'ticker2ReqId', {})
                 request_ids = {mapping.get(kind, {}).get(ticker): kind for kind in ('Last', 'BidAsk')} if isinstance(mapping, dict) else {}
                 request_ids.pop(None, None)
-                def on_permission_error(req_id, code, message, error_contract=None):
-                    if (code != 10189 or req_id not in request_ids
+                def on_tick_error(req_id, code, message, error_contract=None):
+                    if (code not in (10189, 10190) or req_id not in request_ids
                             or getattr(error_contract, 'conId', con_id) != con_id
                             or self.states.get(con_id) is not state
                             or state['client'] is not conn.ib.client):
                         return
-                    state.setdefault('permission_errors', {})[request_ids[req_id]] = (
-                        state['timed_trades'].last_primary if state.get('timed_trades') else state['last_tick'], dict(state['quotes']))
-                state['permission_handler'] = on_permission_error
-                conn.ib.errorEvent += on_permission_error
+                    kind = request_ids[req_id]
+                    trades = state.get('timed_trades')
+                    if code == 10190:
+                        # IB rejected this subscription before Last could report a backlog.
+                        if kind == 'Last' and trades:
+                            trades.start()
+                        return
+                    state.setdefault('permission_errors', {})[kind] = (
+                        trades.last_primary if trades else state['last_tick'], dict(state['quotes']))
+                state['tick_error_handler'] = on_tick_error
+                conn.ib.errorEvent += on_tick_error
             if pending_seed is not None and not option_bars:
                 # Keep optional 8h work behind the visible chart's first seed.
                 def preload_after_history(task):

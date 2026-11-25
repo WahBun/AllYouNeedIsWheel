@@ -251,8 +251,8 @@ class ChartTrades:
         self.stop()
 
     def update_subscription(self, now):
-        # After a seeded start only a late native Last can activate the fallback.
-        # A quote-only packet or an alert alone cannot start it.
+        # Only a native Last can establish backlog. An explicit subscription
+        # rejection is handled separately by the chart's IB error callback.
         if self.last_primary is None or self.primary_received != now:
             return
         lag = now - self.last_primary
