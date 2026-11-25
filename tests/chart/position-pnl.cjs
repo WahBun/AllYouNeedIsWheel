@@ -36,6 +36,20 @@ const {start}=require('./market-feed/harness.cjs');
   const palette=symbol=>allButtons.locator('.core-symbol').filter({hasText:lettering[symbol]}).first()
    .evaluate(e=>[getComputedStyle(e).color,getComputedStyle(e,'::after').backgroundImage]);
   const nvda=await palette('NVDA'),sgov=await palette('SGOV');
+  const letterHeights=await buttons.first().locator('.core-symbol').evaluate(async name=>{
+   const family=getComputedStyle(name).fontFamily;
+   const font='600 64px '+family;
+   const loaded=await document.fonts.load(font,name.textContent);
+   if(!loaded.some(face=>face.family==='WheelNVDA'))throw new Error('NVDA font did not load');
+   const ctx=document.createElement('canvas').getContext('2d');
+   ctx.font=font;
+   return Array.from(name.textContent,letter=>{
+    const metrics=ctx.measureText(letter);
+    return [metrics.actualBoundingBoxAscent,metrics.actualBoundingBoxDescent];
+   });
+  });
+  assert.equal(letterHeights.length,4);
+  for(const height of letterHeights)assert.deepEqual(height,letterHeights[1]);
   assert.deepEqual(nvda,await palette('QQQ'));
   assert.deepEqual(nvda,await palette('SPY'));
   assert.equal(sgov[0],dark?'rgb(255, 224, 148)':'rgb(199, 153, 41)');

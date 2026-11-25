@@ -161,7 +161,7 @@ struct CompactOrderRow: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    SymbolText(symbol: order.displaySymbol).font(.headline)
+                    SymbolText(symbol: order.displaySymbol, textStyle: .headline).font(.headline)
                     if order.option_type != "STOCK" && order.option_type != "FUTURE" && order.option_type != "FOREX" {
                         Text(verbatim: order.contractDetails)
                             .font(.caption).foregroundStyle(.secondary)

@@ -946,7 +946,7 @@ struct OpportunitiesView: View {
                 let pins = book.pins[group] ?? []
                 Section {
                     HStack {
-                        SymbolText(symbol: symbol).font(.headline)
+                        SymbolText(symbol: symbol, textStyle: .headline).font(.headline)
                         Spacer()
                         OpportunityPrice(row: book.rows[group] ?? pins.first.flatMap { book.rows[$0.id] })
                         addButton(symbol)

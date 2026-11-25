@@ -210,7 +210,7 @@ private struct WatchDashboard: View {
 
     private func holdingHeader(_ row: WatchHolding) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 3) {
-            SymbolText(symbol: row.symbol).font(.headline)
+            SymbolText(symbol: row.symbol, textStyle: .headline).font(.headline)
             if row.contract != row.symbol {
                 Text(verbatim: row.contract.hasPrefix(row.symbol) ? String(row.contract.dropFirst(row.symbol.count)) : row.contract)
                     .font(.caption2).fixedSize(horizontal: false, vertical: true)
