@@ -1,10 +1,13 @@
 import SwiftUI
 
 enum CoreAssetStyle {
-    static let symbols = ["SGOV", "VTI", "QQQ", "SPY", "VOO"]
-    static func contains(_ symbol: String) -> Bool { symbols.contains(symbol.uppercased()) }
+    private static let letteringBySymbol = [
+        "SGOV": "𝕊𝔾𝕆𝕍", "VTI": "𝕍𝕋𝕀", "QQQ": "ℚℚℚ",
+        "SPY": "𝕊ℙ𝕐", "VOO": "𝕍𝕆𝕆", "NVDA": "ℕ𝕍𝔻𝔸"
+    ]
+    static func contains(_ symbol: String) -> Bool { letteringBySymbol[symbol.uppercased()] != nil }
     static func lettering(_ symbol: String) -> String {
-        ["SGOV": "𝕊𝔾𝕆𝕍", "VTI": "𝕍𝕋𝕀", "QQQ": "ℚℚℚ", "SPY": "𝕊ℙ𝕐", "VOO": "𝕍𝕆𝕆"][symbol.uppercased()] ?? symbol
+        letteringBySymbol[symbol.uppercased()] ?? symbol
     }
     static let red = Color(red: 0.84, green: 0.13, blue: 0.09)
     static let brightGold = Color(red: 1, green: 0.84, blue: 0.32)
@@ -25,11 +28,23 @@ struct SymbolText: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var visible = false
+
+    private var letteringStyle: AnyShapeStyle {
+        #if os(watchOS)
+        // The watch may pause its animation timeline while the lettering stays visible.
+        if symbol.uppercased() != "SGOV" {
+            return AnyShapeStyle(LinearGradient(colors: [CoreAssetStyle.red, CoreAssetStyle.brightGold, CoreAssetStyle.darkGold],
+                                                startPoint: .leading, endPoint: .trailing))
+        }
+        #endif
+        return AnyShapeStyle(TradingColors.symbol(symbol, scheme: scheme))
+    }
+
     var body: some View {
         if CoreAssetStyle.contains(symbol) {
             TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !visible || phase != .active || reduceMotion)) { context in
                 let progress = reduceMotion ? 0.5 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
-                Text(verbatim: CoreAssetStyle.lettering(symbol)).foregroundStyle(TradingColors.symbol(symbol, scheme: scheme))
+                Text(verbatim: CoreAssetStyle.lettering(symbol)).foregroundStyle(letteringStyle)
                     .overlay {
                         if !reduceMotion {
                             GeometryReader { geometry in

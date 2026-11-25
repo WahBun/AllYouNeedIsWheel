@@ -114,7 +114,9 @@ final class WatchPhone: NSObject, WCSessionDelegate {
         let now = Date.now.timeIntervalSince1970
         let quotes = [("QQQ", 512.35), ("SPY", 605.42), ("MES", 6085.25), ("MNQ", 21345.5)]
         return WatchSnapshot(mode: "demo", epoch: "demo", sampledAt: now, positions: section == .holdings && page == 0 ? rows.map {
-            WatchHolding(id: $0.con_id ?? 0, symbol: $0.symbol, contract: $0.chartLabel, quantity: $0.position, price: $0.market_price, currency: "USD")
+            WatchHolding(id: $0.con_id ?? 0, symbol: $0.symbol, contract: $0.chartLabel, quantity: $0.position,
+                         price: $0.market_price, currency: "USD",
+                         averageCost: $0.security_type == "STK" ? $0.avg_cost : $0.optionAveragePrice)
         } : [], quotes: section == .quotes ? quotes.map {
             WatchQuote(symbol: $0.0, contract: ["MNQ": "MNQZ6", "MES": "MESZ6"][$0.0] ?? $0.0, price: $0.1, source: "last", dataType: 1, sampledAt: now)
         } : [], total: rows.count)

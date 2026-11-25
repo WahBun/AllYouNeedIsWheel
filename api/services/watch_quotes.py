@@ -1,6 +1,7 @@
 """Four on-demand display snapshots. All access is on the existing IB owner."""
 import asyncio
 import math
+import sys
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -17,6 +18,24 @@ def finite(value):
     return value if isinstance(value, (int, float)) and math.isfinite(value) else None
 
 
+def holding_average_cost(position):
+    cost = finite(getattr(position, 'avgCost', None))
+    if cost is None or abs(cost) == sys.float_info.max:
+        return None
+    contract = position.contract
+    if contract.secType == 'STK':
+        return cost
+    if contract.secType not in ('OPT', 'FOP', 'FUT'):
+        return None
+    try:
+        multiplier = float(contract.multiplier)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(multiplier) or multiplier <= 0:
+        return None
+    return finite(cost / multiplier)
+
+
 def holding_page(ib, account, page):
     # The position stream can be ahead of account-value updates following a fill.
     marks = {p.contract.conId: p for p in ib.portfolio(account) if p.account == account}
@@ -28,7 +47,8 @@ def holding_page(ib, account, page):
         mark = marks.get(c.conId)
         price = finite(mark.marketPrice) if mark and mark.position == p.position else None
         rows.append(dict(id=c.conId, symbol=c.symbol, contract=contract_label(c),
-                         quantity=p.position, price=price, currency=c.currency))
+                         quantity=p.position, price=price, currency=c.currency,
+                         averageCost=holding_average_cost(p)))
     return rows, len(positions)
 
 

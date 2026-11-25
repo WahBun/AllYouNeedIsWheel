@@ -18,7 +18,7 @@ Wheel is in everyday use and stability maintenance. Ordinary issues are collecte
 
 **Wheel v1.9.2** · Web **1.9.2** · iPhone **1.9.2 (8)** · Branch **`main`**
 
-The [November 19 source ZIP (`1a5db0f`)](https://github.com/WahBun/AllYouNeedIsWheel/releases/download/v1.9.2/Wheel-v1.9.2-source-1a5db0f.zip) includes the latest chart fixes. GitHub’s automatic **Source code** archives contain the original November 17 release. For changes and upgrade instructions by starting version, see the [v1.9.2 release notes](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.9.2).
+Download the current source ZIP from the top of the [v1.9.2 release notes](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.9.2). GitHub’s automatic **Source code** archives correspond to the original November 17 tag.
 
 Recommended roles: the **development Mac** handles development, Xcode and iPhone builds; the **backend host** runs Gateway, Backend and the API continuously. The development Mac and iPhone reach the backend host through Tailscale. The user chooses deployments and restarts from a computer or phone, and performs the iPhone Xcode Run.
 
@@ -69,7 +69,7 @@ Layout drafts are saved in the current browser for each preview address and work
 
 Available CC quantity accounts for shares held, existing short CALLs and active sell-order reservations. It is not simply total shares divided by 100. Position entry prices come from reliably matched fills; uncertain values remain unavailable rather than using a limit price or fee-adjusted position cost.
 
-SGOV, VTI, QQQ, SPY and VOO have dedicated names and allocation animations. VTI/QQQ/SPY/VOO remain eligible in Trade; SGOV is excluded from Trade candidates. Decorative animations respect Reduce Motion and pause in the background or when their view is not visible.
+SGOV, VTI, QQQ, SPY, VOO and NVDA have dedicated names and allocation animations. VTI/QQQ/SPY/VOO/NVDA remain eligible in Trade; SGOV is excluded from Trade candidates. Decorative animations respect Reduce Motion and pause in the background or when their view is not visible.
 
 ### Supercharts and the 𝔹𝕖𝕟 indicator
 

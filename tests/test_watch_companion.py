@@ -1,4 +1,5 @@
 import asyncio
+import sys
 import unittest
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
@@ -81,6 +82,26 @@ class WatchQuoteTests(unittest.IsolatedAsyncioTestCase):
 
 
 class WatchHoldingsTests(unittest.TestCase):
+    def test_average_cost_uses_current_position_and_contract_multiplier(self):
+        ib = Mock()
+        ib.portfolio.return_value = []
+        for kind, multiplier, cost, expected in [
+            ('STK', '', 95.45, 95.45), ('OPT', '100', 601, 6.01), ('OPT', '10', 43, 4.3),
+            ('FUT', '2', 44000, 22000), ('FOP', '5', 60, 12),
+            ('FUT', '2', -10, -5), ('OPT', '', 601, None), ('FUT', '0', 80, None),
+            ('OPT', 'nan', 100, None), ('STK', '', sys.float_info.max, None),
+            ('STK', '', float('nan'), None), ('STK', '', 0, 0),
+        ]:
+            with self.subTest(kind=kind, multiplier=multiplier, cost=cost):
+                contract = Stock('TEST', 'SMART', 'USD', conId=8)
+                contract.secType, contract.multiplier = kind, multiplier
+                ib.positions.return_value = [NS(account='paper-test', contract=contract, position=-2, avgCost=cost)]
+                rows, _ = holding_page(ib, 'paper-test', 0)
+                self.assertEqual(rows[0]['averageCost'], expected)
+                self.assertIsNone(rows[0]['price'])
+        ib.reqContractDetails.assert_not_called()
+        ib.reqMktData.assert_not_called()
+
     def test_quantity_identity_currency_and_paging(self):
         ib = Mock()
         account = 'paper-test'
