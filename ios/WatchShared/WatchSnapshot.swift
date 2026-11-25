@@ -2,6 +2,23 @@ import Foundation
 
 enum WatchSection: String, Codable { case quotes, holdings }
 
+/// Keep the most recent page of each tab while the watch app is open.
+struct WatchPageCache {
+    private var pages: [WatchSection: (page: Int, snapshot: WatchSnapshot)] = [:]
+
+    mutating func store(_ snapshot: WatchSnapshot, section: WatchSection, page: Int) {
+        if let old = pages.values.first?.snapshot, old.mode != snapshot.mode || old.epoch != snapshot.epoch {
+            pages.removeAll()
+        }
+        pages[section] = (page, snapshot)
+    }
+
+    func snapshot(for section: WatchSection, page: Int) -> WatchSnapshot? {
+        guard let saved = pages[section], saved.page == page else { return nil }
+        return saved.snapshot
+    }
+}
+
 struct WatchQuote: Codable, Identifiable {
     let symbol: String
     let contract: String
@@ -19,6 +36,15 @@ struct WatchHolding: Codable, Identifiable {
     let quantity: Double
     let price: Double?
     let currency: String
+
+    func priceText(locale: Locale) -> String {
+        guard let price else { return "—" }
+        guard currency == "USD" else {
+            return price.formatted(.currency(code: currency).locale(locale))
+        }
+        let amount = abs(price).formatted(.number.precision(.fractionLength(2)).locale(locale))
+        return (price < 0 ? "-$" : "$") + amount
+    }
 }
 
 struct WatchSnapshot: Codable {

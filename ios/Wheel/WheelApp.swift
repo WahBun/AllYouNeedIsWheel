@@ -433,6 +433,7 @@ final class WheelStore {
             weekly = WeeklyIncome(total_income: 0, positions_count: 0, total_put_notional: 0)
             error = nil
             updated = Date()
+            WatchPhone.shared.synchronize(self)
             return
         }
         do {
@@ -480,6 +481,7 @@ final class WheelStore {
                 performanceHistoryCache[performanceCacheKey("YTD")] = history
             }
             portfolio = next
+            WatchPhone.shared.synchronize(self)
             if reloadSummary { lastSummary = Date() }
             updated = Date()
             transientPortfolioFailures = 0

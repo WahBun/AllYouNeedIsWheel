@@ -24,6 +24,7 @@ final class WatchLink: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     private var requestID = UUID()
+    private var pages = WatchPageCache()
 
     override init() {
         super.init()
@@ -32,10 +33,18 @@ final class WatchLink: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     func clear() {
+        pages = WatchPageCache()
         requestID = UUID()
         snapshot = nil
         directions = [:]
         notice = "Updating…"
+    }
+
+    func select(_ section: WatchSection, page: Int) {
+        requestID = UUID()
+        snapshot = pages.snapshot(for: section, page: page)
+        directions = [:]
+        notice = snapshot == nil ? "Updating…" : ""
     }
 
     func read(_ section: WatchSection, page: Int) async {
@@ -56,13 +65,14 @@ final class WatchLink: NSObject, ObservableObject, WCSessionDelegate {
             guard id == requestID, !Task.isCancelled else { return }
             if reply["error"] as? String == "account" {
                 clear()
-                notice = "Open Wheel on iPhone to verify the account."
+                notice = "Waiting for account verification on iPhone."
                 return
             }
             guard let data = reply["data"] as? Data else { throw URLError(.badServerResponse) }
             let next = try JSONDecoder().decode(WatchSnapshot.self, from: data)
             acceptTheme(reply["theme"])
             directions = next.directions(since: snapshot)
+            pages.store(next, section: section, page: page)
             snapshot = next
             notice = ""
         } catch {
@@ -89,6 +99,7 @@ final class WatchLink: NSObject, ObservableObject, WCSessionDelegate {
 
 private struct WatchDashboard: View {
     @EnvironmentObject private var phone: WatchLink
+    @Environment(\.locale) private var locale
     @Environment(\.scenePhase) private var phase
     @Environment(\.isLuminanceReduced) private var dimmed
     @AppStorage("wheel.watch.section") private var section: WatchSection = .quotes
@@ -140,9 +151,10 @@ private struct WatchDashboard: View {
                                         }
                                     }
                                     HStack {
-                                        Text("Qty \(row.quantity.formatted())")
+                                        Text(verbatim: row.quantity.formatted())
+                                            .accessibilityLabel("Quantity \(row.quantity.formatted())")
                                         Spacer()
-                                        Text(verbatim: row.price.map { $0.formatted(.currency(code: row.currency)) } ?? "—")
+                                        Text(verbatim: row.priceText(locale: locale))
                                     }.font(.caption).monospacedDigit().foregroundStyle(.secondary)
                                 }
                                 Divider()
@@ -161,8 +173,10 @@ private struct WatchDashboard: View {
             .environment(\.colorScheme, phone.theme.dark ? .dark : .light)
             .navigationTitle(phone.snapshot?.mode.capitalized ?? "Wheel")
             .toolbarTitleDisplayMode(.inline)
-            .onChange(of: section) { _, _ in page = 0; phone.clear() }
-            .onChange(of: page) { _, _ in phone.clear() }
+            .toolbarForegroundStyle(phone.snapshot?.mode == "live" ? color(0x4EC890) : Color.primary,
+                                    for: .navigationBar)
+            .onChange(of: section) { _, next in page = 0; phone.select(next, page: 0) }
+            .onChange(of: page) { _, next in phone.select(section, page: next) }
             .task(id: "\(section.rawValue)-\(page)-\(phase)-\(dimmed)-\(phone.reachability)") {
                 guard phase == .active, !dimmed else { return }
                 while !Task.isCancelled {
