@@ -49,7 +49,7 @@ struct WatchAllocationOverview: View {
         let slices = data.slices
         let symbols = Set((snapshot.allocation?.positions.map(\.symbol) ?? snapshot.positions.map(\.symbol)).map { $0.uppercased() })
         let positive = data.assets.filter { $0.id != "cash" }.map(\.name)
-        if let allocation = snapshot.allocation {
+        if snapshot.allocation != nil {
             GeometryReader { proxy in
                 let size = min(proxy.size.width, proxy.size.height)
                 ZStack {
@@ -82,16 +82,15 @@ struct WatchAllocationOverview: View {
             } else if slices.isEmpty {
                 Text("No positive assets").font(.caption2).foregroundStyle(.secondary)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 54), spacing: 3)], spacing: 3) {
-                ForEach(positive + symbols.subtracting(positive).sorted(), id: \.self) { symbol in
-                    let item = data.assets.first { $0.name == symbol && $0.id != "cash" }
-                    chip(symbol, color: item.map { data.color($0, scheme: scheme) } ?? .secondary)
-                }
-                if let cash = allocation.cash, cash != 0 { chip(nil, color: .gray) }
-            }
         } else {
             Text("Allocation unavailable").font(.footnote).foregroundStyle(.secondary)
-            ForEach(symbols.sorted(), id: \.self) { chip($0, color: .secondary) }
+        }
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 54), spacing: 3)], spacing: 3) {
+            ForEach(positive + symbols.subtracting(positive).sorted(), id: \.self) { symbol in
+                let item = data.assets.first { $0.name == symbol && $0.id != "cash" }
+                chip(symbol, color: item.map { data.color($0, scheme: scheme) } ?? .secondary)
+            }
+            if let cash = snapshot.allocation?.cash, cash != 0 { chip(nil, color: .gray) }
         }
     }
 
