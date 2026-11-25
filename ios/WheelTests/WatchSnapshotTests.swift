@@ -32,4 +32,19 @@ final class WatchSnapshotTests: XCTestCase {
         cache.store(snapshot(21703, 145, epoch: "two"), section: .quotes, page: 0)
         XCTAssertNil(cache.snapshot(for: .holdings, page: 1))
     }
+
+    func testHoldingUSDPriceAlwaysUsesOnlyTheDollarSign() {
+        func holding(_ price: Double?, currency: String = "USD") -> WatchHolding {
+            WatchHolding(id: 1, symbol: "TEST", contract: "TEST", quantity: 1, price: price, currency: currency)
+        }
+        for region in ["zh_Hant_HK", "en_CA", "en_US"] {
+            let locale = Locale(identifier: region)
+            XCTAssertEqual(holding(145.43).priceText(locale: locale), "$145.43", region)
+            XCTAssertEqual(holding(-1.5).priceText(locale: locale), "-$1.50", region)
+            XCTAssertEqual(holding(0).priceText(locale: locale), "$0.00", region)
+            XCTAssertEqual(holding(nil).priceText(locale: locale), "—", region)
+            XCTAssertEqual(holding(10, currency: "CAD").priceText(locale: locale),
+                           10.0.formatted(.currency(code: "CAD").locale(locale)), region)
+        }
+    }
 }

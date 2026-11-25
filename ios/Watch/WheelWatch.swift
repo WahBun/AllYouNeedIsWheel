@@ -99,6 +99,7 @@ final class WatchLink: NSObject, ObservableObject, WCSessionDelegate {
 
 private struct WatchDashboard: View {
     @EnvironmentObject private var phone: WatchLink
+    @Environment(\.locale) private var locale
     @Environment(\.scenePhase) private var phase
     @Environment(\.isLuminanceReduced) private var dimmed
     @AppStorage("wheel.watch.section") private var section: WatchSection = .quotes
@@ -153,10 +154,7 @@ private struct WatchDashboard: View {
                                         Text(verbatim: row.quantity.formatted())
                                             .accessibilityLabel("Quantity \(row.quantity.formatted())")
                                         Spacer()
-                                        Text(verbatim: row.price.map { price in
-                                            let style = FloatingPointFormatStyle<Double>.Currency(code: row.currency)
-                                            return price.formatted(row.currency == "USD" ? style.presentation(.narrow) : style)
-                                        } ?? "—")
+                                        Text(verbatim: row.priceText(locale: locale))
                                     }.font(.caption).monospacedDigit().foregroundStyle(.secondary)
                                 }
                                 Divider()
@@ -175,6 +173,8 @@ private struct WatchDashboard: View {
             .environment(\.colorScheme, phone.theme.dark ? .dark : .light)
             .navigationTitle(phone.snapshot?.mode.capitalized ?? "Wheel")
             .toolbarTitleDisplayMode(.inline)
+            .toolbarForegroundStyle(phone.snapshot?.mode == "live" ? color(0x4EC890) : Color.primary,
+                                    for: .navigationBar)
             .onChange(of: section) { _, next in page = 0; phone.select(next, page: 0) }
             .onChange(of: page) { _, next in phone.select(section, page: next) }
             .task(id: "\(section.rawValue)-\(page)-\(phase)-\(dimmed)-\(phone.reachability)") {

@@ -36,6 +36,15 @@ struct WatchHolding: Codable, Identifiable {
     let quantity: Double
     let price: Double?
     let currency: String
+
+    func priceText(locale: Locale) -> String {
+        guard let price else { return "—" }
+        guard currency == "USD" else {
+            return price.formatted(.currency(code: currency).locale(locale))
+        }
+        let amount = abs(price).formatted(.number.precision(.fractionLength(2)).locale(locale))
+        return (price < 0 ? "-$" : "$") + amount
+    }
 }
 
 struct WatchSnapshot: Codable {
