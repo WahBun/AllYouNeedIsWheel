@@ -146,7 +146,7 @@ installation is a separate step when the phone is available again.
 - **Supercharts**：股票、期货及期权图表；标的搜索与跨端合约收藏、绘图、EMA／ATR／Bar Count／FVG、Previous values 和波动通道／极值仪表。图表交易能力以账户、合约和后端返回状态为准。
 - **Settings**：连接、语言、主题与自定义颜色。Demo 操作仅在本地模拟；未确认的真实提交结果需要人工核实后解除锁定。
 
-SGOV、VTI、QQQ、SPY、VOO 有专属字体、流光和 Allocation 扇区铺色。VTI／QQQ／SPY／VOO 保留 Trade 使用资格，只有 SGOV 被排除。动画遵守减少动态效果和前后台状态。设置签名使用红／亮金／暗金流光。
+SGOV、VTI、QQQ、SPY、VOO、NVDA 有专属字体、流光和 Allocation 扇区铺色。VTI／QQQ／SPY／VOO／NVDA 保留 Trade 使用资格，只有 SGOV 被排除。动画遵守减少动态效果和前后台状态。设置签名使用红／亮金／暗金流光。
 
 ## 数据边界
 
@@ -273,4 +273,4 @@ constitute live-order validation or a long-duration phone battery measurement.
 Wheel includes a read-only companion for watchOS 11 or later. Install the matching Wheel backend and iPhone build, then open Wheel on iPhone and select the account. With the paired iPhone nearby, open Wheel on the watch. The iPhone uses its usual private connection to the backend.
 
 - **Quotes** shows QQQ, SPY, MES and MNQ. Futures use the nearest listed CME contract expiring after the current New York date. Each row shows the contract, sample time and whether IB supplied a last trade, previous close, frozen or delayed quote. A dash means a price is unavailable.
-- **Holdings** shows the selected account’s positions, quantities and available broker marks in the contract currency. The title identifies Demo, Paper or Live. The watch follows the iPhone palette and uses the same signature lettering for core holdings such as QQQ and SPY. When the iPhone is unreachable, previously displayed values retain their timestamps.
+- **Holdings** shows the selected account’s positions, quantities and available broker marks in the contract currency. The title identifies Demo, Paper or Live. Tap a holding to see its current IB average cost per share or per contract point. QQQ, SPY and NVDA use red and gold lettering on the watch. SGOV uses its own gold highlight. When the iPhone is unreachable, previously displayed values retain their timestamps.

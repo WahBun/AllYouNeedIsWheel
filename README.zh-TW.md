@@ -18,7 +18,7 @@ SwiftUI 構建，支援 iOS 18 及以上、淺色／深色模式。原生頁面�
 
 **Wheel v1.9.2** · 網頁 **1.9.2** · iPhone **1.9.2 (8)** · 正式分支 **`main`**
 
-[11 月 19 日原始碼壓縮檔（`1a5db0f`）](https://github.com/WahBun/AllYouNeedIsWheel/releases/download/v1.9.2/Wheel-v1.9.2-source-1a5db0f.zip)包含最新的圖表修正。GitHub 自動產生的 **Source code** 壓縮檔對應 11 月 17 日的初版。各次更新內容與從不同版本升級的步驟請見 [v1.9.2 發布說明](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.9.2)。
+最新原始碼壓縮檔的下載連結位於 [v1.9.2 發布說明](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.9.2) 頂端。GitHub 自動產生的 **Source code** 壓縮檔對應 11 月 17 日的原始標籤。
 
 推薦分工：**開發 Mac** 負責開發、Xcode 與手機構建；**後端主機** 長期運行 Gateway、Backend 和 API；開發 Mac 與 iPhone 通過 Tailscale 訪問後端主機。部署與重啓由用戶在電腦或手機上選擇執行，手機 App 的 Xcode Run 也由用戶操作。
 
@@ -69,7 +69,7 @@ SwiftUI 構建，支援 iOS 18 及以上、淺色／深色模式。原生頁面�
 
 CC 可用數量依據持股數量、已有空頭 CALL 和佔用中的賣出訂單計算，而不是簡單地把全部股票除以 100。持倉的入場價來自可靠匹配的成交記錄；無法確定時留空，不用委託價或扣費後持倉成本冒充。
 
-SGOV、VTI、QQQ、SPY、VOO 有專屬名稱與資產分配動效。VTI／QQQ／SPY／VOO 仍可用於 Trade；SGOV 排除在 Trade 候選之外。裝飾動畫支持減少動態效果，並在後台或對應視圖離開時暫停。
+SGOV、VTI、QQQ、SPY、VOO、NVDA 有專屬名稱與資產分配動效。VTI／QQQ／SPY／VOO／NVDA 仍可用於 Trade；SGOV 排除在 Trade 候選之外。裝飾動畫支持減少動態效果，並在後台或對應視圖離開時暫停。
 
 ### Supercharts 與 𝔹𝕖𝕟 指標
 

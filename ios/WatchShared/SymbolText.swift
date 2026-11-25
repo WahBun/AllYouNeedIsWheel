@@ -28,11 +28,23 @@ struct SymbolText: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var visible = false
+
+    private var letteringStyle: AnyShapeStyle {
+        #if os(watchOS)
+        // The watch may pause its animation timeline while the lettering stays visible.
+        if symbol.uppercased() != "SGOV" {
+            return AnyShapeStyle(LinearGradient(colors: [CoreAssetStyle.red, CoreAssetStyle.brightGold, CoreAssetStyle.darkGold],
+                                                startPoint: .leading, endPoint: .trailing))
+        }
+        #endif
+        return AnyShapeStyle(TradingColors.symbol(symbol, scheme: scheme))
+    }
+
     var body: some View {
         if CoreAssetStyle.contains(symbol) {
             TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !visible || phase != .active || reduceMotion)) { context in
                 let progress = reduceMotion ? 0.5 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
-                Text(verbatim: CoreAssetStyle.lettering(symbol)).foregroundStyle(TradingColors.symbol(symbol, scheme: scheme))
+                Text(verbatim: CoreAssetStyle.lettering(symbol)).foregroundStyle(letteringStyle)
                     .overlay {
                         if !reduceMotion {
                             GeometryReader { geometry in

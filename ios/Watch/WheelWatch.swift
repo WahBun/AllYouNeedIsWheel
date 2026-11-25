@@ -171,7 +171,7 @@ private struct WatchDashboard: View {
             .environment(\.colorScheme, phone.theme.dark ? .dark : .light)
             .navigationTitle(phone.snapshot?.mode.capitalized ?? "Wheel")
             .toolbarTitleDisplayMode(.inline)
-            .toolbarForegroundStyle(phone.snapshot?.mode == "live" ? color(0x4EC890) : Color.primary,
+            .toolbarForegroundStyle(phone.snapshot?.mode == "live" ? color(0x4EC890) : (phone.theme.dark ? Color.white : .black),
                                     for: .navigationBar)
             .navigationDestination(for: WatchHoldingSelection.self) { selection in
                 ScrollView {
@@ -189,7 +189,10 @@ private struct WatchDashboard: View {
                         Text("Holding unavailable")
                     }
                 }
+                .foregroundStyle(phone.theme.dark ? Color.white : .black)
+                .background(phone.theme.dark ? Color.black : .white)
                 .navigationTitle("Holdings")
+                .toolbarForegroundStyle(phone.theme.dark ? Color.white : .black, for: .navigationBar)
                 .environment(\.colorScheme, phone.theme.dark ? .dark : .light)
             }
             .onChange(of: section) { _, next in page = 0; phone.select(next, page: 0) }
