@@ -148,8 +148,8 @@ private struct WatchDashboard: View {
                                 }
                                 Divider()
                             }
-                            if let oldest = snapshot.quotes.compactMap(\.sampledAt).min() {
-                                Text("As of \(stamp(oldest))").font(.caption2).foregroundStyle(.secondary)
+                            if let latest = snapshot.latestQuoteSampleTime {
+                                Text("As of \(stamp(latest))").font(.caption2).foregroundStyle(.secondary)
                             }
                         } else {
                             WatchAllocationOverview(snapshot: snapshot) { asset in
@@ -228,9 +228,9 @@ private struct WatchDashboard: View {
 
     private func quoteNote(_ row: WatchQuote) -> String? {
         guard let time = row.sampledAt else { return "Awaiting quote" }
-        if row.source == "indexBar" { return "1m bar · " + stamp(time) }
-        let type = [2: "Frozen", 3: "Delayed", 4: "Delayed frozen"][row.dataType ?? 0]
         let stale = Date.now.timeIntervalSince1970 - time > 60
+        if row.source == "indexBar" { return stale ? stamp(time) : nil }
+        let type = [2: "Frozen", 3: "Delayed", 4: "Delayed frozen"][row.dataType ?? 0]
         let notes = [type, row.source == "close" ? "Close" : nil, stale ? "Stale · " + stamp(time) : nil].compactMap { $0 }
         return notes.isEmpty ? nil : notes.joined(separator: " · ")
     }

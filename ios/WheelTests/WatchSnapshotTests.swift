@@ -20,6 +20,20 @@ final class WatchSnapshotTests: XCTestCase {
         XCTAssertTrue(snapshot(21701, 180).directions(since: first).isEmpty)
     }
 
+    func testLatestQuoteTimeUsesPricedRowsEvenWhenTheVIXMinuteIsOlder() {
+        var page = snapshot(21700, 500)
+        let indexBar = WatchQuote(symbol: "VIX", contract: "VIX", price: 28.29, source: "indexBar", sampledAt: 100)
+        let awaiting = WatchQuote(symbol: "MES", contract: "MES", sampledAt: 450)
+        page.quotes[0].sampledAt = 400
+        page.quotes.insert(indexBar, at: 0)
+        page.quotes.append(awaiting)
+        XCTAssertEqual(page.latestQuoteSampleTime, 400)
+        page.quotes = [indexBar, awaiting]
+        XCTAssertEqual(page.latestQuoteSampleTime, 100)
+        page.quotes = [awaiting]
+        XCTAssertNil(page.latestQuoteSampleTime)
+    }
+
     func testTabSwitchRestoresOnlyTheSamePageAndAccount() {
         var cache = WatchPageCache()
         let first = snapshot(21700, 100)
