@@ -117,7 +117,7 @@ final class WatchPhone: NSObject, WCSessionDelegate {
         let portfolio = store?.demo == true ? store?.portfolio : nil
         let rows = (portfolio?.positions ?? []).filter { $0.position != 0 && (symbol == nil || $0.symbol.uppercased() == symbol) }
         let now = Date.now.timeIntervalSince1970
-        let quotes = [("QQQ", 512.35), ("SPY", 605.42), ("MES", 6085.25), ("MNQ", 21345.5)]
+        let quotes = [("VIX", 18.45), ("QQQ", 512.35), ("SPY", 605.42), ("MES", 6085.25), ("MNQ", 21345.5)]
         return WatchSnapshot(mode: "demo", epoch: "demo", sampledAt: now, positions: section == .holdings ? rows.dropFirst(page * 30).prefix(30).map {
             WatchHolding(id: $0.con_id ?? 0, symbol: $0.symbol, contract: $0.chartLabel, quantity: $0.position,
                          price: $0.market_price, currency: "USD",

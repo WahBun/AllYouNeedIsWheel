@@ -4,7 +4,7 @@ import UIKit
 enum CoreAssetStyle {
     private static let letteringBySymbol = [
         "SGOV": "𝕊𝔾𝕆𝕍", "VTI": "𝕍𝕋𝕀", "QQQ": "ℚℚℚ",
-        "QQQM": "ℚℚℚ𝕄", "SPY": "𝕊ℙ𝕐", "VOO": "𝕍𝕆𝕆", "NVDA": "ℕ𝕍𝔻𝔸"
+        "TQQQ": "𝕋ℚℚℚ", "QQQM": "ℚℚℚ𝕄", "SPY": "𝕊ℙ𝕐", "VOO": "𝕍𝕆𝕆", "NVDA": "ℕ𝕍𝔻𝔸"
     ]
     static func contains(_ symbol: String) -> Bool {
         letteringBySymbol[symbol.uppercased()] != nil || SymbolFlowPalette(symbol) == .ben
@@ -101,9 +101,12 @@ struct SymbolText: View {
 
     var body: some View {
         if CoreAssetStyle.contains(symbol) {
-            let text = Text(verbatim: CoreAssetStyle.lettering(symbol))
-            // The default fallback splits ℕ from the other three double-struck capitals.
-            let lettering = symbol.uppercased() == "NVDA"
+            let displayName = CoreAssetStyle.lettering(symbol)
+            let text = Text(verbatim: displayName)
+            // One math font keeps letterlike symbols and supplementary capitals on the same baseline.
+            let uniformFont = ["NVDA", "TQQQ"].contains(symbol.uppercased())
+                || (pointSize != nil && displayName != symbol)
+            let lettering = uniformFont
                 ? text.font(.custom("STIXTwoMath-Regular", fixedSize: pointSize ?? UIFont.preferredFont(forTextStyle: textStyle).pointSize))
                 : text
             Group {

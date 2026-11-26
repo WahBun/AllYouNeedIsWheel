@@ -16,7 +16,7 @@ assert.equal(fs.readFileSync('frontend/static/js/contract-labels.js','utf8'),fs.
   await p.route('**/api/portfolio/stock-chart*/**',async r=>{if(r.request().url().includes('stream'))return r.abort();const body=await h.rpc('snapshot',{cid:7,interval:5,session:'all'});await r.fulfill({json:{...body,...contract,account_epoch:'mock-epoch'}})});
   await p.goto(h.url+'/superchart?con_id=7');await p.waitForFunction(()=>document.querySelector('#positions button')&&document.title.includes('60P'));
   if(!dark)await p.locator('#theme').click();await p.locator('#toggle-trade').click();
-  for(const selector of ['#positions button','#orders button','#option-search'])assert.ok((await p.locator(selector).first().textContent()).includes('TQQQ · 11/20/26 · 60P'),selector);
+  for(const selector of ['#positions button','#orders button','#option-search'])assert.ok((await p.locator(selector).first().textContent()).normalize('NFKC').includes('TQQQ · 11/20/26 · 60P'),selector);
   assert.equal(await p.locator('#favorite-contracts option[value="7"]').textContent(),'TQQQ · 11/20/26 · 60P');
   const frame=p.frames().find(f=>f.url().includes('/superchart/frame'));await frame.waitForFunction(()=>document.getElementById('chart-title').textContent.includes('60P'));
   assert.ok((await frame.locator('#chart-title').textContent()).startsWith('TQQQ · 11/20/26 · 60P'));

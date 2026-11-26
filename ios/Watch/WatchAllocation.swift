@@ -26,7 +26,11 @@ struct WatchAllocationOverview: View {
     let open: (WatchAssetSelection) -> Void
     @Environment(\.colorScheme) private var scheme
 
-    @ScaledMetric(relativeTo: .caption2) private var chipSize: CGFloat = 10
+    @Environment(\.dynamicTypeSize) private var textSize
+    @ScaledMetric(relativeTo: .caption2) private var scaledChipSize: CGFloat = 10
+
+    private var chipSize: CGFloat { textSize.isAccessibilitySize ? scaledChipSize : min(scaledChipSize, 11) }
+    private var columnWidth: CGFloat { textSize.isAccessibilitySize ? scaledChipSize * 3.7 : 36 }
 
     private func select(_ symbol: String?) {
         open(WatchAssetSelection(mode: snapshot.mode, epoch: snapshot.epoch, symbol: symbol))
@@ -87,7 +91,7 @@ struct WatchAllocationOverview: View {
         } else {
             Text("Allocation unavailable").font(.footnote).foregroundStyle(.secondary)
         }
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: chipSize * 3.7), spacing: 2)], spacing: 3) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: columnWidth), spacing: 2)], spacing: 3) {
             ForEach(data.assets) { item in
                 chip(item.id == "cash" ? nil : item.name, color: data.color(item, scheme: scheme))
             }
@@ -102,7 +106,11 @@ struct WatchAllocationOverview: View {
         Button { select(symbol) } label: {
             HStack(spacing: 2) {
                 Circle().fill(color).frame(width: 4, height: 4)
-                if let symbol { SymbolText(symbol: symbol, pointSize: chipSize) } else { Text("Cash") }
+                // Share a text baseline across SF and double-struck lettering.
+                Text(verbatim: "H").hidden().frame(maxWidth: .infinity)
+                    .overlay(alignment: Alignment(horizontal: .center, vertical: .firstTextBaseline)) {
+                        if let symbol { SymbolText(symbol: symbol, pointSize: chipSize) } else { Text("Cash") }
+                    }
             }.font(.system(size: chipSize)).lineLimit(1).minimumScaleFactor(0.65)
                 .padding(.horizontal, 2).frame(maxWidth: .infinity, minHeight: 26)
                 .background(.secondary.opacity(0.12), in: Capsule()).contentShape(Capsule())
