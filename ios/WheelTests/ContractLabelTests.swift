@@ -3,6 +3,14 @@ import SwiftUI
 @testable import Wheel
 
 final class ContractLabelTests: XCTestCase {
+    func testContractOpenInterestIsCompactAndToleratesOlderQuotes() throws {
+        for (count, label): (Int?, String) in [(nil, "—"), (0, "0"), (999, "999"), (1000, "1K"), (41600, "41.6K")] {
+            var fields: [String: Any] = ["strike": 150, "expiration": "20270115", "open_interest": 0]
+            if let count { fields["contract_open_interest"] = count }
+            let quote = try JSONDecoder().decode(ContractQuote.self, from: JSONSerialization.data(withJSONObject: fields))
+            XCTAssertEqual(quote.openInterestText, label)
+        }
+    }
     func testLegacyNamesAndFallbacks() {
         for (raw, expected) in [
             ("TQQQ  261120P00060000", "TQQQ · 11/20/26 · 60P"),
@@ -96,7 +104,7 @@ final class ContractLabelTests: XCTestCase {
     @MainActor func testCompactRowsInBothThemes() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }
-        let store = WheelStore(); store.demo = true
+        let store = WheelStore(); store.demo = true; store.selectedTab = "portfolio"
         let position = Position(symbol: "TQQQ", position: -1, market_price: 1.5, unrealized_pnl: -5,
             security_type: "OPT", strike: 60, expiration: "20261120", option_type: "PUT", con_id: 7, avg_cost: 123, multiplier: 100)
         let order = Order(id: 1, ticker: "TSLL", action: "SELL", option_type: "CALL", strike: 13.5,
@@ -105,7 +113,8 @@ final class ContractLabelTests: XCTestCase {
             let view = NavigationStack { List {
                 Section("Positions") { PortfolioOptionRow(position: position, showsRange: false) }
                 Section("Orders") { CompactOrderRow(order: order, history: false) }
-            }.navigationTitle("Contracts") }.environment(store).environment(\.locale, Locale(identifier: "en")).preferredColorScheme(theme)
+            }.navigationTitle("Contracts") }.environment(store).environment(\.locale, Locale(identifier: "en"))
+                .environment(\.scenePhase, .active).preferredColorScheme(theme)
             let controller = UIHostingController(rootView: view), window = UIWindow(windowScene: scene)
             window.rootViewController = controller; window.makeKeyAndVisible()
             try await Task.sleep(for: .milliseconds(500))

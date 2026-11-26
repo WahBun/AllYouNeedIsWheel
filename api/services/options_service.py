@@ -1259,9 +1259,9 @@ class OptionsService:
                         if isinstance(vega, float) and math.isnan(vega):
                             vega = 0
                         
-                        open_interest = option.get('open_interest', 0)
+                        open_interest = option.get('open_interest')
                         if isinstance(open_interest, float) and math.isnan(open_interest):
-                            open_interest = 0
+                            open_interest = None
                         
                         # Format option data with flattened structure
                         option_data = {
@@ -1273,7 +1273,8 @@ class OptionsService:
                             'ask': ask,
                             'last': last,
                             **{key: option.get(key) for key in ('day_low', 'day_high', 'day_range_price', 'day_range_status')},
-                            'open_interest': int(open_interest),
+                            'contract_open_interest': open_interest,
+                            'open_interest': int(open_interest or 0),  # Legacy consumers expect a number.
                             'implied_volatility': round(iv * 100, 2) if iv is not None and iv < 1 and iv > 0 else (0 if iv is None else round(iv, 2)),  # Handle percentage vs decimal
                             'delta': round(delta, 5) if delta is not None else 0,
                             'gamma': round(gamma, 5) if gamma is not None else 0,

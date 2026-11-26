@@ -67,7 +67,7 @@ struct PortfolioOptionRow: View {
             midMovement = OptionMidMovement()
             guard visible, phase == .active, store.selectedTab == "portfolio" else { return }
             if store.demo {
-                quote = ContractQuote(strike: position.strike ?? 0, expiration: position.expiration ?? "", bid: 0.38, ask: 0.42, delta: position.option_type == "PUT" ? -0.25 : 0.25, implied_volatility: 45)
+                quote = ContractQuote(strike: position.strike ?? 0, expiration: position.expiration ?? "", bid: 0.38, ask: 0.42, delta: position.option_type == "PUT" ? -0.25 : 0.25, implied_volatility: 45, contract_open_interest: 12_800)
                 return
             }
             guard let id = position.con_id, id > 0 else { return }
@@ -83,7 +83,7 @@ struct PortfolioOptionRow: View {
                     let result = try await store.trading.get("api/portfolio/option-position/\(id)/quote", base: store.address, query: [URLQueryItem(name: "wait", value: "0")])
                     try Task.checkCancellation()
                     guard result["con_id"] as? Int == id else { throw AppError.message("Contract mismatch") }
-                    quote = ContractQuote(strike: position.strike ?? 0, expiration: position.expiration ?? "", bid: result["bid"] as? Double, ask: result["ask"] as? Double, delta: result["delta"] as? Double, implied_volatility: result["implied_volatility"] as? Double)
+                    quote = ContractQuote(strike: position.strike ?? 0, expiration: position.expiration ?? "", bid: result["bid"] as? Double, ask: result["ask"] as? Double, delta: result["delta"] as? Double, implied_volatility: result["implied_volatility"] as? Double, contract_open_interest: result["contract_open_interest"] as? Int)
                     frozen = result["is_frozen"] as? Bool ?? false
                     midMovement.update(quote?.mid, frozen: frozen)
                     missing = ["bid", "ask", "delta", "implied_volatility"].contains {

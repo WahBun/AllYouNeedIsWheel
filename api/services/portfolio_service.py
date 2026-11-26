@@ -294,6 +294,7 @@ class PortfolioService:
                 'last': position.get('last'),
                 'mid': position.get('mid'),
                 'spread_percent': position.get('spread_percent'),
+                'contract_open_interest': position.get('contract_open_interest'),
                 'delta': position.get('delta'),
                 'implied_volatility': position.get('implied_volatility'),
                 'is_frozen': position.get('is_frozen', False),

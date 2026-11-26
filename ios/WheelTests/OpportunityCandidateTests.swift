@@ -23,7 +23,8 @@ final class OpportunityCandidateTests: XCTestCase {
         book.custom = ["TQQQ"]
         for strike in [53.0, 52.0] {
             let id = book.pin("TQQQ", "PUT", expiration: "20261120", strike: strike)
-            let quote = ContractQuote(strike: strike, expiration: "20261120", bid: 0.86, ask: 0.90)
+            let quote = ContractQuote(strike: strike, expiration: "20261120", bid: 0.86, ask: 0.90,
+                                      contract_open_interest: strike == 53 ? 41600 : 975)
             book.rows[id] = OpportunityRow(ticker: "TQQQ", type: "PUT", candidateID: id, quote: quote)
         }
         book.removeCandidate("TQQQ", type: "PUT")
@@ -51,6 +52,13 @@ final class OpportunityCandidateTests: XCTestCase {
             return cell.convert(cell.bounds, to: host.view).minY
         }
         let idleY = try tickerY()
+        let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: screenshot)
+        attachment.name = "Trade contract metrics"
+        attachment.lifetime = .keepAlways
+        add(attachment)
         for loading in [true, false, true, false] {
             book.loading = loading
             try await Task.sleep(for: .milliseconds(250))

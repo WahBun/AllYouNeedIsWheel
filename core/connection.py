@@ -29,6 +29,9 @@ from core.logging_config import get_logger
 # Configure logging
 logger = get_logger('autotrader.connection', 'tws')
 
+# Option open interest and implied volatility share one contract subscription.
+OPTION_QUOTE_TICKS = '101,106'
+
 # Set ib_async logger to WARNING level to reduce noise
 def suppress_ib_logs():
     """
@@ -332,6 +335,8 @@ class IBConnection:
         if getattr(contract, 'secType', '') == 'STK':
             ticker.high = ticker.low = math.nan
         ticker.modelGreeks = None
+        if generic_tick_list == OPTION_QUOTE_TICKS:
+            ticker.callOpenInterest = ticker.putOpenInterest = math.nan
         ticker.lastRTHTrade = None
         ticker.time = None
         self._market_ticker_cache[key] = {
@@ -350,7 +355,7 @@ class IBConnection:
         portfolio and Trade reads keep a partial subscription alive, so cache expiry alone
         cannot recover it. Leave the chart's separate subscription untouched.
         """
-        key = self._market_ticker_key(contract, '106')
+        key = self._market_ticker_key(contract, OPTION_QUOTE_TICKS)
         entry = self._market_ticker_cache.get(key)
         if not entry or entry['ticker'] is not ticker:
             return ticker
@@ -363,7 +368,7 @@ class IBConnection:
         attempts = entry.get('quote_refresh_attempts', 0)
         if now - entry.setdefault('requested_at', now) < min(300, 30 * 2 ** min(attempts, 4)):
             return ticker
-        renewed = self.get_market_ticker(contract, '106', refresh=True)
+        renewed = self.get_market_ticker(contract, OPTION_QUOTE_TICKS, refresh=True)
         self._market_ticker_cache[key]['quote_refresh_attempts'] = attempts + 1
         return renewed
     
@@ -458,6 +463,14 @@ class IBConnection:
             bool: True if connected, False otherwise
         """
         return self._connected and self.ib.isConnected()
+
+    @staticmethod
+    def _option_open_interest(ticker, contract):
+        field = {'C': 'callOpenInterest', 'P': 'putOpenInterest'}.get(getattr(contract, 'right', None))
+        value = getattr(ticker, field, None) if field else None
+        if type(value) not in (int, float) or not 0 <= value < 2**63 - 1 or int(value) != value:
+            return None
+        return int(value)
 
     def _valid_price(self, value):
         try:
@@ -926,8 +939,8 @@ class IBConnection:
             for contract in option_contracts:
                 try:
                     # Request market data with model computation
-                    subscribed = self.has_market_subscription(contract, '106')
-                    ticker = self.get_market_ticker(contract, '106')
+                    subscribed = self.has_market_subscription(contract, OPTION_QUOTE_TICKS)
+                    ticker = self.get_market_ticker(contract, OPTION_QUOTE_TICKS)
                     if not is_market_open:
                         ticker = self._recover_frozen_position_quote(contract, ticker)
 
@@ -951,7 +964,6 @@ class IBConnection:
                         0
                     )
                     volume = ticker.volume if hasattr(ticker, 'volume') and ticker.volume is not None else 0
-                    open_interest = ticker.openInterest if hasattr(ticker, 'openInterest') and ticker.openInterest is not None else 0
                     implied_vol = self._valid_price(getattr(ticker, 'impliedVolatility', None)) or 0
                     if not implied_vol and getattr(ticker, 'modelGreeks', None):
                         implied_vol = self._valid_price(getattr(ticker.modelGreeks, 'impliedVol', None)) or 0
@@ -981,7 +993,7 @@ class IBConnection:
                         'ask': ask,
                         'last': last,
                         'volume': volume,
-                        'open_interest': open_interest,
+                        'open_interest': self._option_open_interest(ticker, contract),
                         'implied_volatility': implied_vol,
                         'delta': round(delta, 3) if delta is not None else None,
                         'gamma': round(gamma, 5) if gamma is not None else None,
@@ -1281,7 +1293,7 @@ class IBConnection:
         contract = routed_contract(position['contract'], tif)
         position = dict(position)
         position['contract'] = contract
-        ticker = self.get_market_ticker(contract, '' if contract.secType == 'STK' else '106')
+        ticker = self.get_market_ticker(contract, '' if contract.secType == 'STK' else OPTION_QUOTE_TICKS)
         if wait_for_quote:
             # One-shot close/rollover consumers retain their initial quote wait.
             for _ in range(25):
@@ -1326,6 +1338,7 @@ class IBConnection:
             'last': last,
             'mid': mid,
             'spread_percent': spread_percent,
+            'contract_open_interest': self._option_open_interest(ticker, contract),
             'delta': delta,
             'implied_volatility': iv * 100 if iv is not None else None,
             'is_frozen': is_frozen or getattr(ticker, 'marketDataType', 1) in (2, 3, 4),

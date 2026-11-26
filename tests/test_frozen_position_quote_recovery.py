@@ -25,7 +25,7 @@ class FrozenPositionQuoteRecoveryTests(unittest.TestCase):
         self.contract = Option('TEST', '20261120', 55, 'P', 'SMART', currency='USD', conId=7)
         self.ticker = Ticker(contract=copy.copy(self.contract), marketDataType=2)
         self.chart_ticker = Ticker(contract=copy.copy(self.contract), marketDataType=2)
-        self.conn.ib.reqMktData.side_effect = lambda contract, ticks, *args: self.ticker if ticks == '106' else self.chart_ticker
+        self.conn.ib.reqMktData.side_effect = lambda contract, ticks, *args: self.ticker if ticks == '101,106' else self.chart_ticker
         self.conn.get_option_position_by_con_id = Mock(side_effect=lambda *args: {
             'contract': copy.copy(self.contract), 'market_price': 2.25})
 
@@ -103,9 +103,15 @@ class FrozenPositionQuoteRecoveryTests(unittest.TestCase):
         self.read()
         self.ticker.last = 2.25
         self.ticker.modelGreeks = S(delta=-.25, impliedVol=.9)
+        self.ticker.callOpenInterest, self.ticker.putOpenInterest = 123, 41600
+        self.assertEqual(self.read()['contract_open_interest'], 41600)
+        self.assertEqual(trade_quote()['open_interest'], 41600)
         self.assertEqual(trade_quote()['bid'], 0)
         self.now += 30
         self.assertEqual(trade_quote()['ask'], 0)
+        self.assertIsNone(self.read()['contract_open_interest'])
+        self.ticker.putOpenInterest = 0
+        self.assertEqual(trade_quote()['open_interest'], 0)
         self.conn.ib.cancelMktData.assert_called_once()
         for _ in range(4):
             trade_quote()

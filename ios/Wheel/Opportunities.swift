@@ -79,12 +79,19 @@ struct ContractQuote: Decodable, Identifiable {
     var ask: Double?
     var delta: Double?
     var implied_volatility: Double?
+    var contract_open_interest: Int?
     var day_low: Double?
     var day_high: Double?
     var day_range_price: Double?
     var day_range_status: String?
     var id: String { "\(expiration)-\(strike)" }
     var mid: Double? { TradingMath.mid(bid, ask) }
+    var openInterestText: String {
+        guard let count = contract_open_interest, count >= 0 else { return "—" }
+        guard count >= 1_000 else { return String(count) }
+        let thousands = Double(count) / 1_000
+        return thousands.formatted(.number.locale(Locale(identifier: "en_US_POSIX")).grouping(.never).precision(.fractionLength(0...1))) + "K"
+    }
     var spread: Double? { mid.map { ((ask ?? 0) - (bid ?? 0)) / $0 * 100 } }
 }
 
@@ -437,7 +444,7 @@ final class OpportunityBook {
             if store.demo {
                 row.stockPrice = ticker == "TSLL" ? 10.25 : 92.5
                 row.previousClose = ticker == "TSLL" ? 10 : 94
-                row.quote = ContractQuote(strike: preference.strike ?? (row.stockPrice! * (1 + (type == "CALL" ? 1 : -1) * Double(preference.otm) / 100)).rounded(), expiration: preference.expiration, bid: 0.25, ask: 0.29, delta: type == "CALL" ? 0.23 : -0.19, implied_volatility: 45, day_low: 0.21, day_high: 0.32, day_range_price: 0.27, day_range_status: "live")
+                row.quote = ContractQuote(strike: preference.strike ?? (row.stockPrice! * (1 + (type == "CALL" ? 1 : -1) * Double(preference.otm) / 100)).rounded(), expiration: preference.expiration, bid: 0.25, ask: 0.29, delta: type == "CALL" ? 0.23 : -0.19, implied_volatility: 45, contract_open_interest: 12_800, day_low: 0.21, day_high: 0.32, day_range_price: 0.27, day_range_status: "live")
                 row.capacity = TradingMath.capacity(shares: shares, available: Int(shares / 100))
             } else {
                 var query = [URLQueryItem(name: "tickers", value: ticker), URLQueryItem(name: "optionType", value: type), URLQueryItem(name: "otm", value: String(preference.otm)), URLQueryItem(name: "expiration", value: preference.expiration)]
@@ -1039,14 +1046,25 @@ struct OpportunityMetrics: View {
     let quote: ContractQuote
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) { metrics }.fixedSize(horizontal: true, vertical: false)
-            VStack(alignment: .leading, spacing: 4) { metrics }
+            HStack(spacing: 12) { metrics; openInterest }.fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 4) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) { metrics }.fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: 4) { metrics }
+                }
+                openInterest
+            }
         }.font(.caption).monospacedDigit()
     }
     @ViewBuilder private var metrics: some View {
         delta
         spread
         iv
+    }
+    private var openInterest: some View {
+        Text(verbatim: quote.openInterestText).foregroundStyle(.secondary)
+            .accessibilityLabel(Text("Open interest"))
+            .accessibilityValue(Text(verbatim: quote.contract_open_interest.map { $0.formatted() } ?? "—"))
     }
     private var spread: some View {
         SpreadValue(percentage: quote.spread)
