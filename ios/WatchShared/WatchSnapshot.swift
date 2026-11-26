@@ -86,6 +86,10 @@ struct WatchSnapshot: Codable {
     var allocation: AllocationSnapshot? = nil
     var symbolFilter: String? = nil
 
+    var latestQuoteSampleTime: Double? {
+        quotes.compactMap { $0.price == nil ? nil : $0.sampledAt }.max()
+    }
+
     func directions(since previous: WatchSnapshot?) -> [String: Int] {
         guard let previous, previous.mode == mode, previous.epoch == epoch else { return [:] }
         var result: [String: Int] = [:]
