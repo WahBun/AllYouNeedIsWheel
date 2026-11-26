@@ -102,32 +102,37 @@ body.light #daily-pnl-value[data-direction=negative]{color:#b73544}
 @font-face{font-family:WheelNVDA;src:url('../fonts/wheel-nvda.woff') format('woff');font-weight:600}
 .core-symbol[data-lettering='ℕ𝕍𝔻𝔸']{font-family:WheelNVDA,'STIX Two Math',serif;font-synthesis:none}
 .core-symbol{position:relative;display:inline-block;color:#ffd652;font-weight:600}
-.core-symbol-sgov{color:#ffe094}
 body.light .core-symbol{color:#944d0d}
-body.light .core-symbol-sgov{color:#c79929}
 .core-symbol::after{content:attr(data-lettering);position:absolute;inset:0;pointer-events:none;color:transparent;background:linear-gradient(90deg,transparent 25%,#d62117 38%,#ffd652 50%,#944d0d 62%,transparent 75%);background-size:265% 100%;background-clip:text;-webkit-background-clip:text;animation:core-symbol-flow 5s linear infinite;animation-delay:var(--symbol-phase,0ms)}
-.core-symbol-sgov::after{background-image:linear-gradient(90deg,transparent 30%,#fff 50%,transparent 70%)}
-body.light .core-symbol-sgov::after{background-image:linear-gradient(90deg,transparent 30%,#7a3b05 50%,transparent 70%)}
 @keyframes core-symbol-flow{from{background-position:100% 0}to{background-position:0% 0}}
 @media(prefers-reduced-motion:reduce){.core-symbol::after{display:none;animation:none}}
 
-.core-symbol-teal-apricot {
-  --symbol-teal: #28a499;
-  --symbol-apricot: #fabc84;
-  background-image: linear-gradient(90deg,var(--symbol-teal),var(--symbol-apricot),var(--symbol-teal),var(--symbol-apricot));
+:root { --ben-base: #ad6317; --ben-red: #d62117; --ben-bright-gold: #ffd652; --ben-dark-gold: #944d0d; }
+body.light { --ben-base: #854a0f; }
+.core-symbol-ben {
+  font-weight: inherit;
+  --flow-start: var(--ben-base);
+  --flow-stops: var(--ben-base),var(--ben-red),var(--ben-bright-gold),var(--ben-dark-gold),var(--ben-base),var(--ben-red),var(--ben-bright-gold);
+}
+.core-symbol-teal-apricot { --flow-start: #28a499; --flow-end: #fabc84; }
+.core-symbol-sgov { --flow-start: #ffe094; --flow-end: #ba7a37; }
+body.light .core-symbol-teal-apricot { --flow-start: #12695f; --flow-end: #955321; }
+body.light .core-symbol-sgov { --flow-start: #94650e; --flow-end: #784207; }
+.core-symbol-gradient {
+  background-image: linear-gradient(90deg,var(--flow-stops, var(--flow-start),var(--flow-end),var(--flow-start),var(--flow-end)));
   background-size: 300% 100%;
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: teal-apricot-flow 5s linear infinite;
+  animation: symbol-gradient-flow 5s linear infinite;
   animation-delay: var(--symbol-phase,0ms);
 }
-body.light .core-symbol-teal-apricot { --symbol-teal: #12695f; --symbol-apricot: #955321; }
-body.light .core-symbol-teal-apricot, .core-symbol-teal-apricot { color: var(--symbol-teal); }
-.core-symbol-teal-apricot::after { content: none; }
-@keyframes teal-apricot-flow { from { background-position: 0% 0; } to { background-position: 100% 0; } }
-@media (prefers-reduced-motion: reduce) { .core-symbol-teal-apricot { animation: none; } }
-@media (forced-colors: active) { .core-symbol-teal-apricot { -webkit-text-fill-color: CanvasText; } }
+body.light .core-symbol-gradient,
+.core-symbol-gradient { color: var(--flow-start); }
+.core-symbol-gradient::after { content: none; }
+@keyframes symbol-gradient-flow { from { background-position: 0% 0; } to { background-position: 100% 0; } }
+@media (prefers-reduced-motion: reduce) { .core-symbol-gradient { animation: none; } }
+@media (forced-colors: active) { .core-symbol-gradient { -webkit-text-fill-color: CanvasText; } }
 
 input[type=number]{appearance:textfield;-moz-appearance:textfield}
 input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
@@ -383,9 +388,8 @@ body.unified-chart-toolbar > header:has(.toolbar-views > #favorite-contract):has
 .favorite-contract-picker::after{position:absolute;right:9px;pointer-events:none}
 
 /* iOS Settings GildedSignature: the same lettering, gold base and 5s sweep. */
-header>a.brand-signature{position:relative;top:-2px;display:inline-block;flex-shrink:0;font:400 24px/1.15 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;color:#ad6317;text-decoration:none}
-body.light header>a.brand-signature{color:#854a0f}
-header>a.brand-signature::after{content:attr(data-signature);position:absolute;inset:0;color:transparent;background:linear-gradient(90deg,transparent,#d62117,#ffd652,#944d0d,transparent) no-repeat;background-size:80% 100%;background-clip:text;-webkit-background-clip:text;pointer-events:none;animation:ben-signature-flow 5s linear infinite}
+header>a.brand-signature{position:relative;top:-2px;display:inline-block;flex-shrink:0;font:400 24px/1.15 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;color:var(--ben-base);text-decoration:none}
+header>a.brand-signature::after{content:attr(data-signature);position:absolute;inset:0;color:transparent;background:linear-gradient(90deg,transparent,var(--ben-red),var(--ben-bright-gold),var(--ben-dark-gold),transparent) no-repeat;background-size:80% 100%;background-clip:text;-webkit-background-clip:text;pointer-events:none;animation:ben-signature-flow 5s linear infinite}
 @keyframes ben-signature-flow{from{background-position:-400% 0}to{background-position:500% 0}}
 @media(prefers-reduced-motion:reduce){header>a.brand-signature::after{display:none;animation:none}}
 

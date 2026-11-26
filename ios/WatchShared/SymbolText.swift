@@ -6,24 +6,18 @@ enum CoreAssetStyle {
         "SGOV": "𝕊𝔾𝕆𝕍", "VTI": "𝕍𝕋𝕀", "QQQ": "ℚℚℚ",
         "QQQM": "ℚℚℚ𝕄", "SPY": "𝕊ℙ𝕐", "VOO": "𝕍𝕆𝕆", "NVDA": "ℕ𝕍𝔻𝔸"
     ]
-    static func contains(_ symbol: String) -> Bool { letteringBySymbol[symbol.uppercased()] != nil }
+    static func contains(_ symbol: String) -> Bool {
+        letteringBySymbol[symbol.uppercased()] != nil || SymbolFlowPalette(symbol) == .ben
+    }
     static func lettering(_ symbol: String) -> String {
         letteringBySymbol[symbol.uppercased()] ?? symbol
-    }
-    static func usesTealApricot(_ symbol: String) -> Bool {
-        ["NVDA", "QQQ", "QQQM"].contains(symbol.uppercased())
-    }
-    static func teal(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(red: 40/255, green: 164/255, blue: 153/255)
-                        : Color(red: 18/255, green: 105/255, blue: 95/255)
-    }
-    static func apricot(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(red: 250/255, green: 188/255, blue: 132/255)
-                        : Color(red: 149/255, green: 83/255, blue: 33/255)
     }
     static let red = Color(red: 0.84, green: 0.13, blue: 0.09)
     static let brightGold = Color(red: 1, green: 0.84, blue: 0.32)
     static let darkGold = Color(red: 0.58, green: 0.30, blue: 0.05)
+    static func signatureBase(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(red: 0.68, green: 0.39, blue: 0.09) : Color(red: 0.52, green: 0.29, blue: 0.06)
+    }
     static let signatureFlow: [Color] = [.clear, red, brightGold, darkGold, .clear]
     static func sectorColor(_ fraction: Double) -> Color {
         let stops: [(Double, Double, Double)] = [(0.84, 0.13, 0.09), (1, 0.84, 0.32), (0.58, 0.30, 0.05)]
@@ -34,7 +28,36 @@ enum CoreAssetStyle {
     }
 }
 
-struct TealApricotFlow: View {
+enum SymbolFlowPalette {
+    case tealApricot, gold, ben
+
+    init?(_ symbol: String) {
+        switch symbol.uppercased() {
+        case "NVDA", "QQQ", "QQQM": self = .tealApricot
+        case "SGOV": self = .gold
+        case "TQQQ", "QLD", "UPRO": self = .ben
+        default: return nil
+        }
+    }
+
+    func cycle(_ scheme: ColorScheme) -> [Color] {
+        switch (self, scheme) {
+        case (.tealApricot, .dark):
+            return [Color(red: 40/255, green: 164/255, blue: 153/255), Color(red: 250/255, green: 188/255, blue: 132/255)]
+        case (.tealApricot, _):
+            return [Color(red: 18/255, green: 105/255, blue: 95/255), Color(red: 149/255, green: 83/255, blue: 33/255)]
+        case (.gold, .dark):
+            return [Color(red: 1, green: 224/255, blue: 148/255), Color(red: 186/255, green: 122/255, blue: 55/255)]
+        case (.ben, _):
+            return [CoreAssetStyle.signatureBase(scheme), CoreAssetStyle.red, CoreAssetStyle.brightGold, CoreAssetStyle.darkGold]
+        case (.gold, _):
+            return [Color(red: 148/255, green: 101/255, blue: 14/255), Color(red: 120/255, green: 66/255, blue: 7/255)]
+        }
+    }
+}
+
+struct SymbolGradientFlow: View {
+    let palette: SymbolFlowPalette
     var active = true
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var phase
@@ -44,10 +67,12 @@ struct TealApricotFlow: View {
 
     var body: some View {
         let animate = active && visible && phase == .active && !reduceMotion && !dimmed
+        let cycle = palette.cycle(scheme)
+        // The gradient spans three view widths. Repeat half a cycle past its end for a seamless pan.
+        let stops = cycle + cycle.prefix(cycle.count / 2 + 1)
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !animate)) { context in
             let offset = animate ? context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) * 2 / 5 : 0
-            let teal = CoreAssetStyle.teal(scheme), apricot = CoreAssetStyle.apricot(scheme)
-            LinearGradient(colors: [teal, apricot, teal, apricot],
+            LinearGradient(colors: stops,
                            startPoint: UnitPoint(x: -offset, y: 0.5), endPoint: UnitPoint(x: 3 - offset, y: 0.5))
         }
         .onAppear { visible = true }.onDisappear { visible = false }
@@ -66,12 +91,11 @@ struct SymbolText: View {
     private var letteringStyle: AnyShapeStyle {
         #if os(watchOS)
         // The watch may pause its animation timeline while the lettering stays visible.
-        if symbol.uppercased() != "SGOV" {
-            return AnyShapeStyle(LinearGradient(colors: [CoreAssetStyle.red, CoreAssetStyle.brightGold, CoreAssetStyle.darkGold],
-                                                startPoint: .leading, endPoint: .trailing))
-        }
-        #endif
+        return AnyShapeStyle(LinearGradient(colors: [CoreAssetStyle.red, CoreAssetStyle.brightGold, CoreAssetStyle.darkGold],
+                                            startPoint: .leading, endPoint: .trailing))
+        #else
         return AnyShapeStyle(TradingColors.symbol(symbol, scheme: scheme))
+        #endif
     }
 
     var body: some View {
@@ -82,8 +106,8 @@ struct SymbolText: View {
                 ? text.font(.custom("STIXTwoMath-Regular", fixedSize: UIFont.preferredFont(forTextStyle: textStyle).pointSize))
                 : text
             Group {
-                if CoreAssetStyle.usesTealApricot(symbol) {
-                    lettering.foregroundStyle(.clear).overlay { TealApricotFlow().mask(lettering) }
+                if let palette = SymbolFlowPalette(symbol) {
+                    lettering.foregroundStyle(.clear).overlay { SymbolGradientFlow(palette: palette).mask(lettering) }
                 } else {
                     TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !visible || phase != .active || reduceMotion)) { context in
                         let progress = reduceMotion ? 0.5 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
@@ -91,7 +115,7 @@ struct SymbolText: View {
                             .overlay {
                                 if !reduceMotion {
                                     GeometryReader { geometry in
-                                        LinearGradient(colors: symbol.uppercased() == "SGOV" ? [.clear, scheme == .dark ? Color.white : Color(red: 0.48, green: 0.23, blue: 0.02), .clear] : CoreAssetStyle.signatureFlow, startPoint: .leading, endPoint: .trailing)
+                                        LinearGradient(colors: CoreAssetStyle.signatureFlow, startPoint: .leading, endPoint: .trailing)
                                             .frame(width: geometry.size.width * 0.65)
                                             .offset(x: geometry.size.width * (progress * 1.65 - 0.65))
                                     }.mask(lettering).allowsHitTesting(false)
@@ -112,8 +136,7 @@ struct SymbolText: View {
 enum TradingColors {
     static func symbol(_ symbol: String, scheme: ColorScheme) -> Color {
         guard CoreAssetStyle.contains(symbol) else { return .primary }
-        if CoreAssetStyle.usesTealApricot(symbol) { return CoreAssetStyle.teal(scheme) }
-        if symbol.uppercased() != "SGOV" { return scheme == .dark ? CoreAssetStyle.brightGold : CoreAssetStyle.darkGold }
-        return scheme == .dark ? Color(red: 1.00, green: 0.88, blue: 0.58) : Color(red: 0.78, green: 0.60, blue: 0.16)
+        if let palette = SymbolFlowPalette(symbol) { return palette.cycle(scheme)[0] }
+        return scheme == .dark ? CoreAssetStyle.brightGold : CoreAssetStyle.darkGold
     }
 }
