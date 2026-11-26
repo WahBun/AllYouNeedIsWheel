@@ -121,6 +121,7 @@ $('favorite-contract').onclick=()=>{
  void favoritesSync.toggle({id:cid,label});
 };
 $('favorite-contracts').onchange=()=>{const item=contractFavorites.find(x=>String(x.id)===$('favorite-contracts').value);if(item)select(item.id,item.label);$('favorite-contracts').value='';};
+window.installFavoriteReordering?.($('favorite-contracts'),favoritesSync);
 window.addEventListener('storage',event=>{if(event.key==='wheel.web.synced-favorite-contracts')void favoritesSync.refresh();});
 window.addEventListener('focus',()=>{void favoritesSync.refresh();});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)void favoritesSync.refresh();});
