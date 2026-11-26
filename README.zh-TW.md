@@ -10,7 +10,7 @@ SwiftUI 構建，支援 iOS 18 及以上、淺色／深色模式。原生頁面�
 
 **桌面網頁工作台**將 1／2／3／4 圖、畫線、指標、價格提醒和交易面板放在同一畫面；**原生 iPhone App** 提供 Portfolio、Trade、Orders 與圖表，兩端共用後端。網頁佈局也適配較小螢幕。
 
-> Wheel 以原始碼形式發布。更新 GitHub、部署到後端主機與安裝 iPhone App 是三個獨立步驟。
+> Wheel 以原始碼形式發布。後端部署與 iPhone、Apple Watch 安裝分別進行。
 
 ## 當前階段與版本
 
