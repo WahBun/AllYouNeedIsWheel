@@ -2,6 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import patch, Mock, AsyncMock
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 from types import SimpleNamespace as S
 from api.services import chart_reference
 from api.services.stock_chart import StockChart
@@ -108,6 +109,40 @@ class ChartReferenceTests(unittest.TestCase):
             chart_reference.subscribe(self.conn, 7)
             asyncio.get_event_loop().run_until_complete(asyncio.sleep(0))
             self.assertEqual(chart_reference.subscribe(self.conn, 7)['previous_close'], 9.5)
+
+    def test_index_prior_close_tracks_displayed_minute_across_holiday(self):
+        from ib_async import Index
+        ny = ZoneInfo('America/New_York')
+        self.conn.ib.wrapper = S(reqId2Subscriber={42: S(reqId=42)})
+        bar = dict(time=datetime(2026, 11, 25, 16, 59, tzinfo=ny).timestamp(),
+                   open=28.29, high=28.29, low=28.29, close=28.29)
+        state = dict(self.state, con_id=97, contract=Index('VIX', 'CBOE', 'USD', conId=97),
+                     ticker=None, index_bars=True, minute_history=self.conn.ib.wrapper.reqId2Subscriber[42],
+                     bars=[bar], timed_trades=None)
+        self.conn.ib.reqHistoricalDataAsync.return_value = [
+            S(date=date(2026, 11, 24), close=26.36), S(date=date(2026, 11, 25), close=28.29)]
+        self.conn.get_market_ticker.reset_mock()
+        with patch.dict(chart_reference.stock_chart.states, {97: state}, clear=True):
+            def read():
+                return chart_reference.subscribe(self.conn, 97)
+            self.assertIsNone(read()['previous_close'])
+            self.assertIsNone(read()['previous_close'])
+            asyncio.get_event_loop().run_until_complete(asyncio.sleep(.01))
+            self.assertIsNone(read()['previous_close'])
+            packet = self.feed.packet(state, 5, 'all')
+            self.assertEqual((packet['last_price'], packet['previous_close']), (28.29, 26.36))
+            self.conn.ib.reqHistoricalDataAsync.assert_awaited_once()
+            state['bars'].append(dict(bar, time=datetime(2026, 11, 27, 3, 15, tzinfo=ny).timestamp(), close=29))
+            self.assertIsNone(self.feed.packet(state, 5, 'all')['previous_close'])
+            self.assertIsNone(read()['previous_close'])
+            asyncio.get_event_loop().run_until_complete(asyncio.sleep(.01))
+            packet = self.feed.packet(state, 5, 'all')
+            self.assertEqual((packet['last_price'], packet['previous_close']), (29, 28.29))
+            self.conn.ib.wrapper.reqId2Subscriber.clear()
+            with self.assertRaises(ValueError):
+                read()
+        self.conn.get_market_ticker.assert_not_called()
+        self.conn.ib.reqMarketDataType.assert_not_called()
 
     def test_subscription_uses_current_connection_and_existing_bounded_cache(self):
         with patch.dict(chart_reference.stock_chart.states, {7: self.state}, clear=True):

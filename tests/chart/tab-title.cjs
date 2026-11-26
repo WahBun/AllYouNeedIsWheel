@@ -2,7 +2,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict');
 const {start}=require('./market-feed/harness.cjs');
 (async()=>{const server=await start(),browser=await chromium.launch();try{
  const exerciseTitles=()=>{
-   const saved=packet,at=packetReceived,result=[];
+   const saved=packet,at=packetReceived,result=[],reference=titleReference,previousBusy=titleReferenceBusy;
    for(const fields of [
     {security_type:'OPT',symbol:'GOOG',local_symbol:'GOOG  261120P00270000',display_symbol:'GOOG 20261120 270 PUT'},
     {security_type:'OPT',symbol:'TSLL',local_symbol:'TSLL  261218C00013500',display_symbol:'TSLL 20261218 13.5 CALL'},
@@ -10,7 +10,14 @@ const {start}=require('./market-feed/harness.cjs');
     {security_type:'STK',symbol:'GOOG',local_symbol:'GOOG',display_symbol:'Alphabet'},
     {security_type:'OPT',symbol:'GOOG',local_symbol:'GOOG  261120P00270000',display_symbol:''}
    ]){packet={...saved,...fields,last_price:1.6,previous_close:1.6,price_rules:[]};packetReceived=Date.now();updateTabTitle();result.push(document.title);}
-   packet=saved;packetReceived=at;updateTabTitle();return result;
+   titleReferenceBusy=true;
+   packet={...saved,security_type:'IND',symbol:'VIX',local_symbol:'VIX',display_symbol:'VIX',
+    display_last:null,last_price:28.29,previous_close:26.36};
+   titleReference=null;
+   updateTabTitle();result.push(document.title);
+   packet={...packet,previous_close:null};
+   updateTabTitle();result.push(document.title);
+   titleReference=reference;titleReferenceBusy=previousBusy;packet=saved;packetReceived=at;updateTabTitle();return result;
   };
  for(const width of [1400,393]){
   const page=await browser.newPage({viewport:{width,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -42,7 +49,11 @@ const {start}=require('./market-feed/harness.cjs');
   await page.mouse.click(r.x+10,r.y+70);releaseReference();await page.waitForFunction(()=>document.title==='SYNTH7 77.00 ▲ +10.00%');await page.waitForTimeout(350);assert.equal(await page.title(),'SYNTH7 77.00 ▲ +10.00%');
   assert.match(await page.locator('link[rel="icon"]').getAttribute('href'),/wheel-app-icon/);
   const names=await page.evaluate(()=>window.testTabTitles());
-  assert.deepEqual(names,['GOOG 20261120 270 P 1.60 0.00%','TSLL 20261218 13.5 C 1.60 0.00%','MESZ6 1.60 0.00%','GOOG 1.60 0.00%','GOOG 261120P00270000 1.60 0.00%']);
+  assert.deepEqual(names,[
+   'GOOG · 11/20/26 · 270P 1.60 0.00%', 'TSLL · 12/18/26 · 13.5C 1.60 0.00%',
+   'MES Dec 2026 1.60 0.00%', 'Alphabet 1.60 0.00%', 'GOOG · 11/20/26 · 270P 1.60 0.00%',
+   'VIX 28.29 ▲ +7.32%', 'VIX 28.29'
+  ]);
   assert.deepEqual(errors,[]);await page.close();console.log('Tab price/change checks passed:',width);
  }
  assert.equal(server.metrics.posts,0);

@@ -930,12 +930,16 @@ class StockChart:
             if cached_bid is not None and cached_ask is not None and cached_bid <= cached_ask:
                 display_quote = dict(bid=cached_bid, ask=cached_ask)
         data_notice = None
+        previous_close = positive(getattr(ticker, 'close', None)) if getattr(ticker, 'marketDataType', None) in (1, 2) else None
         source = state.get('trade_source', 'IB Last tick-by-tick')
         if state.get('index_bars'):
             source = 'IB index historical updates'
             data_notice = 'IB index bars'
             if state['bars']:
                 as_of = datetime.fromtimestamp(state['bars'][-1]['time'], ZoneInfo('America/New_York'))
+                reference = state.get('title_daily_close')
+                if reference and reference['day'] == as_of.date():
+                    previous_close = reference['close']
                 data_notice += as_of.strftime(' · last minute %b %d %H:%M %Z')
         elif state.get('option_bars'):
             source = 'IB option historical updates'
@@ -945,7 +949,7 @@ class StockChart:
             con_id=con_id, symbol=contract.symbol, message=message,
             # Display-only quote metadata; independent of chart interval/session.
             display_last=display_last, last_price=positive(state['bars'][-1]['close']) if state['bars'] else None,
-            previous_close=positive(getattr(ticker, 'close', None)) if getattr(ticker, 'marketDataType', None) in (1, 2) else None,
+            previous_close=previous_close,
             display_symbol=(f"{contract.symbol} {contract.lastTradeDateOrContractMonth} {contract.strike:g} {'CALL' if contract.right == 'C' else 'PUT'}" if contract.secType == 'OPT' else getattr(contract, 'localSymbol', '') or contract.symbol),
             security_type=contract.secType, local_symbol=getattr(contract, "localSymbol", "") or contract.symbol,
             exchange=getattr(contract, "primaryExchange", "") or getattr(contract, "exchange", ""),
