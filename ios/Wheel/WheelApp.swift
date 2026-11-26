@@ -1237,7 +1237,7 @@ struct AllocationView: View {
         List {
             Section {
                 if data.total > 0 {
-                    Chart(data.assets.sorted { $0.id < $1.id }) { item in
+                    Chart(data.assets) { item in
                         SectorMark(angle: .value("Market value", item.value), innerRadius: .ratio(0.72), angularInset: 1.5)
                             .foregroundStyle(data.color(item, scheme: scheme))
                             .opacity(selected == nil || selected == item.id ? 1 : 0.35)
@@ -1256,7 +1256,7 @@ struct AllocationView: View {
                     .frame(height: 270)
                     .overlay {
                         ForEach(data.assets.filter { CoreAssetStyle.contains($0.name) }) { item in
-                            CoreAssetAllocationFlow(items: data.assets.sorted { $0.id < $1.id }, symbol: item.name,
+                            CoreAssetAllocationFlow(items: data.assets, symbol: item.name,
                                                     active: !sharePresented,
                                                     highlighted: selected == nil || selected == item.id)
                         }
@@ -1323,7 +1323,7 @@ struct AllocationView: View {
         .onChange(of: angle) {
             guard let angle else { return }
             var end = 0.0
-            selected = data.assets.sorted { $0.id < $1.id }.first { item in end += item.value; return angle < end }?.id
+            selected = data.assets.first { item in end += item.value; return angle < end }?.id
         }
         .onChange(of: data.assets.map(\.id)) {
             if !data.assets.contains(where: { $0.id == selected }) { selected = nil }

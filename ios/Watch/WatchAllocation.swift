@@ -75,7 +75,11 @@ struct WatchAllocationOverview: View {
                 .accessibilityLabel("Net liquidation")
                 .accessibilityValue(dollars(data.net))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }.frame(height: 132)
+            }
+            .containerRelativeFrame(.vertical) { height, _ in
+                // Leave room for the tab buttons and two rows of holdings on the first screen.
+                min(132, max(90, height - 106))
+            }
             if data.missingCount > 0 {
                 Text("Partial allocation").font(.caption2).foregroundStyle(.secondary)
             } else if slices.isEmpty {
@@ -85,10 +89,13 @@ struct WatchAllocationOverview: View {
             Text("Allocation unavailable").font(.footnote).foregroundStyle(.secondary)
         }
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 54), spacing: 3)], spacing: 3) {
-            ForEach(positive + symbols.subtracting(positive).sorted(), id: \.self) { symbol in
+            ForEach(data.assets) { item in
+                chip(item.id == "cash" ? nil : item.name, color: data.color(item, scheme: scheme))
+            }
+            ForEach(symbols.subtracting(positive).sorted(), id: \.self) { symbol in
                 chip(symbol, color: data.symbolColor(symbol, scheme: scheme))
             }
-            if let cash = snapshot.allocation?.cash, cash != 0 { chip(nil, color: AllocationData.cashColor(scheme)) }
+            if let cash = snapshot.allocation?.cash, cash < 0 { chip(nil, color: AllocationData.cashColor(scheme)) }
         }
     }
 
