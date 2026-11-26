@@ -62,7 +62,7 @@ struct WatchAllocationOverview: View {
                         }
                     }
                     VStack(spacing: 1) {
-                        Text("Net liquidation").font(.caption2).foregroundStyle(.secondary)
+                        Text(verbatim: "NetLiq").font(.caption2).foregroundStyle(.secondary)
                             .lineLimit(1).minimumScaleFactor(0.65)
                         Text(verbatim: dollars(data.net)).font(.headline).monospacedDigit()
                             .lineLimit(1).minimumScaleFactor(0.55)

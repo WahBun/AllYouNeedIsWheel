@@ -1247,7 +1247,8 @@ struct AllocationView: View {
                     .chartAngleSelection(value: $angle)
                     .chartBackground { _ in
                         VStack(spacing: 5) {
-                            Text("Net liquidation").font(.caption).foregroundStyle(.secondary)
+                            Text(verbatim: "NetLiq").font(.caption).foregroundStyle(.secondary)
+                                .accessibilityLabel("Net liquidation")
                             Text(money(data.net)).font(.title3.weight(.semibold)).monospacedDigit()
                                 .lineLimit(1).minimumScaleFactor(0.6)
                         }.frame(maxWidth: 160).allowsHitTesting(false)
