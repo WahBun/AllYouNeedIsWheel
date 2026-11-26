@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """User-triggered Xcode signing renewal. Default mode performs read-only checks."""
 import argparse
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 import fcntl
 import hashlib
@@ -124,7 +125,7 @@ def read_profile(path):
 def validate_profile(profile, config, previous_expiry=None, now=None, started=None):
     now = now or datetime.now(UTC)
     if not profile_matches(profile, config):
-        raise RenewalError("The signed profile does not match the expected team, app and iPhone.")
+        raise RenewalError("The signed profile does not match the expected team, app and device.")
     expiry = date(profile["ExpirationDate"])
     if expiry < now + timedelta(days=6):
         raise RenewalError("The signed profile has less than six days remaining. Renewal was not completed.")
@@ -217,7 +218,8 @@ def wait_for_fresh_profile(refresh, started, timeout=180):
 
 
 def recover_interrupted(state):
-    pending = [p for p in state.glob("*/profile-refresh.json")
+    manifests = [*state.glob("*/profile-refresh.json"), *state.glob("*/watch/profile-refresh.json")]
+    pending = [p for p in manifests
                if json.loads(p.read_text()).get("status") == "pending"]
     for path in pending:
         ProfileRefresh.restore(path)
@@ -229,6 +231,12 @@ class Renewal:
     def __init__(self, config, run):
         self.config = config
         self.run = run
+        self.watch = None
+        if "watchDeviceUDID" in config:
+            udid = config["watchDeviceUDID"]
+            if not isinstance(udid, str) or not udid.strip() or udid == config["deviceUDID"]:
+                raise RenewalError("Set watchDeviceUDID to the registered Apple Watch identifier.")
+            self.watch = dict(config, deviceUDID=udid, bundleID=config["bundleID"] + ".watchkitapp")
     def preflight(self):
         if Path("/dev/console").stat().st_uid != os.getuid():
             raise RenewalError("Sign in to the Mac desktop with this SSH account before renewing signing.")
@@ -238,7 +246,7 @@ class Renewal:
             if not isinstance(self.config.get(key), str) or not self.config[key].strip():
                 raise RenewalError("The saved signing identity is incomplete. Configure the existing app and registered iPhone first.")
 
-    def build(self, sha, previous_expiry):
+    def build(self, sha, previous_expiry, watch_previous=None):
         source = self.run / "source"
         source.mkdir()
         archive = self.run / "source.tar"
@@ -261,24 +269,100 @@ class Renewal:
                                 f'\nSYMROOT = {products}\nOBJROOT = {intermediates}\n')
         local_signing.chmod(0o600)
         started = datetime.now(UTC)
-        with ProfileRefresh(self.config, self.run, previous_expiry) as refresh:
+        with ExitStack() as stack:
+            phone = stack.enter_context(ProfileRefresh(self.config, self.run, previous_expiry))
+            if self.watch:
+                watch_dir = self.run / "watch"
+                watch_dir.mkdir()
+                watch = stack.enter_context(ProfileRefresh(self.watch, watch_dir, watch_previous))
             action = ["/usr/bin/osascript", str(source / "ios/renew_signing.applescript"),
                       str(project), str(self.run / "build.log")]
             command([*action, "prepare"], timeout=180, log=self.run / "xcode-prepare.log")
-            wait_for_fresh_profile(refresh, started)
+            wait_for_fresh_profile(phone, started)
+            if self.watch:
+                wait_for_fresh_profile(watch, started)
             command([*action, "build"], timeout=1320, log=self.run / "xcode-action.log")
             app = products / "Debug-iphoneos/Wheel.app"
             command(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app)])
-            profile = read_profile(app / "embedded.mobileprovision")
-            expiry = validate_profile(profile, self.config, refresh.previous, started=started)
-            info = plistlib.loads((app / "Info.plist").read_bytes())
-            if info["CFBundleIdentifier"] != self.config["bundleID"]:
-                raise RenewalError("The built application has a different bundle identifier.")
-            save_json(self.run / "signing-verification.json", {
-                "created": date(profile["CreationDate"]).isoformat(), "expires": expiry.isoformat(),
-                "previousExpires": refresh.previous.isoformat() if refresh.previous else None,
-                "profileUUID": profile["UUID"], "codesignVerified": True})
-        return app, expiry, info
+            expiry = verify_signed_package(app, phone, started)
+            watch_receipt = {}
+            if self.watch:
+                embedded = app / "Watch/WheelWatch.app"
+                watch_expiry = verify_signed_package(embedded, watch, started, companion=self.config["bundleID"])
+                watch_receipt = {"bundleID": self.watch["bundleID"], "deviceUDID": self.watch["deviceUDID"],
+                                 "builtApp": str(embedded), "profileExpires": watch_expiry.isoformat()}
+        return app, expiry, watch_receipt
+
+
+def verify_signed_package(app, refresh, started, companion=None):
+    info = plistlib.loads((app / "Info.plist").read_bytes())
+    if info["CFBundleIdentifier"] != refresh.config["bundleID"]:
+        raise RenewalError("The built application has a different bundle identifier.")
+    if companion and info.get("WKCompanionAppBundleIdentifier") != companion:
+        raise RenewalError("The embedded Watch app belongs to a different iPhone app.")
+    profile = read_profile(app / "embedded.mobileprovision")
+    expiry = validate_profile(profile, refresh.config, refresh.previous, started=started)
+    save_json(refresh.run / "signing-verification.json", {
+        "created": date(profile["CreationDate"]).isoformat(), "expires": expiry.isoformat(),
+        "previousExpires": refresh.previous.isoformat() if refresh.previous else None,
+        "profileUUID": profile["UUID"], "codesignVerified": True})
+    return expiry
+
+
+def device_result(run, label, device, action, *options):
+    output = run / f"{label}.json"
+    command(["/usr/bin/xcrun", "devicectl", "device", *action, "--device", device,
+             "--timeout", "90", "--json-output", str(output), *options], timeout=105)
+    return json.loads(output.read_text())["result"]
+
+
+def install_pair(receipt, state):
+    app = Path(receipt["builtApp"])
+    run = app.parents[2]
+    watch = receipt["watch"]
+    progress_path = run / "installation.json"
+    progress = json.loads(progress_path.read_text()) if progress_path.exists() else {}
+    targets = [("Watch", watch), ("iPhone", receipt)]
+    # Check both before starting either transfer. The phone also embeds the Watch app.
+    for name, target in targets:
+        try:
+            lock = device_result(run, name + "-lock", target["deviceUDID"], ["info", "lockState"])
+        except RenewalError as exc:
+            raise RenewalError(f"Signed packages saved. Connect both devices and run the shortcut again. {name}: {exc}") from exc
+        if lock.get("passcodeRequired") is not False or lock.get("unlockedSinceBoot") is not True:
+            raise RenewalError(f"Unlock the {name} and run the shortcut again to install the signed packages.")
+    command(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app)])
+    for name, target in targets:
+        udid, bundle = target["deviceUDID"], target["bundleID"]
+        package = Path(target["builtApp"])
+        profile = read_profile(package / "embedded.mobileprovision")
+        identity = dict(target, teamID=receipt["teamID"])
+        if (not profile_matches(profile, identity) or date(profile["ExpirationDate"]) != date(target["profileExpires"])
+                or date(target["profileExpires"]) <= datetime.now(UTC)):
+            raise RenewalError(f"The signed {name} package does not match its build receipt.")
+        def installed_url():
+            result = device_result(run, name + "-apps", udid, ["info", "apps"], "--bundle-id", bundle)
+            return next((a["url"] for a in result["apps"] if a["bundleIdentifier"] == bundle), None)
+        def has_profile():
+            result = device_result(run, name + "-profiles", udid, ["profile", "list"],
+                                   "--type", "provisioning", "--search", profile["UUID"])
+            return any(str(p.get("uuid", "")).lower() == profile["UUID"].lower()
+                       for p in result["provisioningProfiles"])
+        before = installed_url()
+        entry = progress.setdefault(name, {"before": before})
+        if not (before and (before == entry.get("verifiedURL") or before != entry["before"]) and has_profile()):
+            entry["before"] = before
+            save_json(progress_path, progress)
+            result = device_result(run, name + "-install", udid, ["install", "app"], str(package))
+            path = next((a["installationURL"] for a in result["installedApplications"] if a["bundleID"] == bundle), None)
+            if not path or installed_url() != path or not has_profile():
+                raise RenewalError(f"The {name} installation has not been verified. Run the shortcut again to check it.")
+            before = path
+        entry["verifiedURL"] = before
+        save_json(progress_path, progress)
+        print(f"{name} installation verified.", flush=True)
+    save_json(state / "last-install.json", {"commit": receipt["commit"], "builtApp": str(app),
+              "iPhoneExpires": receipt["profileExpires"], "watchExpires": watch["profileExpires"]})
 
 
 def main(argv=None):
@@ -287,6 +371,7 @@ def main(argv=None):
     modes.add_argument("--check", action="store_true", help="Read-only GitHub and Mac readiness check (default)")
     modes.add_argument("--build-only", action="store_true", help="Build and validate signing without installing")
     modes.add_argument("--renew", action="store_true", help="Renew and build a signed package; installation remains manual")
+    modes.add_argument("--shortcut", action="store_true", help="Renew signing and install on the configured device pair")
     args = parser.parse_args(argv)
     os.umask(0o077)
     run = None
@@ -300,34 +385,51 @@ def main(argv=None):
             except BlockingIOError as exc:
                 raise RenewalError("Another renewal is already running.") from exc
             run = Path(tempfile.mkdtemp(prefix=datetime.now().strftime("%Y%m%d-%H%M%S-"), dir=state))
-            if args.renew or args.build_only:
+            if args.renew or args.build_only or args.shortcut:
                 recover_interrupted(state)
             sha = github_revision(config)
             print(f"GitHub verified: {config['branch']} @ {sha}", flush=True)
             renewal = Renewal(config, run)
-            if not (args.renew or args.build_only):
+            if not (args.renew or args.build_only or args.shortcut):
                 renewal.preflight()
                 print("Ready. No signing, installation, or app launch was performed.")
                 return 0
             renewal.preflight()
             receipt_path = state / "last-build.json"
             previous = config.get("baselineProfileExpires")
+            watch_previous = None
             if receipt_path.exists():
                 receipt = json.loads(receipt_path.read_text())
                 if any(receipt.get(key) != config[key] for key in ("bundleID", "teamID", "deviceUDID")):
                     raise RenewalError("The previous build receipt belongs to a different app or device.")
                 previous = receipt["profileExpires"]
+                old_watch = receipt.get("watch", {})
+                if renewal.watch and old_watch.get("deviceUDID") == renewal.watch["deviceUDID"]:
+                    watch_previous = old_watch["profileExpires"]
+                    if (args.shortcut and receipt.get("commit") == sha and
+                            min(date(previous), date(watch_previous)) >= datetime.now(UTC) + timedelta(days=6)
+                            and Path(receipt["builtApp"]).is_dir() and Path(old_watch["builtApp"]).is_dir()):
+                        print("Using verified signed packages from the last build.", flush=True)
+                        install_pair(receipt, state)
+                        print(f"iPhone signing expires: {date(previous).astimezone():%Y-%m-%d %H:%M %Z}\n"
+                              f"Apple Watch signing expires: {date(watch_previous).astimezone():%Y-%m-%d %H:%M %Z}")
+                        return 0
             print("Refreshing signing through Xcode Build and verifying the new expiration...", flush=True)
-            app, expiry, info = renewal.build(sha, previous)
+            app, expiry, watch = renewal.build(sha, previous, watch_previous)
             details = {"commit": sha, "branch": config["branch"], "profileExpires": expiry.isoformat(),
                        "bundleID": config["bundleID"], "teamID": config["teamID"],
                        "deviceUDID": config["deviceUDID"], "builtApp": str(app),
                        "builtAt": datetime.now(UTC).isoformat()}
+            if watch:
+                details["watch"] = watch
             save_json(run / "build-receipt.json", details)
             save_json(receipt_path, details)
-            print(f"Signing renewed. No iPhone installation.\n"
-                  f"Signature expires: {expiry.astimezone():%Y-%m-%d %H:%M %Z}\n"
-                  f"Commit: {sha}\nSigned app: {app}\nInstall the app manually when ready.")
+            print(f"iPhone signing expires: {expiry.astimezone():%Y-%m-%d %H:%M %Z}")
+            if watch:
+                print(f"Apple Watch signing expires: {date(watch['profileExpires']).astimezone():%Y-%m-%d %H:%M %Z}")
+            print(f"Commit: {sha}\nSigned app: {app}\nReady for installation.")
+            if args.shortcut and watch:
+                install_pair(details, state)
             return 0
     except (RenewalError, OSError, ValueError, KeyError) as exc:
         print(f"Renewal stopped: {exc}", file=sys.stderr)

@@ -38,15 +38,18 @@ To stop the agent, run `launchctl bootout "gui/$(id -u)/com.wahbun.wheel-pro-xco
 and move `~/Library/LaunchAgents/com.wahbun.wheel-pro-xcode-sync.plist` out of
 LaunchAgents. Rerun the installer to restore or update the local helper.
 
-## Pro shortcut: Wheel iPhone Renew
+## Pro shortcut: iPhone Renew
 
-`renew_signing.py` renews signing and builds a local package using the existing
-Xcode account and **Any iOS Device (arm64)** build destination. **Every mode
-leaves phone installation to the user.** The registered iPhone does not need to
-be connected to Xcode. The Pro must be awake, online, and signed in to its normal
-macOS desktop account with Xcode signing already configured.
-The script does not require Wheel to be closed because it never installs,
-launches, terminates or uninstalls the phone app.
+Configure `watchDeviceUDID` to renew the iPhone and Apple Watch profiles together.
+The shortcut builds one iPhone package with its signed Watch companion. When both
+registered devices are connected to the Pro and unlocked, it installs the Watch
+package followed by the iPhone package and verifies each installation. If either
+device is unavailable, the signed packages are saved. Reopen the shortcut after
+reconnecting both devices. A retry can reuse a recent verified build and checks
+what each device already received.
+
+The Pro must be awake and signed in to the macOS desktop with its Xcode account
+configured. Use `--build-only` for offline package preparation.
 
 Each invocation resolves the current tip of the branch in `ios/Renew.local.json`
 on its configured GitHub repository. Build mode archives that exact commit,
@@ -55,7 +58,7 @@ The branch lookup and optional fetch use the Pro's existing proxy settings.
 The lookup has a 20-second timeout and the fetch has a 120-second timeout.
 No system or Git proxy configuration is changed. The copy uses a unique project
 name to keep Xcode scripting results separate from open developer projects. It backs up only cached profiles
-matching the existing team, bundle ID and iPhone, removes those copies, waits for Xcode to finish preparing a freshly issued profile, and calls
+matching each configured team, bundle ID and device, removes those copies, waits for Xcode to finish preparing a freshly issued profile, and calls
 Xcode's documented **Build** AppleScript interface. This avoids Xcode 27's CLI
 account lookup failure and reuse of a still-valid profile. Certificates, account
 credentials, other apps' profiles and the original project are untouched.
@@ -69,6 +72,7 @@ Create the git-ignored `ios/Renew.local.json` on the Pro:
   "repository": "https://github.com/OWNER/REPOSITORY",
   "branch": "YOUR_BRANCH",
   "deviceUDID": "IPHONE_UDID",
+  "watchDeviceUDID": "APPLE_WATCH_UDID",
   "bundleID": "YOUR_EXISTING_BUNDLE_ID",
   "teamID": "YOUR_EXISTING_TEAM_ID"
 }
@@ -80,11 +84,11 @@ Obtain device identifiers with `xcrun devicectl list devices --json-output
 record the previous locally signed package's expiration. Neither this timestamp
 nor a local build receipt proves what is currently installed on the phone.
 
-In macOS Shortcuts, create **Wheel iPhone Renew**, add **Run Shell Script** with
+In macOS Shortcuts, open **iPhone Renew**, add **Run Shell Script** with
 zsh and administrator privileges off, then **Show Result** for the shell output:
 
 ```sh
-wheel_output=$(/usr/bin/python3 '/ABSOLUTE/REPOSITORY/PATH/ios/renew_signing.py' --build-only 2>&1)
+wheel_output=$(/usr/bin/python3 '/ABSOLUTE/REPOSITORY/PATH/ios/renew_signing.py' --shortcut 2>&1)
 wheel_status=$?
 printf '%s\n' "$wheel_output"
 if [ "$wheel_status" -ne 0 ]; then
@@ -101,8 +105,7 @@ read-only GitHub and Mac readiness checks. `--renew` is a compatibility alias fo
 Success requires a verified code signature, the exact app/team/iPhone, a freshly
 issued profile with at least six days remaining, and an expiration later than
 all matching cached profiles and the previous build receipt. The result shows
-the actual new expiration, commit and signed `.app` path. Install that package
-manually or use your normal Xcode Run when ready. Authentication failures still
+each new expiration, the commit and the signed `.app` path. With a Watch configured, both embedded profiles must pass verification, including the Watch companion ID. The receipt records the embedded Watch app path. Omit `watchDeviceUDID` for iPhone-only renewal. Build-only mode leaves the packages ready for manual installation. Authentication failures still
 require action in Xcode; failures are never reported as a completed renewal.
 
 Logs, profile backups, build artifacts, personal settings and receipts remain
@@ -125,17 +128,16 @@ commands, arguments, shell expressions, terminals and forwarding. Never put a
 private key, password, host address or personal signing configuration in Git.
 In the iPhone **Run Script over SSH** action, select this key, the Pro's Tailscale
 address, port 22, and the same macOS user. Use `check` first; use `renew` to
-refresh signing and build the package, then show the returned result. Keep the
+run the same paired update and show the result. Keep the
 SSH action open until it finishes. A disconnected or failed action is not proof
 of success: inspect the saved receipt before retrying. The existing renewal lock
 prevents concurrent builds.
 
 The SSH public key authorizes only this on-demand entry. Xcode may still need a
 one-time macOS automation approval or account/keychain interaction on the Pro;
-complete those locally before relying on remote renewal. Neither a successful
-`check` nor a signed package updates the app already installed on the iPhone.
-The iPhone can remain on cellular data with Tailscale connected; manual app
-installation is a separate step when the phone is available again.
+complete those locally before relying on remote renewal. The SSH trigger can reach the Pro over Tailscale. Installation also requires Xcode
+to reach both registered devices. The paired installation receipt is recorded in
+`ios/.renewal/last-install.json` only after both device checks succeed.
 
 ## 页面与操作
 
