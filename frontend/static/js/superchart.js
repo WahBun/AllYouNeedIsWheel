@@ -453,8 +453,8 @@ function applyMarket(bars,push=false){
  // Price/OHLC reaches the renderer before optional overlays; refresh once.
  syncVolatility();void refreshVolatility({sync:false});
  switchingChart=false;chartLayout.checkSwitch();frame.style.opacity='';frame.style.pointerEvents='';frame.removeAttribute('aria-busy');
- $('market-status').textContent=(bars.message||(bars.status==='waiting'?'Historical bars · waiting for IB last ticks':bars.status)||'')+(push?' · SSE push':' · Snapshot refresh');
- $('market-status').title=$('market-status').textContent;$('market-status').hidden=!!packet.bars?.length&&!bars.message;
+ $('market-status').textContent=(bars.message||(bars.security_type==='IND'&&bars.data_notice)||(bars.status==='waiting'?'Historical bars · waiting for IB last ticks':bars.status)||'')+(push?' · SSE push':' · Snapshot refresh');
+ $('market-status').title=$('market-status').textContent;$('market-status').hidden=!!packet.bars?.length&&!bars.message&&bars.security_type!=='IND';
  // Quotes update the chart above. Reconfigure orders/indicators only when their
  // contract metadata changes; order-state and user edits still sync immediately.
  const nextConfig=JSON.stringify([cid,bars.generation,interval,session,bars.security_type,bars.multiplier,bars.price_rules]);

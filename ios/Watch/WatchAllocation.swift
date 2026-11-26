@@ -26,6 +26,8 @@ struct WatchAllocationOverview: View {
     let open: (WatchAssetSelection) -> Void
     @Environment(\.colorScheme) private var scheme
 
+    @ScaledMetric(relativeTo: .caption2) private var chipSize: CGFloat = 10
+
     private func select(_ symbol: String?) {
         open(WatchAssetSelection(mode: snapshot.mode, epoch: snapshot.epoch, symbol: symbol))
     }
@@ -76,10 +78,7 @@ struct WatchAllocationOverview: View {
                 .accessibilityValue(dollars(data.net))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .containerRelativeFrame(.vertical) { height, _ in
-                // Leave room for the tab buttons and two rows of holdings on the first screen.
-                min(132, max(90, height - 106))
-            }
+            .frame(height: 132)
             if data.missingCount > 0 {
                 Text("Partial allocation").font(.caption2).foregroundStyle(.secondary)
             } else if slices.isEmpty {
@@ -88,7 +87,7 @@ struct WatchAllocationOverview: View {
         } else {
             Text("Allocation unavailable").font(.footnote).foregroundStyle(.secondary)
         }
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 54), spacing: 3)], spacing: 3) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: chipSize * 3.7), spacing: 2)], spacing: 3) {
             ForEach(data.assets) { item in
                 chip(item.id == "cash" ? nil : item.name, color: data.color(item, scheme: scheme))
             }
@@ -101,11 +100,11 @@ struct WatchAllocationOverview: View {
 
     private func chip(_ symbol: String?, color: Color) -> some View {
         Button { select(symbol) } label: {
-            HStack(spacing: 3) {
-                Circle().fill(color).frame(width: 5, height: 5)
-                if let symbol { SymbolText(symbol: symbol, textStyle: .caption1) } else { Text("Cash") }
-            }.font(.caption).lineLimit(1).minimumScaleFactor(0.65)
-                .padding(.horizontal, 3).frame(maxWidth: .infinity, minHeight: 30)
+            HStack(spacing: 2) {
+                Circle().fill(color).frame(width: 4, height: 4)
+                if let symbol { SymbolText(symbol: symbol, pointSize: chipSize) } else { Text("Cash") }
+            }.font(.system(size: chipSize)).lineLimit(1).minimumScaleFactor(0.65)
+                .padding(.horizontal, 2).frame(maxWidth: .infinity, minHeight: 26)
                 .background(.secondary.opacity(0.12), in: Capsule()).contentShape(Capsule())
         }.buttonStyle(.plain).accessibilityLabel(symbol ?? "Cash")
     }

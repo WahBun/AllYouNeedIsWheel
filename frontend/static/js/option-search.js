@@ -6,7 +6,7 @@ window.installOptionSearch=({api,select,symbol,canSelect,onError=()=>{}})=>{
  dialog.prepend(heading);$('option-title').textContent='Select instrument';
  const tabs=document.createElement('div');tabs.className='instrument-tabs';
  const stockTab=document.createElement('button'),optionTab=document.createElement('button');
- stockTab.type=optionTab.type='button';stockTab.textContent='Stocks / Futures';optionTab.textContent='Options';
+ stockTab.type=optionTab.type='button';stockTab.textContent='Symbols';optionTab.textContent='Options';
  tabs.append(stockTab,optionTab);heading.after(tabs);
  const stockPanel=document.createElement('div');stockPanel.id='instrument-search';tabs.after(stockPanel);
  const stockStatus=document.createElement('p'),stockSubmit=$('search').querySelector('button:not([type="button"])');

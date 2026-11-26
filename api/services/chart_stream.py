@@ -1,4 +1,5 @@
 """Bounded one-way chart push. All IB access stays on the serialized owner."""
+from api.services.chart_initial_history import chart_subscription_current
 import json
 import time
 from queue import Queue, Empty
@@ -68,7 +69,7 @@ class ChartStreams:
         stock_chart.has_subscribers = lambda cid: any(not sub.closed and sub.con_id == cid for sub in self.clients.values())
         state = stock_chart.states.get(con_id)
         if (state and state['conn'] is connection and state['con_id'] == con_id
-                and connection.is_connected() and connection.ib.ticker(state['contract']) is state['ticker']):
+                and connection.is_connected() and chart_subscription_current(connection.ib, state)):
             state['used'] = time.monotonic()
             packet = stock_chart.packet(state, minutes, session)
         else:
@@ -149,7 +150,7 @@ class ChartStreams:
             clients=[s for s in self.clients.values() if s.con_id==cid and not s.closed]
             state=stock_chart.states.get(cid)
             if (not state or not state['conn'].is_connected()
-                    or state['conn'].ib.ticker(state['contract']) is not state['ticker']):
+                    or not chart_subscription_current(state['conn'].ib, state)):
                 for sub in clients: sub.closed=True
                 latest_charts.invalidate(cid)
                 continue

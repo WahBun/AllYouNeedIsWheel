@@ -16,7 +16,7 @@ def _instrument(value, cid):
         if not isinstance(field, str) or len(field) > maximum or any(ord(c) < 32 for c in field):
             raise ValueError('Invalid favorite field')
         result[key] = field.strip()
-    if not result['label'] or result['type'] not in ('', 'STK', 'FUT', 'OPT') or result['right'] not in ('', 'C', 'P'):
+    if not result['label'] or result['type'] not in ('', 'STK', 'FUT', 'OPT', 'IND') or result['right'] not in ('', 'C', 'P'):
         raise ValueError('Invalid favorite instrument')
     # Identity is the exact IB contract ID. Optional metadata is display-only.
     strike = value.get('strike')

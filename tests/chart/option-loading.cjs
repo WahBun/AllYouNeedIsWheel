@@ -51,7 +51,7 @@ try{for(const width of [1440,393])for(const light of [false,true]){
  for(const cancel of ['edit','tab','close']){
   delay('dates',{error:true});await p.locator('#option-load').click();await until(()=>held.requested);
   if(cancel==='edit'){await p.locator('#option-symbol').fill('QQQ');await p.locator('#option-load').click();}
-  else if(cancel==='tab'){await p.getByRole('button',{name:'Stocks / Futures',exact:true}).click();}
+  else if(cancel==='tab'){await p.getByRole('button',{name:'Symbols',exact:true}).click();}
   else{await p.locator('#option-dismiss').click();}
   if(cancel==='edit'){
    // The edited query is allowed to start a new read; both responses are held here.

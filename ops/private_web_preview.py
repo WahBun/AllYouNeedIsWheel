@@ -20,6 +20,7 @@ from flask import Flask, Response, abort, redirect, render_template, request, se
 EPOCH = 'wheel-demo'
 RATES = ('18', '69.9', '70')
 SYMBOLS = {1: 'QQQ', 2: 'TSLL'}
+INDICES = {3: 'VIX', 4: 'VXN'}
 
 
 def demo_rate(value):
@@ -27,7 +28,7 @@ def demo_rate(value):
 
 
 def chart_packet(cid, interval, session):
-    if cid not in SYMBOLS or interval not in (1, 5, 15, 30, 60, 480, 1440, 10080, 43200):
+    if (cid not in SYMBOLS and cid not in INDICES) or interval not in (1, 5, 15, 30, 60, 480, 1440, 10080, 43200):
         abort(404)
     step = interval * 60
     end = int(time.time()) // step * step
@@ -38,8 +39,9 @@ def chart_packet(cid, interval, session):
         bars.append(dict(time=end - (count - 1 - i) * step,
                          open=price, high=price + .15, low=price - .15,
                          close=price + .05, volume=1000 + i * 10))
-    return dict(symbol=SYMBOLS[cid], con_id=cid, interval=interval, session=session,
-                security_type='STK', currency='USD', multiplier=1, bars=bars,
+    return dict(symbol=(SYMBOLS | INDICES)[cid], con_id=cid, interval=interval, session=session,
+                security_type='IND' if cid in INDICES else 'STK', currency='USD', multiplier=1, bars=bars,
+                data_notice='Demo index bars' if cid in INDICES else None,
                 mode='snapshot', status='Demo prices', account_epoch=EPOCH,
                 last=bars[-1]['close'], server_time=time.time(), history_expanded=True)
 
@@ -186,7 +188,13 @@ def create_demo(source):
         if kind == 'portfolio/stock-chart-history':
             return dict(bars=[])
         if path == 'portfolio/chart-contracts':
-            return dict(contracts=[dict(con_id=k, symbol=v, label=v) for k, v in SYMBOLS.items()])
+            query = request.args.get('q', '').strip().upper()
+            exact = request.args.get('con_id', type=int)
+            return dict(contracts=[dict(con_id=k, symbol=v, local_symbol=v, label=v,
+                                        security_type='IND' if k in INDICES else 'STK',
+                                        exchange='CBOE' if k in INDICES else 'SMART')
+                                   for k, v in (SYMBOLS | INDICES).items()
+                                   if (not query or v == query) and (exact is None or k == exact)])
         if path == 'options/pending-orders':
             return dict(orders=[])
         if kind == 'portfolio/chart-executions':

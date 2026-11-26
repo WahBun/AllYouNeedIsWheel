@@ -6,6 +6,28 @@ import SwiftUI
 final class ChartInstrumentTests: XCTestCase {
     private let exact: [String: Any] = ["con_id": 899193475, "symbol": "TSLL", "local_symbol": "TSLL 20261120 11 CALL",
         "security_type": "OPT", "exchange": "SMART", "expiration": "20261120", "right": "C", "strike": 11.0]
+    func testIndexSearchAndFavoriteUseExactContract() async throws {
+        for (symbol, id) in [("VIX", 13455763), ("VXN", 13455757)] {
+            let row: [String: Any] = ["symbol": symbol, "local_symbol": symbol, "con_id": id,
+                                      "security_type": "IND", "exchange": "CBOE"]
+            let search = ChartInstrumentSearch()
+            search.query = symbol.lowercased()
+            await search.search { _, items in
+                XCTAssertEqual(items, [URLQueryItem(name: "q", value: symbol)])
+                return ["contracts": [row]]
+            }
+            let item = try XCTUnwrap(search.results.first)
+            XCTAssertEqual(item.type, "IND")
+            XCTAssertEqual(item.displayLabel, symbol)
+            let restored = await search.resolveFavorite(item) { _, items in
+                XCTAssertEqual(Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value) }),
+                               ["type": "ID", "con_id": String(id)])
+                return ["contracts": [row]]
+            }
+            XCTAssertEqual(restored, item)
+        }
+    }
+
     func testInactiveDayHistoryOnlyChangesLockedViewingPresentation() {
         let state: [String: Any] = ["inactive_day_history": true, "known": false, "active": true, "position": 0.0]
         func view(_ value: [String: Any], locked: Bool = true, busy: Bool = false, pending: Bool = false) -> Bool {

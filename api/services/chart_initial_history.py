@@ -5,6 +5,13 @@ import asyncio
 import time
 
 
+def chart_subscription_current(ib, state):
+    if state.get('index_bars'):
+        history = state['minute_history']
+        return ib.wrapper.reqId2Subscriber.get(history.reqId) is history
+    return ib.ticker(state['contract']) is state['ticker']
+
+
 class ChartHistoryPending(ValueError):
     def __init__(self, message, wait=None):
         super().__init__(message)
@@ -29,7 +36,7 @@ class InitialChartHistory:
         if self.records.get(key) is record:
             self.records.pop(key)
         record['owned'] = False
-        if record.get('history') is not None and record['option'] and not record.get('failed'):
+        if record.get('history') is not None and record['streaming'] and not record.get('failed'):
             history = record.pop('history')
             try:
                 record['conn'].ib.cancelHistoricalData(history)
@@ -38,7 +45,7 @@ class InitialChartHistory:
 
     def clear(self):
         # Let ib_async finish its request/timeout cleanup. A late result is
-        # discarded and any option history subscription is explicitly released.
+        # discarded and any streaming history subscription is explicitly released.
         for key, record in list(self.records.items()):
             self.discard(key, record)
 
@@ -64,7 +71,7 @@ class InitialChartHistory:
             return self.consume(key, record)
         if record is None and len(self.tasks) < self.MAX_PENDING and len(self.records) < 8:
             option = contract.secType == 'OPT'
-            record = dict(conn=conn, option=option, owned=True, ready=False,
+            record = dict(conn=conn, streaming=contract.secType in ('OPT', 'IND'), owned=True, ready=False,
                           permissions=[], errors=[])
             self.records[key] = record
 
@@ -92,7 +99,7 @@ class InitialChartHistory:
                 record['requested_at'] = time.time()
                 try:
                     history = await read_history(conn, contract, '', '2 D', '1 min', 'TRADES',
-                        useRTH=False, formatDate=2, keepUpToDate=option, timeout=6 if option else 15)
+                        useRTH=False, formatDate=2, keepUpToDate=record['streaming'], timeout=6 if option else 15)
                     record['history'] = history
                 except HistoryDeferred:
                     record['deferred'] = True

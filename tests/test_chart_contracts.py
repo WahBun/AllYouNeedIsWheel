@@ -1,10 +1,30 @@
 import unittest
 from unittest.mock import Mock
 from types import SimpleNamespace as S
-from ib_async import Stock,Future,Option
+from ib_async import Index,Stock,Future,Option
 from api.services.chart_contracts import ChartContracts
 
 class ChartContractsTests(unittest.TestCase):
+    def test_search_and_restore_exact_cboe_indices(self):
+        for symbol in ('VIX', 'VXN'):
+            conn = Mock()
+            conn.get_option_position_by_con_id.return_value = None
+            valid = Index(symbol, 'CBOE', 'USD', conId=7)
+            wrong_exchange = Index(symbol, 'OTHER', 'USD', conId=8)
+            conn._bounded_order_read.return_value = [S(contract=c) for c in
+                (valid, wrong_exchange, Stock(symbol, 'SMART', 'USD', conId=9))]
+            service = ChartContracts()
+            row, = service.search(conn, symbol.lower())
+            requested = conn._bounded_order_read.call_args.args[1]
+            self.assertEqual((requested.symbol, requested.secType, requested.exchange), (symbol, 'IND', 'CBOE'))
+            self.assertEqual((row['security_type'], row['con_id']), ('IND', 7))
+            self.assertEqual(ChartContracts().describe(conn, 7)['symbol'], symbol)
+            with self.assertRaises(ValueError):
+                ChartContracts().describe(conn, 8)
+            conn._bounded_order_read.return_value += [S(contract=Index(symbol, 'CBOE', 'USD', conId=11))]
+            self.assertEqual(service.search(conn, symbol), [])
+            conn.get_qualified_stock_contract.assert_not_called()
+
     def test_option_search_uses_exact_contract_and_registers_without_position(self):
         service=ChartContracts();conn=Mock()
         contract=Option('QQQ','20991016',775,'C','SMART',currency='USD',multiplier='100',conId=123)
