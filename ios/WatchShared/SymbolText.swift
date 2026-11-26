@@ -6,13 +6,18 @@ enum CoreAssetStyle {
         "SGOV": "𝕊𝔾𝕆𝕍", "VTI": "𝕍𝕋𝕀", "QQQ": "ℚℚℚ",
         "QQQM": "ℚℚℚ𝕄", "SPY": "𝕊ℙ𝕐", "VOO": "𝕍𝕆𝕆", "NVDA": "ℕ𝕍𝔻𝔸"
     ]
-    static func contains(_ symbol: String) -> Bool { letteringBySymbol[symbol.uppercased()] != nil }
+    static func contains(_ symbol: String) -> Bool {
+        letteringBySymbol[symbol.uppercased()] != nil || SymbolFlowPalette(symbol) == .ben
+    }
     static func lettering(_ symbol: String) -> String {
         letteringBySymbol[symbol.uppercased()] ?? symbol
     }
     static let red = Color(red: 0.84, green: 0.13, blue: 0.09)
     static let brightGold = Color(red: 1, green: 0.84, blue: 0.32)
     static let darkGold = Color(red: 0.58, green: 0.30, blue: 0.05)
+    static func signatureBase(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(red: 0.68, green: 0.39, blue: 0.09) : Color(red: 0.52, green: 0.29, blue: 0.06)
+    }
     static let signatureFlow: [Color] = [.clear, red, brightGold, darkGold, .clear]
     static func sectorColor(_ fraction: Double) -> Color {
         let stops: [(Double, Double, Double)] = [(0.84, 0.13, 0.09), (1, 0.84, 0.32), (0.58, 0.30, 0.05)]
@@ -24,26 +29,29 @@ enum CoreAssetStyle {
 }
 
 enum SymbolFlowPalette {
-    case tealApricot, gold
+    case tealApricot, gold, ben
 
     init?(_ symbol: String) {
         switch symbol.uppercased() {
         case "NVDA", "QQQ", "QQQM": self = .tealApricot
         case "SGOV": self = .gold
+        case "TQQQ", "QLD", "UPRO": self = .ben
         default: return nil
         }
     }
 
-    func colors(_ scheme: ColorScheme) -> (start: Color, end: Color) {
+    func cycle(_ scheme: ColorScheme) -> [Color] {
         switch (self, scheme) {
         case (.tealApricot, .dark):
-            return (Color(red: 40/255, green: 164/255, blue: 153/255), Color(red: 250/255, green: 188/255, blue: 132/255))
+            return [Color(red: 40/255, green: 164/255, blue: 153/255), Color(red: 250/255, green: 188/255, blue: 132/255)]
         case (.tealApricot, _):
-            return (Color(red: 18/255, green: 105/255, blue: 95/255), Color(red: 149/255, green: 83/255, blue: 33/255))
+            return [Color(red: 18/255, green: 105/255, blue: 95/255), Color(red: 149/255, green: 83/255, blue: 33/255)]
         case (.gold, .dark):
-            return (Color(red: 1, green: 224/255, blue: 148/255), Color(red: 186/255, green: 122/255, blue: 55/255))
+            return [Color(red: 1, green: 224/255, blue: 148/255), Color(red: 186/255, green: 122/255, blue: 55/255)]
+        case (.ben, _):
+            return [CoreAssetStyle.signatureBase(scheme), CoreAssetStyle.red, CoreAssetStyle.brightGold, CoreAssetStyle.darkGold]
         case (.gold, _):
-            return (Color(red: 148/255, green: 101/255, blue: 14/255), Color(red: 120/255, green: 66/255, blue: 7/255))
+            return [Color(red: 148/255, green: 101/255, blue: 14/255), Color(red: 120/255, green: 66/255, blue: 7/255)]
         }
     }
 }
@@ -59,10 +67,12 @@ struct SymbolGradientFlow: View {
 
     var body: some View {
         let animate = active && visible && phase == .active && !reduceMotion && !dimmed
+        let cycle = palette.cycle(scheme)
+        // The gradient spans three view widths. Repeat half a cycle past its end for a seamless pan.
+        let stops = cycle + cycle.prefix(cycle.count / 2 + 1)
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !animate)) { context in
             let offset = animate ? context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) * 2 / 5 : 0
-            let colors = palette.colors(scheme)
-            LinearGradient(colors: [colors.start, colors.end, colors.start, colors.end],
+            LinearGradient(colors: stops,
                            startPoint: UnitPoint(x: -offset, y: 0.5), endPoint: UnitPoint(x: 3 - offset, y: 0.5))
         }
         .onAppear { visible = true }.onDisappear { visible = false }
@@ -126,7 +136,7 @@ struct SymbolText: View {
 enum TradingColors {
     static func symbol(_ symbol: String, scheme: ColorScheme) -> Color {
         guard CoreAssetStyle.contains(symbol) else { return .primary }
-        if let palette = SymbolFlowPalette(symbol) { return palette.colors(scheme).start }
+        if let palette = SymbolFlowPalette(symbol) { return palette.cycle(scheme)[0] }
         return scheme == .dark ? CoreAssetStyle.brightGold : CoreAssetStyle.darkGold
     }
 }

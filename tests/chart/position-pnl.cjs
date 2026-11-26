@@ -12,7 +12,8 @@ const {start}=require('./market-feed/harness.cjs');
    {con_id:12,symbol:'NO COST',position:1,avg_cost:null,unrealized_pnl:5},
    {con_id:13,symbol:'ZERO COST',position:1,avg_cost:0,unrealized_pnl:5},
    {con_id:14,symbol:'BIG',position:10,avg_cost:1000,unrealized_pnl:1234567.89},
-   ...['QQQ','QQQM','SPY','SGOV'].map((symbol,i)=>({con_id:15+i,symbol,position:1,security_type:'STK'}))
+   {con_id:30,symbol:'TQQQ',local_symbol:'TQQQ 20NOV26 60 P',position:-1,security_type:'OPT'},
+   ...['QQQ','QQQM','SPY','SGOV','TQQQ','QLD','UPRO'].map((symbol,i)=>({con_id:15+i,symbol,position:1,security_type:'STK'}))
   ];
   await p.route('**/api/portfolio/bootstrap*',r=>{assert.equal(r.request().method(),'GET');return r.fulfill({json:{positions:rows}})});
   await p.route('**/static/js/superchart.js',async r=>{const res=await r.fetch();await r.fulfill({response:res,body:(await res.text()).replace(/\}\)\(\);?\s*$/,'window.positionTest={refresh};})();')})});
@@ -33,7 +34,7 @@ const {start}=require('./market-feed/harness.cjs');
    assert.equal(await name.evaluate(e=>getComputedStyle(e).animationName),'symbol-gradient-flow');
    assert.equal(await buttons.nth(i).locator('.position-label').getAttribute('aria-label'),(rows[i].local_symbol||'NVDA')+' · '+rows[i].position);
   }
-  const palette=symbol=>allButtons.locator('.core-symbol[data-lettering="'+lettering[symbol]+'"]').first()
+  const palette=symbol=>allButtons.locator('.core-symbol[data-lettering="'+(lettering[symbol]||symbol)+'"]').first()
    .evaluate(e=>[getComputedStyle(e).color,getComputedStyle(e).backgroundImage,getComputedStyle(e,'::after').backgroundImage]);
   const nvda=await palette('NVDA'),sgov=await palette('SGOV');
   const letterHeights=await buttons.first().locator('.core-symbol').evaluate(async name=>{
@@ -56,15 +57,25 @@ const {start}=require('./market-feed/harness.cjs');
   assert.ok(nvda[1].includes(dark?'rgb(250, 188, 132)':'rgb(149, 83, 33)'));
   const symbol=buttons.first().locator('.core-symbol');
   const gold=allButtons.locator('.core-symbol-sgov');
+  const benNames=allButtons.locator('.core-symbol-ben');
+  assert.equal(await benNames.count(),4);
+  const brand=p.locator('header .brand-signature');
+  const base=await brand.evaluate(el=>getComputedStyle(el).color);
+  const signature=await palette('TQQQ');
+  assert.equal(signature[0],base);
+  for(const stop of ['rgb(214, 33, 23)','rgb(255, 214, 82)','rgb(148, 77, 13)'])assert.ok(signature[1].includes(stop));
+  for(const ticker of ['QLD','UPRO'])assert.deepEqual(await palette(ticker),signature);
+  assert.notEqual(signature[1],sgov[1]);
+  const flowingNames=[symbol,gold,...await benNames.all()];
   const samplePhases=async locator=>locator.evaluate(async el=>{
    el.style.setProperty('--symbol-phase','0ms');
    const animation=el.getAnimations().find(a=>a.animationName==='symbol-gradient-flow');
    animation.pause();await animation.ready;
    return [0,1250].map(time=>{animation.currentTime=time;return getComputedStyle(el).backgroundPositionX});
   });
-  for(const name of [symbol,gold])assert.deepEqual(await samplePhases(name),['0%','25%']);
+  for(const name of flowingNames)assert.deepEqual(await samplePhases(name),['0%','25%']);
   await p.emulateMedia({reducedMotion:'reduce'});
-  for(const name of [symbol,gold])assert.equal(await name.evaluate(el=>getComputedStyle(el).animationName),'none');
+  for(const name of flowingNames)assert.equal(await name.evaluate(el=>getComputedStyle(el).animationName),'none');
   assert.deepEqual(nvda,await palette('NVDA'));
   await p.emulateMedia({reducedMotion:'no-preference'});
   assert.equal(sgov[0],dark?'rgb(255, 224, 148)':'rgb(148, 101, 14)');

@@ -69,7 +69,7 @@ SwiftUI 构建，支持 iOS 18 及以上、浅色／深色模式。原生页面�
 
 CC 可用数量依据持股数量、已有空头 CALL 和占用中的卖出订单计算，而不是简单地把全部股票除以 100。持仓的入场价来自可靠匹配的成交记录；无法确定时留空，不用委托价或扣费后持仓成本冒充。
 
-SGOV、VTI、QQQ、QQQM、SPY、VOO、NVDA 有专属名称与资产分配动效。VTI／QQQ／QQQM／SPY／VOO／NVDA 仍可用于 Trade；SGOV 排除在 Trade 候选之外。装饰动画支持减少动态效果，并在后台或对应视图离开时暂停。
+SGOV、VTI、QQQ、QQQM、SPY、VOO、NVDA 有专属名称与资产分配动效。VTI／QQQ／QQQM／SPY／VOO／NVDA 仍可用于 Trade；SGOV 排除在 Trade 候选之外。TQQQ、QLD 和 UPRO 的名称与资产分配扇区沿用 Ben 签名色。装饰动画支持减少动态效果，并在后台或对应视图离开时暂停。
 
 ### Supercharts 与 𝔹𝕖𝕟 指标
 

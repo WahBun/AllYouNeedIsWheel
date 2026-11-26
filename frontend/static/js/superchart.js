@@ -593,13 +593,15 @@ clearReadNotice('Orders / positions');clearReadNotice('IB request');
 function holdingRows(id=cid,chartPacket=packet){return positions.flatMap(p=>{const exact=p.con_id===id&&p.security_type===chartPacket.security_type,strike=chartPacket.security_type==='STK'&&p.security_type==='OPT'&&p.symbol===chartPacket.symbol;if(!(p.position&&p.con_id&&(exact||strike)))return [];const report=p.reported_cost;let price=strike?p.strike:p.security_type==='STK'&&report&&Math.abs(report.quantity-p.position)<.000001?report.average:p.entry_fill_price;const multiplier=p.security_type==='STK'?1:p.multiplier;const brokerAverage=!strike&&['STK','OPT','FUT'].includes(p.security_type)&&!(price>0)&&Number.isFinite(p.avg_cost)&&p.avg_cost>0&&Number.isFinite(multiplier)&&multiplier>0;if(brokerAverage)price=p.avg_cost/multiplier;if(!(price>0))price=null;if(strike&&!price)return [];return [{id:(strike?'strike-':'holding-')+p.con_id,kind:strike?'strike':'holding',con_id:strike?p.con_id:null,price,title:strike?`${p.position} ${p.strike}${p.option_type==='CALL'?'C':'P'}@${p.entry_fill_price??'—'}`:`${p.position} · ${brokerAverage?'IB Avg*':'Avg'}${price?'':' —'}`,side:p.position>0?1:-1,pnl:p.unrealized_pnl,basis:Math.abs(p.avg_cost*p.position),marketPrice:p.market_price}];});}
 // Match native CoreAssetStyle / SymbolText without changing contract identity.
 const coreLettering={SGOV:'𝕊𝔾𝕆𝕍',VTI:'𝕍𝕋𝕀',QQQ:'ℚℚℚ',QQQM:'ℚℚℚ𝕄',SPY:'𝕊ℙ𝕐',VOO:'𝕍𝕆𝕆',NVDA:'ℕ𝕍𝔻𝔸'};
+const symbolGradients={SGOV:'sgov',NVDA:'teal-apricot',QQQ:'teal-apricot',QQQM:'teal-apricot',TQQQ:'ben',QLD:'ben',UPRO:'ben'};
 function stylePositionSymbol(button,row){
  const label=button.textContent,raw=String(row.local_symbol||row.symbol||'');
  const symbol=String(row.symbol||raw.split(/\s/)[0]).toUpperCase();
- if(!coreLettering[symbol]||!raw.toUpperCase().startsWith(symbol))return;
- const name=document.createElement('span');name.className='core-symbol'+(symbol==='SGOV'?' core-symbol-sgov':'');
- if(['NVDA','QQQ','QQQM'].includes(symbol))name.classList.add('core-symbol-teal-apricot');
- name.style.setProperty('--symbol-phase',`${-(Date.now()%5000)}ms`);name.dataset.lettering=coreLettering[symbol];name.textContent=coreLettering[symbol];name.setAttribute('aria-hidden','true');
+ const lettering=coreLettering[symbol] || (symbolGradients[symbol] ? symbol : '');
+ if(!lettering||!raw.toUpperCase().startsWith(symbol))return;
+ const name=document.createElement('span');name.className='core-symbol';
+ if(symbolGradients[symbol])name.classList.add('core-symbol-gradient','core-symbol-'+symbolGradients[symbol]);
+ name.style.setProperty('--symbol-phase',`${-(Date.now()%5000)}ms`);name.dataset.lettering=lettering;name.textContent=lettering;name.setAttribute('aria-hidden','true');
  button.setAttribute('aria-label',label);button.replaceChildren(name,document.createTextNode(label.slice(symbol.length)));
 }
 function renderPositionSummary(button,row){

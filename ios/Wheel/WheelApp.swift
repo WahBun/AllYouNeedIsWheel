@@ -2038,9 +2038,7 @@ private struct GildedSignature: View {
         TimelineView(.animation(minimumInterval: 1.0 / 30,
                                 paused: !visible || phase != .active || store.selectedTab != "settings" || reduceMotion)) { context in
             let progress = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 5) / 5
-            lettering.foregroundStyle(scheme == .dark
-                ? Color(red: 0.68, green: 0.39, blue: 0.09)
-                : Color(red: 0.52, green: 0.29, blue: 0.06))
+            lettering.foregroundStyle(CoreAssetStyle.signatureBase(scheme))
                 .overlay {
                     if !reduceMotion {
                         GeometryReader { geometry in
