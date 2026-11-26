@@ -204,7 +204,7 @@ private struct WatchDashboard: View {
             Text(title).font(.footnote.bold())
                 .foregroundStyle(section == value ? color(phone.theme.accent) : .secondary)
                 .frame(maxWidth: .infinity, minHeight: 30)
-                .background(Capsule().fill(color(phone.theme.accent).opacity(section == value ? 0.20 : 0.06)))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(section == value ? .isSelected : [])
