@@ -228,6 +228,7 @@ private struct WatchDashboard: View {
 
     private func quoteNote(_ row: WatchQuote) -> String? {
         guard let time = row.sampledAt else { return "Awaiting quote" }
+        if row.source == "indexBar" { return "1m bar · " + stamp(time) }
         let type = [2: "Frozen", 3: "Delayed", 4: "Delayed frozen"][row.dataType ?? 0]
         let stale = Date.now.timeIntervalSince1970 - time > 60
         let notes = [type, row.source == "close" ? "Close" : nil, stale ? "Stale · " + stamp(time) : nil].compactMap { $0 }

@@ -43,7 +43,7 @@ const { start } = require('./market-feed/harness.cjs');
     });
     await page.goto(h.url+'/superchart?con_id=7&session=rth');
     if (await page.locator('#chart-detail').isHidden()) await page.locator('#toggle-trade').click();
-    await page.locator('#positions button').filter({hasText:'TQQQ'}).first().click();
+    await page.locator('#positions button').filter({has:page.locator('.position-label[aria-label^="TQQQ ·"]')}).first().click();
     await page.waitForFunction(()=>location.search.includes('925488714'));
     await page.waitForResponse(r=>r.url().includes('/'+cid+'?interval=5') && r.status()===200);
     assert.equal(await page.locator('#chart-group-loading').isVisible(),true,'reject old account epoch');

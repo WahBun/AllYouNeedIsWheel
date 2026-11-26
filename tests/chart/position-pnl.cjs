@@ -21,7 +21,7 @@ const {start}=require('./market-feed/harness.cjs');
   if(!dark)await p.locator('#theme').click();await p.locator('#toggle-trade').click();
   const allButtons=p.locator('#positions button');
   // Find contracts by label so the default option-first sorting does not affect assertions.
-  const lettering={NVDA:'ℕ𝕍𝔻𝔸',VOO:'𝕍𝕆𝕆',QQQ:'ℚℚℚ',QQQM:'ℚℚℚ𝕄',SPY:'𝕊ℙ𝕐',SGOV:'𝕊𝔾𝕆𝕍'};
+  const lettering={NVDA:'ℕ𝕍𝔻𝔸',VOO:'𝕍𝕆𝕆',QQQ:'ℚℚℚ',TQQQ:'𝕋ℚℚℚ',QQQM:'ℚℚℚ𝕄',SPY:'𝕊ℙ𝕐',SGOV:'𝕊𝔾𝕆𝕍'};
   const byRow=rows.map(row=>{
    const label=(lettering[row.symbol]||row.symbol)+(row.local_symbol||row.symbol).slice(row.symbol.length);
    return allButtons.filter({has:p.locator('.position-label',{hasText:label+' · '+row.position})});
@@ -41,7 +41,7 @@ const {start}=require('./market-feed/harness.cjs');
    const family=getComputedStyle(name).fontFamily;
    const font='600 64px '+family;
    const loaded=await document.fonts.load(font,name.textContent);
-   if(!loaded.some(face=>face.family==='WheelNVDA'))throw new Error('NVDA font did not load');
+   if(!loaded.some(face=>face.family==='WheelLettering'))throw new Error('NVDA font did not load');
    const ctx=document.createElement('canvas').getContext('2d');
    ctx.font=font;
    return Array.from(name.textContent,letter=>{
@@ -61,6 +61,12 @@ const {start}=require('./market-feed/harness.cjs');
   assert.equal(await benNames.count(),4);
   const brand=p.locator('header .brand-signature');
   const base=await brand.evaluate(el=>getComputedStyle(el).color);
+  for(const row of [buttons.nth(7),buttons.nth(12)]){
+   const text=row.locator('.core-symbol');
+   assert.equal(await text.textContent(),'𝕋ℚℚℚ');
+   assert.match(await row.locator('.position-label').getAttribute('aria-label'),/^TQQQ/);
+   assert.ok(await text.evaluate(el=>getComputedStyle(el).fontFamily.includes('WheelLettering')&&document.fonts.check('600 16px WheelLettering',el.textContent)));
+  }
   const signature=await palette('TQQQ');
   assert.equal(signature[0],base);
   for(const stop of ['rgb(214, 33, 23)','rgb(255, 214, 82)','rgb(148, 77, 13)'])assert.ok(signature[1].includes(stop));

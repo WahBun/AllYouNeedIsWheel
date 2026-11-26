@@ -23,7 +23,7 @@ const {start}=require('./market-feed/harness.cjs');
   const expected=['TQQQ · 11/13/26 · 65C','TQQQ · 11/20/26 · 55P','TQQQ · 11/20/26 · 60P','TQQQ · 11/20/26 · 50C','TSLL · 12/18/26 · 13C'];
   for(const input of [contracts,[...contracts].reverse().map(r=>({...r,unrealized_pnl:900,position:r.con_id}))]){
    await p.evaluate(rows=>renderRows('positions',rows,false),input);
-   assert.deepEqual(await p.locator('.position-label').allTextContents(),expected.map((v,i)=>v+' · '+input.find(r=>r.con_id===[10,55,60,20,13][i]).position));
+   assert.deepEqual((await p.locator('.position-label').allTextContents()).map(label=>label.normalize('NFKC')),expected.map((v,i)=>v+' · '+input.find(r=>r.con_id===[10,55,60,20,13][i]).position));
   }
   await p.locator('#chart-detail').screenshot({path:`/tmp/wheel-option-grouping-${width}-${dark?'dark':'light'}.png`});
   await p.evaluate(rows=>renderRows('positions',rows,false),rows);

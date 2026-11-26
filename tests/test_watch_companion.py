@@ -1,9 +1,11 @@
 import asyncio
 import sys
 import tempfile
+import time
+from datetime import datetime, timezone
 import unittest
 from types import SimpleNamespace as NS
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from flask import Flask
 from ib_async import Future, Stock, Ticker, Wrapper
@@ -13,6 +15,52 @@ from api.services.watch_quotes import WatchQuotes, holding_page
 
 
 class WatchQuoteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_vix_exact_snapshot_and_timestamped_fallback(self):
+        conn = Mock()
+        conn.ib.wrapper = Wrapper(conn.ib)
+        conn.ib.client.getReqId.return_value = 88
+        quotes, rows = WatchQuotes(), {}
+        stamp = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        historical = AsyncMock(return_value=[NS(date=stamp, close=19.35)])
+        def snapshot(req_id, contract, generics, snapshot, regulatory, options):
+            self.assertEqual((contract.symbol, contract.secType, contract.exchange), ('VIX', 'IND', 'CBOE'))
+            self.assertTrue(snapshot)
+            conn.ib.wrapper.tickSnapshotEnd(req_id)
+        conn.ib.client.reqMktData.side_effect = snapshot
+        with patch('api.services.watch_quotes.read_history', historical):
+            await quotes.read_vix(conn, '20261126', {}, rows)
+            self.assertEqual((rows['VIX']['price'], rows['VIX']['source'], rows['VIX']['sampledAt']),
+                             (19.35, 'indexBar', stamp.timestamp()))
+            await quotes.read_vix(conn, '20261126', {}, rows)
+            historical.assert_awaited_once()
+            conn.ib.client.reqMktData.assert_called_once()
+            quotes.next_index_history = 0
+            def delayed(req_id, *args):
+                conn.ib.wrapper.marketDataType(req_id, 3)
+                conn.ib.wrapper.reqId2Ticker[req_id].last = 19.4
+                snapshot(req_id, *args)
+            conn.ib.client.reqMktData.side_effect = delayed
+            await quotes.read_vix(conn, '20261126', {}, rows)
+            self.assertEqual((rows['VIX']['price'], rows['VIX']['source'], rows['VIX']['dataType']),
+                             (19.4, 'last', 3))
+            historical.assert_awaited_once()
+        conn.ib.client.reqMarketDataType.assert_not_called()
+
+    async def test_watch_reuses_the_current_vix_chart_without_a_broker_read(self):
+        conn = Mock()
+        history = NS(reqId=17)
+        conn.ib.wrapper.reqId2Subscriber = {17: history}
+        stamp = int(time.time()) - 3
+        state = dict(conn=conn, index_bars=True, contract=NS(symbol='VIX'), minute_history=history,
+                     bars=[dict(time=stamp, close=19.7)])
+        with patch('api.services.stock_chart.stock_chart.states', {7: state}):
+            rows = {}
+            await WatchQuotes().read_vix(conn, '20261126', {}, rows)
+            self.assertEqual(rows['VIX']['price'], 19.7)
+            self.assertEqual(rows['VIX']['sampledAt'], stamp)
+            conn.ib.client.reqMktData.assert_not_called()
+            conn.ib.reqHistoricalDataAsync.assert_not_called()
+
     async def test_snapshot_is_separate_from_chart_and_cleans_up(self):
         ib = Mock()
         ib.wrapper = Wrapper(ib)
@@ -70,7 +118,7 @@ class WatchQuoteTests(unittest.IsolatedAsyncioTestCase):
         async def batch(ib, today, contracts, rows):
             calls.append(rows)
         group.batch = batch
-        self.assertEqual([q['symbol'] for q in group.read(conn, 'one')], ['QQQ','SPY','MES','MNQ'])
+        self.assertEqual([q['symbol'] for q in group.read(conn, 'one')], ['VIX','QQQ','SPY','MES','MNQ'])
         await asyncio.sleep(0)
         group.read(conn, 'one')
         await asyncio.sleep(0)
@@ -78,7 +126,7 @@ class WatchQuoteTests(unittest.IsolatedAsyncioTestCase):
         calls[0]['QQQ'] = {'symbol':'QQQ','price':123}
         rows = group.read(conn, 'two')
         await asyncio.sleep(0)
-        self.assertNotIn('price', rows[0])
+        self.assertNotIn('price', next(row for row in rows if row['symbol'] == 'QQQ'))
         self.assertEqual(len(calls), 2)
 
 

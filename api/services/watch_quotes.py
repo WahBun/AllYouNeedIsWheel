@@ -1,4 +1,4 @@
-"""Four on-demand display snapshots. All access is on the existing IB owner."""
+"""On-demand watch quotes. All access is on the existing IB owner."""
 import asyncio
 import math
 import sys
@@ -6,13 +6,16 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from ib_async import Future, Stock, Ticker
+from ib_async import Future, Index, Stock, Ticker
 
+from api.services.chart_history_budget import read_history
+from api.services.chart_history_pressure import under_history_pressure
+from api.services.chart_initial_history import chart_subscription_current
 from api.services.contract_labels import contract_label
 from api.services.stock_cost_service import reported_costs
 from core.currency import CurrencyHelper
 
-SYMBOLS = ('QQQ', 'SPY', 'MES', 'MNQ')
+SYMBOLS = ('VIX', 'QQQ', 'SPY', 'MES', 'MNQ')
 EASTERN = ZoneInfo('America/New_York')
 
 
@@ -101,8 +104,11 @@ class WatchQuotes:
         self.rows = {}
         self.job = None
         self.next_batch = 0
+        self.next_index_history = 0
 
     async def contract(self, ib, symbol, today, contracts):
+        if symbol == 'VIX':
+            return Index(symbol, 'CBOE', 'USD')
         if symbol in ('QQQ', 'SPY'):
             return Stock(symbol, 'SMART', 'USD', primaryExchange='NASDAQ' if symbol == 'QQQ' else 'ARCA')
         if symbol not in contracts:
@@ -151,9 +157,46 @@ class WatchQuotes:
                     ib.wrapper._endReq(req_id)
                 tickers.pop(req_id, None)
 
-    async def batch(self, ib, today, contracts, rows):
-        await asyncio.gather(*(asyncio.wait_for(self.read_one(ib, symbol, today, contracts, rows), 24)
-                               for symbol in SYMBOLS), return_exceptions=True)
+    async def read_vix(self, conn, today, contracts, rows):
+        from api.services.stock_chart import stock_chart
+
+        def store_minute(price, stamp):
+            if finite(price) is None or price <= 0 or finite(stamp) is None or not 0 < stamp <= time.time():
+                return
+            previous = rows.get('VIX', {})
+            if stamp >= previous.get('sampledAt', 0):
+                rows['VIX'] = dict(symbol='VIX', contract='VIX', price=price, source='indexBar', sampledAt=stamp)
+
+        for state in stock_chart.states.values():
+            if (state['conn'] is conn and state.get('index_bars') and state['contract'].symbol == 'VIX'
+                    and state['bars'] and chart_subscription_current(conn.ib, state)):
+                last = state['bars'][-1]
+                store_minute(last['close'], last['time'])
+                if time.time() - last['time'] < 60:
+                    return
+                break
+        previous = rows.get('VIX')
+        if previous and previous['source'] == 'indexBar' and time.monotonic() < self.next_index_history:
+            return
+        tickers = conn.ib.wrapper.reqId2Ticker
+        try:
+            await self.read_one(conn.ib, 'VIX', today, contracts, rows)
+        except Exception:
+            pass  # Missing quote entitlement can still allow historical index bars.
+        if (rows.get('VIX') is not previous or time.monotonic() < self.next_index_history
+                or tickers is not conn.ib.wrapper.reqId2Ticker or not conn.is_connected()
+                or under_history_pressure(conn)):
+            return
+        self.next_index_history = time.monotonic() + 60
+        bars = await read_history(conn, Index('VIX', 'CBOE', 'USD'), '', '1 D', '1 min', 'TRADES',
+                                  useRTH=False, formatDate=2, keepUpToDate=False, timeout=5, optional=True)
+        if bars and isinstance(bars[-1].date, datetime) and bars[-1].date.tzinfo is not None:
+            store_minute(bars[-1].close, bars[-1].date.timestamp())
+
+    async def batch(self, conn, today, contracts, rows):
+        jobs = [self.read_vix(conn, today, contracts, rows)]
+        jobs.extend(self.read_one(conn.ib, symbol, today, contracts, rows) for symbol in SYMBOLS if symbol != 'VIX')
+        await asyncio.gather(*(asyncio.wait_for(job, 24) for job in jobs), return_exceptions=True)
 
     def read(self, conn, epoch):
         today = datetime.now(EASTERN).strftime('%Y%m%d')
@@ -162,13 +205,14 @@ class WatchQuotes:
             if self.job and not self.job.done():
                 self.job.cancel()
             self.context, self.contracts, self.rows, self.job, self.next_batch = context, {}, {}, None, 0
+            self.next_index_history = 0
         # Drain ready callbacks even when Wheel has no chart open. Never wait for
         # qualification or the broker snapshot in the serialized request handler.
         conn.ib.sleep(0)
         now = time.monotonic()
         if (self.job is None or self.job.done()) and now >= self.next_batch:
             self.next_batch = now + 25
-            self.job = asyncio.get_event_loop().create_task(self.batch(conn.ib, today, self.contracts, self.rows))
+            self.job = asyncio.get_event_loop().create_task(self.batch(conn, today, self.contracts, self.rows))
             conn.ib.sleep(0)
         return [self.rows.get(s, dict(symbol=s, contract=s)) for s in SYMBOLS]
 
