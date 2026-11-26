@@ -83,6 +83,7 @@ struct SymbolGradientFlow: View {
 struct SymbolText: View {
     let symbol: String
     var textStyle: UIFont.TextStyle = .body
+    var pointSize: CGFloat? = nil
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -103,7 +104,7 @@ struct SymbolText: View {
             let text = Text(verbatim: CoreAssetStyle.lettering(symbol))
             // The default fallback splits ℕ from the other three double-struck capitals.
             let lettering = symbol.uppercased() == "NVDA"
-                ? text.font(.custom("STIXTwoMath-Regular", fixedSize: UIFont.preferredFont(forTextStyle: textStyle).pointSize))
+                ? text.font(.custom("STIXTwoMath-Regular", fixedSize: pointSize ?? UIFont.preferredFont(forTextStyle: textStyle).pointSize))
                 : text
             Group {
                 if let palette = SymbolFlowPalette(symbol) {

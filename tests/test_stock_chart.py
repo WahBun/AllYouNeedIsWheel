@@ -52,6 +52,46 @@ class StockChartTests(unittest.TestCase):
         conn.ib.reqTickByTickData.return_value=ticker
         conn.ib.ticker.return_value=ticker
         return conn,ticker
+    def test_index_uses_only_timestamped_history_and_releases_its_subscription(self):
+        from ib_async import BarData, BarDataList, Index
+        from unittest.mock import patch
+        from api.services.chart_initial_history import chart_subscription_current
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        conn, _ = self.connection()
+        contract = Index('VXN', 'CBOE', 'USD', conId=97)
+        history = BarDataList(conn.ib.reqHistoricalData.return_value)
+        history.reqId = 123
+        conn.ib.wrapper = S(reqId2Subscriber={history.reqId: history})
+        conn.ib.reqHistoricalData.return_value = history
+        feed = StockChart()
+        try:
+            with patch('api.services.chart_contracts.contracts.resolve', return_value=contract):
+                first = feed.snapshot(conn, 97, 5, 'all', fast=True)
+            state = feed.states[97]
+            self.assertTrue(conn.ib.reqHistoricalData.call_args.kwargs['keepUpToDate'])
+            self.assertTrue(chart_subscription_current(conn.ib, state))
+            self.assertEqual(first['source'], 'IB index historical updates')
+            self.assertTrue(first['bars'])
+            history.append(BarData(date=history[-1].date, open=10, high=13, low=9, close=12))
+            history.updateEvent.emit(history, False)
+            packet = feed.snapshot(conn, 97, 5, 'all', fast=True)
+            self.assertEqual(packet['bars'][-1]['close'], 12)
+            self.assertIn('last minute', packet['data_notice'])
+            self.assertIsNone(packet['last_tick'])
+            self.assertIsNone(packet['bid'])
+            self.assertIsNone(packet['ask'])
+            conn.ib.reqTickByTickData.assert_not_called()
+            conn.ib.reqMktData.assert_not_called()
+            conn.ib.reqMarketDataType.assert_not_called()
+            conn.ib.placeOrder.assert_not_called()
+            conn.ib.wrapper.reqId2Subscriber.clear()
+            self.assertFalse(chart_subscription_current(conn.ib, state))
+        finally:
+            feed.stop()
+            close_test_loop()
+        self.assertEqual(len(history.updateEvent), 0)
+        conn.ib.cancelTickByTickData.assert_not_called()
+
     def test_account_handover_does_not_inherit_chart_cooldown_or_errors(self):
         from unittest.mock import patch
         asyncio.set_event_loop(asyncio.new_event_loop())

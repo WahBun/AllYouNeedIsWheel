@@ -1,4 +1,5 @@
 """Display-only previous close; never modify live/executable quote state."""
+from api.services.chart_initial_history import chart_subscription_current
 from api.services.chart_history_pressure import historical_request
 from api.services.stock_chart import stock_chart, regular_sessions
 import asyncio
@@ -68,8 +69,10 @@ def _stock_daily_close(conn, cid, state):
 def subscribe(conn, cid):
     state = stock_chart.states.get(cid)
     if (not state or state['conn'] is not conn or not conn.is_connected()
-            or conn.ib.ticker(state['contract']) is not state['ticker']):
+            or not chart_subscription_current(conn.ib, state)):
         raise ValueError('Waiting for the current chart connection')
+    if state.get('index_bars'):
+        return {'con_id': cid, 'previous_close': None}
     ticker = conn.get_market_ticker(state['contract'])
     close = getattr(ticker, 'close', None)
     valid = (getattr(ticker, 'marketDataType', None) in (1, 2)

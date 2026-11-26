@@ -4,13 +4,22 @@ import copy
 import math
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from ib_async import Contract, Future, Option
+from ib_async import Contract, Future, Index, Option
 
 FUTURES_EXCHANGES = {
     'ES': 'CME', 'NQ': 'CME', 'MES': 'CME', 'MNQ': 'CME',
     'GC': 'COMEX', 'MGC': 'COMEX', '1OZ': 'COMEX',
     'CL': 'NYMEX', 'MCL': 'NYMEX',
 }
+
+
+CBOE_CHART_INDICES = {'VIX', 'VXN'}
+
+
+def chart_index(contract):
+    return (contract.secType == 'IND' and contract.symbol in CBOE_CHART_INDICES
+            and contract.currency == 'USD' and contract.exchange == 'CBOE')
+
 
 class ChartContracts:
     def __init__(self):
@@ -20,8 +29,14 @@ class ChartContracts:
         symbol = str(query).strip().upper()
         exchange = FUTURES_EXCHANGES.get(symbol)
         if not exchange and not re.fullmatch(r'[A-Z][A-Z0-9.]{0,11}', symbol):
-            raise ValueError('Enter a stock symbol or ES, NQ, MES, MNQ, GC, MGC, 1OZ, CL, MCL')
-        if exchange:
+            raise ValueError('Enter a stock symbol, VIX, VXN, or ES, NQ, MES, MNQ, GC, MGC, 1OZ, CL, MCL')
+        if symbol in CBOE_CHART_INDICES:
+            details = conn._bounded_order_read(conn.ib.reqContractDetails,
+                Index(symbol, 'CBOE', 'USD'), timeout_seconds=6)
+            matches = {d.contract.conId: d.contract for d in details
+                       if d.contract.conId and d.contract.symbol == symbol and chart_index(d.contract)}
+            found = list(matches.values()) if len(matches) == 1 else []
+        elif exchange:
             details = conn._bounded_order_read(conn.ib.reqContractDetails,
                 Future(symbol=symbol, exchange=exchange, currency='USD'), timeout_seconds=6)
             today = datetime.now(timezone.utc).strftime('%Y%m%d')
@@ -35,7 +50,8 @@ class ChartContracts:
             found = [contract] if contract else []
         results = []
         for c in found:
-            if not c.conId or c.secType not in ('STK', 'FUT') or c.currency != 'USD': continue
+            if not c.conId or c.currency != 'USD' or (c.secType not in ('STK', 'FUT') and not chart_index(c)):
+                continue
             self.contracts[c.conId] = c
             results.append(dict(con_id=c.conId, symbol=c.symbol, security_type=c.secType,
                 local_symbol=c.localSymbol or c.symbol, exchange=c.exchange,
@@ -107,7 +123,8 @@ class ChartContracts:
         details = conn._bounded_order_read(conn.ib.reqContractDetails,
             Contract(conId=con_id), timeout_seconds=3)
         matches = [d.contract for d in details if d.contract.conId == con_id
-                   and d.contract.secType in ('STK', 'FUT', 'OPT') and d.contract.currency == 'USD']
+                   and (d.contract.secType in ('STK', 'FUT', 'OPT') or chart_index(d.contract))
+                   and d.contract.currency == 'USD']
         if len(matches) != 1:
             raise ValueError('Exact chart contract unavailable; select it using search')
         contract = matches[0]

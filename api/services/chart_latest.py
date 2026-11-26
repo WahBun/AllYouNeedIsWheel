@@ -1,4 +1,5 @@
 """Immutable quote snapshots for HTTP readers; never touch IB off its owner thread."""
+from api.services.chart_initial_history import chart_subscription_current
 import asyncio
 import json
 import logging
@@ -61,7 +62,7 @@ class LatestCharts:
                 for cid in {key[0] for key in contexts if key[3] == token}:
                     state = feed.states.get(cid)
                     if (not state or not state['conn'].is_connected()
-                            or state['conn'].ib.ticker(state['contract']) is not state['ticker']):
+                            or not chart_subscription_current(state['conn'].ib, state)):
                         self.invalidate(cid)
                         continue
                     self.publish(feed, state, token)

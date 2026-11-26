@@ -354,6 +354,8 @@ class PaperChart:
             result['enabled'] = contract_allowed(conn, live_contract)
             result['live_chart_scope'] = True
             result['live_options_scope'] = live_contract.secType == 'OPT'
+        elif getattr(recovery_contract, 'secType', None) == 'IND':
+            result['enabled'] = False
         executions = {}
         execution_groups=self.execution_groups(account,cid)
         for fill in conn.ib.fills():

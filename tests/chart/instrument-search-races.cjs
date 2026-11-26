@@ -29,8 +29,8 @@ try{for(const width of [1440,393])for(const light of [false,true]){
  const unchanged=async()=>{assert.equal(await p.locator('#chart').evaluate(f=>f.contentWindow.eval('paperCID')),7);assert.equal(await p.locator('#option-picker').evaluate(e=>e.open),true);};
  // Both tab directions cancel a request without trapping the option form in Loading.
  await reset();await options();delay(u=>u.searchParams.get('type')==='OPT');await p.locator('#option-open').click();await until(()=>held.requested);
- await p.getByRole('button',{name:'Stocks / Futures',exact:true}).click();await release();await unchanged();await options();
- await p.locator('#option-strike').selectOption('101');await p.getByRole('button',{name:'Stocks / Futures',exact:true}).click();await options();assert.equal(await p.locator('#option-strike').inputValue(),'101','A completed selection survives tab changes');
+ await p.getByRole('button',{name:'Symbols',exact:true}).click();await release();await unchanged();await options();
+ await p.locator('#option-strike').selectOption('101');await p.getByRole('button',{name:'Symbols',exact:true}).click();await options();assert.equal(await p.locator('#option-strike').inputValue(),'101','A completed selection survives tab changes');
  await reset();delay(u=>!u.searchParams.has('type'));await stock('SYNTH9');await until(()=>held.requested);await options();await release();await unchanged();
  // Closing and reopening, or editing the query, cannot revive the older search.
  for(const error of [false,true]){

@@ -13,7 +13,7 @@ struct ChartInstrument: Codable, Identifiable, Equatable {
 
     init?(_ value: [String: Any]) {
         guard let id = value["con_id"] as? Int, id > 0,
-              let type = value["security_type"] as? String, ["STK", "FUT", "OPT"].contains(type),
+              let type = value["security_type"] as? String, ["STK", "FUT", "OPT", "IND"].contains(type),
               let label = value["local_symbol"] as? String, !label.isEmpty else { return nil }
         self.id = id; self.type = type; self.label = label
         let suppliedSymbol = value["symbol"] as? String ?? ""
@@ -219,7 +219,7 @@ struct ChartInstrumentPicker: View {
                 if let current { Section("Current instrument") { row(current, selectable: false) } }
                 Section {
                     Picker("Instrument type", selection: Binding(get: { search.options }, set: { search.invalidate(); search.options = $0; if $0 { load() } })) {
-                        Text("Stocks / Futures").tag(false)
+                        Text("Symbols").tag(false)
                         Text("Options").tag(true)
                     }.pickerStyle(.segmented)
                     HStack {
