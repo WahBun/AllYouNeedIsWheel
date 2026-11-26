@@ -33,6 +33,12 @@ class PricingSafetyTests(unittest.TestCase):
             self.assertIsNone(option['last'])
             self.assertIsNone(option['earnings_total_premium'])
 
+    def test_open_interest_distinguishes_missing_from_zero_on_mobile(self):
+        for value, expected in [(None, None), (math.nan, None), (0, 0), (41600, 41600)]:
+            option = self.process(open_interest=value)
+            self.assertEqual(option['contract_open_interest'], expected)
+            self.assertEqual(option['open_interest'], expected or 0)
+
     def test_missing_or_crossed_quote_stays_unavailable(self):
         self.assertIsNone(self.process(bid=0, ask=0, last=0)['last'])
         self.assertIsNone(self.process(bid=1.1, ask=0.9, last=math.nan)['last'])

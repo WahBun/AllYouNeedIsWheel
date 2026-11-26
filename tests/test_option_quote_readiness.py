@@ -2,6 +2,7 @@ import math
 import unittest
 import time
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from core.connection import IBConnection
 
@@ -19,6 +20,11 @@ class FakeIB:
 
 
 class OptionQuoteReadinessTests(unittest.TestCase):
+    def setUp(self):
+        market_hours = patch('core.connection.is_market_hours', return_value=True)
+        market_hours.start()
+        self.addCleanup(market_hours.stop)
+
     def test_existing_subscription_does_not_repeat_five_second_bid_ask_wait(self):
         ticker = SimpleNamespace(bid=0.6, ask=math.nan, last=0.61, close=0.59,
                                  modelGreeks=None, impliedVolatility=math.nan)
@@ -32,16 +38,18 @@ class OptionQuoteReadinessTests(unittest.TestCase):
         connection.get_nearest_qualified_option_contract = lambda *_: contract
         connection.get_market_ticker = lambda *_: ticker
         connection._market_ticker_cache = {
-            connection._market_ticker_key(contract, '106'): {'used_at': time.time()}
+            connection._market_ticker_key(contract, '101,106'): {'used_at': time.time()}
         }
         result = connection.get_option_chain('TEST', '20261016', 'C', 12.0, stock_price=10)
         self.assertEqual(connection.ib.sleep_count, 1)
         self.assertEqual(result['options'][0]['ask'], 0)
         self.assertEqual(result['options'][0]['bid'], 0.6)
+        self.assertIsNone(result['options'][0]['open_interest'])
 
     def test_ready_quote_does_not_wait_for_missing_greeks(self):
         ticker = SimpleNamespace(bid=0.60, ask=0.62, last=0.61, close=0.59, low=0.55, high=0.74,
-                                 modelGreeks=None, impliedVolatility=math.nan)
+                                 modelGreeks=None, impliedVolatility=math.nan,
+                                 callOpenInterest=41600, putOpenInterest=73)
         contract = SimpleNamespace(symbol='TSLL', strike=12.0, right='C',
                                    lastTradeDateOrContractMonth='20261016')
         connection = IBConnection.__new__(IBConnection)
@@ -56,6 +64,7 @@ class OptionQuoteReadinessTests(unittest.TestCase):
         self.assertEqual(result['options'][0]['ask'], 0.62)
         self.assertIsNone(result['options'][0]['delta'])
         row = result['options'][0]
+        self.assertEqual(row['open_interest'], 41600)
         self.assertEqual((row['day_low'], row['day_high'], row['day_range_price']), (0.55, 0.74, 0.61))
         ticker.last = math.nan
         ticker.modelGreeks = SimpleNamespace(impliedVol=0.45)
