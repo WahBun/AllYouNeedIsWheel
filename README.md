@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md)
 
-An unofficial, self-hosted iPhone and web trading workspace for Interactive Brokers.
+A self-hosted iPhone and web workspace for Interactive Brokers with a read-only Apple Watch companion. This is an unofficial project.
 
 **An iPhone and desktop workspace for the Wheel strategy.** View IBKR holdings, compare returns, screen cash-secured puts (CSP) and covered calls (CC), manage orders, and work across synchronized Supercharts.
 
@@ -10,15 +10,19 @@ Built with SwiftUI for iOS 18 and later, with light and dark themes. Native scre
 
 The **desktop web workspace** brings 1/2/3/4 charts, drawings, indicators, price alerts and a trading panel into one screen. The **native iPhone app** provides Portfolio, Trade, Orders and charts on the same backend. The web layout also adapts to smaller screens.
 
-> Wheel is distributed as source. Updating GitHub, deploying to the backend host and installing the iPhone app are separate steps.
+> Wheel is distributed as source. Deploy the backend and install the iPhone and Apple Watch apps separately.
 
 ## Project status and versions
 
 Wheel is in everyday use and stability maintenance. Ordinary issues are collected and grouped for small, focused repairs; trading-safety problems and normal-use blockers take priority. Preserve the established layouts, tick-level market-data path and confirmed trading interactions. This direction does not imply acceptance of every scenario or Live trading workflow.
 
-**Wheel v1.9.2** · Web **1.9.2** · iPhone **1.9.2 (8)** · Branch **`main`**
+**Wheel v1.9.3** · Web **1.9.3** · iPhone & Apple Watch **1.9.3 (9)** · Branch **`main`**
 
-Download the current source ZIP from the top of the [v1.9.2 release notes](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.9.2). GitHub’s automatic **Source code** archives correspond to the original November 17 tag.
+- **Apple Watch.** Holdings shows a clockwise allocation ring with NetLiq in the center. Tap a slice or symbol for position details and the IBKR-reported stock average cost when available. Quotes pins VIX above QQQ, SPY, MES and MNQ. The footer shows the latest sample time among rows with a price.
+- **Charts and options.** Search for VIX or VXN and see the daily change when the previous session’s close is available. Press and hold a favorite on the web to drag it into a new position. On iPhone, Portfolio and Trade show contract open interest in compact form, such as `41.6K`, when IB supplies it.
+- **Device updates.** The iPhone Renew shortcut signs the iPhone app and its embedded Watch app together. When both devices are connected and unlocked, it installs and verifies both packages. [Shortcut setup](ios/README.md#pro-shortcut-iphone-renew)
+
+[Download Wheel v1.9.3](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.9.3) · [Release notes and upgrade steps](docs/RELEASE_1.9.3.md)
 
 Recommended roles: the **development Mac** handles development, Xcode and iPhone builds; the **backend host** runs Gateway, Backend and the API continuously. The development Mac and iPhone reach the backend host through Tailscale. The user chooses deployments and restarts from a computer or phone, and performs the iPhone Xcode Run.
 

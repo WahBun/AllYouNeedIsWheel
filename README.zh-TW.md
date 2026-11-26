@@ -2,7 +2,7 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · **繁體中文**
 
-An unofficial, self-hosted iPhone and web trading workspace for Interactive Brokers.
+非官方的自架 Interactive Brokers 交易工作台，支援網頁、iPhone 與唯讀 Apple Watch 配套 App。
 
 **Wheel 策略的 iPhone 與桌面工作台。** 查看 IBKR 持倉、比較收益、篩選現金擔保看跌期權（CSP）和備兌看漲期權（CC）、管理訂單，並透過多圖 Supercharts 分析行情。
 
@@ -16,9 +16,13 @@ SwiftUI 構建，支援 iOS 18 及以上、淺色／深色模式。原生頁面�
 
 項目以日常使用和穩定性維護為主：普通問題先收集歸類，攢一批做最小修復；交易安全或影響正常使用的問題及時處理。保留現有佈局、tick 級行情刷新和已確認的交易互動。這一維護方向不代表所有場景或 Live 交易均已驗收。
 
-**Wheel v1.9.2** · 網頁 **1.9.2** · iPhone **1.9.2 (8)** · 正式分支 **`main`**
+**Wheel v1.9.3** · 網頁 **1.9.3** · iPhone 與 Apple Watch **1.9.3 (9)** · 正式分支 **`main`**
 
-最新原始碼壓縮檔的下載連結位於 [v1.9.2 發布說明](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.9.2) 頂端。GitHub 自動產生的 **Source code** 壓縮檔對應 11 月 17 日的原始標籤。
+- **Apple Watch。** Holdings 按持倉占比順時針排列圓環，中央顯示 NetLiq。點選扇區或標的可看持倉明細。有 IBKR 股票報告時，還能看到報告均價。Quotes 將 VIX 置於 QQQ、SPY、MES 和 MNQ 上方，底部顯示有報價的各列中最新的取樣時間。
+- **圖表與選擇權。** 圖表可搜尋 VIX 和 VXN，有前一交易日收盤值時顯示當日漲跌幅。網頁版收藏清單支援長按拖曳排序。iPhone 的 Portfolio 和 Trade 在 IB 提供資料時顯示個別合約的未平倉量，例如 `41.6K`。
+- **裝置更新。** iPhone Renew 捷徑一次更新 iPhone App 和內嵌手錶 App 的簽署。兩台裝置都已連線並解鎖時，會自動安裝並逐一核對。[捷徑設定](ios/README.md#pro-shortcut-iphone-renew)
+
+[下載 Wheel v1.9.3](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.9.3) · [發布說明與更新步驟](docs/RELEASE_1.9.3.md)
 
 推薦分工：**開發 Mac** 負責開發、Xcode 與手機構建；**後端主機** 長期運行 Gateway、Backend 和 API；開發 Mac 與 iPhone 通過 Tailscale 訪問後端主機。部署與重啓由用戶在電腦或手機上選擇執行，手機 App 的 Xcode Run 也由用戶操作。
 

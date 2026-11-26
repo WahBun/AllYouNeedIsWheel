@@ -2,7 +2,7 @@
 
 [English](README.md) · **简体中文** · [繁體中文](README.zh-TW.md)
 
-An unofficial, self-hosted iPhone and web trading workspace for Interactive Brokers.
+非官方的自托管 Interactive Brokers 交易工作台，支持网页、iPhone 和只读 Apple Watch 伴侣 App。
 
 **Wheel 策略的 iPhone 与桌面工作台。** 查看 IBKR 持仓、比较收益、筛选现金担保看跌期权（CSP）和备兑看涨期权（CC）、管理订单，并通过多图 Supercharts 分析行情。
 
@@ -10,15 +10,19 @@ SwiftUI 构建，支持 iOS 18 及以上、浅色／深色模式。原生页面�
 
 **桌面网页工作台**将 1／2／3／4 图、画线、指标、价格提醒和交易面板放在同一屏幕；**原生 iPhone App** 提供 Portfolio、Trade、Orders 与图表，两端共用后端。网页布局也适配较小屏幕。
 
-> Wheel 以源码形式发布。更新 GitHub、部署到后端主机和安装 iPhone App 是三个独立步骤。
+> Wheel 以源码形式发布。后端部署与 iPhone、Apple Watch 安装分别进行。
 
 ## 当前阶段与版本
 
 项目以日常使用和稳定性维护为主：普通问题先收集归类，攒一批做最小修复；交易安全或影响正常使用的问题及时处理。保留现有布局、tick 级行情刷新和已确认的交易交互。这一维护方向不代表所有场景或 Live 交易均已验收。
 
-**Wheel v1.9.2** · 网页 **1.9.2** · iPhone **1.9.2 (8)** · 正式分支 **`main`**
+**Wheel v1.9.3** · 网页 **1.9.3** · iPhone 与 Apple Watch **1.9.3 (9)** · 正式分支 **`main`**
 
-最新源码包的下载链接位于 [v1.9.2 发布说明](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.9.2) 顶部。GitHub 自动生成的 **Source code** 压缩包对应 11 月 17 日的原始标签。
+- **Apple Watch。** Holdings 按持仓占比顺时针排列圆环，中心显示 NetLiq。点扇区或标的可看持仓详情。有 IBKR 股票报告时，还能看到报告均价。Quotes 将 VIX 置于 QQQ、SPY、MES 和 MNQ 上方，底部显示有报价的各行中最新的采样时间。
+- **图表与期权。** 图表可搜索 VIX 和 VXN，有上一交易日收盘值时显示日涨跌幅。网页版收藏夹支持长按拖动排序。iPhone 的 Portfolio 和 Trade 在 IB 提供数据时显示单张合约的未平仓量，例如 `41.6K`。
+- **设备更新。** iPhone Renew 快捷指令一次续签 iPhone App 和内嵌的手表 App。两台设备都已连接并解锁时，会自动安装并逐台核验。[快捷指令设置](ios/README.md#pro-shortcut-iphone-renew)
+
+[下载 Wheel v1.9.3](https://github.com/WahBun/AllYouNeedIsWheel/releases/tag/v1.9.3) · [发布说明与更新步骤](docs/RELEASE_1.9.3.md)
 
 推荐分工：**开发 Mac** 负责开发、Xcode 与手机构建；**后端主机** 长期运行 Gateway、Backend 和 API；开发 Mac 与 iPhone 通过 Tailscale 访问后端主机。部署与重启由用户在电脑或手机上选择执行，手机 App 的 Xcode Run 也由用户操作。
 
