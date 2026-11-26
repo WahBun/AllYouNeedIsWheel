@@ -91,7 +91,7 @@ extension AllocationData {
         let sum = total
         guard sum.isFinite, sum > 0 else { return [] }
         var start = 0.0
-        return assets.sorted { $0.id < $1.id }.map { item in
+        return assets.map { item in
             let end = start + item.value / sum * 360
             defer { start = end }
             return AllocationSlice(item: item, start: start, end: end)

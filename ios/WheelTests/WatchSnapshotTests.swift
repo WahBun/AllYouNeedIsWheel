@@ -68,18 +68,18 @@ final class WatchSnapshotTests: XCTestCase {
     }
 
     func testRingTapMatchesPositiveSectorAndKeepsShortsSeparate() throws {
-        let wire = Data(#"{"net":95,"cash":5,"positions":[{"symbol":"B","value":25},{"symbol":"A","value":70},{"symbol":"A","value":-5},{"symbol":"SHORT","value":-10},{"symbol":"UNKNOWN","value":null}]}"#.utf8)
+        let wire = Data(#"{"net":95,"cash":25,"positions":[{"symbol":"B","value":70},{"symbol":"A","value":5},{"symbol":"A","value":-5},{"symbol":"SHORT","value":-10},{"symbol":"UNKNOWN","value":null}]}"#.utf8)
         let data = AllocationData(snapshot: try JSONDecoder().decode(AllocationSnapshot.self, from: wire))
         XCTAssertEqual(data.total, 100)
         XCTAssertEqual(data.net, 95)
         XCTAssertEqual(data.missingCount, 1)
         XCTAssertEqual(data.liabilities.map(\.name), ["SHORT", "A"])
         let slices = data.slices
-        XCTAssertEqual(slices.map(\.id), ["asset:A", "asset:B", "cash"])
-        XCTAssertEqual(AllocationSlice.at(clockwiseDegrees: 90, in: slices)?.id, "asset:A")
-        XCTAssertEqual(AllocationSlice.at(clockwiseDegrees: -30, in: slices)?.id, "asset:B")
-        XCTAssertEqual(AllocationSlice.at(clockwiseDegrees: -1, in: slices)?.id, "cash")
-        XCTAssertEqual(AllocationSlice.at(clockwiseDegrees: 360, in: slices)?.id, "asset:A")
+        XCTAssertEqual(slices.map(\.id), ["asset:B", "cash", "asset:A"])
+        XCTAssertEqual(AllocationSlice.at(clockwiseDegrees: 90, in: slices)?.id, "asset:B")
+        XCTAssertEqual(AllocationSlice.at(clockwiseDegrees: -30, in: slices)?.id, "cash")
+        XCTAssertEqual(AllocationSlice.at(clockwiseDegrees: -1, in: slices)?.id, "asset:A")
+        XCTAssertEqual(AllocationSlice.at(clockwiseDegrees: 360, in: slices)?.id, "asset:B")
     }
 
     func testReportedAverageSurvivesPhoneRelayAndRequiresAnIdentifiedSource() throws {

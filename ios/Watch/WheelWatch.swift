@@ -108,14 +108,22 @@ private struct WatchDashboard: View {
     @AppStorage("wheel.watch.section") private var section: WatchSection = .quotes
     @State private var page = 0
     @State private var selection: WatchAssetSelection?
+    @ScaledMetric(relativeTo: .caption2) private var accountFontSize: CGFloat = 10
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 5) {
-                    HStack {
+                    HStack(spacing: 4) {
                         sectionButton("Quotes", .quotes)
                         sectionButton("Holdings", .holdings)
+                        if let mode = phone.snapshot?.mode {
+                            Text(verbatim: mode.capitalized)
+                                .font(.system(size: accountFontSize, weight: .medium))
+                                .foregroundStyle(mode == "live" ? color(0x4EC890) : .secondary)
+                                .fixedSize()
+                                .accessibilityLabel("Account: \(mode.capitalized)")
+                        }
                     }
                     if !phone.notice.isEmpty {
                         Text(verbatim: phone.notice).font(.footnote).foregroundStyle(.secondary)
@@ -156,10 +164,7 @@ private struct WatchDashboard: View {
             .foregroundStyle(phone.theme.dark ? Color.white : .black)
             .background(phone.theme.dark ? Color.black : .white)
             .environment(\.colorScheme, phone.theme.dark ? .dark : .light)
-            .navigationTitle(phone.snapshot?.mode.capitalized ?? "Wheel")
-            .toolbarTitleDisplayMode(.inline)
-            .toolbarForegroundStyle(phone.snapshot?.mode == "live" ? color(0x4EC890) : (phone.theme.dark ? Color.white : .black),
-                                    for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(item: $selection) { asset in
                 ScrollView {
                     if let snapshot = phone.snapshot, asset.matches(snapshot) {
@@ -174,6 +179,7 @@ private struct WatchDashboard: View {
                 .foregroundStyle(phone.theme.dark ? Color.white : .black)
                 .background(phone.theme.dark ? Color.black : .white)
                 .navigationTitle("Holdings")
+                .toolbar(.visible, for: .navigationBar)
                 .environment(\.colorScheme, phone.theme.dark ? .dark : .light)
             }
             .onChange(of: selection) { _, _ in
