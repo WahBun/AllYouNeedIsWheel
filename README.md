@@ -69,7 +69,7 @@ Layout drafts are saved in the current browser for each preview address and work
 
 Available CC quantity accounts for shares held, existing short CALLs and active sell-order reservations. It is not simply total shares divided by 100. Position entry prices come from reliably matched fills; uncertain values remain unavailable rather than using a limit price or fee-adjusted position cost.
 
-SGOV, VTI, QQQ, SPY, VOO and NVDA have dedicated names and allocation animations. VTI/QQQ/SPY/VOO/NVDA remain eligible in Trade; SGOV is excluded from Trade candidates. Decorative animations respect Reduce Motion and pause in the background or when their view is not visible.
+SGOV, VTI, QQQ, QQQM, SPY, VOO and NVDA have dedicated names and allocation animations. VTI/QQQ/QQQM/SPY/VOO/NVDA remain eligible in Trade; SGOV is excluded from Trade candidates. Decorative animations respect Reduce Motion and pause in the background or when their view is not visible.
 
 ### Supercharts and the 𝔹𝕖𝕟 indicator
 

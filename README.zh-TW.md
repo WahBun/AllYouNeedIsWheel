@@ -69,7 +69,7 @@ SwiftUI 構建，支援 iOS 18 及以上、淺色／深色模式。原生頁面�
 
 CC 可用數量依據持股數量、已有空頭 CALL 和佔用中的賣出訂單計算，而不是簡單地把全部股票除以 100。持倉的入場價來自可靠匹配的成交記錄；無法確定時留空，不用委託價或扣費後持倉成本冒充。
 
-SGOV、VTI、QQQ、SPY、VOO、NVDA 有專屬名稱與資產分配動效。VTI／QQQ／SPY／VOO／NVDA 仍可用於 Trade；SGOV 排除在 Trade 候選之外。裝飾動畫支持減少動態效果，並在後台或對應視圖離開時暫停。
+SGOV、VTI、QQQ、QQQM、SPY、VOO、NVDA 有專屬名稱與資產分配動效。VTI／QQQ／QQQM／SPY／VOO／NVDA 仍可用於 Trade；SGOV 排除在 Trade 候選之外。裝飾動畫支持減少動態效果，並在後台或對應視圖離開時暫停。
 
 ### Supercharts 與 𝔹𝕖𝕟 指標
 

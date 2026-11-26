@@ -22,6 +22,7 @@ struct AllocationData {
     let liabilities: [AllocationItem]
     let missingCount: Int
     let net: Double?
+    private let ordinaryColorIndex: [String: Int]
     var total: Double { assets.reduce(0) { $0 + $1.value } }
     var accountedNet: Double { total + liabilities.reduce(0) { $0 + $1.value } }
     var difference: Double? { net.map { $0 - accountedNet } }
@@ -42,6 +43,10 @@ struct AllocationData {
             if cash > 0 { assets.append(AllocationItem(id: "cash", name: "Cash", value: cash)) }
             if cash < 0 { liabilities.append(AllocationItem(id: "cash", name: "Cash", value: cash)) }
         } else if snapshot != nil { missing += 1 }
+        let ordinary = Set((snapshot?.positions ?? []).map { $0.symbol.uppercased() }.filter { !CoreAssetStyle.contains($0) })
+        let positiveSymbols = ordinary.intersection(positive.keys).sorted()
+        let symbols = positiveSymbols + ordinary.subtracting(positiveSymbols).sorted()
+        ordinaryColorIndex = Dictionary(uniqueKeysWithValues: symbols.enumerated().map { ($0.element, $0.offset) })
         self.assets = assets.sorted { $0.value == $1.value ? $0.id < $1.id : $0.value > $1.value }
         self.liabilities = liabilities.sorted { $0.value == $1.value ? $0.id < $1.id : $0.value < $1.value }
         missingCount = missing
@@ -49,11 +54,18 @@ struct AllocationData {
     }
 
     func color(_ item: AllocationItem, scheme: ColorScheme) -> Color {
-        if CoreAssetStyle.contains(item.name) { return TradingColors.symbol(item.name, scheme: scheme) }
-        if item.id == "cash" { return .gray }
-        let colors: [Color] = [.teal, .blue, .pink, .orange, .mint, .indigo]
-        let keys = assets.filter { !CoreAssetStyle.contains($0.name) && $0.id != "cash" }.map(\.id).sorted()
-        return colors[(keys.firstIndex(of: item.id) ?? 0) % colors.count]
+        item.id == "cash" ? .gray : symbolColor(item.name, scheme: scheme)
+    }
+
+    func symbolColor(_ name: String, scheme: ColorScheme) -> Color {
+        if CoreAssetStyle.contains(name) { return TradingColors.symbol(name, scheme: scheme) }
+        guard let index = ordinaryColorIndex[name] else { return .secondary }
+        // Spread neighboring sectors around the hue wheel. Keep the first slots
+        // clear of the teal, apricot and gold used by the special symbols.
+        let hues: [Double] = [215, 317, 94, 262, 8, 184, 337, 68]
+        let hue = index < hues.count ? hues[index] / 360
+            : (0.37 + Double(index - hues.count) * 0.61803398875).truncatingRemainder(dividingBy: 1)
+        return Color(hue: hue, saturation: scheme == .dark ? 0.62 : 0.80, brightness: scheme == .dark ? 0.96 : 0.70)
     }
 }
 

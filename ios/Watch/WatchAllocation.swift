@@ -55,7 +55,11 @@ struct WatchAllocationOverview: View {
                 ZStack {
                     Circle().strokeBorder(.secondary.opacity(0.18), lineWidth: size * 0.14)
                     ForEach(slices) { slice in
-                        RingSector(slice: slice).fill(style(slice, data: data))
+                        if CoreAssetStyle.usesTealApricot(slice.item.name) {
+                            TealApricotFlow().mask(RingSector(slice: slice))
+                        } else {
+                            RingSector(slice: slice).fill(style(slice, data: data))
+                        }
                     }
                     VStack(spacing: 1) {
                         Text("Net liquidation").font(.caption2).foregroundStyle(.secondary)
@@ -87,8 +91,7 @@ struct WatchAllocationOverview: View {
         }
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 54), spacing: 3)], spacing: 3) {
             ForEach(positive + symbols.subtracting(positive).sorted(), id: \.self) { symbol in
-                let item = data.assets.first { $0.name == symbol && $0.id != "cash" }
-                chip(symbol, color: item.map { data.color($0, scheme: scheme) } ?? .secondary)
+                chip(symbol, color: data.symbolColor(symbol, scheme: scheme))
             }
             if let cash = snapshot.allocation?.cash, cash != 0 { chip(nil, color: .gray) }
         }
