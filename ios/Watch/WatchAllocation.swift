@@ -32,11 +32,6 @@ struct WatchAllocationOverview: View {
 
     private func style(_ slice: AllocationSlice, data: AllocationData) -> AnyShapeStyle {
         let item = slice.item
-        if item.name == "SGOV" {
-            let gold = Color(red: 0.66, green: 0.36, blue: 0.07)
-            return AnyShapeStyle(LinearGradient(colors: [data.color(item, scheme: scheme), gold],
-                                                 startPoint: .topLeading, endPoint: .bottomTrailing))
-        }
         if CoreAssetStyle.contains(item.name) {
             return AnyShapeStyle(AngularGradient(colors: [CoreAssetStyle.red, CoreAssetStyle.brightGold, CoreAssetStyle.darkGold],
                                                  center: .center, startAngle: .degrees(slice.start - 90), endAngle: .degrees(slice.end - 90)))
@@ -55,8 +50,8 @@ struct WatchAllocationOverview: View {
                 ZStack {
                     Circle().strokeBorder(.secondary.opacity(0.18), lineWidth: size * 0.14)
                     ForEach(slices) { slice in
-                        if CoreAssetStyle.usesTealApricot(slice.item.name) {
-                            TealApricotFlow().mask(RingSector(slice: slice))
+                        if let palette = SymbolFlowPalette(slice.item.name) {
+                            SymbolGradientFlow(palette: palette).mask(RingSector(slice: slice))
                         } else {
                             RingSector(slice: slice).fill(style(slice, data: data))
                         }
@@ -93,7 +88,7 @@ struct WatchAllocationOverview: View {
             ForEach(positive + symbols.subtracting(positive).sorted(), id: \.self) { symbol in
                 chip(symbol, color: data.symbolColor(symbol, scheme: scheme))
             }
-            if let cash = snapshot.allocation?.cash, cash != 0 { chip(nil, color: .gray) }
+            if let cash = snapshot.allocation?.cash, cash != 0 { chip(nil, color: AllocationData.cashColor(scheme)) }
         }
     }
 

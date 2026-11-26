@@ -30,7 +30,7 @@ const {start}=require('./market-feed/harness.cjs');
    const name=buttons.nth(i).locator('.core-symbol');
    assert.equal(await name.textContent(),'ℕ𝕍𝔻𝔸');
    assert.equal(await name.evaluate(e=>getComputedStyle(e).color),dark?'rgb(40, 164, 153)':'rgb(18, 105, 95)');
-   assert.equal(await name.evaluate(e=>getComputedStyle(e).animationName),'teal-apricot-flow');
+   assert.equal(await name.evaluate(e=>getComputedStyle(e).animationName),'symbol-gradient-flow');
    assert.equal(await buttons.nth(i).locator('.position-label').getAttribute('aria-label'),(rows[i].local_symbol||'NVDA')+' · '+rows[i].position);
   }
   const palette=symbol=>allButtons.locator('.core-symbol[data-lettering="'+lettering[symbol]+'"]').first()
@@ -55,18 +55,20 @@ const {start}=require('./market-feed/harness.cjs');
   assert.notDeepEqual(nvda,await palette('SPY'));
   assert.ok(nvda[1].includes(dark?'rgb(250, 188, 132)':'rgb(149, 83, 33)'));
   const symbol=buttons.first().locator('.core-symbol');
-  const phases=await symbol.evaluate(async el=>{
+  const gold=allButtons.locator('.core-symbol-sgov');
+  const samplePhases=async locator=>locator.evaluate(async el=>{
    el.style.setProperty('--symbol-phase','0ms');
-   const animation=el.getAnimations().find(a=>a.animationName==='teal-apricot-flow');
+   const animation=el.getAnimations().find(a=>a.animationName==='symbol-gradient-flow');
    animation.pause();await animation.ready;
    return [0,1250].map(time=>{animation.currentTime=time;return getComputedStyle(el).backgroundPositionX});
   });
-  assert.deepEqual(phases,['0%','25%']);
+  for(const name of [symbol,gold])assert.deepEqual(await samplePhases(name),['0%','25%']);
   await p.emulateMedia({reducedMotion:'reduce'});
-  assert.equal(await symbol.evaluate(el=>getComputedStyle(el).animationName),'none');
+  for(const name of [symbol,gold])assert.equal(await name.evaluate(el=>getComputedStyle(el).animationName),'none');
   assert.deepEqual(nvda,await palette('NVDA'));
   await p.emulateMedia({reducedMotion:'no-preference'});
-  assert.equal(sgov[0],dark?'rgb(255, 224, 148)':'rgb(199, 153, 41)');
+  assert.equal(sgov[0],dark?'rgb(255, 224, 148)':'rgb(148, 101, 14)');
+  assert.ok(sgov[1].includes(dark?'rgb(186, 122, 55)':'rgb(120, 66, 7)'));
   assert.notEqual(sgov[1],nvda[1]);
   assert.equal(await buttons.nth(0).locator('.position-pnl').textContent(),'$125.00');
   assert.equal(await buttons.nth(0).locator('.position-rate').textContent(),'+12.5%');

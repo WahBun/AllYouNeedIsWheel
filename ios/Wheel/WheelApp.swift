@@ -1338,7 +1338,6 @@ private struct CoreAssetAllocationFlow: View {
     let highlighted: Bool
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var scheme
     @Environment(WheelStore.self) private var store
     @State private var visible = false
 
@@ -1350,8 +1349,8 @@ private struct CoreAssetAllocationFlow: View {
     }
 
     var body: some View {
-        if CoreAssetStyle.usesTealApricot(symbol) {
-            TealApricotFlow(active: active && store.selectedTab == "portfolio")
+        if let palette = SymbolFlowPalette(symbol) {
+            SymbolGradientFlow(palette: palette, active: active && store.selectedTab == "portfolio")
                 .mask(sectorMask).opacity(highlighted ? 1 : 0.35)
                 .allowsHitTesting(false).accessibilityHidden(true)
         } else if let index = items.firstIndex(where: { $0.name == symbol }), !reduceMotion {
@@ -1364,20 +1363,16 @@ private struct CoreAssetAllocationFlow: View {
                 let cycle = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 12) / 12
                 let travel = (1 - cos(cycle * 2 * .pi)) / 2
                 // Move the soft front fully beyond both ends before reversing.
-                // Everything behind it stays gold, so the sector is revealed rather than scanned.
                 let front = -feather + (span + 2 * feather) * travel
-                let gold = Color(red: 0.66, green: 0.36, blue: 0.07)
-                let strength = scheme == .dark ? 0.72 : 0.65
                 // Only the feather needs intermediate stops; the rest is a solid fill.
-                let colorAnchors = symbol == "SGOV" ? [Double]() : [span / 2, span]
-                let angles = Set([0.0, 360.0] + colorAnchors + (-4...4).map { front + feather * Double($0) / 4 }
+                let angles = Set([0.0, span / 2, span, 360.0] + (-4...4).map { front + feather * Double($0) / 4 }
                     .filter { $0 > 0 && $0 < 360 }).sorted()
                 let stops: [Gradient.Stop] = angles.map { angle in
                     let location = angle / 360
                     let coverage = min(1, max(0, (front - angle + feather) / max(2 * feather, 0.001)))
                     let softened = coverage * coverage * (3 - 2 * coverage)
-                    let finish = symbol == "SGOV" ? gold : CoreAssetStyle.sectorColor(angle / max(span, 0.001))
-                    return .init(color: finish.opacity((symbol == "SGOV" ? strength : 0.9) * softened), location: location)
+                    let finish = CoreAssetStyle.sectorColor(angle / max(span, 0.001))
+                    return .init(color: finish.opacity(0.9 * softened), location: location)
                 }
                 AngularGradient(stops: stops, center: .center,
                                 startAngle: .degrees(start), endAngle: .degrees(start + 360))

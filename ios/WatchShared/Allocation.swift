@@ -53,16 +53,21 @@ struct AllocationData {
         net = snapshot?.net.flatMap { $0.isFinite ? $0 : nil }
     }
 
+    static func cashColor(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(red: 244/255, green: 120/255, blue: 115/255)
+                        : Color(red: 181/255, green: 69/255, blue: 73/255)
+    }
+
     func color(_ item: AllocationItem, scheme: ColorScheme) -> Color {
-        item.id == "cash" ? .gray : symbolColor(item.name, scheme: scheme)
+        item.id == "cash" ? Self.cashColor(scheme) : symbolColor(item.name, scheme: scheme)
     }
 
     func symbolColor(_ name: String, scheme: ColorScheme) -> Color {
         if CoreAssetStyle.contains(name) { return TradingColors.symbol(name, scheme: scheme) }
         guard let index = ordinaryColorIndex[name] else { return .secondary }
         // Spread neighboring sectors around the hue wheel. Keep the first slots
-        // clear of the teal, apricot and gold used by the special symbols.
-        let hues: [Double] = [215, 317, 94, 262, 8, 184, 337, 68]
+        // clear of the special gradients and the coral used for cash.
+        let hues: [Double] = [215, 317, 94, 262, 153, 184, 337, 68]
         let hue = index < hues.count ? hues[index] / 360
             : (0.37 + Double(index - hues.count) * 0.61803398875).truncatingRemainder(dividingBy: 1)
         return Color(hue: hue, saturation: scheme == .dark ? 0.62 : 0.80, brightness: scheme == .dark ? 0.96 : 0.70)
