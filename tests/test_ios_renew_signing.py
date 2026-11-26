@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
 import os
+import plistlib
 import shutil
 import subprocess
 from types import SimpleNamespace
@@ -67,7 +68,7 @@ class RenewalTests(unittest.TestCase):
             entry = root / "renew_signing_ssh.sh"
             shutil.copyfile(Path(__file__).parents[1] / "ios/renew_signing_ssh.sh", entry)
             (root / "renew_signing.py").write_text("import sys; print(sys.argv[1:])")
-            for original, mode in (("check", "--check"), ("renew", "--build-only")):
+            for original, mode in (("check", "--check"), ("renew", "--shortcut")):
                 result = subprocess.run(["/bin/zsh", str(entry)], capture_output=True, text=True,
                                         env=dict(os.environ, SSH_ORIGINAL_COMMAND=original))
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -232,6 +233,99 @@ class RenewalTests(unittest.TestCase):
                     self.assertEqual(renew.main([mode]), 0)
                     self.assertEqual(build.call_count, 0 if mode == "--check" else 1)
                 self.assertFalse((root / "ios/.renewal/last-install.json").exists())
+
+    def test_dual_renewal_rolls_back_both_profiles_when_embedded_watch_is_stale(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cache = root / "cache"
+            cache.mkdir()
+            run = root / "run"
+            run.mkdir()
+            config = dict(self.config, watchDeviceUDID="WATCH")
+            renewal = renew.Renewal(config, run)
+            watch_id = renewal.watch["bundleID"]
+            watch_profile = dict(self.profile, ProvisionedDevices=["WATCH"],
+                                 Entitlements={"application-identifier": "TESTTEAM." + watch_id})
+            for name in ("phone", "watch"):
+                (cache / (name + ".mobileprovision")).write_bytes(name.encode())
+            watch_dir = run / "watch"
+            watch_dir.mkdir()
+            embedded = root / "WheelWatch.app"
+            embedded.mkdir()
+            (embedded / "Info.plist").write_bytes(plistlib.dumps({
+                "CFBundleIdentifier": watch_id, "WKCompanionAppBundleIdentifier": self.config["bundleID"]}))
+            def read(path):
+                return self.profile if path.stem == "phone" else watch_profile
+            with patch.object(renew, "read_profile", side_effect=read):
+                with self.assertRaisesRegex(renew.RenewalError, "six days|extend"):
+                    with renew.ProfileRefresh(config, run, directories=[cache]), \
+                         renew.ProfileRefresh(renewal.watch, watch_dir, directories=[cache]) as watch:
+                        self.assertFalse(any(cache.iterdir()))
+                        renew.verify_signed_package(embedded, watch, self.now, companion=self.config["bundleID"])
+                self.assertEqual({p.stem for p in cache.iterdir()}, {"phone", "watch"})
+                with self.assertRaisesRegex(renew.RenewalError, "different iPhone"):
+                    renew.verify_signed_package(embedded, watch, self.now, companion="other.app")
+
+    def test_interrupted_dual_refresh_recovers_watch_and_legacy_phone_manifest(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            run = root / "run"
+            (run / "watch").mkdir(parents=True)
+            for path in (run, run / "watch"):
+                cache = path / "cache"
+                cache.mkdir()
+                original = cache / "profile.mobileprovision"
+                original.write_bytes(b"old")
+                with patch.object(renew, "read_profile", return_value=self.profile):
+                    renew.ProfileRefresh(self.config, path, directories=[cache]).__enter__()
+            with self.assertRaisesRegex(renew.RenewalError, "interrupted"):
+                renew.recover_interrupted(root)
+            for path in (run, run / "watch"):
+                self.assertEqual((path / "cache/profile.mobileprovision").read_bytes(), b"old")
+
+    def test_pair_installs_only_with_both_ready_and_resumes_after_partial_transfer(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            phone = root / "Products/Debug-iphoneos/Wheel.app"
+            watch = phone / "Watch/WheelWatch.app"
+            watch.mkdir(parents=True)
+            expiry = datetime.now(timezone.utc) + timedelta(days=7)
+            targets = [("PHONE-UDID", "test.wheel", phone), ("WATCH", "test.wheel.watchkitapp", watch)]
+            details = {u: dict(bundleID=b, deviceUDID=u, builtApp=str(a), profileExpires=expiry.isoformat())
+                       for u, b, a in targets}
+            receipt = dict(details["PHONE-UDID"], teamID="TESTTEAM", commit="abc", watch=details["WATCH"])
+            profiles = {a: dict(self.profile, UUID=u, ExpirationDate=expiry, ProvisionedDevices=[u],
+                                Entitlements={"application-identifier": "TESTTEAM." + b}) for u, b, a in targets}
+            locations = {u: "old" for u, _, _ in targets}
+            transfers = []
+            phone_ready = False
+            fail_phone = True
+            def device(run, label, udid, action, *args):
+                if action == ["info", "lockState"]:
+                    return dict(passcodeRequired=udid == "PHONE-UDID" and not phone_ready, unlockedSinceBoot=True)
+                if action == ["info", "apps"]:
+                    return {"apps": [dict(bundleIdentifier=details[udid]["bundleID"], url=locations[udid])]}
+                if action == ["profile", "list"]:
+                    return {"provisioningProfiles": [dict(uuid=udid)]}
+                self.assertEqual(action, ["install", "app"])
+                transfers.append(udid)
+                if udid == "PHONE-UDID" and fail_phone:
+                    raise renew.RenewalError("Connection interrupted")
+                locations[udid] = "new"
+                return {"installedApplications": [dict(bundleID=details[udid]["bundleID"], installationURL="new")]}
+            with patch.object(renew, "command"), patch.object(renew, "device_result", side_effect=device), \
+                 patch.object(renew, "read_profile", side_effect=lambda p: profiles[p.parent]):
+                with self.assertRaisesRegex(renew.RenewalError, "Unlock"):
+                    renew.install_pair(receipt, root)
+                self.assertEqual(transfers, [])
+                phone_ready = True
+                with self.assertRaisesRegex(renew.RenewalError, "interrupted"):
+                    renew.install_pair(receipt, root)
+                self.assertFalse((root / "last-install.json").exists())
+                fail_phone = False
+                renew.install_pair(receipt, root)
+                self.assertEqual(transfers, ["WATCH", "PHONE-UDID", "PHONE-UDID"])
+                self.assertEqual(json.loads((root / "last-install.json").read_text())["commit"], "abc")
 
 
 if __name__ == "__main__":
