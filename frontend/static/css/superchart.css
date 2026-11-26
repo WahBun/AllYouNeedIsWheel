@@ -111,6 +111,24 @@ body.light .core-symbol-sgov::after{background-image:linear-gradient(90deg,trans
 @keyframes core-symbol-flow{from{background-position:100% 0}to{background-position:0% 0}}
 @media(prefers-reduced-motion:reduce){.core-symbol::after{display:none;animation:none}}
 
+.core-symbol-teal-apricot {
+  --symbol-teal: #28a499;
+  --symbol-apricot: #fabc84;
+  background-image: linear-gradient(90deg,var(--symbol-teal),var(--symbol-apricot),var(--symbol-teal),var(--symbol-apricot));
+  background-size: 300% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: teal-apricot-flow 5s linear infinite;
+  animation-delay: var(--symbol-phase,0ms);
+}
+body.light .core-symbol-teal-apricot { --symbol-teal: #12695f; --symbol-apricot: #955321; }
+body.light .core-symbol-teal-apricot, .core-symbol-teal-apricot { color: var(--symbol-teal); }
+.core-symbol-teal-apricot::after { content: none; }
+@keyframes teal-apricot-flow { from { background-position: 0% 0; } to { background-position: 100% 0; } }
+@media (prefers-reduced-motion: reduce) { .core-symbol-teal-apricot { animation: none; } }
+@media (forced-colors: active) { .core-symbol-teal-apricot { -webkit-text-fill-color: CanvasText; } }
+
 input[type=number]{appearance:textfield;-moz-appearance:textfield}
 input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .order-buy{color:#0a84ff}.order-sell{color:#ff453a}

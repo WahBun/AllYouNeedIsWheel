@@ -12,7 +12,7 @@ const {start}=require('./market-feed/harness.cjs');
    {con_id:12,symbol:'NO COST',position:1,avg_cost:null,unrealized_pnl:5},
    {con_id:13,symbol:'ZERO COST',position:1,avg_cost:0,unrealized_pnl:5},
    {con_id:14,symbol:'BIG',position:10,avg_cost:1000,unrealized_pnl:1234567.89},
-   ...['QQQ','SPY','SGOV'].map((symbol,i)=>({con_id:15+i,symbol,position:1,security_type:'STK'}))
+   ...['QQQ','QQQM','SPY','SGOV'].map((symbol,i)=>({con_id:15+i,symbol,position:1,security_type:'STK'}))
   ];
   await p.route('**/api/portfolio/bootstrap*',r=>{assert.equal(r.request().method(),'GET');return r.fulfill({json:{positions:rows}})});
   await p.route('**/static/js/superchart.js',async r=>{const res=await r.fetch();await r.fulfill({response:res,body:(await res.text()).replace(/\}\)\(\);?\s*$/,'window.positionTest={refresh};})();')})});
@@ -20,7 +20,7 @@ const {start}=require('./market-feed/harness.cjs');
   if(!dark)await p.locator('#theme').click();await p.locator('#toggle-trade').click();
   const allButtons=p.locator('#positions button');
   // Find contracts by label so the default option-first sorting does not affect assertions.
-  const lettering={NVDA:'ℕ𝕍𝔻𝔸',VOO:'𝕍𝕆𝕆',QQQ:'ℚℚℚ',SPY:'𝕊ℙ𝕐',SGOV:'𝕊𝔾𝕆𝕍'};
+  const lettering={NVDA:'ℕ𝕍𝔻𝔸',VOO:'𝕍𝕆𝕆',QQQ:'ℚℚℚ',QQQM:'ℚℚℚ𝕄',SPY:'𝕊ℙ𝕐',SGOV:'𝕊𝔾𝕆𝕍'};
   const byRow=rows.map(row=>{
    const label=(lettering[row.symbol]||row.symbol)+(row.local_symbol||row.symbol).slice(row.symbol.length);
    return allButtons.filter({has:p.locator('.position-label',{hasText:label+' · '+row.position})});
@@ -29,12 +29,12 @@ const {start}=require('./market-feed/harness.cjs');
   for(const i of [0,1]){
    const name=buttons.nth(i).locator('.core-symbol');
    assert.equal(await name.textContent(),'ℕ𝕍𝔻𝔸');
-   assert.equal(await name.evaluate(e=>getComputedStyle(e).color),dark?'rgb(255, 214, 82)':'rgb(148, 77, 13)');
-   assert.equal(await name.evaluate(e=>getComputedStyle(e,'::after').animationName),'core-symbol-flow');
+   assert.equal(await name.evaluate(e=>getComputedStyle(e).color),dark?'rgb(40, 164, 153)':'rgb(18, 105, 95)');
+   assert.equal(await name.evaluate(e=>getComputedStyle(e).animationName),'teal-apricot-flow');
    assert.equal(await buttons.nth(i).locator('.position-label').getAttribute('aria-label'),(rows[i].local_symbol||'NVDA')+' · '+rows[i].position);
   }
-  const palette=symbol=>allButtons.locator('.core-symbol').filter({hasText:lettering[symbol]}).first()
-   .evaluate(e=>[getComputedStyle(e).color,getComputedStyle(e,'::after').backgroundImage]);
+  const palette=symbol=>allButtons.locator('.core-symbol[data-lettering="'+lettering[symbol]+'"]').first()
+   .evaluate(e=>[getComputedStyle(e).color,getComputedStyle(e).backgroundImage,getComputedStyle(e,'::after').backgroundImage]);
   const nvda=await palette('NVDA'),sgov=await palette('SGOV');
   const letterHeights=await buttons.first().locator('.core-symbol').evaluate(async name=>{
    const family=getComputedStyle(name).fontFamily;
@@ -51,7 +51,21 @@ const {start}=require('./market-feed/harness.cjs');
   assert.equal(letterHeights.length,4);
   for(const height of letterHeights)assert.deepEqual(height,letterHeights[1]);
   assert.deepEqual(nvda,await palette('QQQ'));
-  assert.deepEqual(nvda,await palette('SPY'));
+  assert.deepEqual(nvda,await palette('QQQM'));
+  assert.notDeepEqual(nvda,await palette('SPY'));
+  assert.ok(nvda[1].includes(dark?'rgb(250, 188, 132)':'rgb(149, 83, 33)'));
+  const symbol=buttons.first().locator('.core-symbol');
+  const phases=await symbol.evaluate(async el=>{
+   el.style.setProperty('--symbol-phase','0ms');
+   const animation=el.getAnimations().find(a=>a.animationName==='teal-apricot-flow');
+   animation.pause();await animation.ready;
+   return [0,1250].map(time=>{animation.currentTime=time;return getComputedStyle(el).backgroundPositionX});
+  });
+  assert.deepEqual(phases,['0%','25%']);
+  await p.emulateMedia({reducedMotion:'reduce'});
+  assert.equal(await symbol.evaluate(el=>getComputedStyle(el).animationName),'none');
+  assert.deepEqual(nvda,await palette('NVDA'));
+  await p.emulateMedia({reducedMotion:'no-preference'});
   assert.equal(sgov[0],dark?'rgb(255, 224, 148)':'rgb(199, 153, 41)');
   assert.notEqual(sgov[1],nvda[1]);
   assert.equal(await buttons.nth(0).locator('.position-pnl').textContent(),'$125.00');

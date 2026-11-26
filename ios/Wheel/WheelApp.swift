@@ -1247,7 +1247,8 @@ struct AllocationView: View {
                     .chartAngleSelection(value: $angle)
                     .chartBackground { _ in
                         VStack(spacing: 5) {
-                            Text("Net liquidation").font(.caption).foregroundStyle(.secondary)
+                            Text(verbatim: "NetLiq").font(.caption).foregroundStyle(.secondary)
+                                .accessibilityLabel("Net liquidation")
                             Text(money(data.net)).font(.title3.weight(.semibold)).monospacedDigit()
                                 .lineLimit(1).minimumScaleFactor(0.6)
                         }.frame(maxWidth: 160).allowsHitTesting(false)
@@ -1341,8 +1342,19 @@ private struct CoreAssetAllocationFlow: View {
     @Environment(WheelStore.self) private var store
     @State private var visible = false
 
+    private var sectorMask: some View {
+        Chart(items) { item in
+            SectorMark(angle: .value("Market value", item.value), innerRadius: .ratio(0.72), angularInset: 1.5)
+                .foregroundStyle(item.name == symbol ? Color.white : Color.clear)
+        }
+    }
+
     var body: some View {
-        if let index = items.firstIndex(where: { $0.name == symbol }), !reduceMotion {
+        if CoreAssetStyle.usesTealApricot(symbol) {
+            TealApricotFlow(active: active && store.selectedTab == "portfolio")
+                .mask(sectorMask).opacity(highlighted ? 1 : 0.35)
+                .allowsHitTesting(false).accessibilityHidden(true)
+        } else if let index = items.firstIndex(where: { $0.name == symbol }), !reduceMotion {
             let total = items.reduce(0) { $0 + $1.value }
             let start = -90 + items.prefix(index).reduce(0) { $0 + $1.value } / max(total, 1) * 360
             let span = items[index].value / max(total, 1) * 360
@@ -1370,12 +1382,7 @@ private struct CoreAssetAllocationFlow: View {
                 AngularGradient(stops: stops, center: .center,
                                 startAngle: .degrees(start), endAngle: .degrees(start + 360))
             }
-            .mask {
-                Chart(items) { item in
-                    SectorMark(angle: .value("Market value", item.value), innerRadius: .ratio(0.72), angularInset: 1.5)
-                        .foregroundStyle(item.name == symbol ? Color.white : Color.clear)
-                }
-            }
+            .mask(sectorMask)
             .opacity(highlighted ? 1 : 0.35)
             .allowsHitTesting(false).accessibilityHidden(true)
             .onAppear { visible = true }.onDisappear { visible = false }
