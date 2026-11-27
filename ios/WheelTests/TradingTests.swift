@@ -764,6 +764,23 @@ final class TradingTests: XCTestCase {
         XCTAssertFalse(gate.accept(1))
     }
 
+    func testCoveredCallOrderDetailSendsOnlyRequestedTermsForGTC() {
+        let order = Order(id: 1, ticker: "TEST", action: "SELL", option_type: "CALL", premium: 20.63,
+                          quantity: 1, status: "submitted", tif: "DAY", chart_con_id: 7,
+                          chart_order_ref: "WheelPaper:test", ib_order_id: 17)
+        let snapshot: [[String: Any]] = [["order_id": 17, "price": 20.63, "quantity": 1, "filled": 0,
+                                          "tif": "DAY", "status": "Submitted"]]
+        let state: [String: Any] = ["order_ref": "WheelPaper:test", "entry_editable": true, "entry": 20.63,
+                                    "quantity": 1.0, "tif": "DAY", "allowed_tifs": ["DAY", "GTC"], "edit_snapshot": snapshot]
+        let body = TradeRules.chartEditRequest(order, state: state, price: 20.63, quantity: 1,
+                                                tif: "GTC", confirmRemoveProtection: false)
+        XCTAssertEqual(body?["action"] as? String, "edit_entry")
+        XCTAssertEqual(body?["tif"] as? String, "GTC")
+        XCTAssertEqual(body?["price"] as? Double, order.premium)
+        XCTAssertEqual(body?["quantity"] as? Int, 1)
+        XCTAssertEqual((body?["expected_snapshot"] as? [[String: Any]])?.first?["order_id"] as? Int, 17)
+    }
+
     func testChartOrderSettingsUseFreshIdentityAndPreserveAllFields() {
         let order = Order(id: 1, ticker: "TQQQ", action: "BUY", option_type: "STOCK", premium: 79.5, quantity: 100, status: "presubmitted", tif: "DAY", chart_con_id: 7, chart_order_ref: "WheelPaper:a")
         let state: [String: Any] = ["order_ref": "WheelPaper:a", "entry_editable": true, "entry": 79.5, "quantity": 100.0, "tif": "DAY", "allowed_tifs": ["DAY", "GTC", "OVERNIGHT"], "edit_snapshot": [["order_id": 1, "filled": 0]], "mode": "bracket"]

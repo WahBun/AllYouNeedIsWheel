@@ -104,6 +104,23 @@ async function run() {
     const after = await broker('metrics');
     assert.deepEqual(after,[before[0]+1,0,before[2],before[3],writes[0].price]);
     console.log('PASS archived full close, chart drag and confirm: one amendment of the original broker order');
+    await frame.locator('#order-type').press('Enter');
+    await page.locator('#editor').waitFor({state:'visible'});
+    assert.equal(await page.locator('#edit-tif').inputValue(),'DAY');
+    await page.locator('#edit-tif').selectOption('GTC');
+    const editResponse = page.waitForResponse(r=>r.request().method()==='POST' && r.url().includes('/paper-chart/'));
+    await page.locator('#edit-form button[type=submit]').click();
+    const replacement = await (await editResponse).json();
+    assert.equal(replacement.success,true,replacement.message);
+    assert.equal(writes.length,2);
+    assert.equal(writes[1].price,writes[0].price);
+    assert.equal(writes[1].tif,'GTC');
+    await frame.waitForFunction(()=>!paperConfig.busy && paperConfig.tif==='GTC');
+    const refreshed=await broker('state');
+    assert.equal(refreshed.edit_snapshot.find(o=>o.status==='Submitted').tif,'GTC');
+    const finalCounts = await broker('metrics');
+    assert.deepEqual(finalCounts.slice(0,2),[after[0]+1,after[1]+1]);
+    console.log('PASS working option: the chart editor changes DAY to GTC with one replacement');
   } finally {
     await browser.close();
     processHandle.stdin.end();
