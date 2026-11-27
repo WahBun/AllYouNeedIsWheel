@@ -47,6 +47,19 @@ try:
         message = json.loads(line)
         if message == 'state':
             value = fixture.service.state(fixture.conn, 7)
+        elif message == 'partial':
+            trade = next(t for t in fixture.trades if not t.isDone())
+            from datetime import datetime, timezone
+            from ib_async import Fill, Execution, CommissionReport
+            stamp = datetime.now(timezone.utc)
+            order = trade.order
+            execution = Execution(execId='partial.entry.00.01', time=stamp, acctNumber=case.account, side='SLD',
+                                  shares=1, price=order.lmtPrice, permId=order.permId, clientId=order.clientId,
+                                  orderId=order.orderId, orderRef=order.orderRef)
+            fixture.conn.ib.fills.return_value = [Fill(trade.contract, execution, CommissionReport(), stamp)]
+            trade.orderStatus.filled = 1
+            case.case.positions.append(SimpleNamespace(account=case.account, contract=trade.contract, position=-1, avgCost=1000))
+            value = fixture.service.state(fixture.conn, 7)
         elif message == 'metrics':
             value = [fixture.conn.ib.placeOrder.call_count, fixture.conn.ib.cancelOrder.call_count,
                      trade.order.orderId, trade.order.permId, trade.order.lmtPrice]
@@ -174,6 +187,21 @@ async function run() {
     assert.equal(current.entry,phonePrice);
     assert.equal(current.tif,'GTC');
     console.log('PASS stale web editor preserves a newer phone price without a broker write');
+    const partial = await broker('partial');
+    assert.ok(partial.partial_entry_cancel,JSON.stringify(partial));
+    const button = frame.getByRole('button',{name:'Cancel entry order '+partial.partial_entry_cancel.order_id,exact:true});
+    await button.waitFor();
+    assert.equal(await frame.getByRole('button',{name:'Edit Add quantity',exact:true}).isDisabled(),true);
+    assert.match(await page.locator('#pending-adds').innerText(),/1 @/);
+    const prior = await broker('metrics');
+    const ack = page.waitForResponse(r=>r.request().method()==='POST' && r.url().includes('/paper-chart/'));
+    await button.click();
+    const result = await (await ack).json();
+    assert.equal(result.success,true,result.message);
+    assert.equal(result.state.position,-1);
+    assert.deepEqual(writes.at(-1).partial_entry_cancel,partial.partial_entry_cancel);
+    assert.deepEqual((await broker('metrics')).slice(0,2),[prior[0],prior[1]+1]);
+    console.log('PASS chart cancels only the unfilled option remainder and keeps the filled position');
   } finally {
     await browser.close();
     processHandle.stdin.end();
