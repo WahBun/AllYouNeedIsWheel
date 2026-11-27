@@ -7,6 +7,8 @@ const near=(a,b,label)=>assert.ok(Math.abs(a-b)<.6,`${label}: ${a} vs ${b}`);
  await p.evaluate(type=>{window.saved=[];window.webkit={messageHandlers:{drawingsChanged:{postMessage:v=>saved.push(structuredClone(v))}}};const base=Date.parse('2026-10-12T13:30:00Z')/1000;window.bars=Array.from({length:80},(_,i)=>({time:base+i*300+(i>=40?63000:0),open:100,close:101,high:110,low:90}));receive({con_id:7,generation:'gap',interval:5,session:'rth',bars});configure({con_id:7,entry:0,paper:{enabled:false}});configureDrawings({key:'fib-gap',value:{magnet:'off',drawings:[{id:'fib',type,p:[{time:bars[35].time,price:106},{time:bars[45].time,price:100},...(type==='fibext'?[{time:bars[50].time,price:104}]:[])]}]}});chart.timeScale().fitContent();},type);
  await p.getByRole('button',{name:'Show drawing tools',exact:true}).click();await p.waitForTimeout(60);
  const bounds=()=>p.locator('[data-drawing=fib] line[stroke]:not([stroke="transparent"])').first().evaluate(e=>({left:+e.getAttribute('x1'),right:+e.getAttribute('x2'),y:+e.getAttribute('y1')}));
+ const preset=p.getByRole('combobox',{name:'Fib preset'});
+ assert.equal(await p.locator('[data-drawing=fib] text').count(),type==='fib'?8:6);
  const before=await bounds(),dx=width>500?75:20,dy=20;
  await p.mouse.move((before.left+before.right)/2,before.y);await p.mouse.down();await p.mouse.move((before.left+before.right)/2+dx,before.y+dy,{steps:10});await p.mouse.up();await p.waitForTimeout(40);
  let after=await bounds();near(after.left-before.left,dx,'left anchor translation');near(after.right-before.right,dx,'right anchor translation');near(after.y-before.y,dy,'vertical translation');
@@ -27,8 +29,41 @@ const near=(a,b,label)=>assert.ok(Math.abs(a-b)<.6,`${label}: ${a} vs ${b}`);
  await p.evaluate(()=>configureDrawings({key:'fib-create',value:{magnet:'off'}}));await p.getByRole('button',{name:'Show drawing tools',exact:true}).click();
  await p.getByRole('button',{name:type==='fib'?'Fib retracement':'Trend-based fib extension',exact:true}).click();
  const locations=[[width*.38+1.3,310.4],[width*.72+2.1,440.2],...(type==='fibext'?[[width*.61+1.6,360.8]]:[])];
- for(const [x,y] of locations)await p.mouse.click(x,y);await p.waitForTimeout(40);
+ if(type==='fib')assert.equal(await preset.inputValue(),'retracement');
+ else assert.equal(await preset.count(),0);
+ for(const [index,[x,y]] of locations.entries()){
+  await p.mouse.click(x,y);
+  if(type==='fib'&&index===0)await preset.selectOption('mm');
+ }
+ await p.waitForTimeout(40);
  const anchors=await p.locator('[data-drawing] [data-handle]').evaluateAll(nodes=>nodes.map(e=>[+e.getAttribute('cx'),+e.getAttribute('cy')]));assert.equal(anchors.length,locations.length);anchors.forEach((a,i)=>{near(a[0],locations[i][0],'created x');near(a[1],locations[i][1],'created y');});
+ if(type==='fib'){
+  const snapshot=()=>p.evaluate(()=>saved.at(-1));
+  const mm=await snapshot(), drawing=mm.drawings[0];
+  assert.equal(drawing.fibPreset,'mm');
+  assert.equal(mm.toolStyles.fib.fibPreset,'mm');
+  const prices=p.locator('[data-drawing] text');
+  async function verifyPrices(ratios){
+   await p.waitForFunction(n=>document.querySelectorAll('[data-drawing] text').length===n,ratios.length);
+   const actual=await prices.allTextContents();
+   const [start,end]=drawing.p.map(point=>point.price);
+   ratios.forEach((ratio,index)=>assert.ok(Math.abs(Number(actual[index])-(end+(start-end)*ratio))<.011));
+  }
+  await verifyPrices([0,1,1.5,2,2.5,3]);
+  await preset.selectOption('retracement');
+  await verifyPrices([0,.382,.5,1]);
+  assert.deepEqual((await snapshot()).drawings[0],{...drawing,fibPreset:'retracement'});
+  await p.keyboard.press('Tab');
+  await p.keyboard.press('Meta+z');
+  await verifyPrices([0,1,1.5,2,2.5,3]);
+  await p.keyboard.press('Meta+Shift+z');
+  await verifyPrices([0,.382,.5,1]);
+  await p.evaluate(value=>configureDrawings({key:'fib-reloaded',value}),mm);
+  await verifyPrices([0,1,1.5,2,2.5,3]);
+  await p.getByRole('button',{name:'Show drawing tools',exact:true}).click();
+  await p.getByRole('button',{name:'Fib retracement',exact:true}).click();
+  assert.equal(await preset.inputValue(),'mm');
+ }
  await p.screenshot({path:`/tmp/wheel-${type}-interaction-${width}.png`});assert.deepEqual(errors,[]);await p.close();
  }
  assert.equal(h.metrics.posts,0);console.log('PASS Fib across session gaps, sub-bar movement, off-center mouse/touch handles, cancel, undo/redo and OHLC snapping at desktop/mobile widths');
