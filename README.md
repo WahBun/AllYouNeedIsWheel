@@ -108,6 +108,8 @@ First configure separate `paper`/`live` connection profiles, databases and priva
 
 The backend has one selected account shared by all clients. Switching does not close positions or cancel orders. The app clears the previous account's views, and the backend rejects writes from old sessions. With account profiles enabled, legacy web clients without account-session identifiers are read-only.
 
+On iPhone, Wheel tracks unconfirmed chart order requests separately for Live and Paper. After you switch back to that account or reopen the app, Wheel checks the original request’s status without submitting it again.
+
 **Fast Live ⇄ Paper switching:** optional same-container dual sessions keep Live and Paper signed in. Switching changes Wheel's account connection without restarting Gateway; valid sessions avoid repeated IB Key authentication. Each uses its own verified account connection, database and market data.
 
 **Historical acceptance record (2026-10-07, not a current online-state check):** the user confirmed smooth switching in both directions on the phone. At that time, verified account selection took about **0.78 seconds** for Live → Paper and **0.95 seconds** for Paper → Live, with live quotes restored on both. These are API account-verification timings, not whole-screen or first-chart load times. The old account's chart-subscription cooldown no longer affected the new account's first load; that run did not reproduce the associated 503.
@@ -122,6 +124,7 @@ Those historical connection/data checks placed, amended and canceled no orders. 
 - **A draft is not a fill:** Trade tickets create drafts, and Execute in Orders submits them to IB. Chart trading has its own preview/confirmation and One-click paths; not every action first enters the draft list. Execution/cancellation confirmation preferences are configurable in order settings.
 - External IB orders are read-only. An uncertain submission locks further writes until IB orders and fills are reconciled. A timeout never automatically resubmits a trading request.
 - **Working option orders.** You can edit the limit price or quantity of an eligible unfilled option entry without opening its chart. In iPhone **Orders**, changing only DAY to GTC preserves the limit price, even if you just changed it on the web.
+- **Partially filled option orders.** When IB confirms a partial fill on a single Wheel option entry without attached TP/SL, you can cancel the remaining contracts from iPhone **Orders** or the chart on web or iPhone. For example, if one of three contracts has filled, only the two still working can be canceled. The filled contract stays in your position.
 - Frozen, stale or missing quotes do not become executable live prices. Connectivity does not establish all market-data permissions.
 - Return history uses Flex daily TWR. SPX/NDX use FRED SP500/NASDAQ100 daily price indices without dividend reinvestment. Intraday estimates are not official TWR; the subsequent Flex report is authoritative.
 - Rolling drafts and executes two legs separately; it is not an atomic combination order. Margin impact is an IB what-if estimate, not an additive allocation of account margin across positions.
