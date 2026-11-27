@@ -133,26 +133,63 @@ final class ChartViewportTests: XCTestCase {
             ready.fulfill()
         }
     }
-    private func loadNativeChart() async throws -> (ChartViewportWebView, UIWindow) {
+    private func loadNativeChart(includeDrawingTools: Bool = false) async throws -> (ChartViewportWebView, UIWindow) {
         let bundle = Bundle(for: ChartViewportWebView.self)
         func resource(_ name: String, _ ext: String) throws -> String {
             let url = try XCTUnwrap(bundle.url(forResource: name, withExtension: ext) ?? bundle.url(forResource: name, withExtension: ext, subdirectory: "ChartAssets"))
             return try String(contentsOf: url, encoding: .utf8)
         }
+        let drawings = includeDrawingTools ? try "<script>" + resource("chart-drawings", "js") + "</script>" : ""
         let html = try resource("stock-chart", "html").replacingOccurrences(of: "/*LIBRARY*/", with: resource("lightweight-charts.standalone.production", "js"))
-            .replacingOccurrences(of: "</body>", with: "<script>" + resource("chart-add-orders", "js") + "</script></body>")
+            .replacingOccurrences(of: "</body>", with: drawings + "<script>" + resource("chart-add-orders", "js") + "</script></body>")
         let ready = expectation(description: "Chart script ready")
         let config = WKWebViewConfiguration()
         config.userContentController.add(ReadyBridge(ready), name: "chartReady")
         let web = ChartViewportWebView(frame: .zero, configuration: config)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
         let controller = UIViewController(); window.rootViewController = controller
-        window.isHidden = false; controller.view.addSubview(web)
+        window.isHidden = false; web.frame = controller.view.bounds; controller.view.addSubview(web)
         web.loadHTMLString(html, baseURL: nil)
         await fulfillment(of: [ready], timeout: 10)
         web.viewportReady = true
         return (web, window)
     }
+    func testRectangleVisibilityFollowsChartInterval() async throws {
+        let (web, window) = try await loadNativeChart(includeDrawingTools: true)
+        defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }
+        _ = try await web.evaluateJavaScript("""
+        window.hourlyBoxPacket={con_id:7,interval:60,generation:'fixture',session:'all',
+          bars:Array.from({length:60},(_,i)=>({time:1000+i*3600,open:100,high:110,low:90,close:105}))};
+        receive(hourlyBoxPacket);
+        configureDrawings({key:'visibility-fixture',value:{drawings:[{id:'box',type:'rect',p:[
+          {time:hourlyBoxPacket.bars[30].time,price:99},{time:hourlyBoxPacket.bars[40].time,price:104}]}]}});
+        true
+        """)
+        func waitForBox(_ visible: Bool) async throws {
+            for _ in 0..<50 {
+                let rendered = try await web.evaluateJavaScript("!!document.querySelector('[data-drawing=box]')") as? Bool
+                if rendered == visible { return }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            let title = try await web.evaluateJavaScript("document.querySelector('#chart-title')?.textContent") as? String
+            XCTFail("Expected rectangle visibility \(visible) on \(title ?? "unknown interval")")
+        }
+        try await waitForBox(true)
+        let selected = try await web.evaluateJavaScript("""
+        document.querySelector('[data-drawing=box]').dispatchEvent(new MouseEvent('click',{bubbles:true}));
+        document.querySelector('[aria-label^="Drawing sync:"]').click();
+        const hourlyChoice=document.querySelector('[role=menuitemradio][aria-label="1h only"]');
+        hourlyChoice?.click();!!hourlyChoice
+        """) as? Bool
+        XCTAssertEqual(selected, true)
+        for interval in [5,60] {
+            _ = try await web.evaluateJavaScript("receive({...hourlyBoxPacket,interval:\(interval)});true")
+            try await waitForBox(interval == 60)
+        }
+    }
+
     func testNativeChartPaintsMajorTicksAndCenteredWeekday() async throws {
         let (web, window) = try await loadNativeChart()
         defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }

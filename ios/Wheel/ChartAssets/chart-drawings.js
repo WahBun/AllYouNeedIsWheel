@@ -168,10 +168,14 @@ function queueDrawingChanges(){
  for(const id of new Set([...before.keys(),...after.keys()]))if(JSON.stringify(before.get(id))!==JSON.stringify(after.get(id)))syncState.pending.push({op:drawingOperationID(),id,base:syncState.revision,kind:after.has(id)?'put':'delete',value:after.get(id)});
  syncBaseline=clone(drawings);
 }
-// Both display scopes use the same cross-device store; pane role is not timeframe.
+// Pane sharing and interval visibility are independent properties of the saved drawing.
 const sharingMode=d=>['primary','local','timeframe'].includes(d?.sharing)?'primary':'global';
 let primaryDrawingPane=true;
-const drawingVisible=d=>sharingMode(d)==='global'||primaryDrawingPane;
+const drawingVisible=d=>(sharingMode(d)==='global'||primaryDrawingPane)&&
+ (!d.visibleInterval||d.visibleInterval===countdownPacket?.interval);
+function drawingIntervalLabel(minutes){
+ return ({1440:'1D',10080:'1W',43200:'1M'})[minutes]||(minutes%60===0?(minutes/60)+'h':minutes+'m');
+}
 const visibleDrawings=()=>drawings.filter(drawingVisible);
 function normalizeDrawingScope(d){
  if(!['local','layout','timeframe'].includes(d.sharing))return {...d};
@@ -195,27 +199,58 @@ function restoreDrawingScopes(){
  syncState.scopeImports=[...new Set([...imported,...legacy.map(d=>d.id),...local.map(d=>d.id)])];
  syncState.migrated=true;syncBaseline=clone(drawings);save(false);
 }
+function clearHiddenSelection(){
+ if(!selected||drawings.some(d=>d.id===selected&&drawingVisible(d)))return;
+ if(textEdit)finishTextEdit(true);
+ selected=null;drag=null;editor.style.display='none';closeDrawingSyncMenu();
+}
 window.setDrawingPaneRole=primary=>{
  if(primaryDrawingPane===primary)return;primaryDrawingPane=primary;
- if(selected&&!drawings.some(d=>d.id===selected&&drawingVisible(d))){if(textEdit)finishTextEdit(true);selected=null;drag=null;editor.style.display='none';closeDrawingSyncMenu();}
- revision++;renderToolbar();
+ clearHiddenSelection();revision++;renderToolbar();
 };
-const syncMenu=document.createElement('div');syncMenu.id='draw-sync-menu';syncMenu.setAttribute('role','menu');syncMenu.style.cssText='display:none;position:absolute;z-index:24;min-width:155px;padding:4px;background:#252726;color:#eee;border:1px solid #555;border-radius:6px;box-shadow:0 2px 8px #0004';document.body.append(syncMenu);
+const syncMenu=document.createElement('div');syncMenu.id='draw-sync-menu';syncMenu.setAttribute('role','menu');syncMenu.style.cssText='display:none;position:absolute;z-index:24;min-width:155px;max-height:calc(100% - 8px);overflow-y:auto;box-sizing:border-box;padding:4px;background:#252726;color:#eee;border:1px solid #555;border-radius:6px;box-shadow:0 2px 8px #0004';document.body.append(syncMenu);
 function closeDrawingSyncMenu(){syncMenu.style.display='none';}
 function drawingSyncButton(d){
- const label={primary:'Main chart only',global:'All charts'}[sharingMode(d)];
- const b=button('⇄','Drawing sync: '+label,()=>{
+ const paneChoices=[['primary','Main chart only'],['global','All charts']];
+ const label=paneChoices.find(([mode])=>mode===sharingMode(d))[1];
+ const b=button('⇄','Drawing sync: '+label+(d.visibleInterval?' · '+drawingIntervalLabel(d.visibleInterval)+' only':''),()=>{
   syncMenu.replaceChildren();
-  for(const [mode,title] of [['primary','Main chart only'],['global','All charts']]){
-   const item=button((sharingMode(d)===mode?'✓  ':'    ')+title,title,()=>{
-    closeDrawingSyncMenu();const current=drawings.find(value=>value.id===d.id);if(!current||locked||current.locked||sharingMode(current)===mode)return;
-    // Ray alerts bind to this ID; changing visibility must not replace the ray.
-    remember();const replacement={...current,id:current.type==='hray'?current.id:drawingOperationID(),sharing:mode};
-    delete replacement.pane;
-    delete replacement.timeframe;
-    drawings=drawings.map(value=>value.id===d.id?replacement:value);selected=replacement.id;save();renderToolbar();
+  const interval=countdownPacket?.interval;
+  function choices(name,options,selectedValue,apply){
+   const group=document.createElement('div');group.setAttribute('role','group');group.setAttribute('aria-label',name);
+   if(syncMenu.childElementCount)group.style.borderTop='1px solid #555';
+   for(const [value,title] of options){
+    const checked=value===selectedValue;
+    const item=button((checked?'✓  ':'    ')+title,title,()=>{
+     closeDrawingSyncMenu();
+     const current=drawings.find(row=>row.id===d.id);
+     if(!current||locked||current.locked||selected!==d.id||interval!==countdownPacket?.interval||!drawingVisible(current))return;
+     const replacement=apply(current,value);
+     if(!replacement)return;
+     remember();drawings=drawings.map(row=>row.id===current.id?replacement:row);
+     selected=replacement.id;clearHiddenSelection();save();renderToolbar();
+    });
+    item.setAttribute('role','menuitemradio');item.setAttribute('aria-checked',String(checked));
+    item.style.cssText='display:block;width:100%;height:32px;text-align:left;background:transparent;color:inherit;border:0;border-radius:3px;padding:0 10px;font:13px -apple-system';
+    group.append(item);
+   }
+   syncMenu.append(group);
+  }
+  choices('Charts',paneChoices,sharingMode(d),(current,mode)=>{
+   if(sharingMode(current)===mode)return;
+   // Horizontal ray alerts refer to the drawing ID.
+   const replacement={...current,id:current.type==='hray'?current.id:drawingOperationID(),sharing:mode};
+   delete replacement.pane;delete replacement.timeframe;
+   return replacement;
+  });
+  if(Number.isSafeInteger(interval)&&interval>0){
+   choices('Intervals',[[null,'All intervals'],[interval,drawingIntervalLabel(interval)+' only']],d.visibleInterval??null,(current,value)=>{
+    if((current.visibleInterval??null)===value)return;
+    const replacement={...current};
+    if(value===null)delete replacement.visibleInterval;
+    else replacement.visibleInterval=value;
+    return replacement;
    });
-   item.setAttribute('role','menuitemradio');item.setAttribute('aria-checked',String(sharingMode(d)===mode));item.style.cssText='display:block;width:100%;height:32px;text-align:left;background:transparent;color:inherit;border:0;border-radius:3px;padding:0 10px;font:13px -apple-system';syncMenu.append(item);
   }
   syncMenu.style.display='block';const r=b.getBoundingClientRect();syncMenu.style.left=Math.max(4,Math.min(r.right+5,innerWidth-syncMenu.offsetWidth-4))+'px';syncMenu.style.top=Math.max(4,Math.min(r.top,innerHeight-syncMenu.offsetHeight-34))+'px';
  });b.disabled=locked||d.locked;b.setAttribute('aria-haspopup','menu');return b;
@@ -236,7 +271,7 @@ function applyPeerDrawings(){
  if(drag||textResize||draft||gesture||(editor.style.display==='block'||textEdit)){peerDrawingTimer=setTimeout(applyPeerDrawings,50);return;}
  const pending=new Set(syncState.pending.map(o=>o.op)),merged=new Map(drawings.map(d=>[d.id,d]));
  for(const op of peerDrawingOps.values()){if(pending.has(op.op))continue;syncState.pending.push(op);if(op.kind==='delete')merged.delete(op.id);else if(op.value)merged.set(op.id,clone(op.value));}
- peerDrawingOps.clear();drawings=[...merged.values()];syncBaseline=clone(drawings);if(selected&&!merged.has(selected))selected=null;revision++;renderToolbar();
+ peerDrawingOps.clear();drawings=[...merged.values()];syncBaseline=clone(drawings);clearHiddenSelection();revision++;renderToolbar();
 }
 const nativeRequests=new Map();
 window.receiveDrawingSync=message=>{const pending=nativeRequests.get(message.requestID);if(!pending)return;nativeRequests.delete(message.requestID);clearTimeout(pending.timer);message.error?pending.reject(Error(message.error)):pending.resolve(message.value);};
@@ -253,7 +288,7 @@ async function syncDrawings(){
  if(drag||textResize||draft||gesture||textEdit){save(false);return;}
  syncState.revision=result.revision;
  const merged=new Map((result.drawings||[]).filter(validDrawing).map(d=>[d.id,normalizeDrawingScope(d)]));for(const op of syncState.pending){if(op.kind==='delete')merged.delete(op.id);else merged.set(op.id,op.value);}
- drawings=[...merged.values()];syncBaseline=clone(drawings);if(selected&&!merged.has(selected))selected=null;revision++;save(false);renderToolbar();
+ drawings=[...merged.values()];syncBaseline=clone(drawings);clearHiddenSelection();revision++;save(false);renderToolbar();
  }catch(error){console.debug('Drawing sync pending',error.message);}finally{syncBusy=false;}
 }
 setInterval(syncDrawings,3000);
@@ -824,7 +859,7 @@ window.receive=packet=>{
  const next=[packet.con_id,packet.generation,packet.interval,packet.session].join(':');
  if(next!==drawingChartKey){
   if(drag?.points){drag.d.p=drag.points;if(drag.endTime!==undefined)drag.d.endTime=drag.endTime;}
-  if(textEdit)finishTextEdit(true);drag=null;selected=null;cursor=null;editor.style.display='none';choose(null);revision++;drawingChartKey=next;
+  if(textEdit)finishTextEdit(true);drag=null;selected=null;cursor=null;editor.style.display='none';closeDrawingSyncMenu();choose(null);revision++;drawingChartKey=next;
  }
  return receiveChart(packet);
 };

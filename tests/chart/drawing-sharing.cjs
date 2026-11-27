@@ -39,9 +39,34 @@ await restoredPeer.evaluate(()=>chartDrawingActions.removeAll());await restoredP
 await choose(restored,'All charts');await waitCount(restoredPeer,1);await waitCount(device,1);
 await choose(restored,'Main chart only');await waitCount(restoredPeer,0);await waitCount(device,1);
 await restored.evaluate(()=>chartDrawingActions.removeAll());await restored.waitForTimeout(3200);assert.equal(await count(restored),0);
-// Every drawing type exposes exactly two choices through its actual property controls.
+// Limit an existing rectangle from the 1h auxiliary pane. A matching native
+// chart must receive that same rectangle, including after a page reload.
+const switchInterval=(frame,interval)=>frame.evaluate(minutes=>receive({...countdownPacket,interval:minutes}),interval);
+await p.setViewportSize({width:1050,height:1540});
+await switchInterval(restoredPeer,60);
+await switchInterval(device,60);
+await restoredPeer.getByRole('button',{name:'Show drawing tools',exact:true}).click();
+await restoredPeer.getByRole('button',{name:'Rectangle',exact:true}).click();
+for(const point of [{x:280,y:240},{x:380,y:325}])await restoredPeer.locator('body').click({position:point});
+await waitCount(restored,1);await waitCount(device,1);
+const rectangleID=[...remote.keys()][0];
+await choose(restoredPeer,'1h only');
+await waitCount(restored,0);await waitCount(device,1);
+await restoredPeer.waitForFunction(()=>saved.drawings[0]?.visibleInterval===60);
+assert.equal(remote.get(rectangleID).visibleInterval,60);
+await restored.waitForFunction(()=>!document.querySelector('[data-drawing]')&&!drawingPriceAxisLines().length);
+await restored.evaluate(()=>chartDrawingActions.removeAll());
+await switchInterval(restored,60);await waitCount(restored,1);
+await switchInterval(device,15);await waitCount(device,0);
+await q.reload();await init(device);await waitCount(device,0);
+await switchInterval(device,60);await waitCount(device,1);
+await choose(device,'Main chart only');await waitCount(restoredPeer,0);
+await switchInterval(restored,5);await waitCount(restored,0);
+await choose(device,'All intervals');await waitCount(restored,1);await waitCount(restoredPeer,0);
+await device.evaluate(()=>chartDrawingActions.removeAll());await waitCount(restored,0);
+// Every drawing type offers pane sharing and interval visibility in its own property controls.
 const types=['trend','info','hray','channel','fib','fibext','long','short','range','highlight','arrow','up','down','rect','path','triangle','curve','text','note','price'];
-for(const type of types){await init(restored,'type-'+type,{drawings:[{id:type,type,p:[{time:10000,price:103},{time:12000,price:99},{time:14000,price:105}],text:'Test'}]});await restored.getByRole('button',{name:'Show drawing tools',exact:true}).click();await restored.locator('[data-drawing="'+type+'"]').dispatchEvent('click');await restored.getByRole('button',{name:/^Drawing sync:/}).click();assert.equal(await restored.getByRole('menuitemradio').count(),2);for(const title of ['Main chart only','All charts'])assert.equal(await restored.getByRole('menuitemradio',{name:title,exact:true}).count(),1);await restored.getByRole('menuitemradio',{name:'Main chart only',exact:true}).click();assert.equal(await count(restored),1);}
+for(const type of types){await init(restored,'type-'+type,{drawings:[{id:type,type,p:[{time:10000,price:103},{time:12000,price:99},{time:14000,price:105}],text:'Test'}]});await restored.getByRole('button',{name:'Show drawing tools',exact:true}).click();await restored.locator('[data-drawing="'+type+'"]').dispatchEvent('click');await restored.getByRole('button',{name:/^Drawing sync:/}).click();assert.equal(await restored.getByRole('menuitemradio').count(),4);for(const title of ['Main chart only','All charts','All intervals','5m only'])assert.equal(await restored.getByRole('menuitemradio',{name:title,exact:true}).count(),1);await restored.getByRole('menuitemradio',{name:'Main chart only',exact:true}).click();assert.equal(await count(restored),1);}
 await restored.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
 // Legacy local/layout annotations migrate to the cross-device store. Existing server
 // edits and deleted IDs must win over old local copies, including after reload.
