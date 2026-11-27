@@ -843,6 +843,8 @@ class OptionsService:
                         'status': 'rejected'
                     }, 409
 
+            if getattr(contract, 'exchange', '') == 'OVERNIGHT':
+                require_legacy_venue()
             transmit_attempted = True
             result = conn.place_order(contract, ib_order)
             if not result:

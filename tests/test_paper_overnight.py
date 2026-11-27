@@ -30,7 +30,7 @@ class OvernightTests(unittest.TestCase):
     def test_retired_venue_never_sends_or_cancels_before_failing(self):
         _, submitted = self.overnight()
         original = submitted['state']
-        self.clock.now.return_value = datetime(2026, 12, 6, 7, tzinfo=timezone.utc)
+        self.clock.now.return_value = datetime(2026, 12, 6, 5, tzinfo=timezone.utc)
         self.conn.ib.placeOrder.reset_mock()
         updated = self.service.execute(self.conn, 7, dict(request_id=str(uuid4()), action='edit_entry',
             expected_ref=original['order_ref'], expected_snapshot=original['edit_snapshot'], price=770))
@@ -42,6 +42,46 @@ class OvernightTests(unittest.TestCase):
         self.assertTrue(canceled['success'], canceled)
         _, retired = self.overnight()
         self.assertFalse(retired['success'])
+        self.conn.ib.placeOrder.assert_not_called()
+
+    def test_contract_validation_crossing_cutover_cannot_create_a_legacy_order(self):
+        read = self.conn._bounded_order_read.side_effect
+        self.clock.now.return_value = datetime(2026, 12, 6, 4, 59, 59, tzinfo=timezone.utc)
+
+        def cross_cutover(fn, *args, **kwargs):
+            result = read(fn, *args, **kwargs)
+            if fn == self.conn.ib.reqMarketRule:
+                self.clock.now.return_value = datetime(2026, 12, 6, 5, tzinfo=timezone.utc)
+            return result
+
+        self.conn._bounded_order_read.side_effect = cross_cutover
+        _, result = self.overnight()
+        self.assertFalse(result['success'], result)
+        self.conn.ib.placeOrder.assert_not_called()
+        self.conn.ib.cancelOrder.assert_not_called()
+        self.assertFalse(self.service.group('DU_TEST', 7))
+
+    def test_amendment_crossing_cutover_preserves_original_until_broker_reconciles(self):
+        _, placed = self.overnight()
+        before = placed['state']
+        validate = self.service.validate_overnight_price
+
+        def finish_validation(*args):
+            validate(*args)
+            self.clock.now.return_value = datetime(2026, 12, 6, 5, tzinfo=timezone.utc)
+
+        self.conn.ib.placeOrder.reset_mock()
+        with patch.object(self.service, 'validate_overnight_price', side_effect=finish_validation):
+            outcome = self.service.execute(self.conn, 7, dict(request_id=str(uuid4()), action='edit_entry',
+                expected_ref=before['order_ref'], expected_snapshot=before['edit_snapshot'], price=770))
+        self.assertFalse(outcome['success'])
+        self.conn.ib.cancelOrder.assert_not_called()
+        self.conn.ib.placeOrder.assert_not_called()
+        active = self.service.state(self.conn, 7)
+        self.assertEqual((active['order_ref'], active['tif']), (before['order_ref'], 'OVERNIGHT'))
+        self.assertNotIn('OVERNIGHT', active['allowed_tifs'])
+        self.trades[0].orderStatus.status = 'Cancelled'
+        self.assertFalse(self.service.state(self.conn, 7)['active'])
         self.conn.ib.placeOrder.assert_not_called()
 
     def test_canceled_overnight_allows_fresh_day_bracket(self):

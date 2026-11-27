@@ -211,11 +211,12 @@ function supportsStockHours(){
 }
 function syncStockHours(){
  const control=$('stock-hours'), extended=control.options[1];
- $('stock-hours-control').hidden=!supportsStockHours()||!!state.position;
+ $('stock-hours-control').hidden=!supportsStockHours()||!!state.position||(state.active&&!['RTH','EXTENDED'].includes(state.stock_session));
  extended.disabled=$('type').value!=='LMT'||$('bracket-enabled').checked;
  control.disabled=!!state.active||busy||tradingLocked;
  if(state.active)control.value=state.stock_session==='EXTENDED'?'EXTENDED':'RTH';
  else if(!supportsStockHours()||extended.disabled)control.value='RTH';
+ $('stock-hours-note').hidden=$('stock-hours-control').hidden||control.value!=='EXTENDED';
 }
 function tradingBlockReason(){if(tradingLocked)return 'Trading is locked; unlock to trade';if(!profile.verified||!epoch)return 'Account connection is not verified; waiting for IB';if(switchingChart)return 'Chart session is loading; please wait';if(busy)return 'An order request is in progress; please wait';if(localStorage.getItem(pendingKey()))return 'An earlier request is still being confirmed; verify its outcome before submitting again';if((profile.selected!=='paper'&&profile.chart_execution_enabled!==true))return 'Chart execution is not enabled for this account';if(state.live_initial_scope&&$('bracket-enabled').checked)return 'Live options do not attach TP or SL';if(state.sync_error)return String(state.sync_error);if(state.known===false)return state.group_attribution?.errors?.length?'Order group reconciliation required: '+state.group_attribution.errors[0]:'Order state is not confirmed; waiting for IB';if(Date.now()-received>=15000)return 'Order status is stale; waiting for an IB refresh';return 'Trading is currently unavailable; waiting for IB order status';}
 function enabled(){return !tradingLocked&&!switchingChart&&!chartLayout.loading()&&(profile.selected==='paper'||profile.chart_execution_enabled===true)&&profile.verified&&!!epoch&&state.enabled===true&&state.known!==false&&!state.sync_error&&Date.now()-received<15000&&!busy&&!localStorage.getItem(pendingKey());}

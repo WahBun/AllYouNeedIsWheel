@@ -13,6 +13,7 @@
 <p id="position-scope" class="trade-hint" hidden></p><label><span id="quantity-label">Quantity</span><div class="quantity-controls"><input id="quantity" type="number" min="1" max="1000" value="1"><button id="quantity-minus" aria-label="Decrease quantity">−</button><button id="quantity-plus" aria-label="Increase quantity">＋</button></div></label>
 <div id="entry-settings" class="trade-pair"><label>Type <select id="type"><option>LMT</option><option>STP</option></select></label><label>TIF <select id="tif"><option>DAY</option><option>GTC</option><option value="OVERNIGHT" hidden disabled>OVT</option></select></label></div>
 <label id="stock-hours-control" hidden>Trading hours <select id="stock-hours"><option value="RTH">RTH Only</option><option value="EXTENDED">Extended Hours</option></select></label>
+<small id="stock-hours-note" hidden>Includes regular hours. An overnight order can still fill after the opening bell.</small>
 <label class="exit-heading" id="bracket-control" style="--exit-color:var(--accent)"><span>Bracket <small data-en="New order protection" data-zh="新单保护">New order protection</small></span><input id="bracket-enabled" type="checkbox" role="switch" aria-label="Enable bracket / 开启新单保护"></label>
 <div class="protection-settings">
 <div class="exit-card tp-card"><label class="exit-heading"><span><b>TP</b></span><input id="tp-enabled" type="checkbox" role="switch" aria-label="Enable take profit" checked></label>

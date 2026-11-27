@@ -207,6 +207,8 @@ struct ChartJoinGate {
 }
 
 enum TradeRules {
+    static let extendedHoursNote = "Includes regular hours. An overnight order can still fill after the opening bell."
+
     static func flatHistoryRecoveryRequest(state: [String: Any], groupID: String) throws -> [String: Any] {
         let attribution = state["group_attribution"] as? [String: Any]
         let refs = attribution?["recovery_refs"] as? [String]
@@ -1312,6 +1314,7 @@ struct CloseTicket: View {
                                 Text("RTH Only").tag(false)
                                 Text("Extended Hours").tag(true)
                             }
+                            if extendedHours { Text(TradeRules.extendedHoursNote).font(.caption).foregroundStyle(.secondary) }
                         }
                         if !timingSupported {
                             Text("Review the trading hours supported by the backend.").font(.caption).foregroundStyle(.orange)

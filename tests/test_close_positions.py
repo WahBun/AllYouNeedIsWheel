@@ -131,6 +131,25 @@ class ClosePositionSafetyTests(unittest.TestCase):
             self.assertEqual(connection.place_calls, 1)
             self.db.update_order_status(oid, 'cancelled', executed=True)
 
+    def test_legacy_close_crossing_cutoff_stays_unsubmitted(self):
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+        connection = self.stock_connection()
+        service = self.make_service(connection)
+        with patch('core.order_timing.datetime') as clock:
+            clock.now.return_value = datetime(2026, 12, 6, 4, 59, 59, tzinfo=timezone.utc)
+            def finish_preflight(contract, order):
+                clock.now.return_value = datetime(2026, 12, 6, 5, tzinfo=timezone.utc)
+                return {'success': True}
+
+            connection.what_if_order = finish_preflight
+            staged, status = service.stage_close_order(dict(con_id=81001, quantity=1, limit_price=10, tif='OVERNIGHT'))
+            self.assertEqual(status, 201, staged)
+            outcome, _ = service.execute_order(staged['order_id'], self.db)
+            self.assertFalse(outcome['success'])
+            self.assertEqual(connection.place_calls, 0)
+            self.assertEqual(self.db.get_order(staged['order_id'])['ib_status'], 'NotSubmitted')
+
     def test_stock_timing_persists_and_routes_through_preflight_and_submission(self):
         from unittest.mock import patch
         from datetime import datetime, timezone

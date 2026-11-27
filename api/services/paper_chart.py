@@ -12,7 +12,7 @@ from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from uuid import UUID
 from ib_async import LimitOrder, StopOrder, MarketOrder, Trade
 from core.order_amendments import confirmed_stock_session
-from core.order_timing import require_legacy_venue, stock_session
+from core.order_timing import legacy_venue_available, require_legacy_venue, stock_session
 from api.services.chart_contracts import contracts
 from api.services.stock_chart import stock_chart
 from api.services.futures_orders import completed_trades
@@ -795,7 +795,7 @@ class PaperChart:
         result['stock_session'] = confirmed_stock_session(conn, parent) if parent else None
         result['entry_type'] = parent.order.orderType if parent else 'LMT'
         result['allowed_tifs'] = ['DAY', 'GTC']
-        if parent and parent.contract.secType == 'STK' and parent.contract.currency == 'USD' and parent.order.action in ('BUY', 'SELL') and parent.order.orderType == 'LMT':
+        if parent and parent.contract.secType == 'STK' and parent.contract.currency == 'USD' and parent.order.action in ('BUY', 'SELL') and parent.order.orderType == 'LMT' and legacy_venue_available():
             result['allowed_tifs'].append('OVERNIGHT')
         result['entry_editable'] = bool(parents and result['known'] and not result['position']
             and not group.get('pending_edit') and all(r['filled'] == 0 and
@@ -1670,6 +1670,8 @@ class PaperChart:
         routed = copy.copy(contract)
         routed.exchange = 'OVERNIGHT' if tif == 'OVERNIGHT' else 'SMART'
         self.validate_entry_route_price(conn, routed, cid, amount)
+        if routed.exchange == 'OVERNIGHT':
+            require_legacy_venue()
         oid = conn.ib.client.getReqId()
         ref = 'WheelPaper:' + request_id
         # Persist ownership before sending. Unknown outcomes remain blocked, never replayed.
@@ -1808,6 +1810,8 @@ class PaperChart:
         if (not fresh.get('entry_editable') or fresh['edit_snapshot'] != current['edit_snapshot']
                 or option_replacement and (fresh.get('order_ref') != group['ref'] or paper_account(conn, True) != account)):
             raise ValueError('Order changed while validating; refresh chart')
+        if body.get('cancel') is not True and 'OVERNIGHT' in (tif, current['tif']):
+            require_legacy_venue()
         group['pending_edit'] = request_id
         self.save_group(account, cid, group)
         try:

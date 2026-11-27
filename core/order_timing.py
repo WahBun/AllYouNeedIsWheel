@@ -2,13 +2,18 @@
 import copy
 from datetime import datetime, timezone
 
-# IB retires this venue at 02:00 New York time, before the first new session.
-OVERNIGHT_END = datetime(2026, 12, 6, 7, tzinfo=timezone.utc)
+# The client notice says not to route directly to OVERNIGHT on December 6.
+# Stop Wheel writes at midnight ET, ahead of the API's 02:00 ET venue retirement.
+LEGACY_ROUTE_CUTOFF = datetime(2026, 12, 6, 5, tzinfo=timezone.utc)
+
+
+def legacy_venue_available():
+    return datetime.now(timezone.utc) < LEGACY_ROUTE_CUTOFF
 
 
 def require_legacy_venue():
-    if datetime.now(timezone.utc) >= OVERNIGHT_END:
-        raise ValueError('The OVERNIGHT venue is retired. Review a new order and its trading hours.')
+    if not legacy_venue_available():
+        raise ValueError('Wheel no longer routes to OVERNIGHT. Review a new order and its trading hours.')
 
 
 def stock_session(value, security_type, currency, tif):

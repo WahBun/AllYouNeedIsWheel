@@ -1632,6 +1632,7 @@ struct StockChartView: View {
                 .onChange(of: entryType) { _, type in if type != "LMT" { extendedHours = false } }
                 .onChange(of: bracketEnabled(chartType)) { _, enabled in if enabled { extendedHours = false } }
                 .onChange(of: extendedHours) { _, _ in joinRevision += 1; submitRevision += 1 }
+                if extendedHours { Text(TradeRules.extendedHoursNote).font(.caption).foregroundStyle(.secondary) }
             } else if paperState["stock_session"] as? String == "EXTENDED" {
                 LabeledContent("Trading hours", value: "Extended Hours")
             }
