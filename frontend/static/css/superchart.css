@@ -18,6 +18,8 @@
 #chart-detail>div{min-width:0}
 #positions .position-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .position-label{min-width:0;overflow-wrap:anywhere}
+.position-entry{color:rgb(76% 65% 94%);white-space:nowrap;font-variant-numeric:tabular-nums}
+body.light .position-entry{color:rgb(49% 35% 69%)}
 .position-return{display:flex;justify-content:flex-end;align-items:baseline;flex-wrap:wrap;gap:3px 6px;max-width:60%;text-align:right;font-size:12px;font-variant-numeric:tabular-nums;color:var(--muted)}
 .position-return>span{white-space:nowrap}
 .position-rate{font-size:11px}

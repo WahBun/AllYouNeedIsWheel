@@ -15,6 +15,10 @@ const count=f=>f.evaluate(()=>chartDrawingActions.count());const waitCount=(f,n)
 for(const f of [a,peer,device])await init(f);
 await peer.evaluate(()=>receive({...countdownPacket,interval:15}));
 await a.getByRole('button',{name:'Show drawing tools',exact:true}).click();await a.getByRole('button',{name:'Horizontal ray',exact:true}).click();await a.locator('body').click({position:{x:420,y:280}});await waitCount(a,1);await waitCount(peer,1);await waitCount(device,1);
+for(const frame of [a,peer,device]){
+ const stroke=frame.locator('[data-drawing] line:not([stroke="transparent"])').first();
+ assert.equal(await stroke.getAttribute('stroke-dasharray'),'5 4','new ray is dashed after sync');
+}
 // A synchronization round-trip must not silently change history identity.
 await a.waitForTimeout(3200);assert.equal(await a.evaluate(()=>chartDrawingActions.undo()),true);await waitCount(peer,0);await waitCount(device,0);
 assert.equal(await a.evaluate(()=>chartDrawingActions.redo()),true);await waitCount(peer,1);await waitCount(device,1);

@@ -5,12 +5,12 @@ import SwiftUI
 @MainActor
 final class IndicatorTimeframeVisibilityTests: XCTestCase {
     func testDefaultsAndInclusiveUnitBoundaries() throws {
-        let intervals = [1, 3, 5, 10, 15, 60, 480, 1440, 10080, 43200]
+        let intervals = [1, 3, 5, 10, 15, 30, 59, 60, 480, 1440, 10080, 43200]
         var visibility = IndicatorTimeframeVisibility()
         XCTAssertTrue(intervals.allSatisfy(visibility.allows))
-        XCTAssertEqual(intervals.filter(visibility.allowsAdditionalIndicators), [1, 3, 5, 10, 15, 60])
+        XCTAssertEqual(intervals.filter(visibility.allowsAdditionalIndicators), [1, 3, 5, 10, 15, 30, 59])
         XCTAssertFalse(visibility.allowsAdditionalIndicators(61))
-        XCTAssertTrue(visibility.allows(480), "Primary EMA remains available above 1h")
+        XCTAssertTrue(visibility.allows(480), "Primary EMA and ATR remain available above 1h")
         visibility.minutes = .init(min: 3, max: 10)
         visibility.hours = .init(enabled: false, max: 24)
         visibility.days = .init(enabled: false, max: 366)

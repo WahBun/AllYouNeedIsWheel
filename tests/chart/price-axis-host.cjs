@@ -23,20 +23,50 @@ const server=http.createServer((req,res)=>{const url=new URL(req.url,'http://loc
   await load();let frame=page.frames().find(f=>f.url().includes('/superchart/frame'));
   await page.evaluate(light=>{document.documentElement.lang='en';document.body.classList.toggle('light',light);},light);
 
-  // The boundary is strictly greater than one hour; preferences survive filtering.
-  const policy=await page.evaluate(()=>{const d=WheelChartSettings.normalize({emaLength:50,emaFrame:1440,emaSource:'open',emaOffset:5});const original=JSON.stringify(d);return {original,after:JSON.stringify(d),cases:[60,61,120,480,1440,10080,43200].map(interval=>({interval,d:WheelChartSettings.effective(d,'rth',{},interval),requested:WheelChartSettings.requested(d,interval,'rth')}))};});
-  assert.equal(policy.after,policy.original);
-  for(const {interval,d,requested} of policy.cases){assert.equal(d.ema,true);assert.equal(d.atr,interval===60);if(interval>60){assert.equal(d.emaLength,20);assert.equal(d.emaFrame,0);assert.equal(d.emaSource,'close');assert.equal(d.emaOffset,0);assert.equal(d.barCount,false);assert.equal(d.fvg.enabled,false);assert.equal(d.previousValues.enabled,false);assert.ok(d.extraEMAs.every(e=>!e.enabled));assert.equal(d.volatility.channels,false);assert.equal(d.volatility.gauge,false);assert.deepEqual(requested,[]);}}
+  // Main-chart filtering starts at 1h; selecting an auxiliary pane never changes its policy.
+  const cases=await page.evaluate(()=>{
+   const d=WheelChartSettings.normalize({emaLength:50,emaFrame:1440,emaSource:'open',emaOffset:5});
+   const saved=JSON.stringify(d),cases=[];
+   for(const primary of [true,false])for(const interval of [15,59,60,61,480,1440,10080,43200]){
+    const display=WheelChartSettings.effective(d,'rth',{},interval,primary);
+    const requested=WheelChartSettings.requested(d,interval,'rth',primary);
+    cases.push({primary,interval,display,requested});
+   }
+   if(JSON.stringify(d)!==saved)throw new Error('Rendering changed indicator preferences');
+   return cases;
+  });
+  for(const {primary,interval,display:d,requested} of cases){
+   const full=interval<60||(!primary&&interval===60);
+   assert.equal(d.ema,true);
+   assert.equal(d.atr,primary||full);
+   assert.deepEqual([d.emaLength,d.emaFrame,d.emaSource,d.emaOffset],full?[50,1440,'open',5]:[20,0,'close',0]);
+   assert.ok([d.barCount,d.fvg.enabled,d.previousValues.enabled,d.volatility.channels,d.volatility.gauge,
+    ...d.extraEMAs.map(e=>e.enabled)].every(enabled=>enabled===full));
+   assert.equal(requested.length>0,full);
+  }
   const select=async interval=>{await page.locator(`#intervals [data-interval="${interval}"]`).click();await page.waitForFunction(interval=>document.getElementById('chart').contentWindow.eval('countdownPacket.interval')===interval,interval);};
-  await select(480);await frame.waitForFunction(()=>displayOptions.ema&&emaSeries.data().length>0&&!displayOptions.atr&&!displayOptions.fvg.enabled&&!displayOptions.volatility.channels&&!displayOptions.volatility.gauge);assert.equal(await frame.locator('#atr-value').isVisible(),false);
-  await select(60);await frame.waitForFunction(()=>displayOptions.atr&&displayOptions.fvg.enabled&&displayOptions.volatility.channels);
+  for(const interval of [480,60]){
+   await select(interval);
+   await frame.waitForFunction(()=>displayOptions.ema&&emaSeries.data().length>0&&displayOptions.atr&&!atrBadge.hidden&&
+    !displayOptions.fvg.enabled&&!displayOptions.volatility.channels&&!displayOptions.volatility.gauge);
+  }
+  await select(15);await frame.waitForFunction(()=>displayOptions.atr&&displayOptions.fvg.enabled&&displayOptions.volatility.channels);
+  await select(60);
   await page.locator('#layout-button').click();await page.locator('#layout-menu [data-layout="4"]').click();
   await page.waitForFunction(()=>document.querySelectorAll('.chart-pane iframe').length===4&&[...document.querySelectorAll('.chart-pane iframe')].every(f=>f.contentDocument.querySelector('#chart-title')?.textContent.includes('TEST'))&&document.querySelector('#chart-group-loading')?.hidden!==false);
   const panes=page.frames().filter(f=>f.url().includes('/superchart/frame'));
   const primary=await page.locator('#chart').elementHandle().then(e=>e.contentFrame()),aux=panes.find(f=>f!==primary);
-  await aux.evaluate(()=>document.getElementById('chart-title').click());await page.waitForFunction(()=>document.querySelector('#chart-group-loading')?.hidden!==false);await select(480);await aux.waitForFunction(()=>displayOptions.ema&&!displayOptions.atr&&!displayOptions.fvg.enabled);
+  await aux.evaluate(()=>document.getElementById('chart-title').click());await page.waitForFunction(()=>document.querySelector('#chart-group-loading')?.hidden!==false);await select(60);
+  await aux.waitForFunction(()=>displayOptions.atr&&displayOptions.fvg.enabled);
+  await primary.waitForFunction(()=>countdownPacket.interval===60&&displayOptions.atr&&!displayOptions.fvg.enabled);
+  await aux.locator('[data-pane-maximize]').click();
+  await page.waitForFunction(()=>document.querySelector('#chart-grid').classList.contains('pane-maximized'));
+  assert.equal(await aux.evaluate(()=>displayOptions.atr&&displayOptions.fvg.enabled),true);
+  await aux.locator('[data-pane-maximize]').click();
+  await page.waitForFunction(()=>!document.querySelector('#chart-grid').classList.contains('pane-maximized'));
+  await select(480);await aux.waitForFunction(()=>displayOptions.ema&&!displayOptions.atr&&!displayOptions.fvg.enabled);
   await primary.evaluate(()=>document.getElementById('chart-title').click());await page.waitForFunction(()=>document.getElementById('chart').contentWindow.eval('countdownPacket.interval')===60&&document.querySelector('#chart-group-loading')?.hidden!==false);
-  await primary.waitForFunction(()=>displayOptions.atr&&displayOptions.fvg.enabled);await aux.waitForFunction(()=>countdownPacket.interval===480&&!displayOptions.atr&&!displayOptions.fvg.enabled);
+  await primary.waitForFunction(()=>displayOptions.atr&&!displayOptions.fvg.enabled);await aux.waitForFunction(()=>countdownPacket.interval===480&&!displayOptions.atr&&!displayOptions.fvg.enabled);
   for(const f of panes)await f.evaluate(async()=>{
    const saved={...countdownPacket,bars:previous.map(b=>({...b}))};receive({...saved,bars:[]});updateVisibleExtrema();positionExtremaLabels();receive(saved);series.applyOptions({autoscaleInfoProvider:()=>({priceRange:{minValue:98,maxValue:102}})});chart.timeScale().fitContent();
    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
@@ -47,5 +77,5 @@ const server=http.createServer((req,res)=>{const url=new URL(req.url,'http://loc
   await page.screenshot({path:`/tmp/wheel-price-axis-host-${width}-${light}.png`});
   assert.deepEqual(writes,[]);assert.deepEqual(errors,[]);await page.close();
  }
- console.log('PASS: actual four-pane host, active/inactive periods, >1h EMA20-only with 1h preserved, restored High/Low and uniform badges in desktop/mobile light/dark; zero trading writes.');
+ console.log('PASS: actual four-pane host, active/inactive periods, main EMA20 and ATR from 1h with independent auxiliary settings, restored High/Low and uniform badges in desktop/mobile light/dark; zero trading writes.');
 }finally{await browser?.close();server.closeAllConnections();await new Promise(r=>server.close(r));}})().catch(e=>{console.error(e);process.exitCode=1});

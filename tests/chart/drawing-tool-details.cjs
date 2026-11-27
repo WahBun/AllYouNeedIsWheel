@@ -122,6 +122,21 @@ const read = name => fs.readFileSync(path.join(assets, name), 'utf8');
     await note.fill('Save once'); await note.press('Enter');
     assert.equal(await count(), before + 4);
     assert.equal(await tool('Note').getAttribute('aria-pressed'), 'true');
+    // Reload a legacy ray and an explicit tool preference. Only a new, unstyled ray gets the default.
+    await page.evaluate(()=>configureDrawings({key:'ray-styles',value:{
+      magnet:'off',toolStyles:{hray:{dash:false}},
+      drawings:[{id:'old-ray',type:'hray',p:[{time:previous[30].time,price:100}]}]
+    }}));
+    const rayStroke='line:not([stroke="transparent"])';
+    const legacy=page.locator('[data-drawing="old-ray"] '+rayStroke).first();
+    assert.equal(await legacy.evaluate(el=>getComputedStyle(el).strokeDasharray),'none');
+    await button('Show drawing tools').click();
+    await tool('Horizontal ray').click();await page.mouse.click(400,230);
+    const custom=page.locator('[data-drawing]:not([data-drawing="old-ray"]) '+rayStroke).first();
+    assert.equal(await custom.getAttribute('stroke-dasharray'),'none','saved solid override wins');
+    await button('Drawing line style').click();
+    await custom.and(page.locator('[stroke-dasharray="5 4"]')).waitFor({state:'attached'});
+    assert.equal(await button('Drawing line style').textContent(),'┄');
     assert.deepEqual(errors, []);
     console.log('PASS fixed 20-tool rail, scroll/focus, repeated selection, Shift constraint, effective styles, centered price-range labels, hints and repeat placement');
   } finally { await browser.close(); }
