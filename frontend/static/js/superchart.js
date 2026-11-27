@@ -606,7 +606,23 @@ function stylePositionSymbol(button,row){
  button.setAttribute('aria-label',label);button.replaceChildren(name,document.createTextNode(label.slice(symbol.length)));
 }
 function renderPositionSummary(button,row){
- const label=document.createElement('span');label.className='position-label';label.textContent=button.textContent;stylePositionSymbol(label,row);
+ const contract=contractLabel(row),quantity=row.position??row.quantity??'';
+ const label=document.createElement('span');label.className='position-label';label.textContent=contract;
+ stylePositionSymbol(label,row);
+ let entryText='';
+ if(row.security_type==='OPT'){
+  const fill=row.entry_fill_price,hasFill=Number.isFinite(fill)&&fill>0;
+  const cost=row.avg_cost,multiplier=row.multiplier;
+  const price=hasFill?fill:Number.isFinite(cost)&&cost>0&&Number.isFinite(multiplier)&&multiplier>0?cost/multiplier:null;
+  const known=Number.isFinite(price)&&price>0;
+  entryText=known?'@'+price.toFixed(2)+(hasFill?'':'*'):'@—';
+  const entry=document.createElement('span');entry.className='position-entry';entry.textContent=entryText;
+  entry.title=hasFill?'Average entry fill price':known?'IB average cost per contract point':'Entry price unavailable';
+  label.append(entry);
+ }
+ label.append(' · '+quantity);
+ const positionLabel=contract+entryText+' · '+quantity;
+ if(label.hasAttribute('aria-label'))label.setAttribute('aria-label',positionLabel);
  const summary=document.createElement('span');summary.className='position-return';
  // Match native PositionPnLMeter: broker average cost includes the multiplier.
  const pnl=row.unrealized_pnl,known=Number.isFinite(pnl);
@@ -620,7 +636,7 @@ function renderPositionSummary(button,row){
   rate.textContent=new Intl.NumberFormat('en-US',{minimumFractionDigits:1,maximumFractionDigits:1,signDisplay:'always'}).format(percentage)+'%';
   rate.dataset.direction=percentage===0?'neutral':percentage>0?'positive':'negative';summary.append(rate);
  }
- button.classList.add('position-row');button.setAttribute('aria-label',`${contractLabel(row)} · ${row.position??row.quantity??''}; Unrealized P&L ${amount.textContent}${Number.isFinite(percentage)?'; Return '+summary.lastChild.textContent:''}`);
+ button.classList.add('position-row');button.setAttribute('aria-label',`${positionLabel}; Unrealized P&L ${amount.textContent}${Number.isFinite(percentage)?'; Return '+summary.lastChild.textContent:''}`);
  summary.title='Unrealized P&L and return on absolute position cost; not daily price change.';
  button.replaceChildren(label,summary);
 }
@@ -662,7 +678,7 @@ function sortedPositions(rows){
  const optionRank=row=>['OPT','FOP'].includes(String(row.security_type||'').toUpperCase())?0:1;
  return [...rows].sort((a,b)=>{if(positionSort==='options'){const rank=optionRank(a)-optionRank(b);if(rank)return rank;if(optionRank(a)===0)return optionPositionOrder(a,b);}const x=quantity(a),y=quantity(b);return x===null?(y===null?0:1):y===null?-1:(positionSort==='desc'?y-x:x-y);});
 }
-function renderRows(id,rows,isOrder){if(id==='positions'){renderedPositions=rows;if(positionSort)rows=sortedPositions(rows);}$(id).replaceChildren();if(!rows.length){$(id).textContent=isOrder?'No pending orders':'No positions';return;}for(const row of rows){const target=row.chart_con_id||row.con_id;const button=document.createElement('button');button.textContent=isOrder?`${contractLabel(row)} ${row.action||''} ${row.quantity||''}\n${row.order_type||''} ${row.tif||''} @ ${row.premium??row.limit_price??'—'} · ${row.status||''}`:`${contractLabel(row)} · ${row.position??row.quantity??''}`;if(!isOrder)renderPositionSummary(button,row);else{const action=String(row.action||'').toUpperCase();if(['BUY','BOT','SELL','SLD'].includes(action)){const label=button.textContent,at=label.indexOf(' '+row.action+' ');if(at>=0){const badge=document.createElement('span');badge.className=['BUY','BOT'].includes(action)?'order-buy':'order-sell';const sideAndQuantity=String(row.action)+' '+(row.quantity||'');badge.textContent=sideAndQuantity;button.replaceChildren(document.createTextNode(label.slice(0,at+1)),badge,document.createTextNode(label.slice(at+1+sideAndQuantity.length)));}}}button.disabled=!target||busy;button.onclick=()=>{if(busy)return;if(isOrder&&('chart_navigation_group_id' in row||row.chart_order_ref))saveSelectedGroup(target,row.chart_navigation_group_id??row.chart_group_id??'');select(Number(target),contractLabel(row));if(!$('chart-detail').hidden)$('toggle-trade').click();};$(id).append(button);}}
+function renderRows(id,rows,isOrder){if(id==='positions'){renderedPositions=rows;if(positionSort)rows=sortedPositions(rows);}$(id).replaceChildren();if(!rows.length){$(id).textContent=isOrder?'No pending orders':'No positions';return;}for(const row of rows){const target=row.chart_con_id||row.con_id;const button=document.createElement('button');if(!isOrder)renderPositionSummary(button,row);else{button.textContent=`${contractLabel(row)} ${row.action||''} ${row.quantity||''}\n${row.order_type||''} ${row.tif||''} @ ${row.premium??row.limit_price??'—'} · ${row.status||''}`;const action=String(row.action||'').toUpperCase();if(['BUY','BOT','SELL','SLD'].includes(action)){const label=button.textContent,at=label.indexOf(' '+row.action+' ');if(at>=0){const badge=document.createElement('span');badge.className=['BUY','BOT'].includes(action)?'order-buy':'order-sell';const sideAndQuantity=String(row.action)+' '+(row.quantity||'');badge.textContent=sideAndQuantity;button.replaceChildren(document.createTextNode(label.slice(0,at+1)),badge,document.createTextNode(label.slice(at+1+sideAndQuantity.length)));}}}button.disabled=!target||busy;button.onclick=()=>{if(busy)return;if(isOrder&&('chart_navigation_group_id' in row||row.chart_order_ref))saveSelectedGroup(target,row.chart_navigation_group_id??row.chart_group_id??'');select(Number(target),contractLabel(row));if(!$('chart-detail').hidden)$('toggle-trade').click();};$(id).append(button);}}
 function openAlertChart(id,label,alertEpoch){
  if(!validContract(id)||!epoch||epoch!==alertEpoch||busy)return false;
  if(id!==cid)select(id,label);
