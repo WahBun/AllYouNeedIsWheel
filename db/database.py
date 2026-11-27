@@ -207,6 +207,7 @@ class OptionsDatabase:
 
             close_order_columns = {
                 'tif': 'TEXT',
+                'stock_session': 'TEXT',
                 'amendment_pending': 'TEXT',
                 'cancellation_pending': 'TEXT',
                 'intent': "TEXT NOT NULL DEFAULT 'OPEN'",
@@ -281,8 +282,8 @@ class OptionsDatabase:
                  earnings_max_contracts, earnings_premium_per_contract, 
                  earnings_total_premium, earnings_return_on_cash, 
                  earnings_return_on_capital, status, executed, isRollover,
-                 rollover_close_order_id, tif)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 rollover_close_order_id, tif, stock_session)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 timestamp,
                 order_data.get('ticker', ''),
@@ -319,7 +320,8 @@ class OptionsDatabase:
                 False,
                 order_data.get('isRollover', False),
                 order_data.get('rollover_close_order_id'),
-                order_data.get('tif')
+                order_data.get('tif'),
+                order_data.get('stock_session')
             ))
 
         return cursor.lastrowid

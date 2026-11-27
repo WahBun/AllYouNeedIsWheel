@@ -113,7 +113,31 @@ class ClosePositionSafetyTests(unittest.TestCase):
         self.assertEqual(connection.place_calls, 1)
         self.assertIs(connection.placed_contract, connection.contract)
 
+    def test_extended_close_preserves_both_settings_at_preflight_and_send(self):
+        for tif in ('DAY', 'GTC'):
+            connection = self.stock_connection()
+            seen = []
+            connection.what_if_order = lambda c, o: (seen.append((c.exchange, o.tif, o.outsideRth)) or {'success': True})
+            service = self.make_service(connection)
+            staged, code = service.stage_close_order(dict(con_id=81001, quantity=1, limit_price=10,
+                tif=tif, stock_session='EXTENDED'))
+            self.assertEqual(code, 201, staged)
+            oid = staged['order_id']
+            self.assertEqual(self.db.get_order(oid)['stock_session'], 'EXTENDED')
+            outcome, code = service.execute_order(oid, self.db)
+            self.assertEqual(code, 200, outcome)
+            self.assertEqual(seen, [('SMART', tif, True)])
+            self.assertTrue(connection.created_orders[0].outsideRth)
+            self.assertEqual(connection.place_calls, 1)
+            self.db.update_order_status(oid, 'cancelled', executed=True)
+
     def test_stock_timing_persists_and_routes_through_preflight_and_submission(self):
+        from unittest.mock import patch
+        from datetime import datetime, timezone
+        clock_patch = patch('core.order_timing.datetime')
+        clock = clock_patch.start()
+        self.addCleanup(clock_patch.stop)
+        clock.now.return_value = datetime(2026, 12, 5, tzinfo=timezone.utc)
         for tif in ('DAY', 'GTC', 'OVERNIGHT'):
             with self.subTest(tif=tif):
                 connection = self.stock_connection()

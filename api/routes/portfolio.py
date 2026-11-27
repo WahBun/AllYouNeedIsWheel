@@ -94,6 +94,11 @@ def get_option_position_quote(con_id):
         if tif is not None and tif not in ('DAY', 'GTC', 'OVERNIGHT'):
             return _no_store_json({'error': 'Invalid stock time in force'}, 400)
         options = {'tif': tif} if tif else {}
+        session = request.args.get('stock_session')
+        if session not in (None, 'RTH', 'EXTENDED'):
+            return _no_store_json({'error': 'Invalid stock trading hours'}, 400)
+        if session == 'EXTENDED':
+            options['extended'] = True
         if request.args.get('wait') == '0': options['wait_for_quote'] = False
         result = portfolio_service.get_option_position_quote(con_id, **options)
         if not result:
@@ -262,7 +267,8 @@ def chart_contract_search():
 
 
 @bp.route('/paper-chart/<int:con_id>', methods=['GET','POST'])
-def paper_chart_order(con_id):
+@bp.route('/paper-chart/<int:con_id>/extended', methods=['POST'], defaults={'extended': True})
+def paper_chart_order(con_id, extended=False):
     from api.services.paper_chart import PaperChart
     try:
         conn=portfolio_service._ensure_connection()
@@ -278,7 +284,12 @@ def paper_chart_order(con_id):
             if cancellation.get('request_id'):
                 service.request_status(conn, con_id, cancellation['request_id'])
             return _no_store_json(service.state(conn,con_id))
-        result=service.execute(conn,con_id,request.get_json(silent=True) or {})
+        body = request.get_json(silent=True) or {}
+        if extended:
+            if body.get('action') != 'submit':
+                return _no_store_json({'error': 'Extended Hours requires a new limit order'}, 400)
+            body = dict(body, stock_session='EXTENDED')
+        result=service.execute(conn,con_id,body)
         return _no_store_json(result)
     except (ValueError,TypeError) as error:
         return _no_store_json({'success':False,'status':'rejected','error':str(error),'message':str(error)},400)

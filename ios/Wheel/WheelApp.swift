@@ -157,9 +157,10 @@ struct Order: Decodable, Identifiable {
     var quantity: Double?
     var status: String
     var tif: String?
+    var stock_session: String? = nil
     var timingLabel: String {
         let value = tif ?? (intent == "CLOSE" ? "GTC" : "DAY")
-        return value == "OVERNIGHT" ? "OVT" : value
+        return stock_session == "EXTENDED" ? "\(value) · Extended Hours" : value == "OVERNIGHT" ? "OVT" : value
     }
     var intent: String? = nil
     var con_id: Int? = nil

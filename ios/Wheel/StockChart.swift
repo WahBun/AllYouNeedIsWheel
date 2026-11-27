@@ -396,6 +396,10 @@ struct StockChartView: View {
     @State private var editOrderRef = ""
     @State private var editTIF = "DAY"
     @State private var previewTIF = "DAY"
+    @State private var extendedHours = false
+    private var supportsStockHours: Bool {
+        chartType == "STK" && packet["currency"] as? String == "USD" && paperState["supports_stock_sessions"] as? Bool == true
+    }
     @State private var editingExistingOrder = false
     @State private var editAllowedTIFs = ["DAY", "GTC"]
     @State private var confirmRemoveProtection = false
@@ -421,6 +425,7 @@ struct StockChartView: View {
     private func selectOrderGroup(_ id: String) {
         guard !paperBusy, !store.trading.busy else { return }
         readyPriceRequest = nil
+        extendedHours = false; previewTIF = "DAY"
         selectedOrderGroup = id; paperState = [:]; paperReceived = nil
         entry = "0"; beApplied = false; paperMessage = nil
         showAdjustment = false; showPositionProtection = false; showQuantityEditor = false
@@ -538,6 +543,7 @@ struct StockChartView: View {
     private var paperActive: Bool { paperState["active"] as? Bool == true }
     private var tradingAccountLabel: String { paperState["account_mode"] as? String == "live" ? "Live" : "Paper" }
     private func applyPaperState(_ state: [String: Any]) {
+        if paperActive && state["active"] as? Bool != true { extendedHours = false; previewTIF = "DAY" }
         paperState = state
         if liveInitialScope { quantity = "1"; entryType = "LMT" }
         paperReceived = .now
@@ -624,7 +630,7 @@ struct StockChartView: View {
         if ["editQuantity", "editOrderSettings"].contains(body["action"] as? String ?? "") {
             guard !paperBusy, !paperActive || entryEditable, body["con_id"] as? Int == chartID else { return }
             editingExistingOrder = paperActive
-            editAllowedTIFs = paperActive ? (paperState["allowed_tifs"] as? [String] ?? ["DAY", "GTC"]) : TradeRules.chartTIFs(securityType: chartType, currency: packet["currency"] as? String ?? "", side: body["side"] as? Int ?? 0, entryType: entryType)
+            editAllowedTIFs = paperActive ? (paperState["allowed_tifs"] as? [String] ?? ["DAY", "GTC"]) : ["DAY", "GTC"]
             if editingExistingOrder { beginOrderEdit() } else { quantityDraft = quantity; editPrice = entry; editTIF = editAllowedTIFs.contains(previewTIF) ? previewTIF : "DAY"; confirmRemoveProtection = false }
             showQuantityEditor = true; return
         }
@@ -662,9 +668,13 @@ struct StockChartView: View {
                 var request = body
                 if body["action"] as? String == "submit" {
                     request["tif"] = previewTIF
-                    if previewTIF == "OVERNIGHT" {
-                        guard TradeRules.chartTIFs(securityType: chartType, currency: packet["currency"] as? String ?? "", side: body["side"] as? Int ?? 0, entryType: body["entry_type"] as? String ?? "").contains("OVERNIGHT") else { paperMessage = "OVT requires a USD stock limit entry"; return }
-                        request["mode"] = "overnight_entry"; request.removeValue(forKey: "tp"); request.removeValue(forKey: "sl")
+                    guard ["DAY", "GTC"].contains(previewTIF) else { paperMessage = "Review the time in force for the new order."; return }
+                    if extendedHours {
+                        guard supportsStockHours, body["entry_type"] as? String == "LMT",
+                              !bracketEnabled(chartType), request["tp"] == nil, request["sl"] == nil else {
+                            paperMessage = "Extended Hours requires a standalone stock limit order."; return
+                        }
+                        request["stock_session"] = "EXTENDED"
                     }
                 }
                 guard !tradingLocked else { return }
@@ -1613,6 +1623,18 @@ struct StockChartView: View {
                     Text("LMT").tag("LMT"); Text("STP").tag("STP").disabled(liveInitialScope || previewTIF == "OVERNIGHT" || paperState["tif"] as? String == "OVERNIGHT")
                 }.pickerStyle(.segmented).frame(maxWidth: 140)
             }
+            if supportsStockHours && !paperActive {
+                Picker("Trading hours", selection: $extendedHours) {
+                    Text("RTH Only").tag(false)
+                    Text("Extended Hours").tag(true)
+                }
+                .disabled(entryType != "LMT" || bracketEnabled(chartType) || paperBusy)
+                .onChange(of: entryType) { _, type in if type != "LMT" { extendedHours = false } }
+                .onChange(of: bracketEnabled(chartType)) { _, enabled in if enabled { extendedHours = false } }
+                .onChange(of: extendedHours) { _, _ in joinRevision += 1; submitRevision += 1 }
+            } else if paperState["stock_session"] as? String == "EXTENDED" {
+                LabeledContent("Trading hours", value: "Extended Hours")
+            }
             if !paperActive {
                 HStack(spacing: 8) {
                     ForEach([1, 2, 3, 4].filter { $0 <= quantityLimit }, id: \.self) { value in
@@ -1699,7 +1721,7 @@ struct StockChartView: View {
                             Picker("Time in force", selection: $editTIF) {
                                 Text("DAY").tag("DAY")
                                 Text("GTC").tag("GTC")
-                                if editAllowedTIFs.contains("OVERNIGHT") { Text("OVT").tag("OVERNIGHT") }
+                                if editingExistingOrder && paperState["tif"] as? String == "OVERNIGHT" { Text("OVT").tag("OVERNIGHT") }
                             }
                             if removingProtection {
                                 Text("OVT uses an overnight limit order without TP/SL. No TP/SL protection is attached to an OVT entry.").font(.caption).foregroundStyle(.orange)

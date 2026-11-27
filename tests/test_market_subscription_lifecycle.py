@@ -24,6 +24,37 @@ class MarketSubscriptionLifecycleTests(unittest.TestCase):
         self.assertIs(conn.get_market_ticker(Stock('TEST', 'SMART', 'USD', conId=123)), ticker)
         conn.ib.reqMktData.assert_called_once()
 
+    def test_extended_close_reuses_live_book_and_never_refreshes_quotes_from_frozen_or_last_ticks(self):
+        conn = self.connection()
+        contract = Stock('TEST', 'SMART', 'USD', conId=7)
+        conn.get_option_position_by_con_id = lambda *_: {'contract': contract, 'position': 2}
+        conn.set_market_data_type = lambda mode: setattr(conn, '_market_data_type', mode)
+        conn.ib.reqMktData.side_effect = lambda c, *_: Ticker(contract=c)
+        frozen = conn.get_market_ticker(contract)
+        def read():
+            return conn.get_option_position_quote(7, tif='GTC', extended=True, wait_for_quote=False)
+        self.assertIsNone(read()['mid'])
+        book = conn.get_market_ticker(contract, extended_book=True)
+        self.assertIsNot(book, frozen)
+        now = datetime.now(timezone.utc)
+        book.bid, book.ask, book.marketDataType = 100, 102, 1
+        def update(stamp, sides):
+            book.ticks = [SimpleNamespace(tickType=k, price=v, time=stamp) for k,v in sides]
+            book.updateEvent.emit(book)
+        update(now, [(1,100), (2,102)])
+        self.assertEqual(read()['mid'], 101)
+        conn.set_market_data_type(2)
+        self.assertIs(conn.get_market_ticker(contract), frozen)
+        self.assertEqual(read()['mid'], 101)
+        book.marketDataType = 2
+        self.assertIsNone(read()['mid'])
+        book.marketDataType = 1
+        update(now-timedelta(seconds=31), [(1,100)])
+        update(now, [(4,101)])
+        self.assertIsNone(read()['mid'])
+        self.assertEqual(conn.ib.reqMktData.call_count, 2)
+        conn.ib.cancelMktData.assert_not_called()
+
     def test_overnight_subscription_is_separate_from_smart(self):
         conn = self.connection()
         smart = Stock('TEST', 'SMART', 'USD', conId=123)

@@ -11,6 +11,8 @@ import sqlite3
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from uuid import UUID
 from ib_async import LimitOrder, StopOrder, MarketOrder, Trade
+from core.order_amendments import confirmed_stock_session
+from core.order_timing import require_legacy_venue, stock_session
 from api.services.chart_contracts import contracts
 from api.services.stock_chart import stock_chart
 from api.services.futures_orders import completed_trades
@@ -302,7 +304,7 @@ class PaperChart:
                     origin_position=float(position.position),origin_entry=basis,requested_protection=[],manual_stop_quantity=True)
                 self.save_group(account,cid,group)
         result = dict(paper=account.startswith('DU'), account_mode='paper' if account.startswith('DU') else 'live', enabled=conn.readonly is False, position=float(position.position) if position else 0,
-                      active=False, known=True, orders=[], entry=0, tp=0, sl=0, side=1, status='idle', group_id=self.group_id or '', group_choices=self.group_choices(account,cid))
+                      supports_stock_sessions=True, active=False, known=True, orders=[], entry=0, tp=0, sl=0, side=1, status='idle', group_id=self.group_id or '', group_choices=self.group_choices(account,cid))
         attribution_view=self.group_projection(conn,account,cid)
         if attribution_view is not None:
             result['account_position']=result['position']
@@ -755,6 +757,7 @@ class PaperChart:
         parents = [r for r in rows if r['role'].split('_')[0] == 'entry']
         result['order_ref'] = group.get('ref')
         result['tif'] = result.get('tif') or (parent.order.tif if parent else 'DAY')
+        result['stock_session'] = confirmed_stock_session(conn, parent) if parent else None
         result['entry_type'] = parent.order.orderType if parent else 'LMT'
         result['allowed_tifs'] = ['DAY', 'GTC']
         if parent and parent.contract.secType == 'STK' and parent.contract.currency == 'USD' and parent.order.action in ('BUY', 'SELL') and parent.order.orderType == 'LMT':
@@ -764,6 +767,10 @@ class PaperChart:
             r['status'] in ('Submitted', 'PreSubmitted') for r in rows))
         result['edit_snapshot'] = [dict(order_id=r['order_id'], price=r['price'], quantity=r['quantity'],
             filled=r['filled'], status=r['status'], tif=trades[r['order_id']].order.tif if r['order_id'] in trades else '') for r in rows]
+        if result.get('stock_session') == 'EXTENDED':
+            for item in result['edit_snapshot']:
+                if item['order_id'] == parent.order.orderId:
+                    item['stock_session'] = 'EXTENDED'
         if group.get('pending_resize'):
             result['sync_error']=True
             result['scalable']=False
@@ -1130,6 +1137,8 @@ class PaperChart:
                     matches = matches and leg in ('entry','tp','sl') and order.action == action and order.orderType == kind
                     matches = matches and (kind == 'MKT' or actual_price == expected_price)
                     matches = matches and order.tif == (body.get('tif','DAY') if leg == 'entry' else 'GTC')
+                    if body.get('stock_session') == 'EXTENDED':
+                        matches = matches and confirmed_stock_session(conn, trade) == 'EXTENDED'
                 expected_legs = {'entry'} | {leg for leg in ('tp','sl') if body.get(leg) is not None}
                 if matches and set(totals) == expected_legs and all(q == body.get('quantity') for q in totals.values()):
                     return resolved('reconciled')
@@ -1141,6 +1150,9 @@ class PaperChart:
                        and t.contract.conId==cid and t.order.orderRef==original.get('order_ref')
                        and t.orderStatus.status in ('Submitted','PreSubmitted')}
             terminal = {r['order_id'] for r in rows if r['status'] in ('Filled','Cancelled','ApiCancelled')}
+            # An extended submission needs the exact terms checked above while its order is open.
+            if body.get('action') == 'submit' and body.get('stock_session') == 'EXTENDED' and expected & working:
+                return dict(confirmed=False, status='unknown')
             if expected and state.get('order_ref')==original.get('order_ref') and expected <= working | terminal:
                 return resolved('rejected' if state.get('rejected') else 'reconciled')
             return dict(confirmed=False,status='unknown')
@@ -1400,7 +1412,9 @@ class PaperChart:
                     and not state.get('position') and not state.get('active')
                     and state.get('close_progress', {}).get('status') == 'completed'):
                 result.update(success=True, status='acknowledged', message='Paper close completed; selected order group is flat' if state.get('group_attribution') is not None else 'Paper close completed; broker position is flat')
-            if state.get('broker_pending') and not request_rejected:
+            session_unconfirmed = (body.get('action') == 'submit' and body.get('stock_session') == 'EXTENDED'
+                                   and state.get('active') and state.get('stock_session') != 'EXTENDED')
+            if (state.get('broker_pending') or session_unconfirmed) and not request_rejected:
                 result.update(success=False, status='unknown', awaiting_broker=True,
                     message='Request sent; awaiting broker confirmation. Do not resubmit.')
             if body.get('action') in ('cancel_trim','cancel_exit'):
@@ -1540,7 +1554,9 @@ class PaperChart:
         # Keep the broker's parent/OCA fields verbatim. Clearing or rebuilding
         # them during a price amendment causes IB 10326/10327 rejections.
         start=len(trade.log)
-        if trade.contract.exchange == 'OVERNIGHT': order.tif = 'DAY'
+        if trade.contract.exchange == 'OVERNIGHT':
+            require_legacy_venue()
+            order.tif = 'DAY'
         # Capture immutable intent: ib_async mutates Trade/Order on local writes
         # and broker callbacks. Their current price alone is not an acknowledgement.
         requested=getattr(order,field)
@@ -1550,10 +1566,13 @@ class PaperChart:
         identity=identity_of(trade)
         # The SDK omits TIF from updates to existing Trade objects. A later
         # price/quantity edit must not undo a DAY/GTC change made in IB.
-        from core.order_amendments import broker_tif
+        from core.order_amendments import broker_tif, broker_outside_rth
         fresh_tif = broker_tif(conn, trade)
         if fresh_tif is not None:
             order.tif = fresh_tif
+        outside = broker_outside_rth(conn, trade)
+        if outside is not None:
+            order.outsideRth = outside
         conn.ib.placeOrder(trade.contract,order)
         import time
         deadline=time.monotonic()+3
@@ -1604,6 +1623,7 @@ class PaperChart:
         conn.ib.placeOrder(routed, order)
 
     def validate_overnight_price(self, conn, routed, cid, amount):
+        require_legacy_venue()
         details = conn._bounded_order_read(conn.ib.reqContractDetails, routed, timeout_seconds=3)
         matches = [d for d in details if d.contract.conId == cid and d.contract.secType == 'STK'
                    and d.contract.currency == 'USD']
@@ -1674,9 +1694,16 @@ class PaperChart:
                 require_call_coverage(conn,account,contract,extra)
             tif = body.get('tif', current['tif'])
             overnight = group.get('mode') == 'overnight_entry'
+            if 'OVERNIGHT' in (tif, current['tif']):
+                require_legacy_venue()
+            if tif == 'OVERNIGHT' and current.get('stock_session') == 'EXTENDED':
+                raise ValueError('Changing venue requires a new order')
             if tif not in current.get('allowed_tifs', ['DAY', 'GTC']):
                 raise ValueError('OVT requires a USD stock limit entry')
             to_overnight = tif == 'OVERNIGHT'
+            if current.get('stock_session') == 'EXTENDED' and (current.get('tp') or current.get('sl')) and (
+                    quantity != sum(t.order.totalQuantity for t in parents) or tif != current['tif']):
+                raise ValueError('Review the broker trading hours of this protected order before replacing it')
             if to_overnight and not overnight and body.get('confirm_remove_protection') is not True:
                 raise ValueError('Confirm replacing the bracket with an OVT entry without TP/SL')
             try: amount = Decimal(str(body.get('price', current['entry'])))
@@ -1736,6 +1763,8 @@ class PaperChart:
                 else:
                     replacement = dict(action='submit', side=group['side'], entry_type=current['entry_type'],
                         entry=float(amount), quantity=int(quantity), tp=current['tp'] or None, sl=current['sl'] or None, tif=tif)
+                if current.get('stock_session') == 'EXTENDED':
+                    replacement['stock_session'] = 'EXTENDED'
                 self.perform(conn, account, cid, replacement, request_id)
             latest = self.group(account, cid)
             latest.pop('pending_edit', None)
@@ -2471,6 +2500,8 @@ class PaperChart:
             if not parent or parent.order.account != account or parent.contract.conId != cid or parent.order.orderRef != group.get('ref'):
                 raise ValueError('Exact owned order unavailable')
             return self.edit_entry(conn, account, cid, parent.contract, current, group, body, request_id)
+        if body.get('stock_session') is not None and (body.get('action') != 'submit' or body.get('mode') == 'overnight_entry'):
+            raise ValueError('Trading hours apply only to a new standalone stock limit order')
         if body.get('entry_type') == 'STP' and (body.get('tif') == 'OVERNIGHT' or body.get('mode') == 'overnight_entry'):
             raise ValueError('OVT supports limit orders only; STP is unavailable')
         contract=contracts.resolve(conn,cid)
@@ -2640,6 +2671,10 @@ class PaperChart:
             if current['position'] or (not self.group_id and any(t.contract.conId==cid and t.order.account==account for t in conn.ib.openTrades())):
                 raise ValueError('Close existing position/orders for this contract before starting a new bracket')
             tif=body.get('tif', 'DAY')
+            session = stock_session(body.get('stock_session'), contract.secType, contract.currency, tif)
+            if session == 'EXTENDED' and (contract.exchange != 'SMART' or body.get('entry_type') != 'LMT'
+                    or body.get('tp') is not None or body.get('sl') is not None):
+                raise ValueError('Extended Hours requires a standalone SMART limit order without TP/SL')
             if tif not in ('DAY', 'GTC'): raise ValueError('Unsupported bracket TIF')
             side=body.get('side'); qty=body.get('quantity')
             if isinstance(side,bool) or isinstance(qty,bool) or side not in (-1,1) or not isinstance(qty,(int,float)) or not math.isfinite(qty) or qty!=int(qty) or not 1<=qty<=(10 if contract.secType in ('FUT','OPT') else 1000): raise ValueError('Invalid paper order size or side')
@@ -2666,6 +2701,8 @@ class PaperChart:
             values = {r:v for r,v in (('tp',tp),('sl',sl)) if v is not None}
             ids={role:conn.ib.client.getReqId() for role in ('entry', *values)}
             parent=(LimitOrder if body['entry_type']=='LMT' else StopOrder)(buy,qty,entry,orderId=ids['entry'],transmit=not values)
+            if session == 'EXTENDED':
+                parent.outsideRth = True
             orders=[parent]+[(LimitOrder if r=='tp' else StopOrder)(sell,qty,v,orderId=ids[r],parentId=ids['entry'],transmit=False) for r,v in values.items()]
             orders[-1].transmit=True
             self.save_group(account,cid,dict(ids=ids,side=side,ref='WheelPaper:'+request_id,requested_protection=list(values),entry_kinds={str(ids['entry']):'entry'},**flat_predecessor))

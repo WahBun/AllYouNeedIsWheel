@@ -2,6 +2,7 @@
 import copy
 import math
 from contextlib import contextmanager
+from core.order_timing import broker_stock_session, require_legacy_venue
 
 
 def broker_order_key(order_id, contract, order):
@@ -12,6 +13,21 @@ def broker_order_key(order_id, contract, order):
 def broker_tif(conn, trade):
     cached = getattr(conn, '_broker_order_tifs', {})
     return cached.get(broker_order_key(trade.order.orderId, trade.contract, trade.order)) if isinstance(cached, dict) else None
+
+
+def broker_outside_rth(conn, trade):
+    cache = getattr(conn, '_broker_outside_rth', None)
+    if isinstance(cache, dict):
+        return cache.get(broker_order_key(trade.order.orderId, trade.contract, trade.order))
+
+
+def confirmed_stock_session(conn, trade):
+    if trade.contract.secType != 'STK' or trade.contract.exchange != 'SMART':
+        return None
+    outside = broker_outside_rth(conn, trade)
+    if outside is not None:
+        return 'EXTENDED' if outside else 'RTH'
+    return broker_stock_session(trade.contract, trade.order)
 
 
 @contextmanager
@@ -29,7 +45,12 @@ def broker_messages(conn):
         if not order.whatIf:
             if not isinstance(getattr(conn, '_broker_order_tifs', None), dict):
                 conn._broker_order_tifs = {}
-            conn._broker_order_tifs[broker_order_key(order_id, contract, order)] = order.tif
+            key = broker_order_key(order_id, contract, order)
+            conn._broker_order_tifs[key] = order.tif
+            if contract.secType == 'STK' and isinstance(getattr(order, 'outsideRth', None), bool):
+                if not isinstance(getattr(conn, '_broker_outside_rth', None), dict):
+                    conn._broker_outside_rth = {}
+                conn._broker_outside_rth[key] = order.outsideRth
         records.append((order_id, copy.deepcopy(contract), copy.deepcopy(order), state.status))
         return original(order_id, contract, order, state)
     wrapper.openOrder = receive
@@ -66,12 +87,16 @@ def matches_contract(contract, local):
 
 def terms(record):
     _, contract, order, _ = record
-    return dict(quantity=float(order.totalQuantity), premium=float(order.lmtPrice),
-                tif='OVERNIGHT' if contract.exchange == 'OVERNIGHT' else order.tif)
+    result = dict(quantity=float(order.totalQuantity), premium=float(order.lmtPrice),
+                  tif='OVERNIGHT' if contract.exchange == 'OVERNIGHT' else order.tif)
+    if broker_stock_session(contract, order) == 'EXTENDED':
+        result['stock_session'] = 'EXTENDED'
+    return result
 
 
 def same_terms(left, right):
     return (left['quantity'] == right['quantity'] and left['tif'] == right['tif']
+            and (not right.get('stock_session') or left.get('stock_session') == right['stock_session'])
             and math.isclose(left['premium'], right['premium'], abs_tol=0.000001))
 
 
@@ -92,6 +117,9 @@ def display_broker_terms(trades, records, conn=None):
             trade = copy.copy(trade)
             trade.order = copy.copy(trade.order)
             trade.order.tif = confirmed_tif
+            outside = broker_outside_rth(conn, trade)
+            if outside is not None:
+                trade.order.outsideRth = outside
         result.append(trade)
     return result
 
@@ -110,6 +138,8 @@ def snapshot(conn, local):
 def send(conn, local, record, desired):
     if conn.readonly is not False:
         raise ValueError('Read-only mode: order modification is disabled')
+    if record[1].exchange == 'OVERNIGHT':
+        require_legacy_venue()
     original = record[2]
     amended = copy.deepcopy(original)
     amended.totalQuantity = desired['quantity']

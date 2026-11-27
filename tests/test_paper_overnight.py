@@ -1,5 +1,7 @@
 """Paper-only standalone overnight entries; all IB calls are mocked."""
 from types import SimpleNamespace as S
+from unittest.mock import patch
+from datetime import datetime, timezone
 import unittest
 from uuid import uuid4
 from tests import test_paper_chart as fixtures
@@ -8,6 +10,10 @@ class OvernightTests(unittest.TestCase):
     tearDown = fixtures.PaperChartTests.tearDown
     def setUp(self):
         fixtures.PaperChartTests.setUp(self)
+        clock_patch = patch('core.order_timing.datetime')
+        self.clock = clock_patch.start()
+        self.addCleanup(clock_patch.stop)
+        self.clock.now.return_value = datetime(2026, 12, 5, tzinfo=timezone.utc)
         self.detail = S(contract=self.contract, validExchanges='SMART,OVERNIGHT', marketRuleIds='26,26')
         def read(fn, *args, **kwargs):
             if fn == self.conn.ib.reqContractDetails: return [self.detail]
@@ -20,6 +26,23 @@ class OvernightTests(unittest.TestCase):
                     side=1, entry_type='LMT', entry=768.88, quantity=100)
         body.update(changes)
         return body, self.service.execute(self.conn, 7, body)
+
+    def test_retired_venue_never_sends_or_cancels_before_failing(self):
+        _, submitted = self.overnight()
+        original = submitted['state']
+        self.clock.now.return_value = datetime(2026, 12, 6, 7, tzinfo=timezone.utc)
+        self.conn.ib.placeOrder.reset_mock()
+        updated = self.service.execute(self.conn, 7, dict(request_id=str(uuid4()), action='edit_entry',
+            expected_ref=original['order_ref'], expected_snapshot=original['edit_snapshot'], price=770))
+        self.assertFalse(updated['success'])
+        self.conn.ib.cancelOrder.assert_not_called()
+        self.conn.ib.placeOrder.assert_not_called()
+        canceled = self.service.execute(self.conn, 7, dict(request_id=str(uuid4()), action='edit_entry',
+            expected_ref=original['order_ref'], expected_snapshot=original['edit_snapshot'], cancel=True))
+        self.assertTrue(canceled['success'], canceled)
+        _, retired = self.overnight()
+        self.assertFalse(retired['success'])
+        self.conn.ib.placeOrder.assert_not_called()
 
     def test_canceled_overnight_allows_fresh_day_bracket(self):
         _, result = self.overnight()

@@ -727,17 +727,11 @@ final class TradingTests: XCTestCase {
         XCTAssertEqual(close["expected_ref"] as? String, "WheelPaper:a")
     }
 
-    func testOVTOnlyOfferedForUSDStockLimitBothSides() {
-        for type in ["STK", "OPT", "FUT"] {
-            for side in [-1, 1] {
-                for orderType in ["LMT", "STP"] {
-                    let options = TradeRules.chartTIFs(securityType: type, currency: "USD", side: side, entryType: orderType)
-                    XCTAssertEqual(options.contains("OVERNIGHT"), type == "STK" && orderType == "LMT")
-                    XCTAssertEqual(Array(options.prefix(2)), ["DAY", "GTC"])
-                }
-            }
-        }
-        XCTAssertEqual(TradeRules.chartTIFs(securityType: "STK", currency: "HKD", side: 1, entryType: "LMT"), ["DAY", "GTC"])
+    func testExtendedHoursIsSeparateFromTimeInForceInOrders() throws {
+        let json = #"{"id":1,"status":"pending","tif":"GTC","stock_session":"EXTENDED"}"#
+        let order = try JSONDecoder().decode(Order.self, from: Data(json.utf8))
+        XCTAssertEqual(order.tif, "GTC")
+        XCTAssertEqual(order.timingLabel, "GTC · Extended Hours")
     }
 
     func testOptionJoinMidRequiresFreshExactQuoteAndConfirmedIncrements() {
