@@ -556,15 +556,16 @@ final class TradingTests: XCTestCase {
         let order = try JSONDecoder().decode(Order.self, from: JSONSerialization.data(withJSONObject: row))
         XCTAssertTrue(TradeRules.chartManageable(order))
         var snapshotID = 73
+        let webPrice = 0.74
         MockProtocol.requests = []; MockProtocol.statusCode = 200; MockProtocol.fail = false
         defer { MockProtocol.payload = nil }
         MockProtocol.payload = { request in
             if request.httpMethod == "POST" { return ["success": true, "status": "acknowledged"] }
-            return ["order_ref": ref, "entry_editable": true, "entry": 0.69, "quantity": 2.0,
-                    "tif": "DAY", "edit_snapshot": [["order_id": snapshotID, "filled": 0]]]
+            return ["order_ref": ref, "entry_editable": true, "entry": webPrice, "quantity": 2.0,
+                    "tif": "DAY", "edit_snapshot": [["order_id": snapshotID, "filled": 0, "price": webPrice]]]
         }
         func amend() async -> Bool {
-            await store.trading.manageChartEntry(order, operation: "amend", price: 0.69, quantity: 1, tif: "GTC", store: store)
+            await store.trading.manageChartEntry(order, operation: "amend", price: 0.69, quantity: 2, tif: "GTC", store: store)
         }
         let stale = await amend()
         XCTAssertFalse(stale)
@@ -581,8 +582,27 @@ final class TradingTests: XCTestCase {
         let body = try XCTUnwrap(JSONSerialization.jsonObject(with: stream) as? [String: Any])
         XCTAssertEqual(body["action"] as? String, "edit_entry")
         XCTAssertEqual(body["expected_ref"] as? String, ref)
-        XCTAssertEqual(body["quantity"] as? Int, 1)
+        XCTAssertNil(body["quantity"])
         XCTAssertEqual(body["tif"] as? String, "GTC")
+        XCTAssertNil(body["price"])
+        XCTAssertEqual((body["expected_snapshot"] as? [[String: Any]])?.first?["price"] as? Double, webPrice)
+
+        var refreshed = order
+        refreshed.premium = webPrice
+        for (price, quantity) in [(0.75, 2), (webPrice, 1)] {
+            MockProtocol.requests = []
+            let sent = await store.trading.manageChartEntry(refreshed, operation: "amend", price: price,
+                                                            quantity: quantity, tif: "DAY", store: store)
+            XCTAssertTrue(sent)
+            let writes = MockProtocol.requests.filter { $0.httpMethod == "POST" }
+            XCTAssertEqual(writes.count, 1)
+            let stream = try XCTUnwrap(writes.first?.httpBodyStream)
+            stream.open(); defer { stream.close() }
+            let edit = try XCTUnwrap(JSONSerialization.jsonObject(with: stream) as? [String: Any])
+            XCTAssertEqual(edit["price"] as? Double, price == webPrice ? nil : price)
+            XCTAssertEqual(edit["quantity"] as? Int, quantity == 2 ? nil : quantity)
+            XCTAssertNil(edit["tif"])
+        }
     }
 
     func testChartEntryManagementKeepsIndependentGroupIdentity() async throws {
@@ -774,14 +794,29 @@ final class TradingTests: XCTestCase {
                                     "quantity": 1.0, "tif": "DAY", "allowed_tifs": ["DAY", "GTC"], "edit_snapshot": snapshot]
         let body = try XCTUnwrap(TradeRules.chartEditRequest(order, state: state, price: TradeRules.price("20.63"),
                                                 quantity: 1, tif: "GTC", confirmRemoveProtection: false))
-        let data = try JSONSerialization.data(withJSONObject: body)
+        XCTAssertNil(body["price"])
+        XCTAssertNil(body["quantity"])
+        XCTAssertEqual(body["tif"] as? String, "GTC")
+        let moved = state.merging(["entry": 21.10, "quantity": 2.0,
+                                   "edit_snapshot": [["order_id": 17, "price": 21.10, "quantity": 2, "filled": 0,
+                                                      "tif": "DAY", "status": "Submitted"]]]) { _, new in new }
+        let tifOnly = try XCTUnwrap(TradeRules.chartEditRequest(order, state: moved, price: TradeRules.price("20.63"),
+                                                               quantity: 1, tif: "GTC", confirmRemoveProtection: false))
+        XCTAssertNil(tifOnly["price"])
+        XCTAssertNil(tifOnly["quantity"])
+        XCTAssertEqual(tifOnly["tif"] as? String, "GTC")
+        XCTAssertEqual((tifOnly["expected_snapshot"] as? [[String: Any]])?.first?["price"] as? Double, 21.10)
+        XCTAssertNil(TradeRules.chartEditRequest(order, state: moved, price: 20.70, quantity: 1, tif: "DAY", confirmRemoveProtection: false))
+        let priceOnly = try XCTUnwrap(TradeRules.chartEditRequest(order, state: state, price: TradeRules.price("21.63"),
+                                                                  quantity: 1, tif: "DAY", confirmRemoveProtection: false))
+        let data = try JSONSerialization.data(withJSONObject: priceOnly)
         struct Terms: Decodable { let price: Decimal }
-        XCTAssertEqual(try JSONDecoder().decode(Terms.self, from: data).price, Decimal(string: "20.63"))
+        XCTAssertEqual(try JSONDecoder().decode(Terms.self, from: data).price, Decimal(string: "21.63"))
         let wire = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(wire["action"] as? String, "edit_entry")
-        XCTAssertEqual(wire["tif"] as? String, "GTC")
-        XCTAssertEqual(wire["price"] as? Double, order.premium)
-        XCTAssertEqual(wire["quantity"] as? Int, 1)
+        XCTAssertNil(wire["tif"])
+        XCTAssertEqual(wire["price"] as? Double, 21.63)
+        XCTAssertNil(wire["quantity"])
         XCTAssertEqual((wire["expected_snapshot"] as? [[String: Any]])?.first?["order_id"] as? Int, 17)
     }
 
