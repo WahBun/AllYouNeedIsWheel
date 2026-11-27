@@ -28,6 +28,41 @@ def paper_account(conn, write=False):
     return account
 
 
+def option_replacement_price_rules(conn, contract, prices):
+    """Resolve the option's routed tick schedule before canceling a working entry."""
+    state = stock_chart.states.get(contract.conId) or stock_chart.active
+    if (state and state.get('con_id') == contract.conId and state.get('price_rules')
+            and getattr(state.get('contract'), 'exchange', contract.exchange) == contract.exchange):
+        cached = tuple(state['price_rules'])
+        if all(option_price_on_grid(value, cached) for value in prices):
+            return cached
+    try:
+        details = conn._bounded_order_read(conn.ib.reqContractDetails, contract, timeout_seconds=3)
+        matches = [d for d in details if d.contract.conId == contract.conId
+                   and d.contract.secType == 'OPT' and d.contract.currency == contract.currency]
+        if len(matches) == 1:
+            detail = matches[0]
+            routes = detail.validExchanges.split(',')
+            rule_id = int(detail.marketRuleIds.split(',')[routes.index(contract.exchange)])
+            if rule_id > 0:
+                rows = conn._bounded_order_read(conn.ib.reqMarketRule, rule_id, timeout_seconds=3)
+                if rows and all(math.isfinite(r.lowEdge) and r.lowEdge >= 0 and
+                                math.isfinite(r.increment) and r.increment > 0 for r in rows):
+                    return tuple(dict(low=r.lowEdge, increment=r.increment)
+                                 for r in sorted(rows, key=lambda r: r.lowEdge))
+    except Exception as error:
+        raise ValueError('IB price increments unavailable for this option route; original order retained') from error
+    raise ValueError('IB price increments unavailable for this option route; original order retained')
+
+
+def option_price_on_grid(value, rules):
+    amount = Decimal(str(value))
+    if not amount.is_finite() or amount <= 0:
+        return False
+    ticks = [r['increment'] for r in rules if Decimal(str(r['low'])) <= amount]
+    return bool(ticks) and amount % Decimal(str(ticks[-1])) == 0
+
+
 def require_call_coverage(conn, account, contract, quantity):
     """Reserve stock coverage conservatively across expiries and API clients.
 
@@ -1663,6 +1698,7 @@ class PaperChart:
             raise ValueError('Order ownership mismatch')
         parents = [trades[oid] for role, oid in group['ids'].items() if role.split('_')[0] == 'entry']
         quantity = body.get('quantity', sum(t.order.totalQuantity for t in parents))
+        option_replacement = None
         if body.get('cancel') is not True:
             limit = 1000 if contract.secType == 'STK' else 10
             if isinstance(quantity, bool) or not isinstance(quantity, (int, float)) or not math.isfinite(quantity) or quantity != int(quantity) or not 1 <= quantity <= limit:
@@ -1686,15 +1722,25 @@ class PaperChart:
                 routed = copy.copy(contract); routed.exchange = 'OVERNIGHT'
                 self.validate_overnight_price(conn, routed, cid, amount)
             else:
-                active = stock_chart.states.get(cid) or stock_chart.active
-                rules = active.get('price_rules', []) if active and active['con_id'] == cid else []
-                ticks = [r['increment'] for r in rules if Decimal(str(r['low'])) <= amount]
-                if not ticks or amount % Decimal(str(ticks[-1])): raise ValueError('Invalid contract tick size')
+                if contract.secType == 'OPT' and tif != current['tif']:
+                    prices = [value for value in (amount, current['tp'], current['sl']) if value]
+                    rules = option_replacement_price_rules(conn, contract, prices)
+                    if not all(option_price_on_grid(value, rules) for value in prices):
+                        raise ValueError('Replacement price does not match the option route tick size')
+                    # Keep the exact contract and rules across cancellation and replacement.
+                    # Switching charts must not strand the already canceled entry.
+                    option_replacement = (contract, rules)
+                else:
+                    active = stock_chart.states.get(cid) or stock_chart.active
+                    rules = active.get('price_rules', []) if active and active['con_id'] == cid else []
+                    ticks = [r['increment'] for r in rules if Decimal(str(r['low'])) <= amount]
+                    if not ticks or amount % Decimal(str(ticks[-1])): raise ValueError('Invalid contract tick size')
                 if not overnight and ((current['tp'] and group['side'] * (current['tp'] - float(amount)) <= 0) or (current['sl'] and group['side'] * (current['sl'] - float(amount)) >= 0)):
                     raise ValueError('Entry must stay between TP and SL; adjust protection first')
         # Contract validation pumps broker events. Recheck all fills before any write.
         fresh = self.state(conn, cid)
-        if not fresh.get('entry_editable') or fresh['edit_snapshot'] != current['edit_snapshot']:
+        if (not fresh.get('entry_editable') or fresh['edit_snapshot'] != current['edit_snapshot']
+                or option_replacement and (fresh.get('order_ref') != group['ref'] or paper_account(conn, True) != account)):
             raise ValueError('Order changed while validating; refresh chart')
         group['pending_edit'] = request_id
         self.save_group(account, cid, group)
@@ -1736,7 +1782,7 @@ class PaperChart:
                 else:
                     replacement = dict(action='submit', side=group['side'], entry_type=current['entry_type'],
                         entry=float(amount), quantity=int(quantity), tp=current['tp'] or None, sl=current['sl'] or None, tif=tif)
-                self.perform(conn, account, cid, replacement, request_id)
+                self.perform(conn, account, cid, replacement, request_id, option_replacement=option_replacement)
             latest = self.group(account, cid)
             latest.pop('pending_edit', None)
             self.save_group(account, cid, latest)
@@ -2326,7 +2372,7 @@ class PaperChart:
                 sent.append(oid);self.save_group(account,cid,group)
                 conn.ib.cancelOrder(trade.order)
 
-    def perform(self, conn, account, cid, body, request_id):
+    def perform(self, conn, account, cid, body, request_id, *, option_replacement=None):
         from api.services.chart_position_recovery import guard
         guard(self, conn, account, cid)
         from api.services.chart_flat_recovery import latest, reconcile, active_old_order
@@ -2473,7 +2519,7 @@ class PaperChart:
             return self.edit_entry(conn, account, cid, parent.contract, current, group, body, request_id)
         if body.get('entry_type') == 'STP' and (body.get('tif') == 'OVERNIGHT' or body.get('mode') == 'overnight_entry'):
             raise ValueError('OVT supports limit orders only; STP is unavailable')
-        contract=contracts.resolve(conn,cid)
+        contract = option_replacement[0] if option_replacement else contracts.resolve(conn, cid)
         if contract.secType not in ('STK','FUT','OPT'): raise ValueError('This contract supports chart viewing only')
         if body.get('action')!='submit':
             # Refresh canonical broker fields before copying an active order.
@@ -2550,8 +2596,11 @@ class PaperChart:
             try: number=float(value)
             except (TypeError,ValueError): raise ValueError('Invalid price')
             if not math.isfinite(number) or number<=0: raise ValueError('Invalid price')
-            state=stock_chart.states.get(cid) or stock_chart.active
-            rules=state.get('price_rules',[]) if state and state['con_id']==cid else []
+            if option_replacement:
+                rules = option_replacement[1]
+            else:
+                state = stock_chart.states.get(cid) or stock_chart.active
+                rules = state.get('price_rules', []) if state and state['con_id'] == cid else []
             increments=[r['increment'] for r in rules if r['low']<=number]
             if not increments: raise ValueError('Wait for contract price increments')
             tick=Decimal(str(increments[-1])); amount=Decimal(str(number))

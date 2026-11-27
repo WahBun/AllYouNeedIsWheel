@@ -73,6 +73,85 @@ class LiveOptionEntryTests(unittest.TestCase):
         self.assertEqual([o.totalQuantity for o in working],[4,4,4])
         self.assertEqual([o.account for o in working],['U_TEST']*3)
 
+    def prepare_cc_tif_edit(self, *, symbol='TEST', step=.01):
+        from api.services.stock_chart import stock_chart
+        f = self.f
+        f.contract.symbol = f.contract.tradingClass = symbol
+        shares = Stock(symbol, 'SMART', 'USD')
+        self.positions.append(S(account='U_TEST', contract=shares, position=100, avgCost=100))
+        warm = dict(con_id=7, contract=f.contract, price_rules=[dict(low=0, increment=.01)])
+        with patch.object(stock_chart, 'active', warm):
+            result = f.service.execute(f.conn, 7, self.body(side=-1, entry=20.63, quantity=1, tp=None, sl=None))
+        self.assertTrue(result['success'], result)
+        state = result['state']
+        original_read = f.conn._bounded_order_read.side_effect
+        def read(request, *args, **kwargs):
+            if request == f.conn.ib.reqContractDetails:
+                self.assertEqual(args[0].conId, 7)
+                return [S(contract=f.contract, validExchanges='CBOE,SMART', marketRuleIds='25,26')]
+            if request == f.conn.ib.reqMarketRule:
+                self.assertEqual(args, (26,))
+                return [S(lowEdge=0, increment=step)]
+            return original_read(request, *args, **kwargs)
+        f.conn._bounded_order_read.side_effect = read
+        return dict(request_id=str(uuid4()), action='edit_entry', quantity=1, price=20.63, tif='GTC',
+                    expected_ref=state['order_ref'], expected_snapshot=state['edit_snapshot'])
+
+    def test_cc_tif_from_cold_chart_verifies_route_before_replacement(self):
+        from api.services.stock_chart import stock_chart
+        f = self.f
+        edit = self.prepare_cc_tif_edit()
+        with patch.object(stock_chart, 'states', {}), patch.object(stock_chart, 'active', {'con_id': 8}):
+            result = f.service.execute(f.conn, 7, edit)
+            self.assertTrue(result['success'], result)
+            self.assertEqual(f.service.execute(f.conn, 7, edit), result)
+        self.assertEqual(f.conn.ib.cancelOrder.call_count, 1)
+        self.assertEqual(f.conn.ib.placeOrder.call_count, 2)
+        self.assertEqual([(t.order.tif,t.orderStatus.status) for t in f.trades],
+                         [('DAY','Cancelled'), ('GTC','Submitted')])
+        self.assertEqual(result['state']['edit_snapshot'][0]['tif'], 'GTC')
+        self.assertEqual((f.trades[-1].order.lmtPrice, f.trades[-1].order.totalQuantity), (20.63,1))
+
+    def test_cc_tif_invalid_routed_increment_retains_original(self):
+        f = self.f
+        edit = self.prepare_cc_tif_edit(symbol='IWM', step=.05)
+        result = f.service.execute(f.conn, 7, edit)
+        self.assertEqual(result['status'], 'rejected', result)
+        self.assertIn('tick size', result['message'])
+        f.conn.ib.cancelOrder.assert_not_called()
+        f.conn.ib.placeOrder.assert_called_once()
+        self.assertEqual(f.trades[0].orderStatus.status, 'Submitted')
+
+    def test_cc_tif_missing_rule_retains_working_day(self):
+        f = self.f
+        edit = self.prepare_cc_tif_edit()
+        read = f.conn._bounded_order_read.side_effect
+        def missing_rule(request, *args, **kwargs):
+            if request == f.conn.ib.reqMarketRule:
+                raise TimeoutError
+            return read(request, *args, **kwargs)
+        f.conn._bounded_order_read.side_effect = missing_rule
+        result = f.service.execute(f.conn, 7, edit)
+        self.assertEqual(result['status'], 'rejected', result)
+        self.assertIn('original order retained', result['message'])
+        f.conn.ib.cancelOrder.assert_not_called()
+        self.assertEqual(f.trades[0].order.tif, 'DAY')
+
+    def test_cc_tif_fill_during_rule_lookup_never_replaces(self):
+        f = self.f
+        edit = self.prepare_cc_tif_edit()
+        read = f.conn._bounded_order_read.side_effect
+        def fill_during_lookup(request, *args, **kwargs):
+            if request == f.conn.ib.reqMarketRule:
+                f.trades[0].orderStatus.status = 'Filled'
+                f.trades[0].orderStatus.filled = 1
+            return read(request, *args, **kwargs)
+        f.conn._bounded_order_read.side_effect = fill_during_lookup
+        result = f.service.execute(f.conn, 7, edit)
+        self.assertEqual(result['status'], 'rejected', result)
+        f.conn.ib.cancelOrder.assert_not_called()
+        f.conn.ib.placeOrder.assert_called_once()
+
     def test_lost_bracket_ack_is_not_replayed_after_restart(self):
         from api.services.paper_chart import PaperChart
         f=self.f;original=f.conn.ib.placeOrder.side_effect
