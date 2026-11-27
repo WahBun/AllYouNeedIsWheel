@@ -744,9 +744,9 @@ function paintCursor(){
 }
 
 function completeDraft(){if(!draft)return;if(['long','short'].includes(active)&&draft.p.length===1){const a=draft.p[0],screen=xy(a),sign=active==='long'?1:-1;const risk=Math.min(a.price*.25,Math.abs(series.coordinateToPrice(screen.y+55)-a.price));if(!(risk>0))return;draft.p.push({time:a.time,price:a.price-sign*risk},{time:a.time,price:a.price+sign*risk});draft.endTime=anchor(screen.x+85,screen.y)?.time??a.time;}if(active==='text'){beginTextEdit(draft,true,gesture?.cursorPlacement?gesture.pointer:null);return;}if(active==='note'){editor.style.display='block';editor.querySelector('input').value='';editor.querySelector('input').focus();return;}if(active==='long'||active==='short'){const sign=active==='long'?1:-1,base=draft.p[0].price;if(sign*(draft.p[1].price-base)>=0||sign*(draft.p[2].price-base)<=0){draft=null;ghost=null;hint.textContent='Tap entry, then stop on risk side, then target on profit side';return;}}commit();}
+const newDrawingDefaults={hray:{dash:true},path:{width:2},text:{fontSize:16}};
 function newDraft(type){
- const defaults=type==='path'?{width:2}:type==='text'?{fontSize:16}:{};
- return {id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),type,p:[],...defaults,...toolStyles[type]};
+ return {id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),type,p:[],...newDrawingDefaults[type],...toolStyles[type]};
 }
 function placePathPoint(point,isTouch){
  const last=draft.p.at(-1),a=last&&xy(last),b=xy(point);
