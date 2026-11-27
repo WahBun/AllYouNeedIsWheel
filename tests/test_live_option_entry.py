@@ -73,7 +73,7 @@ class LiveOptionEntryTests(unittest.TestCase):
         self.assertEqual([o.totalQuantity for o in working],[4,4,4])
         self.assertEqual([o.account for o in working],['U_TEST']*3)
 
-    def prepare_cc_tif_edit(self, *, symbol='TEST', step=.01):
+    def prepare_cc_tif_edit(self, *, symbol='TEST', step=.01, initial_tif='DAY'):
         from api.services.stock_chart import stock_chart
         f = self.f
         f.contract.symbol = f.contract.tradingClass = symbol
@@ -81,7 +81,7 @@ class LiveOptionEntryTests(unittest.TestCase):
         self.positions.append(S(account='U_TEST', contract=shares, position=100, avgCost=100))
         warm = dict(con_id=7, contract=f.contract, price_rules=[dict(low=0, increment=.01)])
         with patch.object(stock_chart, 'active', warm):
-            result = f.service.execute(f.conn, 7, self.body(side=-1, entry=20.63, quantity=1, tp=None, sl=None))
+            result = f.service.execute(f.conn, 7, self.body(side=-1, entry=20.63, quantity=1, tp=None, sl=None, tif=initial_tif))
         self.assertTrue(result['success'], result)
         state = result['state']
         original_read = f.conn._bounded_order_read.side_effect
@@ -121,6 +121,32 @@ class LiveOptionEntryTests(unittest.TestCase):
         f.conn.ib.cancelOrder.assert_not_called()
         f.conn.ib.placeOrder.assert_called_once()
         self.assertEqual(f.trades[0].orderStatus.status, 'Submitted')
+
+    def test_unchanged_limit_from_older_phone_preserves_broker_price_switching_to_day(self):
+        f = self.f
+        edit = self.prepare_cc_tif_edit(initial_tif='GTC')
+        edit.update(tif='DAY', price=20.630000000000003)
+        result = f.service.execute(f.conn, 7, edit)
+        self.assertTrue(result['success'], result)
+        self.assertEqual(f.service.execute(f.conn, 7, edit), result)
+        working = [trade.order for trade in f.trades if not trade.isDone()]
+        self.assertEqual([(o.lmtPrice, o.totalQuantity, o.tif) for o in working], [(20.63, 1, 'DAY')])
+        self.assertEqual(f.conn.ib.cancelOrder.call_count, 1)
+        self.assertEqual(f.conn.ib.placeOrder.call_count, 2)
+
+    def test_changed_off_grid_option_price_is_not_rounded_on_tif_edit(self):
+        f = self.f
+        edit = self.prepare_cc_tif_edit()
+        edit['price'] = 20.631
+        result = f.service.execute(f.conn, 7, edit)
+        self.assertEqual(result['status'], 'rejected', result)
+        self.assertIn('tick size', result['message'])
+        f.conn.ib.cancelOrder.assert_not_called()
+        f.conn.ib.placeOrder.assert_called_once()
+        edit.update(price=20.64, request_id=str(uuid4()))
+        result = f.service.execute(f.conn, 7, edit)
+        self.assertTrue(result['success'], result)
+        self.assertEqual(f.trades[-1].order.lmtPrice, 20.64)
 
     def test_cc_tif_missing_rule_retains_working_day(self):
         f = self.f

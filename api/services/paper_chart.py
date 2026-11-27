@@ -1723,6 +1723,12 @@ class PaperChart:
                 self.validate_overnight_price(conn, routed, cid, amount)
             else:
                 if contract.secType == 'OPT' and tif != current['tif']:
+                    # Older iPhones can encode an unchanged limit one float away from
+                    # the broker price. Reuse that price, still subject to the route grid.
+                    requested_price = body.get('price')
+                    working_price = current['entry']
+                    if isinstance(requested_price, float) and math.nextafter(requested_price, working_price) == working_price:
+                        amount = Decimal(str(working_price))
                     prices = [value for value in (amount, current['tp'], current['sl']) if value]
                     rules = option_replacement_price_rules(conn, contract, prices)
                     if not all(option_price_on_grid(value, rules) for value in prices):

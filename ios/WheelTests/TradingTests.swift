@@ -764,7 +764,7 @@ final class TradingTests: XCTestCase {
         XCTAssertFalse(gate.accept(1))
     }
 
-    func testCoveredCallOrderDetailSendsOnlyRequestedTermsForGTC() {
+    func testCoveredCallOrderDetailSendsOnlyRequestedTermsForGTC() throws {
         let order = Order(id: 1, ticker: "TEST", action: "SELL", option_type: "CALL", premium: 20.63,
                           quantity: 1, status: "submitted", tif: "DAY", chart_con_id: 7,
                           chart_order_ref: "WheelPaper:test", ib_order_id: 17)
@@ -772,13 +772,17 @@ final class TradingTests: XCTestCase {
                                           "tif": "DAY", "status": "Submitted"]]
         let state: [String: Any] = ["order_ref": "WheelPaper:test", "entry_editable": true, "entry": 20.63,
                                     "quantity": 1.0, "tif": "DAY", "allowed_tifs": ["DAY", "GTC"], "edit_snapshot": snapshot]
-        let body = TradeRules.chartEditRequest(order, state: state, price: 20.63, quantity: 1,
-                                                tif: "GTC", confirmRemoveProtection: false)
-        XCTAssertEqual(body?["action"] as? String, "edit_entry")
-        XCTAssertEqual(body?["tif"] as? String, "GTC")
-        XCTAssertEqual(body?["price"] as? Double, order.premium)
-        XCTAssertEqual(body?["quantity"] as? Int, 1)
-        XCTAssertEqual((body?["expected_snapshot"] as? [[String: Any]])?.first?["order_id"] as? Int, 17)
+        let body = try XCTUnwrap(TradeRules.chartEditRequest(order, state: state, price: TradeRules.price("20.63"),
+                                                quantity: 1, tif: "GTC", confirmRemoveProtection: false))
+        let data = try JSONSerialization.data(withJSONObject: body)
+        struct Terms: Decodable { let price: Decimal }
+        XCTAssertEqual(try JSONDecoder().decode(Terms.self, from: data).price, Decimal(string: "20.63"))
+        let wire = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(wire["action"] as? String, "edit_entry")
+        XCTAssertEqual(wire["tif"] as? String, "GTC")
+        XCTAssertEqual(wire["price"] as? Double, order.premium)
+        XCTAssertEqual(wire["quantity"] as? Int, 1)
+        XCTAssertEqual((wire["expected_snapshot"] as? [[String: Any]])?.first?["order_id"] as? Int, 17)
     }
 
     func testChartOrderSettingsUseFreshIdentityAndPreserveAllFields() {
