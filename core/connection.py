@@ -258,6 +258,8 @@ class IBConnection:
 
         for key in expired_keys:
             entry = self._market_ticker_cache.pop(key)
+            if callback := entry.get('extended_book_callback'):
+                entry['ticker'].updateEvent -= callback
             try:
                 self.ib.cancelMktData(entry['contract'])
             except Exception:
@@ -269,6 +271,8 @@ class IBConnection:
                 key=lambda cache_key: self._market_ticker_cache[cache_key]['used_at']
             )
             entry = self._market_ticker_cache.pop(oldest_key)
+            if callback := entry.get('extended_book_callback'):
+                entry['ticker'].updateEvent -= callback
             try:
                 self.ib.cancelMktData(entry['contract'])
             except Exception:
@@ -293,7 +297,7 @@ class IBConnection:
         return bool(entry and time.time() - entry['used_at'] <= 300
                     and entry.get('requested_data_type') == getattr(self, '_market_data_type', None))
 
-    def get_market_ticker(self, contract, generic_tick_list='', *, refresh=False):
+    def get_market_ticker(self, contract, generic_tick_list='', *, refresh=False, extended_book=False):
         """Reuse a small set of live subscriptions so repeat refreshes are fast."""
         # Portfolio contracts may omit routing; never mutate IB's held contract.
         if getattr(contract, 'secType', '') in {'STK', 'OPT'} and not getattr(contract, 'exchange', ''):
@@ -302,9 +306,22 @@ class IBConnection:
         self._prune_market_ticker_cache()
         key = self._market_ticker_key(contract, generic_tick_list)
         cached = self._market_ticker_cache.get(key)
+        if extended_book:
+            # Reuse a SMART live stream when available. Keep the ticket's live
+            # stream separate from a frozen portfolio subscription otherwise.
+            if not cached or cached['requested_data_type'] != 1:
+                key = (*key, 'extended')
+                cached = self._market_ticker_cache.get(key)
+            if cached:
+                cached['used_at'] = time.time()
+                return cached['ticker']
+            self.set_market_data_type(1)
+            contract = copy.copy(contract)
         incomplete_route = cached and getattr(cached['contract'], 'secType', '') in {'STK', 'OPT'} and not getattr(cached['contract'], 'exchange', '')
         if cached and (refresh or cached.get('requested_data_type') != self._market_data_type or incomplete_route):
             # Explicit quote recovery also needs a new IB request, not a cache touch.
+            if callback := cached.get('extended_book_callback'):
+                cached['ticker'].updateEvent -= callback
             self.ib.cancelMktData(cached['contract'])
             # ib_async reuses the Ticker object even after cancellation.
             for field in ('bid', 'ask', 'last', 'close', 'impliedVolatility'):
@@ -322,6 +339,8 @@ class IBConnection:
                 key=lambda cache_key: self._market_ticker_cache[cache_key]['used_at']
             )
             entry = self._market_ticker_cache.pop(oldest_key)
+            if callback := entry.get('extended_book_callback'):
+                entry['ticker'].updateEvent -= callback
             try:
                 self.ib.cancelMktData(entry['contract'])
             except Exception:
@@ -413,6 +432,7 @@ class IBConnection:
                 self._fill_refresh_at = {}
                 self._last_order_status_refresh = 0
                 self._broker_order_tifs = {}
+                self._broker_outside_rth = {}
                 self._external_open_snapshot = None
                 self._external_completed_snapshot = []
                 self._futures_completed_cache = None
@@ -1280,20 +1300,45 @@ class IBConnection:
 
         return remaining_quantity
 
-    def get_option_position_quote(self, con_id, account_id=None, tif=None, *, wait_for_quote=True):
+    def get_option_position_quote(self, con_id, account_id=None, tif=None, *, wait_for_quote=True, extended=False):
         """Fetch a quote for an exact held option or stock contract."""
         position = self.get_option_position_by_con_id(con_id, account_id)
         if not position:
             return None
 
         overnight = tif == 'OVERNIGHT'
-        is_frozen = not is_market_hours() and not overnight
-        self.set_market_data_type(2 if is_frozen else 1)
+        if extended:
+            from core.order_timing import stock_session
+            held_contract = position['contract']
+            stock_session('EXTENDED', held_contract.secType, held_contract.currency, tif)
+            if held_contract.exchange != 'SMART':
+                raise ValueError('Extended Hours requires a SMART stock contract')
+        is_frozen = not is_market_hours() and not (overnight or extended)
+        if not extended:
+            self.set_market_data_type(2 if is_frozen else 1)
 
         contract = routed_contract(position['contract'], tif)
         position = dict(position)
         position['contract'] = contract
-        ticker = self.get_market_ticker(contract, '' if contract.secType == 'STK' else OPTION_QUOTE_TICKS)
+        if extended:
+            ticker = self.get_market_ticker(contract, extended_book=True)
+            # Observe only actual bid/ask price ticks from this subscription.
+            # A last trade, an unrelated tick or repeated polling cannot renew them.
+            key = self._market_ticker_key(contract)
+            cache = self._market_ticker_cache.get(key)
+            if not cache or cache['ticker'] is not ticker:
+                cache = self._market_ticker_cache[(*key, 'extended')]
+            if 'extended_book' not in cache:
+                book = {}
+                cache['extended_book'] = book
+                def update_book(updated):
+                    for tick in updated.ticks:
+                        if tick.tickType in (1, 2):
+                            book[tick.tickType] = (tick.time.timestamp(), tick.price)
+                ticker.updateEvent += update_book
+                cache['extended_book_callback'] = update_book
+        else:
+            ticker = self.get_market_ticker(contract, '' if contract.secType == 'STK' else OPTION_QUOTE_TICKS)
         if wait_for_quote:
             # One-shot close/rollover consumers retain their initial quote wait.
             for _ in range(25):
@@ -1310,7 +1355,14 @@ class IBConnection:
 
         bid = self._valid_price(getattr(ticker, 'bid', None))
         ask = self._valid_price(getattr(ticker, 'ask', None))
-        last = self._valid_price(getattr(ticker, 'last', None)) if overnight else (
+        if extended:
+            book = cache['extended_book']
+            now = time.time()
+            def fresh(side, value):
+                stamp, price = book.get(side, (0, None))
+                return value if (ticker.marketDataType == 1 and price == value and 0 <= now - stamp <= 30) else None
+            bid, ask = fresh(1, bid), fresh(2, ask)
+        last = self._valid_price(getattr(ticker, 'last', None)) if overnight or extended else (
             self._valid_price(getattr(ticker, 'last', None))
             or self._valid_price(getattr(ticker, 'close', None))
             or self._valid_price(position.get('market_price'))
@@ -1342,7 +1394,7 @@ class IBConnection:
             'delta': delta,
             'implied_volatility': iv * 100 if iv is not None else None,
             'is_frozen': is_frozen or getattr(ticker, 'marketDataType', 1) in (2, 3, 4),
-            'quote_session': 'OVERNIGHT' if overnight else 'REGULAR',
+            'quote_session': 'EXTENDED' if extended else 'OVERNIGHT' if overnight else 'REGULAR',
             'quote_time': datetime.now().isoformat(timespec='seconds')
         })
         return position

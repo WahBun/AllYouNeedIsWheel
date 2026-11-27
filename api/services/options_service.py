@@ -6,7 +6,7 @@ Handles options data retrieval and processing
 from api.services.futures_orders import futures_orders
 import logging
 from core import order_amendments as amendments
-from core.order_timing import order_tif, routed_contract
+from core.order_timing import order_tif, routed_contract, stock_session, require_legacy_venue
 import math
 import re
 import time
@@ -341,6 +341,10 @@ class OptionsService:
             **close_fields
         })
         normalized['tif'] = order_tif(normalized)
+        if normalized['tif'] == 'OVERNIGHT':
+            require_legacy_venue()
+        normalized['stock_session'] = stock_session(normalized.get('stock_session'),
+            'STK' if stock_close else 'OPT', normalized.get('currency'), normalized['tif'])
         return normalized
         
     def _adjust_to_standard_strike(self, price):
@@ -414,6 +418,8 @@ class OptionsService:
                 raise ValueError('Held stock does not match the order')
             self._validate_stock_coverage(conn, order, account, db)
             position = dict(position)
+            if order.get('stock_session') == 'EXTENDED' and contract.exchange != 'SMART':
+                raise ValueError('Extended Hours requires a SMART stock contract')
             position['contract'] = routed_contract(contract, order_tif(order))
             return position
         expected_right = 'C' if order.get('option_type') == 'CALL' else 'P'
@@ -543,6 +549,7 @@ class OptionsService:
             'expiration': str(getattr(contract, 'lastTradeDateOrContractMonth', '') or ''),
             'premium': limit_price,
             'tif': close_data.get('tif', 'GTC'),
+            'stock_session': close_data.get('stock_session'),
             'quantity': quantity,
             'con_id': con_id,
             'account_id': str(account),
@@ -746,6 +753,8 @@ class OptionsService:
                     "success": False,
                     "error": "Failed to create limit order"
                 }, 500
+            if order.get('stock_session') == 'EXTENDED':
+                ib_order.outsideRth = True
             ib_order.orderRef = f"AYNIW-{order_id}"
 
             if not db.claim_order_for_execution(order_id):
@@ -834,6 +843,8 @@ class OptionsService:
                         'status': 'rejected'
                     }, 409
 
+            if getattr(contract, 'exchange', '') == 'OVERNIGHT':
+                require_legacy_venue()
             transmit_attempted = True
             result = conn.place_order(contract, ib_order)
             if not result:
@@ -1618,6 +1629,8 @@ class OptionsService:
                 raise ValueError('Quantity, limit price, time in force and original terms are required')
             old = dict(quantity=float(local['quantity']), premium=float(local['premium']),
                        tif=local.get('tif') or ('GTC' if local.get('intent') == 'CLOSE' else 'DAY'))
+            if local.get('stock_session') == 'EXTENDED':
+                old['stock_session'] = 'EXTENDED'
             if not amendments.same_terms(old, data['expected']):
                 raise ValueError('Order changed; refresh and review before modifying')
             quantity, premium = float(data['quantity']), float(data['premium'])
@@ -1637,6 +1650,8 @@ class OptionsService:
             if local['option_type'] == 'CALL' and local['action'] == 'SELL' and local.get('intent') != 'CLOSE' and quantity != old['quantity']:
                 raise ValueError('Covered-call quantity is locked; price and time in force may change')
             desired = dict(quantity=int(quantity), premium=premium, tif=tif)
+            if old.get('stock_session'):
+                desired['stock_session'] = old['stock_session']
             conn = self._ensure_connection()
             if not conn or conn.readonly is not False:
                 raise ValueError('A writable IB connection is required')

@@ -25,6 +25,64 @@ class PaperChartTests(unittest.TestCase):
         self.conn.ib.cancelOrder.side_effect=lambda o:setattr(next(t for t in self.trades if t.order.orderId==o.orderId).orderStatus,'status','Cancelled')
         self.resolve=patch('api.services.paper_chart.contracts.resolve',return_value=self.contract);self.resolve.start()
         self.feed=patch('api.services.paper_chart.stock_chart.active',{'con_id':7,'price_rules':[{'low':0,'increment':.25}]});self.feed.start()
+    def test_extended_limit_amends_same_order_then_preserves_session_on_tif_change_and_cancel(self):
+        self.conn.ib.client.clientId = 71
+        place = self.conn.ib.placeOrder.side_effect
+        def broker_echo(contract, order):
+            order.clientId = 71
+            order.permId = 1000 + order.orderId
+            return place(contract, order)
+        self.conn.ib.placeOrder.side_effect = broker_echo
+        submit = dict(request_id=str(uuid4()), action='submit', side=1, entry_type='LMT',
+                      entry=100, quantity=2, tif='DAY', stock_session='EXTENDED')
+        result = self.service.execute(self.conn, 7, submit)
+        self.assertTrue(result['success'], result)
+        self.service.execute(self.conn, 7, submit)
+        self.conn.ib.placeOrder.assert_called_once()
+        first = self.trades[0]
+        self.assertEqual((first.contract.exchange, first.order.tif, first.order.outsideRth), ('SMART', 'DAY', True))
+
+        def edit(**fields):
+            state = self.service.state(self.conn, 7)
+            self.assertEqual(state['stock_session'], 'EXTENDED')
+            return self.service.execute(self.conn, 7, dict(request_id=str(uuid4()), action='edit_entry',
+                expected_ref=state['order_ref'], expected_snapshot=state['edit_snapshot'], **fields))
+
+        self.assertTrue(edit(price=101)['success'])
+        self.assertEqual(len(self.trades), 1)
+        self.conn.ib.cancelOrder.assert_not_called()
+        self.assertEqual(self.conn.ib.placeOrder.call_count, 2)
+        self.assertTrue(edit(tif='GTC', quantity=3)['success'])
+        self.assertEqual((self.trades[-1].order.tif, self.trades[-1].order.outsideRth), ('GTC', True))
+        canceled = edit(cancel=True)
+        self.assertTrue(canceled['success'], canceled)
+        self.assertEqual(self.trades[-1].orderStatus.status, 'Cancelled')
+
+    def test_extended_submission_waits_for_matching_broker_hours_without_replay(self):
+        place = self.conn.ib.placeOrder.side_effect
+        def broker_regular_hours(contract, order):
+            order.outsideRth = False
+            return place(contract, order)
+        self.conn.ib.placeOrder.side_effect = broker_regular_hours
+        request_id = str(uuid4())
+        body = dict(request_id=request_id, action='submit', side=1, entry_type='LMT',
+                    entry=100, quantity=1, tif='DAY', stock_session='EXTENDED')
+        result = self.service.execute(self.conn, 7, body)
+        self.assertTrue(result['awaiting_broker'])
+        self.assertFalse(self.service.request_status(self.conn, 7, request_id)['confirmed'])
+        self.trades[0].order.outsideRth = True
+        self.assertTrue(self.service.request_status(self.conn, 7, request_id)['confirmed'])
+        self.conn.ib.placeOrder.assert_called_once()
+
+    def test_extended_request_never_drops_protection_or_changes_another_product(self):
+        for kind, currency, change in [('STK','USD',{'tp':102}), ('STK','USD',{'sl':99}),
+                ('STK','USD',{'entry_type':'STP'}), ('OPT','USD',{}), ('FUT','USD',{}), ('STK','HKD',{})]:
+            self.contract.secType, self.contract.currency = kind, currency
+            body = dict(request_id=str(uuid4()), action='submit', side=1, entry_type='LMT',
+                        entry=100, quantity=1, tif='GTC', stock_session='EXTENDED')
+            self.assertFalse(self.service.execute(self.conn, 7, {**body, **change})['success'])
+        self.conn.ib.placeOrder.assert_not_called()
+
     def test_flat_close_clears_cancellation_after_broker_confirmation(self):
         self.submit()
         request=dict(request_id=str(uuid4()),action='close')

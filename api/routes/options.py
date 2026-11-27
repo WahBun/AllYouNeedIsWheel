@@ -201,11 +201,15 @@ def save_order():
         return jsonify({"error": str(e)}), 500
 
 @bp.route('/close-order', methods=['POST'])
-def stage_close_order():
+@bp.route('/close-order/extended', methods=['POST'], defaults={'extended': True})
+def stage_close_order(extended=False):
     """Stage a position-closing order locally without sending it to IB."""
     try:
         db = current_app.config.get('database') or options_service.db
-        response, status_code = options_service.stage_close_order(request.json, db)
+        data = request.json
+        if extended:
+            data = dict(data, stock_session='EXTENDED')
+        response, status_code = options_service.stage_close_order(data, db)
         return jsonify(response), status_code
     except Exception as e:
         logger.error(f"Error staging close order: {str(e)}")

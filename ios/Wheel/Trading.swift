@@ -115,7 +115,7 @@ extension Order {
         case chart_tif_ref, chart_tif_group_id, client_id
         case gross_pnl, net_pnl, round_trip_commission, contract_multiplier, currency
         case id, ticker, symbol, action, order_type, option_type, strike, expiration, premium, quantity, status
-        case tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, amendment_pending, error_message, isRollover, filled, avg_fill_price, fill_time, fill_action, commission, commission_currency, realized_pnl
+        case stock_session, tif, intent, external_ib, ib_status, executed, ib_order_id, perm_id, amendment_pending, error_message, isRollover, filled, avg_fill_price, fill_time, fill_action, commission, commission_currency, realized_pnl
     }
 
     init(from decoder: Decoder) throws {
@@ -148,6 +148,7 @@ extension Order {
         premium = try values.decodeIfPresent(Double.self, forKey: .premium)
         quantity = try values.decodeIfPresent(Double.self, forKey: .quantity)
         tif = try values.decodeIfPresent(String.self, forKey: .tif)
+        stock_session = try values.decodeIfPresent(String.self, forKey: .stock_session)
         intent = try values.decodeIfPresent(String.self, forKey: .intent)
         con_id = try brokerID(.con_id)
         chart_remainder_ref = try values.decodeIfPresent(String.self, forKey: .chart_remainder_ref)
@@ -206,6 +207,8 @@ struct ChartJoinGate {
 }
 
 enum TradeRules {
+    static let extendedHoursNote = "Includes regular hours. An overnight order can still fill after the opening bell."
+
     static func flatHistoryRecoveryRequest(state: [String: Any], groupID: String) throws -> [String: Any] {
         let attribution = state["group_attribution"] as? [String: Any]
         let refs = attribution?["recovery_refs"] as? [String]
@@ -320,9 +323,6 @@ enum TradeRules {
         return body
     }
 
-    static func chartTIFs(securityType: String, currency: String, side: Int, entryType: String) -> [String] {
-        ["DAY", "GTC"] + (securityType == "STK" && currency == "USD" && [-1, 1].contains(side) && entryType == "LMT" ? ["OVERNIGHT"] : [])
-    }
 
     static func priceChoiceID(_ value: Double?) -> Int? {
         guard let value, value.isFinite, value > 0, value < 1_000_001 else { return nil }
@@ -570,7 +570,8 @@ final class TradingSession {
         await reconcilePaper(base: base, conID: conID, groupID: groupID)
         guard key == paperKey(base, conID, groupID: groupID), epoch == accountEpoch, expectedEpoch == nil || expectedEpoch == accountEpoch else { throw AppError.message("Account changed; refresh before editing.") }
         guard !busy, !paperPending(base: base, conID: conID, groupID: groupID) else { throw AppError.message("This order is awaiting broker confirmation. Other charts remain available.") }
-        var components = URLComponents(url: try endpoint(base, "api/portfolio/paper-chart/\(conID)"), resolvingAgainstBaseURL: false)!
+        let suffix = body["stock_session"] as? String == "EXTENDED" ? "/extended" : ""
+        var components = URLComponents(url: try endpoint(base, "api/portfolio/paper-chart/\(conID)\(suffix)"), resolvingAgainstBaseURL: false)!
         if !groupID.isEmpty { components.queryItems = [URLQueryItem(name: "group_id", value: groupID)] }
         var request = URLRequest(url: components.url!, timeoutInterval: 35)
         request.httpMethod = "POST"
@@ -1007,12 +1008,13 @@ struct OrderDetail: View {
                         Picker("Time in force", selection: $timing) {
                             Text("DAY").tag("DAY")
                             Text("GTC").tag("GTC")
-                            if TradeRules.chartManageable(order), order.option_type == "STOCK", ["BUY", "SELL"].contains(order.action ?? ""), order.order_type == "LMT" || order.tif == "OVERNIGHT" { Text("OVT").tag("OVERNIGHT") }
+                            if order.tif == "OVERNIGHT" { Text("OVT").tag("OVERNIGHT") }
                         }
                         if TradeRules.chartManageable(order), timing == "OVERNIGHT", order.tif != "OVERNIGHT" {
                             Toggle("Confirm OVT without TP/SL", isOn: $confirmChartOVT)
                         }
                     } else { LabeledContent("Time in force", value: order.timingLabel) }
+                    if order.stock_session == "EXTENDED" { LabeledContent("Trading hours", value: "Extended Hours") }
                     LabeledContent("Status", value: localizedLabel(order.ib_status ?? order.status, locale: locale))
                     if let id = order.ib_order_id { LabeledContent("IB order ID", value: String(id)) }
                     if let id = order.perm_id { LabeledContent("Permanent ID", value: String(id)) }
@@ -1259,13 +1261,15 @@ struct CloseTicket: View {
     private var error: String? { state.error }
     private var active: Bool { visible && phase == .active && store.selectedTab == "portfolio" && !confirm && !staged }
     @State private var stockTIF = "GTC"
+    @State private var extendedHours = false
     private var isStock: Bool { position.security_type == "STK" }
     private var timingSupported: Bool {
-        !isStock || stockTIF == "GTC" || store.demo ||
+        if extendedHours { return store.demo || quote?["quote_session"] as? String == "EXTENDED" }
+        return !isStock || stockTIF == "GTC" || store.demo ||
             (quote?["stock_tifs"] as? [String] ?? []).contains(stockTIF)
     }
-    private var timingLabel: String { stockTIF == "OVERNIGHT" ? "OVT" : stockTIF }
-    private var context: String { "\(store.demo)-\(store.address)-\(position.con_id ?? 0)-\(stockTIF)" }
+    private var timingLabel: String { extendedHours ? "\(stockTIF) · Extended Hours" : stockTIF }
+    private var context: String { "\(store.demo)-\(store.address)-\(position.con_id ?? 0)-\(stockTIF)-\(extendedHours)" }
     @State private var confirm = false
     @State private var staged = false
     private var held: Int { state.held }
@@ -1304,15 +1308,16 @@ struct CloseTicket: View {
                         Picker("Time in force", selection: $stockTIF) {
                             Text("DAY").tag("DAY")
                             Text("GTC").tag("GTC")
-                            Text("OVT").tag("OVERNIGHT")
+                        }
+                        if store.demo || extendedHours || quote?["supports_stock_sessions"] as? Bool == true {
+                            Picker("Trading hours", selection: $extendedHours) {
+                                Text("RTH Only").tag(false)
+                                Text("Extended Hours").tag(true)
+                            }
+                            if extendedHours { Text(TradeRules.extendedHoursNote).font(.caption).foregroundStyle(.secondary) }
                         }
                         if !timingSupported {
-                            Text("Update the backend to use stock DAY or OVT orders.")
-                                .font(.caption).foregroundStyle(.orange)
-                        }
-                        if stockTIF == "OVERNIGHT" {
-                            Text("OVT · Overnight session only. Requires broker permission and an eligible stock.")
-                                .font(.caption).foregroundStyle(.secondary)
+                            Text("Review the trading hours supported by the backend.").font(.caption).foregroundStyle(.orange)
                         }
                     }
             }
@@ -1362,7 +1367,8 @@ struct CloseTicket: View {
                 guard let value = TradeRules.price(price), let id = position.con_id, state.valid, timingSupported else { state.error = "Quote expired or quantity changed. Refresh and review before staging."; return }
                 var body: [String: Any] = ["con_id": id, "quantity": quantity, "limit_price": value]
                 if isStock { body["tif"] = stockTIF }
-                Task { staged = await store.trading.write("api/options/close-order", body: body, store: store); await store.refresh(); if staged { store.selectedTab = "orders" } }
+                let path = extendedHours ? "api/options/close-order/extended" : "api/options/close-order"
+                Task { staged = await store.trading.write(path, body: body, store: store); await store.refresh(); if staged { store.selectedTab = "orders" } }
             }
         }
     }
@@ -1373,12 +1379,13 @@ struct CloseTicket: View {
         await state.refresh(fetch: {
             if store.demo {
                 let mid = position.security_type == "STK" ? max(0.02, position.market_price ?? 10) : 0.18
-                return ["position": position.position, "close_action": position.position < 0 ? "BUY" : "SELL", "bid": mid - 0.01, "mid": mid, "ask": mid + 0.01, "spread_percent": 0.02 / mid * 100, "multiplier": position.security_type == "STK" ? 1.0 : 100.0, "account_suffix": "DEMO", "is_frozen": true, "quote_time": "Demo", "stock_tifs": ["DAY", "GTC", "OVERNIGHT"], "quote_session": stockTIF == "OVERNIGHT" ? "OVERNIGHT" : "REGULAR"]
+                return ["position": position.position, "close_action": position.position < 0 ? "BUY" : "SELL", "bid": mid - 0.01, "mid": mid, "ask": mid + 0.01, "spread_percent": 0.02 / mid * 100, "multiplier": position.security_type == "STK" ? 1.0 : 100.0, "account_suffix": "DEMO", "is_frozen": true, "quote_time": "Demo", "stock_tifs": ["DAY", "GTC"], "supports_stock_sessions": isStock, "quote_session": extendedHours ? "EXTENDED" : "REGULAR"]
             }
-            let query = isStock ? [URLQueryItem(name: "tif", value: stockTIF)] : []
+            var query = isStock ? [URLQueryItem(name: "tif", value: stockTIF)] : []
+            if extendedHours { query.append(URLQueryItem(name: "stock_session", value: "EXTENDED")) }
             let result = try await store.trading.get("api/portfolio/option-position/\(position.con_id ?? 0)/quote", base: store.address, query: query)
-            if stockTIF == "OVERNIGHT" && result["quote_session"] as? String != "OVERNIGHT" {
-                throw AppError.message("Update the backend to use stock DAY or OVT orders.")
+            if extendedHours && result["quote_session"] as? String != "EXTENDED" {
+                throw AppError.message("Review the trading hours supported by the backend.")
             }
             return result
         }, allowed: { active && context == requestedContext && !store.trading.busy && store.trading.version == tradeVersion })

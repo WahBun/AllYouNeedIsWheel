@@ -1,5 +1,7 @@
 """Paper-only standalone overnight entries; all IB calls are mocked."""
 from types import SimpleNamespace as S
+from unittest.mock import patch
+from datetime import datetime, timezone
 import unittest
 from uuid import uuid4
 from tests import test_paper_chart as fixtures
@@ -8,6 +10,10 @@ class OvernightTests(unittest.TestCase):
     tearDown = fixtures.PaperChartTests.tearDown
     def setUp(self):
         fixtures.PaperChartTests.setUp(self)
+        clock_patch = patch('core.order_timing.datetime')
+        self.clock = clock_patch.start()
+        self.addCleanup(clock_patch.stop)
+        self.clock.now.return_value = datetime(2026, 12, 5, tzinfo=timezone.utc)
         self.detail = S(contract=self.contract, validExchanges='SMART,OVERNIGHT', marketRuleIds='26,26')
         def read(fn, *args, **kwargs):
             if fn == self.conn.ib.reqContractDetails: return [self.detail]
@@ -20,6 +26,63 @@ class OvernightTests(unittest.TestCase):
                     side=1, entry_type='LMT', entry=768.88, quantity=100)
         body.update(changes)
         return body, self.service.execute(self.conn, 7, body)
+
+    def test_retired_venue_never_sends_or_cancels_before_failing(self):
+        _, submitted = self.overnight()
+        original = submitted['state']
+        self.clock.now.return_value = datetime(2026, 12, 6, 5, tzinfo=timezone.utc)
+        self.conn.ib.placeOrder.reset_mock()
+        updated = self.service.execute(self.conn, 7, dict(request_id=str(uuid4()), action='edit_entry',
+            expected_ref=original['order_ref'], expected_snapshot=original['edit_snapshot'], price=770))
+        self.assertFalse(updated['success'])
+        self.conn.ib.cancelOrder.assert_not_called()
+        self.conn.ib.placeOrder.assert_not_called()
+        canceled = self.service.execute(self.conn, 7, dict(request_id=str(uuid4()), action='edit_entry',
+            expected_ref=original['order_ref'], expected_snapshot=original['edit_snapshot'], cancel=True))
+        self.assertTrue(canceled['success'], canceled)
+        _, retired = self.overnight()
+        self.assertFalse(retired['success'])
+        self.conn.ib.placeOrder.assert_not_called()
+
+    def test_contract_validation_crossing_cutover_cannot_create_a_legacy_order(self):
+        read = self.conn._bounded_order_read.side_effect
+        self.clock.now.return_value = datetime(2026, 12, 6, 4, 59, 59, tzinfo=timezone.utc)
+
+        def cross_cutover(fn, *args, **kwargs):
+            result = read(fn, *args, **kwargs)
+            if fn == self.conn.ib.reqMarketRule:
+                self.clock.now.return_value = datetime(2026, 12, 6, 5, tzinfo=timezone.utc)
+            return result
+
+        self.conn._bounded_order_read.side_effect = cross_cutover
+        _, result = self.overnight()
+        self.assertFalse(result['success'], result)
+        self.conn.ib.placeOrder.assert_not_called()
+        self.conn.ib.cancelOrder.assert_not_called()
+        self.assertFalse(self.service.group('DU_TEST', 7))
+
+    def test_amendment_crossing_cutover_preserves_original_until_broker_reconciles(self):
+        _, placed = self.overnight()
+        before = placed['state']
+        validate = self.service.validate_overnight_price
+
+        def finish_validation(*args):
+            validate(*args)
+            self.clock.now.return_value = datetime(2026, 12, 6, 5, tzinfo=timezone.utc)
+
+        self.conn.ib.placeOrder.reset_mock()
+        with patch.object(self.service, 'validate_overnight_price', side_effect=finish_validation):
+            outcome = self.service.execute(self.conn, 7, dict(request_id=str(uuid4()), action='edit_entry',
+                expected_ref=before['order_ref'], expected_snapshot=before['edit_snapshot'], price=770))
+        self.assertFalse(outcome['success'])
+        self.conn.ib.cancelOrder.assert_not_called()
+        self.conn.ib.placeOrder.assert_not_called()
+        active = self.service.state(self.conn, 7)
+        self.assertEqual((active['order_ref'], active['tif']), (before['order_ref'], 'OVERNIGHT'))
+        self.assertNotIn('OVERNIGHT', active['allowed_tifs'])
+        self.trades[0].orderStatus.status = 'Cancelled'
+        self.assertFalse(self.service.state(self.conn, 7)['active'])
+        self.conn.ib.placeOrder.assert_not_called()
 
     def test_canceled_overnight_allows_fresh_day_bracket(self):
         _, result = self.overnight()

@@ -267,7 +267,7 @@ class PortfolioService:
             'as_of': portfolio.get('as_of')
         }
 
-    def get_option_position_quote(self, con_id, tif=None, *, wait_for_quote=True):
+    def get_option_position_quote(self, con_id, tif=None, *, wait_for_quote=True, extended=False):
         """Return a fresh quote and close-order metadata for one held option."""
         try:
             conn = self._ensure_connection()
@@ -275,6 +275,7 @@ class PortfolioService:
                 return None
 
             options = {'tif': tif} if tif else {}
+            if extended: options['extended'] = True
             if not wait_for_quote: options['wait_for_quote'] = False
             position = conn.get_option_position_quote(con_id, **options)
             if not position:
@@ -300,6 +301,7 @@ class PortfolioService:
                 'is_frozen': position.get('is_frozen', False),
                 'quote_time': position.get('quote_time'),
                 'quote_session': position.get('quote_session', 'REGULAR'),
+                'supports_stock_sessions': contract.secType == 'STK' and contract.currency == 'USD',
                 'stock_tifs': (['DAY', 'GTC', 'OVERNIGHT'] if getattr(contract, 'currency', '') == 'USD' else ['DAY', 'GTC']) if getattr(contract, 'secType', '') == 'STK' else []
             }
             serialized.update(self._option_position_fields(

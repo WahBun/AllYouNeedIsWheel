@@ -141,6 +141,9 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
             order_type=o.orderType,currency=c.currency,contract_multiplier='1' if c.secType == 'STK' else c.multiplier)
         metadata = IBConnection._fill_metadata(fills, filled)
         result[identity].update(metadata)
+        if c.secType == 'STK':
+            from core.order_amendments import confirmed_stock_session
+            result[identity]['stock_session'] = confirmed_stock_session(conn, trade)
         ref = o.orderRef
         request = journal.get(ref)
         if (request and chart_owned and o.orderId in request.get('tif_ids', [])

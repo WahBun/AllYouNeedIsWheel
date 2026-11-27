@@ -12,14 +12,17 @@ function setup(type='FUT',live=false){
  $('type').value='LMT';$('tif').value='DAY';
  return {c,$,writes};
 }
-test('actual parent submit path accepts OVT Buy/Sell and Join, rejects non-LMT OVT',()=>{
- for(const side of [-1,1])for(const join of [false,true]){
-  const {c,$,writes}=setup('STK');$('tif').value='OVERNIGHT';
-  const body={con_id:7,action:'submit',side,quantity:1,entry:side===1?100:101,entry_type:'LMT',tp:105,sl:95};
+test('standalone extended stock limit orders preserve DAY/GTC for buys, sells and Join',()=>{
+ for(const side of [-1,1])for(const join of [false,true])for(const tif of ['DAY','GTC']){
+  const {c,$,writes}=setup('STK');c.state.supports_stock_sessions=true;$('stock-hours').value='EXTENDED';$('tif').value=tif;
+  const body={con_id:7,action:'submit',side,quantity:1,entry:side===1?100:101,entry_type:'LMT'};
   if(join){c.beginJoin(side===1?'bid':'ask',side);body.source='join';body.join_revision=c.joinRevision;}
-  c.action(body);assert.equal(writes.length,1);assert.equal(writes[0].mode,'overnight_entry');assert.equal(writes[0].tif,'OVERNIGHT');assert.equal('tp' in writes[0],false);assert.equal('sl' in writes[0],false);
+  c.action(body);assert.equal(writes.length,1);assert.equal(writes[0].stock_session,'EXTENDED');assert.equal(writes[0].tif,tif);
  }
- const {c,$,writes}=setup('STK');$('tif').value='OVERNIGHT';c.action({con_id:7,action:'submit',quantity:1,entry_type:'STP'});assert.equal(writes.length,0);assert.match(c.message,/OVT requires/);
+ for(const [type,kind,bracket,support] of [['OPT','LMT',false,true],['STK','STP',false,true],['STK','LMT',true,true],['STK','LMT',false,false]]){
+  const {c,$,writes}=setup(type);c.state.supports_stock_sessions=support;$('stock-hours').value='EXTENDED';$('bracket-enabled').checked=bracket;
+  c.action({con_id:7,action:'submit',side:1,quantity:1,entry:100,entry_type:kind,tp:105});assert.equal(writes.length,0);
+ }
 });
 test('normal submission and Join reject invalid quantities before write',()=>{
  for(const [type,live,max] of [['FUT',false,10],['OPT',false,10],['STK',false,1000],['OPT',true,1]]){
