@@ -203,6 +203,11 @@ order-rule change is built in.
 
 ### Working-order edits and Portfolio shortcuts
 
+For an editable, unfilled option entry placed from Supercharts, you can change
+the limit price or quantity in **Orders** without opening the contract chart.
+If you change the price on the web while the iPhone editor is open, saving only
+a DAY-to-GTC change on iPhone keeps the newer limit price.
+
 Orders placed by Wheel can be amended after IB confirms Submitted/PreSubmitted:
 total quantity (including fills), limit price, and DAY/GTC. CC opening quantity
 and paired rollover quantity remain locked. Overnight route changes require a
