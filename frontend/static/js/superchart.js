@@ -196,6 +196,7 @@ async function refreshExecutions(){if(chartLayout.loading())return;if(!packet.ba
  if(key!==executionContext){chartExecutions=[];executionContext=key;}executionBusy=true;executionLast=Date.now();try{const result=await api(`portfolio/chart-executions/${cid}`);if(key!==executionsKey()||result.con_id!==cid)return;chartExecutions=result.executions||[];sync();}catch(error){if(key===executionsKey())trace('Execution marks: '+error.message);}finally{executionBusy=false;}}
 const activity=[],terminal=new Set(['acknowledged','rejected','working','filled','canceled','pending','done','released']);
 const pendingKey=()=>`wheel.web.pending:${profile.selected}:${cid}${groupID?':'+groupID:''}`;
+const requestStatusPath=(id,requestID)=>orderPath(id)+(groupID?'&':'?')+new URLSearchParams({request_id:requestID,account_mode:profile.selected});
 const orderPath=(id=cid)=>`portfolio/paper-chart/${id}${groupID?'?group_id='+encodeURIComponent(groupID):''}`;
 function readNotice(scope,message,detail=''){const note=$('trade-connection-feedback');note.dataset.scope=scope;note.textContent=message;note.title=detail;note.hidden=false;}
 function clearReadNotice(scope){const note=$('trade-connection-feedback');if(note.dataset.scope===scope){note.hidden=true;note.textContent='';note.title='';delete note.dataset.scope;}}
@@ -383,13 +384,15 @@ for(const id of ['preview-buy','preview-sell'])$(id).disabled=tradingLocked||!!n
 const cancelAddButtons=new Map();
 function renderPendingAdds(can){
  let list=$('pending-adds');if(!list){list=document.createElement('div');list.id='pending-adds';$('adjustment-control').after(list);}
- const rows=(state.orders||[]).filter(o=>o.role.split('_')[0]==='entry'&&(o.entry_kind==='add'||state.position)&&!o.filled&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status));
+ const rows=(state.orders||[]).filter(o=>o.role.split('_')[0]==='entry'&&(o.entry_kind==='add'||state.position)&&(!o.filled||o.order_id===state.partial_entry_cancel?.order_id)&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status));
  const keys=new Set(rows.map(o=>`${epoch}:${cid}:${state.order_ref}:${o.order_id}`));
  for(const [key,b] of cancelAddButtons)if(!keys.has(key)){b.remove();cancelAddButtons.delete(key);}
  for(const row of rows){const key=`${epoch}:${cid}:${state.order_ref}:${row.order_id}`;let b=cancelAddButtons.get(key);
-  if(!b){b=document.createElement('button');const ref=state.order_ref,selected=cid,accountEpoch=epoch;
-   b.onclick=()=>{if(selected===cid&&accountEpoch===epoch&&ref===state.order_ref)write({action:'cancel_add',order_id:row.order_id,expected_ref:ref});};list.append(b);cancelAddButtons.set(key,b);}
-  const zh=document.documentElement.lang==='zh';b.textContent=`${row.status==='PendingCancel'?(zh?'撤单确认中':'Canceling'):(row.entry_kind==='entry'?(zh?'撤销剩余入场':'Cancel remaining entry'):row.entry_kind==='unknown'?(zh?'撤销待成交单':'Cancel pending entry'):(zh?'撤销加仓':'Cancel add'))} #${row.order_id} · ${row.quantity} @ ${row.price}`;
+  if(!b){b=document.createElement('button');list.append(b);cancelAddButtons.set(key,b);}
+  const ref=state.order_ref,selected=cid,accountEpoch=epoch,group=groupID;
+  const cancel=row.filled?{action:'edit_entry',cancel:true,partial_entry_cancel:state.partial_entry_cancel,expected_snapshot:state.edit_snapshot}:{action:'cancel_add',order_id:row.order_id};
+  b.onclick=()=>{if(selected===cid&&accountEpoch===epoch&&group===groupID&&ref===state.order_ref)write({...cancel,expected_ref:ref});};
+  const zh=document.documentElement.lang==='zh';b.textContent=`${row.status==='PendingCancel'?(zh?'撤单确认中':'Canceling'):(row.filled||row.entry_kind==='entry'?(zh?'撤销剩余入场':'Cancel remaining entry'):row.entry_kind==='unknown'?(zh?'撤销待成交单':'Cancel pending entry'):(zh?'撤销加仓':'Cancel add'))} #${row.order_id} · ${row.quantity-(row.filled||0)} @ ${row.price}`;
   b.disabled=!can||!['Submitted','PreSubmitted'].includes(row.status);
  }
  list.hidden=!rows.length;
@@ -561,7 +564,7 @@ if(document.hidden)return;
 if(Date.now()<accountRecoveryUntil&&(!packet.bars?.length||chartLayout.loading())&&!localStorage.getItem(pendingKey()))return;
 try{if(selected){
 readScope='Order status';
-if((profile.selected==='paper'||profile.chart_execution_enabled===true)&&profile.verified){const pending=localStorage.getItem(pendingKey());if(pending){const r=await api(orderPath(selected)+(groupID?'&':'?')+'request_id='+encodeURIComponent(pending));if(token!==generation||readVersion!==writeVersion)return;if(r.confirmed===true&&(terminal.has(r.status)||r.status==='reconciled')){localStorage.removeItem(pendingKey());log(r.message||`Reconciled: ${r.status}`);}}
+if((profile.selected==='paper'||profile.chart_execution_enabled===true)&&profile.verified){const pending=localStorage.getItem(pendingKey());if(pending){const r=await api(requestStatusPath(selected,pending));if(token!==generation||readVersion!==writeVersion)return;if(localStorage.getItem(pendingKey())===pending&&r.confirmed===true&&(terminal.has(r.status)||r.status==='reconciled')){localStorage.removeItem(pendingKey());log(r.message||`Reconciled: ${r.status}`);}}
 const s=await api(orderPath(selected));if(token!==generation||readVersion!==writeVersion)return;applyState(s);stateRead=true;clearReadNotice('Order status');}else{state={};received=0;clearReadNotice('Order status');}}
 }catch(error){
  if(token!==generation||readVersion!==writeVersion)return;
@@ -904,7 +907,7 @@ $('adjustment-quantity').oninput=sync;
 for(const [id,delta] of [['adjustment-minus',-1],['adjustment-plus',1]])$(id).onclick=()=>{const input=$('adjustment-quantity');if(input.disabled)return;input.value=Math.min(Number(input.max)||1,Math.max(1,(Number(input.value)||1)+delta));sync();};
 for(const id of ['add','trim'])$(id).onclick=()=>{if(!$(id).disabled){if(state.live_chart_scope||state.live_options_scope||state.live_initial_scope)return livePositionAction(id,Number($('adjustment-quantity').value));write({action:id,quantity:Number($('adjustment-quantity').value),expected_ref:state.order_ref,expected_position:state.position});}};
 $('resolve-request').textContent='Check order status';
-$('resolve-request').onclick=async()=>{const key=pendingKey(),id=localStorage.getItem(key),token=generation;if(busy||!id)return;log('Checking order status…');try{const result=await api(orderPath()+(groupID?'&':'?')+'request_id='+encodeURIComponent(id));if(token!==generation||localStorage.getItem(key)!==id)return;if(result.confirmed){localStorage.removeItem(key);revision++;log(result.message||(result.status==='rejected'?'Previous request did not complete; ready for a new order':'Previous request resolved'));}else log('IB outcome is still unknown; no order resent');sync();refresh();}catch(error){log(error.message);}};
+$('resolve-request').onclick=async()=>{const key=pendingKey(),id=localStorage.getItem(key),token=generation;if(busy||!id)return;log('Checking order status…');try{const result=await api(requestStatusPath(cid,id));if(token!==generation||localStorage.getItem(key)!==id)return;if(result.confirmed){localStorage.removeItem(key);revision++;log(result.message||(result.status==='rejected'?'Previous request did not complete; ready for a new order':'Previous request resolved'));}else log('IB outcome is still unknown; no order resent');sync();refresh();}catch(error){log(error.message);}};
 
 $('close').onclick=close;$('be').onclick=()=>write({action:'be',manual_stop_quantity:true,expected_ref:state.order_ref,expected_snapshot:state.edit_snapshot});
 $('edit-cancel').onclick=()=>$('editor').close();$('edit-form').onsubmit=event=>{event.preventDefault();if(!editContext||editContext.cid!==cid||editContext.generation!==generation)return log('Chart changed; reopen the editor.');const quantity=Number($('edit-qty').value),price=Number($('edit-price').value),tif=$('edit-tif').value;if(!Number.isInteger(quantity)||quantity<1||price<=0)return;if(editContext.active)write({action:'edit_entry',quantity,price,tif,expected_ref:editContext.ref,expected_snapshot:editContext.snapshot,confirm_remove_protection:$('remove-protection').checked});else{quantityEdited=true;$('quantity').value=quantity;entry=price;$('tif').value=tif;sync();}$('editor').close();};

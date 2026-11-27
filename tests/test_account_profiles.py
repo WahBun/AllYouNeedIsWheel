@@ -39,6 +39,29 @@ class AccountProfileTests(unittest.TestCase):
             self.assertIsNone(account.write_guard())
         with self.app.test_request_context('/api/account/profiles'):
             self.assertIsNone(account.write_guard())
+    def test_chart_status_checks_profile_before_claiming_missing_request(self):
+        from api.routes import portfolio
+        from uuid import uuid4
+        conn = Mock(account_id='DU_TEST', port=4002)
+        conn.ib.managedAccounts.return_value = ['DU_TEST']
+        path = self.config['paper']['db_path']
+        self.app.register_blueprint(portfolio.bp, url_prefix='/api/portfolio')
+        with patch.object(portfolio.portfolio_service, '_ensure_connection', return_value=conn), \
+             patch.object(portfolio.portfolio_service, 'config', {'db_path': path}):
+            client = self.app.test_client()
+            query = dict(request_id=str(uuid4()), account_mode='live')
+            url = '/api/portfolio/paper-chart/7'
+            from api.services.paper_chart import PaperChart
+            service = PaperChart(path)
+            self.assertEqual(client.get(url, query_string=query).status_code, 400)
+            with service.database() as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM chart_paper_requests').fetchone()[0], 0)
+            query['account_mode'] = 'paper'
+            result = client.get(url, query_string=query).get_json()
+            self.assertEqual((result['account_mode'], result['confirmed'], result['status']), ('paper', True, 'rejected'))
+        conn.ib.placeOrder.assert_not_called()
+        conn.ib.cancelOrder.assert_not_called()
+
     def test_live_chart_gate_allows_only_status_refresh(self):
         from api.routes import portfolio
         self.config['live']['chart_options_live_enabled'] = True

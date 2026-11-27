@@ -35,6 +35,7 @@ import XCTest
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockProtocol.self]
         let session = TradingSession(session: URLSession(configuration: config))
+        session.accountMode = "paper"
         session.accountEpoch = "fixture"
         MockProtocol.requests = []; MockProtocol.fail = false; MockProtocol.statusCode = 200
         MockProtocol.payload = { _ in ["success": true, "status": "acknowledged",
@@ -71,7 +72,9 @@ import XCTest
         }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockProtocol.self]
-        let client = TradingSession(session: URLSession(configuration: configuration)), id = UUID().uuidString
+        let client = TradingSession(session: URLSession(configuration: configuration))
+        client.accountMode = "paper"
+        let id = UUID().uuidString
         client.accountEpoch = "test-epoch"
         let body = try TradeRules.flatHistoryRecoveryRequest(state: state, groupID: id)
         MockProtocol.requests = []; MockProtocol.statusCode = 200; MockProtocol.fail = true
@@ -79,8 +82,9 @@ import XCTest
         XCTAssertTrue(client.paperPending(base: "https://mock.invalid", conID: 7, groupID: id))
         XCTAssertFalse(client.paperPending(base: "https://mock.invalid", conID: 7))
         let restarted = TradingSession(session: URLSession(configuration: configuration))
+        restarted.accountMode = "paper"
         MockProtocol.fail = false
-        MockProtocol.payload = { _ in ["confirmed": true, "status": "reconciled"] }
+        MockProtocol.payload = { _ in ["confirmed": true, "account_mode": "paper", "status": "reconciled"] }
         await restarted.reconcilePaper(base: "https://mock.invalid", conID: 7, groupID: id)
         XCTAssertFalse(restarted.paperPending(base: "https://mock.invalid", conID: 7, groupID: id))
         XCTAssertEqual(MockProtocol.requests.filter { $0.httpMethod == "POST" }.count, 1)

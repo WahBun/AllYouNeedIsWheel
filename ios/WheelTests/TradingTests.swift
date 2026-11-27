@@ -266,7 +266,7 @@ final class TradingTests: XCTestCase {
 
         MockProtocol.requests = []
         MockProtocol.payload = { request in
-            if request.httpMethod == "GET" { return ["confirmed": true, "message": "Time in force updated"] }
+            if request.httpMethod == "GET" { return ["confirmed": true, "account_mode": "live", "message": "Time in force updated"] }
             return ["success": false, "status": "unknown", "orders": []]
         }
         let unconfirmed = await store.trading.amendExitTIF(order, tif: "DAY", store: store)
@@ -508,6 +508,7 @@ final class TradingTests: XCTestCase {
     func testOptionalProtectionWriteOmitsDisabledStop() async throws {
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
         let client = TradingSession(session: URLSession(configuration: config))
+        client.accountMode = "paper"
         MockProtocol.requests = []; MockProtocol.statusCode = 200; MockProtocol.fail = false
         MockProtocol.payload = { _ in ["success": true, "status": "acknowledged"] }
         defer { MockProtocol.payload = nil }
@@ -525,6 +526,7 @@ final class TradingTests: XCTestCase {
     func testProtectionCancellationKeepsIndependentGroupIdentity() async throws {
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
         let client = TradingSession(session: URLSession(configuration: config))
+        client.accountMode = "paper"
         MockProtocol.requests = []; MockProtocol.statusCode = 200; MockProtocol.fail = false
         MockProtocol.payload = { _ in ["success": true, "status": "canceled"] }
         defer { MockProtocol.payload = nil }
@@ -848,12 +850,14 @@ final class TradingTests: XCTestCase {
         defer { defaults.set(saved, forKey: "pendingPaperChartRequests"); defaults.set(legacy, forKey: "unresolvedTradingWrite"); MockProtocol.fail = false; MockProtocol.payload = nil }
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
         let client = TradingSession(session: URLSession(configuration: config))
+        client.accountMode = "paper"
         MockProtocol.statusCode = 200; MockProtocol.requests = []; MockProtocol.fail = true
         do { _ = try await client.paperChartWrite(base: "https://mock.invalid", conID: 7, body: ["action": "edit_entry", "price": 79.54]); XCTFail("Timeout expected") } catch { }
         XCTAssertTrue(client.paperPending(base: "https://mock.invalid", conID: 7))
         XCTAssertFalse(client.paperPending(base: "https://mock.invalid", conID: 8))
         XCTAssertFalse(client.uncertain)
         let restarted = TradingSession(session: URLSession(configuration: config))
+        restarted.accountMode = "paper"
         XCTAssertTrue(restarted.paperPending(base: "https://mock.invalid", conID: 7))
         MockProtocol.fail = false
         MockProtocol.payload = { req in req.httpMethod == "GET" ? ["confirmed": false] : ["status": "working"] }
@@ -862,7 +866,7 @@ final class TradingTests: XCTestCase {
         _ = try await restarted.paperChartWrite(base: "https://mock.invalid", conID: 8, body: ["action": "edit_entry", "price": 50])
         XCTAssertFalse(restarted.paperPending(base: "https://mock.invalid", conID: 8))
         let recovery = "Original entry canceled. No replacement order was submitted."
-        MockProtocol.payload = { _ in ["confirmed": true, "status": "canceled", "message": recovery] }
+        MockProtocol.payload = { _ in ["confirmed": true, "account_mode": "paper", "status": "canceled", "message": recovery] }
         let recoveredMessage = await restarted.reconcilePaper(base: "https://mock.invalid", conID: 7)
         XCTAssertEqual(recoveredMessage, recovery)
         let repeatedMessage = await restarted.reconcilePaper(base: "https://mock.invalid", conID: 7)
@@ -877,6 +881,7 @@ final class TradingTests: XCTestCase {
         defer { defaults.set(saved, forKey: "pendingPaperChartRequests"); MockProtocol.payload = nil }
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
         let client = TradingSession(session: URLSession(configuration: config))
+        client.accountMode = "paper"
         client.uncertain = true // legacy lock must not disable verified Paper endpoint
         MockProtocol.fail = false; MockProtocol.statusCode = 200
         for status in ["rejected", "pending", "working"] {
@@ -2666,5 +2671,100 @@ extension TradingTests {
         do { _ = try await task.value; XCTFail("Must cancel") } catch {}
         XCTAssertEqual(AccountSelectionRetryProtocol.requests.map { $0.httpMethod }, ["GET"])
         XCTAssertFalse(client.busy)
+    }
+}
+
+extension TradingTests {
+    func testChartClaimsSurviveProfileSwitchRestartAndLegacyMigration() async throws {
+        let defaults = UserDefaults.standard, key = "pendingPaperChartRequests"
+        let original = defaults.object(forKey: key)
+        defer { defaults.set(original, forKey: key); MockProtocol.payload = nil; MockProtocol.fail = false }
+        let base = "https://mock.invalid", cid = 73, group = UUID().uuidString
+        let legacy = UUID().uuidString
+        let scopedID = UUID().uuidString
+        defaults.set([base + "|75": legacy, "live|" + base + "|75": scopedID], forKey: key)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        let client = TradingSession(session: URLSession(configuration: config))
+        MockProtocol.requests = []; MockProtocol.statusCode = 200; MockProtocol.fail = true
+        for mode in ["paper", "live"] {
+            client.accountMode = mode; client.accountEpoch = mode + "-epoch"
+            XCTAssertFalse(client.paperPending(base: base, conID: cid, groupID: group))
+            do {
+                _ = try await client.paperChartWrite(base: base, conID: cid, body: ["action": "edit_entry", "group_id": group])
+                XCTFail("Expected lost reply")
+            } catch {}
+            XCTAssertTrue(client.paperPending(base: base, conID: cid, groupID: group))
+        }
+        let restarted = TradingSession(session: URLSession(configuration: config))
+        MockProtocol.fail = false
+        var served = "paper"
+        MockProtocol.payload = { _ in ["account_mode": served, "confirmed": true, "status": "reconciled"] }
+        restarted.accountMode = "live"
+        await restarted.reconcilePaper(base: base, conID: cid, groupID: group)
+        XCTAssertTrue(restarted.paperPending(base: base, conID: cid, groupID: group))
+        for mode in ["live", "paper"] {
+            served = mode; restarted.accountMode = mode; restarted.accountEpoch = mode + "-new"
+            XCTAssertTrue(restarted.paperPending(base: base, conID: cid, groupID: group))
+            XCTAssertTrue(restarted.paperPending(base: base, conID: 75))
+            await restarted.reconcilePaper(base: base, conID: cid, groupID: group)
+            if mode == "live" {
+                await restarted.reconcilePaper(base: base, conID: 75)
+                XCTAssertTrue(restarted.paperPending(base: base, conID: 75))
+            }
+            await restarted.reconcilePaper(base: base, conID: 75)
+            XCTAssertFalse(restarted.paperPending(base: base, conID: cid, groupID: group))
+            XCTAssertFalse(restarted.paperPending(base: base, conID: 75))
+        }
+        let reads = MockProtocol.requests.filter { $0.httpMethod == "GET" }.map {
+            Dictionary(uniqueKeysWithValues: URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)!.queryItems!.map { ($0.name, $0.value!) })
+        }
+        XCTAssertEqual(reads.map { $0["account_mode"] }, ["live", "live", "live", "live", "paper", "paper"])
+        XCTAssertEqual(reads.filter { $0["request_id"] == legacy }.count, 2)
+        XCTAssertEqual(reads[2]["request_id"], scopedID)
+        XCTAssertNotEqual(reads[1]["request_id"], reads[4]["request_id"])
+        XCTAssertEqual(MockProtocol.requests.filter { $0.httpMethod == "POST" }.count, 2)
+    }
+
+    func testOrdersCancelsOnlyExactPartiallyFilledOptionParent() async throws {
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        let session = URLSession(configuration: config)
+        let store = WheelStore(session: session)
+        store.trading = TradingSession(session: session)
+        store.demo = false; store.address = "https://mock.invalid"; store.updated = .now
+        let ref = "WheelPaper:" + UUID().uuidString
+        let target = ["order_id": 41, "perm_id": 45, "client_id": 71]
+        let raw: [String: Any] = ["id":"ib-opt-45", "external_ib":true, "option_type":"CALL", "action":"SELL",
+            "quantity":4, "filled":1, "status":"submitted", "ib_order_id":41, "perm_id":45, "client_id":71,
+            "con_id":73, "chart_remainder_ref":ref]
+        let order = try JSONDecoder().decode(Order.self, from: JSONSerialization.data(withJSONObject: raw))
+        XCTAssertTrue(TradeRules.cancelable(order)); XCTAssertFalse(TradeRules.chartManageable(order))
+        MockProtocol.fail = false; MockProtocol.statusCode = 200
+        defer { MockProtocol.payload = nil }
+        for mode in ["paper", "live"] {
+            store.trading.accountEpoch = mode
+            store.portfolio = Bootstrap(summary: Summary(account_value: 1000, cash_balance: 500), positions: [],
+                connection: AccountConnection(mode: mode, execution_enabled: false, chart_execution_enabled: true))
+            for filled in [2, 1] {
+                MockProtocol.requests = []
+                MockProtocol.payload = { req in
+                    if req.httpMethod == "GET" {
+                        return ["known":true, "position":-filled, "entry_editable":false, "order_ref":ref, "partial_entry_cancel":target,
+                                "edit_snapshot":[["order_id":41, "quantity":4, "filled":filled, "status":"Submitted"]]]
+                    }
+                    let stream = req.httpBodyStream!; stream.open(); defer { stream.close() }
+                    var bytes = [UInt8](repeating: 0, count: 4096)
+                    let count = stream.read(&bytes, maxLength: bytes.count)
+                    let body = try! JSONSerialization.jsonObject(with: Data(bytes.prefix(count))) as! [String: Any]
+                    XCTAssertEqual(body["action"] as? String, "edit_entry"); XCTAssertEqual(body["cancel"] as? Bool, true)
+                    XCTAssertEqual(body["partial_entry_cancel"] as? [String: Int], target)
+                    XCTAssertNil(body["quantity"]); XCTAssertNil(body["price"])
+                    return ["success":true, "status":"canceled"]
+                }
+                let success = await store.trading.cancelFromOrders(order, store: store)
+                XCTAssertEqual(success, filled == 1)
+                XCTAssertEqual(MockProtocol.requests.map { $0.httpMethod! }, filled == 1 ? ["GET", "POST"] : ["GET"])
+            }
+        }
     }
 }

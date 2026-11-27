@@ -36,6 +36,28 @@ class OptionAggregateTests(unittest.TestCase):
         self.assertTrue(r['success'],r);self.assertEqual(p.position,-1)
         self.assertEqual(t.orderStatus.status,'Cancelled')
         self.conn.ib.placeOrder.assert_called_once()
+    def test_exact_remainder_rechecks_identity_and_filled_quantity(self):
+        trade, position = self.partial()
+        trade.order.permId = 751
+        trade.order.clientId = self.conn.ib.client.clientId = 71
+        state = self.service.state(self.conn, 7)
+        target = state['partial_entry_cancel']
+        self.assertEqual(target, dict(order_id=trade.order.orderId, perm_id=751, client_id=71))
+        def cancel(snapshot, identity):
+            return self.service.execute(self.conn, 7, dict(action='edit_entry', cancel=True,
+                request_id=str(uuid4()), expected_ref=state['order_ref'], expected_snapshot=snapshot,
+                partial_entry_cancel=identity))
+        self.assertFalse(cancel(state['edit_snapshot'], dict(target, perm_id=752))['success'])
+        trade.orderStatus.filled = 2
+        position.position = -2
+        self.assertFalse(cancel(state['edit_snapshot'], target)['success'])
+        self.conn.ib.cancelOrder.assert_not_called()
+        state = self.service.state(self.conn, 7)
+        self.assertTrue(cancel(state['edit_snapshot'], target)['success'])
+        self.conn.ib.cancelOrder.assert_called_once_with(trade.order)
+        self.conn.ib.placeOrder.assert_called_once()
+        self.assertEqual(position.position, -2)
+
     def test_aggregate_submit_response_loss_resolves_without_new_order(self):
         b,_=self.start()
         with self.service.database() as db:

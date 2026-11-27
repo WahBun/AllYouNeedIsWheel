@@ -269,7 +269,8 @@ def paper_chart_order(con_id):
         service=PaperChart(portfolio_service.config.get('db_path'), request.args.get('group_id'))
         if request.method=='GET':
             if request.args.get('request_id'):
-                return _no_store_json(service.request_status(conn, con_id, request.args['request_id']))
+                return _no_store_json(service.request_status(conn, con_id, request.args['request_id'],
+                                                             expected_mode=request.args.get('account_mode')))
             from api.services.paper_chart import paper_account
             group = service.group(paper_account(conn), con_id) or {}
             for key in ('pending_edit', 'pending_protection', 'pending_tif'):

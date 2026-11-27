@@ -958,6 +958,21 @@ class PaperChart:
                 and all(row['status'] in ('Filled', 'Cancelled', 'ApiCancelled', 'Unknown') for row in rows)
                 and not any(t.order.account == account and t.contract.conId == cid for t in conn.ib.openTrades())):
             result['can_preview_new_entry'] = True
+        # A single unprotected option parent can be canceled after a partial fill.
+        # Publish its broker identity separately from the entry amendment capability.
+        if (result['known'] and result['position'] and not result.get('sync_error')
+                and not result.get('broker_pending') and not group.get('pending_edit')
+                and len(rows) == 1 and rows[0]['role'] == 'entry'):
+            row = rows[0]
+            trade = trades.get(row['order_id'])
+            if (trade and trade.contract.secType == 'OPT' and trade.contract.conId == cid
+                    and trade.order.account == account and trade.order.orderRef == group.get('ref')
+                    and trade.order.orderId == row['order_id'] and not trade.order.parentId
+                    and trade.order.clientId == conn.ib.client.clientId
+                    and group.get('perms', {}).get('entry')
+                    and row['status'] in ('Submitted', 'PreSubmitted') and 0 < row['filled'] < row['quantity']):
+                result['partial_entry_cancel'] = dict(order_id=row['order_id'], client_id=trade.order.clientId,
+                                                      perm_id=group['perms']['entry'])
         if inactive_day_history(self, conn, account, cid, group, result):
             result['inactive_day_history'] = True
         return result
@@ -1039,9 +1054,16 @@ class PaperChart:
                     status='unknown' if uncertain else 'flat' if size == 0
                     else 'covered' if quantities['tp'] == size and quantities['sl'] == size else 'needs_review')
 
-    def request_status(self, conn, cid, request_id):
+    def request_status(self, conn, cid, request_id, expected_mode=None):
         """Read-only reconciliation. Never replay a broker write."""
         account = paper_account(conn)
+        mode = 'paper' if account.startswith('DU') else 'live'
+        if expected_mode is not None and expected_mode != mode:
+            raise ValueError('Account changed; refresh before checking this request.')
+        result = self._request_status(conn, account, cid, request_id)
+        return dict(result, account_mode=mode) if expected_mode is not None else result
+
+    def _request_status(self, conn, account, cid, request_id):
         request_id = str(UUID(request_id))
         with self.database() as db:
             row = db.execute('SELECT body,result FROM chart_paper_requests WHERE id=? AND account=?', (request_id, account)).fetchone()
@@ -1668,6 +1690,9 @@ class PaperChart:
         """Edit only a wholly unfilled, exactly identified Paper order group."""
         import copy
         import time
+        if 'partial_entry_cancel' in body and (not current.get('partial_entry_cancel')
+                or current['partial_entry_cancel'] != body['partial_entry_cancel'] or body.get('cancel') is not True):
+            raise ValueError('Remaining entry changed; refresh before canceling')
         if body.get('cancel') is True and current.get('position') and current.get('known'):
             if body.get('expected_ref') != group.get('ref') or body.get('expected_snapshot') != current.get('edit_snapshot'):
                 raise ValueError('Order changed; refresh before canceling remaining quantity')

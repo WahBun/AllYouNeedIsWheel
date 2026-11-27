@@ -21,10 +21,10 @@
  const exitLines=new Map(),exitHandles=new Map();
  let exitGesture=null,addGesture=null;
  function pendingAddPlans(paper=paperConfig){
-  const raw=(paper.orders||[]).filter(o=>o.role.split('_')[0]==='entry'&&(o.entry_kind==='add'||paper.position)&&!o.filled&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status)&&o.price>0),groups=new Map();
+  const raw=(paper.orders||[]).filter(o=>o.role.split('_')[0]==='entry'&&(o.entry_kind==='add'||paper.position)&&(!o.filled||o.order_id===paper.partial_entry_cancel?.order_id)&&['Submitted','PreSubmitted','PendingSubmit','PendingCancel'].includes(o.status)&&o.price>0),groups=new Map();
   for(const row of raw){const key=row.add_plan?`plan:${row.add_plan}:${row.price}`:`order:${row.order_id}`;let plan=groups.get(key);
-   if(!plan){plan={...row,key,quantity:0,members:[],add_quantity_editable:true};groups.set(key,plan);}
-   plan.quantity+=row.quantity;plan.members.push(row);plan.add_quantity_editable&&=row.add_quantity_editable===true;
+   if(!plan){plan={...row,entry_kind:row.filled ? 'entry' : row.entry_kind,key,quantity:0,members:[],add_quantity_editable:true};groups.set(key,plan);}
+   plan.quantity+=row.quantity-(row.filled||0);plan.members.push(row);plan.add_quantity_editable&&=row.add_quantity_editable===true;
    if(!['Submitted','PreSubmitted'].includes(row.status))plan.status=row.status;
   }
   return [...groups.values()];
@@ -268,11 +268,13 @@
     const button=document.createElement('button'),cancel=document.createElement('button'),edit=document.createElement('button');cancel.textContent='×';
     document.body.append(button,edit,cancel);compactSegment(button);compactSegment(cancel,false,true,true);compactSegment(edit,false,true);
     const cid=config.con_id,ref=config.paper.order_ref,epoch=config.paper.web_account_epoch,key=order.key;
-    cancel.onclick=e=>{e.stopPropagation();const current=findAddPlan(key);if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||!paperConfig.enabled||paperConfig.busy||!current)return;button.disabled=true;cancel.disabled=true;edit.disabled=true;paperAction({action:'cancel_add',...addContext(current),expected_ref:ref});};
+    cancel.onclick=e=>{e.stopPropagation();const current=findAddPlan(key);if(cid!==paperCID||ref!==paperConfig.order_ref||epoch!==paperConfig.web_account_epoch||!paperConfig.enabled||paperConfig.busy||!current)return;button.disabled=true;cancel.disabled=true;edit.disabled=true;if(current.filled){
+     paperAction({action:'edit_entry',cancel:true,partial_entry_cancel:paperConfig.partial_entry_cancel,expected_ref:ref,expected_snapshot:paperConfig.edit_snapshot});
+    }else paperAction({action:'cancel_add',...addContext(current),expected_ref:ref});};
     cancel.onpointerdown=e=>e.stopPropagation();edit.onpointerdown=e=>e.stopPropagation();edit.onclick=()=>editAddQuantity(key);
     button.style.touchAction='none';button.style.cursor='ns-resize';
     button.onpointerdown=e=>{const current=findAddPlan(key);
-     if(e.button!==0||!paperConfig.enabled||paperConfig.busy||!current||!['Submitted','PreSubmitted'].includes(current.status))return;
+     if(e.button!==0||!paperConfig.enabled||paperConfig.busy||!current||current.filled||!['Submitted','PreSubmitted'].includes(current.status))return;
      addGesture={id,cid,ref,epoch,key,offset:e.clientY-series.priceToCoordinate(current.price),pointer:e.pointerId,start:current.price,price:current.price,position:paperConfig.position,snapshot:JSON.stringify(addSnapshot(current)),context:addContext(current)};
      orderDragCursor('grabbing');button.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();
     };
@@ -281,9 +283,10 @@
    const row=pendingLines.get(id);row.button.style.color=row.cancel.style.color=row.edit.style.color=options.color;if(addGesture?.id!==id)row.price=order.price;
    labelText(row.button,`${order.entry_kind==='entry'?'Entry':order.entry_kind==='unknown'?'Pending':'Add'}${order.status==='PendingCancel'?' · Canceling…':''}`);labelText(row.edit,String(order.quantity));
    row.button.setAttribute('aria-label',`${order.entry_kind==='entry'?'Drag entry order':order.entry_kind==='unknown'?'Drag pending entry':'Drag add order'} ${order.order_id}`);row.button.title='Drag to amend this unfilled add order @ '+priceText(row.price);
-   row.button.disabled=!config.paper.enabled||config.paper.busy||!['Submitted','PreSubmitted'].includes(order.status);
+   const unavailable=!config.paper.enabled||config.paper.busy||!['Submitted','PreSubmitted'].includes(order.status);
+   row.button.disabled=unavailable||Boolean(order.filled);
    row.edit.setAttribute('aria-label','Edit Add quantity');row.edit.title=order.add_quantity_editable?'Edit pending Add quantity':'Quantity editing requires a reconciled pending Add';row.edit.disabled=row.button.disabled||!order.add_quantity_editable;
-   row.cancel.setAttribute('aria-label',`Cancel ${order.entry_kind==='entry'?'entry':order.entry_kind==='unknown'?'pending entry':'add'} order ${order.order_id}`);row.cancel.disabled=row.button.disabled;positionCancelButton(row);
+   row.cancel.setAttribute('aria-label',`Cancel ${order.entry_kind==='entry'?'entry':order.entry_kind==='unknown'?'pending entry':'add'} order ${order.order_id}`);row.cancel.disabled=unavailable;positionCancelButton(row);
   }
  };
  window.showExitBreakdown=role=>{
