@@ -28,8 +28,8 @@ def paper_account(conn, write=False):
     return account
 
 
-def option_replacement_price_rules(conn, contract, prices):
-    """Resolve the option's routed tick schedule before canceling a working entry."""
+def option_entry_price_rules(conn, contract, prices):
+    """Resolve the working option's routed tick schedule before a broker write."""
     state = stock_chart.states.get(contract.conId) or stock_chart.active
     if (state and state.get('con_id') == contract.conId and state.get('price_rules')
             and getattr(state.get('contract'), 'exchange', contract.exchange) == contract.exchange):
@@ -1722,17 +1722,25 @@ class PaperChart:
                 routed = copy.copy(contract); routed.exchange = 'OVERNIGHT'
                 self.validate_overnight_price(conn, routed, cid, amount)
             else:
-                if contract.secType == 'OPT' and tif != current['tif']:
+                if contract.secType == 'OPT':
+                    routes = {t.contract.exchange for t in parents if t.contract.exchange}
+                    if len(routes) > 1:
+                        raise ValueError('Working option entries have different routes; review the order group')
+                    if routes and contract.exchange not in routes:
+                        contract = copy.copy(contract)
+                        contract.exchange = next(iter(routes))
                     # Older iPhones can encode an unchanged limit one float away from
                     # the broker price. Reuse that price, still subject to the route grid.
                     requested_price = body.get('price')
                     working_price = current['entry']
                     if isinstance(requested_price, float) and math.nextafter(requested_price, working_price) == working_price:
                         amount = Decimal(str(working_price))
-                    prices = [value for value in (amount, current['tp'], current['sl']) if value]
-                    rules = option_replacement_price_rules(conn, contract, prices)
+                    prices = [amount]
+                    if extra != 0 or tif != current['tif']:
+                        prices.extend(value for value in (current['tp'], current['sl']) if value)
+                    rules = option_entry_price_rules(conn, contract, prices)
                     if not all(option_price_on_grid(value, rules) for value in prices):
-                        raise ValueError('Replacement price does not match the option route tick size')
+                        raise ValueError('Price does not match the option route tick size')
                     # Keep the exact contract and rules across cancellation and replacement.
                     # Switching charts must not strand the already canceled entry.
                     option_replacement = (contract, rules)

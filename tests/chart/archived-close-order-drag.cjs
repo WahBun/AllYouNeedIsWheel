@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const {randomUUID} = require('node:crypto');
 const {spawn} = require('node:child_process');
 const path = require('node:path');
 const readline = require('node:readline');
@@ -15,11 +16,33 @@ def offline(*args, **kwargs):
 for name in ('connect', 'connect_ex', 'bind', 'sendto'):
     setattr(socket.socket, name, offline)
 from test_full_close_handoff import FullCloseHandoffTests
+from api.services.stock_chart import stock_chart
+from types import SimpleNamespace
 case = FullCloseHandoffTests()
 case.setUp()
 try:
     _, trade, _ = case.prepare_order('OPT', 'IWM', 'P', -1, True, True)
     fixture = case.f
+    place = fixture.conn.ib.placeOrder.side_effect
+    def acknowledge(contract, order):
+        result = place(contract, order)
+        result.order.clientId = 71
+        if not result.order.permId:
+            result.order.permId = 1000 + order.orderId
+        return result
+    fixture.conn.ib.placeOrder.side_effect = acknowledge
+    # The browser retains its display, but the backend has no chart or tick cache.
+    stock_chart.active = None
+    read = fixture.conn._bounded_order_read.side_effect
+    def cold_read(request, *args, **kwargs):
+        if request == fixture.conn.ib.reqContractDetails:
+            assert args[0].conId == trade.contract.conId and args[0].exchange == 'SMART'
+            return [SimpleNamespace(contract=trade.contract, validExchanges='SMART', marketRuleIds='26')]
+        if request == fixture.conn.ib.reqMarketRule:
+            assert args == (26,)
+            return [SimpleNamespace(lowEdge=0, increment=.25)]
+        return read(request, *args, **kwargs)
+    fixture.conn._bounded_order_read.side_effect = cold_read
     for line in sys.stdin:
         message = json.loads(line)
         if message == 'state':
@@ -121,6 +144,36 @@ async function run() {
     const finalCounts = await broker('metrics');
     assert.deepEqual(finalCounts.slice(0,2),[after[0]+1,after[1]+1]);
     console.log('PASS working option: the chart editor changes DAY to GTC with one replacement');
+    await frame.locator('#order-type').press('Enter');
+    await page.locator('#editor').waitFor({state:'visible'});
+    await page.locator('#edit-qty').fill('2');
+    const resizeResponse = page.waitForResponse(r=>r.request().method()==='POST' && r.url().includes('/paper-chart/'));
+    await page.locator('#edit-form button[type=submit]').click();
+    const resized = await (await resizeResponse).json();
+    assert.equal(resized.success,true,resized.message);
+    assert.equal(resized.state.quantity,2);
+    assert.equal(resized.state.entry,writes[0].price);
+    assert.equal(resized.state.tif,'GTC');
+    assert.deepEqual((await broker('metrics')).slice(0,2),[finalCounts[0]+1,finalCounts[1]+1]);
+    console.log('PASS quantity-only option edit with no backend chart retains limit and GTC');
+
+    await frame.waitForFunction(()=>!paperConfig.busy && paperConfig.entry_editable && paperConfig.quantity===2);
+    await frame.locator('#order-type').press('Enter');
+    await page.locator('#editor').waitFor({state:'visible'});
+    const phonePrice = resized.state.entry + 0.25;
+    const phone = await broker({action:'edit_entry', request_id:randomUUID(), price:phonePrice,
+      expected_ref:resized.state.order_ref, expected_snapshot:resized.state.edit_snapshot});
+    assert.equal(phone.success,true,phone.message);
+    const changed = await broker('metrics');
+    await page.locator('#edit-tif').selectOption('DAY');
+    const staleResponse = page.waitForResponse(r=>r.request().method()==='POST' && r.url().includes('/paper-chart/'));
+    await page.locator('#edit-form button[type=submit]').click();
+    assert.equal((await (await staleResponse).json()).status,'rejected');
+    assert.deepEqual(await broker('metrics'),changed);
+    const current = await broker('state');
+    assert.equal(current.entry,phonePrice);
+    assert.equal(current.tif,'GTC');
+    console.log('PASS stale web editor preserves a newer phone price without a broker write');
   } finally {
     await browser.close();
     processHandle.stdin.end();
