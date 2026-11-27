@@ -341,8 +341,8 @@ enum TradeRules {
     static func price(_ text: String) -> Double? {
         guard let value = Decimal(string: text, locale: Locale(identifier: "en_US_POSIX")), value > 0,
               text.range(of: #"^\d+(\.\d{1,2})?$"#, options: .regularExpression) != nil else { return nil }
-        let number = NSDecimalNumber(decimal: value).doubleValue
-        return number.isFinite ? number : nil
+        // NSDecimalNumber.doubleValue can land one float above an entered cent price.
+        return Double(text)
     }
     static func editable(_ order: Order) -> Bool {
         order.id.local != nil && order.external_ib != true && order.executed != true && order.status.lowercased() == "pending"
@@ -371,7 +371,8 @@ enum TradeRules {
               (state["allowed_tifs"] as? [String] ?? ["DAY", "GTC"]).contains(tif),
               tif != "OVERNIGHT" || state["mode"] as? String == "overnight_entry" || confirmRemoveProtection else { return nil }
         return ["action": "edit_entry", "expected_ref": ref, "expected_snapshot": snapshot,
-                "price": price, "quantity": quantity, "tif": tif, "confirm_remove_protection": confirmRemoveProtection]
+                "price": NSDecimalNumber(string: String(price), locale: Locale(identifier: "en_US_POSIX")),
+                "quantity": quantity, "tif": tif, "confirm_remove_protection": confirmRemoveProtection]
     }
     static func chartManageable(_ order: Order) -> Bool {
         order.chart_con_id != nil && order.chart_order_ref?.hasPrefix("WheelPaper:") == true &&
