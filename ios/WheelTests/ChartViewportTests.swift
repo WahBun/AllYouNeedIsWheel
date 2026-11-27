@@ -190,6 +190,33 @@ final class ChartViewportTests: XCTestCase {
         }
     }
 
+    func testFibPresetChangesOnlySelectedDrawing() async throws {
+        let (web, window) = try await loadNativeChart(includeDrawingTools: true)
+        defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }
+        let result = try await web.callAsyncJavaScript("""
+        const bars=Array.from({length:60},(_,i)=>({time:1000+i*300,open:100,high:115,low:95,close:105}));
+        receive({con_id:7,interval:5,generation:'fib',session:'all',bars});
+        const points=[{time:bars[30].time,price:110},{time:bars[40].time,price:100}];
+        configureDrawings({key:'presets',value:{drawings:[
+          {id:'old',type:'fib',p:points},{id:'mm',type:'fib',fibPreset:'mm',p:points}]}});
+        const nextPaint=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        const prices=id=>Array.from(document.querySelectorAll('[data-drawing="'+id+'"] text'),el=>Number(el.textContent));
+        await nextPaint();
+        const original=prices('old');
+        document.querySelector('[data-drawing=old]').dispatchEvent(new MouseEvent('click',{bubbles:true}));
+        const selector=document.querySelector('select[aria-label="Fib preset"]');
+        selector.value='retracement';
+        selector.dispatchEvent(new Event('change'));
+        await nextPaint();
+        return [original,prices('old'),prices('mm')];
+        """, arguments: [:], in: nil, contentWorld: .page)
+        XCTAssertEqual(result as? [[Double]], [
+            [100, 103.82, 105, 110, 115, 120, 125, 130],
+            [100, 103.82, 105, 110],
+            [100, 110, 115, 120, 125, 130]
+        ])
+    }
+
     func testNativeChartPaintsMajorTicksAndCenteredWeekday() async throws {
         let (web, window) = try await loadNativeChart()
         defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }
