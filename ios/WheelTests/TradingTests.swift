@@ -266,7 +266,7 @@ final class TradingTests: XCTestCase {
 
         MockProtocol.requests = []
         MockProtocol.payload = { request in
-            if request.httpMethod == "GET" { return ["confirmed": true, "message": "Time in force updated"] }
+            if request.httpMethod == "GET" { return ["confirmed": true, "account_mode": "live", "message": "Time in force updated"] }
             return ["success": false, "status": "unknown", "orders": []]
         }
         let unconfirmed = await store.trading.amendExitTIF(order, tif: "DAY", store: store)
@@ -508,6 +508,7 @@ final class TradingTests: XCTestCase {
     func testOptionalProtectionWriteOmitsDisabledStop() async throws {
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
         let client = TradingSession(session: URLSession(configuration: config))
+        client.accountMode = "paper"
         MockProtocol.requests = []; MockProtocol.statusCode = 200; MockProtocol.fail = false
         MockProtocol.payload = { _ in ["success": true, "status": "acknowledged"] }
         defer { MockProtocol.payload = nil }
@@ -525,6 +526,7 @@ final class TradingTests: XCTestCase {
     func testProtectionCancellationKeepsIndependentGroupIdentity() async throws {
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
         let client = TradingSession(session: URLSession(configuration: config))
+        client.accountMode = "paper"
         MockProtocol.requests = []; MockProtocol.statusCode = 200; MockProtocol.fail = false
         MockProtocol.payload = { _ in ["success": true, "status": "canceled"] }
         defer { MockProtocol.payload = nil }
@@ -556,15 +558,16 @@ final class TradingTests: XCTestCase {
         let order = try JSONDecoder().decode(Order.self, from: JSONSerialization.data(withJSONObject: row))
         XCTAssertTrue(TradeRules.chartManageable(order))
         var snapshotID = 73
+        let webPrice = 0.74
         MockProtocol.requests = []; MockProtocol.statusCode = 200; MockProtocol.fail = false
         defer { MockProtocol.payload = nil }
         MockProtocol.payload = { request in
             if request.httpMethod == "POST" { return ["success": true, "status": "acknowledged"] }
-            return ["order_ref": ref, "entry_editable": true, "entry": 0.69, "quantity": 2.0,
-                    "tif": "DAY", "edit_snapshot": [["order_id": snapshotID, "filled": 0]]]
+            return ["order_ref": ref, "entry_editable": true, "entry": webPrice, "quantity": 2.0,
+                    "tif": "DAY", "edit_snapshot": [["order_id": snapshotID, "filled": 0, "price": webPrice]]]
         }
         func amend() async -> Bool {
-            await store.trading.manageChartEntry(order, operation: "amend", price: 0.69, quantity: 1, tif: "GTC", store: store)
+            await store.trading.manageChartEntry(order, operation: "amend", price: 0.69, quantity: 2, tif: "GTC", store: store)
         }
         let stale = await amend()
         XCTAssertFalse(stale)
@@ -581,8 +584,27 @@ final class TradingTests: XCTestCase {
         let body = try XCTUnwrap(JSONSerialization.jsonObject(with: stream) as? [String: Any])
         XCTAssertEqual(body["action"] as? String, "edit_entry")
         XCTAssertEqual(body["expected_ref"] as? String, ref)
-        XCTAssertEqual(body["quantity"] as? Int, 1)
+        XCTAssertNil(body["quantity"])
         XCTAssertEqual(body["tif"] as? String, "GTC")
+        XCTAssertNil(body["price"])
+        XCTAssertEqual((body["expected_snapshot"] as? [[String: Any]])?.first?["price"] as? Double, webPrice)
+
+        var refreshed = order
+        refreshed.premium = webPrice
+        for (price, quantity) in [(0.75, 2), (webPrice, 1)] {
+            MockProtocol.requests = []
+            let sent = await store.trading.manageChartEntry(refreshed, operation: "amend", price: price,
+                                                            quantity: quantity, tif: "DAY", store: store)
+            XCTAssertTrue(sent)
+            let writes = MockProtocol.requests.filter { $0.httpMethod == "POST" }
+            XCTAssertEqual(writes.count, 1)
+            let stream = try XCTUnwrap(writes.first?.httpBodyStream)
+            stream.open(); defer { stream.close() }
+            let edit = try XCTUnwrap(JSONSerialization.jsonObject(with: stream) as? [String: Any])
+            XCTAssertEqual(edit["price"] as? Double, price == webPrice ? nil : price)
+            XCTAssertEqual(edit["quantity"] as? Int, quantity == 2 ? nil : quantity)
+            XCTAssertNil(edit["tif"])
+        }
     }
 
     func testChartEntryManagementKeepsIndependentGroupIdentity() async throws {
@@ -758,6 +780,42 @@ final class TradingTests: XCTestCase {
         XCTAssertFalse(gate.accept(1))
     }
 
+    func testCoveredCallOrderDetailSendsOnlyRequestedTermsForGTC() throws {
+        let order = Order(id: 1, ticker: "TEST", action: "SELL", option_type: "CALL", premium: 20.63,
+                          quantity: 1, status: "submitted", tif: "DAY", chart_con_id: 7,
+                          chart_order_ref: "WheelPaper:test", ib_order_id: 17)
+        let snapshot: [[String: Any]] = [["order_id": 17, "price": 20.63, "quantity": 1, "filled": 0,
+                                          "tif": "DAY", "status": "Submitted"]]
+        let state: [String: Any] = ["order_ref": "WheelPaper:test", "entry_editable": true, "entry": 20.63,
+                                    "quantity": 1.0, "tif": "DAY", "allowed_tifs": ["DAY", "GTC"], "edit_snapshot": snapshot]
+        let body = try XCTUnwrap(TradeRules.chartEditRequest(order, state: state, price: TradeRules.price("20.63"),
+                                                quantity: 1, tif: "GTC", confirmRemoveProtection: false))
+        XCTAssertNil(body["price"])
+        XCTAssertNil(body["quantity"])
+        XCTAssertEqual(body["tif"] as? String, "GTC")
+        let moved = state.merging(["entry": 21.10, "quantity": 2.0,
+                                   "edit_snapshot": [["order_id": 17, "price": 21.10, "quantity": 2, "filled": 0,
+                                                      "tif": "DAY", "status": "Submitted"]]]) { _, new in new }
+        let tifOnly = try XCTUnwrap(TradeRules.chartEditRequest(order, state: moved, price: TradeRules.price("20.63"),
+                                                               quantity: 1, tif: "GTC", confirmRemoveProtection: false))
+        XCTAssertNil(tifOnly["price"])
+        XCTAssertNil(tifOnly["quantity"])
+        XCTAssertEqual(tifOnly["tif"] as? String, "GTC")
+        XCTAssertEqual((tifOnly["expected_snapshot"] as? [[String: Any]])?.first?["price"] as? Double, 21.10)
+        XCTAssertNil(TradeRules.chartEditRequest(order, state: moved, price: 20.70, quantity: 1, tif: "DAY", confirmRemoveProtection: false))
+        let priceOnly = try XCTUnwrap(TradeRules.chartEditRequest(order, state: state, price: TradeRules.price("21.63"),
+                                                                  quantity: 1, tif: "DAY", confirmRemoveProtection: false))
+        let data = try JSONSerialization.data(withJSONObject: priceOnly)
+        struct Terms: Decodable { let price: Decimal }
+        XCTAssertEqual(try JSONDecoder().decode(Terms.self, from: data).price, Decimal(string: "21.63"))
+        let wire = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(wire["action"] as? String, "edit_entry")
+        XCTAssertNil(wire["tif"])
+        XCTAssertEqual(wire["price"] as? Double, 21.63)
+        XCTAssertNil(wire["quantity"])
+        XCTAssertEqual((wire["expected_snapshot"] as? [[String: Any]])?.first?["order_id"] as? Int, 17)
+    }
+
     func testChartOrderSettingsUseFreshIdentityAndPreserveAllFields() {
         let order = Order(id: 1, ticker: "TQQQ", action: "BUY", option_type: "STOCK", premium: 79.5, quantity: 100, status: "presubmitted", tif: "DAY", chart_con_id: 7, chart_order_ref: "WheelPaper:a")
         let state: [String: Any] = ["order_ref": "WheelPaper:a", "entry_editable": true, "entry": 79.5, "quantity": 100.0, "tif": "DAY", "allowed_tifs": ["DAY", "GTC", "OVERNIGHT"], "edit_snapshot": [["order_id": 1, "filled": 0]], "mode": "bracket"]
@@ -786,12 +844,14 @@ final class TradingTests: XCTestCase {
         defer { defaults.set(saved, forKey: "pendingPaperChartRequests"); defaults.set(legacy, forKey: "unresolvedTradingWrite"); MockProtocol.fail = false; MockProtocol.payload = nil }
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
         let client = TradingSession(session: URLSession(configuration: config))
+        client.accountMode = "paper"
         MockProtocol.statusCode = 200; MockProtocol.requests = []; MockProtocol.fail = true
         do { _ = try await client.paperChartWrite(base: "https://mock.invalid", conID: 7, body: ["action": "edit_entry", "price": 79.54]); XCTFail("Timeout expected") } catch { }
         XCTAssertTrue(client.paperPending(base: "https://mock.invalid", conID: 7))
         XCTAssertFalse(client.paperPending(base: "https://mock.invalid", conID: 8))
         XCTAssertFalse(client.uncertain)
         let restarted = TradingSession(session: URLSession(configuration: config))
+        restarted.accountMode = "paper"
         XCTAssertTrue(restarted.paperPending(base: "https://mock.invalid", conID: 7))
         MockProtocol.fail = false
         MockProtocol.payload = { req in req.httpMethod == "GET" ? ["confirmed": false] : ["status": "working"] }
@@ -800,7 +860,7 @@ final class TradingTests: XCTestCase {
         _ = try await restarted.paperChartWrite(base: "https://mock.invalid", conID: 8, body: ["action": "edit_entry", "price": 50])
         XCTAssertFalse(restarted.paperPending(base: "https://mock.invalid", conID: 8))
         let recovery = "Original entry canceled. No replacement order was submitted."
-        MockProtocol.payload = { _ in ["confirmed": true, "status": "canceled", "message": recovery] }
+        MockProtocol.payload = { _ in ["confirmed": true, "account_mode": "paper", "status": "canceled", "message": recovery] }
         let recoveredMessage = await restarted.reconcilePaper(base: "https://mock.invalid", conID: 7)
         XCTAssertEqual(recoveredMessage, recovery)
         let repeatedMessage = await restarted.reconcilePaper(base: "https://mock.invalid", conID: 7)
@@ -815,6 +875,7 @@ final class TradingTests: XCTestCase {
         defer { defaults.set(saved, forKey: "pendingPaperChartRequests"); MockProtocol.payload = nil }
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
         let client = TradingSession(session: URLSession(configuration: config))
+        client.accountMode = "paper"
         client.uncertain = true // legacy lock must not disable verified Paper endpoint
         MockProtocol.fail = false; MockProtocol.statusCode = 200
         for status in ["rejected", "pending", "working"] {
@@ -2604,5 +2665,100 @@ extension TradingTests {
         do { _ = try await task.value; XCTFail("Must cancel") } catch {}
         XCTAssertEqual(AccountSelectionRetryProtocol.requests.map { $0.httpMethod }, ["GET"])
         XCTAssertFalse(client.busy)
+    }
+}
+
+extension TradingTests {
+    func testChartClaimsSurviveProfileSwitchRestartAndLegacyMigration() async throws {
+        let defaults = UserDefaults.standard, key = "pendingPaperChartRequests"
+        let original = defaults.object(forKey: key)
+        defer { defaults.set(original, forKey: key); MockProtocol.payload = nil; MockProtocol.fail = false }
+        let base = "https://mock.invalid", cid = 73, group = UUID().uuidString
+        let legacy = UUID().uuidString
+        let scopedID = UUID().uuidString
+        defaults.set([base + "|75": legacy, "live|" + base + "|75": scopedID], forKey: key)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        let client = TradingSession(session: URLSession(configuration: config))
+        MockProtocol.requests = []; MockProtocol.statusCode = 200; MockProtocol.fail = true
+        for mode in ["paper", "live"] {
+            client.accountMode = mode; client.accountEpoch = mode + "-epoch"
+            XCTAssertFalse(client.paperPending(base: base, conID: cid, groupID: group))
+            do {
+                _ = try await client.paperChartWrite(base: base, conID: cid, body: ["action": "edit_entry", "group_id": group])
+                XCTFail("Expected lost reply")
+            } catch {}
+            XCTAssertTrue(client.paperPending(base: base, conID: cid, groupID: group))
+        }
+        let restarted = TradingSession(session: URLSession(configuration: config))
+        MockProtocol.fail = false
+        var served = "paper"
+        MockProtocol.payload = { _ in ["account_mode": served, "confirmed": true, "status": "reconciled"] }
+        restarted.accountMode = "live"
+        await restarted.reconcilePaper(base: base, conID: cid, groupID: group)
+        XCTAssertTrue(restarted.paperPending(base: base, conID: cid, groupID: group))
+        for mode in ["live", "paper"] {
+            served = mode; restarted.accountMode = mode; restarted.accountEpoch = mode + "-new"
+            XCTAssertTrue(restarted.paperPending(base: base, conID: cid, groupID: group))
+            XCTAssertTrue(restarted.paperPending(base: base, conID: 75))
+            await restarted.reconcilePaper(base: base, conID: cid, groupID: group)
+            if mode == "live" {
+                await restarted.reconcilePaper(base: base, conID: 75)
+                XCTAssertTrue(restarted.paperPending(base: base, conID: 75))
+            }
+            await restarted.reconcilePaper(base: base, conID: 75)
+            XCTAssertFalse(restarted.paperPending(base: base, conID: cid, groupID: group))
+            XCTAssertFalse(restarted.paperPending(base: base, conID: 75))
+        }
+        let reads = MockProtocol.requests.filter { $0.httpMethod == "GET" }.map {
+            Dictionary(uniqueKeysWithValues: URLComponents(url: $0.url!, resolvingAgainstBaseURL: false)!.queryItems!.map { ($0.name, $0.value!) })
+        }
+        XCTAssertEqual(reads.map { $0["account_mode"] }, ["live", "live", "live", "live", "paper", "paper"])
+        XCTAssertEqual(reads.filter { $0["request_id"] == legacy }.count, 2)
+        XCTAssertEqual(reads[2]["request_id"], scopedID)
+        XCTAssertNotEqual(reads[1]["request_id"], reads[4]["request_id"])
+        XCTAssertEqual(MockProtocol.requests.filter { $0.httpMethod == "POST" }.count, 2)
+    }
+
+    func testOrdersCancelsOnlyExactPartiallyFilledOptionParent() async throws {
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MockProtocol.self]
+        let session = URLSession(configuration: config)
+        let store = WheelStore(session: session)
+        store.trading = TradingSession(session: session)
+        store.demo = false; store.address = "https://mock.invalid"; store.updated = .now
+        let ref = "WheelPaper:" + UUID().uuidString
+        let target = ["order_id": 41, "perm_id": 45, "client_id": 71]
+        let raw: [String: Any] = ["id":"ib-opt-45", "external_ib":true, "option_type":"CALL", "action":"SELL",
+            "quantity":4, "filled":1, "status":"submitted", "ib_order_id":41, "perm_id":45, "client_id":71,
+            "con_id":73, "chart_remainder_ref":ref]
+        let order = try JSONDecoder().decode(Order.self, from: JSONSerialization.data(withJSONObject: raw))
+        XCTAssertTrue(TradeRules.cancelable(order)); XCTAssertFalse(TradeRules.chartManageable(order))
+        MockProtocol.fail = false; MockProtocol.statusCode = 200
+        defer { MockProtocol.payload = nil }
+        for mode in ["paper", "live"] {
+            store.trading.accountEpoch = mode
+            store.portfolio = Bootstrap(summary: Summary(account_value: 1000, cash_balance: 500), positions: [],
+                connection: AccountConnection(mode: mode, execution_enabled: false, chart_execution_enabled: true))
+            for filled in [2, 1] {
+                MockProtocol.requests = []
+                MockProtocol.payload = { req in
+                    if req.httpMethod == "GET" {
+                        return ["known":true, "position":-filled, "entry_editable":false, "order_ref":ref, "partial_entry_cancel":target,
+                                "edit_snapshot":[["order_id":41, "quantity":4, "filled":filled, "status":"Submitted"]]]
+                    }
+                    let stream = req.httpBodyStream!; stream.open(); defer { stream.close() }
+                    var bytes = [UInt8](repeating: 0, count: 4096)
+                    let count = stream.read(&bytes, maxLength: bytes.count)
+                    let body = try! JSONSerialization.jsonObject(with: Data(bytes.prefix(count))) as! [String: Any]
+                    XCTAssertEqual(body["action"] as? String, "edit_entry"); XCTAssertEqual(body["cancel"] as? Bool, true)
+                    XCTAssertEqual(body["partial_entry_cancel"] as? [String: Int], target)
+                    XCTAssertNil(body["quantity"]); XCTAssertNil(body["price"])
+                    return ["success":true, "status":"canceled"]
+                }
+                let success = await store.trading.cancelFromOrders(order, store: store)
+                XCTAssertEqual(success, filled == 1)
+                XCTAssertEqual(MockProtocol.requests.map { $0.httpMethod! }, filled == 1 ? ["GET", "POST"] : ["GET"])
+            }
+        }
     }
 }

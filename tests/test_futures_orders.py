@@ -65,6 +65,11 @@ class FuturesOrdersTests(unittest.TestCase):
             partial.orderStatus.filled = 1
             for opened in ([], None, [trade, partial], [partial, trade]):
                 self.assertNotIn('chart_order_ref',row(opened))
+                self.assertNotIn('chart_remainder_ref',row(opened))
+            trade.orderStatus.filled = 1
+            self.assertEqual(row([trade])['chart_remainder_ref'], ref)
+            self.assertNotIn('chart_order_ref', row([trade]))
+            trade.orderStatus.filled = 0
             for obj, field, changed in [(trade.order,'clientId',17),(trade.order,'permId',456),
                     (trade.order,'orderId',51),(trade.order,'action','BUY'),(trade.order,'parentId',5),
                     (trade.orderStatus,'filled',1),(trade.orderStatus,'status','PendingCancel'),

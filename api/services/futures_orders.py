@@ -52,20 +52,22 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
         if not snapshot:
             return []
         trades = snapshot.get('authoritative_open_trades')
-        if not account.startswith('DU'):
-            for opened in trades or ():
-                order, status = opened.order, opened.orderStatus
-                if order.account != account:
-                    continue
-                perm = status.permId or order.permId
-                key = (opened.contract.conId, perm)
-                # A second snapshot can show a partial fill or pending cancel.
-                # A cached display row must not override that observation.
-                working = (not order.parentId and status.status in ('Submitted','PreSubmitted')
-                           and status.filled == 0 and not opened.fills
-                           and order.permId in (0, perm))
-                terms = (order.orderRef, order.clientId, order.orderId, order.action, order.totalQuantity)
-                confirmed_entries.setdefault(key, set()).add(terms if working else None)
+        for opened in trades or ():
+            order, status = opened.order, opened.orderStatus
+            if order.account != account or (account.startswith('DU') and opened.contract.secType != 'OPT'):
+                continue
+            perm = status.permId or order.permId
+            key = (opened.contract.conId, perm)
+            working = (not order.parentId and status.status in ('Submitted','PreSubmitted')
+                       and order.permId in (0, perm))
+            filled = float(status.filled or 0)
+            if opened.fills:
+                executions = {f.execution.execId: f.execution.shares for f in opened.fills
+                              if f.execution.acctNumber == account and f.contract.conId == opened.contract.conId}
+                filled = max(filled, sum(map(float, executions.values())))
+                working = working and filled > 0
+            terms = (order.orderRef, order.clientId, order.orderId, order.action, order.totalQuantity, filled)
+            confirmed_entries.setdefault(key, set()).add(terms if working else None)
         if trades is None:
             trades = snapshot.get('trades', [])
         trades = snapshot.get('display_trades', trades)
@@ -164,14 +166,19 @@ def futures_orders(conn, completed=False, db_path=None, status_snapshot=None):
                        and (o.orderId in (request.get('entry_ids') or []) or
                             (request.get('entry_ids') is None and request.get('mode') == 'overnight_entry')))
         live_entry = False
-        if (chart_owned and not account.startswith('DU') and not completed
+        if (chart_owned and not completed
                 and request.get('entry_ids') == [o.orderId] and request.get('entry_perm') == perm and perm > 0
                 and o.clientId == conn.client_id and o.permId in (0, perm)
-                and confirmed_entries.get((c.conId, perm)) == {(ref, o.clientId, o.orderId, o.action, o.totalQuantity)}
-                and filled == 0 and s.status in ('Submitted', 'PreSubmitted')
+                and confirmed_entries.get((c.conId, perm)) == {(ref, o.clientId, o.orderId, o.action, o.totalQuantity, filled)}
+                and s.status in ('Submitted', 'PreSubmitted')
                 and request.get('side') == {'BUY': 1, 'SELL': -1}.get(o.action) and o.action in ('BUY', 'SELL')):
             from api.services.live_options import contract_allowed
-            live_entry = contract_allowed(conn, c)
+            live_allowed = not account.startswith('DU') and contract_allowed(conn, c)
+            live_entry = live_allowed and filled == 0
+            if (c.secType == 'OPT' and (paper_entry or live_allowed) and not o.parentId
+                    and 0 < filled < o.totalQuantity and request.get('order_ids') == [o.orderId]):
+                result[identity]['chart_remainder_ref'] = ref
+                result[identity]['chart_group_id'] = request.get('group_id') or ''
         if chart_owned and not o.parentId and (paper_entry or live_entry):
             result[identity]['chart_con_id'] = c.conId
             result[identity]['chart_order_ref'] = ref

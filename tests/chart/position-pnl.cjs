@@ -6,14 +6,15 @@ const {start}=require('./market-feed/harness.cjs');
   p.on('pageerror',e=>errors.push(e.message));
   let rows=[
    {con_id:8,symbol:'NVDA',position:100,avg_cost:10,unrealized_pnl:125,security_type:'STK'},
-   {con_id:9,symbol:'NVDA',local_symbol:'NVDA 20NOV26 9 P',position:-1,avg_cost:97.23,multiplier:100,unrealized_pnl:-12.5,security_type:'OPT'},
+   {con_id:9,symbol:'NVDA',expiration:'20270115',strike:150,option_type:'CALL',entry_fill_price:14.28,position:-1,avg_cost:97.23,multiplier:100,unrealized_pnl:-12.5,security_type:'OPT'},
    {con_id:10,symbol:'VOO',position:2,avg_cost:500,unrealized_pnl:0},
    {con_id:11,symbol:'MISSING',position:1,avg_cost:10,unrealized_pnl:null},
    {con_id:12,symbol:'NO COST',position:1,avg_cost:null,unrealized_pnl:5},
    {con_id:13,symbol:'ZERO COST',position:1,avg_cost:0,unrealized_pnl:5},
    {con_id:14,symbol:'BIG',position:10,avg_cost:1000,unrealized_pnl:1234567.89},
-   {con_id:30,symbol:'TQQQ',local_symbol:'TQQQ 20NOV26 60 P',position:-1,security_type:'OPT'},
-   ...['QQQ','QQQM','SPY','SGOV','TQQQ','QLD','UPRO'].map((symbol,i)=>({con_id:15+i,symbol,position:1,security_type:'STK'}))
+   {con_id:30,symbol:'TQQQ',expiration:'20261120',strike:60,option_type:'PUT',entry_fill_price:null,avg_cost:15,multiplier:10,position:-1,security_type:'OPT'},
+   ...['QQQ','QQQM','SPY','SGOV','TQQQ','QLD','UPRO'].map((symbol,i)=>({con_id:15+i,symbol,position:1,security_type:'STK'})),
+   {con_id:31,symbol:'TSLL',expiration:'20261218',strike:9,option_type:'CALL',position:-3,security_type:'OPT',entry_fill_price:0,avg_cost:150,multiplier:0,market_price:1.32}
   ];
   await p.route('**/api/portfolio/bootstrap*',r=>{assert.equal(r.request().method(),'GET');return r.fulfill({json:{positions:rows}})});
   await p.route('**/static/js/superchart.js',async r=>{const res=await r.fetch();await r.fulfill({response:res,body:(await res.text()).replace(/\}\)\(\);?\s*$/,'window.positionTest={refresh};})();')})});
@@ -22,18 +23,27 @@ const {start}=require('./market-feed/harness.cjs');
   const allButtons=p.locator('#positions button');
   // Find contracts by label so the default option-first sorting does not affect assertions.
   const lettering={NVDA:'ℕ𝕍𝔻𝔸',VOO:'𝕍𝕆𝕆',QQQ:'ℚℚℚ',TQQQ:'𝕋ℚℚℚ',QQQM:'ℚℚℚ𝕄',SPY:'𝕊ℙ𝕐',SGOV:'𝕊𝔾𝕆𝕍'};
-  const byRow=rows.map(row=>{
-   const label=(lettering[row.symbol]||row.symbol)+(row.local_symbol||row.symbol).slice(row.symbol.length);
-   return allButtons.filter({has:p.locator('.position-label',{hasText:label+' · '+row.position})});
-  });
+  const optionLabels={
+   9:'NVDA · 01/15/27 · 150C@14.28 · -1',
+   30:'TQQQ · 11/20/26 · 60P@1.50* · -1',
+   31:'TSLL · 12/18/26 · 9C@— · -3'
+  };
+  const labels=rows.map(row=>optionLabels[row.con_id]??(row.symbol+' · '+row.position));
+  const byRow=labels.map(name=>p.getByRole('button',{name:name+'; Unrealized P&L',exact:false}));
   const buttons={nth:i=>byRow[i],first:()=>byRow[0]};
   for(const i of [0,1]){
    const name=buttons.nth(i).locator('.core-symbol');
    assert.equal(await name.textContent(),'ℕ𝕍𝔻𝔸');
    assert.equal(await name.evaluate(e=>getComputedStyle(e).color),dark?'rgb(40, 164, 153)':'rgb(18, 105, 95)');
    assert.equal(await name.evaluate(e=>getComputedStyle(e).animationName),'symbol-gradient-flow');
-   assert.equal(await buttons.nth(i).locator('.position-label').getAttribute('aria-label'),(rows[i].local_symbol||'NVDA')+' · '+rows[i].position);
+   assert.equal(await buttons.nth(i).locator('.position-label').getAttribute('aria-label'),labels[i]);
   }
+  for(const [index,expected] of [[1,'@14.28'],[7,'@1.50*'],[rows.length-1,'@—']]){
+   const entry=buttons.nth(index).locator('.position-entry');
+   assert.equal(await entry.textContent(),expected);
+   assert.equal(await entry.evaluate(e=>getComputedStyle(e).color),dark?'rgb(194, 166, 240)':'rgb(125, 89, 176)');
+  }
+  assert.equal(await buttons.first().locator('.position-entry').count(),0);
   const palette=symbol=>allButtons.locator('.core-symbol[data-lettering="'+(lettering[symbol]||symbol)+'"]').first()
    .evaluate(e=>[getComputedStyle(e).color,getComputedStyle(e).backgroundImage,getComputedStyle(e,'::after').backgroundImage]);
   const nvda=await palette('NVDA'),sgov=await palette('SGOV');

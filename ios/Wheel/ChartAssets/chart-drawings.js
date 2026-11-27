@@ -3,6 +3,8 @@
 const tools=[['trend','Trendline','╱',2],['info','Info line','↗',2],['hray','Horizontal ray','⊢',1],['channel','Parallel channel','∥',3],['fib','Fib retracement','☰',2],['fibext','Trend-based fib extension','≋',3],['long','Long position','L',1],['short','Short position','S',1],['range','Price range','↕',2],['highlight','Highlighter','▰',0],['arrow','Arrow','➚',2],['up','Arrow mark up','⇧',1],['down','Arrow mark down','⇩',1],['rect','Rectangle','□',2],['path','Path','⌁',0],['triangle','Triangle','△',3],['curve','Curve','∿',3],['text','Text','T',1],['note','Note','▣',1],['price','Price note','$',2]];
 const referenceOrder=['fib','hray','trend','text','long','up','price','arrow','triangle','info','channel','rect','fibext','path','range','curve','highlight','note','down','short'];
 let toolStyles={};
+const fibLevels={retracement:[0,.382,.5,1],mm:[0,1,1.5,2,2.5,3]};
+const originalFibLevels=[0,.382,.5,1,1.5,2,2.5,3];
 let stayInDrawingMode=false;
 let order=[...referenceOrder],magnet='weak',snapFeedback=null,ghost=null,gesture=null,cursor=null;
 const iconPaths={trend:'M4 20L20 4',info:'M4 20L20 4M14 4h6v6M14 17h7v5h-7z',hray:'M4 12h18M4 10v4',channel:'M3 15L17 3M7 21L21 9',fib:'M3 4h18M3 9h18M3 15h18M3 21h18',fibext:'M3 10L10 4L16 8M3 13h18M3 17h18M3 21h18',long:'M6 3h16M3 16.5h19M6 21h16M11 7v6h5',short:'M6 3h16M3 7.5h19M6 21h16M16 11.5C14.5 9.8 10.5 10.2 10.5 12.3C10.5 14.7 16.5 13.5 16.5 16C16.5 18.3 12.3 18.7 10.5 17',range:'M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4M3 3h18M3 21h18',highlight:'M4 18L15 3l6 5L10 22zM2 22h12',arrow:'M4 20L20 4M12 4h8v8',up:'M12 3l9 10h-6v8H9v-8H3z',down:'M12 21L3 11h6V3h6v8h6z',rect:'M4 4h16v16H4z',path:'M2 18l6-8 6 5 8-12M16 3h6v6',triangle:'M4 3l16 17H4z',curve:'M3 21Q3 3 21 3',text:'M3 4h18M12 4v17M8 21h8',note:'M3 3h18v14h-7l-5 5v-5H3zM7 7h10M12 7v7',price:'M3 3h18v14H3zM12 17v5M15 6H9v4h6v4H9M12 4v12'};
@@ -18,6 +20,9 @@ body.draw-price-active #price-order-add,body.draw-price-active #crosshair-price-
 #draw-hint[data-tool="path"]{left:54px;bottom:62px;max-width:calc(100% - 114px);line-height:1.25}
 body>#draw-properties{position:absolute;top:clamp(4px,10%,60px);left:4px;z-index:11;flex-direction:row;align-items:center;max-width:calc(100% - 12px);width:max-content;max-height:40px;box-sizing:border-box;overflow-x:auto;overflow-y:hidden;gap:2px;padding:3px;margin:0;border:1px solid #555;border-radius:6px;background:#242625f5;color:#eee}
 body>#draw-properties button{min-width:30px;width:30px}
+.fib-preset{position:relative;display:grid;place-items:center;flex:none;width:36px;height:32px;font:600 10px -apple-system,sans-serif;cursor:pointer}
+.fib-preset select{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.fib-preset:focus-within{outline:1px solid currentColor;outline-offset:-2px}
 #draw-properties button[data-path-end][aria-pressed="true"]{background:#52675f}
 body.draw-tools-hidden #draw-toolbar{clip-path:inset(100% 0 0);opacity:0;visibility:hidden;pointer-events:none;transition:clip-path .16s ease-out,opacity .16s ease-out,visibility 0s .16s}
 @media(hover:hover){#draw-favorites button:not(.on):hover{background:#373b3a}}
@@ -314,7 +319,7 @@ function pathOptions(value){
  }
  return options;
 }
-function rememberStyle(d){toolStyles[d.type]=JSON.parse(JSON.stringify({color:d.color,width:d.width,dash:d.dash,...(d.type==='path'?pathOptions(d):{}),...(d.type==='text'?{fontSize:textSize(d),bold:d.bold!==false,italic:d.italic!==false}:{})}));save();}
+function rememberStyle(d){toolStyles[d.type]=JSON.parse(JSON.stringify({...(d.type==='fib'?toolStyles.fib:{}),color:d.color,width:d.width,dash:d.dash,...(d.type==='path'?pathOptions(d):{}),...(d.type==='text'?{fontSize:textSize(d),bold:d.bold!==false,italic:d.italic!==false}:{})}));save();}
 function syncToolVisibility(){
  const shown=toolsShown();
  document.body.classList.toggle('draw-tools-hidden',!shown);
@@ -512,9 +517,44 @@ function showLineWidthMenu(control,d){
 document.addEventListener('pointerdown',e=>{if(!e.target.closest?.('#draw-line-width,[aria-label="Drawing line width"]'))closeLineWidthMenu();},true);
 window.addEventListener('resize',closeLineWidthMenu);
 window.addEventListener('chart-viewport-resized',closeLineWidthMenu);
+function appendFibPreset(d){
+ const preset=d?d.fibPreset:(toolStyles.fib?.fibPreset??'retracement');
+ const current=Object.hasOwn(fibLevels,preset)?preset:'original';
+ const label=document.createElement('label');label.className='fib-preset';
+ const caption=document.createTextNode('');
+ label.append(caption);
+ const select=document.createElement('select');
+ select.setAttribute('aria-label','Fib preset');
+ if(current==='original'){const original=new Option('Original levels','original');original.disabled=true;select.add(original);}
+ select.add(new Option('Retracement','retracement'));select.add(new Option('Measured move (MM)','mm'));
+ select.value=current;
+ const updateCaption=()=>{
+  caption.data={retracement:'RET ▾',mm:'MM ▾',original:'Fib ▾'}[select.value];
+  label.title='Fib preset · '+select.selectedOptions[0].text;
+ };
+ updateCaption();
+ select.disabled=locked||!!d?.locked;
+ select.onchange=()=>{
+  if(locked||!Object.hasOwn(fibLevels,select.value))return;
+  if(d){
+   if(d.locked||d.id!==selected||!drawings.includes(d))return;
+   remember();d.fibPreset=select.value;
+  }else{
+   if(active!=='fib')return;
+   if(draft)draft.fibPreset=select.value;
+  }
+  toolStyles.fib={...toolStyles.fib,fibPreset:select.value};
+  select.querySelector('option[value="original"]')?.remove();
+  updateCaption();save(!!d);
+ };
+ label.append(select);properties.append(label);
+}
 function renderProperties(){
  closeLineWidthMenu();
- renderTextProperties();properties.replaceChildren();const d=drawings.find(d=>d.id===selected);properties.style.display=d&&d.type!=='text'&&!active?'flex':'none';if(!d||active||d.type==='text')return;
+ renderTextProperties();properties.replaceChildren();
+ if(active==='fib'){properties.style.display='flex';appendFibPreset();return;}
+ const d=drawings.find(d=>d.id===selected);properties.style.display=d&&d.type!=='text'&&!active?'flex':'none';if(!d||active||d.type==='text')return;
+ if(d.type==='fib')appendFibPreset(d);
  const color=document.createElement('input');color.type='color';color.value=d.color||(d.type==='range'?rangeStroke(d):linePresets[d.type]?.color)||'#315fc4';color.setAttribute('aria-label','Drawing color');color.disabled=locked||d.locked;color.onchange=()=>{remember();d.color=color.value;rememberStyle(d);};properties.append(color);
  const width=button('☰','Drawing line width',()=>{if(locked||d.locked)return;showLineWidthMenu(width,d);});width.disabled=locked||d.locked;width.title='Drawing line width · '+(d.width??linePresets[d.type]?.width??1)+'px';properties.append(width);
  const dashed=d.dash??Boolean(linePresets[d.type]?.dash);
@@ -620,7 +660,20 @@ function paint(d,isDraft=false){const p=d.p.map(xy);if(p.some(v=>!v))return;cons
  else if(d.type==='hray')line(a,{x:plotRight(),y:a.y});
  else if(d.type==='rect'){element('rect',{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),width:Math.abs(b.x-a.x),height:Math.abs(b.y-a.y),fill:'#508be640',stroke:'none'},g);}
  else if(d.type==='channel'){g.setAttribute('stroke','#888888');g.setAttribute('stroke-width','1');line(a,b);const offset=c.y-(a.y+(b.y-a.y)*(c.x-a.x)/(b.x-a.x||1));line({x:a.x,y:a.y+offset},{x:b.x,y:b.y+offset});}
- else if(d.type==='fib'||d.type==='fibext'){const ext=d.type==='fibext';const levels=ext?[0,.618,1,1.618,2,2.618]:[0,.382,.5,1,1.5,2,2.5,3];for(const ratio of levels){const price=ext?d.p.at(-1).price+(d.p[1]?.price-d.p[0].price||0)*ratio:(d.p[1]?.price??d.p[0].price)+(d.p[0].price-(d.p[1]?.price??d.p[0].price))*ratio;const y=series.priceToCoordinate(price),left=Math.min(a.x,b.x),right=Math.max(a.x,b.x,c.x);const color=ext?'#285b50':ratio===.5?'#fff500':[2,3].includes(ratio)?'#73ff00':ratio===.382?'#2e7d32':[1.5,2.5].includes(ratio)?'#c0c0c0':'#555';const l=line({x:left,y},{x:right,y});l.setAttribute('stroke',color);l.setAttribute('stroke-width','1');const t=label(left-5,y+3,priceText(snapPrice(price)??price));t.setAttribute('text-anchor','end');t.setAttribute('fill',color);t.setAttribute('stroke','none');t.setAttribute('font-size','9');}}
+ else if(d.type==='fib'||d.type==='fibext'){
+  const ext=d.type==='fibext';
+  // Older drawings have no preset and keep the levels they were saved with.
+  const levels=ext?[0,.618,1,1.618,2,2.618]:(Object.hasOwn(fibLevels,d.fibPreset)?fibLevels[d.fibPreset]:originalFibLevels);
+  const first=d.p[0].price,second=d.p[1]?.price??first;
+  const origin=ext?d.p.at(-1).price:second,span=ext?second-first:first-second;
+  const left=Math.min(a.x,b.x),right=Math.max(a.x,b.x,c.x);
+  for(const ratio of levels){
+   const price=origin+span*ratio,y=series.priceToCoordinate(price);
+   const color=ext?'#285b50':ratio===.5?'#fff500':[2,3].includes(ratio)?'#73ff00':ratio===.382?'#2e7d32':[1.5,2.5].includes(ratio)?'#c0c0c0':'#555';
+   const l=line({x:left,y},{x:right,y});l.setAttribute('stroke',color);l.setAttribute('stroke-width','1');
+   const t=label(left-5,y+3,priceText(snapPrice(price)??price));t.setAttribute('text-anchor','end');t.setAttribute('fill',color);t.setAttribute('stroke','none');t.setAttribute('font-size','9');
+  }
+ }
  else if(d.type==='long'||d.type==='short'){const right=xy({time:positionEnd(d),price:d.p[0].price})?.x||a.x+85;element('rect',{x:a.x,y:Math.min(a.y,b.y),width:right-a.x,height:Math.abs(a.y-b.y),fill:'#88888838',stroke:'none'},g);element('rect',{x:a.x,y:Math.min(a.y,c.y),width:right-a.x,height:Math.abs(a.y-c.y),fill:'#508be640',stroke:'none'},g);line(a,{x:right,y:a.y});if(d.p.length===3&&d.id===selected){const risk=Math.abs(d.p[1].price-d.p[0].price),reward=Math.abs(d.p[2].price-d.p[0].price);label(a.x+4,a.y-5,(d.type==='long'?'Long':'Short')+' · R:R '+(risk?reward/risk:0).toFixed(2));label(a.x+4,b.y+14,'SL '+priceText(d.p[1].price));label(a.x+4,c.y-6,'TP '+priceText(d.p[2].price));}}
  else if(d.type==='path')paintPath(g,p,d);
  else if(d.type==='highlight'||d.type==='triangle'){element(d.type==='triangle'?'polygon':'polyline',{points:p.map(v=>v.x+','+v.y).join(' '),'stroke-width':d.type==='highlight'?12:1,stroke:d.type==='triangle'?'none':'#f0d97870','stroke-linecap':'round',fill:d.type==='triangle'?'#9781bb50':'none'},g);}
@@ -744,9 +797,9 @@ function paintCursor(){
 }
 
 function completeDraft(){if(!draft)return;if(['long','short'].includes(active)&&draft.p.length===1){const a=draft.p[0],screen=xy(a),sign=active==='long'?1:-1;const risk=Math.min(a.price*.25,Math.abs(series.coordinateToPrice(screen.y+55)-a.price));if(!(risk>0))return;draft.p.push({time:a.time,price:a.price-sign*risk},{time:a.time,price:a.price+sign*risk});draft.endTime=anchor(screen.x+85,screen.y)?.time??a.time;}if(active==='text'){beginTextEdit(draft,true,gesture?.cursorPlacement?gesture.pointer:null);return;}if(active==='note'){editor.style.display='block';editor.querySelector('input').value='';editor.querySelector('input').focus();return;}if(active==='long'||active==='short'){const sign=active==='long'?1:-1,base=draft.p[0].price;if(sign*(draft.p[1].price-base)>=0||sign*(draft.p[2].price-base)<=0){draft=null;ghost=null;hint.textContent='Tap entry, then stop on risk side, then target on profit side';return;}}commit();}
+const newDrawingDefaults={fib:{fibPreset:'retracement'},hray:{dash:true},path:{width:2},text:{fontSize:16}};
 function newDraft(type){
- const defaults=type==='path'?{width:2}:type==='text'?{fontSize:16}:{};
- return {id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),type,p:[],...defaults,...toolStyles[type]};
+ return {id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),type,p:[],...newDrawingDefaults[type],...toolStyles[type]};
 }
 function placePathPoint(point,isTouch){
  const last=draft.p.at(-1),a=last&&xy(last),b=xy(point);
@@ -824,7 +877,7 @@ editor.querySelector('input').onkeydown=e=>{
 };
 editor.querySelector('#draw-save').onclick=()=>{const existing=drawings.find(d=>d.id===editor.dataset.drawing);if(existing&&!existing.locked&&!locked){remember();existing.text=editor.querySelector('input').value.trim()||'Text';save();}delete editor.dataset.drawing;if(draft){draft.text=editor.querySelector('input').value.trim()||'Text';commit();}editor.style.display='none';};editor.querySelector('#draw-cancel').onclick=()=>{editor.style.display='none';delete editor.dataset.drawing;choose(null);};
 window.chartDrawingActions={horizontalRay:id=>{const d=drawings.find(d=>d.id===id&&d.type==='hray');return d?clone(d):null;},undo:()=>applyHistory(),redo:()=>applyHistory(true),shortcut:drawingHistoryShortcut,count:()=>visibleDrawings().length,removeAll:()=>{if(!visibleDrawings().length)return;remember();drag=null;drawings=drawings.filter(d=>!drawingVisible(d));selected=null;choose(null);save();renderToolbar();}};
-window.configureDrawings=(config)=>{if(config.key===loadedKey)return;stayInDrawingMode=false;clearTimeout(toolsLeaveTimer);toolsPreview=false;suppressLogoHover=false;textResize=null;if(textEdit)finishTextEdit(true);flushDrawingSave();closeDrawingSyncMenu();clearTimeout(peerDrawingTimer);peerDrawingOps.clear();seenPeerOps.clear();syncGeneration++;loadedKey=config.key;revision++;const value=config.value||{};toolStyles={};for(const t of tools){const v=value.toolStyles?.[t[0]];if(!v)continue;const clean={};if(/^#[0-9a-f]{6}$/i.test(v.color))clean.color=v.color;if([1,2,3,4].includes(v.width))clean.width=v.width;if(typeof v.dash==='boolean')clean.dash=v.dash;if(t[0]==='path')Object.assign(clean,pathOptions(v));if(t[0]==='text'){if(Number.isFinite(v.fontSize)&&v.fontSize>=8&&v.fontSize<=72)clean.fontSize=v.fontSize;for(const key of ['bold','italic'])if(typeof v[key]==='boolean')clean[key]=v[key];}toolStyles[t[0]]=clean;}order=Array.isArray(value.order)?[...new Set([...value.order.filter(id=>referenceOrder.includes(id)),...referenceOrder])]:[...referenceOrder];magnet=['off','weak','strong'].includes(value.magnet)?value.magnet:'weak';drawings=Array.isArray(value.drawings)?value.drawings.filter(validDrawing).slice(0,200):[];for(const d of drawings){if(!value.toolStyles?.[d.type]&&(d.color||d.width||d.dash!==undefined))toolStyles[d.type]=JSON.parse(JSON.stringify({color:d.color,width:d.width,dash:d.dash,...(d.type==='path'?pathOptions(d):{})}));}favorites=Array.isArray(value.favorites)?value.favorites.filter(id=>tools.some(t=>t[0]===id)):tools.map(t=>t[0]);collapsed=value.collapsed!==false;locked=value.locked===true;hidden=value.hidden===true;toolsVisible=false;syncToolVisibility();selected=null;undo=[];redo=[];historyBefore=null;choose(null);renderToolbar();syncState=clone(value.syncState||{revision:0,pending:[],migrated:false});restoreDrawingScopes();revision++;void syncDrawings();};
+window.configureDrawings=(config)=>{if(config.key===loadedKey)return;stayInDrawingMode=false;clearTimeout(toolsLeaveTimer);toolsPreview=false;suppressLogoHover=false;textResize=null;if(textEdit)finishTextEdit(true);flushDrawingSave();closeDrawingSyncMenu();clearTimeout(peerDrawingTimer);peerDrawingOps.clear();seenPeerOps.clear();syncGeneration++;loadedKey=config.key;revision++;const value=config.value||{};toolStyles={};for(const t of tools){const v=value.toolStyles?.[t[0]];if(!v)continue;const clean={};if(/^#[0-9a-f]{6}$/i.test(v.color))clean.color=v.color;if([1,2,3,4].includes(v.width))clean.width=v.width;if(typeof v.dash==='boolean')clean.dash=v.dash;if(t[0]==='fib'&&Object.hasOwn(fibLevels,v.fibPreset))clean.fibPreset=v.fibPreset;if(t[0]==='path')Object.assign(clean,pathOptions(v));if(t[0]==='text'){if(Number.isFinite(v.fontSize)&&v.fontSize>=8&&v.fontSize<=72)clean.fontSize=v.fontSize;for(const key of ['bold','italic'])if(typeof v[key]==='boolean')clean[key]=v[key];}toolStyles[t[0]]=clean;}order=Array.isArray(value.order)?[...new Set([...value.order.filter(id=>referenceOrder.includes(id)),...referenceOrder])]:[...referenceOrder];magnet=['off','weak','strong'].includes(value.magnet)?value.magnet:'weak';drawings=Array.isArray(value.drawings)?value.drawings.filter(validDrawing).slice(0,200):[];for(const d of drawings){if(!value.toolStyles?.[d.type]&&(d.color||d.width||d.dash!==undefined))toolStyles[d.type]=JSON.parse(JSON.stringify({color:d.color,width:d.width,dash:d.dash,...(d.type==='path'?pathOptions(d):{})}));}favorites=Array.isArray(value.favorites)?value.favorites.filter(id=>tools.some(t=>t[0]===id)):tools.map(t=>t[0]);collapsed=value.collapsed!==false;locked=value.locked===true;hidden=value.hidden===true;toolsVisible=false;syncToolVisibility();selected=null;undo=[];redo=[];historyBefore=null;choose(null);renderToolbar();syncState=clone(value.syncState||{revision:0,pending:[],migrated:false});restoreDrawingScopes();revision++;void syncDrawings();};
 touch.addEventListener('dblclick',e=>{
  if(active==='path'&&draft){e.preventDefault();finish();}
 });

@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const {randomUUID} = require('node:crypto');
 const {spawn} = require('node:child_process');
 const path = require('node:path');
 const readline = require('node:readline');
@@ -15,14 +16,49 @@ def offline(*args, **kwargs):
 for name in ('connect', 'connect_ex', 'bind', 'sendto'):
     setattr(socket.socket, name, offline)
 from test_full_close_handoff import FullCloseHandoffTests
+from api.services.stock_chart import stock_chart
+from types import SimpleNamespace
 case = FullCloseHandoffTests()
 case.setUp()
 try:
     _, trade, _ = case.prepare_order('OPT', 'IWM', 'P', -1, True, True)
     fixture = case.f
+    place = fixture.conn.ib.placeOrder.side_effect
+    def acknowledge(contract, order):
+        result = place(contract, order)
+        result.order.clientId = 71
+        if not result.order.permId:
+            result.order.permId = 1000 + order.orderId
+        return result
+    fixture.conn.ib.placeOrder.side_effect = acknowledge
+    # The browser retains its display, but the backend has no chart or tick cache.
+    stock_chart.active = None
+    read = fixture.conn._bounded_order_read.side_effect
+    def cold_read(request, *args, **kwargs):
+        if request == fixture.conn.ib.reqContractDetails:
+            assert args[0].conId == trade.contract.conId and args[0].exchange == 'SMART'
+            return [SimpleNamespace(contract=trade.contract, validExchanges='SMART', marketRuleIds='26')]
+        if request == fixture.conn.ib.reqMarketRule:
+            assert args == (26,)
+            return [SimpleNamespace(lowEdge=0, increment=.25)]
+        return read(request, *args, **kwargs)
+    fixture.conn._bounded_order_read.side_effect = cold_read
     for line in sys.stdin:
         message = json.loads(line)
         if message == 'state':
+            value = fixture.service.state(fixture.conn, 7)
+        elif message == 'partial':
+            trade = next(t for t in fixture.trades if not t.isDone())
+            from datetime import datetime, timezone
+            from ib_async import Fill, Execution, CommissionReport
+            stamp = datetime.now(timezone.utc)
+            order = trade.order
+            execution = Execution(execId='partial.entry.00.01', time=stamp, acctNumber=case.account, side='SLD',
+                                  shares=1, price=order.lmtPrice, permId=order.permId, clientId=order.clientId,
+                                  orderId=order.orderId, orderRef=order.orderRef)
+            fixture.conn.ib.fills.return_value = [Fill(trade.contract, execution, CommissionReport(), stamp)]
+            trade.orderStatus.filled = 1
+            case.case.positions.append(SimpleNamespace(account=case.account, contract=trade.contract, position=-1, avgCost=1000))
             value = fixture.service.state(fixture.conn, 7)
         elif message == 'metrics':
             value = [fixture.conn.ib.placeOrder.call_count, fixture.conn.ib.cancelOrder.call_count,
@@ -104,6 +140,68 @@ async function run() {
     const after = await broker('metrics');
     assert.deepEqual(after,[before[0]+1,0,before[2],before[3],writes[0].price]);
     console.log('PASS archived full close, chart drag and confirm: one amendment of the original broker order');
+    await frame.locator('#order-type').press('Enter');
+    await page.locator('#editor').waitFor({state:'visible'});
+    assert.equal(await page.locator('#edit-tif').inputValue(),'DAY');
+    await page.locator('#edit-tif').selectOption('GTC');
+    const editResponse = page.waitForResponse(r=>r.request().method()==='POST' && r.url().includes('/paper-chart/'));
+    await page.locator('#edit-form button[type=submit]').click();
+    const replacement = await (await editResponse).json();
+    assert.equal(replacement.success,true,replacement.message);
+    assert.equal(writes.length,2);
+    assert.equal(writes[1].price,writes[0].price);
+    assert.equal(writes[1].tif,'GTC');
+    await frame.waitForFunction(()=>!paperConfig.busy && paperConfig.tif==='GTC');
+    const refreshed=await broker('state');
+    assert.equal(refreshed.edit_snapshot.find(o=>o.status==='Submitted').tif,'GTC');
+    const finalCounts = await broker('metrics');
+    assert.deepEqual(finalCounts.slice(0,2),[after[0]+1,after[1]+1]);
+    console.log('PASS working option: the chart editor changes DAY to GTC with one replacement');
+    await frame.locator('#order-type').press('Enter');
+    await page.locator('#editor').waitFor({state:'visible'});
+    await page.locator('#edit-qty').fill('2');
+    const resizeResponse = page.waitForResponse(r=>r.request().method()==='POST' && r.url().includes('/paper-chart/'));
+    await page.locator('#edit-form button[type=submit]').click();
+    const resized = await (await resizeResponse).json();
+    assert.equal(resized.success,true,resized.message);
+    assert.equal(resized.state.quantity,2);
+    assert.equal(resized.state.entry,writes[0].price);
+    assert.equal(resized.state.tif,'GTC');
+    assert.deepEqual((await broker('metrics')).slice(0,2),[finalCounts[0]+1,finalCounts[1]+1]);
+    console.log('PASS quantity-only option edit with no backend chart retains limit and GTC');
+
+    await frame.waitForFunction(()=>!paperConfig.busy && paperConfig.entry_editable && paperConfig.quantity===2);
+    await frame.locator('#order-type').press('Enter');
+    await page.locator('#editor').waitFor({state:'visible'});
+    const phonePrice = resized.state.entry + 0.25;
+    const phone = await broker({action:'edit_entry', request_id:randomUUID(), price:phonePrice,
+      expected_ref:resized.state.order_ref, expected_snapshot:resized.state.edit_snapshot});
+    assert.equal(phone.success,true,phone.message);
+    const changed = await broker('metrics');
+    await page.locator('#edit-tif').selectOption('DAY');
+    const staleResponse = page.waitForResponse(r=>r.request().method()==='POST' && r.url().includes('/paper-chart/'));
+    await page.locator('#edit-form button[type=submit]').click();
+    assert.equal((await (await staleResponse).json()).status,'rejected');
+    assert.deepEqual(await broker('metrics'),changed);
+    const current = await broker('state');
+    assert.equal(current.entry,phonePrice);
+    assert.equal(current.tif,'GTC');
+    console.log('PASS stale web editor preserves a newer phone price without a broker write');
+    const partial = await broker('partial');
+    assert.ok(partial.partial_entry_cancel,JSON.stringify(partial));
+    const button = frame.getByRole('button',{name:'Cancel entry order '+partial.partial_entry_cancel.order_id,exact:true});
+    await button.waitFor();
+    assert.equal(await frame.getByRole('button',{name:'Edit Add quantity',exact:true}).isDisabled(),true);
+    assert.match(await page.locator('#pending-adds').innerText(),/1 @/);
+    const prior = await broker('metrics');
+    const ack = page.waitForResponse(r=>r.request().method()==='POST' && r.url().includes('/paper-chart/'));
+    await button.click();
+    const result = await (await ack).json();
+    assert.equal(result.success,true,result.message);
+    assert.equal(result.state.position,-1);
+    assert.deepEqual(writes.at(-1).partial_entry_cancel,partial.partial_entry_cancel);
+    assert.deepEqual((await broker('metrics')).slice(0,2),[prior[0],prior[1]+1]);
+    console.log('PASS chart cancels only the unfilled option remainder and keeps the filled position');
   } finally {
     await browser.close();
     processHandle.stdin.end();

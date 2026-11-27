@@ -190,6 +190,33 @@ final class ChartViewportTests: XCTestCase {
         }
     }
 
+    func testFibPresetChangesOnlySelectedDrawing() async throws {
+        let (web, window) = try await loadNativeChart(includeDrawingTools: true)
+        defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }
+        let result = try await web.callAsyncJavaScript("""
+        const bars=Array.from({length:60},(_,i)=>({time:1000+i*300,open:100,high:115,low:95,close:105}));
+        receive({con_id:7,interval:5,generation:'fib',session:'all',bars});
+        const points=[{time:bars[30].time,price:110},{time:bars[40].time,price:100}];
+        configureDrawings({key:'presets',value:{drawings:[
+          {id:'old',type:'fib',p:points},{id:'mm',type:'fib',fibPreset:'mm',p:points}]}});
+        const nextPaint=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        const prices=id=>Array.from(document.querySelectorAll('[data-drawing="'+id+'"] text'),el=>Number(el.textContent));
+        await nextPaint();
+        const original=prices('old');
+        document.querySelector('[data-drawing=old]').dispatchEvent(new MouseEvent('click',{bubbles:true}));
+        const selector=document.querySelector('select[aria-label="Fib preset"]');
+        selector.value='retracement';
+        selector.dispatchEvent(new Event('change'));
+        await nextPaint();
+        return [original,prices('old'),prices('mm')];
+        """, arguments: [:], in: nil, contentWorld: .page)
+        XCTAssertEqual(result as? [[Double]], [
+            [100, 103.82, 105, 110, 115, 120, 125, 130],
+            [100, 103.82, 105, 110],
+            [100, 110, 115, 120, 125, 130]
+        ])
+    }
+
     func testNativeChartPaintsMajorTicksAndCenteredWeekday() async throws {
         let (web, window) = try await loadNativeChart()
         defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }
@@ -291,6 +318,29 @@ final class ChartViewportTests: XCTestCase {
         """, arguments: [:], in: nil, contentWorld: .page)
         let values = try XCTUnwrap(result as? [NSNumber])
         XCTAssertEqual(values.map(\.doubleValue), [27464.50, 27466.75, 27463.25, 27465.50, 27465.50, 27468.25, 27441.75])
+    }
+
+    func testPartiallyFilledOptionShowsOnlyRemainderCancelOnChart() async throws {
+        let (web, window) = try await loadNativeChart()
+        defer { window.isHidden = true; web.removeFromSuperview(); web.stopLoading() }
+        let result = try await web.callAsyncJavaScript("""
+        const target={order_id:14,perm_id:1014,client_id:71};
+        const row={role:'entry',order_id:14,entry_kind:'entry',price:10,quantity:4,filled:1,status:'Submitted'};
+        const paper={known:true,enabled:true,active:true,position:-1,side:-1,entry:10,order_ref:'WheelPaper:test',
+                     partial_entry_cancel:target,edit_snapshot:[row],orders:[row]};
+        applyChartState({width:393,height:700,
+          config:{entry:10,quantity:1,con_id:7,display:{nativeCompact:true},priceRules:[{low:0,increment:.01}],paper},
+          packet:{con_id:7,generation:'test',interval:5,bars:[{time:1000,open:10,high:11,low:9,close:10}]}});
+        let sent;
+        paperAction=body=>{sent=body};
+        const cancel=document.querySelector('[aria-label="Cancel entry order 14"]');
+        const enabledBeforeClick=!cancel.disabled;
+        cancel.click();
+        const qty=document.querySelector('[aria-label="Edit Add quantity"]');
+        return [qty.textContent,qty.disabled,document.querySelector('[aria-label="Drag entry order 14"]').disabled,
+                enabledBeforeClick,cancel.disabled,sent.action,sent.cancel,sent.partial_entry_cancel.perm_id,sent.expected_snapshot[0].filled];
+        """, arguments: [:], in: nil, contentWorld: .page)
+        XCTAssertEqual(result as? NSArray, ["3", true, true, true, true, "edit_entry", true, 1014, 1] as NSArray)
     }
 
     func testRecheckingBrokerEntryDoesNotDrawABuyOrSellPreview() async throws {

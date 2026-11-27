@@ -3401,23 +3401,6 @@
         }
       }
     },
-    "Above 1 hour, only the primary EMA20 is shown. Applies to all indicators in this chart. Hidden indicators return when you switch to an allowed timeframe. Changes apply immediately and are saved." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "超过 1 小时时仅显示主 EMA20。此设置适用于图表内全部指标；切换到允许的周期后会恢复隐藏的指标。更改立即生效并保存。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "超過 1 小時時僅顯示主 EMA20。此設置適用於圖表內全部指標；切換到允許的週期後會恢復隱藏的指標。更改立即生效並保存。"
-          }
-        }
-      },
-      "extractionState" : "manual"
-    },
     "Access & Feedback" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8190,6 +8173,9 @@
           }
         }
       }
+    },
+    "On the main chart, intervals of 1 hour or longer show only EMA20 and ATR when enabled. Switch to a shorter interval to see your other indicators." : {
+      "shouldTranslate" : false
     },
     "On" : {
       "localizations" : {

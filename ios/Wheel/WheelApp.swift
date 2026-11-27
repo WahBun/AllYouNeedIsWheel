@@ -165,6 +165,7 @@ struct Order: Decodable, Identifiable {
     var intent: String? = nil
     var con_id: Int? = nil
     var chart_con_id: Int? = nil
+    var chart_remainder_ref: String? = nil
     var chart_order_ref: String? = nil
     var chart_group_id: String? = nil
     var chart_protection_ref: String? = nil
@@ -315,7 +316,9 @@ final class WheelStore {
     }
     var demo = true
     var address = UserDefaults.standard.string(forKey: "backendURL") ?? ""
-    var portfolio: Bootstrap?
+    var portfolio: Bootstrap? {
+        didSet { trading.accountMode = portfolio?.connection?.mode }
+    }
     var accountModeLabel: String { demo ? "Demo" : portfolio?.connection?.label ?? "Unknown" }
     var tradingAccessLabel: String {
         if demo { return "Demo" }

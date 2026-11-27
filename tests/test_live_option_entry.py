@@ -1,4 +1,5 @@
 """Exercise the real chart service using broker mocks and temporary journals."""
+import copy
 import json
 import unittest
 from types import SimpleNamespace as S
@@ -72,6 +73,183 @@ class LiveOptionEntryTests(unittest.TestCase):
         working=[t.order for t in f.trades if not t.isDone()]
         self.assertEqual([o.totalQuantity for o in working],[4,4,4])
         self.assertEqual([o.account for o in working],['U_TEST']*3)
+
+    def prepare_cc_tif_edit(self, *, symbol='TEST', step=.01, initial_tif='DAY'):
+        from api.services.stock_chart import stock_chart
+        f = self.f
+        f.contract.symbol = f.contract.tradingClass = symbol
+        shares = Stock(symbol, 'SMART', 'USD')
+        self.positions.append(S(account='U_TEST', contract=shares, position=100, avgCost=100))
+        warm = dict(con_id=7, contract=f.contract, price_rules=[dict(low=0, increment=.01)])
+        with patch.object(stock_chart, 'active', warm):
+            result = f.service.execute(f.conn, 7, self.body(side=-1, entry=20.63, quantity=1, tp=None, sl=None, tif=initial_tif))
+        self.assertTrue(result['success'], result)
+        state = result['state']
+        original_read = f.conn._bounded_order_read.side_effect
+        def read(request, *args, **kwargs):
+            if request == f.conn.ib.reqContractDetails:
+                self.assertEqual(args[0].conId, 7)
+                self.assertEqual(args[0].exchange, 'SMART')
+                return [S(contract=f.contract, validExchanges='CBOE,SMART', marketRuleIds='25,26')]
+            if request == f.conn.ib.reqMarketRule:
+                self.assertEqual(args, (26,))
+                return [S(lowEdge=0, increment=step)]
+            return original_read(request, *args, **kwargs)
+        f.conn._bounded_order_read.side_effect = read
+        return dict(request_id=str(uuid4()), action='edit_entry', quantity=1, price=20.63, tif='GTC',
+                    expected_ref=state['order_ref'], expected_snapshot=state['edit_snapshot'])
+
+    def test_cc_tif_from_cold_chart_verifies_route_before_replacement(self):
+        from api.services.stock_chart import stock_chart
+        f = self.f
+        edit = self.prepare_cc_tif_edit()
+        with patch.object(stock_chart, 'states', {}), patch.object(stock_chart, 'active', {'con_id': 8}):
+            result = f.service.execute(f.conn, 7, edit)
+            self.assertTrue(result['success'], result)
+            self.assertEqual(f.service.execute(f.conn, 7, edit), result)
+        self.assertEqual(f.conn.ib.cancelOrder.call_count, 1)
+        self.assertEqual(f.conn.ib.placeOrder.call_count, 2)
+        self.assertEqual([(t.order.tif,t.orderStatus.status) for t in f.trades],
+                         [('DAY','Cancelled'), ('GTC','Submitted')])
+        self.assertEqual(result['state']['edit_snapshot'][0]['tif'], 'GTC')
+        self.assertEqual((f.trades[-1].order.lmtPrice, f.trades[-1].order.totalQuantity), (20.63,1))
+
+    def test_cc_tif_invalid_routed_increment_retains_original(self):
+        f = self.f
+        edit = self.prepare_cc_tif_edit(symbol='IWM', step=.05)
+        result = f.service.execute(f.conn, 7, edit)
+        self.assertEqual(result['status'], 'rejected', result)
+        self.assertIn('tick size', result['message'])
+        f.conn.ib.cancelOrder.assert_not_called()
+        f.conn.ib.placeOrder.assert_called_once()
+        self.assertEqual(f.trades[0].orderStatus.status, 'Submitted')
+
+    def test_cold_option_order_amends_price_in_place_then_resizes_at_the_new_price(self):
+        from api.services.stock_chart import stock_chart
+        f = self.f
+        edit = self.prepare_cc_tif_edit(initial_tif='GTC')
+        self.positions[0].position = 200
+        edit.pop('quantity')
+        edit.pop('tif')
+        edit['price'] = 21.10
+        chart_contract = copy.copy(f.contract)
+        chart_contract.exchange = 'CBOE'
+        with patch.object(stock_chart, 'states', {}), patch.object(stock_chart, 'active', None), \
+                patch('api.services.paper_chart.contracts.resolve', return_value=chart_contract):
+            result = f.service.execute(f.conn, 7, edit)
+            self.assertTrue(result['success'], result)
+            self.assertEqual(f.service.execute(f.conn, 7, edit), result)
+            f.conn.ib.cancelOrder.assert_not_called()
+            self.assertEqual(len(f.trades), 1)
+            state = result['state']
+            resize = dict(action='edit_entry', request_id=str(uuid4()), quantity=2,
+                          expected_ref=state['order_ref'], expected_snapshot=state['edit_snapshot'])
+            result = f.service.execute(f.conn, 7, resize)
+            self.assertTrue(result['success'], result)
+            self.assertEqual(f.service.execute(f.conn, 7, resize), result)
+        self.assertEqual(f.conn.ib.placeOrder.call_count, 3)  # Open, reprice original, replace once.
+        f.conn.ib.cancelOrder.assert_called_once()
+        working = [t.order for t in f.trades if not t.isDone()]
+        self.assertEqual([(o.lmtPrice, o.totalQuantity, o.tif) for o in working], [(21.10, 2, 'GTC')])
+        self.assertEqual(f.trades[-1].contract.exchange, 'SMART')
+        self.assertEqual(chart_contract.exchange, 'CBOE')
+
+    def test_price_only_rejects_a_real_off_grid_price_and_a_fill_during_lookup(self):
+        f = self.f
+        edit = self.prepare_cc_tif_edit()
+        edit.pop('tif')
+        edit.pop('quantity')
+        edit['price'] = 20.635
+        result = f.service.execute(f.conn, 7, edit)
+        self.assertEqual(result['status'], 'rejected', result)
+        self.assertIn('tick size', result['message'])
+        read = f.conn._bounded_order_read.side_effect
+        def fill(request, *args, **kwargs):
+            if request == f.conn.ib.reqMarketRule:
+                f.trades[0].orderStatus.filled = 1
+                f.trades[0].orderStatus.status = 'Filled'
+            return read(request, *args, **kwargs)
+        f.conn._bounded_order_read.side_effect = fill
+        edit.update(request_id=str(uuid4()), price=20.64)
+        result = f.service.execute(f.conn, 7, edit)
+        self.assertEqual(result['status'], 'rejected', result)
+        f.conn.ib.placeOrder.assert_called_once()
+        f.conn.ib.cancelOrder.assert_not_called()
+
+    def test_phone_tif_only_keeps_web_reprice_and_refuses_a_stale_snapshot(self):
+        f = self.f
+        edit = self.prepare_cc_tif_edit()
+        edit.pop('quantity')
+        edit.pop('price')
+        reprice = dict(edit, request_id=str(uuid4()), price=21.10)
+        reprice.pop('tif')
+        result = f.service.execute(f.conn, 7, reprice)
+        self.assertTrue(result['success'], result)
+        stale = f.service.execute(f.conn, 7, edit)
+        self.assertEqual(stale['status'], 'rejected', stale)
+        f.conn.ib.cancelOrder.assert_not_called()
+        edit.update(request_id=str(uuid4()), expected_snapshot=result['state']['edit_snapshot'])
+        saved = f.service.execute(f.conn, 7, edit)
+        self.assertTrue(saved['success'], saved)
+        self.assertEqual((saved['state']['entry'], saved['state']['quantity'], saved['state']['tif']), (21.10, 1, 'GTC'))
+        self.assertEqual(f.conn.ib.placeOrder.call_count, 3)
+        f.conn.ib.cancelOrder.assert_called_once()
+
+    def test_unchanged_limit_from_older_phone_preserves_broker_price_switching_to_day(self):
+        f = self.f
+        edit = self.prepare_cc_tif_edit(initial_tif='GTC')
+        edit.update(tif='DAY', price=20.630000000000003)
+        result = f.service.execute(f.conn, 7, edit)
+        self.assertTrue(result['success'], result)
+        self.assertEqual(f.service.execute(f.conn, 7, edit), result)
+        working = [trade.order for trade in f.trades if not trade.isDone()]
+        self.assertEqual([(o.lmtPrice, o.totalQuantity, o.tif) for o in working], [(20.63, 1, 'DAY')])
+        self.assertEqual(f.conn.ib.cancelOrder.call_count, 1)
+        self.assertEqual(f.conn.ib.placeOrder.call_count, 2)
+
+    def test_changed_off_grid_option_price_is_not_rounded_on_tif_edit(self):
+        f = self.f
+        edit = self.prepare_cc_tif_edit()
+        edit['price'] = 20.631
+        result = f.service.execute(f.conn, 7, edit)
+        self.assertEqual(result['status'], 'rejected', result)
+        self.assertIn('tick size', result['message'])
+        f.conn.ib.cancelOrder.assert_not_called()
+        f.conn.ib.placeOrder.assert_called_once()
+        edit.update(price=20.64, request_id=str(uuid4()))
+        result = f.service.execute(f.conn, 7, edit)
+        self.assertTrue(result['success'], result)
+        self.assertEqual(f.trades[-1].order.lmtPrice, 20.64)
+
+    def test_cc_tif_missing_rule_retains_working_day(self):
+        f = self.f
+        edit = self.prepare_cc_tif_edit()
+        read = f.conn._bounded_order_read.side_effect
+        def missing_rule(request, *args, **kwargs):
+            if request == f.conn.ib.reqMarketRule:
+                raise TimeoutError
+            return read(request, *args, **kwargs)
+        f.conn._bounded_order_read.side_effect = missing_rule
+        result = f.service.execute(f.conn, 7, edit)
+        self.assertEqual(result['status'], 'rejected', result)
+        self.assertIn('original order retained', result['message'])
+        f.conn.ib.cancelOrder.assert_not_called()
+        self.assertEqual(f.trades[0].order.tif, 'DAY')
+
+    def test_cc_tif_fill_during_rule_lookup_never_replaces(self):
+        f = self.f
+        edit = self.prepare_cc_tif_edit()
+        read = f.conn._bounded_order_read.side_effect
+        def fill_during_lookup(request, *args, **kwargs):
+            if request == f.conn.ib.reqMarketRule:
+                f.trades[0].orderStatus.status = 'Filled'
+                f.trades[0].orderStatus.filled = 1
+            return read(request, *args, **kwargs)
+        f.conn._bounded_order_read.side_effect = fill_during_lookup
+        result = f.service.execute(f.conn, 7, edit)
+        self.assertEqual(result['status'], 'rejected', result)
+        f.conn.ib.cancelOrder.assert_not_called()
+        f.conn.ib.placeOrder.assert_called_once()
 
     def test_lost_bracket_ack_is_not_replayed_after_restart(self):
         from api.services.paper_chart import PaperChart

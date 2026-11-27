@@ -45,18 +45,19 @@ indicatorSections.push(
  section('Gauge Colors','仪表颜色',[...Object.entries({background:'Background',track:'Track',lowColor:'Low',midColor:'Medium',highColor:'High',textColor:'Text'}).map(([k,label])=>f('volatility.'+k,label,label,'color')),...Object.entries({backgroundTransparency:'Background transparency',trackTransparency:'Track transparency',fillTransparency:'Fill transparency'}).map(([k,label])=>n('volatility.'+k,label+' (%)',label+' (%)',0,100))])
 );
 const labels={money:['Money','金额'],percent:['Percent','百分比'],ticks:['Ticks','跳数'],0:['Chart / Solid','图表 / 实线'],1440:['1 day','1 天'],10080:['1 week','1 周'],43200:['1 month','1 月']};
-function effective(d,session,emaFrames,interval=0){
- const v=clone(d),visible=d.indicatorVisible!==false&&visibleOnTimeframe(d,interval),full=visible&&interval<=60;
+function allowsAdditionalIndicators(interval,primary){return primary ? interval<60 : interval<=60;}
+function effective(d,session,emaFrames,interval=0,primary=true){
+ const v=clone(d),visible=d.indicatorVisible!==false&&visibleOnTimeframe(d,interval),additional=allowsAdditionalIndicators(interval,primary),full=visible&&additional;
  v.volatility=window.WheelMoonshineRules?.overlay(v.volatility)||v.volatility;
  v.ema=d.ema&&visible;
- if(interval>60){v.emaLength=20;v.emaFrame=0;v.emaSource='close';v.emaOffset=0;}
+ if(!additional){v.emaLength=20;v.emaFrame=0;v.emaSource='close';v.emaOffset=0;}
  v.volatility.channels=v.volatility.channels&&full;v.volatility.gauge=v.volatility.gauge&&full;
- v.atr=d.atr&&full;v.barCount=(session==='rth'?d.barCount:d.barCountETH===true)&&full;
+ v.atr=d.atr&&visible&&(primary||additional);v.barCount=(session==='rth'?d.barCount:d.barCountETH===true)&&full;
  v.extraEMAs.forEach(e=>{e.enabled=e.enabled&&full;e.color=e.color.slice(0,7)+'ab';});v.emaColor=v.emaColor.slice(0,7)+'ab';
  v.fvg.enabled=v.fvg.enabled&&full;v.previousValues.enabled=v.previousValues.enabled&&full&&session==='rth';
  v.profit=d.holdingsVisible&&d.profit;v.positions=d.holdingsVisible&&d.positions;v.brackets=d.holdingsVisible&&d.brackets;v.emaFrames=emaFrames;return v;
 }
-function requested(d,interval,session='rth'){if(interval>60||d.indicatorVisible===false||!visibleOnTimeframe(d,interval))return [];return [...new Set([...(d.ema?[d.emaFrame]:[]),...d.extraEMAs.filter(e=>e.enabled).map(e=>e.timeframe),...(session==='rth'&&d.previousValues.enabled&&!d.previousValues.baseChart?d.previousValues.rows.filter(r=>r.enabled).map(r=>r.frame):[])].filter(n=>n>0&&n!==interval))].sort((a,b)=>a-b);}
+function requested(d,interval,session='rth',primary=true){if(!allowsAdditionalIndicators(interval,primary)||d.indicatorVisible===false||!visibleOnTimeframe(d,interval))return [];return [...new Set([...(d.ema?[d.emaFrame]:[]),...d.extraEMAs.filter(e=>e.enabled).map(e=>e.timeframe),...(session==='rth'&&d.previousValues.enabled&&!d.previousValues.baseChart?d.previousValues.rows.filter(r=>r.enabled).map(r=>r.frame):[])].filter(n=>n>0&&n!==interval))].sort((a,b)=>a-b);}
 
 // Keep settings English until a coordinated localization pass is requested.
 function mount({read,change,getSession=()=>'rth'}){const dialog=document.getElementById('display');let mode='display',tab='inputs';const zh=()=>false;
@@ -71,7 +72,7 @@ function mount({read,change,getSession=()=>'rth'}){const dialog=document.getElem
  const sharedGroup=body.querySelector('[data-setting="volatility.inner"]')?.closest('fieldset');if(sharedGroup){const status=document.createElement('p');status.dataset.moonshineStatus='';status.setAttribute('role','status');status.style.cssText='font-size:12px;color:var(--muted)';status.textContent=window.WheelMoonshineRules?.message||'';sharedGroup.querySelector('legend').after(status);}
  if(mode==='display')for(const [unit,toggle] of [['positionUnit','positions'],['bracketUnit','brackets']]){const control=body.querySelector('[data-setting='+unit+']'),target=body.querySelector('[data-setting='+toggle+']')?.closest('label');if(control&&target){const old=control.closest('label');control.setAttribute('aria-label',old.querySelector('span').textContent);target.append(control);old.remove();}}
  if(mode==='indicators'&&tab!=='visibility')dialog.append(templateControl());
- const status=document.createElement('p');status.id='indicator-history-status';status.setAttribute('role','status');status.textContent=dialog.dataset.historyStatus||'';if(mode!=='indicators'||tab!=='visibility')body.append(status);const note=document.createElement('p');note.textContent=mode==='indicators'&&tab==='visibility'?'Above 1 hour, only the primary EMA20 is shown. Applies to all indicators in this chart. Hidden indicators return when you switch to an allowed timeframe. Changes apply immediately and are saved.':zh()?'修改立即生效，并自动保存。':'Changes apply immediately and are saved.';body.append(note);dependencies();}
+ const status=document.createElement('p');status.id='indicator-history-status';status.setAttribute('role','status');status.textContent=dialog.dataset.historyStatus||'';if(mode!=='indicators'||tab!=='visibility')body.append(status);const note=document.createElement('p');note.textContent=mode==='indicators'&&tab==='visibility'?'On the main chart, intervals of 1 hour or longer show only EMA20 and ATR when enabled. Switch to a shorter interval to see your other indicators.':zh()?'修改立即生效，并自动保存。':'Changes apply immediately and are saved.';body.append(note);dependencies();}
  function timeframeControls(){
   const group=document.createElement('fieldset'),legend=document.createElement('legend');
   group.className='timeframe-visibility';legend.textContent='Show on timeframes';group.append(legend);
@@ -125,5 +126,5 @@ function mount({read,change,getSession=()=>'rth'}){const dialog=document.getElem
  window.addEventListener('moonshine-rules',updateRules);
  return {open(m='display'){mode=m;render();if(!dialog.open)dialog.showModal();}};
 }
-window.WheelChartSettings={normalize,visibleOnTimeframe,auxiliaryDefaults,paneDisplay,effective,requested,mount};
+window.WheelChartSettings={normalize,visibleOnTimeframe,allowsAdditionalIndicators,auxiliaryDefaults,paneDisplay,effective,requested,mount};
 })();
