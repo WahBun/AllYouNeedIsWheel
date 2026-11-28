@@ -318,7 +318,15 @@ def execute_order(order_id):
             return jsonify({"error": "Database not initialized"}), 500
             
         # Use the options service to execute the order
-        response, status_code = options_service.execute_order(order_id, db)
+        body = request.get_json(silent=True) if request.is_json and request.data else {}
+        if not isinstance(body, dict):
+            return jsonify(error='Invalid execution request.'), 400
+        if 'expected_tif' in body:
+            if body['expected_tif'] not in ('DAY', 'GTC'):
+                return jsonify(error='Expected time in force must be DAY or GTC.'), 400
+            response, status_code = options_service.execute_order(order_id, db, expected_entry_tif=body['expected_tif'])
+        else:
+            response, status_code = options_service.execute_order(order_id, db)
         
         # Return the response from the service
         return jsonify(response), status_code
@@ -551,6 +559,18 @@ def update_order_quantity(order_id):
         logger.error(f"Error updating order quantity: {str(e)}")
         logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
+
+@bp.put('/order/<int:order_id>/tif')
+def update_pending_option_entry_tif(order_id):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or any(data.get(key) not in ('DAY', 'GTC') for key in ('expected_tif', 'tif')):
+        return jsonify(error='Expected and new time in force must be DAY or GTC.'), 400
+    account = options_service.config.get('account_id', '')
+    db = current_app.config['database']
+    if not account or not db.update_pending_option_entry_tif(order_id, account, data['expected_tif'], data['tif']):
+        return jsonify(error='Draft changed or is no longer editable. Refresh Orders.'), 409
+    return jsonify(success=True, tif=data['tif'], message='Draft time in force saved.')
+
 
 @bp.route('/order/<int:order_id>/premium', methods=['PUT'])
 def update_order_premium(order_id):

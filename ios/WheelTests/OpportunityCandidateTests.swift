@@ -98,6 +98,44 @@ final class OpportunityCandidateTests: XCTestCase {
         }
     }
 
+    func testNativeOpeningLimitTimingSurvivesRefreshStageAndExecute() async throws {
+        let (store, _) = await setUpBook()
+        let book = store.opportunities
+        let key = book.key("TSLL", "PUT")
+        await book.load("TSLL", type: "PUT", store: store)
+        let day = try XCTUnwrap(book.rows[key])
+        XCTAssertEqual(day.entryTIF, "DAY")
+        book.rows[key]?.entryTIF = "GTC"
+        await book.load("TSLL", type: "PUT", store: store)
+        let gtc = try XCTUnwrap(book.rows[key])
+        XCTAssertEqual(gtc.entryTIF, "GTC")
+        let quote = try XCTUnwrap(gtc.quote)
+        let alternateID = book.pin("TSLL", "PUT", expiration: quote.expiration, strike: quote.strike - 1)
+        let pin = try XCTUnwrap(book.pins[key]?.first { $0.id == alternateID })
+        await book.load("TSLL", type: "PUT", store: store, pin: pin)
+        XCTAssertEqual(book.rows[alternateID]?.entryTIF, "DAY")
+        let initialCount = store.trading.demoOrders.count
+        await book.stageAndOpenOrders([day], store: store)
+        XCTAssertEqual(store.trading.demoOrders.count, initialCount)
+        await book.stageAndOpenOrders([gtc], store: store)
+        XCTAssertEqual(store.trading.demoOrders.count, initialCount + 1)
+        let draft = try XCTUnwrap(store.trading.demoOrders.last)
+        XCTAssertEqual(store.selectedTab, "orders")
+        XCTAssertEqual(draft.status, "pending")
+        XCTAssertEqual(draft.tif, "GTC")
+        let saved = await store.trading.saveStagedEntryTIF(draft, tif: "DAY", store: store)
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.trading.demoOrders.last?.status, "pending")
+        let staleExecute = await store.trading.executeStaged(draft, store: store)
+        XCTAssertFalse(staleExecute)
+        let revised = try XCTUnwrap(store.trading.demoOrders.last)
+        XCTAssertEqual(revised.tif, "DAY")
+        let executed = await store.trading.executeStaged(revised, store: store)
+        XCTAssertTrue(executed)
+        XCTAssertEqual(store.trading.demoOrders.last?.status, "processing")
+        XCTAssertEqual(store.trading.demoOrders.last?.tif, "DAY")
+    }
+
     func testPinnedContractsPersistAndOnlySelectedContractStages() async throws {
         let (store, context) = await setUpBook()
         let book = store.opportunities

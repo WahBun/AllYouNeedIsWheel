@@ -8,12 +8,12 @@ The [candidate table](equity-option-session-candidates.csv) records all 24 singl
 
 To refresh the table, download **Underlying (CSV) → Cboe Options**. Select standard Equity and ETF rows with either **GTH Eligible** or **Curb Eligible** set to Yes, preserving both flags separately. Exclude the exchange test symbols NTEST, PTEST and ZBZX. Index options follow their own schedule. Use the current reference file when preparing a test. TQQQ, TSLL, QQQM, QLD and UPRO have both flags set to No in this snapshot. [Cboe reference data](https://www.cboe.com/markets/us/options/market-statistics/reference-data) · [Eligibility field definitions](https://www.cboe.com/document/tech-spec/content/technical-specifications/equity-options-extended-trading-hours-faq/designated-option-symbol-listoption-classes-for-gth)
 
-## What Wheel sends today
+## Order timing on this branch
 
-| Entry point | Offline result on main at `2e87882` |
+| Entry point | Offline result |
 | --- | --- |
 | Superchart standalone NVDA limit entry | Choosing GTC produces a SMART option order with `tif=GTC` and `outsideRth=False`. |
-| iPhone Trade → Orders, newly staged NVDA opening limit | The default produces `tif=DAY` and `outsideRth=False`. An explicit GTC opening request reaches Wheel's validation and is rejected before broker submission. The native staged-order path has separate opening (DAY) and closing (GTC) defaults. |
+| iPhone Trade → Orders, new covered call or cash-secured put | Each contract defaults to DAY. Trade keeps a selected GTC through quote refresh and staging. Orders can save a different TIF before submission. Execute uses the saved TIF with `outsideRth=False`. |
 
 The staged-order check exercises the service and its real order builder behind the native screen. Changing the TIF of an **already working** chart order uses another path. Preserve those edits when adding a session choice. The proposed ticket keeps DAY/GTC independent of a per-order extended-hours opt-in, with regular hours as the default.
 

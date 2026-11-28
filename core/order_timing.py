@@ -13,8 +13,12 @@ def order_tif(order):
             raise ValueError('Stock time in force must be DAY, GTC or OVERNIGHT')
         if value == 'OVERNIGHT' and order.get('currency', 'USD') != 'USD':
             raise ValueError('Overnight trading requires a USD stock contract')
+    elif (order.get('option_type') in ('CALL', 'PUT') and order.get('intent', 'OPEN') == 'OPEN'
+          and not order.get('isRollover')):
+        if value not in ('DAY', 'GTC'):
+            raise ValueError('Opening option limit orders support DAY or GTC')
     elif value != default:
-        raise ValueError('Custom time in force is supported only for stock orders')
+        raise ValueError('Unsupported time in force for this order')
     return value
 
 
