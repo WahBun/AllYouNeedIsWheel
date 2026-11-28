@@ -1300,6 +1300,16 @@ class OptionProtectedLotTests(unittest.TestCase):
             self.assertEqual(order.totalQuantity, 1)
             self.assertEqual(order.tif, 'GTC' if order.parentId else 'DAY')
 
+    def test_gtc_standalone_option_keeps_regular_hours_by_default(self):
+        self.contract.symbol = self.contract.tradingClass = 'NVDA'
+        _, result = self.submit(quantity=1, tp=None, sl=None, tif='GTC')
+        self.assertTrue(result['success'], result)
+        self.conn.ib.placeOrder.assert_called_once()
+        contract, order = self.conn.ib.placeOrder.call_args.args
+        self.assertEqual((contract.secType, contract.symbol, contract.exchange), ('OPT', 'NVDA', 'SMART'))
+        self.assertEqual((order.account, order.orderType, order.tif), ('DU_TEST', 'LMT', 'GTC'))
+        self.assertFalse(order.outsideRth)
+
     def test_option_rejects_live_account(self):
         self.conn.account_id = 'U_TEST'
         self.conn.ib.managedAccounts.return_value = ['U_TEST']
