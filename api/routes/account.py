@@ -51,7 +51,7 @@ def write_guard():
         # Do not reopen unrelated legacy rollout/close endpoints.
         supported = (
             request.method == 'POST' and (request.path == '/api/options/order' or re.fullmatch(r'/api/options/(execute|cancel)/[0-9]+', request.path))
-            or request.method == 'PUT' and re.fullmatch(r'/api/options/order/[0-9]+/(quantity|premium|amend)', request.path)
+            or request.method == 'PUT' and re.fullmatch(r'/api/options/order/[0-9]+/(quantity|premium|tif|amend)', request.path)
             or request.method == 'DELETE' and re.fullmatch(r'/api/options/order/[0-9]+', request.path))
         if not supported:
             return jsonify(status='rejected',error='Use chart trading for this Live operation.'),403

@@ -591,7 +591,7 @@ class OptionsService:
             'account_suffix': str(order_data['account_id'])[-4:]
         }, 201
       
-    def execute_order(self, order_id, db):
+    def execute_order(self, order_id, db, *, expected_entry_tif=None):
         """Validate, preflight, claim, and submit one pending option order."""
         if self.config.get('readonly', True) is not False:
             return {'success': False, 'error': 'Read-only mode: order submission is disabled'}, 403
@@ -637,6 +637,9 @@ class OptionsService:
                     "error": str(error),
                     "status": "rejected"
                 }, 400
+
+            if expected_entry_tif is not None and expected_entry_tif != order['tif']:
+                return {'success': False, 'error': 'Draft time in force changed. Refresh Orders.'}, 409
 
             if order.get('isRollover') and order.get('intent') == 'OPEN':
                 close_order_id = order.get('rollover_close_order_id')
@@ -748,11 +751,15 @@ class OptionsService:
                 }, 500
             ib_order.orderRef = f"AYNIW-{order_id}"
 
-            if not db.claim_order_for_execution(order_id):
+            # A draft TIF edit and Execute can arrive from different clients.
+            check_tif = None
+            if order['intent'] == 'OPEN' and order['option_type'] in ('CALL', 'PUT') and not order.get('isRollover'):
+                check_tif = order['tif']
+            if not db.claim_order_for_execution(order_id, check_tif):
                 current_order = db.get_order(order_id) or {}
                 return {
                     "success": False,
-                    "error": "Order is already being submitted or is no longer pending",
+                    "error": "Draft changed or is no longer pending. Refresh Orders.",
                     "status": current_order.get('status', 'unknown')
                 }, 409
             claimed = True

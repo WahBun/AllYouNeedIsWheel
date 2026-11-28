@@ -212,6 +212,27 @@ class OrderSafetyTests(unittest.TestCase):
         self.assertEqual(connection.place_calls, 0)
         self.assertEqual(self.db.get_order(order_id)['status'], 'pending')
 
+    def test_staged_option_entry_defaults_to_day_and_regular_hours(self):
+        from core.connection import IBConnection
+
+        class PaperConnection(FakeIBConnection):
+            create_order = IBConnection.create_order
+
+            def _order_account(self):
+                return 'DU_TEST'
+
+        connection = PaperConnection()
+        service = self.make_service(connection)
+        order_id = self.db.save_order(valid_order(account_id='DU_TEST', ticker='NVDA', option_type='CALL'))
+        with patch.object(connection, 'place_order', wraps=connection.place_order) as place:
+            result, status = service.execute_order(order_id, self.db)
+        self.assertEqual(status, 200, result)
+        place.assert_called_once()
+        contract, order = place.call_args.args
+        self.assertEqual((contract['symbol'], contract['right']), ('NVDA', 'C'))
+        self.assertEqual((order.account, order.orderType, order.tif), ('DU_TEST', 'LMT', 'DAY'))
+        self.assertFalse(order.outsideRth)
+
     def test_pending_order_without_account_must_be_recreated(self):
         connection = FakeIBConnection()
         service = self.make_service(connection)

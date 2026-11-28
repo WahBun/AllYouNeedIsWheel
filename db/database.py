@@ -438,7 +438,17 @@ class OptionsDatabase:
             return [dict(row) for row in conn.execute(
                 'SELECT id, perm_id, account_id FROM orders')]
 
-    def claim_order_for_execution(self, order_id):
+    def update_pending_option_entry_tif(self, order_id, account, expected, tif):
+        with sqlite3.connect(self.db_path) as conn:
+            return conn.execute('''
+                UPDATE orders SET tif = ?
+                WHERE id = ? AND account_id = ? AND status = 'pending' AND executed = 0
+                  AND action = 'SELL' AND option_type IN ('PUT', 'CALL')
+                  AND COALESCE(intent, 'OPEN') = 'OPEN' AND COALESCE(isRollover, 0) = 0
+                  AND COALESCE(tif, 'DAY') = ?
+            ''', (tif, order_id, account, expected)).rowcount == 1
+
+    def claim_order_for_execution(self, order_id, expected_entry_tif=None):
         """Atomically claim a pending order so concurrent clicks cannot submit it twice."""
         conn = None
         try:
@@ -448,7 +458,8 @@ class OptionsDatabase:
                 UPDATE orders
                 SET status = 'submitting'
                 WHERE id = ? AND status = 'pending' AND executed = 0
-            ''', (order_id,))
+                  AND (? IS NULL OR COALESCE(tif, 'DAY') = ?)
+            ''', (order_id, expected_entry_tif, expected_entry_tif))
             claimed = cursor.rowcount == 1
             conn.commit()
             return claimed

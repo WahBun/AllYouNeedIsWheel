@@ -1816,7 +1816,7 @@ struct OrdersView: View {
                   cancel ? TradeRules.cancelable(current) : TradeRules.editable(current),
                   TradeRules.unchanged(current, since: snapshot) else { return }
             if cancel { _ = await store.trading.cancelFromOrders(current, store: store) }
-            else if let id = current.id.local { _ = await store.trading.write("api/options/execute/\(id)", store: store) }
+            else { _ = await store.trading.executeStaged(current, store: store) }
             await store.refreshOrders()
         }
     }

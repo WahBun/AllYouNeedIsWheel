@@ -479,7 +479,9 @@ final class OpportunityBook {
             row.midDirection = previous?.quote?.id == row.quote?.id
                 ? TradingMath.priceDirection(previous: previous?.quote?.mid, current: row.quote?.mid) : 0
             row.updated = Date()
+            row.entryTIF = "DAY"
             if previous?.quote != nil, let latest = rows[key] {
+                if latest.quote?.id == row.quote?.id { row.entryTIF = latest.entryTIF }
                 if type != "CALL" {
                     row.quantity = latest.quantity
                 } else if latest.staged || latest.manualQuantity {
@@ -496,7 +498,10 @@ final class OpportunityBook {
                 row.stockPrice = latest.stockPrice; row.previousClose = latest.previousClose
                 row.priceDirection = latest.priceDirection; row.stockUpdated = latest.stockUpdated
             }
-            row.staged = row.staged || hasActiveEntry(row, orders: store.orders)
+            if let order = activeEntry(row, orders: store.orders) {
+                row.staged = true
+                row.entryTIF = order.tif ?? "DAY"
+            }
             if row.staged { row.followMarketPrice() }
             row.error = nil
             if preferences[key] != preference { preferences[key] = preference; save() }
@@ -573,25 +578,26 @@ final class OpportunityBook {
     }
     func stage(_ row: OpportunityRow, store: WheelStore) async -> Bool {
         guard !unselected.contains(row.id), row.candidateID != nil || showsPrimary(row.id), hasCoverage([row], store: store) else { return false }
-        guard !hasActiveEntry(row, orders: store.orders) else {
+        if let order = activeEntry(row, orders: store.orders) {
             rows[row.id]?.staged = true
+            rows[row.id]?.entryTIF = order.tif ?? "DAY"
             rows[row.id]?.followMarketPrice()
             return false
         }
         guard row.canStage, let current = rows[row.id], current.canStage,
-              current.quote?.id == row.quote?.id, current.price == row.price, current.quantity == row.quantity,
+              current.quote?.id == row.quote?.id, current.price == row.price, current.quantity == row.quantity, current.entryTIF == row.entryTIF,
               let quote = row.quote, let price = TradeRules.price(row.price) else { return false }
         let token = generation
-        let result = await store.trading.write("api/options/order", body: ["ticker": row.ticker, "action": "SELL", "option_type": row.type, "strike": quote.strike, "expiration": quote.expiration, "quantity": row.quantity, "premium": price], store: store)
+        let result = await store.trading.write("api/options/order", body: ["ticker": row.ticker, "action": "SELL", "option_type": row.type, "strike": quote.strike, "expiration": quote.expiration, "quantity": row.quantity, "premium": price, "tif": row.entryTIF], store: store)
         if result && token == generation && rows[row.id]?.quote?.id == quote.id {
             rows[row.id]?.staged = true
             rows[row.id]?.followMarketPrice()
         }
         return result
     }
-    func hasActiveEntry(_ row: OpportunityRow, orders: [Order]) -> Bool {
-        guard let quote = row.quote else { return false }
-        return orders.contains {
+    func activeEntry(_ row: OpportunityRow, orders: [Order]) -> Order? {
+        guard let quote = row.quote else { return nil }
+        return orders.first {
             $0.name.uppercased() == row.ticker.uppercased() && $0.action?.uppercased() == "SELL" &&
             $0.intent?.uppercased() != "CLOSE" && $0.option_type?.uppercased() == row.type.uppercased() &&
             $0.strike == quote.strike && $0.expiration == quote.expiration &&
@@ -602,9 +608,11 @@ final class OpportunityBook {
         for rowKey in Array(rows.keys) {
             guard let current = rows[rowKey], current.quote != nil else { continue }
             var row = current
-            row.staged = hasActiveEntry(row, orders: orders)
+            let active = activeEntry(row, orders: orders)
+            row.staged = active != nil
+            if row.staged || current.staged { row.entryTIF = active?.tif ?? "DAY" }
             if row.staged { row.followMarketPrice() }
-            if row.staged != current.staged || row.manualPrice != current.manualPrice || row.price != current.price {
+            if row.entryTIF != current.entryTIF || row.staged != current.staged || row.manualPrice != current.manualPrice || row.price != current.price {
                 rows[rowKey] = row
             }
         }
@@ -615,7 +623,9 @@ final class OpportunityBook {
         let group = key(order.name, type)
         for rowKey in [group] + (pins[group] ?? []).map(\.id) {
             if let row = rows[rowKey], row.quote?.strike == order.strike, row.quote?.expiration == order.expiration {
-                rows[rowKey]?.staged = hasActiveEntry(row, orders: remaining.filter { $0.id != order.id })
+                let active = activeEntry(row, orders: remaining.filter { $0.id != order.id })
+                rows[rowKey]?.staged = active != nil
+                rows[rowKey]?.entryTIF = active?.tif ?? "DAY"
             }
         }
     }
@@ -625,7 +635,7 @@ final class OpportunityBook {
             guard let current = rows[snapshot.id] else { return false }
             return !unselected.contains(current.id) && current.canStage && current.quote?.id == snapshot.quote?.id
                 && current.price == snapshot.price && current.quantity == snapshot.quantity
-                && !hasActiveEntry(current, orders: store.orders)
+                && current.entryTIF == snapshot.entryTIF && activeEntry(current, orders: store.orders) == nil
         }) else { return }
         guard hasCoverage(snapshots, store: store) else {
             store.trading.message = "Selected calls exceed the available share coverage."
@@ -660,6 +670,7 @@ struct OpportunityRow: Identifiable {
     var capacity = 0
     var quantity = 1
     var manualQuantity = false
+    var entryTIF = "DAY"
     var price = ""
     var manualPrice = false
     var error: String?
@@ -1192,7 +1203,13 @@ struct OpportunityDetail: View {
                         EntryMarginRow(ticker: ticker, expiration: quote.expiration, strike: quote.strike, quantity: row.quantity, price: row.price)
                     }
                     LabeledContent("Annualized premium estimate", value: money(row.total.flatMap { TradingMath.annualized(premium: $0, expiration: quote.expiration) }))
-                    LabeledContent("Time in force", value: "DAY")
+                    Picker("Time in force", selection: Binding(get: { row.entryTIF }, set: { choice in
+                        guard book.rows[key]?.quote?.id == quote.id else { return }
+                        book.rows[key]?.entryTIF = choice
+                    })) {
+                        Text("DAY").tag("DAY")
+                        Text("GTC").tag("GTC")
+                    }.disabled(row.staged || book.batchRunning || store.trading.busy)
                     Button {
                         let snapshot = row
                         Task { await book.stageAndOpenOrders([snapshot], store: store) }

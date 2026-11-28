@@ -348,6 +348,11 @@ enum TradeRules {
     static func editable(_ order: Order) -> Bool {
         order.id.local != nil && order.external_ib != true && order.executed != true && order.status.lowercased() == "pending"
     }
+    static func stagedEntryTIFEditable(_ order: Order) -> Bool {
+        editable(order) && order.action == "SELL" && (order.intent ?? "OPEN") == "OPEN" &&
+        ["CALL", "PUT"].contains(order.option_type ?? "") && order.isRollover != true
+    }
+
     static func amendable(_ order: Order) -> Bool {
         order.id.local != nil && order.external_ib != true && order.executed != true &&
         order.status.lowercased() == "processing" && order.amendment_pending == nil
@@ -812,11 +817,25 @@ final class TradingSession {
               TradeRules.editable(current), TradeRules.unchanged(current, since: order) else { return false }
         let address = store.address
         let demo = store.demo
+        let epoch = accountEpoch
         if limit != order.premium {
             guard await write("api/options/order/\(id)/premium", method: "PUT", body: ["premium": limit], store: store) else { return false }
         }
-        guard address == store.address, demo == store.demo else { return false }
-        return await write("api/options/execute/\(id)", store: store)
+        guard address == store.address, demo == store.demo, epoch == accountEpoch else { return false }
+        return await executeStaged(order, store: store)
+    }
+
+    func executeStaged(_ order: Order, store: WheelStore) async -> Bool {
+        guard TradeRules.editable(order), let id = order.id.local else { return false }
+        let body = TradeRules.stagedEntryTIFEditable(order) ? ["expected_tif": order.tif ?? "DAY"] : [:]
+        return await write("api/options/execute/\(id)", body: body, store: store)
+    }
+
+    func saveStagedEntryTIF(_ order: Order, tif: String, store: WheelStore) async -> Bool {
+        guard TradeRules.stagedEntryTIFEditable(order), let id = order.id.local,
+              ["DAY", "GTC"].contains(tif) else { return false }
+        return await write("api/options/order/\(id)/tif", method: "PUT",
+                           body: ["expected_tif": order.tif ?? "DAY", "tif": tif], store: store)
     }
 
     func write(_ path: String, method: String = "POST", body: [String: Any] = [:], store: WheelStore) async -> Bool {
@@ -865,6 +884,21 @@ final class TradingSession {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("1", forHTTPHeaderField: "X-All-You-Need-Is-Wheel")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            if method == "PUT", path.hasSuffix("/tif") {
+                // This edit only changes the local draft. Execute checks the saved TIF again.
+                let epoch = accountEpoch, address = store.address
+                let result = try await send(request)
+                guard epoch == accountEpoch, address == store.address, !store.demo else { return false }
+                guard result["success"] as? Bool == true, let saved = result["tif"] as? String,
+                      saved == body["tif"] as? String else { throw AppError.message("Refresh Orders to verify the draft time in force.") }
+                if let id = Int(path.split(separator: "/").dropLast().last ?? ""),
+                   let index = store.orders.firstIndex(where: { $0.id.local == id && TradeRules.stagedEntryTIFEditable($0) }) {
+                    store.orders[index].tif = saved
+                }
+                message = "Draft time in force saved."
+                acknowledgedMessage = true
+                return true
+            }
             // Persist before dispatch, including app termination while awaiting an acknowledgement.
             uncertain = true
             UserDefaults.standard.set(true, forKey: "unresolvedTradingWrite")
@@ -915,12 +949,20 @@ final class TradingSession {
     private func simulate(_ path: String, body: [String: Any]) throws {
         if path.hasSuffix("close-order") || path == "api/options/order" {
             let close = path.hasSuffix("close-order")
-            let order = Order(id: OrderID(nextDemoID), ticker: body["ticker"] as? String ?? "TSLL", action: close ? "BUY" : "SELL", option_type: body["option_type"] as? String ?? "PUT", strike: body["strike"] as? Double ?? 9, expiration: body["expiration"] as? String ?? "20261016", premium: body[close ? "limit_price" : "premium"] as? Double, quantity: Double(body["quantity"] as? Int ?? 1), status: "pending", tif: close ? "GTC" : "DAY", intent: close ? "CLOSE" : "OPEN")
+            let order = Order(id: OrderID(nextDemoID), ticker: body["ticker"] as? String ?? "TSLL", action: close ? "BUY" : "SELL", option_type: body["option_type"] as? String ?? "PUT", strike: body["strike"] as? Double ?? 9, expiration: body["expiration"] as? String ?? "20261016", premium: body[close ? "limit_price" : "premium"] as? Double, quantity: Double(body["quantity"] as? Int ?? 1), status: "pending", tif: close ? "GTC" : (body["tif"] as? String ?? "DAY"), intent: close ? "CLOSE" : "OPEN")
             demoOrders.append(order); nextDemoID += 1
         } else {
             let parts = path.split(separator: "/")
             guard let id = parts.compactMap({ Int($0) }).first, let index = demoOrders.firstIndex(where: { $0.id.local == id }) else { throw AppError.message("Order no longer exists.") }
+            if let expected = body["expected_tif"] as? String, expected != (demoOrders[index].tif ?? "DAY") {
+                throw AppError.message("Draft time in force changed. Refresh Orders.")
+            }
             if path.contains("execute") { demoOrders[index].status = "processing" }
+            else if path.hasSuffix("/tif") {
+                guard TradeRules.stagedEntryTIFEditable(demoOrders[index]), let tif = body["tif"] as? String,
+                      ["DAY", "GTC"].contains(tif) else { throw AppError.message("Draft is no longer editable.") }
+                demoOrders[index].tif = tif
+            }
             else if path.contains("cancel") { demoOrders.remove(at: index) }
             else if path.hasSuffix("amend") {
                 guard TradeRules.amendable(demoOrders[index]),
@@ -1003,7 +1045,7 @@ struct OrderDetail: View {
                             }
                         } else { Text(money(order.premium)) }
                     }
-                    if TradeRules.exitTIFEditable(order) || (TradeRules.amendable(order) && order.tif != "OVERNIGHT") || (TradeRules.chartManageable(order) && (order.filled ?? 0) == 0) {
+                    if TradeRules.stagedEntryTIFEditable(order) || TradeRules.exitTIFEditable(order) || (TradeRules.amendable(order) && order.tif != "OVERNIGHT") || (TradeRules.chartManageable(order) && (order.filled ?? 0) == 0) {
                         Picker("Time in force", selection: $timing) {
                             Text("DAY").tag("DAY")
                             Text("GTC").tag("GTC")
@@ -1039,6 +1081,16 @@ struct OrderDetail: View {
                     }
                 }
                 if TradeRules.editable(order) {
+                    if TradeRules.stagedEntryTIFEditable(order), timing != (order.tif ?? "DAY") {
+                        Button("Save time in force") {
+                            let chosen = timing
+                            Task {
+                                guard sourceContext == context else { return }
+                                _ = await store.trading.saveStagedEntryTIF(order, tif: chosen, store: store)
+                                await store.refreshOrders(afterWrite: true)
+                            }
+                        }
+                    }
                     if order.intent != "CLOSE" {
                         Section("Quantity") {
                             Stepper("Contracts: \(quantity)", value: $quantity, in: 1...100)
@@ -1047,7 +1099,8 @@ struct OrderDetail: View {
                     }
                     Section {
                         Button("Execute", systemImage: "paperplane") { if confirmExecution { action = "Execute" } else { perform("Execute") } }
-                            .disabled(TradeRules.price(price) == nil || (order.intent != "CLOSE" && Double(quantity) != order.quantity))
+                            .disabled(TradeRules.price(price) == nil || (order.intent != "CLOSE" && Double(quantity) != order.quantity)
+                                      || (TradeRules.stagedEntryTIFEditable(order) && timing != (order.tif ?? "DAY")))
                     }
                 }
                 if order.amendment_pending != nil {
@@ -1147,7 +1200,8 @@ struct OrderDetail: View {
             if action == "Save changes" { action = nil }
         }
         .onChange(of: current?.tif) { oldValue, newValue in
-            if timing == oldValue || timing == newValue {
+            if action == "Execute", let current, TradeRules.stagedEntryTIFEditable(current) { action = nil }
+            if timing == (oldValue ?? "DAY") || timing == newValue {
                 timing = newValue ?? "DAY"
                 if let current, TradeRules.chartManageable(current) {
                     editingSnapshot?.tif = newValue
@@ -1231,7 +1285,8 @@ struct OrderDetail: View {
         guard action == "Cancel order" ? TradeRules.cancelable(order) : TradeRules.editable(order) else { return }
         guard action != "Save quantity" || order.intent != "CLOSE" else { return }
         if action == "Execute" {
-            guard TradeRules.price(price) != nil, order.intent == "CLOSE" || Double(quantity) == order.quantity else { return }
+            guard TradeRules.price(price) != nil, order.intent == "CLOSE" || Double(quantity) == order.quantity,
+                  !TradeRules.stagedEntryTIFEditable(order) || timing == (order.tif ?? "DAY") else { return }
             let requestedPrice = price
             Task { _ = await store.trading.executeWithPrice(order, price: requestedPrice, store: store); await store.refresh() }
             return

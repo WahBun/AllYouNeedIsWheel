@@ -1411,10 +1411,10 @@ final class TradingTests: XCTestCase {
         XCTAssertFalse(staged)
         for status in ["pending", "processing", "unknown", "PendingCancel"] {
             order.status = status
-            XCTAssertTrue(book.hasActiveEntry(row, orders: [order]))
+            XCTAssertNotNil(book.activeEntry(row, orders: [order]))
         }
         order.strike = quote.strike + 1
-        XCTAssertFalse(book.hasActiveEntry(row, orders: [order]))
+        XCTAssertNil(book.activeEntry(row, orders: [order]))
         order.strike = quote.strike
         order.status = "canceled"
         book.synchronizeEntries(orders: [order])
@@ -1832,6 +1832,32 @@ final class TradingTests: XCTestCase {
         book.restoreHidden(type: "CALL")
         XCTAssertTrue(book.excluded.isEmpty)
     }
+    func testDraftTimingSaveTimeoutLeavesBrokerActionsAvailable() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockProtocol.self]
+        let store = WheelStore()
+        store.demo = false
+        store.address = "https://mock.invalid"
+        store.trading = TradingSession(session: URLSession(configuration: config))
+        store.trading.uncertain = false
+        let draft = Order(id: 17, ticker: "NVDA", action: "SELL", option_type: "CALL",
+                          status: "pending", tif: "DAY", intent: "OPEN")
+        store.orders = [draft]
+        MockProtocol.requests = []
+        MockProtocol.fail = true
+        defer { MockProtocol.fail = false; MockProtocol.payload = nil }
+        let timedOut = await store.trading.saveStagedEntryTIF(draft, tif: "GTC", store: store)
+        XCTAssertFalse(timedOut)
+        XCTAssertFalse(store.trading.uncertain)
+        XCTAssertEqual(store.orders.first?.tif, "DAY")
+        MockProtocol.fail = false
+        MockProtocol.payload = { _ in ["success": true, "tif": "GTC"] }
+        let saved = await store.trading.saveStagedEntryTIF(draft, tif: "GTC", store: store)
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.orders.first?.tif, "GTC")
+        XCTAssertTrue(MockProtocol.requests.allSatisfy { $0.httpMethod == "PUT" && $0.url?.path == "/api/options/order/17/tif" })
+    }
+
     func testQuickStageCreatesOnlyDraftAndPreventsDuplicate() async {
         let store = WheelStore()
         await store.refreshPortfolio()
